@@ -164,4 +164,83 @@ describe('Lead time', () => {
       expect(fitted.clipped).toEqual({ shownMs: 60 * MIN, totalMs: 100 * MIN });
     });
   });
+
+  describe('a local test run and the browser pass are slices on the strip, and the strip and scatter count the same time', () => {
+    /** The same pull request `modelled` builds, with a record that carries test runs `[from, to, scope]` and browser passes `[from, to]`. */
+    const withRuns = ({ runs = [], browser = [], reviews = [] } = {}) => {
+      const [first, second] = [[20, 40], [55, 65]];
+      let id = 1;
+      const check = ([from, to]) => ({ id: id++, name: 'Test', suiteId: 1, status: 'completed', conclusion: 'success', startedAt: at(from), completedAt: at(to) });
+      return pullModel({
+        number: 1,
+        title: 'A change',
+        url: 'https://github.com/o/r/pull/1',
+        createdAt: at(0),
+        mergedAt: at(70),
+        body: renderBlock([
+          { at: at(0), phase: 'start' },
+          ...reviews.flatMap(([from, to]) => [{ at: at(from), phase: 'review-start', kind: 'code-review', level: 'high' }, { at: at(to), phase: 'review-end', kind: 'code-review', level: 'high' }]),
+          ...browser.flatMap(([from, to]) => [{ at: at(from), phase: 'browser-start' }, { at: at(to), phase: 'browser-end' }]),
+          ...runs.map(([from, to, scope]) => ({ run: 'test', scopes: [scope], start: at(from), end: at(to) })),
+        ]),
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        commitCount: 2,
+        commits: [
+          { sha: 'c0', authoredAt: at(0), parents: 1, checks: [check(first)] },
+          { sha: 'c1', authoredAt: at(50), parents: 1, checks: [check(second)] },
+        ],
+      });
+    };
+
+    it('cuts a test run before the first push and one while fixing out of the part they sat in', () => {
+      const parts = partsOf(withRuns({ runs: [[5, 9, 'api'], [44, 48, 'web']] }));
+      expect(parts.map((part) => [part.type, part.scopes?.[0] ?? null, part.ms / MIN])).toEqual([
+        ['coding', null, 5],
+        ['test', 'api', 4],
+        ['coding', null, 11],
+        ['round', null, 20],
+        ['fixing', null, 4],
+        ['test', 'web', 4],
+        ['fixing', null, 7],
+        ['round', null, 10],
+        ['wait', null, 5],
+      ]);
+    });
+
+    it('draws the browser pass as its own slice, apart from a test run', () => {
+      const parts = partsOf(withRuns({ runs: [[2, 4, 'api']], browser: [[10, 16]] }));
+      expect(parts.filter((part) => ['test', 'browser'].includes(part.type)).map((part) => [part.type, part.ms / MIN])).toEqual([['test', 2], ['browser', 6]]);
+    });
+
+    it('draws a browser pass that was started and never ended as no slice', () => {
+      const parts = partsOf(withRuns({ browser: [] }));
+      expect(parts.map((part) => part.type)).toEqual(['coding', 'round', 'fixing', 'round', 'wait']);
+    });
+
+    it('draws a test run during a review as one stretch naming both, so the strip adds up to the union', () => {
+      const parts = partsOf(withRuns({ reviews: [[2, 12]], runs: [[8, 14, 'api']] }));
+      expect(parts.slice(0, 4).map((part) => [part.type, part.ms / MIN])).toEqual([['coding', 2], ['review', 6], ['overlap', 4], ['test', 2]]);
+      expect(parts.find((part) => part.type === 'overlap').slices.map((slice) => slice.kind)).toEqual(['code-review', 'test']);
+    });
+
+    it.each([
+      { situation: 'a test run marked across a push', model: () => withRuns({ runs: [[10, 30, 'api']] }) },
+      { situation: 'a test run in the wait to merge', model: () => withRuns({ runs: [[66, 69, 'api']] }) },
+      { situation: 'a test run during a review', model: () => withRuns({ reviews: [[2, 12]], runs: [[8, 14, 'api']] }) },
+      { situation: 'a test run and a browser pass', model: () => withRuns({ runs: [[2, 6, 'api'], [44, 46, 'web']], browser: [[10, 16]] }) },
+    ])('agree to the minute on $situation', ({ model }) => {
+      const built = model();
+      const parts = partsOf(built);
+      const local = total(parts, 'review', 'test', 'browser', 'overlap');
+      expect(local).toBe(built.balance.harnessMs - total(parts, 'round'));
+      expect(total(parts, 'coding', 'fixing')).toBe(built.balance.codingMs);
+    });
+
+    it('draws a test run across the first push only as far as the push', () => {
+      const parts = partsOf(withRuns({ runs: [[10, 30, 'api']] }));
+      expect(parts.slice(0, 3).map((part) => [part.type, part.ms / MIN])).toEqual([['coding', 10], ['test', 10], ['round', 20]]);
+    });
+  });
 });

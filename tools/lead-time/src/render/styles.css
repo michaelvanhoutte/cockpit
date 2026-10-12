@@ -20,6 +20,8 @@
   --checks: #4f8ef7;
   --local-code-review: #2fc6b1;
   --local-security-review: #8de06a;
+  --local-test: #8fe35c;
+  --local-browser: #27a37a;
   --coding: #6fce8d;
   --fixing: #3f8a5f;
   --wait: #3a4152;
@@ -45,6 +47,8 @@
     --checks: #2f6fe0;
     --local-code-review: #0f9a87;
     --local-security-review: #4c9a2a;
+    --local-test: #5c9a1f;
+    --local-browser: #17806a;
     --coding: #2f9e5a;
     --fixing: #1c6b40;
     --wait: #d3d7e0;
@@ -111,6 +115,8 @@ td.pr .title { color: var(--ink-2); }
 .swatch.checks { background: var(--checks); }
 .swatch.local-code-review { background: var(--local-code-review); }
 .swatch.local-security-review { background: var(--local-security-review); }
+.swatch.local-test { background: var(--local-test); }
+.swatch.local-browser { background: var(--local-browser); }
 .swatch.coding { background: var(--coding); }
 .swatch.fixing { background: var(--fixing); }
 .swatch.wait { background: var(--wait); }
@@ -149,6 +155,8 @@ td.pr .title { color: var(--ink-2); }
 .piece.checks { background: var(--checks); }
 .seg.review.local-code-review { background: var(--local-code-review); }
 .seg.review.local-security-review { background: var(--local-security-review); }
+.seg.local.local-test { background: var(--local-test); }
+.seg.local.local-browser { background: var(--local-browser); }
 /* Hatched, so that "not recorded" is a different thing from a coloured stretch,
    and from nothing. */
 .seg.unrecorded { background: repeating-linear-gradient(135deg, var(--coding) 0 3px, transparent 3px 6px); outline: 1px solid var(--coding); outline-offset: -1px; }
@@ -188,6 +196,8 @@ summary { cursor: pointer; }
 .evobar.checks { fill: var(--checks); }
 .evobar.local-code-review { fill: var(--local-code-review); }
 .evobar.local-security-review { fill: var(--local-security-review); }
+.evobar.local-test { fill: var(--local-test); }
+.evobar.local-browser { fill: var(--local-browser); }
 .evobar.lead { fill: var(--accent); }
 .evobar.rounds { fill: var(--ink-2); }
 .evobar.red { fill: var(--bad); }

@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { AWAY_MS, LOCAL_REVIEW_KINDS } from '../model.js';
+import { AWAY_MS, LOCAL_REVIEW_KINDS, LOCAL_RUN_KINDS } from '../model.js';
 import { layoutScatter, radiusFor } from './scatter.js';
 import { fitTo, partsOf, scaleFor } from './strips.js';
 
@@ -35,14 +35,16 @@ const KIND = {
   fixing: { group: 'local', label: 'Fixing between rounds', key: 'fixing between rounds' },
   'local-code-review': { group: 'local', label: 'Local code review', key: 'code review' },
   'local-security-review': { group: 'local', label: 'Local security review', key: 'security review' },
+  'local-test': { group: 'local', label: 'Local test run', key: 'test run' },
+  'local-browser': { group: 'local', label: 'Browser pass', key: 'browser pass' },
   checks: { group: 'ci', label: 'Tests and checks', key: 'held by tests and checks' },
 };
 const KIND_LABEL = Object.fromEntries(Object.entries(KIND).map(([id, kind]) => [id, kind.label]));
 
-/** The class a local review of this kind is drawn and keyed with. */
+/** The class a local slice of this kind (a review, `test` or `browser`) is drawn and keyed with. */
 const reviewClass = (kind) => `local-${kind}`;
-/** Bottom to top in a panel's bar: CI first, then each local review. */
-const LANES = ['checks', ...LOCAL_REVIEW_KINDS.map(reviewClass)];
+/** Bottom to top in a panel's bar: CI first, then each local review, then test runs and the browser pass. */
+const LANES = ['checks', ...LOCAL_REVIEW_KINDS.map(reviewClass), ...LOCAL_RUN_KINDS.map(reviewClass)];
 /** A pull request's minutes in one panel lane, or `null` where the lane reads not recorded. */
 function laneMs(pull, lane) {
   if (lane === 'checks') return pull.harness.kinds.checks.ms;
@@ -108,7 +110,7 @@ function limits(model) {
   const records =
     model.pulls.length === 0
       ? '<li><b>No merged pull requests</b> in this period, so there is nothing to draw.</li>'
-      : `<li><b>${recorded} of ${plural(model.pulls.length, 'merged pull request')} carry a session record.</b> Coding before the first push and local-review time exist only for those; for the rest the strip says <em>not recorded</em> and never draws them as nothing.</li>`;
+      : `<li><b>${recorded} of ${plural(model.pulls.length, 'merged pull request')} carry a session record.</b> Coding before the first push, local-review time, test runs and the browser pass exist only for those; for the rest the strip says <em>not recorded</em> and never draws them as nothing.</li>`;
 
   const unreadable = coverage.failed.length
     ? `<li class="warn"><b>${plural(coverage.failed.length, 'pull request')} could not be read</b> and ${coverage.failed.length === 1 ? 'is' : 'are'} left out: ${coverage.failed.map((each) => `#${esc(each.number)}`).join(', ')}.</li>`
@@ -149,6 +151,11 @@ function roundText(round, index) {
 /** What one check held a round for, in words, for the title on its own slice of the round. */
 function heldText(held) {
   return `${KIND_LABEL.checks} (${held.name}) · held it ${humanMs(held.ms)}${held.rerun ? ' · re-run' : ''}`;
+}
+
+/** A local slice in words: its kind, level (a review) and duration, and the scope of a test run. */
+function sliceText(slice) {
+  return [KIND_LABEL[reviewClass(slice.kind)], slice.level, humanMs(slice.sliceMs ?? slice.ms), slice.scopes ? slice.scopes.join(', ') : null].filter(Boolean).join(' · ');
 }
 
 const PART_TITLE = {
@@ -204,9 +211,15 @@ function segment(part, pull) {
     return `<span class="seg round${part.round.red ? ' red' : ''}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(roundText(part.round, part.index))}">${pieces}${marks}</span>`;
   }
 
-  if (part.type === 'review') {
-    const title = `${KIND_LABEL[reviewClass(part.kind)]} · ${part.level} · ${humanMs(part.ms)}`;
-    return `<span class="seg review ${reviewClass(part.kind)}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(title)}"></span>`;
+  if (part.type === 'review' || part.type === 'test' || part.type === 'browser') {
+    return `<span class="seg ${part.type === 'review' ? 'review' : 'local'} ${reviewClass(part.kind)}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(sliceText(part))}"></span>`;
+  }
+
+  // Two local slices at once (a test run during a review): one stretch striped in both colours, naming both.
+  if (part.type === 'overlap') {
+    const [a, b] = part.slices.map((slice) => `var(--${reviewClass(slice.kind)})`);
+    const stripes = `background:repeating-linear-gradient(135deg, ${a} 0 4px, ${b} 4px 8px)`;
+    return `<span class="seg local overlap${part.cut ? ' cut' : ''}" style="${grow};${stripes}" title="${esc(part.slices.map(sliceText).join('\n'))}"></span>`;
   }
 
   const unrecorded = part.type === 'coding' && !pull.recorded ? ' unrecorded' : '';
@@ -227,7 +240,7 @@ function stripRow(pull, parts, scaleMs) {
   const tags = [
     pull.recorded
       ? ''
-      : '<span class="tag unrecorded" title="No session record on this pull request, so its coding and local review are not measured and its strip starts at the first commit">not recorded</span>',
+      : '<span class="tag unrecorded" title="No session record on this pull request, so its coding, local reviews, test runs and browser pass are not measured and its strip starts at the first commit">not recorded</span>',
     reds ? `<span class="tag red">${reds} red</span>` : '',
     flukes ? `<span class="tag fluke">${plural(flukes, 'fluke')}</span>` : '',
     fitted.clipped ? `<span class="tag clip">clipped</span>` : '',
@@ -265,9 +278,9 @@ function groupedKeys(ids, text) {
 }
 
 function legend() {
-  const text = (id) => (id === 'local-code-review' || id === 'local-security-review' ? `${KIND[id].key} (local, at the time it ran)` : KIND[id].key);
+  const text = (id) => (id.startsWith('local-') ? `${KIND[id].key} (local, at the time it ran)` : KIND[id].key);
   return `<div class="legend grouped">
-    ${groupedKeys(['coding', 'fixing', 'local-code-review', 'local-security-review', 'checks'], text)}
+    ${groupedKeys(['coding', 'fixing', 'local-code-review', 'local-security-review', 'local-test', 'local-browser', 'checks'], text)}
     <div class="keygroup">
       ${swatch('wait', 'waiting to merge')}
       ${swatch('away', `away (over ${humanMs(AWAY_MS)}, off the scale)`)}
@@ -282,7 +295,7 @@ function strips(model) {
   if (model.pulls.length === 0) return '<div class="card"><p class="empty">No merged pull requests in this period.</p></div>';
   const allParts = model.pulls.map(partsOf);
   const scaleMs = scaleFor(allParts);
-  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}. Time away is not on it. A round is split into the checks that held it, in the order they finished — hover a slice for which one and how long; open a row for its rounds in words. A local review is cut out of the coding or fixing it sat in, at the time it ran. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
+  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}. Time away is not on it. A round is split into the checks that held it, in the order they finished — hover a slice for which one and how long; open a row for its rounds in words. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where two overlap, the stretch they share is striped in both colours and counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
   return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs)).join('')}</div>`;
 }
 
@@ -515,7 +528,7 @@ function evoHarness(pulls, t0, t1, maxLines, maxY) {
       let y = EVO.top + plotH;
       // A pull request whose record marks no review has no local lanes to draw, and says
       // so on its bars rather than leaving a missing lane to read as zero.
-      const unrecorded = pull.harness.local === null ? LANES.filter((lane) => laneMs(pull, lane) === null).map((lane) => `\n${KIND_LABEL[lane]}: not recorded`).join('') : '';
+      const unrecorded = LANES.filter((lane) => laneMs(pull, lane) === null).map((lane) => `\n${KIND_LABEL[lane]}: not recorded`).join('');
       return LANES.map((kind) => {
         const ms = laneMs(pull, kind);
         if (ms === null || ms <= 0) return '';
@@ -699,7 +712,7 @@ export function renderHtml(model) {
   ${evolutionZoomTabs(model)}
 
   <h2>Coding against the harness</h2>
-  <p class="sectionnote">Minutes spent writing and fixing against minutes spent in the harness, the rounds plus local review. Every pull request pays a fixed harness cost, so a small change sits above the dashed line whatever it did; read the minutes beside the ratio. No line is drawn as healthy, since there is no accepted benchmark for this ratio: the reference is the window&rsquo;s own median.</p>
+  <p class="sectionnote">Minutes spent writing and fixing against minutes spent in the harness, the rounds plus local review, test runs and the browser pass. Every pull request pays a fixed harness cost, so a small change sits above the dashed line whatever it did; read the minutes beside the ratio. No line is drawn as healthy, since there is no accepted benchmark for this ratio: the reference is the window&rsquo;s own median.</p>
   ${balance(model)}
 
   <h2>Each pull request, start to merge</h2>

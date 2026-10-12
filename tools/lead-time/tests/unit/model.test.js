@@ -609,7 +609,7 @@ describe('Lead time', () => {
 
     it('gives a pull request with both kinds of review a lane of minutes for each', () => {
       const { harness } = pullModel(pull({ mergedAt: at(70), commits, body: recordBody(marks) }));
-      expect(harness.local).toEqual({ 'code-review': { ms: 10 * MIN, runs: 1 }, 'security-review': { ms: 6 * MIN, runs: 1 } });
+      expect(harness.local).toEqual({ 'code-review': { ms: 10 * MIN, runs: 1 }, 'security-review': { ms: 6 * MIN, runs: 1 }, test: null, browser: null });
     });
 
     it.each([
@@ -617,7 +617,7 @@ describe('Lead time', () => {
       { situation: 'a review marked past the push', body: recordBody([[0, 'start'], [10, 'review-start', 'code-review', 'low'], [30, 'review-end', 'code-review', 'low']]) },
     ])('totals the same minutes as the scatter’s harness: $situation', ({ body }) => {
       const model = pullModel(pull({ mergedAt: at(70), commits, body }));
-      const panel = model.harness.kinds.checks.ms + sum(Object.values(model.harness.local).map((lane) => lane.ms));
+      const panel = model.harness.kinds.checks.ms + sum(Object.values(model.harness.local).map((lane) => lane?.ms ?? 0));
       expect(panel).toBe(model.balance.harnessMs);
     });
 
@@ -904,6 +904,108 @@ describe('Lead time', () => {
     it('reads a window with no runner minutes as no share, not zero', () => {
       const [window] = build([merged({ commits: [commit('a', 0, [check('Test', 1, null)])] })]).windows;
       expect(window.cancelled.share).toBeNull();
+    });
+  });
+
+  describe('a local test run and the browser pass are slices of the part they sat in', () => {
+    // Started at 0; first push at 20 (round 20–40), a fix, a second push at 55 (round 55–65), merged at 70.
+    const commits = [commit('a', 0, [check('Test', 20, 40)]), commit('b', 50, [check('Test', 55, 65)])];
+    const recording = ({ marks = [], runs = [] } = {}) =>
+      renderBlock([
+        { at: at(0), phase: 'start' },
+        ...marks.map(([minute, phase]) => ({ at: at(minute), phase })),
+        ...runs.map(([from, to, ...scopes]) => ({ run: 'test', scopes, start: at(from), end: at(to) })),
+        { at: at(66), phase: 'pushed' },
+      ]);
+    const modelled = (body) => pullModel(pull({ mergedAt: at(70), commits, body }));
+    const browserPass = (from, to) => [[from, 'browser-start'], [to, 'browser-end']];
+    const shape = (slices) => slices.map((slice) => [slice.kind, slice.scopes ?? null, slice.gap, minutes(Date.parse(slice.at) - BASE), minutes(slice.ms)]);
+
+    it.each([
+      { situation: 'a test run before the first push', body: recording({ runs: [[5, 9, '@cockpit/api']] }), slices: [['test', ['@cockpit/api'], 0, 5, 4]] },
+      { situation: 'a test run while fixing between rounds', body: recording({ runs: [[44, 48, 'tools/lead-time']] }), slices: [['test', ['tools/lead-time'], 1, 44, 4]] },
+      { situation: 'a browser pass, apart from the test runs', body: recording({ marks: browserPass(10, 16), runs: [[2, 4, 'a']] }), slices: [['test', ['a'], 0, 2, 2], ['browser', null, 0, 10, 6]] },
+    ])('keeps $situation at the time it ran, with its kind and scope', ({ body, slices }) => {
+      expect(shape(modelled(body).runSlices)).toEqual(slices);
+    });
+
+    it('takes a test run out of the coding it sat in and puts it with the harness, and nothing else', () => {
+      const plain = modelled(recording());
+      const tested = modelled(recording({ runs: [[5, 9, 'a']] }));
+      expect(tested.balance.codingMs).toBe(plain.balance.codingMs - 4 * MIN);
+      expect(tested.balance.harnessMs).toBe(plain.balance.harnessMs + 4 * MIN);
+      expect(tested.beforeFirstPushMs).toBe(plain.beforeFirstPushMs);
+    });
+
+    it('draws no slice for a browser pass that was started and never ended, and leaves the coding as it was', () => {
+      const model = modelled(recording({ marks: [[5, 'browser-start']] }));
+      expect(model.runSlices).toEqual([]);
+      expect(model.localRuns.browser).toBeNull();
+      expect(model.balance.codingMs).toBe(modelled(recording()).balance.codingMs);
+    });
+
+    it('clips a test run marked across a push at the push, in the slice and in the scatter', () => {
+      const model = modelled(recording({ runs: [[10, 30, 'a']] }));
+      expect(shape(model.runSlices)).toEqual([['test', ['a'], 0, 10, 10]]);
+      expect(model.harness.local.test).toEqual({ ms: 10 * MIN, runs: 1 });
+      expect(model.balance.harnessMs).toBe(modelled(recording()).balance.harnessMs + 10 * MIN);
+    });
+
+    it('draws a test run during a review as well as the review, and counts the minutes they share once', () => {
+      const body = renderBlock([
+        { at: at(0), phase: 'start' },
+        { at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' },
+        { at: at(12), phase: 'review-end', kind: 'code-review', level: 'high' },
+        { run: 'test', scopes: ['a'], start: at(8), end: at(14) },
+        { at: at(66), phase: 'pushed' },
+      ]);
+      const model = modelled(body);
+      expect(model.reviewSlices).toHaveLength(1);
+      expect(model.runSlices).toHaveLength(1);
+      // Review 2–12 and test 8–14 cover 2–14: twelve minutes, not sixteen.
+      expect(model.balance.harnessMs - modelled(recording()).balance.harnessMs).toBe(12 * MIN);
+      expect(modelled(recording()).balance.codingMs - model.balance.codingMs).toBe(12 * MIN);
+      // Each lane still has its own minutes.
+      expect(model.harness.local['code-review'].ms).toBe(10 * MIN);
+      expect(model.harness.local.test.ms).toBe(6 * MIN);
+    });
+
+    it('gives a window the test runs and the browser pass per kind, over the pull requests that have that kind', () => {
+      const build = (pulls) => buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });
+      const [window] = build([
+        pull({ number: 1, mergedAt: at(70), commits, body: recording({ marks: browserPass(10, 14), runs: [[2, 6, 'a'], [44, 46, 'b']] }) }),
+        pull({ number: 2, mergedAt: at(70), commits, body: recording({ runs: [[2, 10, 'a']] }) }),
+      ]).windows;
+      expect(window.localRuns.test.ms).toMatchObject({ pulls: 2, median: 7 * MIN });
+      expect(window.localRuns.test.count).toMatchObject({ pulls: 2, p95: 2 });
+      expect(window.localRuns.browser.ms).toMatchObject({ pulls: 1, median: 4 * MIN });
+    });
+  });
+
+  describe('test and browser time nobody wrote down reads as not recorded, never zero', () => {
+    const commits = [commit('a', 0, [check('Test', 20, 40)])];
+    const reviewedOnly = recordBody([[0, 'start'], [5, 'review-start', 'code-review', 'high'], [9, 'review-end', 'code-review', 'high']]);
+
+    it.each([
+      { situation: 'a record with reviews and no test runs', body: reviewedOnly },
+      { situation: 'a record that marks nothing but its start', body: recordBody([[0, 'start']]) },
+    ])('reads $situation as test time not recorded', ({ body }) => {
+      const model = pullModel(pull({ commits, body }));
+      expect(model.localRuns).toEqual({ test: null, browser: null });
+      expect(model.harness.local?.test ?? null).toBeNull();
+      expect(model.harness.local?.browser ?? null).toBeNull();
+    });
+
+    it('reads a pull request with no session record as no local lanes at all', () => {
+      const model = pullModel(pull({ commits, body: '' }));
+      expect(model.harness.local).toBeNull();
+      expect(model.localRuns).toEqual({ test: null, browser: null });
+      expect(model.runSlices).toEqual([]);
+    });
+
+    it('reads a window where no pull request has test runs as no figures, not zero', () => {
+      const [window] = buildModel({ pulls: [pull({ commits, body: reviewedOnly })], now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] }).windows;
+      expect(window.localRuns).toEqual({ test: { count: null, ms: null }, browser: { count: null, ms: null } });
     });
   });
 });
