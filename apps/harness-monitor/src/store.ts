@@ -71,6 +71,29 @@ ON CONFLICT (day, branch, category, model) DO UPDATE SET
   unpriced_cache_creation_tokens = unpriced_cache_creation_tokens + excluded.unpriced_cache_creation_tokens,
   unpriced_cache_read_tokens = unpriced_cache_read_tokens + excluded.unpriced_cache_read_tokens,
   last_at = MAX(last_at, excluded.last_at)`;
+const SPLIT_TOTALS_COLUMNS = `day, branch, category, model, ran_where, subagent, requests, cost_micros, unpriced_requests,
+  unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at`;
+const SPLIT_TOTALS_SELECT = `SELECT day, COALESCE(branch, ''), ${PHASE}, model, ran_where, subagent, COUNT(*), SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL),
+       SUM(CASE WHEN cost_micros IS NULL THEN input_tokens ELSE 0 END),
+       SUM(CASE WHEN cost_micros IS NULL THEN output_tokens ELSE 0 END),
+       SUM(CASE WHEN cost_micros IS NULL THEN cache_creation_tokens ELSE 0 END),
+       SUM(CASE WHEN cost_micros IS NULL THEN cache_read_tokens ELSE 0 END),
+       MAX(occurred_at)
+FROM usage_requests`;
+const SPLIT_TOTALS_KEYS = `day, COALESCE(branch, ''), ${PHASE}, model, ran_where, subagent`;
+/** The same rows folded into the totals the costs page reads: dollars by day, branch, phase, model, place and agent. */
+const ADD_TO_SPLIT_TOTALS = `INSERT INTO daily_split_totals (${SPLIT_TOTALS_COLUMNS})
+${SPLIT_TOTALS_SELECT} WHERE ingest_id = ?
+GROUP BY ${SPLIT_TOTALS_KEYS}
+ON CONFLICT (day, branch, category, model, ran_where, subagent) DO UPDATE SET
+  requests = requests + excluded.requests,
+  cost_micros = cost_micros + excluded.cost_micros,
+  unpriced_requests = unpriced_requests + excluded.unpriced_requests,
+  unpriced_input_tokens = unpriced_input_tokens + excluded.unpriced_input_tokens,
+  unpriced_output_tokens = unpriced_output_tokens + excluded.unpriced_output_tokens,
+  unpriced_cache_creation_tokens = unpriced_cache_creation_tokens + excluded.unpriced_cache_creation_tokens,
+  unpriced_cache_read_tokens = unpriced_cache_read_tokens + excluded.unpriced_cache_read_tokens,
+  last_at = MAX(last_at, excluded.last_at)`;
 /**
  * Stores the rows not stored yet and counts exactly those into the daily totals.
  *
@@ -98,6 +121,7 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
     db.prepare(INSERT_ROWS).bind(payload, ingestId, now),
     db.prepare(ADD_TO_TOTALS).bind(ingestId),
     db.prepare(ADD_TO_BRANCH_TOTALS).bind(ingestId),
+    db.prepare(ADD_TO_SPLIT_TOTALS).bind(ingestId),
   ]);
   const stored = inserted!.meta.changes ?? 0;
   return { stored, ignored: rows.length - stored };
@@ -108,6 +132,7 @@ export async function rebuildTotals(db: D1Database): Promise<number> {
   await db.batch([
     db.prepare('DELETE FROM daily_totals'),
     db.prepare('DELETE FROM daily_branch_totals'),
+    db.prepare('DELETE FROM daily_split_totals'),
     db.prepare(`INSERT INTO daily_totals (
         day, category, model, requests, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_micros, unpriced_requests
@@ -122,6 +147,8 @@ export async function rebuildTotals(db: D1Database): Promise<number> {
       )
       ${BRANCH_TOTALS_SELECT}
       FROM usage_requests GROUP BY day, COALESCE(branch, ''), ${PHASE}, model`),
+    db.prepare(`INSERT INTO daily_split_totals (${SPLIT_TOTALS_COLUMNS})
+      ${SPLIT_TOTALS_SELECT} GROUP BY ${SPLIT_TOTALS_KEYS}`),
   ]);
   const covered = await db.prepare('SELECT COUNT(DISTINCT day) AS days FROM daily_totals').first<{ days: number }>();
   return covered?.days ?? 0;
@@ -138,14 +165,14 @@ export interface UnpricedLine {
   branches: number;
 }
 
-/** Requests without a price, per model: what the warning names. Read from the per-branch totals, never the rows. */
+/** Requests without a price, per model: what the warning names. Read from the split totals, never the rows. */
 export async function unpricedLines(db: D1Database): Promise<UnpricedLine[]> {
   const { results } = await db
     .prepare(`SELECT model, SUM(unpriced_requests) AS requests, SUM(unpriced_input_tokens) AS inputTokens,
         SUM(unpriced_output_tokens) AS outputTokens, SUM(unpriced_cache_creation_tokens) AS cacheCreationTokens,
         SUM(unpriced_cache_read_tokens) AS cacheReadTokens,
         COUNT(DISTINCT CASE WHEN branch = '' THEN NULL ELSE branch END) AS branches
-      FROM daily_branch_totals WHERE unpriced_requests > 0 GROUP BY model ORDER BY requests DESC, model`)
+      FROM daily_split_totals WHERE unpriced_requests > 0 GROUP BY model ORDER BY requests DESC, model`)
     .all<UnpricedLine>();
   return results;
 }
