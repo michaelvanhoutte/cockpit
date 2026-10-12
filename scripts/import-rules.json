@@ -54,7 +54,8 @@
       ],
       [
         "ai",
-        "embeddings"
+        "embeddings",
+        "transcription"
       ],
       [
         "gateway"

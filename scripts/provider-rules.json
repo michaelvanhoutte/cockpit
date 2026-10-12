@@ -7,6 +7,7 @@
     "apps/api/src/gateway/",
     "apps/api/src/ai/index.ts",
     "apps/api/src/embeddings/index.ts",
+    "apps/api/src/transcription/index.ts",
     "apps/api/src/engines/claude-code.ts"
   ],
   "sdks": [

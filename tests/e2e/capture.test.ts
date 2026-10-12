@@ -58,9 +58,26 @@ const A_PNG_BASE64 =
  * question, above.
  */
 /**
- * A speech engine the walk can drive, installed before the app loads: the
- * browser's own has no working implementation in Playwright's Chromium, and is
- * a third party besides. `start()` only registers the session; the walk says
+ * A microphone the walk can record from: Chromium's fake device, which answers
+ * `getUserMedia` with a generated tone and needs no prompt answered, so
+ * Write's `MediaRecorder` records real audio. The Worker this walk talks to
+ * answers any recording with fixed words (`TRANSCRIPTION_STAND_IN`,
+ * scripts/e2e-stack.mjs), so what it proves is the whole path from a tap to an
+ * Item, not what Whisper makes of a voice - that is the contract tier's.
+ */
+test.use({
+  permissions: ['microphone'],
+  launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
+});
+
+/** What the stand-in transcriber answers, whatever it was given (apps/api/src/transcription/index.ts). */
+const STAND_IN_WORDS = 'This is the stand-in transcription.';
+
+/**
+ * A speech engine the walk can drive for the Car view, installed before the app
+ * loads: the browser's own has no working implementation in Playwright's
+ * Chromium, and is a third party besides. Write no longer uses it; the Car view
+ * keeps it until its own unit moves to Whisper. `start()` only registers the session; the walk says
  * when it has started and what it heard, the way the engine does.
  */
 async function installSpeechEngine(page: Page): Promise<void> {
@@ -133,23 +150,30 @@ test.describe('Capture', () => {
       await expect(page.getByRole('region', { name: 'Just captured' }).getByText(thought)).toBeVisible();
 
       // The same box, spoken into: the mic sits in the strip under the note,
-      // reachable on this screen, and what is heard lands in the note and is
-      // captured like anything typed. Only a browser proves it reaches an Item.
+      // reachable on this screen. Tapped, it records with a running timer;
+      // tapped again, the recording is transcribed and the words land at the
+      // end of what was typed, to be captured like anything typed. Only a
+      // browser records, and only a browser proves it reaches an Item.
       const mic = page.getByRole('button', { name: 'Dictate' });
       await expect(mic).toBeInViewport();
       await expectNoSidewaysScroll(page);
+      const typed = uniqueTitle('Water');
+      await captureBox(page).fill(typed);
       await press(mic, isMobile);
-      const spoken = uniqueTitle('Water the plants');
-      await engineHears(page, spoken);
       await expect(mic).toHaveAttribute('aria-pressed', 'true');
-      await expect(captureBox(page)).toHaveValue(spoken);
+      // A second in, so there is sound kept to send: a recording stopped the moment it starts can be empty.
+      await expect(page.getByText('Listening · 0:01')).toBeVisible();
+      await press(mic, isMobile);
+      await expect(captureBox(page)).toHaveValue(`${typed} ${STAND_IN_WORDS}`);
+      await expect(mic).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.getByText('Transcribing…')).toHaveCount(0);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(spoken)).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(typed)).toBeVisible();
       await closeCapture(page, isMobile);
 
       await expect(itemRow(page, thought)).toBeVisible();
       await expect(inbox(page).getByText(thought)).toBeVisible();
-      await expect(itemRow(page, spoken)).toBeVisible();
+      await expect(itemRow(page, typed)).toBeVisible();
       await expectNoSidewaysScroll(page);
 
       // The Car view of the same page: one round button, tapped to listen and
