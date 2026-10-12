@@ -193,6 +193,11 @@ jobs:
       - name: Verify the lint config
         if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         run: pnpm test:lint
+      # The test runners recording their own runs on a session record: real
+      # Vitest, Playwright and Node runs, so after the install, unlike Scripts.
+      - name: Runners
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
+        run: pnpm test:runners
       - name: Build
         id: build
         if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}

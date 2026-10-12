@@ -6,6 +6,9 @@
 // reporter, and only a real file system decides what a missing or unwritable
 // record does to a run.
 //
+// At the root, as `tests/lint` is: it needs the installed runners, and
+// `scripts/lib`'s CI step runs before anything is installed.
+//
 
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -16,13 +19,14 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { parseRecord, recordFileName } from './session-record.mjs';
-import { sessionRunReporter } from './vitest-session-reporter.mjs';
+import { parseRecord, recordFileName } from '../../scripts/lib/session-record.mjs';
+import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
-const playwrightSessionReporter = fileURLToPath(new URL('./playwright-session-reporter.mjs', import.meta.url));
-const nodeReporter = new URL('./node-test-session-reporter.mjs', import.meta.url).href;
-const recorder = pathToFileURL(fileURLToPath(new URL('./test-run-record.mjs', import.meta.url))).href;
+const lib = new URL('../../scripts/lib/', import.meta.url);
+const playwrightSessionReporter = fileURLToPath(new URL('playwright-session-reporter.mjs', lib));
+const nodeReporter = new URL('node-test-session-reporter.mjs', lib).href;
+const recorder = pathToFileURL(fileURLToPath(new URL('test-run-record.mjs', lib))).href;
 const vitestCli = join(createRequire(join(repoRoot, 'packages/shared/package.json')).resolve('vitest/package.json'), '..', 'vitest.mjs');
 const playwrightCli = join(repoRoot, 'node_modules/@playwright/test/cli.js');
 
