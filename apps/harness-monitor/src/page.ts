@@ -1,5 +1,8 @@
 import {
   categoryName,
+  dayChart,
+  firstDay,
+  DEFAULT_GROUP,
   GROUPS,
   median,
   PAGE_SIZE,
@@ -9,6 +12,7 @@ import {
   UNATTRIBUTED,
   WHOS,
   type CostGroup,
+  type DayChart,
   type CostQuery,
   type CostsPage,
   type Group,
@@ -60,6 +64,8 @@ export const PERIOD_LABELS: Record<Period, string> = { '7d': 'Last 7 days', '30d
 const SPLIT_LABELS: Record<Split, string> = { phase: 'Phase', model: 'Model', where: 'Where', outcome: 'Outcome' };
 export const WHO_LABELS: Record<Who, string> = { all: 'All', main: 'Main session', subagents: 'Subagents' };
 const GROUP_LABELS: Record<Group, string> = { pr: 'Pull request', issue: 'Issue', engineer: 'Engineer', category: 'Category', day: 'Day' };
+/** What the grouping's tab reads; the table's own first column keeps GROUP_LABELS. */
+const TAB_LABELS: Record<Group, string> = { ...GROUP_LABELS, day: 'Over time' };
 const UNITS: Record<Group, [string, string]> = {
   pr: ['pull request', 'pull requests'],
   issue: ['issue', 'issues'],
@@ -129,7 +135,7 @@ function filters({ query, engineers, models }: CostsPage): string {
   ).join('');
   const buttons = GROUPS.map(
     (g) =>
-      `<button type="submit" name="group" value="${g}"${g === query.group ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${GROUP_LABELS[g]}</button>`,
+      `<button type="submit" name="group" value="${g}"${g === query.group ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${TAB_LABELS[g]}</button>`,
   ).join('');
   return `<form class="filters" method="get" action="/">
 ${select('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_LABELS[p]]), query.period)}
@@ -142,7 +148,7 @@ ${select('who', 'Requests', WHOS.map((w): [string, string] => [w, WHO_LABELS[w]]
 <div class="field"><span id="groupby">Group by</span><div class="segmented" role="group" aria-labelledby="groupby">${buttons}</div></div>
 <input type="hidden" name="group" value="${query.group}">
 <noscript><button type="submit">Apply</button></noscript>
-<a class="button" href="/export.csv${queryString(query, { group: 'pr', split: 'phase', page: 1 })}" download>Export CSV</a>
+<a class="button" href="/export.csv${queryString(query, { group: DEFAULT_GROUP, split: 'phase', page: 1 })}" download>Export CSV</a>
 </form>`;
 }
 
@@ -174,10 +180,72 @@ function whereItWent(page: CostsPage): string {
 </section>`;
 }
 
-function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: Series[], models: string[]): string {
-  const label = g.prNumber === null ? esc(g.label) : `<a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: 'pr', page: 1 })}">${esc(g.label)}</a>`;
-  const first =
-    `<td class="first">${label}${g.sub === null ? '' : `<div class="muted small">${esc(g.sub)}</div>`}</td>`;
+const CHART = { width: 1000, height: 280, left: 72, right: 16, top: 16, bottom: 32 };
+
+/**
+ * Cost per day as lines, one per series of the split with a dashed total.
+ * Every day of the range has a point, and each point's title carries its value.
+ */
+function overTime(page: CostsPage, now: number): string {
+  const { query, models } = page;
+  const chart: DayChart = dayChart(page.groups, page.series, firstDay(query.period, now), now);
+  if (chart.days.length === 0) return '';
+  const { width, height, left, right, top, bottom } = CHART;
+  const peak = Math.max(...chart.total, 1);
+  const x = (i: number) => (chart.days.length === 1 ? (left + width - right) / 2 : left + (i / (chart.days.length - 1)) * (width - left - right));
+  const y = (micros: number) => top + (1 - micros / peak) * (height - top - bottom);
+  const lines = [
+    ...chart.lines.map((l) => ({ ...l, colour: colourOf(query.split, l.key, models), dash: false })),
+    { key: 'total', label: 'Total', micros: chart.total, colour: 'var(--ink)', dash: true },
+  ];
+  const grid = [0, 0.5, 1]
+    .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" stroke="var(--line-soft)"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${dollars(peak * f)}</text>`)
+    .join('');
+  const ends = [...new Set([0, Math.floor((chart.days.length - 1) / 2), chart.days.length - 1])];
+  const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 10}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === chart.days.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${chart.days[i]}</text>`).join('');
+  const drawn = lines
+    .map((l) => {
+      const points = l.micros.map((m, i) => `${x(i).toFixed(1)},${y(m).toFixed(1)}`).join(' ');
+      const dots = l.micros
+        .map((m, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(m).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${chart.days[i]} · ${dollars(m)}</title></circle>`)
+        .join('');
+      return `<g data-line="${esc(l.key)}"><polyline points="${points}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>${dots}</g>`;
+    })
+    .join('');
+  const legend = lines
+    .map((l) => `<div class="legend-item"><span class="swatch${l.dash ? ' dash' : ''}" style="background:${l.dash ? 'none' : l.colour}" aria-hidden="true"></span><span>${esc(l.label)}</span></div>`)
+    .join('');
+  return `<section class="card chart" aria-labelledby="perday">
+<h2 id="perday">Cost per day</h2>
+<div class="scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cost per day, ${chart.days[0]} to ${chart.days.at(-1)}: ${esc(lines.map((l) => l.label).join(', '))}">${grid}${dates}${drawn}</svg></div>
+<div class="legend">${legend}</div>
+</section>`;
+}
+
+/** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
+const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+/** A link that opens on GitHub in a new tab. */
+const github = (repository: string, path: string, text: string) =>
+  `<a href="https://github.com/${repository}/${path}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+
+/**
+ * The first cell: a pull request's number and title open it on GitHub, the
+ * issue under it opens on GitHub, and "Sessions" opens the monitor's own page.
+ * An issue row opens its issue; a branch no pull request names, "No issue",
+ * "Unattributed" and the rest link nowhere.
+ */
+function firstCell(g: CostGroup, query: CostQuery, repository: string | null): string {
+  const text = esc(g.label);
+  const label = repository === null ? text : g.prNumber !== null ? github(repository, `pull/${g.prNumber}`, text) : g.issue !== null && query.group === 'issue' ? github(repository, `issues/${g.issue}`, text) : text;
+  if (g.sub === null) return `<td class="first">${label}</td>`;
+  const issue = repository !== null && g.prNumber !== null && g.issue !== null ? github(repository, `issues/${g.issue}`, esc(g.sub)) : esc(g.sub);
+  const sessions = g.prNumber === null ? '' : ` · <a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: DEFAULT_GROUP, page: 1 })}">Sessions</a>`;
+  return `<td class="first">${label}<div class="muted small">${issue}${sessions}</div></td>`;
+}
+
+function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: Series[], models: string[], repository: string | null): string {
+  const first = firstCell(g, query, repository);
   const extra =
     group === 'pr'
       ? `<td>${g.engineer === null ? '' : esc(g.engineer)}</td><td class="nowrap">${g.merged === null ? '' : esc(g.merged)}</td>` +
@@ -197,7 +265,7 @@ function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: 
   return `<tr>${first}${extra}<td><div class="split">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td></tr>`;
 }
 
-function table(page: CostsPage): string {
+function table(page: CostsPage, repository: string | null): string {
   const { query, groups } = page;
   if (groups.length === 0) return `<section class="card"><p class="empty">Nothing in this period. No Claude Code requests match the filters.</p></section>`;
   // A page past the end shows the last one, rather than an empty table.
@@ -213,11 +281,11 @@ function table(page: CostsPage): string {
     .join(' · ');
   return `<section class="card table-card" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">
 <div class="scroll"><table class="costs">
-<thead><tr><th scope="col" class="first">${GROUP_LABELS[query.group]}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">Total ▾</th></tr></thead>
+<thead><tr><th scope="col" class="first">${GROUP_LABELS[query.group]}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">Total${query.group === 'day' ? '' : ' ▾'}</th></tr></thead>
 <tbody>
-${shown.map((g) => row(g, query.group, max, query, page.series, page.models)).join('\n')}
+${shown.map((g) => row(g, query.group, max, query, page.series, page.models, repository)).join('\n')}
 </tbody></table></div>
-<div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by total</span><span>${pager}</span></div>
+<div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by ${query.group === 'day' ? 'day, newest first' : 'total'}</span><span>${pager}</span></div>
 </section>`;
 }
 
@@ -263,15 +331,18 @@ th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padd
 .jobs{list-style:none;margin:12px 16px;padding:0;font-size:13px}
 .jobs .failed{color:var(--warn-ink)}
 .empty{padding:24px;color:var(--muted)}
+.chart{display:flex;flex-direction:column;gap:12px;padding:20px}.chart svg{display:block;width:100%;min-width:640px;height:auto}.axis{font-size:12px;fill:var(--muted)}
+.swatch.dash{width:18px;height:0;border-top:2px dashed var(--ink);border-radius:0}
 @media (max-width:640px){.segmented button{flex:1 1 auto}}
 `;
 
 /** The public page: Claude Code's cost, grouped and filtered. Counts and dollars only; never an email or any content. */
 export function renderPage(
   page: CostsPage,
-  report: { unpriced: UnpricedLine[] },
+  report: { unpriced: UnpricedLine[]; repository?: string | undefined },
   now = Date.now(),
 ): string {
+  const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
@@ -283,7 +354,8 @@ export function renderPage(
 ${filters(page)}
 ${warning(report.unpriced)}
 ${whereItWent(page)}
-${table(page)}
+${page.query.group === 'day' ? overTime(page, now) : ''}
+${table(page, repository)}
 ${jobLines(page.jobs)}
 </main>
 </body></html>`;

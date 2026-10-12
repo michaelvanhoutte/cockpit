@@ -80,7 +80,7 @@ describe('Harness Monitor', () => {
       ]);
     });
 
-    it('by day there is one group per UTC day', async () => {
+    it('by day there is one group per UTC day, the newest first', async () => {
       await send([
         spend('d1', 1, { time: '2026-10-02T23:59:59Z', branch: 'b/10' }),
         spend('d2', 1, { time: '2026-10-03T00:00:01Z', branch: 'b/10' }),
@@ -88,9 +88,9 @@ describe('Harness Monitor', () => {
       ]);
 
       expect((await rows('day')).map((r) => [r[0], r[1]])).toEqual([
-        ['2026-10-01', '$13.75'],
-        ['2026-10-02', '$6.00'],
         ['2026-10-03', '$1.00'],
+        ['2026-10-02', '$6.00'],
+        ['2026-10-01', '$13.75'],
       ]);
     });
 

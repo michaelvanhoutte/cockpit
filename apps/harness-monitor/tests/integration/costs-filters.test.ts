@@ -85,7 +85,7 @@ describe('Harness Monitor', () => {
 
       expect(await rows('?period=all&engineer=alice&category=building')).toEqual([['#1 Mine', '$5.00']]);
       expect(await rows('?period=all&engineer=bob&category=building')).toEqual([]);
-      expect(await rows('?period=all&group=nonsense&category=nonsense')).toEqual([['#1 Mine', '$7.00']]);
+      expect(await rows('?period=all&group=nonsense&category=nonsense')).toEqual([['2026-10-01', '$7.00']]);
     });
   });
 });
