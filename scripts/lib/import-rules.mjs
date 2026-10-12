@@ -52,7 +52,7 @@ export function specifiersOf(path, text) {
   return found;
 }
 
-const LITERAL_TOKENS = new Set([
+const LITERAL_KINDS = new Set([
   ts.SyntaxKind.StringLiteral,
   ts.SyntaxKind.NoSubstitutionTemplateLiteral,
   ts.SyntaxKind.TemplateHead,
@@ -62,7 +62,8 @@ const LITERAL_TOKENS = new Set([
 
 /**
  * Every string or template literal whose text is exactly a source id, found
- * with TypeScript's own scanner so comments and identifiers never count. A
+ * by walking TypeScript's own parse of the file, so comments, identifiers and
+ * the quotes inside a regular expression never count or hide a literal. A
  * template literal is read chunk by chunk, so `${x}teams` and `teams` both
  * hold the id. Exact, not "contains": a literal holding the id inside longer
  * text (copy that says "Connect your Gmail", a store key such as
@@ -73,32 +74,16 @@ const LITERAL_TOKENS = new Set([
  * @returns {{ line: number, id: string }[]}
  */
 export function namedSourcesIn(path, text, ids) {
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    false,
-    path.endsWith('x') ? ts.LanguageVariant.JSX : ts.LanguageVariant.Standard,
-    text,
-  );
+  const kind = path.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, false, kind);
   const found = [];
-  /** Open `${` substitutions: the brace depth inside each. */
-  const depths = [];
-  let line = 1;
-  let counted = 0;
-  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
-    if (token === ts.SyntaxKind.OpenBraceToken && depths.length > 0) depths[depths.length - 1] += 1;
-    else if (token === ts.SyntaxKind.CloseBraceToken && depths.length > 0) {
-      if (depths[depths.length - 1] === 0) token = scanner.reScanTemplateToken(false);
-      else depths[depths.length - 1] -= 1;
+  const visit = (node) => {
+    if (LITERAL_KINDS.has(node.kind) && ids.includes(node.text)) {
+      found.push({ line: file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1, id: node.text });
     }
-    if (token === ts.SyntaxKind.TemplateHead) depths.push(0);
-    else if (token === ts.SyntaxKind.TemplateTail) depths.pop();
-    if (!LITERAL_TOKENS.has(token) || scanner.isUnterminated()) continue;
-    const id = ids.find((candidate) => candidate === scanner.getTokenValue());
-    if (!id) continue;
-    const start = scanner.getTokenStart();
-    for (; counted < start; counted += 1) if (text.charCodeAt(counted) === 10) line += 1;
-    found.push({ line, id });
-  }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
   return found;
 }
 

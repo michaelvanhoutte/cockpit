@@ -217,7 +217,12 @@ describe("today's tree", () => {
 
 describe('rule 4: the core does not write a source id as a string', () => {
   const ids = namedSourceIds(rules);
-  const namedRules = { ...rules, names: { exempt: ['apps/api/src/accounts/guest-seed-data.ts'] } };
+  const exempt = [
+    'apps/api/src/accounts/changes.ts',
+    'apps/api/src/accounts/guest-seed-data.ts',
+    'packages/shared/src/domain/demo-address.ts',
+  ];
+  const namedRules = { ...rules, names: { exempt } };
   const tree = (files) => {
     const dir = mkdtempSync(join(tmpdir(), 'names-rule-'));
     for (const [path, text] of Object.entries(files)) {
@@ -262,7 +267,9 @@ describe('rule 4: the core does not write a source id as a string', () => {
     const named = "export const id = 'gmail';\n";
     assert.deepEqual(
       failuresOver({
+        [api('accounts/changes.ts')]: named,
         [api('accounts/guest-seed-data.ts')]: named,
+        'packages/shared/src/domain/demo-address.ts': 'export const pages = ["gmail", "teams"];\n',
         [api('engines/list.ts')]: "export const id = 'teams';\n",
         'packages/connectors/gmail/src/manifest.ts': named,
       }),
@@ -270,8 +277,15 @@ describe('rule 4: the core does not write a source id as a string', () => {
     );
   });
 
+  it('still finds a literal after a regular expression holding a quote or a backtick on the same line', () => {
+    assert.deepEqual(namedSourcesIn('x.ts', "const a = /`/.test(s) && b === 'gmail';", ids), [{ line: 1, id: 'gmail' }]);
+    assert.deepEqual(namedSourcesIn('x.ts', "const a = /it's/.test(s) ? `teams` : 1;", ids), [{ line: 1, id: 'teams' }]);
+    assert.deepEqual(namedSourcesIn('x.tsx', "const a = <p>don't {'gmail'}</p>;", ids), [{ line: 1, id: 'gmail' }]);
+  });
+
   it('leaves an engine to the engine list: its id is not a name the core may not write', () => {
-    assert.deepEqual(ids, ['gmail', 'teams']);
+    const declared = { sources: { slack: {}, 'some-engine': { engine: true } } };
+    assert.deepEqual(namedSourceIds(declared), ['slack']);
   });
 
   it('flags a file added to the files that may name a source as a relaxation', () => {
