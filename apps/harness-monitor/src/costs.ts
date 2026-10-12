@@ -7,6 +7,15 @@ export type Period = keyof typeof PERIODS;
 export const GROUPS = ['pr', 'issue', 'engineer', 'category', 'day'] as const;
 export type Group = (typeof GROUPS)[number];
 
+/** What the dollars are split by: the "where it went" bar, each row's split bar and the $ columns. */
+export const SPLITS = ['phase', 'model', 'where', 'outcome'] as const;
+export type Split = (typeof SPLITS)[number];
+/** Which requests count: all of them, a session's own agent, or the subagents it started. */
+export const WHOS = ['all', 'main', 'subagents'] as const;
+export type Who = (typeof WHOS)[number];
+/** A model id as the usage hook sends it: letters, digits and a few separators, never free text. */
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,99}$/;
+
 /** The engineer filter's value for requests no pull request claims. */
 export const UNATTRIBUTED = '~unattributed';
 
@@ -17,7 +26,11 @@ export interface CostQuery {
   /** A GitHub login, UNATTRIBUTED, or null for everyone. */
   engineer: string | null;
   category: Category | null;
+  /** A model id, or null for every model. */
+  model: string | null;
+  who: Who;
   group: Group;
+  split: Split;
   /** 1-based. */
   page: number;
 }
@@ -26,13 +39,19 @@ export function parseQuery(params: URLSearchParams): CostQuery {
   const period = params.get('period') as Period;
   const group = params.get('group') as Group;
   const category = params.get('category') as Category;
+  const split = params.get('split') as Split;
+  const who = params.get('who') as Who;
+  const model = params.get('model') ?? '';
   const page = Number(params.get('page'));
   return {
     // Own keys only: `in` would accept `toString` and the page would throw.
     period: period !== null && Object.hasOwn(PERIODS, period) ? period : '30d',
     engineer: params.get('engineer') || null,
     category: (CATEGORIES as readonly string[]).includes(category) ? category : null,
+    model: MODEL_ID.test(model) ? model : null,
+    who: (WHOS as readonly string[]).includes(who) ? who : 'all',
     group: (GROUPS as readonly string[]).includes(group) ? group : 'pr',
+    split: (SPLITS as readonly string[]).includes(split) ? split : 'phase',
     page: Number.isInteger(page) && page >= 1 ? page : 1,
   };
 }
@@ -44,7 +63,10 @@ export function queryString(q: CostQuery, over: Partial<CostQuery> = {}): string
   if (all.period !== '30d') params.set('period', all.period);
   if (all.engineer) params.set('engineer', all.engineer);
   if (all.category) params.set('category', all.category);
+  if (all.model) params.set('model', all.model);
+  if (all.who !== 'all') params.set('who', all.who);
   if (all.group !== 'pr') params.set('group', all.group);
+  if (all.split !== 'phase') params.set('split', all.split);
   if (all.page > 1) params.set('page', String(all.page));
   const text = params.toString();
   return text === '' ? '' : `?${text}`;
@@ -56,13 +78,16 @@ export function firstDay(period: Period, now: number): string | null {
   return days === null ? null : new Date(now - (days - 1) * 86_400_000).toISOString().slice(0, 10);
 }
 
-/** One category's dollars in one place, as the totals table holds them. */
+/** One series' dollars in one place, as the totals table holds them. */
 export interface TotalRow {
   /** The UTC day, for a by-day query; '' otherwise. */
   day: string;
   /** '' for requests that ran on no branch. */
   branch: string;
-  category: Category;
+  /** The row's phase when the page groups by category; '' otherwise. */
+  category: string;
+  /** Which series of the split this is: a phase, model, place or outcome key. */
+  series: string;
   costMicros: number;
   unpricedRequests: number;
   lastAt: number;
@@ -86,10 +111,34 @@ export interface CostGroup {
   merged: string | null;
   /** Distinct pull requests in the group. */
   pullRequests: number;
-  byCategory: Record<Category, number>;
+  /** Dollars per series key of the split; a key the group has none of is absent. */
+  bySeries: Record<string, number>;
   totalMicros: number;
   unpricedRequests: number;
 }
+
+/** A model id is free text, so series dollars live in an object with no prototype: no id can be `__proto__`. */
+const bag = (): Record<string, number> => Object.create(null) as Record<string, number>;
+
+/** One column of the split: its key, name, and the short name over a column. */
+export interface Series {
+  key: string;
+  label: string;
+  short: string;
+}
+
+const WHERE_SERIES: Series[] = [
+  { key: 'local', label: "Engineers' machines", short: "Engineers' machines" },
+  { key: 'cloud', label: 'Cloud sessions', short: 'Cloud' },
+  { key: 'actions', label: 'CI (GitHub Actions)', short: 'CI' },
+];
+const OUTCOME_SERIES: Series[] = [
+  { key: 'merged', label: 'Merged', short: 'Merged' },
+  { key: 'open', label: 'Still open', short: 'Open' },
+  { key: 'closed', label: 'Closed unmerged', short: 'Closed' },
+  { key: 'no-pr', label: 'No pull request', short: 'No PR' },
+  { key: 'on-main', label: 'On main', short: 'On main' },
+];
 
 const NAMES: Record<Category, string> = {
   'scoping-planning': 'Scoping & planning',
@@ -100,15 +149,42 @@ const NAMES: Record<Category, string> = {
   'ci-reviews': 'CI reviews',
 };
 export const categoryName = (c: Category) => NAMES[c];
+const PHASE_SHORT: Record<Category, string> = {
+  'scoping-planning': 'Scoping',
+  building: 'Building',
+  'local-code-review': 'Code rev.',
+  'local-security-review': 'Security rev.',
+  'after-push': 'After push',
+  'ci-reviews': 'CI rev.',
+};
 
-const none = (): Record<Category, number> => Object.fromEntries(CATEGORIES.map((c) => [c, 0])) as Record<Category, number>;
+/**
+ * The columns of a split, in order. Phases, places and outcomes are fixed
+ * models are the
+ * ones with dollars in the result, biggest first.
+ */
+export function seriesOf(split: Split, totals: Record<string, number>): Series[] {
+  switch (split) {
+    case 'phase':
+      return CATEGORIES.map((c) => ({ key: c, label: categoryName(c), short: PHASE_SHORT[c] }));
+    case 'where':
+      return WHERE_SERIES;
+    case 'outcome':
+      return OUTCOME_SERIES;
+    case 'model':
+      return Object.keys(totals)
+        .filter((m) => totals[m]! > 0)
+        .sort((a, b) => totals[b]! - totals[a]! || a.localeCompare(b))
+        .map((m) => ({ key: m, label: m, short: m }));
+  }
+}
 
 /** Where a row belongs for a grouping: its key, label and the second line, or what is known of its pull request. */
 function placeOf(row: TotalRow, group: Group, linking: (row: TotalRow) => 'linking…' | 'unattributed') {
   const linked = row.prNumber !== null;
   switch (group) {
     case 'category':
-      return { key: row.category, label: categoryName(row.category), sub: null };
+      return { key: row.category, label: categoryName(row.category as Category), sub: null };
     case 'day':
       return { key: row.day, label: row.day, sub: null };
     case 'engineer':
@@ -147,11 +223,11 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     const place = placeOf(row, group, linking);
     let g = groups.get(place.key);
     if (!g) {
-      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, byCategory: none(), totalMicros: 0, unpricedRequests: 0 };
+      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, bySeries: bag(), totalMicros: 0, unpricedRequests: 0 };
       groups.set(place.key, g);
       prs.set(place.key, new Set());
     }
-    g.byCategory[row.category] += row.costMicros;
+    g.bySeries[row.series] = (g.bySeries[row.series] ?? 0) + row.costMicros;
     g.totalMicros += row.costMicros;
     g.unpricedRequests += row.unpricedRequests;
     if (row.prNumber !== null) prs.get(place.key)!.add(row.prNumber);
@@ -170,9 +246,13 @@ export function median(values: number[]): number {
 export interface CostsPage {
   query: CostQuery;
   engineers: string[];
+  /** Every model with dollars on record, for the Model filter. */
+  models: string[];
   groups: CostGroup[];
-  /** Per category, over every group (not only the shown page). */
-  byCategory: Record<Category, number>;
+  /** The split's columns, in order. */
+  series: Series[];
+  /** Per series key, over every group (not only the shown page). */
+  bySeries: Record<string, number>;
   totalMicros: number;
   /** Epoch milliseconds; null while linking has never succeeded. */
   lastLinkSuccessAt: number | null;
@@ -180,8 +260,13 @@ export interface CostsPage {
   jobs: JobStatus[];
 }
 
+/** Where a request's pull request stands, from its branch and the link GitHub linking stored. */
+const OUTCOME = `CASE WHEN t.branch = 'main' THEN 'on-main' WHEN l.state = 'MERGED' THEN 'merged' WHEN l.state = 'OPEN' THEN 'open'
+  WHEN l.state = 'CLOSED' THEN 'closed' ELSE 'no-pr' END`;
+const SERIES_COLUMN: Record<Split, string> = { phase: 't.category', model: 't.model', where: 't.ran_where', outcome: OUTCOME };
+
 /**
- * Reads the page's figures from the daily totals and the branch links, never
+ * Reads the page's figures from the split totals and the branch links, never
  * from the request rows: a public page view must not spend the free plan's
  * read allowance on the table that grows with every request.
  */
@@ -197,43 +282,55 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     where.push('t.category = ?');
     binds.push(query.category);
   }
+  if (query.model !== null) {
+    where.push('t.model = ?');
+    binds.push(query.model);
+  }
+  if (query.who !== 'all') where.push(`t.subagent = ${query.who === 'subagents' ? 1 : 0}`);
   if (query.engineer === UNATTRIBUTED) where.push('l.branch IS NULL');
   else if (query.engineer !== null) {
     where.push('l.engineer = ?');
     binds.push(query.engineer);
   }
-  const needsLinks = query.group !== 'day' || query.engineer !== null;
+  const needsLinks = query.group !== 'day' || query.engineer !== null || query.split === 'outcome';
   const conditions = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`;
-  // A by-day question needs no branch unless it filters by engineer, which is the one thing a link says.
+  // The phase is read only for a by-category question; the split's own column is read always.
+  const phase = query.group === 'category' ? 't.category' : "''";
+  const phaseKey = query.group === 'category' ? ', t.category' : '';
+  const series = SERIES_COLUMN[query.split];
+  // A by-day question needs no branch unless it filters by engineer or splits by outcome, which are the things a link says.
   const select =
     query.group === 'day'
-      ? `SELECT t.day AS day, '' AS branch, t.category AS category, SUM(t.cost_micros) AS costMicros,
+      ? `SELECT t.day AS day, '' AS branch, '' AS category, ${series} AS series, SUM(t.cost_micros) AS costMicros,
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
            NULL AS prNumber, NULL AS title, NULL AS state, NULL AS mergedAt, NULL AS issue, NULL AS engineer
-         FROM daily_branch_totals t ${needsLinks ? 'LEFT JOIN branch_links l ON l.branch = t.branch' : ''}
-         ${conditions} GROUP BY t.day, t.category`
-      : `SELECT '' AS day, t.branch AS branch, t.category AS category, SUM(t.cost_micros) AS costMicros,
+         FROM daily_split_totals t ${needsLinks ? 'LEFT JOIN branch_links l ON l.branch = t.branch' : ''}
+         ${conditions} GROUP BY t.day, ${series}`
+      : `SELECT '' AS day, t.branch AS branch, ${phase} AS category, ${series} AS series, SUM(t.cost_micros) AS costMicros,
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
            l.pr_number AS prNumber, l.title AS title, l.state AS state, l.merged_at AS mergedAt,
            l.issue_number AS issue, l.engineer AS engineer
-         FROM daily_branch_totals t LEFT JOIN branch_links l ON l.branch = t.branch
-         ${conditions} GROUP BY t.branch, t.category`;
+         FROM daily_split_totals t LEFT JOIN branch_links l ON l.branch = t.branch
+         ${conditions} GROUP BY t.branch${phaseKey}, ${series}`;
 
-  const [rows, engineers, state, runs, list] = await db.batch([
+  const [rows, engineers, models, state, runs, list] = await db.batch([
     db.prepare(select).bind(...binds),
     db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
+    db.prepare('SELECT DISTINCT model FROM daily_split_totals ORDER BY model'),
     db.prepare('SELECT last_success_at AS lastSuccessAt FROM link_state WHERE id = 1'),
     ...jobReads(db),
   ]);
   const lastLinkSuccessAt = (state!.results[0] as { lastSuccessAt: number | null } | undefined)?.lastSuccessAt ?? null;
   const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, lastLinkSuccessAt);
-  const byCategory = none();
-  for (const g of groups) for (const c of CATEGORIES) byCategory[c] += g.byCategory[c];
+  const bySeries = bag();
+  for (const g of groups) for (const [key, micros] of Object.entries(g.bySeries)) bySeries[key] = (bySeries[key] ?? 0) + micros;
   return {
     query,
     engineers: (engineers!.results as { engineer: string }[]).map((e) => e.engineer),
+    models: (models!.results as { model: string }[]).map((m) => m.model),
     groups,
-    byCategory,
+    series: seriesOf(query.split, bySeries),
+    bySeries,
     totalMicros: groups.reduce((sum, g) => sum + g.totalMicros, 0),
     lastLinkSuccessAt,
     jobs: jobStatuses(runs!, list!, lastLinkSuccessAt),

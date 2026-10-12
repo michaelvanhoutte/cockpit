@@ -20,6 +20,11 @@ export function requestFilter(query: CostQuery, pullRequest: number | null, now 
     where.push('u.category = ?');
     binds.push(query.category);
   }
+  if (query.model !== null) {
+    where.push('u.model = ?');
+    binds.push(query.model);
+  }
+  if (query.who !== 'all') where.push(`u.subagent = ${query.who === 'subagents' ? 1 : 0}`);
   if (query.engineer === UNATTRIBUTED) where.push('l.branch IS NULL');
   else if (query.engineer !== null) {
     where.push('l.engineer = ?');

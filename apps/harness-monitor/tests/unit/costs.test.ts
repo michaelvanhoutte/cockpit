@@ -4,7 +4,8 @@ import { firstDay, groupRows, median, parseQuery, queryString, type TotalRow } f
 const row = (over: Partial<TotalRow>): TotalRow => ({
   day: '',
   branch: 'b/1',
-  category: 'building',
+  category: '',
+  series: 'building',
   costMicros: 1_000_000,
   unpricedRequests: 0,
   lastAt: 0,
@@ -20,27 +21,42 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
 describe('Harness Monitor', () => {
   describe('the costs page is asked for by its address', () => {
     it.each([
-      { situation: 'nothing', query: '', expected: { period: '30d', engineer: null, category: null, group: 'pr', page: 1 } },
+      { situation: 'nothing', query: '', expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'phase', page: 1 } },
       {
         situation: 'every filter',
-        query: 'period=all&engineer=alice&category=ci-reviews&group=day&page=3',
-        expected: { period: 'all', engineer: 'alice', category: 'ci-reviews', group: 'day', page: 3 },
+        query: 'period=all&engineer=alice&category=ci-reviews&model=claude-opus-5&who=subagents&group=day&split=outcome&page=3',
+        expected: { period: 'all', engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'day', split: 'outcome', page: 3 },
       },
       {
         situation: 'values it does not know',
-        query: 'period=forever&category=lunch&group=colour&page=-2',
-        expected: { period: '30d', engineer: null, category: null, group: 'pr', page: 1 },
+        query: 'period=forever&category=lunch&group=colour&split=colour&model=%20not%20a%20model&who=everyone&page=-2',
+        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'phase', page: 1 },
       },
       {
         situation: 'names every object inherits',
-        query: 'period=toString&category=constructor&group=__proto__',
-        expected: { period: '30d', engineer: null, category: null, group: 'pr', page: 1 },
+        query: 'period=toString&category=constructor&group=__proto__&split=constructor&who=toString',
+        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'phase', page: 1 },
       },
     ])('$situation is read as the filters it names, or the default', ({ query, expected }) => {
       expect(parseQuery(new URLSearchParams(query))).toEqual(expected);
     });
 
     it('the same page has one address however it was spelled', () => {
+      const spelled = parseQuery(new URLSearchParams('who=main&split=model&model=claude-opus-5&period=7d'));
+      const reordered = parseQuery(new URLSearchParams('period=7d&model=claude-opus-5&split=model&who=main&junk=1'));
+
+      expect(queryString(spelled)).toBe('?period=7d&model=claude-opus-5&who=main&split=model');
+      expect(queryString(reordered)).toBe(queryString(spelled));
+    });
+
+    it('the defaults of the split and the filters are left out of the address', () => {
+      const spelled = parseQuery(new URLSearchParams('split=phase&who=all&model='));
+
+      expect(queryString(spelled)).toBe('');
+      expect(queryString(spelled, { split: 'where', who: 'subagents' })).toBe('?who=subagents&split=where');
+    });
+
+    it('the same page has one address however it was spelled (period, group, page)', () => {
       const spelled = parseQuery(new URLSearchParams('junk=1&group=pr&engineer=&period=30d&page=1'));
 
       expect(queryString(spelled)).toBe('');
@@ -61,15 +77,15 @@ describe('Harness Monitor', () => {
   describe("each group's total is the sum of its requests", () => {
     it('rows of one pull request in different categories become one group with the split kept', () => {
       const groups = groupRows(
-        [row({ category: 'building', costMicros: 2_000_000 }), row({ category: 'after-push', costMicros: 3_000_000, unpricedRequests: 2 })],
+        [row({ series: 'building', costMicros: 2_000_000 }), row({ series: 'after-push', costMicros: 3_000_000, unpricedRequests: 2 })],
         'pr',
         null,
       );
 
       expect(groups).toHaveLength(1);
       expect(groups[0]).toMatchObject({ label: '#1 T', totalMicros: 5_000_000, unpricedRequests: 2 });
-      expect(groups[0]!.byCategory.building).toBe(2_000_000);
-      expect(groups[0]!.byCategory['after-push']).toBe(3_000_000);
+      expect(groups[0]!.bySeries.building).toBe(2_000_000);
+      expect(groups[0]!.bySeries['after-push']).toBe(3_000_000);
     });
 
     it('groups come biggest first, and equal totals are in name order', () => {

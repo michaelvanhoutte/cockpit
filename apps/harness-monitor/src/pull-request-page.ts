@@ -60,10 +60,12 @@ function filters(page: PullRequestPage): string {
   const cats = [['', 'All categories'] as const, ...CATEGORIES.map((c) => [c, categoryName(c)] as const)]
     .map(([v, t]) => `<option value="${v}"${v === (q.category ?? '') ? ' selected' : ''}>${esc(t)}</option>`)
     .join('');
-  const csv = `/export.csv?pr=${page.number}${queryString(q, { engineer: null, group: 'pr', page: 1 }).replace('?', '&')}`;
+  const csv = `/export.csv?pr=${page.number}${queryString(q, { engineer: null, group: 'pr', split: 'phase', page: 1 }).replace('?', '&')}`;
   return `<form class="filters" method="get" action="/pr/${page.number}">
 <div class="field"><label for="period">Period</label><select id="period" name="period" onchange="this.form.submit()">${periods}</select></div>
 <div class="field"><label for="category">Category</label><select id="category" name="category" onchange="this.form.submit()">${cats}</select></div>
+${q.model === null ? '' : `<input type="hidden" name="model" value="${esc(q.model)}">`}
+${q.who === 'all' ? '' : `<input type="hidden" name="who" value="${q.who}">`}
 <noscript><button type="submit">Apply</button></noscript>
 <a class="button" href="${csv}" download>Export CSV</a>
 </form>`;

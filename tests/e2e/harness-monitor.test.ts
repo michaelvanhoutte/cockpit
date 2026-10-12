@@ -50,7 +50,7 @@ const SEED = {
 };
 
 test.describe('Harness Monitor', () => {
-  test('the costs page opens grouped by pull request, opens one pull request and exports it, regroups by engineer, and narrows to a category', async ({ page, request: api }) => {
+  test('the costs page opens grouped by pull request, opens one pull request and exports it, regroups by engineer, narrows to a category, and splits by model', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const seeded = await api.post(`${monitor}/__e2e/seed`, { data: SEED });
     expect(seeded.ok()).toBe(true);
@@ -105,6 +105,15 @@ test.describe('Harness Monitor', () => {
     await expect(byEngineer.getByRole('row', { name: /e2e-bob/ })).toHaveCount(0);
     await expect(page.getByRole('img', { name: 'After push $2.00' })).toBeVisible();
     // The grouping chosen before is kept when a filter changes.
+    await expect(page.getByRole('button', { name: 'Engineer' })).toHaveAttribute('aria-pressed', 'true');
+
+    // Split by model: model columns replace the phase columns, in the bar and the table, and the address carries the choice.
+    await expect(byEngineer.getByRole('columnheader', { name: 'After push' })).toBeVisible();
+    await page.getByRole('button', { name: 'Model', exact: true }).click();
+    await expect(byEngineer.getByRole('columnheader', { name: 'claude-sonnet-5' })).toBeVisible();
+    await expect(byEngineer.getByRole('columnheader', { name: 'After push' })).toHaveCount(0);
+    await expect(page.getByRole('img', { name: 'claude-sonnet-5 $2.00' })).toBeVisible();
+    await expect(page).toHaveURL(/[?&]split=model(&|$)/);
     await expect(page.getByRole('button', { name: 'Engineer' })).toHaveAttribute('aria-pressed', 'true');
   });
 });
