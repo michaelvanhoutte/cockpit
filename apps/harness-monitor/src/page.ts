@@ -12,7 +12,7 @@ import {
   type Group,
   type Period,
 } from './costs';
-import { JOBS, type JobName, type JobRun } from './jobs';
+import { type JobName, type JobStatus } from './jobs';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
 
@@ -58,14 +58,16 @@ const NEVER_RAN: Record<JobName, string> = {
 };
 
 /** What each job's last run did, scheduled or by hand: when, how it was started, and its outcome or error. */
-function jobLines(runs: JobRun[]): string {
-  const items = JOBS.map((job) => {
-    const run = runs.find((r) => r.job === job);
+function jobLines(statuses: JobStatus[]): string {
+  const items = statuses.map(({ job, run, lastSucceededAt }) => {
+    // A deployment from before runs were recorded knows only when the job last succeeded.
     const text = run
       ? `last run ${utc(run.ranAt)} (${run.startedBy === 'hand' ? 'by hand' : 'scheduled'}) &mdash; ${esc(run.message)}${
-          run.ok ? '' : run.lastSucceededAt === null ? ' Never succeeded.' : ` Last succeeded ${utc(run.lastSucceededAt)}.`
+          run.ok ? '' : lastSucceededAt === null ? ' Never succeeded.' : ` Last succeeded ${utc(lastSucceededAt)}.`
         }`
-      : NEVER_RAN[job];
+      : lastSucceededAt === null
+        ? NEVER_RAN[job]
+        : `last succeeded ${utc(lastSucceededAt)}.`;
     return `<li data-job="${job}" class="${run && !run.ok ? 'failed' : ''}">${JOB_LABELS[job]}: ${text}</li>`;
   });
   return `<ul class="jobs muted">${items.join('')}</ul>`;
@@ -232,7 +234,7 @@ th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padd
 /** The public page: Claude Code's cost, grouped and filtered. Counts and dollars only; never an email or any content. */
 export function renderPage(
   page: CostsPage,
-  report: { unpriced: UnpricedLine[]; jobs: JobRun[] },
+  report: { unpriced: UnpricedLine[] },
   now = Date.now(),
 ): string {
   return `<!doctype html>
@@ -247,7 +249,7 @@ ${filters(page)}
 ${warning(report.unpriced)}
 ${whereItWent(page)}
 ${table(page)}
-${jobLines(report.jobs)}
+${jobLines(page.jobs)}
 </main>
 </body></html>`;
 }

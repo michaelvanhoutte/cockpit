@@ -1,7 +1,7 @@
 import { checkWriteKey } from './auth';
 import { costsPage, parseQuery, queryString } from './costs';
 import { exportCsv } from './export';
-import { isJob, JOBS, lastRuns, runJob } from './jobs';
+import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
@@ -20,9 +20,8 @@ export interface Env {
   PAGE_CACHE_SECONDS?: string;
 }
 
-/** The price job's schedule and the totals rebuild's; any other schedule links branches. */
-const PRICES = '10 3 * * *';
-const REBUILD = '20 3 * * *';
+/** Which job each cron in wrangler.jsonc starts. */
+const SCHEDULES: Record<string, JobName> = { '0 * * * *': 'linking', '10 3 * * *': 'prices', '20 3 * * *': 'rebuild' };
 
 /** Far above MAX_BATCH full rows, so only a malformed write reaches it. */
 const MAX_BODY = 1_000_000;
@@ -78,8 +77,8 @@ async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise
   const hit = await cache?.match(key);
   if (hit) return hit;
 
-  const [page, unpriced, jobs] = await Promise.all([costsPage(env.DB, query), unpricedLines(env.DB), lastRuns(env.DB)]);
-  const response = new Response(renderPage(page, { unpriced, jobs }), {
+  const [page, unpriced] = await Promise.all([costsPage(env.DB, query), unpricedLines(env.DB)]);
+  const response = new Response(renderPage(page, { unpriced }), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': cache ? `public, max-age=${seconds}` : 'no-store',
@@ -140,6 +139,11 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-    await runJob(env, controller.cron === PRICES ? 'prices' : controller.cron === REBUILD ? 'rebuild' : 'linking', 'schedule');
+    const job = Object.hasOwn(SCHEDULES, controller.cron) ? SCHEDULES[controller.cron] : undefined;
+    if (!job) {
+      console.error(`No job is scheduled as "${controller.cron}"; nothing ran.`);
+      return;
+    }
+    await runJob(env, job, 'schedule');
   },
 } satisfies ExportedHandler<Env>;

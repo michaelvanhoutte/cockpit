@@ -163,6 +163,67 @@ describe('Harness Monitor', () => {
       expect(await jobLine('rebuild')).toMatch(/^Daily totals: last run 2026-04-01 12:00 UTC/);
     });
 
+    it('a success recorded late is kept beside a newer failure', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const record = async (at: string, answer: () => Response) => {
+        vi.useFakeTimers({ toFake: ['Date'], now: new Date(at) });
+        fakeGitHub(answer);
+        await start('linking');
+        vi.restoreAllMocks();
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+      };
+      try {
+        await record('2026-04-01T13:00:00Z', () => new Response('no', { status: 401 }));
+        await record('2026-04-01T12:00:00Z', () => pageOf([recordedPullRequest(979)]));
+      } finally {
+        vi.useRealTimers();
+      }
+
+      // The link cursor's own success time would answer too; only the run record may.
+      await env.DB.prepare('DELETE FROM link_state').run();
+
+      expect(await jobLine('linking')).toBe(
+        'Branch linking: last run 2026-04-01 13:00 UTC (by hand) — GitHub refused the token (401). Last succeeded 2026-04-01 12:00 UTC.',
+      );
+    });
+
+    it('a deployment from before runs were recorded shows what the jobs stored, not "has not run yet"', async () => {
+      await env.DB.batch([
+        env.DB.prepare('INSERT INTO link_state (id, cursor, last_success_at) VALUES (1, NULL, ?)').bind(Date.parse('2026-03-01T08:00:00Z')),
+        env.DB.prepare('INSERT INTO price_list (id, models, fetched_at, last_attempt_at) VALUES (1, ?, ?, ?)').bind('{}', Date.parse('2026-03-02T03:10:00Z'), Date.parse('2026-03-02T03:10:00Z')),
+      ]);
+
+      expect(await jobLine('linking')).toBe('Branch linking: last succeeded 2026-03-01 08:00 UTC.');
+      expect(await jobLine('prices')).toBe('Price list: last succeeded 2026-03-02 03:10 UTC.');
+      expect(await jobLine('rebuild')).toBe('Daily totals: has not run yet.');
+    });
+
+    it('a failed first run on such a deployment names the earlier success', async () => {
+      await env.DB.prepare('INSERT INTO link_state (id, cursor, last_success_at) VALUES (1, NULL, ?)').bind(Date.parse('2026-03-01T08:00:00Z')).run();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      fakeGitHub(() => new Response('no', { status: 401 }));
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
+      try {
+        await start('linking');
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(await jobLine('linking')).toContain('Last succeeded 2026-03-01 08:00 UTC.');
+    });
+
+    it('a schedule no job answers to runs nothing and says so', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { default: worker } = await import('../../src/worker');
+      const ctx = createExecutionContext();
+
+      await worker.scheduled(createScheduledController({ cron: '5 5 * * *' }), env, ctx);
+      await waitOnExecutionContext(ctx);
+
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('5 5 * * *'));
+      expect(await jobLine('linking')).toBe('Branch linking: has not run yet.');
+    });
+
     it('a run that cannot be recorded still does its work and answers', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       await send([usage('a')]);
