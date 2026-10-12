@@ -80,14 +80,22 @@ A pull request is one line, cut into parts:
   pull request's `cancelled` splits them into `superseded` (a later push arrived before the run
   ended, or within five seconds after, which is how soon a push is seen) and `other`; `runnerMs` is
   every attempt that ran.
-- **Ready or draft**: a round in which the code review or the security review ran is `ready`,
-  since a draft skips both.
+- **A local review is a slice of the gap it sat in.** The session record's `review-start` and
+  `review-end` of one kind pair into a review; the pull request's `reviewSlices` cut each to the
+  gaps it ran in (before the first push, and between a round and the next push), so a review
+  marked across a push or a round counts only its parts in the gaps either side, and one inside a
+  gap long enough to read as away counts in neither. Where two overlap, the later starts where the
+  earlier ended. The strip draws the slices and the scatter's harness adds them, so the two agree to
+  the minute. Review checks (`claude-review`, `Security review`) were removed in "Remove the
+  remote code and security reviews" (pull request 512); in older history they count under tests and
+  checks like any other.
 - **A conclusion it does not know is neither a pass nor a fail**, and is named in the round's
   `unrecognised`.
 - **Time nobody wrote down reads as not recorded, never zero.** A pull request with no record
   starts at its first commit and says so in `notes`; a record missing one phase is read for the
   rest (`notRecorded` lists what it lacks); a record whose start is after the first commit is
-  ignored for its start. `localReviews` is `null` where no review was marked start and end.
+  ignored for its start. `localReviews` is `null` where no review was marked start and end, and
+  a pull request's `harness.local` (per kind, the minutes that count) is `null` likewise.
 - **Every figure carries its counts**: `count` is the items behind it (rounds, gaps) and `pulls`
   the pull requests they came from. A window with nothing in it reads `null`, not zero, and
   `pulls.withoutRecord` says how many pull requests the record-based figures left out. A pull
@@ -96,9 +104,11 @@ A pull request is one line, cut into parts:
 Over each window the model gives the median and p95 of every part, `queue` (per check, `null`
 where no job list was read), `cancelled` (superseded and other minutes, and `share`, cancelled
 runner minutes over all runner minutes, not over round time, `null` with none; `supersededShare` is the superseded part over the same runner minutes, `null` likewise), the rounds per pull request,
-how many rounds ran past ten minutes, and what each kind of check held rounds up for (`harness`:
-minutes, runs, and rounds it finished last). Each pull request carries the same `harness` shape
-for its own rounds, so the page can plot one pull request the way it reads a window. `pulls` in
+how many rounds ran past ten minutes, what the checks held rounds up for (`harness`: minutes,
+runs, and rounds they finished last) and the local review time (`localReviews`: count and minutes as
+marked, and the minutes per kind). Each pull request carries the same `harness` shape for its own
+rounds, plus `harness.local`, the review minutes per kind that count, so the page can plot one pull
+request the way it reads a window. `pulls` in
 the model is the per-pull-request detail behind them.
 
 Each window's `failures` lists every failing test file and every failing step with the pull
@@ -120,7 +130,8 @@ measured, that only merged pull requests count, and how many carry a session rec
 evolution panels, coding against the harness, and a strip per pull request.
 
 - **Evolution is four panels, one point per pull request read** (not one per window), positioned
-  by when it actually merged: where the harness minutes go (stacked by kind), start to merge,
+  by when it actually merged: where the harness minutes go (tests and checks, then local code and
+  security review, stacked), start to merge,
   rounds to merge, and the share of a pull request's rounds that were red. A dot's size is the
   pull request's own lines changed, the same on every panel, so a trend is something to see
   rather than two window snapshots to compare by eye.
@@ -136,6 +147,9 @@ evolution panels, coding against the harness, and a strip per pull request.
 
 - **A strip is drawn on one scale for every pull request** (`src/render/strips.js`), up to four
   hours; a longer one is cut at the edge and says how much it cut. Time away is off the scale.
+- **Local and CI read apart.** Local kinds (coding, fixing, each local review) are in greens and
+  teals, CI kinds in blue, and the legend is grouped under *Local* and *CI*. Waiting to merge and
+  time away are in neither. A later local kind joins the first group.
 - **A pull request with no session record reads "not recorded"**, as a tag and a hatched first
   part, so it never looks like coding that took no time.
 - **No script and nothing fetched**: styles are inline, and the only addresses are links a reader

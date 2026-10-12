@@ -19,7 +19,7 @@
  * has none starts at its first commit, and says so.
  */
 
-import { PHASES, readBlock } from '../../../scripts/lib/session-record.mjs';
+import { PHASES, REVIEW_KINDS, readBlock } from '../../../scripts/lib/session-record.mjs';
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -27,28 +27,19 @@ const HOUR_MS = 3_600_000;
 /** A gap longer than this is somebody away, not somebody fixing or a check waiting to be looked at. */
 export const AWAY_MS = 3 * HOUR_MS;
 
-/**
- * The checks that are a review, by the name their job reports. A round in which
- * one ran is a *ready* round: the pull request was marked ready, since a draft
- * skips both. Named here rather than read from the workflows because they no
- * longer exist — they were removed in "Remove the remote code and security
- * reviews" (pull request 512), and history before it still carries them.
- */
-const REVIEW_CHECKS = { 'code-review': 'claude-review', 'security-review': 'Security review' };
-
 /** A round that took longer than this is one somebody was kept waiting on. */
 export const LONG_ROUND_MS = 10 * 60_000;
 
 /**
- * What kind of check a name is: one of the two reviews, or everything else, which
- * is the tests and the mechanical checks. The page groups by this rather than by
- * name, because job names come and go and the question is who held the round.
+ * The kinds of CI check a round is held by. Every check is `checks` today, the tests
+ * and the mechanical ones alike: the remote reviews ran as checks of their own until
+ * "Remove the remote code and security reviews" (pull request 512), and a review is
+ * now a local kind (`LOCAL_REVIEW_KINDS`), never a check.
  */
-export const CHECK_KINDS = ['checks', ...Object.keys(REVIEW_CHECKS)];
+export const CHECK_KINDS = ['checks'];
 
-export function kindOf(name) {
-  return Object.entries(REVIEW_CHECKS).find(([, reviewName]) => reviewName === name)?.[0] ?? 'checks';
-}
+/** The reviews a session marks, from the session record: local time, apart from CI's. */
+export const LOCAL_REVIEW_KINDS = REVIEW_KINDS;
 
 /**
  * Every conclusion the Actions API documents, and what it means here. `other` is
@@ -372,14 +363,12 @@ function buildRounds(commits, mergedAt) {
     const unrecognised = finals
       .filter((attempt) => classify(attempt) === 'unknown')
       .map((attempt) => ({ name: attempt.name, conclusion: attempt.conclusion }));
-    const reviewNames = Object.values(REVIEW_CHECKS);
 
     return {
       sha: push.commit.sha,
       pushedAt: iso(push.at),
       endedAt: iso(previous),
       ms: previous - push.at,
-      kind: push.ran.flat().some((attempt) => reviewNames.includes(attempt.name)) ? 'ready' : 'draft',
       red: failed.length > 0,
       failed,
       unrecognised,
@@ -407,9 +396,9 @@ function readRecord(body, firstCommit) {
   try {
     entries = readBlock(body ?? '');
   } catch (error) {
-    return { present: false, start: null, notRecorded: [], localReviews: null, notes: [`The session record could not be read: ${error.message}`] };
+    return { present: false, start: null, notRecorded: [], localReviews: null, reviews: [], notes: [`The session record could not be read: ${error.message}`] };
   }
-  if (entries.length === 0) return { present: false, start: null, notRecorded: [], localReviews: null, notes: [] };
+  if (entries.length === 0) return { present: false, start: null, notRecorded: [], localReviews: null, reviews: [], notes: [] };
 
   const marks = entries.map((entry) => ({ ...entry, ms: time(entry.at) })).filter((entry) => entry.ms !== null);
   const notes = [];
@@ -432,7 +421,7 @@ function readRecord(body, firstCommit) {
     else if (mark.phase === 'review-end' && open.has(mark.kind)) {
       const begun = open.get(mark.kind);
       open.delete(mark.kind);
-      if (mark.ms >= begun.ms) reviews.push({ kind: mark.kind, level: mark.level, ms: mark.ms - begun.ms });
+      if (mark.ms >= begun.ms) reviews.push({ kind: mark.kind, level: mark.level, startMs: begun.ms, endMs: mark.ms, ms: mark.ms - begun.ms });
     }
   }
 
@@ -448,8 +437,35 @@ function readRecord(body, firstCommit) {
     start,
     notRecorded: PHASES.filter((phase) => !entries.some((entry) => entry.phase === phase)),
     localReviews: reviews.length ? { count: reviews.length, ms: sum(reviews.map((review) => review.ms)), byKind } : null,
+    reviews,
     notes,
   };
+}
+
+/**
+ * Where each local review sat among the parts of the pull request, and how much of it
+ * counts. A review is cut to the gaps it ran in — before the first push, and between
+ * a round and the next push — because only there was somebody writing for it to come
+ * out of. Time inside a round, after the last round, and in a gap long enough to read
+ * as away is in no slice, so the strip and the scatter's harness add up the same
+ * minutes. Where two reviews overlap, the later one starts where the earlier ended.
+ *
+ * @param {{ kind: string, level: string, startMs: number, endMs: number }[]} reviews
+ * @param {{ gap: number, from: number, to: number }[]} gaps `gap` is 0 before the first push, and n after round n
+ */
+function sliceReviews(reviews, gaps) {
+  const slices = [];
+  let covered = -Infinity;
+  for (const review of [...reviews].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)) {
+    const from = Math.max(review.startMs, covered);
+    covered = Math.max(covered, review.endMs);
+    for (const gap of gaps) {
+      const start = Math.max(from, gap.from);
+      const end = Math.min(review.endMs, gap.to);
+      if (end > start) slices.push({ kind: review.kind, level: review.level, gap: gap.gap, at: iso(start), ms: end - start });
+    }
+  }
+  return slices;
 }
 
 /**
@@ -485,6 +501,17 @@ export function pullModel(pull) {
 
   const beforeFirstPushMs = rounds.length ? Math.max(0, time(rounds[0].pushedAt) - startMs) : null;
 
+  // The gaps a local review can sit in: before the first push, and between a round and
+  // the next push unless that gap reads as away. Waiting to merge is not one.
+  const gaps = [];
+  if (rounds.length > 0) gaps.push({ gap: 0, from: startMs, to: time(rounds[0].pushedAt) });
+  for (let index = 0; index + 1 < rounds.length; index += 1) {
+    const from = time(rounds[index].endedAt);
+    const to = time(rounds[index + 1].pushedAt);
+    if (to - from <= AWAY_MS) gaps.push({ gap: index + 1, from, to });
+  }
+  const reviewSlices = sliceReviews(record.reviews, gaps);
+
   // Coding against the harness: where a person was writing, against where the harness
   // was being waited on. Only a pull request with a record can say — without one,
   // its local reviews are not there to move out of the coding — and one no check ran
@@ -494,10 +521,8 @@ export function pullModel(pull) {
   let balance = null;
   if (record.present && rounds.length > 0) {
     const writingMs = beforeFirstPushMs + sum(fixing);
-    // A review can only come out of the time it sat in: one marked longer than that
-    // (it ran beside a round, or through a night) would otherwise be moved in full to
-    // the harness and taken from a coding that never held it.
-    const reviewMs = Math.min(record.localReviews?.ms ?? 0, writingMs);
+    // The slices are already cut to the gaps, so no more can move than the writing held.
+    const reviewMs = sum(reviewSlices.map((slice) => slice.ms));
     const codingMs = writingMs - reviewMs;
     const harnessMs = sum(rounds.map((round) => round.ms)) + reviewMs;
     balance = { codingMs, harnessMs, rounds: rounds.length, ratio: codingMs > 0 ? harnessMs / codingMs : null };
@@ -532,12 +557,28 @@ export function pullModel(pull) {
     totalMs: Math.max(0, mergedAt - startMs),
     flukes: rounds.flatMap((round) => round.flukes),
     localReviews: record.localReviews,
+    // Each local review cut to the gaps it sat in, in the order they ran: what the strip
+    // draws and the harness counts. `gap` is 0 before the first push and n after round n.
+    reviewSlices,
     // What each kind of check held this pull request's own rounds up for, the same
     // shape a window's `harness` is in — so the evolution chart can plot one pull
-    // request's kinds the same way it reads a window's.
-    harness: harnessOf(rounds),
+    // request's kinds the same way it reads a window's. `local` is the local review
+    // that the scatter adds to the same rounds, per kind; `null` where none was marked,
+    // which is not recorded and not zero.
+    harness: { ...harnessOf(rounds), local: localOf(record, reviewSlices) },
     notes,
   };
+}
+
+/** Local review time that counts towards the harness, per kind, or `null` where the record marks no review to count. */
+function localOf(record, slices) {
+  if (!record.present || !record.localReviews) return null;
+  return Object.fromEntries(
+    LOCAL_REVIEW_KINDS.map((kind) => {
+      const own = slices.filter((slice) => slice.kind === kind);
+      return [kind, { ms: sum(own.map((slice) => slice.ms)), runs: own.length }];
+    }),
+  );
 }
 
 /** Minutes held, runs and rounds finished last, for each kind of check — every kind present, so a kind that held nothing reads as a zero it earned. */
@@ -545,11 +586,10 @@ function harnessOf(rounds) {
   const kinds = Object.fromEntries(CHECK_KINDS.map((kind) => [kind, { ms: 0, runs: 0, last: 0 }]));
   for (const round of rounds) {
     for (const held of round.held) {
-      const kind = kindOf(held.name);
-      kinds[kind].ms += held.ms;
-      kinds[kind].runs += 1;
+      kinds.checks.ms += held.ms;
+      kinds.checks.runs += 1;
     }
-    if (round.last !== null) kinds[kindOf(round.last)].last += 1;
+    if (round.last !== null) kinds.checks.last += 1;
   }
   return { rounds: rounds.length, kinds };
 }
@@ -654,8 +694,6 @@ function windowModel(pulls, { days, now, coveredSince }) {
       total: figure(inWindow.map((pull) => ({ pull: pull.number, value: pull.totalMs }))),
       beforeFirstPush: figure(inWindow.filter((pull) => pull.beforeFirstPushMs !== null).map((pull) => ({ pull: pull.number, value: pull.beforeFirstPushMs }))),
       round: figure(rounds),
-      draftRound: figure(rounds.filter((entry) => entry.round.kind === 'draft')),
-      readyRound: figure(rounds.filter((entry) => entry.round.kind === 'ready')),
       fixing: figure(each((pull) => pull.fixingMs)),
       waitingToMerge: figure(inWindow.filter((pull) => pull.waitingToMergeMs !== null).map((pull) => ({ pull: pull.number, value: pull.waitingToMergeMs }))),
       away: figure(each((pull) => pull.awayMs)),
@@ -669,16 +707,23 @@ function windowModel(pulls, { days, now, coveredSince }) {
       noChecks: withRecord.length - placed.length,
     },
     // Only over the pull requests that have a record, which is why the window says
-    // how many do not.
+    // how many do not. `ms` is the time the reviews took as marked; `byKind` splits it
+    // per kind, over the pull requests that ran that kind. What counts towards the
+    // harness is the part inside the gaps (`pull.harness.local`), which can be less.
     localReviews: {
       count: figure(reviewed.map((pull) => ({ pull: pull.number, value: pull.localReviews.count }))),
       ms: figure(reviewed.map((pull) => ({ pull: pull.number, value: pull.localReviews.ms }))),
+      byKind: Object.fromEntries(
+        LOCAL_REVIEW_KINDS.map((kind) => [
+          kind,
+          figure(reviewed.filter((pull) => pull.localReviews.byKind[kind]).map((pull) => ({ pull: pull.number, value: pull.localReviews.byKind[kind].ms }))),
+        ]),
+      ),
     },
     rounds: inWindow.length
       ? {
           count: rounds.length,
           red: rounds.filter((entry) => entry.round.red).length,
-          ready: rounds.filter((entry) => entry.round.kind === 'ready').length,
           overTenMinutes: rounds.filter((entry) => entry.value > LONG_ROUND_MS).length,
           queueNotRecorded: rounds.filter((entry) => entry.round.queueNotRecorded).length,
           // A pull request no check ever ran on has no round, so it is left out of

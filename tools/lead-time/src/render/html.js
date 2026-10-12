@@ -14,14 +14,40 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { AWAY_MS, CHECK_KINDS, kindOf } from '../model.js';
+import { AWAY_MS, LOCAL_REVIEW_KINDS } from '../model.js';
 import { layoutScatter, radiusFor } from './scatter.js';
 import { fitTo, partsOf, scaleFor } from './strips.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-const KINDS = CHECK_KINDS;
-const KIND_LABEL = { checks: 'Tests and checks', 'code-review': 'Code review', 'security-review': 'Security review' };
+/**
+ * Every kind of time a strip or a panel draws, and which side it is on: `local` is
+ * work on the developer's machine and `ci` is the harness's. One colour family each
+ * (styles.css), so a later local kind joins here and in the stylesheet and nowhere
+ * else. Waiting to merge and time away are in neither group.
+ */
+const KIND_GROUPS = [
+  { id: 'local', label: 'Local' },
+  { id: 'ci', label: 'CI' },
+];
+const KIND = {
+  coding: { group: 'local', label: 'Coding before the first push', key: 'coding before the first push' },
+  fixing: { group: 'local', label: 'Fixing between rounds', key: 'fixing between rounds' },
+  'local-code-review': { group: 'local', label: 'Local code review', key: 'code review' },
+  'local-security-review': { group: 'local', label: 'Local security review', key: 'security review' },
+  checks: { group: 'ci', label: 'Tests and checks', key: 'held by tests and checks' },
+};
+const KIND_LABEL = Object.fromEntries(Object.entries(KIND).map(([id, kind]) => [id, kind.label]));
+
+/** The class a local review of this kind is drawn and keyed with. */
+const reviewClass = (kind) => `local-${kind}`;
+/** Bottom to top in a panel's bar: CI first, then each local review. */
+const LANES = ['checks', ...LOCAL_REVIEW_KINDS.map(reviewClass)];
+/** A pull request's minutes in one panel lane, or `null` where the lane reads not recorded. */
+function laneMs(pull, lane) {
+  if (lane === 'checks') return pull.harness.kinds.checks.ms;
+  return pull.harness.local?.[lane.replace(/^local-/, '')]?.ms ?? null;
+}
 
 const esc = (value) =>
   String(value ?? '')
@@ -122,7 +148,7 @@ function roundText(round, index) {
 
 /** What one check held a round for, in words, for the title on its own slice of the round. */
 function heldText(held) {
-  return `${KIND_LABEL[kindOf(held.name)]} (${held.name}) · held it ${humanMs(held.ms)}${held.rerun ? ' · re-run' : ''}`;
+  return `${KIND_LABEL.checks} (${held.name}) · held it ${humanMs(held.ms)}${held.rerun ? ' · re-run' : ''}`;
 }
 
 const PART_TITLE = {
@@ -164,7 +190,7 @@ function roundPieces(round, visibleMs = round.ms) {
       used += Math.min(held.ms, room);
     }
   }
-  return shown.map((held) => `<span class="piece ${kindOf(held.name)}" style="flex:${growOf(held.ms)} 1 0" title="${esc(heldText(held))}"></span>`).join('');
+  return shown.map((held) => `<span class="piece checks" style="flex:${growOf(held.ms)} 1 0" title="${esc(heldText(held))}"></span>`).join('');
 }
 
 function segment(part, pull) {
@@ -176,6 +202,11 @@ function segment(part, pull) {
       (part.round.red ? '<i class="mark red" aria-hidden="true">✕</i>' : '') + (part.round.flukes.length ? '<i class="mark fluke" aria-hidden="true">↻</i>' : '');
     const pieces = roundPieces(part.round, part.cut ? part.ms : undefined);
     return `<span class="seg round${part.round.red ? ' red' : ''}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(roundText(part.round, part.index))}">${pieces}${marks}</span>`;
+  }
+
+  if (part.type === 'review') {
+    const title = `${KIND_LABEL[reviewClass(part.kind)]} · ${part.level} · ${humanMs(part.ms)}`;
+    return `<span class="seg review ${reviewClass(part.kind)}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(title)}"></span>`;
   }
 
   const unrecorded = part.type === 'coding' && !pull.recorded ? ' unrecorded' : '';
@@ -220,19 +251,30 @@ function stripRow(pull, parts, scaleMs) {
   </div>`;
 }
 
+const swatch = (cls, text) => `<span class="key"><span class="swatch ${cls}"></span>${text}</span>`;
+
+/** The kinds in `ids`, each under its own group's heading, so a reader sees which side of the line it is on before reading what it is. */
+function groupedKeys(ids, text) {
+  return KIND_GROUPS.map((group) => ({ group, ids: ids.filter((id) => KIND[id].group === group.id) }))
+    .filter(({ ids: own }) => own.length > 0)
+    .map(
+      ({ group, ids: own }) =>
+        `<div class="keygroup ${group.id}"><span class="keyhead">${group.label}</span>${own.map((id) => swatch(id, esc(text(id)))).join('')}</div>`,
+    )
+    .join('');
+}
+
 function legend() {
-  const item = (cls, text) => `<span class="key"><span class="swatch ${cls}"></span>${text}</span>`;
-  return `<div class="legend">
-    ${item('coding', 'coding before the first push')}
-    ${item('checks', 'held by tests and checks')}
-    ${item('code-review', 'held by code review')}
-    ${item('security-review', 'held by security review')}
-    ${item('fixing', 'fixing between rounds')}
-    ${item('wait', 'waiting to merge')}
-    ${item('away', `away (over ${humanMs(AWAY_MS)}, off the scale)`)}
-    <span class="key"><i class="mark red" aria-hidden="true">✕</i>red round</span>
-    <span class="key"><i class="mark fluke" aria-hidden="true">↻</i>fluke: failed, passed on re-run</span>
-    ${item('unrecorded', 'not recorded: no session record, so its strip starts at the first commit')}
+  const text = (id) => (id === 'local-code-review' || id === 'local-security-review' ? `${KIND[id].key} (local, at the time it ran)` : KIND[id].key);
+  return `<div class="legend grouped">
+    ${groupedKeys(['coding', 'fixing', 'local-code-review', 'local-security-review', 'checks'], text)}
+    <div class="keygroup">
+      ${swatch('wait', 'waiting to merge')}
+      ${swatch('away', `away (over ${humanMs(AWAY_MS)}, off the scale)`)}
+      <span class="key"><i class="mark red" aria-hidden="true">✕</i>red round</span>
+      <span class="key"><i class="mark fluke" aria-hidden="true">↻</i>fluke: failed, passed on re-run</span>
+      ${swatch('unrecorded', 'not recorded: no session record, so its strip starts at the first commit')}
+    </div>
   </div>`;
 }
 
@@ -240,7 +282,7 @@ function strips(model) {
   if (model.pulls.length === 0) return '<div class="card"><p class="empty">No merged pull requests in this period.</p></div>';
   const allParts = model.pulls.map(partsOf);
   const scaleMs = scaleFor(allParts);
-  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}. Time away is not on it. A round is split into the checks that held it, in the order they finished — hover a slice for which one and how long; open a row for its rounds in words.</p>`;
+  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}. Time away is not on it. A round is split into the checks that held it, in the order they finished — hover a slice for which one and how long; open a row for its rounds in words. A local review is cut out of the coding or fixing it sat in, at the time it ran. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
   return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs)).join('')}</div>`;
 }
 
@@ -471,11 +513,14 @@ function evoHarness(pulls, t0, t1, maxLines, maxY) {
     .map((pull) => {
       const cx = px(Date.parse(pull.mergedAt));
       let y = EVO.top + plotH;
-      return KINDS.map((kind) => {
-        const ms = pull.harness.kinds[kind].ms;
-        if (ms <= 0) return '';
+      // A pull request whose record marks no review has no local lanes to draw, and says
+      // so on its bars rather than leaving a missing lane to read as zero.
+      const unrecorded = pull.harness.local === null ? LANES.filter((lane) => laneMs(pull, lane) === null).map((lane) => `\n${KIND_LABEL[lane]}: not recorded`).join('') : '';
+      return LANES.map((kind) => {
+        const ms = laneMs(pull, kind);
+        if (ms === null || ms <= 0) return '';
         const h = plotH * (Math.min(ms, maxY) / maxY);
-        const rect = `<rect class="evobar ${kind}" x="${(cx - barW / 2).toFixed(1)}" y="${(y - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}"><title>${esc(`${evoTitle(pull)}\n${KIND_LABEL[kind]}: ${humanMs(ms)}`)}</title></rect>`;
+        const rect = `<rect class="evobar ${kind}" x="${(cx - barW / 2).toFixed(1)}" y="${(y - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}"><title>${esc(`${evoTitle(pull)}\n${KIND_LABEL[kind]}: ${humanMs(ms)}${unrecorded}`)}</title></rect>`;
         y -= h;
         return rect;
       }).join('');
@@ -512,7 +557,7 @@ function evoBar(pulls, t0, t1, maxLines, { cls, maxY, yFormat, valueOf, titleOf 
 function evoScales(pulls) {
   return {
     maxLines: Math.max(1, ...pulls.map((pull) => pull.size.additions + pull.size.deletions)),
-    harnessMaxY: Math.max(60_000, ...pulls.map((pull) => KINDS.reduce((sum, kind) => sum + pull.harness.kinds[kind].ms, 0))),
+    harnessMaxY: Math.max(60_000, ...pulls.map((pull) => LANES.reduce((sum, lane) => sum + (laneMs(pull, lane) ?? 0), 0))),
     leadMaxY: Math.max(60_000, ...pulls.map((pull) => pull.totalMs)),
     roundsMaxY: Math.max(1, ...pulls.map((pull) => pull.rounds.length)),
   };
@@ -534,7 +579,8 @@ function evolution(pulls, scales) {
   // same second is a batch or a merge queue, not a coincidence — and leaves no span to plot.
   if (t1 === t0) return '<div class="card pad"><p class="empty">Every pull request in this period merged at the same moment, so there is no span of time to plot.</p></div>';
 
-  const legend = `<div class="legend">${KINDS.map((kind) => `<span class="key"><span class="swatch ${kind}"></span>${KIND_LABEL[kind]}</span>`).join('')}</div>`;
+  const legend = `<div class="legend grouped">${groupedKeys(LANES, (id) => KIND_LABEL[id])}</div>
+    <p class="sectionnote">A pull request with no session record has no local lanes; hover its bar and it says <em>not recorded</em>, which is not zero.</p>`;
 
   const rounds = (pull) => pull.rounds.length;
   const redShare = (pull) => (pull.rounds.length ? pull.rounds.filter((round) => round.red).length / pull.rounds.length : 0);

@@ -110,21 +110,21 @@ describe('Lead time', () => {
   });
 
   describe('the strip draws every round', () => {
-    it('draws three rounds in order, each coloured by the check that held it', () => {
+    it('draws three rounds in order, each held by tests and checks, whatever the check is named', () => {
       const html = render({
         pulls: [
           pull({
             mergedAt: at(120),
             commits: [
               commit('a', 0, [check('Test', 2, 12)]),
-              commit('b', 30, [check('Test', 31, 40), check('claude-review', 31, 50)]),
-              commit('c', 70, [check('Test', 71, 76), check('Security review', 71, 85)]),
+              commit('b', 30, [check('Test', 31, 40), check('E2E (F3)', 31, 50)]),
+              commit('c', 70, [check('Test', 71, 76), check('claude-review', 71, 85)]),
             ],
           }),
         ],
       });
-      // Rounds 2 and 3 also ran Test, held earlier in the round: the check named
-      // here is the one whose piece ends the round, not the only piece in it.
+      // Rounds 2 and 3 also ran Test, held earlier in the round. A check named for a remote
+      // review is one of them: those reviews no longer exist, so it draws as any other.
       const heldByRound = stripOf(html, 1)
         .split('<span class="seg round')
         .slice(1)
@@ -132,7 +132,8 @@ describe('Lead time', () => {
           const kinds = [...round.matchAll(/class="piece (\S+?)"/g)].map((match) => match[1]);
           return kinds[kinds.length - 1];
         });
-      expect(heldByRound).toEqual(['checks', 'code-review', 'security-review']);
+      expect(heldByRound).toEqual(['checks', 'checks', 'checks']);
+      expect(stripOf(html, 1)).not.toMatch(/piece (code|security)-review/);
       const titles = [...stripOf(html, 1).matchAll(/title="(Round \d)/g)].map((match) => match[1]);
       expect(titles).toEqual(['Round 1', 'Round 2', 'Round 3']);
     });
@@ -141,33 +142,33 @@ describe('Lead time', () => {
       const html = render({
         pulls: [
           pull({
-            commits: [commit('a', 0, [check('Test', 2, 12), check('claude-review', 2, 20)])],
+            commits: [commit('a', 0, [check('Test', 2, 12), check('E2E (F3)', 2, 20)])],
           }),
         ],
       });
       const round = stripOf(html, 1).split('<span class="seg round')[1];
       const pieces = [...round.matchAll(/class="piece (\S+?)"/g)].map((match) => match[1]);
       // Test finishes first, at minute 12, and holds the round from the push at
-      // minute 2 until then (10 minutes); code review is still running and holds
+      // minute 2 until then (10 minutes); E2E is still running and holds
       // the remaining 8 minutes, to minute 20.
-      expect(pieces).toEqual(['checks', 'code-review']);
+      expect(pieces).toEqual(['checks', 'checks']);
       expect(round).toContain('Tests and checks (Test) · held it 10m 00s');
-      expect(round).toContain('Code review (claude-review) · held it 8m 00s');
+      expect(round).toContain('Tests and checks (E2E (F3)) · held it 8m 00s');
     });
 
     it('names every check that held a round in its own words, not only the last', () => {
       const html = render({
         pulls: [
           pull({
-            commits: [commit('a', 0, [check('Test', 2, 12), check('claude-review', 2, 20)])],
+            commits: [commit('a', 0, [check('Test', 2, 12), check('E2E (F3)', 2, 20)])],
           }),
         ],
       });
       // The round-list text is read on its own, without hovering the strip's
       // pieces, so it must not repeat the strip's old single-check mistake.
       const detail = rowOf(html, 1).split('<ol class="roundlist">')[1];
-      expect(detail).toContain('held by Test, then claude-review');
-      expect(detail).not.toContain('held by claude-review');
+      expect(detail).toContain('held by Test, then E2E (F3)');
+      expect(detail).not.toContain('held by E2E (F3)');
     });
 
     it('trims a clipped round to what is actually shown, not the full round squeezed into less room', () => {
@@ -175,17 +176,17 @@ describe('Lead time', () => {
         pulls: [
           pull({
             mergedAt: at(260),
-            // Test holds the round for its first 198 minutes; claude-review then
+            // Test holds the round for its first 198 minutes; E2E then
             // holds the last 60, past the scale's 240-minute cap.
-            commits: [commit('a', 2, [check('Test', 2, 200), check('claude-review', 2, 260)])],
+            commits: [commit('a', 2, [check('Test', 2, 200), check('E2E (F3)', 2, 260)])],
           }),
         ],
       });
       const round = stripOf(html, 1).split('<span class="seg round')[1];
       expect(round).toContain('cut');
-      // Only 42 of code review's real 60 minutes fall before the cap (240 minus
+      // Only 42 of E2E's real 60 minutes fall before the cap (240 minus
       // the 198 Test already used); the old, buggy version showed its full 60.
-      expect(round).toContain('Code review (claude-review) · held it 42m 00s');
+      expect(round).toContain('Tests and checks (E2E (F3)) · held it 42m 00s');
       expect(round).not.toContain('60m 00s');
     });
 
@@ -254,6 +255,100 @@ describe('Lead time', () => {
     it('reads a pull request no check ran on as having no rounds, not as a strip of nothing', () => {
       const html = render({ pulls: [pull({ commits: [commit('a', 0)] })] });
       expect(stripOf(html, 1)).toContain('no check ran on it');
+    });
+  });
+
+  describe('the strip draws a local review as its own slice, apart from CI', () => {
+    const reviewed = (...reviews) =>
+      renderBlock([
+        { at: at(0), phase: 'start' },
+        ...reviews.flatMap(([kind, level, from, to]) => [
+          { at: at(from), phase: 'review-start', kind, level },
+          { at: at(to), phase: 'review-end', kind, level },
+        ]),
+        { at: at(19), phase: 'pushed' },
+      ]);
+    const withReviews = (...reviews) => pull({ body: reviewed(...reviews), mergedAt: at(60), commits: [commit('a', 0, [check('Test', 20, 40)])] });
+    const sliceTitles = (html) => [...stripOf(html, 1).matchAll(/<span class="seg review ([\w-]+)[^"]*" style="[^"]*" title="([^"]*)"/g)].map((match) => [match[1], match[2]]);
+    const legendOf = (html) => html.split('<h2>Each pull request, start to merge</h2>')[1].split('<div class="card">')[0];
+
+    it('names the kind, the level and how long it took on hover, in the order the reviews ran', () => {
+      const html = render({ pulls: [withReviews(['code-review', 'high', 2, 6], ['security-review', 'xhigh', 8, 10])] });
+      expect(sliceTitles(html)).toEqual([
+        ['local-code-review', 'Local code review · high · 4m 00s'],
+        ['local-security-review', 'Local security review · xhigh · 2m 00s'],
+      ]);
+    });
+
+    it('keeps the coding either side of a review, and the slice in its own place in the row', () => {
+      const strip = stripOf(render({ pulls: [withReviews(['code-review', 'high', 5, 15])] }), 1);
+      expect(strip.match(/<span class="seg (coding|review|round)\b/g)).toEqual(['<span class="seg coding', '<span class="seg review', '<span class="seg coding', '<span class="seg round']);
+    });
+
+    it('names a local review in the legend as local, never as holding a round', () => {
+      const legend = legendOf(render({ pulls: [withReviews(['code-review', 'high', 5, 15])] }));
+      expect(legend).toContain('code review (local, at the time it ran)');
+      expect(legend).toContain('security review (local, at the time it ran)');
+      expect(legend).not.toMatch(/held by (code|security) review/);
+    });
+
+    it('puts every kind under exactly one of Local and CI, and waiting to merge and away under neither', () => {
+      const legend = legendOf(render({ pulls: [withReviews(['code-review', 'high', 5, 15])] }));
+      const swatchesIn = (group) => [...group.matchAll(/class="swatch ([\w-]+)"/g)].map((match) => match[1]);
+      const [, local, ci, neither] = legend.split('<div class="keygroup');
+      expect(swatchesIn(local)).toEqual(['coding', 'fixing', 'local-code-review', 'local-security-review']);
+      expect(swatchesIn(ci)).toEqual(['checks']);
+      expect(local).toContain('>Local<');
+      expect(ci).toContain('>CI<');
+      expect(swatchesIn(neither)).toEqual(expect.arrayContaining(['wait', 'away']));
+      expect(neither).not.toContain('keyhead');
+    });
+
+    describe('each group is a colour family, and a kind has one colour on strip and panel', () => {
+      const css = render().split('<style>')[1].split('</style>')[0];
+      const hueOf = (hex) => {
+        const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+        const max = Math.max(r, g, b);
+        const delta = max - Math.min(r, g, b);
+        const hue = delta === 0 ? 0 : max === r ? ((g - b) / delta) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+        return (hue * 60 + 360) % 360;
+      };
+      const valuesOf = (name) => [...css.matchAll(new RegExp(`--${name}: (#[0-9a-f]{6});`, 'g'))].map((match) => match[1]);
+
+      it.each(['coding', 'fixing', 'local-code-review', 'local-security-review'])('draws the local kind %s in greens and teals, in dark and light', (name) => {
+        const values = valuesOf(name);
+        expect(values).toHaveLength(2);
+        for (const value of values) expect([hueOf(value) >= 90, hueOf(value) <= 180]).toEqual([true, true]);
+      });
+
+      it('draws the CI kind in blue, in dark and light', () => {
+        const values = valuesOf('checks');
+        expect(values).toHaveLength(2);
+        for (const value of values) expect([hueOf(value) >= 200, hueOf(value) <= 250]).toEqual([true, true]);
+      });
+
+      it.each([
+        { kind: 'local-code-review', strip: '.seg.review.local-code-review' },
+        { kind: 'local-security-review', strip: '.seg.review.local-security-review' },
+        { kind: 'checks', strip: '.piece.checks' },
+      ])('gives $kind the same colour on the strip, the key and the panel', ({ kind, strip }) => {
+        expect(css).toContain(`${strip} { background: var(--${kind}); }`);
+        expect(css).toContain(`.swatch.${kind} { background: var(--${kind}); }`);
+        expect(css).toContain(`.evobar.${kind} { fill: var(--${kind}); }`);
+      });
+    });
+
+    it('reads a pull request with no session record as not recorded, with no review slice drawn', () => {
+      const html = render({ pulls: [pull({ commits: [commit('a', 0, [check('Test', 20, 40)])] })] });
+      expect(stripOf(html, 1)).not.toContain('seg review');
+      expect(rowOf(html, 1)).toContain('>not recorded<');
+      expect(rowOf(html, 1)).toContain('local review are not measured');
+    });
+
+    it('draws no review slice for a record that marks no review, and does not call it not recorded', () => {
+      const html = render({ pulls: [pull({ body: withRecord(0), commits: [commit('a', 0, [check('Test', 20, 40)])] })] });
+      expect(stripOf(html, 1)).not.toContain('seg review');
+      expect(rowOf(html, 1)).not.toContain('not recorded');
     });
   });
 
@@ -435,19 +530,55 @@ describe('Lead time', () => {
       expect(sectionOf(html)).toContain('no span of time to plot');
     });
 
-    it("stacks each pull request's own held minutes by kind, and leaves out a kind that held none of it", () => {
+    it("stacks each pull request's own minutes by kind, local review on tests and checks, and leaves out a kind that held none of it", () => {
+      const reviewed = renderBlock([
+        { at: at(60), phase: 'start' },
+        { at: at(61), phase: 'review-start', kind: 'code-review', level: 'high' },
+        { at: at(71), phase: 'review-end', kind: 'code-review', level: 'high' },
+        { at: at(72), phase: 'pushed' },
+      ]);
       const html = render({
         pulls: [
-          pull({ number: 1, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12)])] }),
-          pull({ number: 2, mergedAt: at(120), commits: [commit('b', 60, [check('Test', 62, 72), check('claude-review', 62, 82)])] }),
+          pull({ number: 1, mergedAt: at(60), body: withRecord(0), commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 2, mergedAt: at(120), body: reviewed, commits: [commit('b', 60, [check('Test', 72, 82), check('Lint', 72, 90)])] }),
         ],
       });
       const section = sectionOf(html);
       expect(section).toContain('#1 A change\nTests and checks: 10m 00s');
-      expect(section).toContain('#2 A change\nTests and checks: 10m 00s');
-      expect(section).toContain('#2 A change\nCode review: 10m 00s');
-      // Pull request 1's round was held entirely by checks, so it has nothing to say about code review.
-      expect(section).not.toContain('#1 A change\nCode review');
+      expect(section).toContain('#2 A change\nTests and checks: 18m 00s');
+      expect(section).toContain('#2 A change\nLocal code review: 10m 00s');
+      // Neither pull request marked a security review, and the record has reviews, so it is a lane of zero and not drawn.
+      expect(section).not.toContain('Local security review: 0');
+      expect(section).not.toMatch(/evobar (code|security)-review/);
+      // The local lane sits above the CI one, in its own colour.
+      expect(section).toMatch(/<rect class="evobar checks"[^>]*><title>#2[\s\S]*<rect class="evobar local-code-review"[^>]*><title>#2/);
+    });
+
+    it('draws no CI code review or security review lane, even where a check is named for one', () => {
+      const html = render({
+        pulls: [
+          pull({ number: 1, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 2, mergedAt: at(120), commits: [commit('b', 60, [check('Test', 62, 72), check('claude-review', 62, 82), check('Security review', 62, 85)])] }),
+        ],
+      });
+      const section = sectionOf(html);
+      expect(section).toContain('#2 A change\nTests and checks: 23m 00s');
+      expect(section).not.toMatch(/\nCode review|\nSecurity review|evobar code-review|evobar security-review/);
+      const legend = section.split('<div class="legend grouped">')[1].split('</div></div>')[0];
+      expect(legend).not.toMatch(/>(held by )?(code|security) review/);
+    });
+
+    it('says a pull request with no session record has no review lanes, rather than drawing them as zero', () => {
+      const html = render({
+        pulls: [
+          pull({ number: 1, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 2, mergedAt: at(120), body: withRecord(60), commits: [commit('b', 60, [check('Test', 62, 72)])] }),
+        ],
+      });
+      const section = sectionOf(html);
+      expect(section).toContain('#1 A change\nTests and checks: 10m 00s\nLocal code review: not recorded\nLocal security review: not recorded');
+      // A record that marks no review reads the same: the lanes have nothing to draw and say why.
+      expect(section).toContain('#2 A change\nTests and checks: 10m 00s\nLocal code review: not recorded');
     });
 
     it("sizes a pull request's dot by its own lines changed, on every panel", () => {

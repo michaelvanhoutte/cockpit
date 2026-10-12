@@ -37,6 +37,7 @@ const pull = (overrides = {}) => ({
 });
 
 const minutes = (ms) => ms / MIN;
+const sum = (values) => values.reduce((total, value) => total + value, 0);
 
 /** A record body, from marks given as minutes past 09:00. */
 const recordBody = (marks) =>
@@ -133,23 +134,41 @@ describe('Lead time', () => {
       expect(model.waitingToMergeMs).toBeNull();
     });
 
+  });
+
+  describe('the remote reviews are gone: a check named for one is an ordinary check', () => {
     it.each([
-      { situation: 'a review check ran', checks: [check('Test', 2, 12), check('claude-review', 2, 10)], kind: 'ready' },
-      { situation: 'the security review ran', checks: [check('Test', 2, 12), check('Security review', 2, 9)], kind: 'ready' },
-      { situation: 'the review checks were skipped', checks: [check('Test', 2, 12), check('claude-review', 2, 2, 'skipped')], kind: 'draft' },
-      { situation: 'no review check was on the commit', checks: [check('Test', 2, 12)], kind: 'draft' },
-    ])('calls a round ready or draft by whether the reviews ran: $situation', ({ checks, kind }) => {
-      expect(pullModel(pull({ commits: [commit('a', 0, checks)] })).rounds[0].kind).toBe(kind);
+      { situation: 'a check named claude-review', name: 'claude-review' },
+      { situation: 'a check named Security review', name: 'Security review' },
+    ])('counts $situation under tests and checks, and gives its round no ready or draft kind', ({ name }) => {
+      const model = pullModel(pull({ commits: [commit('a', 0, [check('Test', 2, 12), check(name, 2, 10)])] }));
+      expect(model.rounds[0]).not.toHaveProperty('kind');
+      expect(Object.keys(model.harness.kinds)).toEqual(['checks']);
+      expect(model.harness.kinds.checks).toEqual({ ms: 10 * MIN, runs: 2, last: 1 });
+    });
+
+    it('gives a window no figure for ready or draft rounds', () => {
+      const [window] = buildModel({
+        pulls: [pull({ commits: [commit('a', 0, [check('Test', 2, 12), check('claude-review', 2, 10)])] })],
+        now: NOW,
+        requestedDays: 7,
+        coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN),
+        repo: 'o/r',
+        windows: [7],
+      }).windows;
+      expect(window.parts).not.toHaveProperty('readyRound');
+      expect(window.parts).not.toHaveProperty('draftRound');
+      expect(window.rounds).not.toHaveProperty('ready');
     });
   });
 
   describe('a round says what held it', () => {
-    it('names the review as last where the tests finish first and it finishes later', () => {
-      const [round] = pullModel(pull({ commits: [commit('a', 0, [check('Test', 2, 10), check('claude-review', 3, 14)])] })).rounds;
-      expect(round.last).toBe('claude-review');
+    it('names the check that finishes last, where the tests finish first and it finishes later', () => {
+      const [round] = pullModel(pull({ commits: [commit('a', 0, [check('Test', 2, 10), check('E2E (F3)', 3, 14)])] })).rounds;
+      expect(round.last).toBe('E2E (F3)');
       expect(round.held.map(({ name, ms }) => [name, minutes(ms)])).toEqual([
         ['Test', 8],
-        ['claude-review', 4],
+        ['E2E (F3)', 4],
       ]);
     });
 
@@ -344,7 +363,7 @@ describe('Lead time', () => {
 
     it('reads a window that no pull request reviewed locally as no data', () => {
       const [window] = build([finished(1, 60, 10)]).windows;
-      expect(window.localReviews).toEqual({ count: null, ms: null });
+      expect(window.localReviews).toEqual({ count: null, ms: null, byKind: { 'code-review': null, 'security-review': null } });
     });
 
     it('leaves a pull request closed without merging out of every figure', () => {
@@ -389,9 +408,7 @@ describe('Lead time', () => {
       ]);
       const { harness } = model.windows[0];
       expect(harness.rounds).toBe(2);
-      expect(harness.kinds.checks).toEqual({ ms: 15 * MIN, runs: 3, last: 1 });
-      expect(harness.kinds['security-review']).toEqual({ ms: 4 * MIN, runs: 1, last: 0 });
-      expect(harness.kinds['code-review']).toEqual({ ms: 5 * MIN, runs: 1, last: 1 });
+      expect(harness.kinds).toEqual({ checks: { ms: 24 * MIN, runs: 5, last: 2 } });
     });
 
     it('reads no pull requests in the window as no harness figures, not as a harness that held nothing', () => {
@@ -408,14 +425,12 @@ describe('Lead time', () => {
         }),
       ]).pulls;
       expect(pullModelled.harness.rounds).toBe(2);
-      expect(pullModelled.harness.kinds.checks).toEqual({ ms: 15 * MIN, runs: 3, last: 1 });
-      expect(pullModelled.harness.kinds['security-review']).toEqual({ ms: 4 * MIN, runs: 1, last: 0 });
-      expect(pullModelled.harness.kinds['code-review']).toEqual({ ms: 5 * MIN, runs: 1, last: 1 });
+      expect(pullModelled.harness.kinds).toEqual({ checks: { ms: 24 * MIN, runs: 5, last: 2 } });
     });
 
     it('gives a pull request no check ran on a harness of zeroes, not null, since that is what it did', () => {
       const [pullModelled] = build([merged({ commits: [commit('a', 0)] })]).pulls;
-      expect(pullModelled.harness).toEqual({ rounds: 0, kinds: { checks: { ms: 0, runs: 0, last: 0 }, 'code-review': { ms: 0, runs: 0, last: 0 }, 'security-review': { ms: 0, runs: 0, last: 0 } } });
+      expect(pullModelled.harness).toEqual({ rounds: 0, kinds: { checks: { ms: 0, runs: 0, last: 0 } }, local: null });
     });
 
     it('reads pull requests no check ran on as no harness figures, not as a harness that held nothing', () => {
@@ -475,11 +490,11 @@ describe('Lead time', () => {
       expect(balance).toEqual({ codingMs: 0, harnessMs: 30 * MIN, rounds: 1, ratio: null });
     });
 
-    it('moves no more review to the harness than the time it came out of, where one was marked longer than that', () => {
+    it('moves no more review to the harness than the part it sat in held, where one was marked past the push', () => {
       const body = recordBody([[0, 'start'], [5, 'review-start', 'code-review', 'low'], [45, 'review-end', 'code-review', 'low']]);
       const { balance } = pullModel(pull({ commits: [commit('a', 0, [check('Test', 20, 30)])], body }));
-      // 20 minutes before the push held the whole of a 40-minute review; only that 20 moves.
-      expect(balance).toEqual({ codingMs: 0, harnessMs: 30 * MIN, rounds: 1, ratio: null });
+      // The 20 minutes before the push held 15 of the 40-minute review, from minute 5; the rest ran beside the round.
+      expect(balance).toEqual({ codingMs: 5 * MIN, harnessMs: 25 * MIN, rounds: 1, ratio: 5 });
     });
 
     it("gives a window the dots of the pull requests it weighed and the median of their ratios, counting what it could not weigh", () => {
@@ -504,6 +519,136 @@ describe('Lead time', () => {
     it('reads a window with no weighed pull request as no median, never as a ratio of zero', () => {
       const [window] = buildModel({ pulls: [], now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] }).windows;
       expect(window.balance).toEqual({ dots: [], ratio: null, noChecks: 0 });
+    });
+  });
+
+  describe('a local review is its own slice of the part it sat in', () => {
+    // Started at 0; first push at 20 (round 20–40), a fix, a second push at 55 (round 55–65), merged at 70.
+    const commits = [commit('a', 0, [check('Test', 20, 40)]), commit('b', 50, [check('Test', 55, 65)])];
+    const reviewing = (...marks) => recordBody([[0, 'start'], ...marks, [66, 'pushed']]);
+    const review = (kind, level, from, to) => [[from, 'review-start', kind, level], [to, 'review-end', kind, level]];
+    const modelled = (body, overrides = {}) => pullModel(pull({ mergedAt: at(70), commits, body, ...overrides }));
+    const shape = (slices) => slices.map((slice) => [slice.kind, slice.level, slice.gap, minutes(Date.parse(slice.at) - BASE), minutes(slice.ms)]);
+
+    it.each([
+      { situation: 'before the first push', marks: review('code-review', 'high', 5, 15), slices: [['code-review', 'high', 0, 5, 10]] },
+      { situation: 'between a red round and the next push', marks: review('code-review', 'xhigh', 42, 50), slices: [['code-review', 'xhigh', 1, 42, 8]] },
+      {
+        situation: 'a code review then a security review',
+        marks: [...review('code-review', 'high', 2, 6), ...review('security-review', 'medium', 8, 10)],
+        slices: [['code-review', 'high', 0, 2, 4], ['security-review', 'medium', 0, 8, 2]],
+      },
+      {
+        situation: 'a code review and its recheck',
+        marks: [...review('code-review', 'high', 2, 6), ...review('code-review', 'low', 42, 44)],
+        slices: [['code-review', 'high', 0, 2, 4], ['code-review', 'low', 1, 42, 2]],
+      },
+    ])('keeps a review $situation at the time it ran, with its kind and level', ({ marks, slices }) => {
+      expect(shape(modelled(reviewing(...marks)).reviewSlices)).toEqual(slices);
+    });
+
+    it('takes a review out of the coding it sat in, and nothing else', () => {
+      const plain = modelled(reviewing());
+      const reviewed = modelled(reviewing(...review('code-review', 'high', 5, 15)));
+      expect(reviewed.balance.codingMs).toBe(plain.balance.codingMs - 10 * MIN);
+      expect(reviewed.beforeFirstPushMs).toBe(plain.beforeFirstPushMs);
+      expect(reviewed.rounds.map((round) => round.ms)).toEqual(plain.rounds.map((round) => round.ms));
+    });
+
+    it.each([
+      { situation: 'a review that was started and never ended', marks: [[5, 'review-start', 'code-review', 'high']] },
+      { situation: 'an end marked before its start in the record', marks: [[15, 'review-end', 'code-review', 'high'], [5, 'review-start', 'code-review', 'high']] },
+      { situation: 'an end dated before its start', marks: [[15, 'review-start', 'code-review', 'high'], [5, 'review-end', 'code-review', 'high']] },
+    ])('draws no slice for $situation, and leaves the coding as it was', ({ marks }) => {
+      const model = modelled(reviewing(...marks));
+      expect(model.reviewSlices).toEqual([]);
+      expect(model.balance.codingMs).toBe(modelled(reviewing()).balance.codingMs);
+    });
+
+    it('clips a review marked across the first push at the push, and leaves the round untouched', () => {
+      const model = modelled(reviewing(...review('code-review', 'high', 10, 30)));
+      expect(shape(model.reviewSlices)).toEqual([['code-review', 'high', 0, 10, 10]]);
+      expect(model.rounds.map((round) => minutes(round.ms))).toEqual([20, 10]);
+    });
+
+    it('counts only the parts in the gaps either side of a round that a review spanned', () => {
+      const model = modelled(reviewing(...review('security-review', 'high', 10, 50)));
+      expect(shape(model.reviewSlices)).toEqual([['security-review', 'high', 0, 10, 10], ['security-review', 'high', 1, 40, 10]]);
+    });
+
+    it('starts a review that overlaps an earlier one where the earlier ended, so no minute counts twice', () => {
+      const model = modelled(reviewing(...review('code-review', 'high', 2, 10), ...review('security-review', 'high', 6, 14)));
+      expect(shape(model.reviewSlices)).toEqual([['code-review', 'high', 0, 2, 8], ['security-review', 'high', 0, 10, 4]]);
+    });
+
+    it('counts a review inside a gap long enough to read as away in neither the strip nor the harness', () => {
+      const away = [commits[0], commit('b', 50, [check('Test', 300, 310)])];
+      const model = pullModel(pull({ mergedAt: at(420), commits: away, body: reviewing(...review('code-review', 'high', 100, 120)) }));
+      expect(model.awayMs.map(minutes)).toEqual([260]);
+      expect(model.reviewSlices).toEqual([]);
+      expect(model.harness.local['code-review']).toEqual({ ms: 0, runs: 0 });
+    });
+
+    it('counts a review during the wait to merge in no part', () => {
+      expect(modelled(reviewing(...review('code-review', 'high', 66, 69))).reviewSlices).toEqual([]);
+    });
+  });
+
+  describe("a pull request's harness is its rounds plus its local review, and its panel adds up to the scatter's", () => {
+    const commits = [commit('a', 0, [check('Test', 20, 40)]), commit('b', 50, [check('Test', 55, 65)])];
+    const marks = [
+      [0, 'start'],
+      [5, 'review-start', 'code-review', 'high'],
+      [15, 'review-end', 'code-review', 'high'],
+      [42, 'review-start', 'security-review', 'high'],
+      [48, 'review-end', 'security-review', 'high'],
+      [66, 'pushed'],
+    ];
+    const build = (pulls) =>
+      buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });
+
+    it('gives a pull request with both kinds of review a lane of minutes for each', () => {
+      const { harness } = pullModel(pull({ mergedAt: at(70), commits, body: recordBody(marks) }));
+      expect(harness.local).toEqual({ 'code-review': { ms: 10 * MIN, runs: 1 }, 'security-review': { ms: 6 * MIN, runs: 1 } });
+    });
+
+    it.each([
+      { situation: 'two kinds of review', body: recordBody(marks) },
+      { situation: 'a review marked past the push', body: recordBody([[0, 'start'], [10, 'review-start', 'code-review', 'low'], [30, 'review-end', 'code-review', 'low']]) },
+    ])('totals the same minutes as the scatter’s harness: $situation', ({ body }) => {
+      const model = pullModel(pull({ mergedAt: at(70), commits, body }));
+      const panel = model.harness.kinds.checks.ms + sum(Object.values(model.harness.local).map((lane) => lane.ms));
+      expect(panel).toBe(model.balance.harnessMs);
+    });
+
+    it('gives a window the local review time per kind beside the total, over the pull requests that ran that kind', () => {
+      const codeOnly = recordBody([[0, 'start'], [5, 'review-start', 'code-review', 'high'], [11, 'review-end', 'code-review', 'high'], [66, 'pushed']]);
+      const [window] = build([
+        pull({ number: 1, mergedAt: at(70), commits, body: recordBody(marks) }),
+        pull({ number: 2, mergedAt: at(70), commits, body: codeOnly }),
+      ]).windows;
+      expect(window.localReviews.ms).toMatchObject({ pulls: 2, count: 2 });
+      expect(window.localReviews.byKind['code-review']).toMatchObject({ pulls: 2, median: 8 * MIN });
+      expect(window.localReviews.byKind['security-review']).toMatchObject({ pulls: 1, median: 6 * MIN });
+    });
+  });
+
+  describe('local review time nobody wrote down reads as not recorded, never zero', () => {
+    const commits = [commit('a', 0, [check('Test', 20, 40)])];
+
+    it.each([
+      { situation: 'a pull request with no session record', body: '' },
+      { situation: 'a record that marks no review', body: recordBody([[0, 'start'], [10, 'pushed']]) },
+    ])('reads $situation as no review lanes', ({ body }) => {
+      const model = pullModel(pull({ commits, body }));
+      expect(model.harness.local).toBeNull();
+      expect(model.localReviews).toBeNull();
+      expect(model.reviewSlices).toEqual([]);
+    });
+
+    it('reads a window with no pull request in it as no review figures', () => {
+      const [window] = buildModel({ pulls: [], now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] }).windows;
+      expect(window.localReviews).toEqual({ count: null, ms: null, byKind: { 'code-review': null, 'security-review': null } });
     });
   });
 

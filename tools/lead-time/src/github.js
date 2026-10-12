@@ -18,8 +18,8 @@
  *   record, about 3 for one that does. A passing attempt costs nothing.
  * - For queue time, 1 per CI run, its job list (shared by every round, attempt and
  *   pull on that run); about 1.4. A check run does not name its workflow, so the CI
- *   runs are listed once beforehand, 1 request per 100, and a review run is skipped
- *   by its absence from that list.
+ *   runs are listed once beforehand, 1 request per 100, and a check of
+ *   another workflow is left out by its absence from that list.
  *
  * The listing that finds the pulls is 1 request in a hundred. `maxPulls` is 120 by
  * default, which is about 900 at that cost and leaves room for the hour's other
@@ -29,7 +29,7 @@
  */
 
 import { readZipJson } from '../../selection/src/zip.js';
-import { classify, matchArtifact, kindOf, recordArtifactOf } from './model.js';
+import { classify, matchArtifact, recordArtifactOf } from './model.js';
 
 const API = 'https://api.github.com';
 const RECORD_FILE = 'record.json';
@@ -323,20 +323,17 @@ const LISTING_CAP = 1000;
  * so the CI runs are listed once, from a day before `since`: about one request per 100
  * runs, against one per run to ask each. Then each distinct CI run's job list is read once,
  * however many rounds, attempts or pulls share it (`filter=all`, so a re-run's attempts come
- * together), and a job's id is its check run's id. A review run is not in that list and
- * costs nothing.
- *
+ * together), and a job's id is its check run's id. *
  * This is supplementary detail read last, so unlike `readFailure` even a spent allowance
  * leaves the affected checks `not-recorded` (`rate-limit`) and every pull request in place,
  * rather than discarding what was already read. Only a bug in this code throws. A check is never left silently without a queue where its run could have been CI:
  * a listing that failed or reports more runs than it can return (`unreadable`), or a check
- * older than the listing reaches (`outside-listing`), says so. The two review checks are
- * known by name not to be CI, which is how a failed listing spares them.
+ * older than the listing reaches (`outside-listing`), says so.
  */
 async function readQueue({ repo, pulls, since, concurrency = 4, ...ctx }) {
   const checks = pulls
     .flatMap((pull) => pull.commits.flatMap((commit) => commit.checks))
-    .filter((check) => check.runId !== null && (check.app === null || check.app === 'github-actions') && kindOf(check.name) === 'checks');
+    .filter((check) => check.runId !== null && (check.app === null || check.app === 'github-actions'));
   if (checks.length === 0) return;
 
   const notRecorded = (list, why) => list.forEach((check) => (check.queue = { state: 'not-recorded', why }));
@@ -367,7 +364,7 @@ async function readQueue({ repo, pulls, since, concurrency = 4, ...ctx }) {
     return;
   }
 
-  // Not in the list, and not a review: a listing that is short cannot say the run was not CI,
+  // Not in the list: a listing that is short cannot say the run was not CI,
   // and a complete one that lacks it (a re-run of an older CI run, say) does not reach it.
   for (const check of checks.filter((each) => !ci.has(each.runId))) notRecorded([check], complete ? 'outside-listing' : 'unreadable');
 
