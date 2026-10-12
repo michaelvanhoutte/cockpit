@@ -576,9 +576,94 @@ describe('Cycle time', () => {
       expect(shape(model.reviewSlices)).toEqual([['security-review', 'high', 0, 10, 10], ['security-review', 'high', 1, 40, 10]]);
     });
 
-    it('starts a review that overlaps an earlier one where the earlier ended, so no minute counts twice', () => {
-      const model = modelled(reviewing(...review('code-review', 'high', 2, 10), ...review('security-review', 'high', 6, 14)));
-      expect(shape(model.reviewSlices)).toEqual([['code-review', 'high', 0, 2, 8], ['security-review', 'high', 0, 10, 4]]);
+    it('keeps each of two parallel reviews at its own marked interval, with no shift', () => {
+      const model = modelled(reviewing(...review('code-review', 'high', 2, 12), ...review('security-review', 'high', 3, 7)));
+      expect(shape(model.reviewSlices)).toEqual([['code-review', 'high', 0, 2, 10], ['security-review', 'high', 0, 3, 4]]);
+      expect(model.harness.local).toMatchObject({ 'code-review': { ms: 10 * MIN, runs: 1 }, 'security-review': { ms: 4 * MIN, runs: 1 } });
+    });
+
+    it('keeps two reviews one after the other at their own lengths', () => {
+      const model = modelled(reviewing(...review('code-review', 'high', 2, 12), ...review('security-review', 'high', 12, 17)));
+      expect(shape(model.reviewSlices)).toEqual([['code-review', 'high', 0, 2, 10], ['security-review', 'high', 0, 12, 5]]);
+    });
+
+    it('cuts a parallel review that runs past the first push at the push', () => {
+      const model = modelled(reviewing(...review('code-review', 'high', 10, 30), ...review('security-review', 'high', 12, 25)));
+      expect(shape(model.reviewSlices)).toEqual([['code-review', 'high', 0, 10, 10], ['security-review', 'high', 0, 12, 8]]);
+    });
+
+    it('counts the minutes two parallel reviews share once in the harness', () => {
+      const plain = modelled(reviewing());
+      const parallel = modelled(reviewing(...review('code-review', 'high', 2, 12), ...review('security-review', 'high', 3, 7)));
+      expect(parallel.balance.harnessMs - plain.balance.harnessMs).toBe(10 * MIN);
+    });
+
+    it('counts a test run inside two parallel reviews as no extra harness minute', () => {
+      const body = renderBlock([
+        { at: at(0), phase: 'start' },
+        { at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' },
+        { at: at(12), phase: 'review-end', kind: 'code-review', level: 'high' },
+        { at: at(3), phase: 'review-start', kind: 'security-review', level: 'high' },
+        { at: at(7), phase: 'review-end', kind: 'security-review', level: 'high' },
+        { run: 'test', scopes: ['a'], start: at(4), end: at(10) },
+        { at: at(66), phase: 'pushed' },
+      ]);
+      const model = modelled(body);
+      const plain = modelled(reviewing());
+      expect(model.balance.harnessMs - plain.balance.harnessMs).toBe(10 * MIN);
+    });
+
+    it("reads a pull request's local reviews as the wall clock, the count marked, and each kind's own minutes", () => {
+      const { localReviews } = modelled(reviewing(...review('code-review', 'high', 2, 12), ...review('security-review', 'high', 3, 7)));
+      expect(localReviews).toEqual({ count: 2, ms: 10 * MIN, byKind: { 'code-review': { count: 1, ms: 10 * MIN }, 'security-review': { count: 1, ms: 4 * MIN } } });
+    });
+
+    it('reads two sequential reviews of 10 and 5 minutes as 15', () => {
+      const { localReviews } = modelled(reviewing(...review('code-review', 'high', 2, 12), ...review('security-review', 'high', 20, 25)));
+      expect(localReviews.ms).toBe(15 * MIN);
+    });
+
+    it('gives a window each pull request’s review wall clock, shared minutes once', () => {
+      const parallel = pull({ number: 1, mergedAt: at(70), commits, body: reviewing(...review('code-review', 'high', 2, 12), ...review('security-review', 'high', 3, 7)) });
+      const sequential = pull({ number: 2, mergedAt: at(70), commits, body: reviewing(...review('code-review', 'high', 2, 12), ...review('security-review', 'high', 12, 17)) });
+      const [window] = buildModel({ pulls: [parallel, sequential], now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] }).windows;
+      expect(window.localReviews.ms).toMatchObject({ pulls: 2, count: 2, median: 12.5 * MIN });
+      expect(window.localReviews.byKind['security-review']).toMatchObject({ pulls: 2, median: 4.5 * MIN });
+    });
+
+    describe('reviews whose ends were written together', () => {
+      const ends = (secondEnd) => [[0, 'start'], [2, 'review-start', 'code-review', 'high'], [3, 'review-start', 'security-review', 'high'], [12, 'review-end', 'code-review', 'high'], [secondEnd, 'review-end', 'security-review', 'high']];
+      const flags = (body) => modelled(body).reviewSlices.map((slice) => [slice.kind, minutes(slice.ms), slice.endedTogether ?? false]);
+      const bodyWith = (secondEndMs) =>
+        renderBlock([
+          { at: at(0), phase: 'start' },
+          { at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' },
+          { at: at(3), phase: 'review-start', kind: 'security-review', level: 'high' },
+          { at: at(12), phase: 'review-end', kind: 'code-review', level: 'high' },
+          { at: new Date(BASE + 12 * MIN + secondEndMs).toISOString(), phase: 'review-end', kind: 'security-review', level: 'high' },
+        ]);
+
+      it('draws both at the recorded shared length and flags each as ended together', () => {
+        const body = renderBlock([
+          { at: at(0), phase: 'start' },
+          { at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' },
+          { at: at(2), phase: 'review-start', kind: 'security-review', level: 'high' },
+          { at: at(12), phase: 'review-end', kind: 'code-review', level: 'high' },
+          { at: at(12), phase: 'review-end', kind: 'security-review', level: 'high' },
+        ]);
+        expect(flags(body)).toEqual([['code-review', 10, true], ['security-review', 10, true]]);
+      });
+
+      it.each([
+        { situation: 'ends 0.6 s apart', gap: 600, together: true },
+        { situation: 'ends 2 s apart', gap: 2000, together: false },
+      ])('reads $situation', ({ gap, together }) => {
+        expect(flags(bodyWith(gap)).map((entry) => entry[2])).toEqual([together, together]);
+      });
+
+      it('does not flag one review alone', () => {
+        expect(flags(recordBody(ends(12).filter((mark) => mark[2] !== 'security-review')))).toEqual([['code-review', 10, false]]);
+      });
     });
 
     it('counts a review inside a gap long enough to read as away in neither the strip nor the harness', () => {

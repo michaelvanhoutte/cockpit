@@ -84,17 +84,21 @@ A pull request is one line, cut into parts:
   `review-end` of one kind pair into a review; the pull request's `reviewSlices` cut each to the
   gaps it ran in (before the first push, and between a round and the next push), so a review
   marked across a push or a round counts only its parts in the gaps either side, and one inside a
-  gap long enough to read as away counts in neither. Where two overlap, the later starts where the
-  earlier ended. The strip draws the slices and the scatter's harness adds them, so the two agree to
-  the minute. Review checks (`claude-review`, `Security review`) were removed in "Remove the
+  gap long enough to read as away counts in neither. A review keeps its own marked interval, so two
+  that ran in parallel overlap; the strip draws them as lanes and the harness counts their shared
+  minutes once, so the two agree to the minute. A pull request's `localReviews.ms` is its review wall
+  clock, shared minutes once, and `byKind` each kind's own count and minutes. In a record where two
+  reviews of different kinds have end marks within a second of each other, the ends were written
+  together: both are drawn at the recorded shared length, flagged `endedTogether`, and the hover says
+  its own length is not recorded. Review checks (`claude-review`, `Security review`) were removed in "Remove the
   remote code and security reviews" (pull request 512); in older history they count under tests and
   checks like any other.
 - **A local test run and the browser pass are slices too**, cut to the same gaps (`runSlices`).
   Test runs are the `test-run` lines the runners wrote into the record, the browser pass a
-  `browser-start` paired with the next `browser-end`; a start with no end gives no slice. Unlike
-  two reviews, these are not moved to start where another ended, so a test run during a review is
-  drawn as well: the strip shows the stretch they share once, striped in both colours, and the
-  harness total counts the union of every local slice once. A panel lane is a kind's own minutes, so
+  `browser-start` paired with the next `browser-end`; a start with no end gives no slice. A test
+  run during a review is drawn as well. Where local work runs in parallel the strip splits into one
+  full-height lane per thread, centred on its line, in a fixed order: code review, security review,
+  test run, browser pass. The harness total counts the union of every local slice once. A panel lane is a kind's own minutes, so
   lanes can add up to more than the harness total by the overlap.
 - **A conclusion it does not know is neither a pass nor a fail**, and is named in the round's
   `unrecognised`.

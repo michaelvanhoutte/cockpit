@@ -12,7 +12,10 @@
  * and says how much it cut.
  */
 
-import { AWAY_MS, LOCAL_REVIEW_KINDS } from '../model.js';
+import { AWAY_MS, LOCAL_REVIEW_KINDS, LOCAL_RUN_KINDS } from '../model.js';
+
+/** Top to bottom in a stack of parallel lanes: each review, then the test run, then the browser pass. */
+const LANE_ORDER = [...LOCAL_REVIEW_KINDS, ...LOCAL_RUN_KINDS];
 
 /** The longest stretch of time a strip is drawn to before it is cut. */
 const SCALE_CAP_MS = 4 * 3_600_000;
@@ -22,22 +25,41 @@ const SCALE_FLOOR_MS = 60_000;
 
 /**
  * One gap of writing — before the first push, or between rounds — as the stretches of
- * `type` and the local reviews that sat in it, in the order they ran. The reviews are
- * the model's slices, already cut to the gap, so what is left of `type` is the gap's
- * length less them, and the strip adds up to the same minutes the scatter's harness does.
+ * `type` and the local work that sat in it, in the order it ran. The slices are the
+ * model's, already cut to the gap, so what is left of `type` is the gap's length less
+ * them, and the strip adds up to the same minutes the scatter's harness does. Slices
+ * that overlap are one `parallel` part holding a lane per slice.
  */
 function gapParts(type, from, to, slices) {
-  const ranges = slices.map((slice) => ({ slice, from: Date.parse(slice.at), to: Date.parse(slice.at) + slice.ms }));
-  const edges = [...new Set([from, to, ...ranges.flatMap((range) => [range.from, range.to])])].filter((edge) => edge >= from && edge <= to).sort((a, b) => a - b);
-  const parts = [];
-  for (let index = 0; index + 1 < edges.length; index += 1) {
-    const [begins, ends] = [edges[index], edges[index + 1]];
-    const active = ranges.filter((range) => range.from <= begins && range.to >= ends).map((range) => describe(range.slice));
-    if (active.length === 0) parts.push({ type, ms: ends - begins });
-    // The sweep cuts the gap at every slice's edges, so a stretch two slices share is one part naming both and the strip adds up to the union.
-    else if (active.length === 1) parts.push({ ...active[0], ms: ends - begins });
-    else parts.push({ type: 'overlap', ms: ends - begins, slices: active });
+  const ranges = slices
+    .map((slice) => ({ slice, from: Math.max(from, Date.parse(slice.at)), to: Math.min(to, Date.parse(slice.at) + slice.ms) }))
+    .filter((range) => range.to > range.from)
+    .sort((a, b) => a.from - b.from || a.to - b.to);
+  // Slices that overlap, directly or through a chain of them, are one stretch of parallel work.
+  const stretches = [];
+  for (const range of ranges) {
+    const last = stretches[stretches.length - 1];
+    if (last && range.from < last.to) {
+      last.ranges.push(range);
+      last.to = Math.max(last.to, range.to);
+    } else stretches.push({ from: range.from, to: range.to, ranges: [range] });
   }
+
+  const parts = [];
+  let cursor = from;
+  for (const stretch of stretches) {
+    if (stretch.from > cursor) parts.push({ type, ms: stretch.from - cursor });
+    if (stretch.ranges.length === 1) parts.push({ ...describe(stretch.ranges[0].slice), ms: stretch.to - stretch.from });
+    else {
+      // One lane per thread, in the fixed order; each sits where its own work does, so a lane that ends early leaves the rest of the stretch to the others.
+      const lanes = stretch.ranges
+        .map((range) => ({ ...describe(range.slice), offsetMs: range.from - stretch.from, ms: range.to - range.from }))
+        .sort((a, b) => LANE_ORDER.indexOf(a.kind) - LANE_ORDER.indexOf(b.kind) || a.offsetMs - b.offsetMs);
+      parts.push({ type: 'parallel', ms: stretch.to - stretch.from, lanes });
+    }
+    cursor = stretch.to;
+  }
+  if (to > cursor) parts.push({ type, ms: to - cursor });
   return parts;
 }
 
@@ -48,6 +70,7 @@ function describe(slice) {
     kind: slice.kind,
     ...(slice.level ? { level: slice.level } : {}),
     ...(slice.scopes ? { scopes: slice.scopes } : {}),
+    ...(slice.endedTogether ? { endedTogether: true } : {}),
     at: slice.at,
     sliceMs: slice.ms,
   };
@@ -58,7 +81,7 @@ function describe(slice) {
  * ran on it, since every part after the first push is measured from a round.
  *
  * @param {object} pull a pull request from the model
- * @returns {{ type: 'coding'|'review'|'test'|'browser'|'overlap'|'round'|'fixing'|'wait'|'away', ms: number, round?: object, index?: number, kind?: string, level?: string, scopes?: string[], slices?: object[] }[]}
+ * @returns {{ type: 'coding'|'review'|'test'|'browser'|'parallel'|'round'|'fixing'|'wait'|'away', ms: number, round?: object, index?: number, kind?: string, level?: string, scopes?: string[], lanes?: object[] }[]}
  */
 export function partsOf(pull) {
   const parts = [];

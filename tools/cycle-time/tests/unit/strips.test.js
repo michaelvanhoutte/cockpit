@@ -93,7 +93,7 @@ describe('Cycle time', () => {
       const model = modelled(marks, { merged, ...(rounds ? { rounds } : {}) });
       const parts = partsOf(model);
       // The strip's slices are what the scatter moves from coding to the harness; coding and fixing are what is left.
-      expect(total(parts, 'review')).toBe(model.balance.harnessMs - total(parts, 'round'));
+      expect(total(parts, 'review', 'parallel')).toBe(model.balance.harnessMs - total(parts, 'round'));
       expect(total(parts, 'coding', 'fixing')).toBe(model.balance.codingMs);
     });
 
@@ -219,10 +219,53 @@ describe('Cycle time', () => {
       expect(parts.map((part) => part.type)).toEqual(['coding', 'round', 'fixing', 'round', 'wait']);
     });
 
-    it('draws a test run during a review as one stretch naming both, so the strip adds up to the union', () => {
+    const lanesOf = (parts) => parts.find((part) => part.type === 'parallel')?.lanes.map((lane) => [lane.kind, lane.offsetMs / MIN, lane.ms / MIN]);
+
+    it('draws a review with nothing alongside it as one part, with no lanes', () => {
+      const parts = partsOf(modelled(review('code-review', 5, 15)));
+      expect(parts.some((part) => part.type === 'parallel')).toBe(false);
+      expect(parts.find((part) => part.type === 'review')).toMatchObject({ kind: 'code-review', ms: 10 * MIN });
+    });
+
+    it('draws a code review and a security review in parallel as two lanes, code review first', () => {
+      const parts = partsOf(modelled([...review('security-review', 3, 7), ...review('code-review', 2, 12)]));
+      expect(parts.slice(0, 3).map((part) => [part.type, part.ms / MIN])).toEqual([['coding', 2], ['parallel', 10], ['coding', 8]]);
+      expect(lanesOf(parts)).toEqual([['code-review', 0, 10], ['security-review', 1, 4]]);
+    });
+
+    it('draws a test run during a review as two lanes, the review above', () => {
       const parts = partsOf(withRuns({ reviews: [[2, 12]], runs: [[8, 14, 'api']] }));
-      expect(parts.slice(0, 4).map((part) => [part.type, part.ms / MIN])).toEqual([['coding', 2], ['review', 6], ['overlap', 4], ['test', 2]]);
-      expect(parts.find((part) => part.type === 'overlap').slices.map((slice) => slice.kind)).toEqual(['code-review', 'test']);
+      expect(parts.slice(0, 3).map((part) => [part.type, part.ms / MIN])).toEqual([['coding', 2], ['parallel', 12], ['coding', 6]]);
+      expect(lanesOf(parts)).toEqual([['code-review', 0, 10], ['test', 6, 6]]);
+    });
+
+    it('draws both reviews and a test run in parallel as three lanes in the fixed order', () => {
+      const body = [[3, 'review-start', 'security-review', 'high'], [7, 'review-end', 'security-review', 'high'], [2, 'review-start', 'code-review', 'high'], [12, 'review-end', 'code-review', 'high']];
+      const parts = partsOf(modelled(body));
+      expect(lanesOf(parts).map(([kind]) => kind)).toEqual(['code-review', 'security-review']);
+      const withTest = partsOf(withRuns({ reviews: [[2, 12]], runs: [[4, 9, 'api']], browser: [[5, 8]] }));
+      expect(lanesOf(withTest).map(([kind]) => kind)).toEqual(['code-review', 'test', 'browser']);
+    });
+
+    it('puts a test run above the browser pass when they run in parallel', () => {
+      const parts = partsOf(withRuns({ runs: [[4, 10, 'api']], browser: [[2, 8]] }));
+      expect(lanesOf(parts)).toEqual([['test', 2, 6], ['browser', 0, 6]]);
+    });
+
+    it('lets each lane end where its own work ends within one parallel stretch', () => {
+      const [code, security] = partsOf(modelled([...review('code-review', 2, 14), ...review('security-review', 4, 6)])).find((part) => part.type === 'parallel').lanes;
+      expect(code.offsetMs + code.ms).toBe(12 * MIN);
+      expect(security.offsetMs + security.ms).toBe(4 * MIN);
+    });
+
+    it('names the whole length of a lane on it, not only the part inside the stretch', () => {
+      const [, lane] = partsOf(modelled([...review('code-review', 5, 30), ...review('security-review', 10, 25)])).find((part) => part.type === 'parallel').lanes;
+      expect(lane).toMatchObject({ kind: 'security-review', level: 'high', ms: 10 * MIN, sliceMs: 10 * MIN });
+    });
+
+    it('draws no overlap part, so no striped stretch', () => {
+      const parts = partsOf(withRuns({ reviews: [[2, 12]], runs: [[8, 14, 'api']] }));
+      expect(parts.map((part) => part.type)).not.toContain('overlap');
     });
 
     it.each([
@@ -233,7 +276,7 @@ describe('Cycle time', () => {
     ])('agree to the minute on $situation', ({ model }) => {
       const built = model();
       const parts = partsOf(built);
-      const local = total(parts, 'review', 'test', 'browser', 'overlap');
+      const local = total(parts, 'review', 'test', 'browser', 'parallel');
       expect(local).toBe(built.balance.harnessMs - total(parts, 'round'));
       expect(total(parts, 'coding', 'fixing')).toBe(built.balance.codingMs);
     });

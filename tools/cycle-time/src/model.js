@@ -27,6 +27,9 @@ const HOUR_MS = 3_600_000;
 /** A gap longer than this is somebody away, not somebody fixing or a check waiting to be looked at. */
 export const AWAY_MS = 3 * HOUR_MS;
 
+/** Two reviews whose end marks are this close were written together, so neither one's own length is recorded. */
+const TOGETHER_MS = 1000;
+
 /** A round that took longer than this is one somebody was kept waiting on. */
 export const LONG_ROUND_MS = 10 * 60_000;
 
@@ -430,6 +433,11 @@ function readRecord(body, firstCommit) {
       if (mark.ms >= begun.ms) reviews.push({ kind: mark.kind, level: mark.level, startMs: begun.ms, endMs: mark.ms, ms: mark.ms - begun.ms });
     }
   }
+  // A record written before each review marked its own end has the ends written together, so a review's
+  // own length is not in it: two reviews of different kinds ending within a second of each other.
+  for (const review of reviews) {
+    review.endedTogether = reviews.some((other) => other.kind !== review.kind && Math.abs(other.endMs - review.endMs) <= TOGETHER_MS);
+  }
 
   // The browser pass pairs the same way: a start with no end after it times nothing.
   const browser = [];
@@ -459,7 +467,8 @@ function readRecord(body, firstCommit) {
     present: true,
     start,
     notRecorded: PHASES.filter((phase) => !entries.some((entry) => entry.phase === phase)),
-    localReviews: reviews.length ? { count: reviews.length, ms: sum(reviews.map((review) => review.ms)), byKind } : null,
+    // `ms` is the reviews' wall clock, where parallel reviews share their minutes once; `byKind` is each kind's own.
+    localReviews: reviews.length ? { count: reviews.length, ms: unionRanges(reviews.map((review) => ({ from: review.startMs, to: review.endMs }))), byKind } : null,
     reviews,
     tests,
     browser,
@@ -478,30 +487,27 @@ function readRecord(body, firstCommit) {
  * a round and the next push — because only there was somebody writing for it to come
  * out of. Time inside a round, after the last round, and in a gap long enough to read
  * as away is in no slice, so the strip and the scatter's harness add up the same
- * minutes. Where two reviews overlap, the later one starts where the earlier ended.
+ * minutes. A review keeps its own marked interval, so two that ran in parallel overlap and
+ * the strip draws them as lanes.
  *
  * @param {{ kind: string, level: string, startMs: number, endMs: number }[]} reviews
  * @param {{ gap: number, from: number, to: number }[]} gaps `gap` is 0 before the first push, and n after round n
  */
 function sliceReviews(reviews, gaps) {
   const slices = [];
-  let covered = -Infinity;
   for (const review of [...reviews].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)) {
-    const from = Math.max(review.startMs, covered);
-    covered = Math.max(covered, review.endMs);
     for (const gap of gaps) {
-      const start = Math.max(from, gap.from);
+      const start = Math.max(review.startMs, gap.from);
       const end = Math.min(review.endMs, gap.to);
-      if (end > start) slices.push({ kind: review.kind, level: review.level, gap: gap.gap, at: iso(start), ms: end - start });
+      if (end > start) slices.push({ kind: review.kind, level: review.level, ...(review.endedTogether ? { endedTogether: true } : {}), gap: gap.gap, at: iso(start), ms: end - start });
     }
   }
   return slices;
 }
 
 /**
- * Where each test run and browser pass sat, cut to the same gaps as a review. Unlike
- * two reviews, one of these is not moved to start where another ended: a test run in the
- * background during a review is drawn as well as the review, and `unionMs` counts the
+ * Where each test run and browser pass sat, cut to the same gaps as a review. A test run in
+ * the background during a review is drawn as well as the review, and `unionMs` counts the
  * minutes they share once.
  *
  * @param {{ kind: 'test'|'browser', scopes?: string[], startMs: number, endMs: number }[]} runs
@@ -520,9 +526,14 @@ function sliceRuns(runs, gaps) {
 
 /** The minutes that slices cover between them, where two that overlap count their shared minutes once. */
 function unionMs(slices) {
+  return unionRanges(slices.map((slice) => ({ from: Date.parse(slice.at), to: Date.parse(slice.at) + slice.ms })));
+}
+
+/** The minutes that `{ from, to }` ranges cover between them, shared minutes once. */
+function unionRanges(ranges) {
   let total = 0;
   let reach = -Infinity;
-  for (const { from, to } of slices.map((slice) => ({ from: Date.parse(slice.at), to: Date.parse(slice.at) + slice.ms })).sort((a, b) => a.from - b.from)) {
+  for (const { from, to } of [...ranges].sort((a, b) => a.from - b.from)) {
     total += Math.max(0, to - Math.max(from, reach));
     reach = Math.max(reach, to);
   }
@@ -783,7 +794,7 @@ function windowModel(pulls, { days, now, coveredSince }) {
       noChecks: withRecord.length - placed.length,
     },
     // Only over the pull requests that have a record, which is why the window says
-    // how many do not. `ms` is the time the reviews took as marked; `byKind` splits it
+    // how many do not. `ms` is each pull request's review wall clock, shared minutes once; `byKind` splits it
     // per kind, over the pull requests that ran that kind. What counts towards the
     // harness is the part inside the gaps (`pull.harness.local`), which can be less.
     localReviews: {
