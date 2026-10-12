@@ -166,6 +166,53 @@ function closeWindow(open, until, now) {
   };
 }
 
+/**
+ * The most recent of `entries` that passed or failed, by time rather than by
+ * list position, or null when none did. A cancelled, skipped, running or
+ * unrecognised one is passed over for the same reason the rates leave it out:
+ * a cancellation must not hide a red that is still the latest verdict.
+ *
+ * @param {{ outcome: string, at: string, url: string }[]} entries
+ */
+function lastFinished(entries) {
+  let last = null;
+  for (const entry of entries) {
+    if (entry.outcome !== 'pass' && entry.outcome !== 'fail') continue;
+    if (!last || new Date(entry.at) > new Date(last.at)) last = entry;
+  }
+  return last && { outcome: last.outcome, at: last.at, url: last.url };
+}
+
+/**
+ * Each workflow's and each job's last run, over every run fetched rather than
+ * per window — "did it pass the last time it ran" is not a question about 7 or
+ * 30 days. A job's is its own, so it can come from an older run than its
+ * workflow's when the latest run skipped it. A job takes its run's time: the
+ * order of two jobs by name is the order of their runs.
+ */
+function lastRuns(runs, jobsByRun) {
+  return [...group(runs, (run) => run.workflow).entries()].map(([name, workflowRuns]) => {
+    const jobRuns = workflowRuns.flatMap((run) =>
+      (jobsByRun.get(run.id) ?? []).map((job) => ({
+        name: job.name,
+        outcome: classify(job),
+        at: run.createdAt,
+        url: job.url,
+      })),
+    );
+    return {
+      name,
+      last: lastFinished(
+        workflowRuns.map((run) => ({ outcome: classify(run), at: run.createdAt, url: run.url })),
+      ),
+      jobs: [...group(jobRuns, (entry) => entry.name).entries()].map(([jobName, entries]) => ({
+        name: jobName,
+        last: lastFinished(entries),
+      })),
+    };
+  });
+}
+
 /** Worst first, and a job nobody has finished sorts last rather than first. */
 function byReliability(a, b) {
   const ra = a.tally.rate;
@@ -347,6 +394,7 @@ export function buildModel({
         fetchedDays: requestedDays,
       }),
     ),
+    lastRuns: lastRuns(runs, jobsByRun),
     redWindows: [...group(runs, (run) => run.workflow).values()]
       .flatMap((workflowRuns) => redWindows(workflowRuns, { now }))
       .sort((a, b) => new Date(b.from) - new Date(a.from)),

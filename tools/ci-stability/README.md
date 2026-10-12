@@ -46,6 +46,10 @@ one the API allows 60 requests an hour, which is not enough for a full window.
   `cancel-in-progress` cancels about a quarter of this branch's jobs, and the slowest job
   is cancelled most, so folding them into failures would report the browser tier far worse
   than it is. Everything left out is counted under its own name in the last column.
+- **The last run is the most recent one that passed or failed**, per workflow and per job, so a
+  newer cancelled, skipped or running one never hides a red. It reaches back over every run
+  fetched rather than a window, and a job's can be older than its workflow's when the latest run
+  skipped it. Each cell links to that run; none finished reads "no data".
 - **A job with nothing finished reads "no data", not 0%**, so a job added yesterday does
   not head a worst-first list.
 - **Every percentage carries its counts.** A rate over eleven runs and one over four

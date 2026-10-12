@@ -32,6 +32,13 @@ function rateCell(tally) {
   return `<td class="num"><span class="rate ${band}">${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}%</span><span class="of">${tally.pass}/${tally.completed}</span></td>`;
 }
 
+/** The last run that passed or failed, coloured like a rate and linked to that run. */
+function lastRunCell(last) {
+  if (!last) return '<td class="num"><span class="rate none">no data</span></td>';
+  const [band, word] = last.outcome === 'pass' ? ['good', 'passed'] : ['poor', 'failed'];
+  return `<td class="num"><span class="rate ${band}"><a href="${esc(last.url)}" target="_blank" rel="noopener">${word}</a></span></td>`;
+}
+
 function humanMs(ms) {
   if (ms === null || ms === undefined) return '—';
   const seconds = Math.round(ms / 1000);
@@ -92,8 +99,12 @@ function mergeWindows(model) {
       }
     }
 
+    // Not part of any window, so it is looked up here rather than merged from them.
+    const lastRun = model.lastRuns.find((entry) => entry.name === name);
+
     return {
       name,
+      last: lastRun?.last ?? null,
       cells: perWindow.map((workflow) => workflow?.tally ?? null),
       jobs: jobOrder.map((jobName) => {
         const jobPerWindow = perWindow.map((workflow) =>
@@ -110,6 +121,7 @@ function mergeWindows(model) {
           .sort((a, b) => b.days - a.days)[0];
         return {
           name: jobName,
+          last: lastRun?.jobs.find((entry) => entry.name === jobName)?.last ?? null,
           cells: jobPerWindow.map((job) => job?.tally ?? null),
           durations: widest?.durations ?? null,
         };
@@ -149,14 +161,14 @@ function reliabilityTable(model) {
 
   const rows = merged
     .map((workflow) => {
-      const workflowRow = `<tr class="workflow"><td>${esc(workflow.name)}</td>${workflow.cells
+      const workflowRow = `<tr class="workflow"><td>${esc(workflow.name)}</td>${lastRunCell(workflow.last)}${workflow.cells
         .map(rateCell)
         .join('')}<td class="dur"></td><td class="dur"></td>${excludedCell(workflow.cells[0])}</tr>`;
 
       const jobRows = workflow.jobs
         .map(
           (job) =>
-            `<tr><td class="jobname">${esc(job.name)}</td>${job.cells
+            `<tr><td class="jobname">${esc(job.name)}</td>${lastRunCell(job.last)}${job.cells
               .map(rateCell)
               .join('')}<td class="num dur">${humanMs(job.durations?.median ?? null)}</td><td class="num dur">${humanMs(
               job.durations?.p90 ?? null,
@@ -171,6 +183,7 @@ function reliabilityTable(model) {
   return `<div class="card"><div class="tablewrap"><table>
     <thead><tr>
       <th>Workflow and job</th>
+      <th class="num">Last run</th>
       ${model.windows.map((window) => `<th class="num">${esc(windowHeading(window))}</th>`).join('')}
       <th class="num">Median</th>
       <th class="num">p90</th>
