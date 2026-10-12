@@ -51,7 +51,7 @@ export interface Fetched {
   caughtUp: boolean;
   /** Why GitHub's answer ended the run early, in a sentence, when it did. */
   timeout: string | null;
-  /** Where the next run continues: the place after the last page read, or the one it started from when no page moved it. */
+  /** Where the next run starts: caught up, the start of the last page read; cut short, its end. */
   cursor: string | null;
 }
 
@@ -93,6 +93,8 @@ interface Connection {
 type Page = { connection: Connection } | { timeout: string };
 
 const TIMEOUT_ERROR = /time(d)? ?out/i;
+/** How GitHub refuses an `after` it cannot read, such as a cursor of a format it no longer accepts. */
+const BAD_CURSOR = /cursor|'after'/i;
 
 interface Variables {
   owner: string;
@@ -131,14 +133,18 @@ async function readPage(token: string, variables: Variables): Promise<Page> {
       errors?: { message?: string }[];
     };
     const message = body.errors?.[0]?.message;
+    const connection = body.data?.repository?.pullRequests;
+    // GitHub answers what it could beside errors about the rest, such as a closing issue the token cannot see: those fields read as missing.
+    if (connection?.nodes) return { connection };
     if (body.errors?.length) {
       // GitHub's commonest timeout is a 200 whose error says so.
       if (message && TIMEOUT_ERROR.test(message)) return { timeout: 'GitHub did not answer in time' };
+      if (variables.after !== null && message && BAD_CURSOR.test(message)) {
+        throw new Error(`GitHub refused linking's stored place (${message}). Run \`pnpm harness:run linking --full\` to start again from the first pull request.`);
+      }
       throw new Error(`GitHub reported: ${message ?? 'an error'}`);
     }
-    const connection = body.data?.repository?.pullRequests;
-    if (!connection?.nodes) throw new Error(`GitHub answered without the pull requests of ${variables.owner}/${variables.name}.`);
-    return { connection };
+    throw new Error(`GitHub answered without the pull requests of ${variables.owner}/${variables.name}.`);
   } catch (error) {
     // Our own limit on waiting ran out, in the answer or in its body.
     if (error instanceof Error && error.name === 'TimeoutError') return { timeout: 'GitHub did not answer in time' };
@@ -149,8 +155,9 @@ async function readPage(token: string, variables: Variables): Promise<Page> {
 /**
  * Reads the pull requests after `after`, GitHub's place in the repository's
  * update order where the last run stopped, or from the first when it is null,
- * and returns the place to continue from. A run cut short by its request budget
- * therefore leaves nothing behind its cursor unread.
+ * and returns the place the next run starts from. A run cut short by its
+ * request budget therefore leaves nothing behind its cursor unread, and a run
+ * that caught up leaves its last page to be read again.
  *
  * Throws on anything GitHub answers badly, a rate limit included, and on a
  * timeout before any page was read: the caller stores nothing from a run that
@@ -181,9 +188,13 @@ export async function fetchChangedPullRequests(repository: string, token: string
       const pr = toPullRequest(node);
       if (pr) pullRequests.push(pr);
     }
-    // An empty page has no end; the place stays where it was.
-    cursor = pageInfo?.endCursor ?? cursor;
-    if (pageInfo?.hasNextPage !== true || !pageInfo.endCursor) return { pullRequests, caughtUp: true, timeout: null, cursor };
+    const more = pageInfo?.hasNextPage === true && !!pageInfo.endCursor;
+    // Caught up, the next run starts where this last page did, so a pull
+    // request stamped with an update time before it became visible, which
+    // lands behind the newest ones, is still ahead of that place and read then.
+    if (!more) return { pullRequests, caughtUp: true, timeout: null, cursor };
+    cursor = pageInfo.endCursor!;
+    // Cut short, the next run carries straight on: the pull requests near now are read again on the run that catches up.
     if (requests >= MAX_REQUESTS) return { pullRequests, caughtUp: false, timeout: null, cursor };
   }
 }

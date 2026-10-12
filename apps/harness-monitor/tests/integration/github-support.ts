@@ -1,8 +1,8 @@
-import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
+import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { vi } from 'vitest';
 import worker from '../../src/worker';
 import recorded from './fixtures/github-pull-requests.json';
-import { costRows, thePage, type CostRow } from './support';
+import { costRows, thePage, WRITE_KEY, type CostRow } from './support';
 
 /**
  * The pull requests of GitHub's real answer, recorded once from the job's GraphQL search. The repository listing
@@ -50,10 +50,21 @@ export const pageOf = (nodes: Node[], hasNextPage = false) =>
  * an update does, has it read again. Never move the one a stored cursor names.
  */
 export const listing = (all: Node[]) => (call: { after: string | null; first: number }) => {
-  const from = call.after === null ? 0 : all.findIndex((n) => cursorAfter(n) === call.after) + 1;
+  const at = call.after === null ? -1 : all.findIndex((n) => cursorAfter(n) === call.after);
+  if (call.after !== null && at === -1) return badCursor(call.after);
+  const from = at + 1;
   const to = Math.min(from + call.first, all.length);
   return pageOf(all.slice(from, to), to < all.length);
 };
+
+/** GitHub's answer to an `after` it cannot read. */
+export const badCursor = (after: string) => Response.json({ data: null, errors: [{ message: `\`${after}\` does not appear to be a valid cursor.` }] });
+
+/** GitHub taking too long over a page. */
+export const timedOut = () => new Response('timeout', { status: 504 });
+
+/** Pages are only places in this order, so the cursor design rests on the job asking for it. */
+const UPDATE_ORDER = /pullRequests\(\s*orderBy:\s*\{\s*field:\s*UPDATED_AT,\s*direction:\s*ASC\s*\}/;
 
 export interface GitHubCall {
   /** The repository asked for, as `owner/name`. */
@@ -74,7 +85,11 @@ export function fakeGitHub(answer: (call: GitHubCall, calls: GitHubCall[]) => Re
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.href !== 'https://api.github.com/graphql') throw new Error(`Unexpected request to ${url.href}`);
-    const { variables } = JSON.parse(String(init?.body)) as { variables: { owner: string; name: string; after: string | null; first: number } };
+    const { query, variables } = JSON.parse(String(init?.body)) as {
+      query: string;
+      variables: { owner: string; name: string; after: string | null; first: number };
+    };
+    if (!UPDATE_ORDER.test(query)) throw new Error('The job did not ask for pull requests in update order, oldest first.');
     const call = {
       repository: `${variables.owner}/${variables.name}`,
       after: variables.after,
@@ -125,4 +140,20 @@ export async function linked(...nodes: Node[]) {
 /** What the page shows for each row of the pull request table, by label (the pull request, or the branch while it has none). */
 export async function pullRequestRows(): Promise<Record<string, CostRow>> {
   return Object.fromEntries(costRows(await thePage('?period=all')).map((r) => [r.label, r]));
+}
+/** A job started by hand, as `pnpm harness:run` starts it, with the write key unless told otherwise. */
+export const startJob = (job: string, headers: Record<string, string> = { authorization: `Bearer ${WRITE_KEY}` }) =>
+  SELF.fetch(`https://monitor.test/v1/jobs/${job}`, { method: 'POST', headers });
+
+/** Gives the Worker a token and a repository for linking started by hand, and returns what puts both back as they were. */
+export function giveTheWorkerAToken() {
+  const before = { GITHUB_TOKEN: env.GITHUB_TOKEN, GITHUB_REPOSITORY: env.GITHUB_REPOSITORY };
+  env.GITHUB_TOKEN = 'test-token';
+  env.GITHUB_REPOSITORY = 'owner/repo';
+  return () => {
+    for (const [name, value] of Object.entries(before) as [keyof typeof before, string | undefined][]) {
+      if (value === undefined) delete env[name];
+      else env[name] = value;
+    }
+  };
 }

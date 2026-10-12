@@ -1,23 +1,32 @@
-import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
+import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_REQUESTS } from '../../src/github';
-import { fakeGitHub, jobLine, listing, pageOf, pullRequest, pullRequestRows, recordedPullRequest, theLinks, theLinkState } from './github-support';
-import { dollars, emptyTheDatabase, pricing, recordedFile, runTheDailyJob, send, theFileAnswers, usage, WRITE_KEY } from './support';
+import {
+  fakeGitHub,
+  giveTheWorkerAToken,
+  jobLine,
+  listing,
+  pageOf,
+  pullRequest,
+  pullRequestRows,
+  recordedPullRequest,
+  startJob as start,
+  theLinks,
+  theLinkState,
+  timedOut,
+} from './github-support';
+import { dollars, emptyTheDatabase, pricing, recordedFile, runTheDailyJob, send, theFileAnswers, usage } from './support';
 
+let putBack: () => void;
 beforeEach(async () => {
   await emptyTheDatabase();
-  env.GITHUB_TOKEN = 'test-token';
-  env.GITHUB_REPOSITORY = 'owner/repo';
+  putBack = giveTheWorkerAToken();
 });
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  delete env.GITHUB_TOKEN;
-  delete env.GITHUB_REPOSITORY;
+  putBack();
 });
-
-const start = (job: string, headers: Record<string, string> = { authorization: `Bearer ${WRITE_KEY}` }) =>
-  SELF.fetch(`https://monitor.test/v1/jobs/${job}`, { method: 'POST', headers });
 
 describe('Harness Monitor', () => {
   describe('a job started by hand does what its schedule does, and says so', () => {
@@ -54,7 +63,7 @@ describe('Harness Monitor', () => {
     });
 
     it.each([
-      { situation: '504', answer: () => new Response('timeout', { status: 504 }), said: 'GitHub did not answer in time (504). More to read' },
+      { situation: '504', answer: () => timedOut(), said: 'GitHub did not answer in time (504). More to read' },
       { situation: '502', answer: () => new Response('bad gateway', { status: 502 }), said: 'GitHub failed to answer (502); usually the query took too long. More to read' },
       {
         situation: 'our own limit on waiting',
@@ -125,13 +134,14 @@ describe('Harness Monitor', () => {
     it('linking in full reads from the first pull request, and the runs after it carry on until every branch with a pull request is linked', async () => {
       await send([usage('r1', { branch: 'b/skipped' })]);
       const seen = [1, 2].map((n) => pullRequest({ number: n, headRefName: `b/${n}`, updatedAt: `2026-10-0${n}T10:00:00Z` }));
-      fakeGitHub(listing(seen));
+      const first1 = listing(seen);
+      fakeGitHub((call) => first1({ ...call, first: 1 }));
       await start('linking');
       vi.restoreAllMocks();
       // GitHub now answers a pull request the first run never saw, behind the place it stopped.
       const skipped = pullRequest({ number: 3, headRefName: 'b/skipped', title: 'Skipped once', updatedAt: '2026-09-26T16:27:20Z' });
       const answer = listing([skipped, ...seen]);
-      fakeGitHub((call) => (call.after === null ? answer({ ...call, first: 1 }) : new Response('timeout', { status: 504 })));
+      fakeGitHub((call) => (call.after === null ? answer({ ...call, first: 1 }) : timedOut()));
       const first = await (await start('linking?full=1')).json();
       vi.restoreAllMocks();
       const calls = fakeGitHub(answer);
@@ -141,12 +151,79 @@ describe('Harness Monitor', () => {
       expect(first).toEqual({
         job: 'linking',
         ok: true,
-        message: 'Linked 1 pull request; GitHub did not answer in time (504). More to read — run it again without --full.',
+        message: 'Linked 1 pull request; GitHub did not answer in time (504). More to read — run linking again (a plain run continues from here).',
       });
       expect(calls[0]!.after).toBe('cursor-3');
       expect(second).toEqual({ job: 'linking', ok: true, message: 'Linked 2 pull requests; caught up with GitHub.' });
       expect((await theLinks()).map((l) => l.branch)).toEqual(['b/1', 'b/2', 'b/skipped']);
       expect(Object.keys(await pullRequestRows())).toEqual(['#3 Skipped once']);
+    });
+
+    it('a plain run that overlapped a full re-read and finished after it leaves linking where the full re-read left it', async () => {
+      const seen = [1, 2].map((n) => pullRequest({ number: n, headRefName: `b/${n}`, updatedAt: `2026-10-0${n}T10:00:00Z` }));
+      const before = listing(seen);
+      fakeGitHub((call) => before({ ...call, first: 1 }));
+      await start('linking');
+      vi.restoreAllMocks();
+      const answer = listing([pullRequest({ number: 3, headRefName: 'b/3', updatedAt: '2026-09-26T16:27:20Z' }), ...seen]);
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      const calls = fakeGitHub(async (call) => {
+        // The plain run is held inside GitHub until the full re-read has finished.
+        if (call.after === 'cursor-1') return gate.then(() => pageOf([]));
+        return call.after === null ? answer({ ...call, first: 1 }) : timedOut();
+      });
+
+      const plain = start('linking');
+      await vi.waitFor(() => expect(calls.some((c) => c.after === 'cursor-1')).toBe(true));
+      await start('linking?full=1');
+      release();
+      await plain;
+
+      expect((await theLinkState())[0]!.cursor).toBe('cursor-3');
+    });
+
+    it.each(['full', 'full=1', 'full=true'])('linking asked for in full as "%s" starts from the first pull request', async (asked) => {
+      const seen = [1, 2].map((n) => pullRequest({ number: n, headRefName: `b/${n}`, updatedAt: `2026-10-0${n}T10:00:00Z` }));
+      const answer = listing(seen);
+      fakeGitHub((call) => answer({ ...call, first: 1 }));
+      await start('linking');
+      vi.restoreAllMocks();
+      const calls = fakeGitHub(answer);
+
+      await start(`linking?${asked}`);
+
+      expect(calls[0]!.after).toBeNull();
+    });
+
+    it('linking asked for in full with any other value is refused and runs nothing', async () => {
+      const calls = fakeGitHub(() => pageOf([recordedPullRequest(979)]));
+
+      const response = await start('linking?full=yes');
+
+      expect(response.status).toBe(400);
+      expect(calls).toHaveLength(0);
+      expect(await jobLine('linking')).toBe('Branch linking: has not run yet.');
+    });
+
+    it('a stored place GitHub refuses fails the run, says a full re-read resets it, and a full re-read does', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const seen = [1, 2].map((n) => pullRequest({ number: n, headRefName: `b/${n}`, updatedAt: `2026-10-0${n}T10:00:00Z` }));
+      const before = listing(seen);
+      fakeGitHub((call) => before({ ...call, first: 1 }));
+      await start('linking');
+      vi.restoreAllMocks();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      // GitHub no longer knows the stored place.
+      fakeGitHub(listing([pullRequest({ number: 7, headRefName: 'b/7' })]));
+
+      const refused = (await (await start('linking')).json()) as { ok: boolean; message: string };
+      const reset = (await (await start('linking?full=1')).json()) as { ok: boolean; message: string };
+
+      expect(refused.ok).toBe(false);
+      expect(refused.message).toContain('`cursor-1` does not appear to be a valid cursor.');
+      expect(refused.message).toContain('pnpm harness:run linking --full');
+      expect(reset).toMatchObject({ ok: true, message: 'Linked 1 pull request; caught up with GitHub.' });
     });
 
     it('a full re-read of any other job is refused and runs nothing', async () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PAGE_SIZE } from '../../src/github';
-import { fakeGitHub, listing, pageOf, pullRequest, recordedPullRequest, runHourly, theLinks, theLinkState } from './github-support';
+import { fakeGitHub, listing, pageOf, pullRequest, recordedPullRequest, runHourly, theLinks, theLinkState, timedOut } from './github-support';
 import { emptyTheDatabase, send, usage } from './support';
 
 beforeEach(emptyTheDatabase);
@@ -63,7 +63,7 @@ describe('Harness Monitor', () => {
     it('once a page needed the half size, the rest of the run keeps it', async () => {
       const all = Array.from({ length: 30 }, (_, i) => pullRequest({ number: i + 1, headRefName: `b/${i + 1}`, updatedAt: `2026-10-01T10:00:${String(i).padStart(2, '0')}Z` }));
       const page = listing(all);
-      const calls = fakeGitHub((call) => (call.first === PAGE_SIZE ? new Response('timeout', { status: 504 }) : page(call)));
+      const calls = fakeGitHub((call) => (call.first === PAGE_SIZE ? timedOut() : page(call)));
 
       await runHourly();
 
@@ -75,7 +75,7 @@ describe('Harness Monitor', () => {
       const all = Array.from({ length: 60 }, (_, i) => pullRequest({ number: i + 1, headRefName: `b/${i + 1}`, updatedAt: `2026-10-01T10:00:${String(i).padStart(2, '0')}Z` }));
       const page = listing(all);
       // Every page times out on its first try, so each page halves the size again.
-      const calls = fakeGitHub((call, all) => (all.length % 2 === 1 ? new Response('timeout', { status: 504 }) : page(call)));
+      const calls = fakeGitHub((call, all) => (all.length % 2 === 1 ? timedOut() : page(call)));
 
       await runHourly();
 
@@ -109,7 +109,7 @@ describe('Harness Monitor', () => {
     it('the first page timing out again on the retry fails the run, says GitHub did not answer in time, and changes nothing', async () => {
       const before = await afterASuccessfulRun();
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      const calls = fakeGitHub(() => new Response('timeout', { status: 504 }));
+      const calls = fakeGitHub(() => timedOut());
 
       await runHourly();
 

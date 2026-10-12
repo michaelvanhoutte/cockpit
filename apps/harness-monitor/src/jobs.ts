@@ -1,4 +1,4 @@
-import { linkBranches, type LinkEnv } from './linking';
+import { linkBranches, type LinkEnv, type LinkOptions } from './linking';
 import { hasFetchedList, priceWaitingRows, refreshPriceList } from './price-list';
 import { rebuildTotals } from './store';
 
@@ -31,14 +31,14 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 async function execute(env: LinkEnv, job: JobName, now: number, full: boolean): Promise<JobOutcome> {
   if (job === 'linking') {
-    const run = await linkBranches(env, now, full);
+    const run = await linkBranches(env, { now, full });
     if (run.status === 'skipped') return { ok: false, message: 'Skipped: GITHUB_TOKEN or GITHUB_REPOSITORY is not set on the Worker.' };
     if (run.status === 'failed') return { ok: false, message: run.error };
     const linked = `Linked ${plural(run.linked, 'pull request')}`;
     if (run.status === 'caught-up') return { ok: true, message: `${linked}; caught up with GitHub.` };
     const stopped = run.timeout ? `${run.timeout}. More to read` : 'more to read';
-    // Again with the full re-read would start over; without it, it carries on from here.
-    return { ok: true, message: `${linked}; ${stopped} — run it again${full ? ' without --full' : ''}.` };
+    // A second full re-read would start over; a plain run carries on from here.
+    return { ok: true, message: `${linked}; ${stopped} — run ${full ? 'linking again (a plain run continues from here)' : 'it again'}.` };
   }
   if (job === 'prices') {
     const refreshed = await refreshPriceList(env.DB, now);
@@ -56,9 +56,9 @@ async function execute(env: LinkEnv, job: JobName, now: number, full: boolean): 
 /**
  * Runs one job, the same code whoever starts it, and stores what it did as the
  * job's last run. A job that throws is a failed run, never a crashed Worker.
- * `full` re-reads linking from the first pull request (see linkBranches).
+ * `full` restarts linking from the first pull request (see linkBranches).
  */
-export async function runJob(env: LinkEnv, job: JobName, startedBy: StartedBy, now = Date.now(), full = false): Promise<JobOutcome> {
+export async function runJob(env: LinkEnv, job: JobName, startedBy: StartedBy, { now = Date.now(), full = false }: LinkOptions = {}): Promise<JobOutcome> {
   let outcome: JobOutcome;
   try {
     outcome = await execute(env, job, now, full);

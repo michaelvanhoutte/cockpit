@@ -1,25 +1,19 @@
-import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cursorAfter, fakeGitHub, linkingLine, pageOf, pullRequest, pullRequestRows, recordedPullRequest, runHourly } from './github-support';
-import { emptyTheDatabase, send, usage, WRITE_KEY } from './support';
+import { fakeGitHub, giveTheWorkerAToken, linkingLine, pageOf, pullRequest, pullRequestRows, recordedPullRequest, runHourly, startJob, timedOut } from './github-support';
+import { emptyTheDatabase, send, usage } from './support';
 
-/** Linking started by hand, as `pnpm harness:run linking` starts it, against a Worker with a token. */
-async function linkByHand() {
-  env.GITHUB_TOKEN = 'test-token';
-  env.GITHUB_REPOSITORY = 'owner/repo';
-  try {
-    const response = await SELF.fetch('https://monitor.test/v1/jobs/linking', { method: 'POST', headers: { authorization: `Bearer ${WRITE_KEY}` } });
-    return (await response.json()) as { ok: boolean; message: string };
-  } finally {
-    delete env.GITHUB_TOKEN;
-    delete env.GITHUB_REPOSITORY;
-  }
-}
+/** Linking started by hand, as `pnpm harness:run linking` starts it. */
+const linkByHand = async () => (await (await startJob('linking')).json()) as { ok: boolean; message: string };
 
-beforeEach(emptyTheDatabase);
+let putBack: () => void;
+beforeEach(async () => {
+  await emptyTheDatabase();
+  putBack = giveTheWorkerAToken();
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  putBack();
 });
 
 const subs = async () => Object.fromEntries(Object.entries(await pullRequestRows()).map(([label, row]) => [label, row.sub]));
@@ -83,7 +77,7 @@ describe('Harness Monitor', () => {
       ]);
       vi.restoreAllMocks();
       const later = pullRequest({ number: 5, headRefName: 'b/5', updatedAt: '2026-04-01T12:40:00Z' });
-      fakeGitHub((call) => (call.after === cursorAfter(recordedPullRequest(979)) ? pageOf([later], true) : new Response('timeout', { status: 504 })));
+      fakeGitHub((call) => (call.after === null ? pageOf([later], true) : timedOut()));
       vi.setSystemTime(new Date('2026-04-01T13:00:00Z'));
 
       expect(await linkByHand()).toMatchObject({ ok: true, message: expect.stringContaining('More to read') });
