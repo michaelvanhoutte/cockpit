@@ -374,6 +374,85 @@ describe('buildModel', () => {
   });
 });
 
+describe('Last run', () => {
+  // `conclusions` run oldest to newest; the model is handed them newest first, as
+  // the API lists them.
+  const lastOf = (conclusions) => {
+    const runs = conclusions.map((conclusion, i) =>
+      run({
+        conclusion,
+        status: conclusion === null ? 'in_progress' : 'completed',
+        createdAt: ago(conclusions.length - i),
+        url: `https://github.com/o/r/actions/runs/${i}`,
+      }),
+    );
+    const jobs = runs.map((r) => job({ runId: r.id, conclusion: r.conclusion, status: r.status, url: `${r.url}/job` }));
+    const [workflow] = build({ runs: [...runs].reverse(), jobs }).lastRuns;
+    return { workflow: workflow.last, job: workflow.jobs[0].last, runs };
+  };
+
+  describe("a workflow's or job's last run is its most recent run that passed or failed", () => {
+    it.each([
+      { situation: 'the newest run passed', conclusions: ['failure', 'success'], expected: 'pass' },
+      { situation: 'the newest run failed', conclusions: ['success', 'failure'], expected: 'fail' },
+      { situation: 'a cancelled run is newer than a failure', conclusions: ['failure', 'cancelled'], expected: 'fail' },
+      { situation: 'a still-running run is newer than a pass', conclusions: ['success', null], expected: 'pass' },
+      { situation: 'a skipped run is newer than a failure', conclusions: ['failure', 'skipped'], expected: 'fail' },
+      { situation: 'an unrecognised conclusion is newer than a pass', conclusions: ['success', 'invented_next_year'], expected: 'pass' },
+    ])('is $expected when $situation', ({ conclusions, expected }) => {
+      const last = lastOf(conclusions);
+      expect(last.workflow.outcome).toBe(expected);
+      expect(last.job.outcome).toBe(expected);
+    });
+
+    it('is the newest by time, not by position in the list', () => {
+      const older = run({ conclusion: 'failure', createdAt: ago(3) });
+      const newer = run({ conclusion: 'success', createdAt: ago(1) });
+      const model = build({
+        runs: [older, newer],
+        jobs: [job({ runId: older.id, conclusion: 'failure' }), job({ runId: newer.id })],
+      });
+      expect(model.lastRuns[0].last.outcome).toBe('pass');
+      expect(model.lastRuns[0].jobs[0].last.outcome).toBe('pass');
+    });
+
+    it('is nothing when nothing finished', () => {
+      const last = lastOf(['cancelled', null]);
+      expect(last.workflow).toBeNull();
+      expect(last.job).toBeNull();
+    });
+
+    it("carries when it ran and a link to that run: the run's for a workflow, the job's own for a job", () => {
+      const last = lastOf(['success']);
+      expect(last.workflow).toEqual({ outcome: 'pass', at: last.runs[0].createdAt, url: last.runs[0].url });
+      expect(last.job).toEqual({ outcome: 'pass', at: last.runs[0].createdAt, url: `${last.runs[0].url}/job` });
+    });
+  });
+
+  it('gives each row its own: a job the latest run skipped keeps the verdict of the run before', () => {
+    const earlier = run({ conclusion: 'failure', createdAt: ago(2) });
+    const latest = run({ conclusion: 'success', createdAt: ago(1) });
+    const model = build({
+      runs: [latest, earlier],
+      jobs: [
+        job({ runId: earlier.id, name: 'E2E', conclusion: 'failure' }),
+        job({ runId: latest.id, name: 'E2E', conclusion: 'skipped' }),
+      ],
+    });
+    const [workflow] = model.lastRuns;
+    expect(workflow.last.outcome).toBe('pass');
+    expect(workflow.jobs[0].last).toMatchObject({ outcome: 'fail', at: earlier.createdAt });
+  });
+
+  it('ignores the windows: a finished run older than the shortest one is still the last', () => {
+    const only = run({ conclusion: 'failure', createdAt: ago(20) });
+    const model = build({ runs: [only], jobs: [job({ runId: only.id, conclusion: 'failure' })], windows: [7] });
+    expect(model.windows[0].workflows).toEqual([]);
+    expect(model.lastRuns[0].last.outcome).toBe('fail');
+    expect(model.lastRuns[0].jobs[0].last.outcome).toBe('fail');
+  });
+});
+
 describe('Step durations', () => {
   const stepsOf = (runs, jobs) => {
     const model = build({ runs, jobs, windows: [30] });

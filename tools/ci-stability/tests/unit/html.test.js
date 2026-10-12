@@ -164,6 +164,54 @@ describe('renderHtml', () => {
     expect(html).not.toContain('>100%<');
   });
 
+  describe('the Reliability table shows each row\'s last run first, before the windows', () => {
+    const headings = (html) => [...html.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map((m) => m[1]);
+
+    it.each([
+      { situation: 'windows 7,30', windows: [7, 30], expected: ['Last run', '7 days', '30 days'] },
+      { situation: 'windows given as 30,7', windows: [30, 7], expected: ['Last run', '30 days', '7 days'] },
+    ])('puts Last run before the windows for $situation', ({ windows, expected }) => {
+      const html = render({ runs: [run()], windows, reachedWindowEdge: true });
+      expect(headings(html).slice(1, 4)).toEqual(expected);
+    });
+
+    it('reads passed in the colour of a passing rate, linked to that run, on a workflow and a job', () => {
+      const passed = run({ url: 'https://github.com/o/r/actions/runs/7' });
+      const html = render({
+        runs: [passed],
+        jobs: [job({ runId: passed.id, url: 'https://github.com/o/r/actions/runs/7/job/9' })],
+      });
+      expect(html).toContain(
+        '<span class="rate good"><a href="https://github.com/o/r/actions/runs/7" target="_blank" rel="noopener">passed</a></span>',
+      );
+      expect(html).toContain(
+        '<span class="rate good"><a href="https://github.com/o/r/actions/runs/7/job/9" target="_blank" rel="noopener">passed</a></span>',
+      );
+    });
+
+    it('reads failed in the colour of a failing rate, linked to that run', () => {
+      const failed = run({ conclusion: 'failure', url: 'https://github.com/o/r/actions/runs/8' });
+      const html = render({ runs: [failed] });
+      expect(html).toContain(
+        '<span class="rate poor"><a href="https://github.com/o/r/actions/runs/8" target="_blank" rel="noopener">failed</a></span>',
+      );
+    });
+
+    it('says no data, unlinked, for a row nothing has finished', () => {
+      const cancelled = run({ conclusion: 'cancelled' });
+      const html = render({ runs: [cancelled] });
+      expect(html).toContain('<td class="num"><span class="rate none">no data</span></td>');
+      expect(html).not.toContain('>passed<');
+      expect(html).not.toContain('>failed<');
+    });
+
+    it('escapes a link containing a quote rather than writing it as markup', () => {
+      const html = render({ runs: [run({ url: 'https://example.test/"><script>x</script>' })] });
+      expect(html).not.toContain('<script>x</script>');
+      expect(html).toContain('href="https://example.test/&quot;&gt;&lt;script&gt;x&lt;/script&gt;"');
+    });
+  });
+
   it('marks its timestamps as UTC everywhere, not only in the masthead', () => {
     const failed = run({ conclusion: 'failure', createdAt: ago(2) });
     const passed = run({ createdAt: ago(1) });

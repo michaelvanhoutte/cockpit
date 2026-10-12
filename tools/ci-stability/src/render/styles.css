@@ -64,6 +64,7 @@ td.jobname { padding-left: 28px; color: var(--ink-2); }
 .rate.good { color: var(--ok); }
 .rate.mid { color: var(--warn); }
 .rate.poor { color: var(--bad); }
+.rate a { color: inherit; }
 .rate.none { color: var(--ink-3); font-weight: 400; }
 /* The counts are not decoration: a percentage over eleven runs and one over
    four hundred are different claims, and this is the only thing that says so. */
