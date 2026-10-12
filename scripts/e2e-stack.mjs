@@ -319,6 +319,13 @@ const api = start(
      */
     '--var',
     'EMBEDDINGS_STAND_IN:true',
+    /**
+     * And Whisper, for the same reason: a recording is answered with fixed text
+     * (apps/api/src/transcription/index.ts), so the dictation walk gets the same
+     * words every run with no network and no Cloudflare account.
+     */
+    '--var',
+    'TRANSCRIPTION_STAND_IN:true',
   ],
   'test api',
   '36',

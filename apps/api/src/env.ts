@@ -95,6 +95,14 @@ export interface Env {
    * for the reason `GUEST_SIGN_IN` below is.
    */
   EMBEDDINGS_STAND_IN?: string;
+  /**
+   * Transcribes a recording with fixed text rather than with Whisper, for the
+   * two local stacks that have no `AI` binding to reach it with
+   * (`src/transcription/index.ts`, "Dictate in Write with Whisper", issue 1041).
+   * Set by the same two and compared to the same literal `'true'` as
+   * `EMBEDDINGS_STAND_IN` above.
+   */
+  TRANSCRIPTION_STAND_IN?: string;
   /** The application Google knows this Cockpit as, and the secret that proves it. */
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;

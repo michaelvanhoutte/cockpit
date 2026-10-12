@@ -26,6 +26,7 @@ interface Verdict {
   store: boolean;
   ai: boolean;
   embeddings: boolean;
+  transcription: boolean;
 }
 
 async function health(): Promise<Verdict> {
@@ -52,6 +53,7 @@ beforeEach(async () => {
   // runs without (tests/no-model.ts).
   env.ANTHROPIC_API_KEY = '';
   env.EMBEDDINGS_STAND_IN = '';
+  env.TRANSCRIPTION_STAND_IN = '';
 });
 
 describe('Accounts', () => {
@@ -65,6 +67,7 @@ describe('Accounts', () => {
         store: true,
         ai: false,
         embeddings: false,
+        transcription: false,
       });
     });
 
@@ -94,6 +97,7 @@ describe('Accounts', () => {
           store: false,
           ai: false,
           embeddings: false,
+          transcription: false,
         });
       } finally {
         await env.DB.prepare('ALTER TABLE tenants_out_of_reach RENAME TO tenants').run();
@@ -118,6 +122,7 @@ describe('Accounts', () => {
         store: false,
         ai: false,
         embeddings: false,
+        transcription: false,
       });
       expect(await tablesIn(PROBE_NAME)).toEqual([]);
     });

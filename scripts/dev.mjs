@@ -229,6 +229,12 @@ if (running.api) {
         // the stub issuer above is.
         '--var',
         'EMBEDDINGS_STAND_IN:true',
+        // And the same for Whisper: a recording is answered with fixed text
+        // (apps/api/src/transcription/index.ts), so the mic can be driven here
+        // without a Cloudflare account. What the real model makes of a voice is
+        // the contract tier's question.
+        '--var',
+        'TRANSCRIPTION_STAND_IN:true',
       ],
       'api',
       '36',

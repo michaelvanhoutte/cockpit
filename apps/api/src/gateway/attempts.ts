@@ -30,6 +30,7 @@ export interface CallAbout {
  */
 export type Trigger =
   | 'captured-in-app'
+  | 'dictated-in-app'
   | 'mcp'
   | 'panel-settled'
   | 'backfill'

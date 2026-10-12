@@ -784,7 +784,7 @@ own code. It is outside Cockpit's own gate (`PATHS_OUTSIDE_THE_GATE` in
 `apps/api/src/auth/gate.ts`), and anything ever put in front of the deployment
 has to be told to leave it alone.
 
-`/health` returns `{"ok":true,"register":true,"store":true,"ai":true,"embeddings":true}`
+`/health` returns `{"ok":true,"register":true,"store":true,"ai":true,"embeddings":true,"transcription":true}`
 and nothing else, so it discloses only whether each half answered — never *why*
 one did not, since the reason an update will not apply names tables and columns
 and this endpoint answers anyone. That reason goes to the logs. The one exception is `"allowanceSpent":true`, added
@@ -808,6 +808,11 @@ and so whether it can flag one saying what another one already said ("Flag a
 captured note that says what another one already said", issue 407). Separate
 from `ai` because the two are separately configured — one is the `AI` binding,
 the other the Claude key — and an environment can have either, both or neither.
+
+**`transcription` is the same again for turning a recording into words**
+("Dictate in Write with Whisper", issue 1041): whether there is an `AI` binding
+(or the stand-in the two local stacks use) and so whether Capture draws a mic.
+Unlike the rest, the app reads this one; it is outside `ok` for the same reason.
 
 `store` is checked against a store belonging to no account, addressed by a name
 the same request confirms is absent from the register. An unauthenticated endpoint
