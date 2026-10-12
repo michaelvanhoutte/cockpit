@@ -50,6 +50,24 @@ export function parseLog(text) {
  */
 const runsSecurityReview = (lines) => lines.some((line) => reviewSkillCallsOnLine(line).some((call) => call.skill === 'security-review'));
 
+/**
+ * A subagent's id and type, from its log's file name (`agent-<id>.jsonl`) and
+ * the sidecar Claude Code writes beside it (`agent-<id>.meta.json`, as text or
+ * absent). **Only `agentType` is read from the sidecar**: its task description
+ * never crosses. No sidecar, or no type in it, gives the id alone.
+ */
+export function subagentIdentity(fileName, metaText) {
+  const id = /^agent-(.+)\.jsonl$/.exec(String(fileName ?? ''))?.[1];
+  let type;
+  try {
+    const agentType = JSON.parse(metaText ?? '').agentType;
+    if (typeof agentType === 'string' && agentType.trim() !== '') type = agentType.trim().slice(0, 100);
+  } catch {
+    // No sidecar, or one that is not JSON: the type stays unknown.
+  }
+  return { ...(id ? { subagentId: id.slice(0, 100) } : {}), ...(type ? { subagentType: type } : {}) };
+}
+
 const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0);
 
 /**
@@ -57,7 +75,7 @@ const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0)
  * the log is a subagent's. Lines with no request id, model or time are not
  * requests; the first line of a request supplies its figures, as in `cost:issue`.
  */
-export function requestsFromLog(lines, { sessionId, subagent }) {
+export function requestsFromLog(lines, { sessionId, subagent, identity = {} }) {
   const securityReview = subagent && runsSecurityReview(lines);
   const seen = new Set();
   const requests = [];
@@ -81,6 +99,7 @@ export function requestsFromLog(lines, { sessionId, subagent }) {
       cacheCreationTokens: count(usage.cache_creation_input_tokens),
       cacheReadTokens: count(usage.cache_read_input_tokens),
       subagent,
+      ...(subagent ? { subagentId: identity.subagentId, subagentType: identity.subagentType } : {}),
       securityReview,
     });
   }
@@ -112,13 +131,15 @@ function readMarks(entries) {
     const closing = later.find((m) => (m.phase === 'review-end' && m.kind === mark.kind) || (m.phase !== 'review-start' && m.phase !== 'review-end'));
     windows.push({ from: mark.ms, to: closing?.ms ?? Infinity, kind: mark.kind, level: mark.level });
   });
-  return { any: marks.length > 0, scoped: first('scoped'), pushed: first('pushed'), windows };
+  return { any: marks.length > 0, started: first('start'), scoped: first('scoped'), pushed: first('pushed'), windows };
 }
 
 /**
  * The category a request was made in, and its review level where it is a code
  * review. Actions decide first, whatever the marks say; then the security
- * review subagent; then the branch's marks at the request's own time. A
+ * review subagent; then `main`; then Unphased where the branch has no marks or
+ * the request came before its `start` mark (marks written at the end of a
+ * session say nothing of the work before them); then the branch's marks at the request's own time. A
  * request after `pushed` is after push even inside a review window, so a
  * recheck of a pushed branch is the cost of having pushed.
  *
@@ -130,7 +151,7 @@ export function categoryOf(request, { ranWhere, marksOf }) {
   if (request.securityReview) return { category: 'local-security-review' };
   if (request.branch === 'main') return { category: 'scoping-planning' };
   const marks = readMarks(request.branch === null ? [] : marksOf(request.branch));
-  if (!marks.any) return { category: 'building' };
+  if (!marks.any || (marks.started !== null && request.at < marks.started)) return { category: 'unphased' };
   if (marks.pushed !== null && marks.pushed <= request.at) return { category: 'after-push' };
   const window = marks.windows.find((w) => w.from <= request.at && request.at < w.to);
   if (window?.kind === 'security-review') return { category: 'local-security-review' };
@@ -158,6 +179,8 @@ export function toRow(request, { ranWhere, marksOf, source = 'hook' }) {
     cacheCreationTokens: request.cacheCreationTokens,
     cacheReadTokens: request.cacheReadTokens,
     subagent: request.subagent,
+    ...(request.subagentType ? { subagentType: request.subagentType } : {}),
+    ...(request.subagentId ? { subagentId: request.subagentId } : {}),
     ranWhere,
     source,
   };
@@ -166,8 +189,8 @@ export function toRow(request, { ranWhere, marksOf, source = 'hook' }) {
 /** Every request across the main log and the subagent logs, once by request id. */
 export function allRequests(logs) {
   const byId = new Map();
-  for (const { lines, sessionId, subagent } of logs) {
-    for (const request of requestsFromLog(lines, { sessionId, subagent })) {
+  for (const { lines, sessionId, subagent, identity } of logs) {
+    for (const request of requestsFromLog(lines, { sessionId, subagent, identity })) {
       if (!byId.has(request.requestId)) byId.set(request.requestId, request);
     }
   }

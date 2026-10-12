@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { allRequests, categoryOf, parseLog, requestsFromLog, sendUnsent, toRow, whereItRan } from './usage-report.mjs';
+import { allRequests, categoryOf, parseLog, requestsFromLog, sendUnsent, subagentIdentity, toRow, whereItRan } from './usage-report.mjs';
 
 const usage = { input_tokens: 3, output_tokens: 5, cache_creation_input_tokens: 7, cache_read_input_tokens: 11 };
 
@@ -71,9 +71,18 @@ describe("A request's category is the phase its session was in when it was made"
 
   const cases = [
     ['on main', request('2026-10-01T09:30:00Z', { branch: 'main' }), marks, { category: 'scoping-planning' }],
-    ['on a branch before scoped', request('2026-10-01T09:30:00Z'), marks, { category: 'scoping-planning' }],
+    ['between start and scoped', request('2026-10-01T09:30:00Z'), marks, { category: 'scoping-planning' }],
     ['after scoped with no review open', request('2026-10-01T10:30:00Z'), marks, { category: 'building' }],
-    ['a branch that never marked anything', request('2026-10-01T10:30:00Z'), [], { category: 'building' }],
+    ['a branch that never marked anything', request('2026-10-01T10:30:00Z'), [], { category: 'unphased' }],
+    ['a request with no branch at all', request('2026-10-01T10:30:00Z', { branch: null }), [], { category: 'unphased' }],
+    ['before start', request('2026-10-01T08:30:00Z'), marks, { category: 'unphased' }],
+    [
+      'marks all written seconds apart after the request',
+      request('2026-10-01T10:30:00Z'),
+      record(['2026-10-01T18:00:00Z', 'start'], ['2026-10-01T18:00:01Z', 'scoped'], ['2026-10-01T18:00:02Z', 'built'], ['2026-10-01T18:00:03Z', 'pushed']),
+      { category: 'unphased' },
+    ],
+    ['the security review subagent before start', request('2026-10-01T08:30:00Z', { securityReview: true }), marks, { category: 'local-security-review' }],
     ['between a code review starting and ending', request('2026-10-01T11:15:00Z'), marks, { category: 'local-code-review', reviewLevel: 'high' }],
     ['inside the security review subagent', request('2026-10-01T10:30:00Z', { securityReview: true }), marks, { category: 'local-security-review' }],
     ['after pushed', request('2026-10-01T12:30:00Z'), marks, { category: 'after-push' }],
@@ -86,6 +95,7 @@ describe("A request's category is the phase its session was in when it was made"
   it('in GitHub Actions is a CI review, whatever the marks say', () => {
     assert.deepEqual(category(request('2026-10-01T10:30:00Z'), marks, 'actions'), { category: 'ci-reviews' });
     assert.deepEqual(category(request('2026-10-01T10:30:00Z', { branch: 'main' }), marks, 'actions'), { category: 'ci-reviews' });
+    assert.deepEqual(category(request('2026-10-01T08:30:00Z'), [], 'actions'), { category: 'ci-reviews' });
   });
 
   it('a review window with no end stays a review until a later mark closes it', () => {
@@ -207,6 +217,38 @@ describe('Nothing from the conversation leaves the machine', () => {
       'ranWhere', 'requestId', 'sessionId', 'source', 'speed', 'subagent', 'time',
     ]);
     assert.ok(!JSON.stringify(sent).includes('SECRET'));
+  });
+});
+
+describe("A subagent's request carries its agent's type and id, and nothing else of its metadata", () => {
+  const asSubagent = (fileName, metaText) => {
+    const identity = subagentIdentity(fileName, metaText);
+    const [req] = requestsFromLog(parseLog(reply('req_1', '2026-10-01T10:00:00Z')), { sessionId: 's1', subagent: true, identity });
+    return toRow(req, { ranWhere: 'local', marksOf: () => [] });
+  };
+
+  it('a subagent with metadata naming its type sends the type and the id', () => {
+    const sent = asSubagent('agent-a0089b3f.jsonl', JSON.stringify({ agentType: 'Explore', spawnDepth: 1 }));
+    assert.equal(sent.subagentType, 'Explore');
+    assert.equal(sent.subagentId, 'a0089b3f');
+  });
+
+  it("a subagent with no metadata file sends the id from the log's name and no type", () => {
+    const sent = asSubagent('agent-a0089b3f.jsonl', '');
+    assert.equal(sent.subagentId, 'a0089b3f');
+    assert.ok(!('subagentType' in sent));
+  });
+
+  it('metadata with a task description sends no description', () => {
+    const sent = asSubagent('agent-a1.jsonl', JSON.stringify({ agentType: 'general-purpose', description: 'SECRET task description' }));
+    assert.ok(!JSON.stringify(sent).includes('SECRET'));
+    assert.deepEqual(Object.keys(sent).filter((k) => /agent|descr/i.test(k) && k !== 'subagent').sort(), ['subagentId', 'subagentType']);
+  });
+
+  it("a main-agent request carries neither, even given an identity", () => {
+    const [req] = requestsFromLog(parseLog(reply('req_1', '2026-10-01T10:00:00Z')), { sessionId: 's1', subagent: false, identity: { subagentId: 'x', subagentType: 'Explore' } });
+    const sent = toRow(req, { ranWhere: 'local', marksOf: () => [] });
+    assert.ok(!('subagentType' in sent) && !('subagentId' in sent));
   });
 });
 

@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { allRequests, parseLog, sendUnsent, toRow, whereItRan } from './lib/usage-report.mjs';
+import { allRequests, parseLog, sendUnsent, subagentIdentity, toRow, whereItRan } from './lib/usage-report.mjs';
 import { parseRecord, recordFileName } from './lib/session-record.mjs';
 
 const SEND_TIMEOUT_MS = 8000;
@@ -47,7 +47,12 @@ async function main() {
   const subagents = join(dirname(transcript), sessionId, 'subagents');
   if (existsSync(subagents)) {
     for (const name of readdirSync(subagents).filter((n) => n.endsWith('.jsonl'))) {
-      logs.push({ lines: parseLog(read(join(subagents, name))), sessionId, subagent: true });
+      logs.push({
+        lines: parseLog(read(join(subagents, name))),
+        sessionId,
+        subagent: true,
+        identity: subagentIdentity(name, read(join(subagents, name.replace(/\.jsonl$/, '.meta.json')))),
+      });
     }
   }
 
