@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { describeAnswer, planRun, unreachable } from './harness-run.mjs';
+import { describeAnswer, nextJob, planRun, unreachable } from './harness-run.mjs';
 
 const env = { HARNESS_MONITOR_URL: 'https://monitor.example', HARNESS_WRITE_KEY: 'k' };
 
@@ -10,7 +10,12 @@ describe('Harness Monitor', () => {
     it('a job that did its work is printed as a sentence and succeeds', () => {
       const answer = describeAnswer('linking', 200, { job: 'linking', ok: true, message: 'Linked 2 pull requests; caught up with GitHub.' });
 
-      assert.deepEqual(answer, { ok: true, line: 'linking: done - Linked 2 pull requests; caught up with GitHub.' });
+      assert.deepEqual(answer, { ok: true, line: 'linking: done - Linked 2 pull requests; caught up with GitHub.', priced: 0 });
+    });
+
+    it('a prices answer carries the count it priced, and one without a count carries 0', () => {
+      assert.equal(describeAnswer('prices', 200, { ok: true, message: 'm', priced: 20_000 }).priced, 20_000);
+      assert.equal(describeAnswer('prices', 200, { ok: true, message: 'm' }).priced, 0);
     });
 
     for (const { situation, status, body, line } of [
@@ -20,7 +25,41 @@ describe('Harness Monitor', () => {
       { situation: 'an answer that is not the monitor\'s', status: 502, body: null, line: 'The monitor answered 502.' },
     ]) {
       it(`${situation} fails the command with the reason`, () => {
-        assert.deepEqual(describeAnswer('linking', status, body), { ok: false, line });
+        assert.deepEqual(describeAnswer('linking', status, body), { ok: false, line, ...(body?.message ? { priced: 0 } : {}) });
+      });
+    }
+  });
+
+  describe('prices is started again until a run prices nothing, then rebuild once', () => {
+    /** Plays the command's loop over scripted answers, returning the jobs it started. */
+    const play = (requested, answers) => {
+      const started = [];
+      let previous = null;
+      for (let job = nextJob(requested, null); job; job = nextJob(requested, previous)) {
+        started.push(job);
+        previous = { job, ...answers[started.length - 1] };
+      }
+      return started;
+    };
+    const ok = (priced) => ({ ok: true, priced });
+
+    for (const { situation, answers, started } of [
+      { situation: 'runs price 20,000, then 5, then 0', answers: [ok(20_000), ok(5), ok(0), ok(0)], started: ['prices', 'prices', 'prices', 'rebuild'] },
+      { situation: 'the first run prices 0', answers: [ok(0), ok(0)], started: ['prices', 'rebuild'] },
+      { situation: 'an answer with no count (an older Worker)', answers: [ok(0), ok(0)], started: ['prices', 'rebuild'] },
+      { situation: 'the second prices run fails', answers: [ok(20_000), { ok: false, priced: 0 }], started: ['prices', 'prices'] },
+      { situation: 'a prices run that failed after pricing some', answers: [{ ok: false, priced: 7 }], started: ['prices'] },
+      { situation: 'the monitor is unreachable mid-loop', answers: [ok(5), { ok: false, priced: 0 }], started: ['prices', 'prices'] },
+      { situation: 'rebuild fails after the loop', answers: [ok(0), { ok: false, priced: 0 }], started: ['prices', 'rebuild'] },
+    ]) {
+      it(`${situation} starts ${started.join(', ')}`, () => {
+        assert.deepEqual(play('prices', answers), started);
+      });
+    }
+
+    for (const job of ['linking', 'rebuild']) {
+      it(`${job} started by hand runs once`, () => {
+        assert.deepEqual(play(job, [ok(9), ok(9)]), [job]);
       });
     }
   });
