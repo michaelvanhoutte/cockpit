@@ -1,5 +1,5 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, inject, it } from 'vitest';
 import worker from '../../src/worker';
 import { emptyTheDatabase, send, spend, theBarePage, usage, withPrices } from './support';
 
@@ -101,6 +101,23 @@ describe('Harness Monitor', () => {
         ['s1', 'a', 'claude/build-1'],
         ['s2', 'c', ''],
       ]);
+    });
+
+    it('the migration over rows already stored builds the starts a rebuild would', async () => {
+      await send([
+        usage('b', { time: '2026-10-06T10:00:00Z', sessionId: 's1' }),
+        usage('a', { time: '2026-10-06T10:00:00Z', sessionId: 's1' }),
+        usage('sub', { time: '2026-10-06T09:00:00Z', sessionId: 's1', subagent: true }),
+        usage('c', { time: '2026-10-07T10:00:00Z', sessionId: 's2', branch: null }),
+      ]);
+      const written = await sessionStarts();
+      await env.DB.prepare('DROP TABLE session_starts').run();
+      const migration = inject('migrations').find((m) => m.name.startsWith('0012_session_starts'))!;
+
+      for (const query of migration.queries) await env.DB.prepare(query).run();
+
+      expect(await sessionStarts()).toEqual(written);
+      expect(written.map((s) => [s.session_id, s.request_id])).toEqual([['s1', 'a'], ['s2', 'c']]);
     });
   });
 
