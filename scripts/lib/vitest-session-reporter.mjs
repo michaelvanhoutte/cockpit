@@ -9,7 +9,7 @@
 // It never fails the run.
 //
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,7 +33,8 @@ export default class SessionRunReporter {
     try {
       const root = this.vitest.config.root;
       const where = locateSessionRecord(root);
-      if (!where) return;
+      // Nothing to glob for where there is no record to write to.
+      if (!where || !existsSync(where.file)) return;
       const rel = (path) => relative(where.root, path).split(sep).join('/');
       const specs = await this.vitest.globTestSpecifications();
       let packageName = basename(root);

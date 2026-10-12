@@ -7,9 +7,8 @@
 import { recordTestRun } from './test-run-record.mjs';
 
 export default class PlaywrightSessionReporter {
-  onBegin() {
-    this.start = Date.now();
-  }
+  // Set before the web servers start, which `onBegin` comes after: booting the stack is part of the run.
+  start = Date.now();
 
   onEnd() {
     recordTestRun({ scopes: ['E2E'], start: this.start ?? Date.now(), end: Date.now() });
