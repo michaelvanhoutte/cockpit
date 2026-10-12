@@ -78,8 +78,13 @@ export async function theLinks() {
   return results;
 }
 
-/** Branch linking last succeeded: the sentence in the page's header. */
-export const linkingLine = async () => /<span class="linking">(.*?)<\/span>/.exec(await thePage())?.[1];
+/** What the page says about a job's last run, as a sentence. */
+export async function jobLine(job: 'linking' | 'prices' | 'rebuild') {
+  const line = new RegExp(`<li data-job="${job}"[^>]*>(.*?)</li>`, 's').exec(await thePage())?.[1];
+  return line?.replace(/&mdash;/g, '—').replace(/&rsquo;/g, "'");
+}
+
+export const linkingLine = () => jobLine('linking');
 
 /** The pull requests GitHub lists, linked now, with GitHub replaced again afterwards. */
 export async function linked(...nodes: Node[]) {

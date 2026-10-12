@@ -12,7 +12,7 @@ import {
   type Group,
   type Period,
 } from './costs';
-import type { ListStatus } from './price-list';
+import { JOBS, type JobName, type JobRun } from './jobs';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
 
@@ -50,26 +50,23 @@ const UNITS: Record<Group, [string, string]> = {
   day: ['day', 'days'],
 };
 
-function age(from: number, now: number): string {
-  const minutes = Math.max(0, Math.floor((now - from) / 60_000));
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'}`;
-  return `${Math.floor(hours / 24)} days`;
-}
+const JOB_LABELS: Record<JobName, string> = { linking: 'Branch linking', prices: 'Price list', rebuild: 'Daily totals' };
+const NEVER_RAN: Record<JobName, string> = {
+  linking: 'has not run yet.',
+  prices: 'has not run yet; only the repository&rsquo;s own prices apply.',
+  rebuild: 'has not run yet.',
+};
 
-/** How old the price list is, and whether the last attempt to refresh it failed. */
-function listLine(list: ListStatus, now: number): string {
-  const when = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
-  const base =
-    list.fetchedAt === null
-      ? 'No price list has been fetched yet; only the repository&rsquo;s own prices apply.'
-      : `Price list fetched ${age(list.fetchedAt, now)} ago (${when(list.fetchedAt)} UTC).`;
-  const failed =
-    list.lastError !== null && list.lastAttemptAt !== null
-      ? ` The fetch at ${when(list.lastAttemptAt)} UTC failed (${esc(list.lastError)}); ${list.fetchedAt === null ? 'nothing is priced from it' : 'the last good list is still in use'}.`
-      : '';
-  return `<p class="muted">${base}${failed}</p>`;
+/** What each job's last run did, scheduled or by hand: when, how it was started, and its outcome or error. */
+function jobLines(runs: JobRun[]): string {
+  const items = JOBS.map((job) => {
+    const run = runs.find((r) => r.job === job);
+    const text = run
+      ? `last run ${utc(run.ranAt)} (${run.startedBy === 'hand' ? 'by hand' : 'scheduled'}) &mdash; ${esc(run.message)}`
+      : NEVER_RAN[job];
+    return `<li data-job="${job}" class="${run && !run.ok ? 'failed' : ''}">${JOB_LABELS[job]}: ${text}</li>`;
+  });
+  return `<ul class="jobs muted">${items.join('')}</ul>`;
 }
 
 function warning(unpriced: UnpricedLine[]): string {
@@ -224,6 +221,8 @@ th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padd
 .split-head{width:220px}.split{display:flex;height:10px;background:var(--track);border-radius:2px;overflow:hidden;margin-top:4px}
 .unpriced{color:var(--warn-ink);font-size:.85em;white-space:nowrap}
 .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:12px 16px;color:var(--muted);font-size:13px}
+.jobs{list-style:none;margin:12px 16px;padding:0;font-size:13px}
+.jobs .failed{color:var(--warn-ink)}
 .empty{padding:24px;color:var(--muted)}
 @media (max-width:640px){.segmented button{flex:1 1 auto}}
 `;
@@ -231,24 +230,22 @@ th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padd
 /** The public page: Claude Code's cost, grouped and filtered. Counts and dollars only; never an email or any content. */
 export function renderPage(
   page: CostsPage,
-  report: { unpriced: UnpricedLine[]; list: ListStatus },
+  report: { unpriced: UnpricedLine[]; jobs: JobRun[] },
   now = Date.now(),
 ): string {
-  const linking =
-    page.lastLinkSuccessAt === null ? 'Branch linking has not succeeded yet.' : `Branch linking last succeeded ${utc(page.lastLinkSuccessAt)}.`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
 <style>${STYLE}</style>
 </head><body>
 <header><h1 class="name">Harness Monitor</h1><span class="section">Claude Code costs</span>
-<span class="status">Updated ${utc(now)} · <span class="linking">${linking}</span> Public, read-only.</span></header>
+<span class="status">Updated ${utc(now)} · Public, read-only.</span></header>
 <main>
 ${filters(page)}
 ${warning(report.unpriced)}
 ${whereItWent(page)}
 ${table(page)}
-${listLine(report.list, now)}
+${jobLines(report.jobs)}
 </main>
 </body></html>`;
 }

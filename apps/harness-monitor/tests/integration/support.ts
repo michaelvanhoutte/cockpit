@@ -41,6 +41,7 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM price_list'),
     env.DB.prepare('DELETE FROM branch_links'),
     env.DB.prepare('DELETE FROM link_state'),
+    env.DB.prepare('DELETE FROM job_runs'),
   ]);
 }
 

@@ -1,12 +1,5 @@
 import { costMicros, LITELLM_URL, priceOf, readLiteLlm, withOverrides, type PriceList } from './prices';
 
-export interface ListStatus {
-  fetchedAt: number | null;
-  lastAttemptAt: number | null;
-  /** Why the last attempt failed; null when it succeeded or none was made. */
-  lastError: string | null;
-}
-
 interface ListRow {
   models: string | null;
   fetched_at: number | null;
@@ -24,16 +17,16 @@ export async function currentPrices(db: D1Database): Promise<PriceList> {
   return withOverrides(row?.models ? (JSON.parse(row.models) as PriceList) : {});
 }
 
-export async function listStatus(db: D1Database): Promise<ListStatus> {
-  const row = await readRow(db);
-  return { fetchedAt: row?.fetched_at ?? null, lastAttemptAt: row?.last_attempt_at ?? null, lastError: row?.last_error ?? null };
+/** Whether any fetch has ever succeeded. */
+export async function hasFetchedList(db: D1Database): Promise<boolean> {
+  return (await readRow(db))?.models != null;
 }
 
 /**
  * Fetches LiteLLM's file. A failed fetch, a bad status or a file that is not a
  * price list leaves the stored list as it was and records why. Never throws.
  */
-export async function refreshPriceList(db: D1Database, now = Date.now()): Promise<void> {
+export async function refreshPriceList(db: D1Database, now = Date.now()): Promise<{ models: number; error: string | null }> {
   let list: PriceList | null = null;
   let error: string | null = null;
   try {
@@ -62,6 +55,7 @@ export async function refreshPriceList(db: D1Database, now = Date.now()): Promis
       .bind(now, error)
       .run();
   }
+  return { models: list ? Object.keys(list).length : 0, error };
 }
 
 /** Chunks per run, so one invocation stays inside D1's 50 queries on the free plan. */
