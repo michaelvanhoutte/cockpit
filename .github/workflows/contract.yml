@@ -19,6 +19,7 @@ on:
       - 'apps/api/src/ai/**'
       - 'apps/api/tests/contract/**'
       - 'packages/connectors/gmail/tests/contract/**'
+      - 'packages/connectors/outlook/tests/contract/**'
       - 'apps/api/vitest.contract.config.ts'
       - '.github/workflows/contract.yml'
   schedule:
@@ -56,6 +57,15 @@ jobs:
           GMAIL_CONTRACT_CLIENT_ID: ${{ secrets.GMAIL_CONTRACT_CLIENT_ID }}
           GMAIL_CONTRACT_CLIENT_SECRET: ${{ secrets.GMAIL_CONTRACT_CLIENT_SECRET }}
           GMAIL_CONTRACT_REFRESH_TOKEN: ${{ secrets.GMAIL_CONTRACT_REFRESH_TOKEN }}
+      # Outlook's own, in its connector package ("Build Outlook as a connector
+      # package on the SDK, unregistered", issue 1046): a dedicated Microsoft
+      # 365 test mailbox, and a skip, not a failure, without it. Free, so it
+      # runs weekly too.
+      - run: pnpm --filter @cockpit/connector-outlook test:contract
+        env:
+          OUTLOOK_CONTRACT_CLIENT_ID: ${{ secrets.OUTLOOK_CONTRACT_CLIENT_ID }}
+          OUTLOOK_CONTRACT_CLIENT_SECRET: ${{ secrets.OUTLOOK_CONTRACT_CLIENT_SECRET }}
+          OUTLOOK_CONTRACT_REFRESH_TOKEN: ${{ secrets.OUTLOOK_CONTRACT_REFRESH_TOKEN }}
       # A missing secret presents as a workflow that goes green having done
       # nothing, which is the failure docs/deployment.md records for
       # `CLAUDE_CODE_OAUTH_TOKEN`. Each suite itself refuses to run without its
