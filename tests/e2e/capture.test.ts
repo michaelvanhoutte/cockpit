@@ -1,5 +1,4 @@
 import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE } from '@cockpit/shared';
-import type { Page } from '@playwright/test';
 import {
   captureBox,
   closeCapture,
@@ -73,65 +72,12 @@ test.use({
 /** What the stand-in transcriber answers, whatever it was given (apps/api/src/transcription/index.ts). */
 const STAND_IN_WORDS = 'This is the stand-in transcription.';
 
-/**
- * A speech engine the walk can drive for the Car view, installed before the app
- * loads: the browser's own has no working implementation in Playwright's
- * Chromium, and is a third party besides. Write no longer uses it; the Car view
- * keeps it until its own unit moves to Whisper. `start()` only registers the session; the walk says
- * when it has started and what it heard, the way the engine does.
- */
-async function installSpeechEngine(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    type Session = {
-      onstart: (() => void) | null;
-      onresult: ((event: unknown) => void) | null;
-    };
-    const holder = window as unknown as { __speech: { current: Session | null } };
-    holder.__speech = { current: null };
-    class FakeSpeechRecognition {
-      onstart: (() => void) | null = null;
-      onresult: ((event: unknown) => void) | null = null;
-      start() {
-        holder.__speech.current = this;
-      }
-      // Asked to stop, the real engine ends: what the Car view's second tap waits on.
-      stop() {
-        (this as { onend?: () => void }).onend?.();
-      }
-      abort() {}
-    }
-    // Both names: Chromium has a standard one of its own, which the app prefers.
-    Object.assign(window, {
-      SpeechRecognition: FakeSpeechRecognition,
-      webkitSpeechRecognition: FakeSpeechRecognition,
-    });
-  });
-}
-
-/** The engine, as the walk's fake has it: listening once started, then hearing a phrase. */
-async function engineHears(page: Page, phrase: string): Promise<void> {
-  await expect
-    .poll(() => page.evaluate(() => (window as never as { __speech: { current: unknown } }).__speech.current !== null))
-    .toBe(true);
-  await page.evaluate((said) => {
-    const engine = (window as never as { __speech: { current: Record<string, (event?: unknown) => void> } })
-      .__speech.current;
-    engine.onstart!();
-    engine.onresult!({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: said } }] });
-  }, phrase);
-  // The next session is a new one: a walk that dictates twice waits for the second.
-  await page.evaluate(() => {
-    (window as never as { __speech: { current: unknown } }).__speech.current = null;
-  });
-}
-
 test.describe('Capture', () => {
   test.describe('a captured thought appears in the inbox, on a phone screen as on a desktop', () => {
     test('lists the thought to process, reachable without scrolling sideways', async ({
       page,
       isMobile,
     }) => {
-      await installSpeechEngine(page);
       await openInbox(page, isMobile);
       await expectNoSidewaysScroll(page);
       // No note box in the Inbox: the header's Capture tab is the only way in
@@ -210,20 +156,30 @@ test.describe('Capture', () => {
       await expect.poll(() => colour('body')).toBe(NIGHT);
       await expect(page.getByRole('button', { name: 'Dark view' })).toHaveAttribute('aria-pressed', 'true');
 
+      // Spoken into the same fake microphone as Write's: tap, a second of
+      // sound, tap, and the Item holds the stand-in's words. It is not the
+      // phrase of this run, so the row is found by being exactly those words.
       await press(drive, isMobile);
-      const driven = uniqueTitle('Book the car service');
-      await engineHears(page, driven);
       await expect(page.getByText('Listening — tap to capture')).toBeVisible();
+      await expect(page.getByLabel('Recording')).toContainText('Listening · 0:01');
       await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(page.getByText('Captured', { exact: true })).toBeVisible();
+      await expect(page.getByRole('list', { name: 'Captured here' }).getByText(STAND_IN_WORDS)).toBeVisible();
       await openInbox(page, isMobile);
-      await expect(itemRow(page, driven)).toBeVisible();
+      const spoken = page.getByRole('listitem').filter({ has: page.getByText(STAND_IN_WORDS, { exact: true }) });
+      await expect(spoken.first()).toBeVisible();
       // Put somewhere, because a note without a workspace waits in every Inbox
       // of the one account all specs share, and would turn up in their counts.
-      await press(itemRow(page, driven).getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
-      // Moved once a row that belongs here no longer offers to be moved here.
-      await press(itemRow(page, driven).getByRole('button', { name: 'Item actions' }), isMobile);
+      // Every run of this walk speaks the same words, so each row still
+      // waiting is moved, and one an earlier run already moved is left be.
+      for (let at = (await spoken.count()) - 1; at >= 0; at--) {
+        await press(spoken.nth(at).getByRole('button', { name: 'Item actions' }), isMobile);
+        const move = page.getByRole('menuitem', { name: 'Move to this workspace' });
+        if (await move.isVisible()) await press(move, isMobile);
+        else await page.keyboard.press('Escape');
+      }
+      // Moved once no row that belongs here offers to be moved here.
+      await press(spoken.first().getByRole('button', { name: 'Item actions' }), isMobile);
       await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
       await expect(page.getByRole('menuitem', { name: 'Move to this workspace' })).toHaveCount(0);
       await page.keyboard.press('Escape');

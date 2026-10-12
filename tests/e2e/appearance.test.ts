@@ -18,18 +18,6 @@ test.describe('Appearance', () => {
     // The Car view's night ground, as styles.css gives it.
     const NIGHT = 'rgb(17, 18, 22)';
 
-    // The Car view is offered only where the browser can recognise speech.
-    test.beforeEach(async ({ page }) => {
-      await page.addInitScript(() => {
-        class FakeSpeechRecognition {
-          start() {}
-          stop() {}
-          abort() {}
-        }
-        Object.assign(window, { SpeechRecognition: FakeSpeechRecognition, webkitSpeechRecognition: FakeSpeechRecognition });
-      });
-    });
-
     test('is dark on the logon page, on a Dashboard and in a menu opened over it, and is chosen in Settings, on a phone too', async ({ page, isMobile }) => {
       // Asked as soon as the document exists, before the app has drawn a thing.
       await page.goto('/signin', { waitUntil: 'domcontentloaded' });
