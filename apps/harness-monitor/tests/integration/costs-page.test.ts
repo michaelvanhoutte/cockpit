@@ -86,7 +86,8 @@ describe('Harness Monitor', () => {
     it('the not-measured note and the list-price label are always there', async () => {
       const html = await thePage();
 
-      expect(html).toContain('Claude Code Review and Claude Approvals run on Anthropic&rsquo;s side and are <strong>not measured</strong>');
+      expect(html).toContain('Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai, and is <strong>not measured</strong>');
+      expect(html).not.toContain('Approvals');
       await send([spend('r', 1)]);
       expect(await thePage('?period=all')).toContain('at API list price');
     });

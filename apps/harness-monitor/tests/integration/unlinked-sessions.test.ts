@@ -29,11 +29,11 @@ describe('Harness Monitor', () => {
 
     it('a branch no pull request names is unattributed once linking has caught up since the session ended', async () => {
       await send([
-        usage('r1', { sessionId: 'older', branch: 'claude/nobody-opened-a-pr', time: '2026-03-01T10:00:00Z' }),
-        usage('r2', { sessionId: 'no-branch', branch: null, time: '2026-03-01T11:00:00Z' }),
+        usage('r1', { sessionId: 'older', branch: 'claude/nobody-opened-a-pr', time: '2026-10-01T10:00:00Z' }),
+        usage('r2', { sessionId: 'no-branch', branch: null, time: '2026-10-01T11:00:00Z' }),
       ]);
       fakeGitHub(() => pageOf([recordedPullRequest(979)]));
-      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-02T12:00:00Z') });
 
       await runHourly();
 
@@ -42,14 +42,14 @@ describe('Harness Monitor', () => {
 
     it('a session newer than the last successful run is linking, and the page says when linking last ran', async () => {
       fakeGitHub(() => pageOf([recordedPullRequest(979)]));
-      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-02T12:00:00Z') });
       await runHourly();
       await send([
-        usage('r1', { sessionId: 'before', branch: 'claude/x', time: '2026-04-01T11:59:00Z' }),
-        usage('r2', { sessionId: 'after', branch: 'claude/y', time: '2026-04-01T12:30:00Z' }),
+        usage('r1', { sessionId: 'before', branch: 'claude/x', time: '2026-10-02T11:59:00Z' }),
+        usage('r2', { sessionId: 'after', branch: 'claude/y', time: '2026-10-02T12:30:00Z' }),
       ]);
 
-      expect(await linkingLine()).toBe('Branch linking: last run 2026-04-01 12:00 UTC (scheduled) — Linked 1 pull request; caught up with GitHub.');
+      expect(await linkingLine()).toBe('Branch linking: last run 2026-10-02 12:00 UTC (scheduled) — Linked 1 pull request; caught up with GitHub.');
       expect(await subs()).toEqual({ 'claude/x': 'unattributed', 'claude/y': 'linking…' });
     });
 
@@ -57,10 +57,10 @@ describe('Harness Monitor', () => {
       { situation: 'by hand', run: () => linkByHand() },
       { situation: 'on its schedule', run: () => runHourly() },
     ])('a run $situation that caught up makes every earlier branch no pull request names unattributed', async ({ run }) => {
-      await send([usage('r1', { sessionId: 's1', branch: 'claude/no-pr', time: '2026-04-01T11:00:00Z' })]);
+      await send([usage('r1', { sessionId: 's1', branch: 'claude/no-pr', time: '2026-10-02T11:00:00Z' })]);
       expect(await subs()).toEqual({ 'claude/no-pr': 'linking…' });
       fakeGitHub(() => pageOf([recordedPullRequest(979)]));
-      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-02T12:00:00Z') });
 
       await run();
 
@@ -69,16 +69,16 @@ describe('Harness Monitor', () => {
 
     it('a run cut short leaves branches newer than the last catch-up linking', async () => {
       fakeGitHub(() => pageOf([recordedPullRequest(979)]));
-      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-02T12:00:00Z') });
       await runHourly();
       await send([
-        usage('r1', { sessionId: 'before', branch: 'claude/x', time: '2026-04-01T11:59:00Z' }),
-        usage('r2', { sessionId: 'after', branch: 'claude/y', time: '2026-04-01T12:30:00Z' }),
+        usage('r1', { sessionId: 'before', branch: 'claude/x', time: '2026-10-02T11:59:00Z' }),
+        usage('r2', { sessionId: 'after', branch: 'claude/y', time: '2026-10-02T12:30:00Z' }),
       ]);
       vi.restoreAllMocks();
-      const later = pullRequest({ number: 5, headRefName: 'b/5', updatedAt: '2026-04-01T12:40:00Z' });
+      const later = pullRequest({ number: 5, headRefName: 'b/5', updatedAt: '2026-10-02T12:40:00Z' });
       fakeGitHub((call) => (call.after === null ? pageOf([later], true) : timedOut()));
-      vi.setSystemTime(new Date('2026-04-01T13:00:00Z'));
+      vi.setSystemTime(new Date('2026-10-02T13:00:00Z'));
 
       expect(await linkByHand()).toMatchObject({ ok: true, message: expect.stringContaining('More to read') });
       expect(await subs()).toEqual({ 'claude/x': 'unattributed', 'claude/y': 'linking…' });
@@ -86,13 +86,13 @@ describe('Harness Monitor', () => {
 
     it('once the next run finds the pull request, the linking session is credited', async () => {
       fakeGitHub(() => pageOf([]));
-      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-02T12:00:00Z') });
       await runHourly();
-      await send([usage('r1', { sessionId: 'after', branch: 'claude/build-971-fd1134', time: '2026-04-01T12:30:00Z' })]);
+      await send([usage('r1', { sessionId: 'after', branch: 'claude/build-971-fd1134', time: '2026-10-02T12:30:00Z' })]);
       expect(await subs()).toEqual({ 'claude/build-971-fd1134': 'linking…' });
       vi.restoreAllMocks();
       fakeGitHub(() => pageOf([recordedPullRequest(979)]));
-      vi.setSystemTime(new Date('2026-04-01T13:00:00Z'));
+      vi.setSystemTime(new Date('2026-10-02T13:00:00Z'));
 
       await runHourly();
 

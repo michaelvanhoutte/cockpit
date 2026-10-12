@@ -16,12 +16,12 @@ const rows = async (query: string) => costRows(await thePage(query)).map((r) => 
 describe('Harness Monitor', () => {
   describe('filters narrow every figure on the page', () => {
     it('a period keeps only requests inside it, in the bar and the table alike', async () => {
-      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-03-31T12:00:00Z') });
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-31T12:00:00Z') });
       await send([
-        spend('old', 8, { time: '2026-02-01T10:00:00Z', branch: 'b/old' }),
-        spend('month', 4, { time: '2026-03-05T10:00:00Z', branch: 'b/month' }),
-        spend('week', 2, { time: '2026-03-25T10:00:00Z', branch: 'b/week' }),
-        spend('today', 1, { time: '2026-03-31T09:00:00Z', branch: 'b/today' }),
+        spend('old', 8, { time: '2026-09-22T10:00:00Z', branch: 'b/old' }),
+        spend('month', 4, { time: '2026-10-05T10:00:00Z', branch: 'b/month' }),
+        spend('week', 2, { time: '2026-10-25T10:00:00Z', branch: 'b/week' }),
+        spend('today', 1, { time: '2026-10-31T09:00:00Z', branch: 'b/today' }),
       ]);
 
       const figures = async (period: string) => {
@@ -35,8 +35,8 @@ describe('Harness Monitor', () => {
     });
 
     it('with no period chosen it is the last 30 days', async () => {
-      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-03-31T12:00:00Z') });
-      await send([spend('old', 8, { time: '2026-02-01T10:00:00Z' }), spend('recent', 1, { time: '2026-03-10T10:00:00Z' })]);
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-31T12:00:00Z') });
+      await send([spend('old', 8, { time: '2026-09-22T10:00:00Z' }), spend('recent', 1, { time: '2026-10-10T10:00:00Z' })]);
 
       expect(await rows('')).toEqual([['claude/build-1', '$1.00']]);
     });
@@ -60,7 +60,7 @@ describe('Harness Monitor', () => {
       expect(whereItWent(html).bar).toContain('Building $0.00');
       expect(await rows('?period=all&engineer=~unattributed')).toEqual([['b/nobody', '$1.00']]);
       expect(await rows('?period=all&engineer=alice&group=engineer')).toEqual([['alice', '$5.00']]);
-      expect(await rows('?period=all&engineer=bob&group=day')).toEqual([['2026-03-01', '$2.00']]);
+      expect(await rows('?period=all&engineer=bob&group=day')).toEqual([['2026-10-01', '$2.00']]);
     });
 
     it('a category keeps only its requests, and the bar shows it alone', async () => {
@@ -73,8 +73,8 @@ describe('Harness Monitor', () => {
       const html = await thePage('?period=all&category=after-push');
 
       expect(costRows(html).map((r) => [r.label, r.total, ...r.categories])).toEqual([
-        ['b/2', '$3.00', '—', '—', '—', '—', '$3.00', '—'],
-        ['b/1', '$2.00', '—', '—', '—', '—', '$2.00', '—'],
+        ['b/2', '$3.00', '—', '—', '—', '—', '—', '$3.00', '—'],
+        ['b/1', '$2.00', '—', '—', '—', '—', '—', '$2.00', '—'],
       ]);
       expect(whereItWent(html)).toEqual({ heading: "Where the period's $5.00 went", bar: 'After push $5.00' });
     });

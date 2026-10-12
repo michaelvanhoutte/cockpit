@@ -1,6 +1,9 @@
 import { currentPrices } from './price-list';
 import { costMicros, priceOf } from './prices';
-import type { UsageRow } from './validate';
+import { phaseSql, type UsageRow } from './validate';
+
+/** The phase a stored row counts as; a Building row before phase marks existed is Unphased. */
+const PHASE = phaseSql();
 
 /**
  * Inserts every row of a write in one statement, from a JSON array bound as a
@@ -12,7 +15,7 @@ const INSERT_ROWS = `INSERT INTO usage_requests (
   request_id, session_id, occurred_at, day, branch, category, review_level, model, speed,
   input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
   subagent, ran_where, source, ingest_id, received_at,
-  cache_creation_1h_tokens, cost_micros, price_basis, priced_at
+  cache_creation_1h_tokens, cost_micros, price_basis, priced_at, subagent_type, subagent_id
 )
 SELECT value ->> '$.requestId', value ->> '$.sessionId', value ->> '$.occurredAt', value ->> '$.day',
        value ->> '$.branch', value ->> '$.category', value ->> '$.reviewLevel', value ->> '$.model',
@@ -20,7 +23,8 @@ SELECT value ->> '$.requestId', value ->> '$.sessionId', value ->> '$.occurredAt
        value ->> '$.cacheCreationTokens', value ->> '$.cacheReadTokens', value ->> '$.subagent',
        value ->> '$.ranWhere', value ->> '$.source', ?2, ?3,
        value ->> '$.cacheCreation1hTokens', value ->> '$.costMicros', value ->> '$.priceBasis',
-       CASE WHEN value ->> '$.costMicros' IS NULL THEN NULL ELSE ?3 END
+       CASE WHEN value ->> '$.costMicros' IS NULL THEN NULL ELSE ?3 END,
+       value ->> '$.subagentType', value ->> '$.subagentId'
 FROM json_each(?1) WHERE true
 ORDER BY key
 ON CONFLICT (request_id) DO NOTHING`;
@@ -30,11 +34,11 @@ const ADD_TO_TOTALS = `INSERT INTO daily_totals (
   day, category, model, requests, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
   cost_micros, unpriced_requests
 )
-SELECT day, category, model, COUNT(*), SUM(input_tokens), SUM(output_tokens),
+SELECT day, ${PHASE}, model, COUNT(*), SUM(input_tokens), SUM(output_tokens),
        SUM(cache_creation_tokens), SUM(cache_read_tokens),
        SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL)
 FROM usage_requests WHERE ingest_id = ?
-GROUP BY day, category, model
+GROUP BY day, ${PHASE}, model
 ON CONFLICT (day, category, model) DO UPDATE SET
   requests = requests + excluded.requests,
   input_tokens = input_tokens + excluded.input_tokens,
@@ -44,7 +48,7 @@ ON CONFLICT (day, category, model) DO UPDATE SET
   cost_micros = cost_micros + excluded.cost_micros,
   unpriced_requests = unpriced_requests + excluded.unpriced_requests`;
 
-const BRANCH_TOTALS_SELECT = `SELECT day, COALESCE(branch, ''), category, model, COUNT(*), SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL),
+const BRANCH_TOTALS_SELECT = `SELECT day, COALESCE(branch, ''), ${PHASE}, model, COUNT(*), SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL),
        SUM(CASE WHEN cost_micros IS NULL THEN input_tokens ELSE 0 END),
        SUM(CASE WHEN cost_micros IS NULL THEN output_tokens ELSE 0 END),
        SUM(CASE WHEN cost_micros IS NULL THEN cache_creation_tokens ELSE 0 END),
@@ -57,7 +61,7 @@ const ADD_TO_BRANCH_TOTALS = `INSERT INTO daily_branch_totals (
 )
 ${BRANCH_TOTALS_SELECT}
 FROM usage_requests WHERE ingest_id = ?
-GROUP BY day, COALESCE(branch, ''), category, model
+GROUP BY day, COALESCE(branch, ''), ${PHASE}, model
 ON CONFLICT (day, branch, category, model) DO UPDATE SET
   requests = requests + excluded.requests,
   cost_micros = cost_micros + excluded.cost_micros,
@@ -108,16 +112,16 @@ export async function rebuildTotals(db: D1Database): Promise<number> {
         day, category, model, requests, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_micros, unpriced_requests
       )
-      SELECT day, category, model, COUNT(*), SUM(input_tokens), SUM(output_tokens),
+      SELECT day, ${PHASE}, model, COUNT(*), SUM(input_tokens), SUM(output_tokens),
              SUM(cache_creation_tokens), SUM(cache_read_tokens),
              SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL)
-      FROM usage_requests GROUP BY day, category, model`),
+      FROM usage_requests GROUP BY day, ${PHASE}, model`),
     db.prepare(`INSERT INTO daily_branch_totals (
         day, branch, category, model, requests, cost_micros, unpriced_requests,
         unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at
       )
       ${BRANCH_TOTALS_SELECT}
-      FROM usage_requests GROUP BY day, COALESCE(branch, ''), category, model`),
+      FROM usage_requests GROUP BY day, COALESCE(branch, ''), ${PHASE}, model`),
   ]);
   const covered = await db.prepare('SELECT COUNT(DISTINCT day) AS days FROM daily_totals').first<{ days: number }>();
   return covered?.days ?? 0;

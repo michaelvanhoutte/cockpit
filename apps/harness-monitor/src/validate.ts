@@ -1,5 +1,6 @@
-/** The six things a request can be spent on, as the slugs stored. */
+/** The seven things a request can be spent on, as the slugs stored. */
 export const CATEGORIES = [
+  'unphased',
   'scoping-planning',
   'building',
   'local-code-review',
@@ -8,6 +9,18 @@ export const CATEGORIES = [
   'ci-reviews',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
+
+/**
+ * No phase marks existed before this UTC day, so a Building request dated earlier
+ * was never really Building. Stored rows are not rewritten: every read and every
+ * rebuild of the totals applies this rule.
+ */
+export const PHASES_BEGIN = '2026-09-21';
+
+/** The phase a stored row counts as, as SQL over a table alias (with its dot, or none). */
+export function phaseSql(prefix = ''): string {
+  return `CASE WHEN ${prefix}category = 'building' AND ${prefix}day < '${PHASES_BEGIN}' THEN 'unphased' ELSE ${prefix}category END`;
+}
 
 export const REVIEW_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export const SPEEDS = ['standard', 'fast'] as const;
@@ -34,6 +47,10 @@ export interface UsageRow {
   cacheCreation1hTokens: number;
   cacheReadTokens: number;
   subagent: boolean;
+  /** The kind of subagent (Explore, general-purpose, ...); only a subagent's request has one. */
+  subagentType: string | null;
+  /** Which subagent it was; only a subagent's request has one. */
+  subagentId: string | null;
   ranWhere: string;
   source: string;
 }
@@ -114,6 +131,15 @@ function validateRow(raw: unknown): UsageRow | string {
   if (!source) return `has source "${String(r.source)}", which is not one of ${SOURCES.join(', ')}.`;
   if (typeof r.subagent !== 'boolean') return 'has a subagent that is not true or false.';
 
+  const identity: Record<'subagentType' | 'subagentId', string | null> = { subagentType: null, subagentId: null };
+  for (const field of ['subagentType', 'subagentId'] as const) {
+    const v = r[field];
+    if (v === undefined || v === null) continue;
+    identity[field] = text(v, 100);
+    if (!identity[field]) return `has a ${field} that is not a short string.`;
+    if (!r.subagent) return `has a ${field}, which only a subagent's request has.`;
+  }
+
   let branch: string | null = null;
   if (r.branch !== undefined && r.branch !== null && r.branch !== '') {
     branch = text(r.branch, 300);
@@ -155,6 +181,8 @@ function validateRow(raw: unknown): UsageRow | string {
     cacheCreation1hTokens,
     cacheReadTokens: counts.cacheReadTokens!,
     subagent: r.subagent,
+    subagentType: identity.subagentType,
+    subagentId: identity.subagentId,
     ranWhere,
     source,
   };

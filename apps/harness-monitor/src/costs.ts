@@ -1,5 +1,8 @@
 import { jobReads, jobStatuses, type JobStatus } from './jobs';
-import { CATEGORIES, type Category } from './validate';
+import { CATEGORIES, phaseSql, type Category } from './validate';
+
+/** The phase a totals row counts as: the stored one, except Building before phase marks existed. */
+const PHASE = phaseSql('t.');
 
 /** What the costs page can be asked, parsed from the address; anything unrecognised is the default. */
 export const PERIODS = { '7d': 7, '30d': 30, '90d': 90, all: null } as const;
@@ -92,6 +95,7 @@ export interface CostGroup {
 }
 
 const NAMES: Record<Category, string> = {
+  unphased: 'Unphased',
   'scoping-planning': 'Scoping & planning',
   building: 'Building',
   'local-code-review': 'Local code review',
@@ -194,7 +198,7 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     binds.push(first);
   }
   if (query.category !== null) {
-    where.push('t.category = ?');
+    where.push(`${PHASE} = ?`);
     binds.push(query.category);
   }
   if (query.engineer === UNATTRIBUTED) where.push('l.branch IS NULL');
@@ -207,17 +211,17 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
   // A by-day question needs no branch unless it filters by engineer, which is the one thing a link says.
   const select =
     query.group === 'day'
-      ? `SELECT t.day AS day, '' AS branch, t.category AS category, SUM(t.cost_micros) AS costMicros,
+      ? `SELECT t.day AS day, '' AS branch, ${PHASE} AS category, SUM(t.cost_micros) AS costMicros,
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
            NULL AS prNumber, NULL AS title, NULL AS state, NULL AS mergedAt, NULL AS issue, NULL AS engineer
          FROM daily_branch_totals t ${needsLinks ? 'LEFT JOIN branch_links l ON l.branch = t.branch' : ''}
-         ${conditions} GROUP BY t.day, t.category`
-      : `SELECT '' AS day, t.branch AS branch, t.category AS category, SUM(t.cost_micros) AS costMicros,
+         ${conditions} GROUP BY t.day, ${PHASE}`
+      : `SELECT '' AS day, t.branch AS branch, ${PHASE} AS category, SUM(t.cost_micros) AS costMicros,
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
            l.pr_number AS prNumber, l.title AS title, l.state AS state, l.merged_at AS mergedAt,
            l.issue_number AS issue, l.engineer AS engineer
          FROM daily_branch_totals t LEFT JOIN branch_links l ON l.branch = t.branch
-         ${conditions} GROUP BY t.branch, t.category`;
+         ${conditions} GROUP BY t.branch, ${PHASE}`;
 
   const [rows, engineers, state, runs, list] = await db.batch([
     db.prepare(select).bind(...binds),
