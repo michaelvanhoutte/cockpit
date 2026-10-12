@@ -4,4 +4,4 @@
 -- index goes with the table. The floor for promotion back is that release: an
 -- older commit still writes this table, so rolling back past it is a restore, not
 -- a promotion (docs/deployment.md, "Migrations and rollback").
-DROP TABLE daily_branch_totals;
+DROP TABLE IF EXISTS daily_branch_totals;
