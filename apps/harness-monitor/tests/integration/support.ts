@@ -38,6 +38,7 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM usage_requests'),
     env.DB.prepare('DELETE FROM daily_totals'),
     env.DB.prepare('DELETE FROM daily_branch_totals'),
+    env.DB.prepare('DELETE FROM daily_split_totals'),
     env.DB.prepare('DELETE FROM price_list'),
     env.DB.prepare('DELETE FROM branch_links'),
     env.DB.prepare('DELETE FROM link_state'),
@@ -127,8 +128,10 @@ export interface CostRow {
   sub: string | null;
   /** The cells between the label and the split bar: engineer and merged for pull requests, the pull request count for issues and engineers. */
   details: string[];
-  /** Dollars per category, in the order unphased, scoping, building, code review, security review, after push, CI reviews; '—' for none. */
+  /** Dollars per column of the split, left to right (by phase: unphased, scoping, building, code review, security review, after push, CI reviews); '—' for none. */
   categories: string[];
+  /** How many coloured segments the row's split bar is drawn with. */
+  segments: number;
   total: string;
   unpriced: string | null;
 }
@@ -146,7 +149,8 @@ export function costRows(html: string): CostRow[] {
       label: decode(label!.replace(/<\/?a[^>]*>/g, '')),
       sub: sub === undefined ? null : decode(sub),
       details: rest.slice(0, split).map(decode),
-      categories: rest.slice(split + 1, split + 8),
+      categories: rest.slice(split + 1, -1),
+      segments: [...rest[split]!.matchAll(/<div style=/g)].length,
       total: total!,
       unpriced: unpriced ?? null,
     };
@@ -229,3 +233,32 @@ export const spend = (requestId: string, dollars: number, over: Record<string, u
     cacheReadTokens: 0,
     ...over,
   });
+
+/** The names over the split's columns, left to right. */
+export function splitColumns(html: string): string[] {
+  const found = /<th scope="col" class="split-head">Split<\/th>(.*?)<th scope="col" class="num">Total/s.exec(html);
+  if (!found) return [];
+  return [...found[1]!.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((m) => m[1]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))));
+}
+
+export interface SplitTotal {
+  day: string;
+  branch: string;
+  category: string;
+  model: string;
+  ran_where: string;
+  subagent: number;
+  requests: number;
+  cost_micros: number;
+  unpriced_requests: number;
+  last_at: number;
+}
+
+/** The totals the costs page reads, one row per key. */
+export async function splitTotals(): Promise<SplitTotal[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT day, branch, category, model, ran_where, subagent, requests, cost_micros, unpriced_requests, last_at
+     FROM daily_split_totals ORDER BY day, branch, category, model, ran_where, subagent`,
+  ).all<SplitTotal>();
+  return results;
+}

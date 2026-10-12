@@ -5,12 +5,17 @@ import {
   PAGE_SIZE,
   PERIODS,
   queryString,
+  SPLITS,
   UNATTRIBUTED,
+  WHOS,
   type CostGroup,
   type CostQuery,
   type CostsPage,
   type Group,
   type Period,
+  type Series,
+  type Split,
+  type Who,
 } from './costs';
 import { type JobName, type JobStatus } from './jobs';
 import type { UnpricedLine } from './store';
@@ -33,16 +38,27 @@ export const COLOURS: Record<Category, string> = {
   'after-push': '#6E3FA3',
   'ci-reviews': '#5F6672',
 };
-const SHORT: Record<Category, string> = {
-  unphased: 'Unphased',
-  'scoping-planning': 'Scoping',
-  building: 'Building',
-  'local-code-review': 'Code rev.',
-  'local-security-review': 'Security rev.',
-  'after-push': 'After push',
-  'ci-reviews': 'CI rev.',
+const SERIES_COLOURS: Record<string, string> = {
+  local: '#2F5BEA',
+  cloud: '#2B9A8A',
+  actions: '#5F6672',
+  merged: '#2E8B57',
+  open: '#2F5BEA',
+  closed: '#C0504D',
+  'no-pr': '#B9C4D6',
+  'on-main': '#9A4A12',
 };
+/** A model takes these by its place among every model on record, so it keeps its colour whatever the filters; they wrap past eight. */
+const MODEL_COLOURS = ['#2F5BEA', '#F0A04B', '#6E3FA3', '#2B9A8A', '#C0504D', '#9A4A12', '#5F6672', '#B9C4D6'];
+const colourOf = (split: Split, key: string, models: string[]) =>
+  split === 'phase'
+    ? COLOURS[key as Category]
+    : split === 'model'
+      ? MODEL_COLOURS[Math.max(models.indexOf(key), 0) % MODEL_COLOURS.length]!
+      : SERIES_COLOURS[key]!;
 export const PERIOD_LABELS: Record<Period, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All time' };
+const SPLIT_LABELS: Record<Split, string> = { phase: 'Phase', model: 'Model', where: 'Where', outcome: 'Outcome' };
+export const WHO_LABELS: Record<Who, string> = { all: 'All', main: 'Main session', subagents: 'Subagents' };
 const GROUP_LABELS: Record<Group, string> = { pr: 'Pull request', issue: 'Issue', engineer: 'Engineer', category: 'Category', day: 'Day' };
 const UNITS: Record<Group, [string, string]> = {
   pr: ['pull request', 'pull requests'],
@@ -100,10 +116,17 @@ function select(id: string, label: string, options: [value: string, text: string
   return `<div class="field"><label for="${id}">${label}</label><select id="${id}" name="${id}" onchange="this.form.submit()">${opts}</select></div>`;
 }
 
-function filters({ query, engineers }: CostsPage): string {
+function filters({ query, engineers, models }: CostsPage): string {
   const engineerOptions: [string, string][] = [['', 'Everyone'], ...engineers.map((e): [string, string] => [e, e]), [UNATTRIBUTED, 'Unattributed']];
   // A named engineer who is no longer in the list stays selectable, so the form never silently drops a filter.
   if (query.engineer && !engineerOptions.some(([v]) => v === query.engineer)) engineerOptions.push([query.engineer, query.engineer]);
+  const modelOptions: [string, string][] = [['', 'All models'], ...models.map((m): [string, string] => [m, m])];
+  // A named model no longer on record stays selectable, so the form never silently drops a filter.
+  if (query.model && !models.includes(query.model)) modelOptions.push([query.model, query.model]);
+  const splitButtons = SPLITS.map(
+    (v) =>
+      `<button type="submit" name="split" value="${v}"${v === query.split ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${SPLIT_LABELS[v]}</button>`,
+  ).join('');
   const buttons = GROUPS.map(
     (g) =>
       `<button type="submit" name="group" value="${g}"${g === query.group ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${GROUP_LABELS[g]}</button>`,
@@ -112,30 +135,35 @@ function filters({ query, engineers }: CostsPage): string {
 ${select('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_LABELS[p]]), query.period)}
 ${select('engineer', 'Engineer', engineerOptions, query.engineer ?? '')}
 ${select('category', 'Category', [['', 'All categories'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '')}
+${select('model', 'Model', modelOptions, query.model ?? '')}
+${select('who', 'Requests', WHOS.map((w): [string, string] => [w, WHO_LABELS[w]]), query.who)}
+<div class="field"><span id="splitby">Split by</span><div class="segmented" role="group" aria-labelledby="splitby">${splitButtons}</div></div>
+<input type="hidden" name="split" value="${query.split}">
 <div class="field"><span id="groupby">Group by</span><div class="segmented" role="group" aria-labelledby="groupby">${buttons}</div></div>
 <input type="hidden" name="group" value="${query.group}">
 <noscript><button type="submit">Apply</button></noscript>
-<a class="button" href="/export.csv${queryString(query, { group: 'pr', page: 1 })}" download>Export CSV</a>
+<a class="button" href="/export.csv${queryString(query, { group: 'pr', split: 'phase', page: 1 })}" download>Export CSV</a>
 </form>`;
 }
 
 function whereItWent(page: CostsPage): string {
-  const { query, groups, byCategory, totalMicros } = page;
-  const shown = query.category === null ? CATEGORIES : [query.category];
+  const { query, groups, bySeries, totalMicros } = page;
+  // A category filter leaves the bar and legend the one phase it keeps; the table keeps every column.
+  const series = query.split === 'phase' && query.category !== null ? page.series.filter((s) => s.key === query.category) : page.series;
   const [one, many] = UNITS[query.group];
   const summary =
     groups.length === 0
       ? ''
       : `<span class="muted">${number(groups.length)} ${groups.length === 1 ? one : many} · median ${dollars(median(groups.map((g) => g.totalMicros)))} each · at API list price</span>`;
-  const segments = shown
-    .filter((c) => byCategory[c] > 0)
-    .map((c) => `<div style="width:${((byCategory[c] / totalMicros) * 100).toFixed(2)}%;background:${COLOURS[c]}"></div>`)
+  const cost = (s: Series) => bySeries[s.key] ?? 0;
+  const segments = series
+    .map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / totalMicros) * 100).toFixed(2)}%;background:${colourOf(query.split, s.key, page.models)}"></div>` : ''))
     .join('');
-  const label = shown.map((c) => `${categoryName(c)} ${dollars(byCategory[c])}`).join(', ');
-  const legend = shown
+  const label = series.map((s) => `${s.label} ${dollars(cost(s))}`).join(', ');
+  const legend = series
     .map(
-      (c) =>
-        `<div class="legend-item"><span class="swatch" style="background:${COLOURS[c]}" aria-hidden="true"></span><span>${categoryName(c)}</span><span class="mono muted">${dollars(byCategory[c])}</span></div>`,
+      (s) =>
+        `<div class="legend-item"><span class="swatch" style="background:${colourOf(query.split, s.key, page.models)}" aria-hidden="true"></span><span>${esc(s.label)}</span><span class="mono muted">${dollars(cost(s))}</span></div>`,
     )
     .join('');
   return `<section class="card where" aria-labelledby="where">
@@ -146,7 +174,7 @@ function whereItWent(page: CostsPage): string {
 </section>`;
 }
 
-function row(g: CostGroup, group: Group, max: number, query: CostQuery): string {
+function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: Series[], models: string[]): string {
   const label = g.prNumber === null ? esc(g.label) : `<a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: 'pr', page: 1 })}">${esc(g.label)}</a>`;
   const first =
     `<td class="first">${label}${g.sub === null ? '' : `<div class="muted small">${esc(g.sub)}</div>`}</td>`;
@@ -156,10 +184,11 @@ function row(g: CostGroup, group: Group, max: number, query: CostQuery): string 
       : group === 'issue' || group === 'engineer'
         ? `<td>${number(g.pullRequests)}</td>`
         : '';
-  const split = CATEGORIES.map((c) =>
-    g.byCategory[c] > 0 ? `<div style="width:${((g.byCategory[c] / max) * 100).toFixed(1)}%;background:${COLOURS[c]}"></div>` : '',
-  ).join('');
-  const cells = CATEGORIES.map((c) => `<td class="num mono${c === 'ci-reviews' ? ' muted' : ''}">${g.byCategory[c] > 0 ? dollars(g.byCategory[c]) : '—'}</td>`).join('');
+  const cost = (s: Series) => g.bySeries[s.key] ?? 0;
+  const split = series
+    .map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / max) * 100).toFixed(1)}%;background:${colourOf(query.split, s.key, models)}"></div>` : ''))
+    .join('');
+  const cells = series.map((s) => `<td class="num mono${s.key === 'ci-reviews' ? ' muted' : ''}">${cost(s) > 0 ? dollars(cost(s)) : '—'}</td>`).join('');
   const unpriced = g.unpricedRequests > 0 ? ` <span class="unpriced">+ ${number(g.unpricedRequests)} unpriced</span>` : '';
   return `<tr>${first}${extra}<td><div class="split">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td></tr>`;
 }
@@ -173,7 +202,7 @@ function table(page: CostsPage): string {
   const shown = groups.slice(start, start + PAGE_SIZE);
   const max = Math.max(...shown.map((g) => g.totalMicros), 1);
   const extraHeads = query.group === 'pr' ? '<th scope="col">Engineer</th><th scope="col">Merged</th>' : query.group === 'issue' || query.group === 'engineer' ? '<th scope="col">Pull requests</th>' : '';
-  const heads = CATEGORIES.map((c) => `<th scope="col" class="num">${SHORT[c]}</th>`).join('');
+  const heads = page.series.map((s) => `<th scope="col" class="num">${esc(s.short)}</th>`).join('');
   const link = (to: number, text: string) => `<a href="/${queryString(query, { page: to })}">${text}</a>`;
   const pager = [pageNo > 1 ? link(pageNo - 1, 'Previous') : '', start + PAGE_SIZE < groups.length ? link(pageNo + 1, `Next ${PAGE_SIZE}`) : '']
     .filter(Boolean)
@@ -182,7 +211,7 @@ function table(page: CostsPage): string {
 <div class="scroll"><table class="costs">
 <thead><tr><th scope="col" class="first">${GROUP_LABELS[query.group]}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">Total ▾</th></tr></thead>
 <tbody>
-${shown.map((g) => row(g, query.group, max, query)).join('\n')}
+${shown.map((g) => row(g, query.group, max, query, page.series, page.models)).join('\n')}
 </tbody></table></div>
 <div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by total</span><span>${pager}</span></div>
 </section>`;
