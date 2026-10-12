@@ -1,4 +1,5 @@
 import { isExcluded } from './excluded-files';
+import { reviewCounts } from './session-record';
 
 /** One pull request as the job keeps it. */
 export interface PullRequest {
@@ -20,6 +21,9 @@ export interface PullRequest {
   ciRounds: number | null;
   /** The closing issue's title. */
   issueTitle: string | null;
+  /** Local review rounds and their findings, read from the session record in the body; null where it has none or the body was not given. */
+  localRounds: number | null;
+  findings: number | null;
   /** True when GitHub's answer carried errors, so a missing issue or engineer may only be one it could not give. */
   partial: boolean;
 }
@@ -52,7 +56,7 @@ const QUERY = `query($owner: String!, $name: String!, $after: String, $first: In
     pullRequests(orderBy: { field: UPDATED_AT, direction: ASC }, first: $first, after: $after) {
       pageInfo { hasNextPage endCursor }
       nodes {
-        id number title state createdAt mergedAt updatedAt headRefName isCrossRepository
+        id number title body state createdAt mergedAt updatedAt headRefName isCrossRepository
         author { login }
         files(first: 100) { pageInfo { hasNextPage endCursor } nodes { path additions deletions } }
         commits(last: 100) { nodes { commit { committedDate } } }
@@ -105,6 +109,7 @@ interface Node {
   id?: string;
   number?: number;
   title?: string;
+  body?: string | null;
   state?: string;
   createdAt?: string;
   mergedAt?: string | null;
@@ -158,6 +163,7 @@ function toPullRequest(node: Node | null, partial: boolean): Read | null {
   const lines = files ? sumLines(files) : null;
   const moreFilesAfter = node.files?.pageInfo?.hasNextPage ? (node.files.pageInfo.endCursor ?? null) : null;
   const issue = node.closingIssuesReferences?.nodes?.[0];
+  const reviews = reviewCounts(node.body);
   return {
     moreFilesAfter,
     pr: {
@@ -176,6 +182,8 @@ function toPullRequest(node: Node | null, partial: boolean): Read | null {
       deletions: node.files?.pageInfo?.hasNextPage && !moreFilesAfter ? null : (lines?.deletions ?? null),
       ciRounds: ciRoundsOf(node),
       issueTitle: issue?.title ?? null,
+      localRounds: reviews.rounds,
+      findings: reviews.findings,
       partial,
     },
   };

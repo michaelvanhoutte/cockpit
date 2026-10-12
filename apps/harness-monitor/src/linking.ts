@@ -27,17 +27,20 @@ WHERE excluded.pr_updated_at > branch_links.pr_updated_at
      OR (${NEW_ISSUE}) IS NOT branch_links.issue_number OR (${NEW_ENGINEER}) IS NOT branch_links.engineer))`;
 
 /**
- * Stores each pull request's size, timing, CI rounds and closing issue's title, one
+ * Stores each pull request's size, timing, CI rounds, closing issue's title and the
+ * local review rounds and findings its body's session record gives, one
  * row per pull request, from the same JSON array. An older read never replaces a
  * newer one. A size the run could not finish reading is stored as none, so the page
  * shows it blank rather than an older or shorter one; only an answer carrying errors,
  * which may have left the files out altogether, keeps the stored size. A push GitHub
  * did not list keeps the stored rounds; a title it did not give keeps the stored one
  * only when its answer carried errors, since a pull request that no longer closes an
- * issue has none.
+ * issue has none. The review counts follow the body as it is now, so an edit that
+ * adds a round updates them; only an answer carrying errors, which may have left the
+ * body out, keeps the stored ones.
  */
 const UPSERT_STATS = `INSERT INTO pull_request_stats (
-  pr_number, lines_added, lines_removed, opened_at, ci_rounds, issue_title, pr_updated_at, read_at
+  pr_number, lines_added, lines_removed, opened_at, ci_rounds, issue_title, local_rounds, findings, pr_updated_at, read_at
 )
 SELECT value ->> '$.number',
        CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.additions' IS NULL
@@ -50,6 +53,12 @@ SELECT value ->> '$.number',
        CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.issueTitle' IS NULL
             THEN (SELECT issue_title FROM pull_request_stats WHERE pr_number = value ->> '$.number')
             ELSE value ->> '$.issueTitle' END,
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.localRounds' IS NULL
+            THEN (SELECT local_rounds FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.localRounds' END,
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.localRounds' IS NULL
+            THEN (SELECT findings FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.findings' END,
        value ->> '$.updatedAt', ?2
 FROM json_each(?1) WHERE true
 ORDER BY key
@@ -58,6 +67,7 @@ ON CONFLICT (pr_number) DO UPDATE SET
   opened_at = COALESCE(excluded.opened_at, pull_request_stats.opened_at),
   ci_rounds = COALESCE(excluded.ci_rounds, pull_request_stats.ci_rounds),
   issue_title = excluded.issue_title,
+  local_rounds = excluded.local_rounds, findings = excluded.findings,
   pr_updated_at = excluded.pr_updated_at, read_at = excluded.read_at
 WHERE excluded.pr_updated_at >= pull_request_stats.pr_updated_at`;
 

@@ -26,6 +26,8 @@ export interface Node {
   createdAt?: string;
   files?: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { path: string; additions: number; deletions: number }[] };
   commits?: { nodes: { commit: { committedDate: string } }[] };
+  /** The pull request's body, where the session record lives. */
+  body?: string | null;
 }
 
 /** A recorded pull request by number: 884 closes nothing, 292 is open, 969 and 979 are merged and close an issue. */
@@ -178,7 +180,7 @@ export async function theStats() {
   const { results } = await env.DB.prepare(
     `SELECT s.pr_number, s.lines_added, s.lines_removed, s.opened_at,
             (SELECT l.merged_at FROM branch_links l WHERE l.pr_number = s.pr_number LIMIT 1) AS merged_at,
-            s.ci_rounds, s.issue_title
+            s.ci_rounds, s.issue_title, s.local_rounds, s.findings
      FROM pull_request_stats s ORDER BY s.pr_number`,
   ).all<{
     pr_number: number;
@@ -188,6 +190,8 @@ export async function theStats() {
     merged_at: string | null;
     ci_rounds: number | null;
     issue_title: string | null;
+    local_rounds: number | null;
+    findings: number | null;
   }>();
   return results;
 }

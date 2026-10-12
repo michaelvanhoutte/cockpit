@@ -6,10 +6,10 @@
 // stdout.
 //
 // Usage:
-//   node scripts/session-record.mjs mark <phase> [<kind> <level>]
+//   node scripts/session-record.mjs mark <phase> [<kind> <level> [<count>]]
 //   node scripts/session-record.mjs body < body.md > body-with-record.md
 //
-//   e.g.  mark start          mark review-start code-review high
+//   e.g.  mark start          mark review-start code-review high   mark review-end code-review high 3
 //
 // The record is a file per branch in this worktree's own git directory, so it
 // is never tracked, two worktrees never share one, and a branch started after
@@ -42,7 +42,7 @@ try {
   } else if (command === 'body' && words.length === 0) {
     process.stdout.write(applyBlock(readFileSync(0, 'utf8'), renderBlock(entries())));
   } else {
-    console.error('Usage: node scripts/session-record.mjs mark <phase> [<kind> <level>]\n       node scripts/session-record.mjs body < body.md');
+    console.error('Usage: node scripts/session-record.mjs mark <phase> [<kind> <level> [<count>]]\n       node scripts/session-record.mjs body < body.md');
     process.exit(2);
   }
 } catch (error) {

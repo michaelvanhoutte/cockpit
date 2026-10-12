@@ -19,6 +19,8 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
   linesRemoved: null,
   openedAt: null,
   ciRounds: null,
+  localRounds: null,
+  findings: null,
   issueTitle: null,
   ...over,
 });

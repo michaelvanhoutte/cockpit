@@ -105,6 +105,9 @@ export interface TotalRow {
   linesRemoved: number | null;
   openedAt: string | null;
   ciRounds: number | null;
+  /** Local review rounds and their findings, from the session record in the pull request body. */
+  localRounds: number | null;
+  findings: number | null;
   /** The closing issue's title. */
   issueTitle: string | null;
 }
@@ -125,6 +128,10 @@ export interface CostGroup {
   lines: { added: number; removed: number } | null;
   /** Head commits pushed after it opened; null until read. */
   ciRounds: number | null;
+  /** Local review rounds plus CI rounds; null while either is unknown. */
+  rounds: number | null;
+  /** Findings the local reviews reported; null unless every review carried a count. */
+  findings: number | null;
   /** Distinct pull requests in the group. */
   pullRequests: number;
   /** Dollars per series key of the split; a key the group has none of is absent. */
@@ -252,7 +259,7 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     const place = placeOf(row, group, linking);
     let g = groups.get(place.key);
     if (!g) {
-      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, openToMerged: row.openedAt !== null && row.mergedAt !== null ? openFor(row.openedAt, row.mergedAt) : null, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, ciRounds: row.ciRounds, bySeries: bag(), totalMicros: 0, unpricedRequests: 0 };
+      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, openToMerged: row.openedAt !== null && row.mergedAt !== null ? openFor(row.openedAt, row.mergedAt) : null, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, ciRounds: row.ciRounds, rounds: row.localRounds !== null && row.ciRounds !== null ? row.localRounds + row.ciRounds : null, findings: row.findings, bySeries: bag(), totalMicros: 0, unpricedRequests: 0 };
       groups.set(place.key, g);
       prs.set(place.key, new Set());
     }
@@ -335,7 +342,7 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
       ? `SELECT t.day AS day, '' AS branch, '' AS category, ${series} AS series, SUM(t.cost_micros) AS costMicros,
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
            NULL AS prNumber, NULL AS title, NULL AS state, NULL AS mergedAt, NULL AS issue, NULL AS engineer,
-           NULL AS linesAdded, NULL AS linesRemoved, NULL AS openedAt, NULL AS ciRounds, NULL AS issueTitle
+           NULL AS linesAdded, NULL AS linesRemoved, NULL AS openedAt, NULL AS ciRounds, NULL AS localRounds, NULL AS findings, NULL AS issueTitle
          FROM daily_split_totals t ${needsLinks ? 'LEFT JOIN branch_links l ON l.branch = t.branch' : ''}
          ${conditions} GROUP BY t.day, ${series}`
       : `SELECT '' AS day, t.branch AS branch, ${phase} AS category, ${series} AS series, SUM(t.cost_micros) AS costMicros,
@@ -343,7 +350,7 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
            l.pr_number AS prNumber, l.title AS title, l.state AS state, l.merged_at AS mergedAt,
            l.issue_number AS issue, l.engineer AS engineer,
            s.lines_added AS linesAdded, s.lines_removed AS linesRemoved, s.opened_at AS openedAt,
-           s.ci_rounds AS ciRounds, s.issue_title AS issueTitle
+           s.ci_rounds AS ciRounds, s.local_rounds AS localRounds, s.findings AS findings, s.issue_title AS issueTitle
          FROM daily_split_totals t LEFT JOIN branch_links l ON l.branch = t.branch
          LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
          ${conditions} GROUP BY t.branch${phaseKey}, ${series}`;
