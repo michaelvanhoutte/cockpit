@@ -12,6 +12,8 @@ export interface JobOutcome {
   ok: boolean;
   /** What the job did, or the error it met, as a sentence. */
   message: string;
+  /** Set by `prices`: how many waiting requests the run priced, so a caller can run it again while it prices any. */
+  priced?: number;
 }
 
 export interface JobRun extends JobOutcome {
@@ -44,9 +46,9 @@ async function execute(env: LinkEnv, job: JobName, now: number): Promise<JobOutc
     const priced = await priceWaitingRows(env.DB, now);
     // Pricing changes rows, not the totals the page reads: those wait for a rebuild.
     const waiting = `priced ${plural(priced, 'waiting request')}${priced > 0 ? '; run rebuild next so the page\'s dollars include them' : ''}`;
-    if (refreshed.error === null) return { ok: true, message: `Fetched ${plural(refreshed.models, 'model price')}; ${waiting}.` };
+    if (refreshed.error === null) return { ok: true, message: `Fetched ${plural(refreshed.models, 'model price')}; ${waiting}.`, priced };
     const kept = (await hasFetchedList(env.DB)) ? 'The last good list is still in use' : 'Nothing is priced from it';
-    return { ok: false, message: `${refreshed.error} ${kept}; ${waiting}.` };
+    return { ok: false, message: `${refreshed.error} ${kept}; ${waiting}.`, priced };
   }
   const days = await rebuildTotals(env.DB);
   return { ok: true, message: `Rebuilt the totals for ${plural(days, 'day')}.` };
