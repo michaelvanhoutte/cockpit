@@ -11,7 +11,6 @@ import type {
   Filing,
   FilterCondition,
   FilterGrouping,
-  FilterMatch,
   Item,
   Layout,
   Panel,
@@ -27,7 +26,7 @@ import {
 } from '../../../src/dashboardFilter';
 import { askToShow } from '../../../src/showItem';
 import { askToLand, forgetLanding } from '../../../src/landOnItem';
-import { dayOf } from '../../../src/filters';
+import { dayOf, rowsFromChoice, type FilterMatch } from '../../../src/filters';
 import { QUIET } from '../../../src/panels/PanelText';
 import {
   NOTHING_CHOSEN_TO_SHOW,
@@ -137,7 +136,7 @@ function aFilter(
   match: FilterMatch = 'all',
   groupBy: FilterGrouping = 'none',
 ): Panel {
-  return { ...aPanel(id, name), kind: 'filter', filter: { conditions, match, groupBy } };
+  return { ...aPanel(id, name), kind: 'filter', filter: { rows: rowsFromChoice(conditions, match), groupBy } };
 }
 
 const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
@@ -1805,7 +1804,7 @@ describe('Panels', () => {
         panel: {
           ...aPanel('due', 'What matters'),
           kind: 'filter' as const,
-          filter: { conditions: [], match: 'all' as const, groupBy: 'none' as const },
+          filter: { rows: [], groupBy: 'none' as const },
         },
       },
     ])('is not offered on $situation', async ({ panel }) => {
@@ -2216,7 +2215,7 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({
             panelId: 'due',
-            conditions: [{ field: 'dueDate', window: 'week', orOverdue: false }],
+            rows: [[{ field: 'dueDate', window: 'week', orOverdue: false }]],
           }),
         }),
         expect.anything(),
@@ -2256,7 +2255,7 @@ describe('Onboarding', () => {
       expect(mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'set_panel_filter',
-          payload: expect.objectContaining({ conditions: [] }),
+          payload: expect.objectContaining({ rows: [] }),
         }),
         expect.anything(),
       );
@@ -2296,12 +2295,14 @@ describe('Onboarding', () => {
         expect(screen.getByText('or', { selector: 'span' })).toBeVisible();
         await user.click(screen.getByRole('button', { name: 'Save' }));
         expect(mutate).toHaveBeenCalledWith(
-          expect.objectContaining({ payload: expect.objectContaining({ match: 'any' }) }),
+          expect.objectContaining({
+            payload: expect.objectContaining({ rows: [[DUE_TODAY, PRIORITY_HIGH, { field: 'panel', values: [] }]] }),
+          }),
           expect.anything(),
         );
       });
 
-      it('sends the choice with the rows, and keeps it when the rows are taken down to one', async () => {
+      it('keeps the choice when the conditions are taken down to one, which saves one row of one', async () => {
         const { mutate, user } = showBoard({
           panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH])],
         });
@@ -2317,7 +2318,7 @@ describe('Onboarding', () => {
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'set_panel_filter',
-            payload: expect.objectContaining({ conditions: [DUE_TODAY], match: 'any' }),
+            payload: expect.objectContaining({ rows: [[DUE_TODAY]] }),
           }),
           expect.anything(),
         );
@@ -2350,16 +2351,19 @@ describe('Onboarding', () => {
         expect(screen.getByRole('combobox', { name: /Due date is/ })).toBeVisible();
       });
 
-      it('sends all where it was never changed', async () => {
-        const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+      it('saves a row per condition where it was never changed', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
 
         await choose(user, 'Due soon', 'Filter…');
-        await addCondition(user, 'Due date');
+        await addCondition(user, 'Priority');
+        await addCondition(user, 'Panel');
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
-            payload: expect.objectContaining({ match: 'all' }),
+            payload: expect.objectContaining({
+              rows: [[DUE_TODAY], [{ field: 'priority', values: [] }], [{ field: 'panel', values: [] }]],
+            }),
           }),
           expect.anything(),
         );
@@ -2496,7 +2500,7 @@ describe('Onboarding', () => {
         // default the missing grouping to none and prove nothing.
         const restored = {
           ...aFilter('due', 'Due soon', [DUE_TODAY]),
-          filter: { conditions: [DUE_TODAY], match: 'all' },
+          filter: { rows: [[DUE_TODAY]] },
         } as Panel;
         showBoard({
           panels: [falcon, restored],
@@ -2564,7 +2568,7 @@ describe('Onboarding', () => {
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'set_panel_filter',
-            payload: expect.objectContaining({ conditions: [DUE_TODAY], match: 'any', groupBy: 'dashboard' }),
+            payload: expect.objectContaining({ rows: [[DUE_TODAY]], groupBy: 'dashboard' }),
           }),
           expect.anything(),
         );
@@ -2705,7 +2709,7 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({
             panelId: 'due',
-            conditions: [{ field: 'priority', values: ['high', 'normal'] }],
+            rows: [[{ field: 'priority', values: ['high', 'normal'] }]],
           }),
         }),
         expect.anything(),
@@ -2738,7 +2742,7 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({
             panelId: 'due',
-            conditions: [{ field: 'panel', values: ['project'] }],
+            rows: [[{ field: 'panel', values: ['project'] }]],
           }),
         }),
         expect.anything(),
@@ -2788,7 +2792,7 @@ describe('Onboarding', () => {
         expect.objectContaining({
           name: 'set_panel_filter',
           payload: expect.objectContaining({
-            conditions: [{ field: 'priority', values: ['low'], exclude: true }],
+            rows: [[{ field: 'priority', values: ['low'], exclude: true }]],
           }),
         }),
         expect.anything(),
@@ -2812,7 +2816,7 @@ describe('Onboarding', () => {
       expect(mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'set_panel_filter',
-          payload: expect.objectContaining({ conditions: [{ field: 'status', values: ['to_do'] }] }),
+          payload: expect.objectContaining({ rows: [[{ field: 'status', values: ['to_do'] }]] }),
         }),
         expect.anything(),
       );
@@ -2850,7 +2854,7 @@ describe('Onboarding', () => {
         await user.click(screen.getByRole('button', { name: 'Save' }));
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
-            payload: expect.objectContaining({ conditions: [{ field: 'panel', values: ['panel-Bravo'] }] }),
+            payload: expect.objectContaining({ rows: [[{ field: 'panel', values: ['panel-Bravo'] }]] }),
           }),
           expect.anything(),
         );
@@ -3044,7 +3048,7 @@ describe('Onboarding', () => {
             expect.objectContaining({
               name: 'set_panel_filter',
               payload: expect.objectContaining({
-                conditions: [{ field: 'dashboard', values: ['personal'], exclude: true }],
+                rows: [[{ field: 'dashboard', values: ['personal'], exclude: true }]],
               }),
             }),
             expect.anything(),

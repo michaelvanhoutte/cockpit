@@ -4,7 +4,7 @@ import type {
   Filing,
   FilterCondition,
   FilterGrouping,
-  FilterMatch,
+  FilterRow,
   Item,
   Panel,
   Priority,
@@ -18,8 +18,10 @@ import {
   inFilterOrder,
   itemsMatchingFilter,
   panelAndFilterIdsByItem,
+  rowsFromChoice,
   saysWhatItShows,
   shownOn,
+  type FilterMatch,
 } from '../../src/filters';
 import { DEFAULT_FILTER_SORT } from '../../src/sorting';
 
@@ -96,7 +98,7 @@ function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
     body: '',
     readOnly: false,
     neverPropose: false,
-    filter: kind === 'filter' ? { conditions: [], match: 'all', groupBy: 'none' } : null,
+    filter: kind === 'filter' ? { rows: [], groupBy: 'none' } : null,
     sort: null,
   };
 }
@@ -130,7 +132,30 @@ function shown(
     match?: FilterMatch;
   } = {},
 ): string[] {
-  return itemsMatchingFilter(items, filings, panels, dashboards, { conditions, match, groupBy: 'none' }, on).map(
+  return shownByRows(items, filings, rowsFromChoice(conditions, match), { panels, dashboards, on });
+}
+
+/** A Filter of these conditions, saved as the question's All / Any choice saves it. */
+function asFilter(conditions: FilterCondition[], match: FilterMatch = 'all') {
+  return { rows: rowsFromChoice(conditions, match), groupBy: 'none' as const };
+}
+
+/** What a Filter of these rows draws, out of these items and filings. */
+function shownByRows(
+  items: readonly Item[],
+  filings: readonly Filing[],
+  rows: FilterRow[],
+  {
+    panels = [FALCON, GATHERS],
+    dashboards = [...new Set(panels.map((panel) => panel.dashboardId))].map((id) => ({ id })),
+    on = TODAY,
+  }: {
+    panels?: readonly Panel[];
+    dashboards?: readonly { id: string }[];
+    on?: string;
+  } = {},
+): string[] {
+  return itemsMatchingFilter(items, filings, panels, dashboards, { rows, groupBy: 'none' }, on).map(
     (item) => item.id,
   );
 }
@@ -454,7 +479,7 @@ describe('Panels', () => {
     describe('deleting a Dashboard is asked about wherever a live Filter looks at it', () => {
       const aFilterOn = (id: string, condition: FilterCondition, ...others: FilterCondition[]): Panel => ({
         ...aPanel(id, 'filter'),
-        filter: { conditions: [condition, ...others], match: 'all', groupBy: 'none' },
+        filter: asFilter([condition, ...others]),
       });
 
       it.each([
@@ -590,10 +615,44 @@ describe('Panels', () => {
       },
     );
 
-    it('lets every item through when it is the only condition under all, and none under any', () => {
+    it('lets every item through where every condition filters nothing, under all or any', () => {
+      // A row of nothing but such conditions filters nothing, as a row of one
+      // of them does ("Join a Filter's rows with and, and a row's alternatives
+      // with or", issue 1075).
       expect(shown(items, filings, [onlyDeleted], { match: 'all' }).sort()).toEqual(['later', 'this-week']);
-      expect(shown(items, filings, [onlyDeleted, nothingChosen], { match: 'any' })).toEqual([]);
+      expect(shown(items, filings, [onlyDeleted, nothingChosen], { match: 'any' }).sort()).toEqual(['later', 'this-week']);
     });
+  });
+
+  describe('a Filter shows an item that meets every row, and meets a row when it meets any condition in it', () => {
+    const a = aPanel('a');
+    const b = aPanel('b');
+    const c = aPanel('c');
+    const panels = [a, b, c, GATHERS];
+    const dueWeek = due('week');
+    const high: FilterCondition = { field: 'priority', values: ['high'] };
+    const notOnAOrB: FilterCondition = { field: 'panel', values: ['a', 'b'], exclude: true };
+    const priorityNothing: FilterCondition = { field: 'priority', values: [] };
+    const panelNotNothing: FilterCondition = { field: 'panel', values: [], exclude: true };
+    const mixed = [[dueWeek, high], [notOnAOrB]];
+
+    it.each([
+      { situation: '(due this week or overdue, or High) and not on A or B: due today, on C', rows: mixed, item: { dueDate: TODAY }, on: 'c', drawn: true },
+      { situation: '(due this week or overdue, or High) and not on A or B: High, on A', rows: mixed, item: { priority: 'high' }, on: 'a', drawn: false },
+      { situation: '(due this week or overdue, or High) and not on A or B: Normal, not due, on C', rows: mixed, item: { priority: 'normal' }, on: 'c', drawn: false },
+      { situation: 'one row of Due and Priority: meets Priority only', rows: [[dueWeek, high]], item: { priority: 'high' }, on: 'c', drawn: true },
+      { situation: 'two rows, Due then Priority: meets Priority only', rows: [[dueWeek], [high]], item: { priority: 'high' }, on: 'c', drawn: false },
+      { situation: 'a row of Priority is nothing beside Due: meets Due', rows: [[priorityNothing, dueWeek]], item: { dueDate: TODAY }, on: 'c', drawn: true },
+      { situation: 'a row alone of Priority is nothing: any item', rows: [[priorityNothing]], item: { dueDate: TODAY, priority: 'high' }, on: 'c', drawn: false },
+      { situation: 'a row alone of Panel is not nothing: any item', rows: [[panelNotNothing]], item: { priority: 'normal' }, on: 'c', drawn: true },
+      { situation: 'a row of Panel is not nothing beside Due: meets neither', rows: [[panelNotNothing, dueWeek]], item: { priority: 'normal' }, on: 'c', drawn: false },
+      { situation: 'no rows: any item', rows: [], item: { dueDate: TODAY, priority: 'high' }, on: 'c', drawn: false },
+    ] as { situation: string; rows: FilterRow[]; item: { dueDate?: string; priority?: Priority }; on: string; drawn: boolean }[])(
+      '$situation',
+      ({ rows, item, on, drawn }) => {
+        expect(shownByRows([anItem('x', item)], [filed(on, 'x')], rows, { panels })).toEqual(drawn ? ['x'] : []);
+      },
+    );
   });
 
   describe('a due window follows the calendar of whoever is looking', () => {
@@ -829,7 +888,7 @@ describe('Panels', () => {
         reads: 'Not filed on wiki',
       },
     ])('reads $situation', ({ conditions, panels = [], reads }) => {
-      expect(saysWhatItShows(conditions, panels)).toBe(reads);
+      expect(saysWhatItShows(rowsFromChoice(conditions, 'all'), panels)).toBe(reads);
     });
 
     it.each([
@@ -862,7 +921,7 @@ describe('Panels', () => {
         reads: 'Nothing chosen yet',
       },
     ])('reads any, with $situation', ({ conditions, reads }) => {
-      expect(saysWhatItShows(conditions, [], 'any')).toBe(reads);
+      expect(saysWhatItShows(rowsFromChoice(conditions, 'any'), [])).toBe(reads);
     });
 
     it.each([
@@ -871,15 +930,32 @@ describe('Panels', () => {
       { situation: 'by nothing, which adds nothing', groupBy: 'none' as const, conditions: [due('week')], match: 'all' as const, reads: 'Due this week or overdue' },
       { situation: 'by Panel, set to any', groupBy: 'panel' as const, conditions: [due('week'), priority('high')], match: 'any' as const, reads: 'Any of: Due this week or overdue; Priority is High; grouped by Panel' },
     ])('ends with the grouping where there is one, grouped $situation', ({ conditions, match, groupBy, reads }) => {
-      expect(saysWhatItShows(conditions, [], match, groupBy)).toBe(reads);
+      expect(saysWhatItShows(rowsFromChoice(conditions, match), [], groupBy)).toBe(reads);
     });
 
     it.each([
-      { match: 'all' as const, reads: 'Everything filed; grouped by Panel' },
-      { match: 'any' as const, reads: 'Nothing chosen yet; grouped by Panel' },
-    ])('keeps the grouping when every condition is an is not that filters nothing, set to $match', ({ match, reads }) => {
+      { situation: 'each in a row of its own', rows: (one: FilterCondition) => [[one], [one]] },
+      { situation: 'together in one row', rows: (one: FilterCondition) => [[one, { ...one, field: 'dashboard' } as FilterCondition]] },
+    ])('keeps the grouping when every condition is an is not that filters nothing, $situation', ({ rows }) => {
+      // Rows of nothing but conditions that filter nothing let everything
+      // through, which is what matching does with them too.
       const nothingToExclude: FilterCondition = { field: 'panel', values: [], exclude: true };
-      expect(saysWhatItShows([nothingToExclude], [], match, 'panel')).toBe(reads);
+      expect(saysWhatItShows(rows(nothingToExclude), [], 'panel')).toBe('Everything filed; grouped by Panel');
+    });
+
+    it.each([
+      {
+        situation: 'a row of alternatives beside another row is bracketed',
+        rows: [[due('week'), priority('high')], [{ field: 'priority', values: ['low'], exclude: true } as FilterCondition]],
+        reads: '(Due this week or overdue or Priority is High) and Priority is not Low',
+      },
+      {
+        situation: 'a row whose alternatives all filter nothing is left out',
+        rows: [[due('week')], [{ field: 'panel', values: [], exclude: true } as FilterCondition]],
+        reads: 'Due this week or overdue',
+      },
+    ])('reads rows joined by and: $situation', ({ rows, reads }) => {
+      expect(saysWhatItShows(rows, [])).toBe(reads);
     });
 
     it.each([
@@ -902,13 +978,13 @@ describe('Panels', () => {
           { id: 'work', name: 'Work' },
           { id: 'volleyball', name: 'Volleyball club' },
         ];
-        expect(saysWhatItShows([condition], [], 'all', 'none', dashboards)).toBe(reads);
+        expect(saysWhatItShows([[condition]], [], 'none', dashboards)).toBe(reads);
       },
     );
 
     it('adds nothing for a grouping it does not know, rather than naming one', () => {
       const unknown = 'type' as unknown as FilterGrouping;
-      expect(saysWhatItShows([due('week')], [], 'all', unknown)).toBe('Due this week or overdue');
+      expect(saysWhatItShows([[due('week')]], [], unknown)).toBe('Due this week or overdue');
     });
   });
 
@@ -916,7 +992,7 @@ describe('Panels', () => {
     /** A Filter, gathering by these Panel ids unless a case says otherwise. */
     function aFilterOnPanels(id: string, ...values: string[]): Panel {
       const condition: FilterCondition = { field: 'panel', values };
-      return { ...aPanel(id, 'filter'), filter: { conditions: [condition], match: 'all' as const, groupBy: 'none' as const } };
+      return { ...aPanel(id, 'filter'), filter: asFilter([condition]) };
     }
     const notes = aPanel('notes');
 
@@ -941,7 +1017,7 @@ describe('Panels', () => {
     it('names a Filter that excludes the Panel but never says it would be left showing nothing', () => {
       const excluding: Panel = {
         ...aPanel('rest', 'filter'),
-        filter: { conditions: [{ field: 'panel', values: ['wiki'], exclude: true }], match: 'all', groupBy: 'none' },
+        filter: asFilter([{ field: 'panel', values: ['wiki'], exclude: true }]),
       };
       expect(filtersUsingPanel('wiki', [FALCON, excluding])).toEqual([{ filter: excluding, leftEmpty: false }]);
     });
@@ -977,13 +1053,13 @@ describe('Panels', () => {
     ])('names a Filter that, losing its only live Panel and $situation', ({ others, match, leftEmpty }) => {
       const gathers = {
         ...aPanel('due', 'filter'),
-        filter: { conditions: [{ field: 'panel' as const, values: ['wiki'] }, ...others], match, groupBy: 'none' as const },
+        filter: asFilter([{ field: 'panel' as const, values: ['wiki'] }, ...others], match),
       };
       expect(filtersUsingPanel('wiki', [FALCON, gathers])).toEqual([{ filter: gathers, leftEmpty }]);
     });
 
     it('never names a Filter that does not condition on this Panel at all', () => {
-      const other = { ...aPanel('over', 'filter'), filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const } };
+      const other = { ...aPanel('over', 'filter'), filter: asFilter([due('today')]) };
       expect(filtersUsingPanel('wiki', [FALCON, other])).toEqual([]);
     });
 
@@ -1029,7 +1105,7 @@ describe('Panels', () => {
 
     it('names a Filter the item matches, alongside a Panel it is filed on', () => {
       const today = aPanel('today');
-      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const } };
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: asFilter([due('today')]) };
       const item = anItem('a', { dueDate: TODAY });
 
       expect(
@@ -1039,10 +1115,10 @@ describe('Panels', () => {
 
     it('drawn on a Filter itself, names the Panels filed on and every other Filter matched, never itself', () => {
       const today = aPanel('today');
-      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const } };
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: asFilter([due('today')]) };
       const highPriority = {
         ...aPanel('high-priority', 'filter'),
-        filter: { conditions: [{ field: 'priority' as const, values: ['high'] as Priority[] }], match: 'all' as const, groupBy: 'none' as const },
+        filter: asFilter([{ field: 'priority' as const, values: ['high'] as Priority[] }]),
       };
       const item = anItem('a', { dueDate: TODAY, priority: 'high' });
       const panels = [today, dueSoon, highPriority];
@@ -1074,7 +1150,7 @@ describe('Panels', () => {
       // The Filter is found after the filed Panel (`panelAndFilterIdsByItem`
       // walks filings before Filters), and still reads before it here,
       // because both are read back in `panelsInWorkspace`'s own order.
-      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const } };
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: asFilter([due('today')]) };
       const today = aPanel('today');
       const item = anItem('a', { dueDate: TODAY });
       const panels = [dueSoon, today];
@@ -1093,7 +1169,7 @@ describe('Panels', () => {
     const dueSoon = {
       ...aPanel('due-soon', 'filter'),
       name: 'Due soon',
-      filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const },
+      filter: asFilter([due('today')]),
     };
 
     it('names the one panel an item is filed on', () => {

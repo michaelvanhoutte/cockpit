@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { abortAllDurableObjects, applyD1Migrations, env } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
-import { GMAIL_RECONNECT_REASON, accountChanges } from '../../../src/accounts/changes.js';
+import { GMAIL_RECONNECT_REASON, accountChanges, filterRowsStatements } from '../../../src/accounts/changes.js';
 import { inStoreAsItIs, storeNamed } from '../seed.js';
 
 /**
@@ -267,6 +267,24 @@ const rowsFor: {
         params: (name) => [name, AT],
       },
     ],
+  },
+  {
+    // Filters of each kind an account holds once Panels can gather
+    // (`0035-panel-filters`), stored flat as every one was before
+    // `0071-filter-rows`: All, Any, one saved with a field twice, and one that
+    // cannot be read - so every update from there on meets real Filters.
+    table: 'panels',
+    sql: 'SELECT 1',
+    params: () => [],
+    once: {
+      column: 'filter_conditions',
+      sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, filter_conditions, created_at)
+            VALUES ('pn-filter-all', ?, 'db-before', 'All', 'all', '{"conditions":[{"field":"dueDate","window":"week","orOverdue":true},{"field":"priority","values":["high"]}],"match":"all","groupBy":"none"}', ?),
+                   ('pn-filter-any', ?, 'db-before', 'Any', 'any', '{"conditions":[{"field":"dueDate","window":"today","orOverdue":true},{"field":"priority","values":["high"]}],"match":"any","groupBy":"none"}', ?),
+                   ('pn-filter-twice', ?, 'db-before', 'Twice', 'twice', '{"conditions":[{"field":"priority","values":["high"]},{"field":"priority","values":["low"]}],"match":"all","groupBy":"none"}', ?),
+                   ('pn-filter-unreadable', ?, 'db-before', 'Unreadable', 'unreadable', '{not json', ?)`,
+      params: (name) => [name, AT, name, AT, name, AT, name, AT],
+    },
   },
   {
     table: 'panel_placements',
@@ -1765,8 +1783,13 @@ describe('Panels', () => {
       expect(panels.map((panel) => panel.neverPropose)).toEqual(panels.map(() => false));
 
       const offered = await storeNamed(name).panelsThatTakeItems(name, 'ws-before');
+      // The Filters `rowsFor` writes gather rather than take items, so they are
+      // never offered whatever their flag.
       expect(offered.status === 'ok' ? offered.value.map((panel) => panel.id).sort() : []).toEqual(
-        panels.map((panel) => panel.id).sort(),
+        panels
+          .filter((panel) => panel.kind === 'items')
+          .map((panel) => panel.id)
+          .sort(),
       );
     });
   });
@@ -2656,6 +2679,171 @@ describe('Accounts', () => {
       expect(await sourcesIn(name)).toEqual(
         before.map((row) => (['it-before', 'it-gmail'].includes(row.id) ? { ...row, ...asEveryConnector } : row)),
       );
+    });
+  });
+});
+
+/**
+ * "Store every Filter as rows, and save the All / Any choice as rows" (issue
+ * 1081): every Filter stored flat is rewritten into rows - *All* a row per
+ * condition, *Any* one row of them all - so it goes on showing the same Items.
+ * Integration because it rewrites stored text with SQL, inside the store's own
+ * bring-up; that rows match the Items they did is the client's
+ * (apps/web/tests/unit/filters.test.ts).
+ */
+const FILTER_ROWS = '0071-filter-rows';
+
+/** What it logs when it leaves a Filter it cannot read alone. */
+const LEFT_ALONE_FILTERS = 'Filters stored as neither conditions nor rows were left as they are';
+
+const DUE_WEEK = { field: 'dueDate', window: 'week', orOverdue: true };
+const PRIORITY_HIGH = { field: 'priority', values: ['high'] };
+const PRIORITY_LOW = { field: 'priority', values: ['low'] };
+const NOT_ON_PANELS = { field: 'panel', values: ['pn-before', 'pn-wrapped'], exclude: true };
+const NOT_ON_DASHBOARD = { field: 'dashboard', values: ['db-before'], exclude: true };
+
+/** Every Panel's stored Filter text, by id - NULL on a Panel that is not a Filter. */
+const filtersIn = (name: string) =>
+  inStoreAsItIs(name, (sql) =>
+    Object.fromEntries(
+      sql
+        .exec<{ id: string; filter_conditions: string | null }>('SELECT id, filter_conditions FROM panels ORDER BY id')
+        .toArray()
+        .map((row) => [row.id, row.filter_conditions]),
+    ),
+  );
+
+/** A store from just before the change, filled as every other case here is, and holding these Filters besides. */
+async function storeWithFilters(name: string, stored: Record<string, string>): Promise<void> {
+  await agedTo(name, justBefore(FILTER_ROWS));
+  await fillWithWhatIsAlreadyThere(name);
+  await inStoreAsItIs(name, (sql) => {
+    for (const [id, text] of Object.entries(stored)) {
+      sql.exec(
+        `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, filter_conditions, created_at)
+           VALUES (?, ?, 'db-before', ?, ?, ?, ?)`,
+        id,
+        name,
+        id,
+        id,
+        text,
+        AT,
+      );
+    }
+  });
+}
+
+/** Opens the store, as the first request of the day does, and answers how many Filters it logged as left alone. */
+async function openCountingLeftAlone(name: string): Promise<number[]> {
+  const log = vi.spyOn(console, 'warn');
+  try {
+    expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+    return leftAloneIn(log.mock.calls, LEFT_ALONE_FILTERS);
+  } finally {
+    log.mockRestore();
+  }
+}
+
+describe('Panels', () => {
+  describe('an existing Filter shows the same Items after its account is brought up to date', () => {
+    const flat = (conditions: unknown[], match?: unknown, groupBy: unknown = 'none') =>
+      JSON.stringify({ conditions, ...(match === undefined ? {} : { match }), groupBy });
+
+    it.each([
+      { situation: 'All, Due and Priority: two rows, one condition each', stored: flat([DUE_WEEK, PRIORITY_HIGH], 'all'), rows: [[DUE_WEEK], [PRIORITY_HIGH]] },
+      {
+        situation: 'Any, Due, Priority and Panel is not: one row of three',
+        stored: flat([DUE_WEEK, PRIORITY_HIGH, NOT_ON_PANELS], 'any'),
+        rows: [[DUE_WEEK, PRIORITY_HIGH, NOT_ON_PANELS]],
+      },
+      { situation: 'one condition set to All: one row of one', stored: flat([DUE_WEEK], 'all'), rows: [[DUE_WEEK]] },
+      { situation: 'one condition set to Any: one row of one', stored: flat([DUE_WEEK], 'any'), rows: [[DUE_WEEK]] },
+      { situation: 'no conditions, set to All: no rows', stored: flat([], 'all'), rows: [] },
+      { situation: 'no conditions, set to Any: no rows', stored: flat([], 'any'), rows: [] },
+      {
+        situation: 'All with Priority twice: a row per field, the first Priority kept',
+        stored: flat([PRIORITY_HIGH, DUE_WEEK, PRIORITY_LOW], 'all'),
+        rows: [[PRIORITY_HIGH], [DUE_WEEK]],
+      },
+      {
+        situation: 'Any with Priority twice: one row, the first Priority kept',
+        stored: flat([PRIORITY_HIGH, DUE_WEEK, PRIORITY_LOW], 'any'),
+        rows: [[PRIORITY_HIGH, DUE_WEEK]],
+      },
+      { situation: 'a setting nobody wrote: rows as All', stored: flat([DUE_WEEK, PRIORITY_HIGH], 'either'), rows: [[DUE_WEEK], [PRIORITY_HIGH]] },
+      { situation: 'stored before there was a setting: rows as All', stored: flat([DUE_WEEK, PRIORITY_HIGH]), rows: [[DUE_WEEK], [PRIORITY_HIGH]] },
+      {
+        situation: 'Dashboard and is not conditions, grouped by Panel: each condition and the grouping unchanged',
+        stored: flat([NOT_ON_DASHBOARD, NOT_ON_PANELS], 'all', 'panel'),
+        rows: [[NOT_ON_DASHBOARD], [NOT_ON_PANELS]],
+        groupBy: 'panel',
+      },
+    ])('$situation', async ({ situation, stored, rows, groupBy = 'none' }) => {
+      const name = `aged-store-filter-rows-${situation.replace(/\W+/g, '-').slice(0, 60)}`;
+      await storeWithFilters(name, { 'pn-flat': stored });
+
+      expect(await openCountingLeftAlone(name), situation).toEqual([1]);
+
+      expect(JSON.parse((await filtersIn(name))['pn-flat']!)).toEqual({ rows, groupBy });
+      // And read back through the real query, which is what a person is served.
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(
+        snapshot.status === 'ok' ? snapshot.value.panels.find((panel) => panel.id === 'pn-flat')?.filter : 'unread',
+      ).toEqual({ rows, groupBy });
+    });
+  });
+
+  describe('a Filter the change cannot read is left as it was, and the account still opens', () => {
+    it('leaves text that is not JSON and JSON of no known shape unchanged and counted, and a Panel that is not a Filter untouched', async () => {
+      const name = 'aged-store-filter-rows-unreadable';
+      const unreadable = {
+        'pn-not-json': '{not json',
+        'pn-no-shape': '{"rules":[]}',
+        'pn-a-list': '[1,2]',
+        'pn-not-conditions': '{"conditions":["today"],"match":"all"}',
+      };
+      await storeWithFilters(name, unreadable);
+      const before = await filtersIn(name);
+
+      // `rowsFor`'s own unreadable Filter, and these four.
+      expect(await openCountingLeftAlone(name)).toEqual([5]);
+
+      const after = await filtersIn(name);
+      for (const id of [...Object.keys(unreadable), 'pn-filter-unreadable', 'pn-before', 'pn-wrapped']) {
+        expect(after[id], id).toBe(before[id]);
+      }
+      expect(after['pn-before']).toBeNull();
+    });
+  });
+
+  describe('running the change’s statements again changes nothing already in rows', () => {
+    it('leaves every migrated Filter byte for byte, and migrates one written flat after a rollback', async () => {
+      const name = 'aged-store-filter-rows-again';
+      await storeWithFilters(name, {});
+      await openCountingLeftAlone(name);
+      const migrated = await filtersIn(name);
+      const again = () =>
+        inStoreAsItIs(name, (sql) => {
+          for (const statement of filterRowsStatements(name)) sql.exec(statement.sql, ...(statement.params ?? []));
+        });
+
+      await again();
+      expect(await filtersIn(name)).toEqual(migrated);
+
+      // What a release before rows writes on a save, after a rollback by promotion.
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          'UPDATE panels SET filter_conditions = ? WHERE id = ?',
+          JSON.stringify({ conditions: [DUE_WEEK, PRIORITY_HIGH], match: 'any', groupBy: 'none' }),
+          'pn-filter-all',
+        ),
+      );
+      await again();
+
+      expect(await filtersIn(name)).toEqual({
+        ...migrated,
+        'pn-filter-all': JSON.stringify({ groupBy: 'none', rows: [[DUE_WEEK, PRIORITY_HIGH]] }),
+      });
     });
   });
 });
