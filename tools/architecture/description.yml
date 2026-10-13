@@ -28,6 +28,7 @@ sources:
   - { id: gmail, name: Gmail, words: [gmail], package: packages/connectors/gmail }
   - { id: claude-code, name: Claude Code, words: [claude code] }
   - { id: teams, name: Microsoft Teams, words: [teams], package: packages/connectors/teams }
+  - { id: outlook, name: Outlook, words: [outlook], package: packages/connectors/outlook }
 
 # Parts shipped on their own, outside the Worker's release: each is drawn as a
 # box beside the Worker's outline. `path` is the folder that holds it.
@@ -161,3 +162,6 @@ layers:
       - path: packages/connectors/gmail
         name: 'connectors/gmail'
         description: 'The Gmail connector: conversations labelled Cockpit, or starred, arrive as Tasks, and their label or star follows the Task.'
+      - path: packages/connectors/outlook
+        name: 'connectors/outlook'
+        description: 'The Outlook connector: messages flagged, or categorised Cockpit, in a Microsoft 365 mailbox arrive as Tasks.'
