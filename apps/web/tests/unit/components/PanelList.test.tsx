@@ -76,6 +76,7 @@ function aReach(over: Partial<Reach> = {}): Reach {
     workspaces: [aWorkspace('today-ws', 'Work', [['today', 'Today', [['One', 1]]]])],
     ask: vi.fn(),
     go: vi.fn(),
+    goToAllItems: vi.fn(),
     ...over,
   };
 }
@@ -1214,6 +1215,7 @@ describe('Dashboards', () => {
         { id: 'rent', title: 'Pay the rent', description: null, nextAction: null, sender: null, completedAt: null, updatedAt: '2026-08-02T00:00:00.000Z' },
         { id: 'vat', title: 'VAT return', description: null, nextAction: null, sender: null, completedAt: null, updatedAt: '2026-08-01T00:00:00.000Z' },
         { id: 'stray', title: 'Stray VAT note', description: null, nextAction: null, sender: null, completedAt: null, updatedAt: '2026-08-03T00:00:00.000Z' },
+        { id: 'old', title: 'Old rent receipt', description: null, nextAction: null, sender: null, completedAt: '2026-08-04T00:00:00.000Z', updatedAt: '2026-08-04T00:00:00.000Z' },
       ],
       dashboards: [
         { id: 'today', name: 'Today' },
@@ -1374,6 +1376,104 @@ describe('Dashboards', () => {
         expect(landing()).toContain('"item":"vat"');
         expect(landing()).toContain('"focus":true');
         expect(calls(reach.go)).toEqual([['research', 'push']]);
+      });
+
+      describe('Include done lists the finished Items, which no Dashboard draws', () => {
+        const include = () => screen.queryByRole('checkbox', { name: 'Include done' });
+
+        it('is unticked and lists no finished Item, then lists it after the open ones struck through with done under it', async () => {
+          const user = userEvent.setup();
+          render(shown(finder()));
+
+          await user.keyboard('{Shift>}F{/Shift}');
+          await user.keyboard('rent');
+          expect(include()).not.toBeChecked();
+          expect(rows()).toEqual(['Pay the rentToday ▸ One']);
+
+          await user.click(include()!);
+          expect(rows()).toEqual(['Pay the rentToday ▸ One', 'Old rent receiptdone']);
+          expect(within(findList()!).getByText('Old rent receipt')).toHaveClass('line-through');
+          expect(finderBox()).toHaveFocus();
+        });
+
+        it('is not offered in Dashboard', async () => {
+          const user = userEvent.setup();
+          render(shown(finder()));
+
+          await user.keyboard('f');
+          expect(include()).toBeNull();
+        });
+
+        it('is unticked again at the next Shift+F, after Esc', async () => {
+          const user = userEvent.setup();
+          render(shown(finder()));
+
+          await user.keyboard('{Shift>}F{/Shift}');
+          await user.click(include()!);
+          await user.keyboard('{Escape}');
+          await user.keyboard('{Shift>}F{/Shift}');
+
+          expect(include()).not.toBeChecked();
+        });
+
+        it('leaves the screen where it is when the highlight moves onto a finished Item', async () => {
+          const user = userEvent.setup();
+          const reach = finder();
+          render(shown(reach));
+
+          await user.keyboard('{Shift>}F{/Shift}');
+          await user.click(include()!);
+          await user.keyboard('old{ArrowDown}');
+
+          expect(landing()).toBe('');
+          expect(calls(reach.go)).toEqual([]);
+          expect(vi.mocked(reach.goToAllItems)).not.toHaveBeenCalled();
+        });
+
+        it('forgets the row an open Item asked to land on, when the highlight moves on to a finished one', async () => {
+          const user = userEvent.setup();
+          render(shown(finder()));
+
+          await user.keyboard('{Shift>}F{/Shift}');
+          await user.click(include()!);
+          await user.keyboard('rent{ArrowDown}');
+          expect(landing()).toContain('"item":"rent"');
+          await user.keyboard('{ArrowDown}');
+
+          expect(landing()).toBe('');
+        });
+
+        it('goes to All items on Enter, asking to land on its row with focus, and hides the column', async () => {
+          const user = userEvent.setup();
+          const reach = finder();
+          render(shown(reach));
+
+          await user.keyboard('{Shift>}F{/Shift}');
+          await user.click(include()!);
+          await user.keyboard('old{ArrowDown}{Enter}');
+
+          expect(findList()).toBeNull();
+          expect(landing()).toContain('"item":"old"');
+          expect(landing()).toContain('"kind":"allItems","workspaceId":"work"');
+          expect(landing()).toContain('"focus":true');
+          expect(vi.mocked(reach.goToAllItems).mock.calls).toEqual([['work', 'push']]);
+          expect(calls(reach.go)).toEqual([]);
+        });
+
+        it('replaces the entry an earlier highlight added, so Back returns to where Shift+F was pressed', async () => {
+          const user = userEvent.setup();
+          const reach = finder();
+          render(shown(reach));
+
+          await user.keyboard('{Shift>}F{/Shift}');
+          await user.click(include()!);
+          await user.keyboard('return{ArrowDown}');
+          await user.clear(finderBox());
+          await user.keyboard('old{ArrowDown}{Enter}');
+
+          expect(calls(reach.go)).toEqual([['research', 'push']]);
+          expect(vi.mocked(reach.goToAllItems).mock.calls).toEqual([['work', 'replace']]);
+        });
       });
 
       it('puts the screen back on Esc after moving, asking to land on nothing', async () => {

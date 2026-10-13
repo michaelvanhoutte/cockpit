@@ -822,6 +822,22 @@ test.describe('Dashboards', () => {
       await expect(row).toBeFocused();
       await expect(row).toHaveAttribute('data-shown', '');
       await expect(page.getByRole('dialog')).toHaveCount(0);
+
+      // **Include done** (issue 829): once finished, the Item is found only by ticking it, and Enter on it lands
+      // on its focused row in *All items* - the column unmounts on the way, which only a browser shows.
+      await asCommand('set_done', { itemId, done: true });
+      await page.reload();
+      await expect(page.getByRole('button', { name: 'Open Find item' })).toBeVisible();
+      await page.keyboard.press('Shift+F');
+      await expect(page.getByRole('searchbox', { name: 'Find an Item' })).toBeFocused();
+      await page.keyboard.type(word);
+      await expect(find.getByText('No Item matches.')).toBeVisible();
+      await find.getByRole('checkbox', { name: 'Include done' }).check();
+      await expect(find.getByRole('listitem')).toHaveCount(1);
+      await page.keyboard.press('Enter');
+      await expect(find).toHaveCount(0);
+      await expect(page).toHaveURL(/\/items$/);
+      await expect(page.locator(`[data-item-id="${itemId}"]`)).toBeFocused();
     });
   });
 });
