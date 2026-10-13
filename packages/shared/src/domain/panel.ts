@@ -269,7 +269,7 @@ export function statusValuesOf(condition: StatusCondition): readonly ('to_do' | 
 }
 
 /**
- * One row of a Filter's question: a Due date, a Priority, a Panel, a
+ * One condition of a Filter: a Due date, a Priority, a Panel, a
  * Dashboard or a Status condition.
  */
 export const filterConditionSchema = z.discriminatedUnion('field', [
@@ -282,19 +282,11 @@ export const filterConditionSchema = z.discriminatedUnion('field', [
 export type FilterCondition = z.infer<typeof filterConditionSchema>;
 
 /**
- * How a Filter's conditions combine ("Let a Filter show items that meet any of
- * its conditions", issue 504): an Item has to meet every one of them, or any
- * one.
- *
- * **`all` is what a Filter meant before this existed**, so it is what every
- * stored Filter without a setting reads as, and what a save carrying none
- * writes. A stale tab or a queued change saving a Filter without one therefore
- * puts it back to `all` — the later whole save standing, as everywhere else —
- * and one tick undoes it.
+ * One row of a Filter: conditions an Item meets by meeting any one of them
+ * ("Join a Filter's rows with and, and a row's alternatives with or", issue
+ * 1075). A field appears at most once in a row, and in any number of rows.
  */
-export const FILTER_MATCHES = ['all', 'any'] as const;
-export const filterMatchSchema = z.enum(FILTER_MATCHES);
-export type FilterMatch = z.infer<typeof filterMatchSchema>;
+export type FilterRow = FilterCondition[];
 
 /**
  * What a Filter's rows are grouped under ("Group a Filter panel's items by the
@@ -303,55 +295,54 @@ export type FilterMatch = z.infer<typeof filterMatchSchema>;
  * Panel of items.
  *
  * **`none` is what every stored Filter without a setting reads as**, and what a
- * save carrying none writes, for the reason `FilterMatch` gives: a stale tab
- * saving a Filter without one puts it back to the flat list.
+ * save carrying none writes: a stale tab saving a Filter without one puts it
+ * back to the flat list.
  */
 export const FILTER_GROUPINGS = ['none', 'dashboard', 'panel'] as const;
 export const filterGroupingSchema = z.enum(FILTER_GROUPINGS);
 export type FilterGrouping = z.infer<typeof filterGroupingSchema>;
 
 /**
- * What a Filter shows: its conditions, whether an Item has to meet all of them
- * or any one (`FilterMatch`), and what its rows are grouped under
- * (`FilterGrouping`). Sets of conditions joined by *or*, for *(A and B) or C*,
- * are a decided design and not built (`docs/ideas.md`).
+ * What a Filter shows: its rows, every one of which an Item has to meet, each
+ * met by meeting any one of its conditions ("Store every Filter as rows, and
+ * save the All / Any choice as rows", issue 1081) - and what its Items are
+ * grouped under (`FilterGrouping`).
  *
  * An object rather than a bare array, so a Filter can grow a setting of its own
  * without every stored one having to be re-read as something else.
  *
- * **A `match` or `groupBy` nobody wrote reads as `all` and `none`, never as an
- * empty Filter**: the catch is on each field, so a value this release cannot
- * read costs the setting alone and leaves the conditions intact.
+ * **A `groupBy` nobody wrote reads as `none`, never as an empty Filter**: the
+ * catch is on the field, so a value this release cannot read costs the setting
+ * alone and leaves the rows intact. **A Filter stored in the flat shape before
+ * rows - `conditions` and `match` - reads as no rows**: every one was rewritten
+ * by `0071-filter-rows` (changes.ts), so one met here was written by an older
+ * release after a rollback, and a repair change carrying that change's
+ * statements is what brings it back.
  */
 export const panelFilterSchema = z.object({
-  conditions: z.array(filterConditionSchema).default([]),
-  match: filterMatchSchema.catch('all'),
+  rows: z.array(z.array(filterConditionSchema)).default([]),
   groupBy: filterGroupingSchema.catch('none'),
 });
 export type PanelFilter = z.infer<typeof panelFilterSchema>;
 
 /** A Filter with nothing chosen yet — what a new one is, and what an unreadable one reads as. */
-export const NO_CONDITIONS: PanelFilter = { conditions: [], match: 'all', groupBy: 'none' };
+export const NO_CONDITIONS: PanelFilter = { rows: [], groupBy: 'none' };
 
 /**
  * What a stored Filter says, from the text the column holds.
  *
- * **Anything it cannot read is no conditions, never a failure.** The column is
+ * **Anything it cannot read is no rows, never a failure.** The column is
  * free-form text written by whichever release stored it, and a Workspace that
  * will not open because one Panel holds a shape this release does not
  * understand is a far worse answer than a Panel saying it has nothing chosen —
  * which is a state the product already draws and already explains.
  *
- * **A duplicate field is dropped, keeping the first, rather than read back
- * whole.** Before `setPanelFilterSchema`'s own refusal ("Filter a Filter panel
- * by priority and type", issue 464) a Filter could be saved with the same
- * field twice — *+ Add a condition* offered a Due date with nothing stopping
- * a second one — and a Panel stored that way before the refusal shipped is
- * real data, not a hypothetical one. Reading it back deduplicated is what
- * keeps the question's rows keyed one per field (`FilterQuestion.tsx`) and
- * keeps a later, unrelated save of that same Panel from being refused for a
- * duplicate the person saving never chose — the same defensive reasoning this
- * function already applies to a shape it cannot read at all.
+ * **A field repeated within a row is dropped, keeping the first, and an empty
+ * row is dropped.** Neither can be saved (`setPanelFilterSchema`), but a Filter
+ * saved with a field twice before that refusal shipped ("Filter a Filter panel
+ * by priority and type", issue 464) is real data, carried into rows as it was;
+ * reading it back deduplicated keeps a later, unrelated save of that Panel from
+ * being refused for a duplicate the person saving never chose.
  */
 export function panelFilterFrom(stored: string | null): PanelFilter | null {
   if (stored === null) return null;
@@ -359,8 +350,7 @@ export function panelFilterFrom(stored: string | null): PanelFilter | null {
     const read = panelFilterSchema.safeParse(withoutType(JSON.parse(stored)));
     if (!read.success) return NO_CONDITIONS;
     return {
-      conditions: uniqueByField(read.data.conditions),
-      match: read.data.match,
+      rows: read.data.rows.map(uniqueByField).filter((row) => row.length > 0),
       groupBy: read.data.groupBy,
     };
   } catch {
@@ -370,39 +360,41 @@ export function panelFilterFrom(stored: string | null): PanelFilter | null {
 
 /**
  * A stored Filter without its Type conditions, which no release reads any more
- * ("Stop filtering and sorting Panels by Type", issue 1066). Dropped specifically,
- * so a Filter keeps every other condition rather than failing whole; anything
- * that is not a Filter's shape is passed on for the schema to refuse as before.
+ * ("Stop filtering and sorting Panels by Type", issue 1066). Dropped from every
+ * row specifically, so a Filter keeps every other condition rather than failing
+ * whole, and a row left empty is then dropped with the rest; anything that is
+ * not a Filter's shape is passed on for the schema to refuse as before.
  */
 function withoutType(stored: unknown): unknown {
   if (typeof stored !== 'object' || stored === null) return stored;
-  const { conditions } = stored as { conditions?: unknown };
-  if (!Array.isArray(conditions)) return stored;
+  const { rows } = stored as { rows?: unknown };
+  if (!Array.isArray(rows)) return stored;
   return {
     ...stored,
-    conditions: conditions.filter(
-      (one) => !(typeof one === 'object' && one !== null && (one as { field?: unknown }).field === 'type'),
+    rows: rows.map((row) =>
+      Array.isArray(row)
+        ? row.filter((one) => !(typeof one === 'object' && one !== null && (one as { field?: unknown }).field === 'type'))
+        : row,
     ),
   };
 }
 
-/** The first condition stored for each field, in order — what `panelFilterFrom` reads a Filter back as. */
-function uniqueByField(conditions: readonly FilterCondition[]): FilterCondition[] {
+/** The first condition stored for each field in a row, in order — what `panelFilterFrom` reads a row back as. */
+function uniqueByField(row: readonly FilterCondition[]): FilterRow {
   const seen = new Set<FilterCondition['field']>();
-  return conditions.filter((condition) => {
+  return row.filter((condition) => {
     if (seen.has(condition.field)) return false;
     seen.add(condition.field);
     return true;
   });
 }
 
-/** What a Filter's conditions are stored as — the one writer, so nothing else has to know the format. */
+/** What a Filter's rows are stored as — the one writer, so nothing else has to know the format. */
 export function panelFilterAsStored(
-  conditions: readonly FilterCondition[],
-  match: FilterMatch = 'all',
+  rows: readonly (readonly FilterCondition[])[],
   groupBy: FilterGrouping = 'none',
 ): string {
-  return JSON.stringify({ conditions, match, groupBy });
+  return JSON.stringify({ rows, groupBy });
 }
 
 /**

@@ -11,7 +11,6 @@ import type {
   Filing,
   FilterCondition,
   FilterGrouping,
-  FilterMatch,
   Item,
   Layout,
   Panel,
@@ -129,6 +128,18 @@ const TODAY = dayOf(new Date());
 /** The one condition there is today: due today, or already past. */
 const DUE_TODAY: FilterCondition = { field: 'dueDate', window: 'today', orOverdue: true };
 
+/** The shapes most cases are written in: *all* is a row per condition, *any* one row holding them all. */
+type FilterMatch = 'all' | 'any';
+function rowsFromAllOrAny(conditions: readonly FilterCondition[], match: FilterMatch): FilterCondition[][] {
+  if (conditions.length === 0) return [];
+  return match === 'any' ? [[...conditions]] : conditions.map((condition) => [condition]);
+}
+
+/** A Filter holding exactly these rows. */
+function aFilterOfRows(id: string, name: string, rows: FilterCondition[][]): Panel {
+  return { ...aPanel(id, name), kind: 'filter', filter: { rows, groupBy: 'none' } };
+}
+
 /** A panel that gathers what it shows, with nothing chosen unless a case says otherwise. */
 function aFilter(
   id: string,
@@ -137,7 +148,7 @@ function aFilter(
   match: FilterMatch = 'all',
   groupBy: FilterGrouping = 'none',
 ): Panel {
-  return { ...aPanel(id, name), kind: 'filter', filter: { conditions, match, groupBy } };
+  return { ...aPanel(id, name), kind: 'filter', filter: { rows: rowsFromAllOrAny(conditions, match), groupBy } };
 }
 
 const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
@@ -325,7 +336,7 @@ function menuButtonOf(panelName: string) {
 
 /** Opens *+ Add a condition* and chooses one field from its menu - what every case that adds a row does first. */
 async function addCondition(user: ReturnType<typeof userEvent.setup>, field: string) {
-  await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+  await user.click(await screen.findByRole('button', { name: '+ And…' }));
   await user.click(await screen.findByRole('menuitem', { name: field }));
 }
 
@@ -1805,7 +1816,7 @@ describe('Panels', () => {
         panel: {
           ...aPanel('due', 'What matters'),
           kind: 'filter' as const,
-          filter: { conditions: [], match: 'all' as const, groupBy: 'none' as const },
+          filter: { rows: [], groupBy: 'none' as const },
         },
       },
     ])('is not offered on $situation', async ({ panel }) => {
@@ -2216,7 +2227,7 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({
             panelId: 'due',
-            conditions: [{ field: 'dueDate', window: 'week', orOverdue: false }],
+            rows: [[{ field: 'dueDate', window: 'week', orOverdue: false }]],
           }),
         }),
         expect.anything(),
@@ -2256,132 +2267,159 @@ describe('Onboarding', () => {
       expect(mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'set_panel_filter',
-          payload: expect.objectContaining({ conditions: [] }),
+          payload: expect.objectContaining({ rows: [] }),
         }),
         expect.anything(),
       );
     });
 
-    describe('it can be told an item need only meet any of its conditions', () => {
-      const ALL_OR_ANY = 'How the conditions combine';
+    describe('it joins its rows with and, and a row’s alternatives with or', () => {
+      const ROWS = [[DUE_TODAY, PRIORITY_HIGH], [{ field: 'panel', values: [] } as FilterCondition]];
+      const sentRows = (mutate: ReturnType<typeof showBoard>['mutate']) =>
+        (mutate.mock.calls.at(-1)![0] as { payload: { rows: FilterCondition[][] } }).payload.rows;
 
-      it('reads Where on the first row and offers the choice from the second, on and', async () => {
-        const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
+      it('reads Where, then and, as fixed words, with no choice of joiner', async () => {
+        const { user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', [[DUE_TODAY], [PRIORITY_HIGH]])] });
 
         await choose(user, 'Due soon', 'Filter…');
         await screen.findByRole('button', { name: 'Save' });
+
         expect(screen.getByText('Where')).toBeVisible();
-        expect(screen.queryByRole('combobox', { name: ALL_OR_ANY })).toBeNull();
+        expect(screen.getByText('and', { selector: 'span' })).toBeVisible();
+        expect(screen.queryByRole('combobox', { name: 'How the conditions combine' })).toBeNull();
+        expect(screen.queryByText('or', { selector: 'span' })).toBeNull();
+      });
 
-        await addCondition(user, 'Priority');
-        await addCondition(user, 'Panel');
+      it('puts or between the cards of a row of several, and nothing in a row of one', async () => {
+        const { user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', ROWS)] });
 
-        const joiner = screen.getByRole('combobox', { name: ALL_OR_ANY });
-        expect(joiner).toHaveValue('all');
+        await choose(user, 'Due soon', 'Filter…');
+        await screen.findByRole('button', { name: 'Save' });
+
+        expect(screen.getAllByText('or', { selector: 'span' })).toHaveLength(1);
+        expect(screen.getAllByRole('button', { name: /^Remove condition/ })).toHaveLength(3);
+        expect(screen.getByText('Where')).toBeVisible();
         expect(screen.getAllByText('and', { selector: 'span' })).toHaveLength(1);
-        expect(screen.getByText(/meets all of these/)).toBeVisible();
-        expect(screen.queryByRole('radio', { name: 'All of these' })).toBeNull();
-        expect(screen.queryByRole('radio', { name: 'Any of these' })).toBeNull();
       });
 
-      it('reads or on every row after the first, and says any in its description, once or is chosen', async () => {
+      it('sends the rows as they were opened when nothing is changed', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', ROWS)] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('button', { name: 'Save' }));
+
+        expect(sentRows(mutate)).toEqual(ROWS);
+      });
+
+      it('adds an alternative to the row whose + Or… is pressed, offering only fields that row lacks', async () => {
         const { mutate, user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH, { field: 'panel', values: [] }])],
+          panels: [aFilterOfRows('due', 'Due soon', [[DUE_TODAY, PRIORITY_HIGH], [PRIORITY_HIGH]])],
         });
 
         await choose(user, 'Due soon', 'Filter…');
-        await user.selectOptions(await screen.findByRole('combobox', { name: ALL_OR_ANY }), 'or');
+        await user.click(await screen.findByRole('button', { name: '+ Or… to row 1' }));
+        expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
+          'Panel',
+          'Dashboard',
+          'Status',
+        ]);
+        await user.keyboard('{Escape}');
 
-        expect(screen.getByText(/meets any of these/)).toBeVisible();
-        expect(screen.getByText('or', { selector: 'span' })).toBeVisible();
+        await user.click(screen.getByRole('button', { name: '+ Or… to row 2' }));
+        expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
+          'Due date',
+          'Panel',
+          'Dashboard',
+          'Status',
+        ]);
+        await user.click(screen.getByRole('menuitem', { name: 'Due date' }));
         await user.click(screen.getByRole('button', { name: 'Save' }));
-        expect(mutate).toHaveBeenCalledWith(
-          expect.objectContaining({ payload: expect.objectContaining({ match: 'any' }) }),
-          expect.anything(),
-        );
+
+        expect(sentRows(mutate)).toEqual([[DUE_TODAY, PRIORITY_HIGH], [PRIORITY_HIGH, DUE_TODAY]]);
       });
 
-      it('sends the choice with the rows, and keeps it when the rows are taken down to one', async () => {
+      it('adds a row under the rows with + And…, offering every field, even one another row holds', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', [[PRIORITY_HIGH]])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('button', { name: '+ And…' }));
+        expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
+          'Due date',
+          'Priority',
+          'Panel',
+          'Dashboard',
+          'Status',
+        ]);
+        await user.click(screen.getByRole('menuitem', { name: 'Priority' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(sentRows(mutate)).toEqual([[PRIORITY_HIGH], [{ field: 'priority', values: [] }]]);
+      });
+
+      it('stops offering + Or… on a row holding every field, and + And… never stops', async () => {
+        const everything: FilterCondition[] = [
+          DUE_TODAY,
+          PRIORITY_HIGH,
+          { field: 'panel', values: [] },
+          { field: 'dashboard', values: [] },
+          { field: 'status' },
+        ];
+        const { user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', [everything])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        // Waited for through a card the question is certain to draw, so the
+        // absences below read a question that has arrived (the lazy boundary).
+        await screen.findByRole('button', { name: 'Remove condition 1' });
+
+        expect(screen.queryByRole('button', { name: /^\+ Or…/ })).toBeNull();
+        expect(screen.getByRole('button', { name: '+ And…' })).toBeVisible();
+      });
+
+      it('draws a box that is down to one condition as a plain card again, and keeps it as a row', async () => {
         const { mutate, user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH])],
+          panels: [aFilterOfRows('due', 'Due soon', [[DUE_TODAY, PRIORITY_HIGH], [{ field: 'panel', values: [] }]])],
         });
 
         await choose(user, 'Due soon', 'Filter…');
-        await user.selectOptions(await screen.findByRole('combobox', { name: ALL_OR_ANY }), 'or');
-        await user.click(screen.getByRole('button', { name: 'Remove condition 2' }));
-        // One row left: the joiner is gone and the question reads as it always did.
-        expect(screen.queryByRole('combobox', { name: ALL_OR_ANY })).toBeNull();
-        expect(screen.getByText(/meets all of these/)).toBeVisible();
-        await user.click(screen.getByRole('button', { name: 'Save' }));
+        await user.click(await screen.findByRole('button', { name: 'Remove condition 2' }));
 
-        expect(mutate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            name: 'set_panel_filter',
-            payload: expect.objectContaining({ conditions: [DUE_TODAY], match: 'any' }),
-          }),
-          expect.anything(),
-        );
+        expect(screen.queryByText('or', { selector: 'span' })).toBeNull();
+        expect(screen.getByText('and', { selector: 'span' })).toBeVisible();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        expect(sentRows(mutate)).toEqual([[DUE_TODAY], [{ field: 'panel', values: [] }]]);
       });
 
-      it('is still or when a condition is added again after the rows were taken down to one', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH])],
+      it('removes the row when its only condition is removed, and moves Where to the next', async () => {
+        const { mutate, user } = showBoard({
+          panels: [aFilterOfRows('due', 'Due soon', [[DUE_TODAY], [PRIORITY_HIGH]])],
         });
 
         await choose(user, 'Due soon', 'Filter…');
-        await user.selectOptions(await screen.findByRole('combobox', { name: ALL_OR_ANY }), 'or');
-        await user.click(screen.getByRole('button', { name: 'Remove condition 2' }));
-        await addCondition(user, 'Priority');
+        await user.click(await screen.findByRole('button', { name: 'Remove condition 1' }));
 
-        expect(screen.getByRole('combobox', { name: ALL_OR_ANY })).toHaveValue('any');
+        expect(screen.getByText('Where')).toBeVisible();
+        expect(screen.queryByText('and', { selector: 'span' })).toBeNull();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        expect(sentRows(mutate)).toEqual([[PRIORITY_HIGH]]);
       });
 
       it('removes the condition whose own cross is pressed and keeps the others in order', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH, { field: 'panel', values: [] }])],
-        });
+        const { mutate, user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', ROWS)] });
 
         await choose(user, 'Due soon', 'Filter…');
         await user.click(await screen.findByRole('button', { name: 'Remove condition 2' }));
 
         expect(screen.getAllByRole('button', { name: /^Remove condition/ })).toHaveLength(2);
         expect(screen.queryByRole('combobox', { name: 'Priority is or is not' })).toBeNull();
-        expect(screen.getByRole('combobox', { name: 'Panel is or is not' })).toBeVisible();
-        expect(screen.getByRole('combobox', { name: /Due date is/ })).toBeVisible();
-      });
-
-      it('sends all where it was never changed', async () => {
-        const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
-
-        await choose(user, 'Due soon', 'Filter…');
-        await addCondition(user, 'Due date');
         await user.click(screen.getByRole('button', { name: 'Save' }));
-
-        expect(mutate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            payload: expect.objectContaining({ match: 'all' }),
-          }),
-          expect.anything(),
-        );
-      });
-
-      it('opens on any for a filter that is set to it', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH], 'any')],
-        });
-
-        await choose(user, 'Due soon', 'Filter…');
-
-        expect(await screen.findByRole('combobox', { name: ALL_OR_ANY })).toHaveValue('any');
+        expect(sentRows(mutate)).toEqual([[DUE_TODAY], [{ field: 'panel', values: [] }]]);
       });
 
       it('saves nothing where it is cancelled', async () => {
-        const { mutate, user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH])],
-        });
+        const { mutate, user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', ROWS)] });
 
         await choose(user, 'Due soon', 'Filter…');
-        await user.selectOptions(await screen.findByRole('combobox', { name: ALL_OR_ANY }), 'or');
+        await user.click(await screen.findByRole('button', { name: 'Remove condition 1' }));
         await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
         expect(mutate).not.toHaveBeenCalled();
@@ -2496,7 +2534,7 @@ describe('Onboarding', () => {
         // default the missing grouping to none and prove nothing.
         const restored = {
           ...aFilter('due', 'Due soon', [DUE_TODAY]),
-          filter: { conditions: [DUE_TODAY], match: 'all' },
+          filter: { rows: [[DUE_TODAY]] },
         } as Panel;
         showBoard({
           panels: [falcon, restored],
@@ -2564,7 +2602,7 @@ describe('Onboarding', () => {
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'set_panel_filter',
-            payload: expect.objectContaining({ conditions: [DUE_TODAY], match: 'any', groupBy: 'dashboard' }),
+            payload: expect.objectContaining({ rows: [[DUE_TODAY]], groupBy: 'dashboard' }),
           }),
           expect.anything(),
         );
@@ -2705,7 +2743,7 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({
             panelId: 'due',
-            conditions: [{ field: 'priority', values: ['high', 'normal'] }],
+            rows: [[{ field: 'priority', values: ['high', 'normal'] }]],
           }),
         }),
         expect.anything(),
@@ -2738,7 +2776,7 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({
             panelId: 'due',
-            conditions: [{ field: 'panel', values: ['project'] }],
+            rows: [[{ field: 'panel', values: ['project'] }]],
           }),
         }),
         expect.anything(),
@@ -2788,7 +2826,7 @@ describe('Onboarding', () => {
         expect.objectContaining({
           name: 'set_panel_filter',
           payload: expect.objectContaining({
-            conditions: [{ field: 'priority', values: ['low'], exclude: true }],
+            rows: [[{ field: 'priority', values: ['low'], exclude: true }]],
           }),
         }),
         expect.anything(),
@@ -2812,7 +2850,7 @@ describe('Onboarding', () => {
       expect(mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'set_panel_filter',
-          payload: expect.objectContaining({ conditions: [{ field: 'status', values: ['to_do'] }] }),
+          payload: expect.objectContaining({ rows: [[{ field: 'status', values: ['to_do'] }]] }),
         }),
         expect.anything(),
       );
@@ -2850,7 +2888,7 @@ describe('Onboarding', () => {
         await user.click(screen.getByRole('button', { name: 'Save' }));
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
-            payload: expect.objectContaining({ conditions: [{ field: 'panel', values: ['panel-Bravo'] }] }),
+            payload: expect.objectContaining({ rows: [[{ field: 'panel', values: ['panel-Bravo'] }]] }),
           }),
           expect.anything(),
         );
@@ -2992,12 +3030,12 @@ describe('Onboarding', () => {
         const board = (panels: Panel[] = [FILTER]) =>
           showBoard({ panels, panelsInWorkspace: panels, dashboards: [DASHBOARD, RESEARCH, PERSONAL] });
 
-        it('offers Dashboard on the add menu until it has a row, and not again', async () => {
+        it('offers Dashboard on a row’s + Or… menu until the row has one, and not again', async () => {
           const { user } = board();
 
           await choose(user, 'Due soon', 'Filter…');
           await addCondition(user, 'Dashboard');
-          await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+          await user.click(await screen.findByRole('button', { name: '+ Or… to row 1' }));
 
           expect(screen.queryByRole('menuitem', { name: 'Dashboard' })).toBeNull();
           expect(screen.getByRole('menuitem', { name: 'Panel' })).toBeVisible();
@@ -3044,7 +3082,7 @@ describe('Onboarding', () => {
             expect.objectContaining({
               name: 'set_panel_filter',
               payload: expect.objectContaining({
-                conditions: [{ field: 'dashboard', values: ['personal'], exclude: true }],
+                rows: [[{ field: 'dashboard', values: ['personal'], exclude: true }]],
               }),
             }),
             expect.anything(),
@@ -3063,24 +3101,11 @@ describe('Onboarding', () => {
       });
     });
 
-    it('does not offer a field already on the filter, from its own add menu', async () => {
-      const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
-
-      await choose(user, 'Due soon', 'Filter…');
-      await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
-
-      expect(screen.queryByRole('menuitem', { name: 'Due date' })).toBeNull();
-      expect(screen.getByRole('menuitem', { name: 'Priority' })).toBeVisible();
-      expect(screen.getByRole('menuitem', { name: 'Panel' })).toBeVisible();
-      expect(screen.getByRole('menuitem', { name: 'Dashboard' })).toBeVisible();
-      expect(screen.getByRole('menuitem', { name: 'Status' })).toBeVisible();
-    });
-
     it('offers Due date, Priority, Panel, Dashboard and Status on its add menu, and no Type', async () => {
       const { user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
 
       await choose(user, 'Due soon', 'Filter…');
-      await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+      await user.click(await screen.findByRole('button', { name: '+ And…' }));
 
       expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
         'Due date',
@@ -3089,30 +3114,6 @@ describe('Onboarding', () => {
         'Dashboard',
         'Status',
       ]);
-    });
-
-    it('stops offering to add once every field is already on the filter', async () => {
-      const { user } = showBoard({
-        panels: [
-          aFilter('due', 'Due soon', [
-            DUE_TODAY,
-            { field: 'priority', values: ['high'] },
-            { field: 'panel', values: [] },
-            { field: 'dashboard', values: [] },
-            { field: 'status' },
-          ]),
-        ],
-      });
-
-      await choose(user, 'Due soon', 'Filter…');
-      // The question is fetched only once opened (`FilterQuestion.tsx`, the
-      // lazy boundary the performance budget draws around it) - waited for
-      // here through a row it is certain to draw, so the assertion below
-      // reads an add menu that is truly absent rather than a question still
-      // in flight.
-      await screen.findByRole('button', { name: 'Remove condition 1' });
-
-      expect(screen.queryByRole('button', { name: '+ Add a condition' })).toBeNull();
     });
 
     it('reads a Priority and a Due date condition back on hover', async () => {

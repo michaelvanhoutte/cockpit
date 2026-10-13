@@ -4,7 +4,6 @@ import type {
   Filing,
   FilterCondition,
   FilterGrouping,
-  FilterMatch,
   Item,
   PanelFilter,
   PanelSort,
@@ -143,10 +142,9 @@ export function isAPeriod(window: DueWindow): boolean {
  * ("Include or exclude a Filter panel condition's values, and filter on To do
  * as well as In progress", issue 908), so an Item with no Priority
  * passes, and an Item filed on any one excluded Panel fails. **With no live
- * value left it filters nothing** - the opposite of an *is* condition left in
- * the same state: it lets every Item through under *all*, and under *any*
- * (`match`) adds none, since a condition that excludes nothing says nothing
- * about which Items to add.
+ * value left it filters nothing**, answered as `null` - the opposite of an *is*
+ * condition left in the same state, which fails: `meetsRow` says what a row
+ * makes of it.
  */
 function holdsFor(
   condition: FilterCondition,
@@ -156,16 +154,14 @@ function holdsFor(
   filedPanelIds: ReadonlySet<string>,
   liveDashboardIds: ReadonlySet<string>,
   filedDashboardIds: ReadonlySet<string>,
-  match: PanelFilter['match'],
-): boolean {
+): boolean | null {
   if (condition.field !== 'dueDate' && condition.exclude) {
     if (condition.field === 'priority') {
-      return excluding(condition.values, match, (live) => item.priority === null || !live.includes(item.priority));
+      return excluding(condition.values, (live) => item.priority === null || !live.includes(item.priority));
     }
     if (condition.field === 'panel') {
       return excluding(
         condition.values.filter((id) => livePanelIds.has(id)),
-        match,
         (live) => !live.some((id) => filedPanelIds.has(id)),
       );
     }
@@ -174,11 +170,10 @@ function holdsFor(
       // Dashboard - unlike *Panel is not*, where any one excluded Panel hides it.
       return excluding(
         condition.values.filter((id) => liveDashboardIds.has(id)),
-        match,
         (live) => ![...filedDashboardIds].every((id) => live.includes(id)),
       );
     }
-    return excluding(statusValuesOf(condition), match, (live) => !(live as readonly string[]).includes(itemStatus(item)));
+    return excluding(statusValuesOf(condition), (live) => !(live as readonly string[]).includes(itemStatus(item)));
   }
   if (condition.field === 'priority') {
     return item.priority !== null && condition.values.includes(item.priority);
@@ -195,10 +190,30 @@ function holdsFor(
   return dueHolds(condition.window, condition.orOverdue, item.dueDate ?? null, on);
 }
 
-/** An *is not* condition over its live values: nothing left to exclude filters nothing under *all* and adds nothing under *any*. */
-function excluding<V>(live: readonly V[], match: PanelFilter['match'], passes: (live: readonly V[]) => boolean): boolean {
-  if (live.length === 0) return match !== 'any';
+/** An *is not* condition over its live values: `null`, filtering nothing, where none is left to exclude. */
+function excluding<V>(live: readonly V[], passes: (live: readonly V[]) => boolean): boolean | null {
+  if (live.length === 0) return null;
   return passes(live);
+}
+
+/**
+ * Whether an Item meets one row of a Filter: any one of its conditions holds
+ * ("Join a Filter's rows with and, and a row's alternatives with or", issue
+ * 1075).
+ *
+ * **A condition that filters nothing adds nothing to its row**, as it added
+ * nothing under *Any* - and **a row of nothing else filters nothing**, letting
+ * every Item through as such a condition did under *All*, since rows are
+ * joined by *and*.
+ */
+function meetsRow(row: readonly FilterCondition[], holds: (condition: FilterCondition) => boolean | null): boolean {
+  let filtersSomething = false;
+  for (const condition of row) {
+    const answer = holds(condition);
+    if (answer === true) return true;
+    if (answer === false) filtersSomething = true;
+  }
+  return !filtersSomething;
 }
 
 /**
@@ -243,17 +258,17 @@ export function inFilterOrder(items: readonly Item[], sort: PanelSort): Item[] {
 }
 
 /**
- * Every open Item filed on a Panel of this Workspace that meets all of this
- * Filter's conditions - or any of them, where it is set to `any` ("Let a Filter
- * show items that meet any of its conditions", issue 504) - in the order the
- * Filter draws them.
+ * Every open Item filed on a Panel of this Workspace that meets every one of
+ * this Filter's rows, meeting a row by meeting any one condition in it ("Store
+ * every Filter as rows, and save the All / Any choice as rows", issue 1081) -
+ * in the order the Filter draws them.
  *
  * **Filed, never the Inbox.** An Item nobody has triaged is what the Inbox is
  * for, and a Filter that drew it too would take the point out of triaging at
  * all. An Item filed on two Panels is still one row here, the filings being a
  * question of membership rather than of how many.
  *
- * **No conditions gathers nothing**, which is what lets a Filter say it has
+ * **No rows gathers nothing**, which is what lets a Filter say it has
  * nothing chosen instead of quietly showing every filed Item in the Workspace.
  *
  * **The Workspace's Panels, never the drawing dashboard's** - the rule
@@ -271,7 +286,7 @@ export function itemsMatchingFilter(
   /** How the Filter is sorted, which a Filter nobody has sorted answers with `DEFAULT_FILTER_SORT`. */
   sort: PanelSort = DEFAULT_FILTER_SORT,
 ): Item[] {
-  if (filter.conditions.length === 0) return [];
+  if (filter.rows.length === 0) return [];
   // What a Panel condition's values are read against - every items Panel of
   // the Workspace still there to be chosen.
   const livePanelIds = new Set(panelsInWorkspace.filter(panelTakesItems).map((panel) => panel.id));
@@ -282,40 +297,24 @@ export function itemsMatchingFilter(
   // Only a Filter holding a Dashboard condition reads it, and this runs once per
   // Filter on every draw.
   const filedDashboardIdsByItem = new Map<string, Set<string>>();
-  if (filter.conditions.some((condition) => condition.field === 'dashboard')) {
+  if (filter.rows.some((row) => row.some((condition) => condition.field === 'dashboard'))) {
     for (const filing of filed) {
       const dashboardId = dashboardIdOfPanel.get(filing.panelId);
       if (dashboardId !== undefined) addToSetMap(filedDashboardIdsByItem, filing.itemId, dashboardId);
     }
   }
   return inFilterOrder(
-    itemsThatAreFiled(items, filed).filter((item) =>
-      meets(filter, (condition) =>
-        holdsFor(
-          condition,
-          item,
-          on,
-          livePanelIds,
-          filedPanelIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS,
-          liveDashboardIds,
-          filedDashboardIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS,
-          filter.match,
+    itemsThatAreFiled(items, filed).filter((item) => {
+      const filedPanelIds = filedPanelIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS;
+      const filedDashboardIds = filedDashboardIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS;
+      return filter.rows.every((row) =>
+        meetsRow(row, (condition) =>
+          holdsFor(condition, item, on, livePanelIds, filedPanelIds, liveDashboardIds, filedDashboardIds),
         ),
-      ),
-    ),
+      );
+    }),
     sort,
   );
-}
-
-/**
- * Whether an Item meets a Filter, given how one condition is asked of it.
- *
- * `some` and `every` differ on an empty list, which `itemsMatchingFilter`'s guard
- * has already answered for both. A condition holding no value fails to hold, so
- * under `any` it adds nothing rather than matching everything.
- */
-function meets(filter: PanelFilter, holds: (condition: FilterCondition) => boolean): boolean {
-  return filter.match === 'any' ? filter.conditions.some(holds) : filter.conditions.every(holds);
 }
 
 /** Nothing filed anywhere - handed to `holdsFor` for an Item no filing names, so nothing has to be allocated for it. */
@@ -466,12 +465,13 @@ export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): s
  * back on hover, so what a Panel is gathering can be asked of the Panel rather
  * than of the question that set it.
  *
- * **Joined with *and*, not with a comma**, because all of them have to hold: a
- * comma reads as a list of alternatives. A Filter set to *any* says so up front
- * instead - *Any of: A; B* - with semicolons, since a condition's own values
- * already use commas and *or*. *Or overdue* is said only where it widens
- * something: on *overdue* itself and on *not set* it is stored but means
- * nothing.
+ * **Rows joined with *and*, not with a comma**, because all of them have to
+ * hold: a comma reads as a list of alternatives. A Filter of one row of
+ * alternatives - what *Any* saves - says so up front instead, *Any of: A; B*,
+ * with semicolons, since a condition's own values already use commas and *or*;
+ * a row of alternatives beside other rows is bracketed, *(A or B) and C*.
+ * *Or overdue* is said only where it widens something: on *overdue* itself and
+ * on *not set* it is stored but means nothing.
  *
  * **A Panel condition's values are read against `panels`**, the same live list
  * matching itself reads against (`itemsMatchingFilter`), so a value naming a
@@ -482,27 +482,30 @@ export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): s
  * exclude a Filter panel condition's values, and filter on To do as well as In
  * progress", issue 908): one with no live value to exclude says nothing about
  * what is shown, and a sentence naming it would claim a narrowing that is not
- * happening.
+ * happening - and a row of nothing else filters nothing, as `meetsRow` reads it.
  */
 export function saysWhatItShows(
-  conditions: readonly FilterCondition[],
+  rows: readonly (readonly FilterCondition[])[],
   panels: readonly Panel[] = [],
-  match: FilterMatch = 'all',
   groupBy: FilterGrouping = 'none',
   dashboards: readonly Pick<Dashboard, 'id' | 'name'>[] = [],
 ): string {
-  if (conditions.length === 0) return 'Nothing chosen yet';
-  const parts = conditions
-    .map((condition) => sentenceFor(condition, panels, dashboards))
-    .filter((part): part is string => part !== null);
-  // Only conditions that exclude nothing: all of them lets every Item through,
-  // and any of them adds none.
-  if (parts.length === 0) {
-    const nothingSaid = match === 'any' ? 'Nothing chosen yet' : 'Everything filed';
-    return isGrouped(groupBy) ? `${nothingSaid}; grouped by ${GROUPING_NAMES[groupBy]}` : nothingSaid;
-  }
-  // One condition reads the same either way, so it carries no prefix.
-  const rule = match === 'any' && parts.length > 1 ? `Any of: ${parts.join('; ')}` : parts.join(' and ');
+  if (rows.length === 0) return 'Nothing chosen yet';
+  const said = rows
+    .map((row) =>
+      row
+        .map((condition) => sentenceFor(condition, panels, dashboards))
+        .filter((part): part is string => part !== null),
+    )
+    .filter((parts) => parts.length > 0);
+  // One condition reads the same in a row of its own or among alternatives, so
+  // it carries no prefix.
+  const rule =
+    said.length === 0
+      ? 'Everything filed'
+      : said.length === 1 && said[0]!.length > 1
+        ? `Any of: ${said[0]!.join('; ')}`
+        : said.map((parts) => (parts.length > 1 ? `(${parts.join(' or ')})` : parts[0]!)).join(' and ');
   return isGrouped(groupBy) ? `${rule}; grouped by ${GROUPING_NAMES[groupBy]}` : rule;
 }
 
@@ -602,23 +605,41 @@ export function filtersUsingPanel(
   const liveIds = new Set(panelsInWorkspace.filter(panelTakesItems).map((panel) => panel.id));
   const affected: { filter: Panel; leftEmpty: boolean }[] = [];
   for (const candidate of panelsInWorkspace.filter(panelGathers)) {
-    const condition = (candidate.filter ?? NO_CONDITIONS).conditions.find(
-      (one) => one.field === 'panel',
-    );
-    if (!condition || !condition.values.includes(panelId)) continue;
-    const stillHasOne = condition.values.some((id) => id !== panelId && liveIds.has(id));
-    // A Filter set to *any* with other conditions still shows what they match,
-    // so a Panel condition left with no live Panel does not leave it showing
-    // nothing - only a Filter that needs every condition, or has no other, is.
-    const others = (candidate.filter ?? NO_CONDITIONS).conditions.length > 1;
-    const needsIt = (candidate.filter ?? NO_CONDITIONS).match === 'all' || !others;
-    // An *is not* condition left with no live Panel excludes nothing, which
-    // lets Items through rather than emptying the Filter ("Include or exclude a
-    // Filter panel condition's values...", issue 908), so it is named but never
-    // left empty.
-    affected.push({ filter: candidate, leftEmpty: !condition.exclude && !stillHasOne && needsIt });
+    const found = leftEmptyBy(candidate.filter ?? NO_CONDITIONS, 'panel', panelId, liveIds);
+    if (found !== null) affected.push({ filter: candidate, leftEmpty: found });
   }
   return affected;
+}
+
+/**
+ * Whether deleting `id` leaves a Filter showing nothing, or `null` where none of
+ * its `field` conditions names `id` - the one answer `filtersUsingPanel` and
+ * `filtersUsingDashboard` both give.
+ *
+ * **Only a row of that one condition is emptied by it.** A row with
+ * alternatives still shows what they match, so a condition left with nothing
+ * live does not leave it showing nothing. **An *is not* condition left with
+ * nothing live excludes nothing**, which lets Items through rather than
+ * emptying the Filter ("Include or exclude a Filter panel condition's
+ * values...", issue 908), so it is named but never left empty.
+ */
+function leftEmptyBy(
+  filter: PanelFilter,
+  field: 'panel' | 'dashboard',
+  id: string,
+  liveIds: ReadonlySet<string>,
+): boolean | null {
+  let named = false;
+  let emptied = false;
+  for (const row of filter.rows) {
+    for (const condition of row) {
+      if (condition.field !== field || !condition.values.includes(id)) continue;
+      named = true;
+      const stillHasOne = condition.values.some((one) => one !== id && liveIds.has(one));
+      if (!condition.exclude && !stillHasOne && row.length === 1) emptied = true;
+    }
+  }
+  return named ? emptied : null;
 }
 
 /**
@@ -638,12 +659,8 @@ export function filtersUsingDashboard(
   for (const candidate of panelsInWorkspace.filter(panelGathers)) {
     // A Filter on the Dashboard itself goes with it, so there is nothing to warn about.
     if (candidate.dashboardId === dashboardId) continue;
-    const whole = candidate.filter ?? NO_CONDITIONS;
-    const condition = whole.conditions.find((one) => one.field === 'dashboard');
-    if (!condition || !condition.values.includes(dashboardId)) continue;
-    const stillHasOne = condition.values.some((id) => id !== dashboardId && liveIds.has(id));
-    const needsIt = whole.match === 'all' || whole.conditions.length <= 1;
-    affected.push({ filter: candidate, leftEmpty: !condition.exclude && !stillHasOne && needsIt });
+    const found = leftEmptyBy(candidate.filter ?? NO_CONDITIONS, 'dashboard', dashboardId, liveIds);
+    if (found !== null) affected.push({ filter: candidate, leftEmpty: found });
   }
   return affected;
 }

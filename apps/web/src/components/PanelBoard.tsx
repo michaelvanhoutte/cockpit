@@ -16,7 +16,6 @@ import type {
   Filing,
   FilterCondition,
   FilterGrouping,
-  FilterMatch,
   AgentRun,
   Attachment,
   Item,
@@ -1338,15 +1337,14 @@ export function PanelBoard({
 
   /**
    * What a Filter shows, saved whole ("Add a Filter panel that shows every
-   * filed item due in a window", issue 463).
+   * filed item due in a window", issue 463) - as the question's rows.
    *
    * Closed only once it lands, the way the rename is: a refusal leaves the
    * question up with the rows still in it rather than losing what was chosen.
    */
   const setFilter = (
     panelId: string,
-    conditions: FilterCondition[],
-    match: FilterMatch,
+    rows: FilterCondition[][],
     groupBy: FilterGrouping,
   ) => {
     command.mutate(
@@ -1357,8 +1355,7 @@ export function PanelBoard({
           issuedAt: new Date().toISOString(),
           workspaceId,
           panelId,
-          conditions,
-          match,
+          rows,
           groupBy,
         },
       },
@@ -1757,13 +1754,12 @@ export function PanelBoard({
               key={beingFiltered.id}
               open
               panelName={beingFiltered.name}
-              conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
-              match={(beingFiltered.filter ?? NO_CONDITIONS).match}
+              rows={(beingFiltered.filter ?? NO_CONDITIONS).rows}
               groupBy={(beingFiltered.filter ?? NO_CONDITIONS).groupBy}
               panels={panelsInWorkspace}
               dashboards={dashboards}
               layouts={layouts}
-              onSave={(conditions, match, groupBy) => setFilter(beingFiltered.id, conditions, match, groupBy)}
+              onSave={(rows, groupBy) => setFilter(beingFiltered.id, rows, groupBy)}
               onCancel={() => {
                 setFiltering(null);
                 command.reset();

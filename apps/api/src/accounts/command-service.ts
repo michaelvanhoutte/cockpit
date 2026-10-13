@@ -1196,11 +1196,11 @@ export function runCommand<N extends CommandName>(
       refuseUnlessAFilter(panel);
       db.transaction((tx) => {
         tx.update(panels)
-          // The whole list, over whatever is there: the question is saved at
+          // The whole Filter, over whatever is there: the question is saved at
           // once, so the later save standing is the same answer this app gives
           // everywhere else.
           .set({
-            filterConditions: panelFilterAsStored(cmd.conditions, cmd.match, cmd.groupBy),
+            filterConditions: panelFilterAsStored(cmd.rows, cmd.groupBy),
           })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
