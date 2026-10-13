@@ -1189,6 +1189,29 @@ describe('Capture', () => {
       expect(asked).toHaveLength(0);
     });
 
+    it.each([
+      { situation: 'is read again for it where the day it was captured on is known', timeZone: 'Europe/Brussels', reads: 1, expected: '2026-09-11' },
+      { situation: 'is never read again for it where no day is known to count from', timeZone: undefined, reads: 0, expected: null },
+    ])('with only its due date open, $situation', async ({ timeZone, reads, expected }) => {
+      // The priority is chosen, so the due date is all a reading could still set.
+      const itemId = await captureANote({ priority: 'normal', ...(timeZone ? { timeZone } : {}) });
+      await untilTheNoteHasBeenRead(itemId);
+      await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:01.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Mine',
+      });
+      asked = [];
+      theModelIs({ says: { ...SOMETHING_ELSE, dueDate: '2026-09-11' } });
+
+      await readAgain(itemId);
+
+      expect(asked.filter(isACleanUp)).toHaveLength(reads);
+      expect((await dueDateOf(itemId))?.due_date).toBe(expected);
+    });
+
     it('still sets the priority the note states once you have edited the title', async () => {
       const itemId = await captureANote();
       await untilTheNoteHasBeenRead(itemId);
@@ -1415,6 +1438,12 @@ describe('Capture', () => {
           { zone: 'Pacific/Auckland', at: '2026-09-09T10:00:00.000Z' },
         ],
         own: undefined,
+        told: 'Captured on: Thursday 2026-09-10',
+      },
+      {
+        situation: 'an earlier capture’s readable time zone, where its own is one this server cannot read',
+        earlier: [{ zone: 'Pacific/Auckland', at: '2026-09-09T10:00:00.000Z' }],
+        own: 'Mars/Olympus_Mons',
         told: 'Captured on: Thursday 2026-09-10',
       },
       {

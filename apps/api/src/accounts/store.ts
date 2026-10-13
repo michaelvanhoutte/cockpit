@@ -131,7 +131,7 @@ import {
   meaningsToCompareWith,
   queueRewriteAttempt,
   recentlyCapturedUnfiled,
-  latestCapturedTimeZone,
+  recentCapturedTimeZones,
   recordRewriteOutcome,
   rememberMeaning,
   replaceDuplicatesOf,
@@ -481,12 +481,13 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /**
-   * The time zone of the account's most recent capture that carried one -
-   * the calendar a capture without its own is read on ("Read a due date you
-   * say when you capture, on your own calendar", issue 1077).
+   * The distinct time zones of the account's latest captures, most recent
+   * first - the calendars a capture without a readable one of its own is read
+   * on ("Read a due date you say when you capture, on your own calendar", issue
+   * 1077).
    */
-  latestCapturedTimeZone(accountName: string): Answer<string | null> {
-    return this.#answer(accountName, (db) => latestCapturedTimeZone(db, accountName));
+  recentCapturedTimeZones(accountName: string): Answer<string[]> {
+    return this.#answer(accountName, (db) => recentCapturedTimeZones(db, accountName));
   }
 
   /**

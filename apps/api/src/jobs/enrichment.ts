@@ -500,13 +500,16 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   }
   // Somebody edited the title or the description while this was queued, so the
   // two texts are theirs, and every field the note could state is already
-  // theirs or already filled. The store would refuse every write for the same
-  // reasons - this is what stops a model call being paid for to be refused.
+  // theirs or already filled - or, for the due date, has no day to count from
+  // (`applyStatedFields` drops it). The store would refuse every write for
+  // the same reasons - this is what stops a model call being paid for to be
+  // refused.
   // Texts settled alone are no reason to skip it: each field is decided on its
   // own, so a person's title never blocks a stated priority ("Read the
   // priority, due date and workspace you say when you capture", issue 1073,
   // its Technical design).
-  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item)) {
+  const day = await captureDayOf(account, item);
+  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null)) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
@@ -543,7 +546,6 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // the titles you correct", issue 394; `docs/text-learning.md`, "Scope: per
   // account").
   const { promptCorrections, promptStood } = await account.textLearningContext();
-  const day = await captureDayOf(account, item);
 
   let read;
   try {
@@ -694,17 +696,23 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
  * The day a note was captured on, on the calendar of whoever captured it
  * ("Read a due date you say when you capture, on your own calendar", issue
  * 1077): the instant it was captured, read in the zone it carried - or, where
- * it carried none (the Claude connector, an outbox entry kept before captures
- * carried one), in the zone of the account's most recent capture that did.
- * Null where there is none, or the zone is one this runtime cannot read: then
- * no due date is asked for.
+ * it carried none this runtime can read (the Claude connector, a connector's
+ * capture, an outbox entry kept before captures carried one, a zone the
+ * browser knows and the Worker does not), in the zone of the account's most
+ * recent capture that carried one this runtime can read. Null where there is
+ * none: then no due date is asked for.
  */
 async function captureDayOf(
   account: Account,
   item: { createdAt: string; capturedTimeZone: string | null },
 ): Promise<CaptureDay | null> {
-  const zone = item.capturedTimeZone ?? (await account.latestCapturedTimeZone());
-  return captureDay(item.createdAt, zone);
+  const own = captureDay(item.createdAt, item.capturedTimeZone);
+  if (own !== null) return own;
+  for (const zone of await account.recentCapturedTimeZones()) {
+    const day = captureDay(item.createdAt, zone);
+    if (day !== null) return day;
+  }
+  return null;
 }
 
 /**

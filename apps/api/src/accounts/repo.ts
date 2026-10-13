@@ -1027,24 +1027,29 @@ export function decisionHistoryForWorkspace(
  */
 const RECENTLY_CAPTURED_LIMIT = 20;
 
+/** How many of an account's latest time zones a capture without a readable one of its own may fall back through. */
+const RECENT_TIME_ZONES_LIMIT = 5;
+
 /**
- * The time zone of this account's most recent capture that carried one, or
- * null where none did ("Read a due date you say when you capture, on your own
- * calendar", issue 1077) - the calendar a capture without its own zone is read
- * on: the Claude connector's, and an outbox entry kept before captures carried
- * one. Most recent by the instant it was captured, dismissed Items included,
- * since where somebody is is not a property of what they kept.
+ * The distinct time zones this account's captures carried, the most recently
+ * captured in first, and none where none did ("Read a due date you say when
+ * you capture, on your own calendar", issue 1077) - the calendars a capture
+ * without a readable zone of its own is read on, the first the runtime can
+ * read winning, so a zone only the browser knows never hides one before it.
+ * Most recent by the instant it was captured, dismissed Items included, since
+ * where somebody is is not a property of what they kept.
  */
-export function latestCapturedTimeZone(db: AccountDb, tenantId: string): string | null {
-  return (
-    db
-      .select({ timeZone: items.capturedTimeZone })
-      .from(items)
-      .where(and(eq(items.tenantId, tenantId), isNotNull(items.capturedTimeZone)))
-      .orderBy(desc(items.createdAt))
-      .limit(1)
-      .get()?.timeZone ?? null
-  );
+export function recentCapturedTimeZones(db: AccountDb, tenantId: string): string[] {
+  const latest = max(items.createdAt);
+  return db
+    .select({ timeZone: items.capturedTimeZone })
+    .from(items)
+    .where(and(eq(items.tenantId, tenantId), isNotNull(items.capturedTimeZone)))
+    .groupBy(items.capturedTimeZone)
+    .orderBy(desc(latest))
+    .limit(RECENT_TIME_ZONES_LIMIT)
+    .all()
+    .flatMap((row) => (row.timeZone === null ? [] : [row.timeZone]));
 }
 
 export function recentlyCapturedUnfiled(

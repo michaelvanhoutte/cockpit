@@ -258,11 +258,17 @@ export function dueDateIsOpen(item: Pick<Item, 'dueDate' | 'dueDateChosenAt'>): 
   return item.dueDateChosenAt === null && item.dueDate === null;
 }
 
-/** Whether any field a reading of the note can set is still open to it - what decides a reading is worth asking for once the texts are settled. */
+/**
+ * Whether any field a reading of the note can set is still open to it - what
+ * decides a reading is worth asking for once the texts are settled. The due
+ * date counts only where the day the note was captured on is known, since
+ * without one no due date is asked for.
+ */
 export function aStatedFieldIsOpen(
   item: Pick<Item, 'priority' | 'prioritySetAt' | 'dueDate' | 'dueDateChosenAt'>,
+  dayKnown: boolean,
 ): boolean {
-  return priorityIsOpen(item) || dueDateIsOpen(item);
+  return priorityIsOpen(item) || (dayKnown && dueDateIsOpen(item));
 }
 
 /** What a reading of the note set on an Item, field by field; a field it left alone is absent. */
