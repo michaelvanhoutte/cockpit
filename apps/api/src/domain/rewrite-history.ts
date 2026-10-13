@@ -1,4 +1,4 @@
-import type { RefinementScope, RewriteAttemptStatus, SuggestedPanel } from '@cockpit/shared';
+import type { Priority, RefinementScope, RewriteAttemptStatus, SuggestedPanel } from '@cockpit/shared';
 
 /**
  * Pure shapes for the rewrite-history table ("See the history of what
@@ -35,6 +35,8 @@ export interface RewriteOutcome {
   /** The suggested Panel the item carries once this settled - never one the store refused. */
   proposedPanelId?: string | null;
   proposedPanelReason?: string | null;
+  /** The priority this attempt set from what the note said; a later delivery's none never erases it (`recordRewriteOutcome`). */
+  prioritySet?: Priority | null;
 }
 
 /** One row as a rewrite-history table reads it back, joined to the Panels it names, if any. */
@@ -52,4 +54,5 @@ export interface RewriteHistoryEntryRow {
   looksAt: RefinementScope | null;
   suggestedPanelBefore: SuggestedPanel | null;
   suggestedPanelAfter: SuggestedPanel | null;
+  prioritySet: Priority | null;
 }

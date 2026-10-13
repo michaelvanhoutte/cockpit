@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { prioritySchema } from './item.js';
 
 /**
  * One attempt Cockpit made to refine a captured item's title, description and
@@ -57,6 +58,8 @@ export const rewriteHistoryEntrySchema = z.object({
   suggestedPanelBefore: suggestedPanelSchema.nullable(),
   /** The suggested Panel the item carried once the refinement settled; null where it carried none. */
   suggestedPanelAfter: suggestedPanelSchema.nullable(),
+  /** The priority the refinement set from what the note said; null where it set none ("Read a priority you say when you capture", issue 1076). It only ever sets one onto an item that had none. */
+  prioritySet: prioritySchema.nullable(),
 });
 export type RewriteHistoryEntry = z.infer<typeof rewriteHistoryEntrySchema>;
 

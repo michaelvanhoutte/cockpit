@@ -139,6 +139,8 @@ export const itemSchema = z.object({
   /** When work on this started, cleared by going back to To do and kept by finishing with it ("Mark an item In progress, and see since when", issue 568). See `itemStatus`. */
   startedAt: z.iso.datetime().nullable(),
   priority: prioritySchema.nullable(),
+  /** When the person first set or cleared `priority` - by a capture that carried one or by an edit - and null while Cockpit may still set it from what the note said ("Read a priority you say when you capture", issue 1076). */
+  prioritySetAt: z.iso.datetime().nullable(),
   dueDate: z.iso.date().nullable(),
   /** When `dueDate` was last set, non-null exactly when `dueDate` is - what a row's own colour ramps from ("Colour an action's own deadline as it approaches, and mark it red once passed", issue 473). Null on an item that carried a due date before this shipped; the ramp falls back to `createdAt` for those. */
   dueDateSetAt: z.iso.datetime().nullable(),

@@ -64,6 +64,7 @@ describe('Capture', () => {
           message: 'A question about the Part 11 audit trail for the validation protocol.',
           readings: [],
           panel: null,
+          priority: null,
         },
       });
     });
@@ -121,6 +122,7 @@ describe('Capture', () => {
             { title: 'Call in January', message: '', meaning: "'jan' is short for January" },
           ],
           panel: null,
+          priority: null,
         },
       });
     });
@@ -182,6 +184,7 @@ describe('Capture', () => {
           message: 'Ring Jan.',
           readings: [],
           panel: null,
+          priority: null,
         },
       });
     });
@@ -264,8 +267,28 @@ describe('Capture', () => {
           message: 'A question about the Part 11 audit trail.',
           readings: [],
           panel: null,
+          priority: null,
         },
       });
+    });
+  });
+
+  /**
+   * "Read a priority you say when you capture" (issue 1076): read on its own,
+   * like the panel, so a priority Cockpit cannot use costs the note nothing.
+   */
+  describe('a priority the note states is read only as one Cockpit has, and never costs the note its texts', () => {
+    it.each([
+      { situation: 'the note stated a high priority', priority: 'high', expected: 'high' },
+      { situation: 'the note stated a low priority', priority: 'low', expected: 'low' },
+      { situation: 'the note stated none', priority: undefined, expected: null },
+      { situation: 'the answer named a priority Cockpit does not have', priority: 'urgent', expected: null },
+      { situation: 'the answer gave a priority that is not a word', priority: 3, expected: null },
+    ])('when $situation', ({ priority, expected }) => {
+      const read = readProposal(JSON.stringify({ ...JSON.parse(usable), ...(priority === undefined ? {} : { priority }) }), []);
+
+      expect('proposal' in read && read.proposal.priority).toBe(expected);
+      expect('proposal' in read && read.proposal.title).toBe('Ask Novy about the Part 11 audit trail');
     });
   });
 });

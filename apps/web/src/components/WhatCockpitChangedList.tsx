@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { panelPlace, type RefinementScope, type RewriteHistoryEntry, type SuggestedPanel } from '@cockpit/shared';
 import { changedFields, fieldChanged, fieldsLookedAt, type ChangedField } from '../cockpitChanges';
 import { LoadFailure } from './LoadFailure';
+import { PRIORITY_LABELS } from '../priority';
 
 /**
  * What Cockpit changed, drawn: a time's words, and the before-and-after it
@@ -15,6 +16,7 @@ const FIELD_LABEL: Record<ChangedField, string> = {
   title: 'Title',
   description: 'Description',
   suggestedPanel: 'Suggested panel',
+  priority: 'Priority',
 };
 
 export const WHY: Record<RefinementScope, string> = {
@@ -41,6 +43,10 @@ function panelValue(panel: SuggestedPanel | null): string {
 
 /** One field's line. */
 function lineFor(entry: RewriteHistoryEntry, field: ChangedField): FieldLine {
+  // Shown only where one was set, onto an item that had none.
+  if (field === 'priority') {
+    return { field, kind: 'changed', before: 'None', after: entry.prioritySet ? PRIORITY_LABELS[entry.prioritySet] : 'None' };
+  }
   if (field === 'suggestedPanel') {
     if (entry.looksAt === null) return { field, kind: 'not-recorded' };
     return fieldChanged(entry, field)

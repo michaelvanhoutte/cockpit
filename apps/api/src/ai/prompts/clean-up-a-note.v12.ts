@@ -7,6 +7,7 @@ import {
   GUIDANCE_NO_TALKING_ABOUT_THE_NOTE as NO_TALKING_ABOUT_THE_NOTE,
   GUIDANCE_TITLE_LENGTH_TARGET as TITLE_LENGTH_TARGET_LINE,
   GUIDANCE_TITLE_NAMES_THE_WORK as TITLE_NAMES_THE_WORK,
+  prioritySchema,
   textLearningRatioSentence,
   TITLE_LENGTH,
   TITLE_TARGET,
@@ -35,6 +36,14 @@ export { TITLE_TARGET };
  * of a list by position, which is what stops a reorder from silently
  * rebinding a sentence to the wrong prompt slot.
  */
+
+/**
+ * How a priority the note states is read ("Read a priority you say when you
+ * capture", issue 1076): only from words that say it, never from tone, and
+ * taken out of the title once read. Its own constant so the rule can be held
+ * without a model in the room.
+ */
+export const STATED_PRIORITY = `Where the note itself says how important it is, give that as its priority: high for "high priority", "urgent", "ASAP" or the same in Dutch ("dringend", "hoge prioriteit"); low for "low priority", "no rush" or the same in Dutch ("geen haast", "lage prioriteit"); normal only where the note says "normal priority". Read a priority only from words that say it. Never read one from tone, exclamation marks, capitals, or what the work is about, and where the note says nothing about its priority, leave the priority out. Once you have read a priority, leave the words you read it from out of the title; the message keeps them.`;
 
 /**
  * Every word of the system prompt that is the same for every note and every
@@ -85,6 +94,8 @@ Almost every note has none. A note that is merely terse, or short, or missing de
 
 A reading's message may say nothing beyond what its title already says, where the note has nothing more to add - do not repeat the same message under two readings to fill the field.
 
+${STATED_PRIORITY}
+
 Further down, after the examples, you are given what is this account's own: the panels it has already set up, its decision history, and what else has been captured recently.
 
 The panels are buckets this account files its own notes into, each named for what belongs there. Where this note clearly belongs on one of them, name its id and say in a few words why, about the note and the panel rather than about yourself - "a compliance question, about the validation protocol" rather than "I chose this because it mentions compliance". Most notes belong on none of them: a panel is not owed a note merely for being the closest match, and naming the wrong one costs more than naming none. Only name one where you are confident a person filing their own notes would put it there themselves.
@@ -123,6 +134,14 @@ message: Record that standup is too long and that half the room has nothing to s
 readings: []
 panel: (none of the panels offered clearly fit)
 
+Note: call bob re contract renewal, urgent
+language: English
+title: Call Bob about the contract renewal
+message: Call Bob about the contract renewal. Urgent.
+readings: []
+priority: high
+panel: (none of the panels offered clearly fit)
+
 Note: call jan
 language: English
 title: Call Jan
@@ -138,7 +157,7 @@ Note: part 11 audit trail q for validation protocol, who signs off eod
 panel: Compliance questions, because it's a compliance question - Part 11 and the validation protocol`;
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 11.
+ * What Cockpit asks Claude for when a note has been captured, version 12.
  * `v7` ("Learn how you write from the titles you correct", issue 394; "Show
  * what Cockpit is told, and say how you want it changed", issue 398; "Pin an
  * example of how you want a note written", issue 397) added `corrections`,
@@ -189,13 +208,18 @@ panel: Compliance questions, because it's a compliance question - Part 11 and th
  * routing history and the shape of `schema` are `v6`'s. The texts-only form
  * `v10` had, for a correction's re-read of the rest of the Inbox, went with
  * that re-read.
+ *
+ * **`v12` reads a priority the note states** ("Read a priority you say when
+ * you capture", issue 1076): `STATED_PRIORITY` in the instructions, one worked
+ * example, and an optional `priority` in the schema, left out where the note
+ * says none. Whether it lands on the Item is the store's to decide.
  */
 export function buildCleanUpANote(
   routing: RoutingInputs,
   corrections: readonly TextCorrectionEntry[],
   stood: WhatStood | null,
 ): {
-  version: 'v11';
+  version: 'v12';
   model: string;
   effort: 'low';
   system: { instructions: string; stable: string; recent: string };
@@ -233,11 +257,11 @@ export function buildCleanUpANote(
   ].join('\n\n');
 
   return {
-    version: 'v11',
+    version: 'v12',
 
     /**
      * Sonnet 5.5, on the 20-capture comparison above, and held to the same
-     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v11.test.ts`).
+     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v12.test.ts`).
      * Haiku 5.5 was compared too and gave three titles of another note and
      * three rejected answers, so this is the cheapest model that held the
      * comparison, not the cheapest there is.
@@ -248,7 +272,7 @@ export function buildCleanUpANote(
     system: { instructions: INSTRUCTIONS, stable, recent: renderRecentlyCaptured(routing.recentlyCaptured) },
 
     /**
-     * Unchanged in shape from `v6`: history, the two texts of evidence above
+     * `v6`'s shape, with `v12`'s optional `priority` added: history, the two texts of evidence above
      * and recent captures are read material, not something the answer
      * reports back, so nothing here names any of them. `title` and `message`
      * say what they now ask for; `TITLE_LENGTH` stays the cap, since the
@@ -317,6 +341,14 @@ export function buildCleanUpANote(
           },
           required: ['panelId', 'reason'],
           additionalProperties: false,
+        },
+        // Optional, unlike every field above: most notes say nothing about
+        // their priority, and leaving it out is that answer (issue 1076).
+        priority: {
+          type: 'string',
+          enum: [...prioritySchema.options],
+          description:
+            'The priority the note itself states in words - left out wherever it states none, and never read from tone.',
         },
       },
       required: ['language', 'title', 'message', 'readings', 'panel'],

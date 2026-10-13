@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v11.js';
+import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v12.js';
 import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
@@ -161,6 +161,32 @@ describe('Capture', () => {
       expect(instructions).toContain('keep them on the same words in the message');
       expect(instructions).toContain('no headings and no bullet points unless the note itself was a list');
       expect(instructions).toContain('keep its items as that list, one to a line');
+    });
+  });
+
+  /**
+   * "Read a priority you say when you capture" (issue 1076). Whether the model
+   * obeys is not testable below the browser and is not held anywhere; this
+   * holds that the prompt asks for it, and what shape the answer may take.
+   */
+  describe('every reading is told to take a priority only from words the note says', () => {
+    const prompt = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null);
+
+    it('asks for a stated priority, forbids reading tone, and takes the words it read out of the title', () => {
+      const { instructions } = prompt.system;
+
+      expect(instructions).toContain('"urgent"');
+      expect(instructions).toContain('"no rush"');
+      expect(instructions).toContain('Never read one from tone');
+      expect(instructions).toContain('where the note says nothing about its priority, leave the priority out');
+      expect(instructions).toContain('leave the words you read it from out of the title; the message keeps them');
+    });
+
+    it('lets the answer carry a priority of low, normal or high, and leave it out', () => {
+      const schema = prompt.schema as { properties: Record<string, { enum?: string[] }>; required: string[] };
+
+      expect(schema.properties.priority?.enum).toEqual(['low', 'normal', 'high']);
+      expect(schema.required).not.toContain('priority');
     });
   });
 

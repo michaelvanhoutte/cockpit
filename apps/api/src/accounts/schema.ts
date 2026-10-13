@@ -970,6 +970,14 @@ export const items = sqliteTable(
      */
     startedAt: text('started_at'),
     priority: text('priority').$type<Priority>(),
+    /**
+     * When the person first set or cleared `priority` ("Read a priority you
+     * say when you capture", issue 1076) - the marker the note's reading is
+     * refused by. Nullable and carries no CHECK, the same shape
+     * `texts_settled_at` is; NULL on every Item from before it, whose
+     * priority, if any, the empty-field rule protects instead.
+     */
+    prioritySetAt: text('priority_set_at'),
     dueDate: text('due_date'),
     /**
      * When `dueDate` was last set ("Colour an action's own deadline as it
@@ -1566,6 +1574,13 @@ export const rewriteHistory = sqliteTable(
      * issue 614 - told apart by `looks_at`.
      */
     panelBeforeId: text('panel_before_id').references(() => panels.id, { onDelete: 'restrict' }),
+    /**
+     * The priority the attempt set from what the note said, NULL where it set
+     * none ("Read a priority you say when you capture", issue 1076). Only
+     * ever set onto an item that had none, so there is no "before" to keep.
+     * No CHECK, for the reason `looks_at` has none.
+     */
+    prioritySet: text('priority_set').$type<Priority>(),
   },
   (t) => [
     // Read per workspace, most recent first - the account-wide table opened

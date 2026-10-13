@@ -20,6 +20,7 @@ import {
   type LayoutRow,
   type Panel,
   type PossibleDuplicate,
+  prioritySchema,
   refinementScopeSchema,
   type RewriteAttemptStatus,
   type SuggestedPanel,
@@ -645,6 +646,7 @@ const itemColumns = {
   completedAt: items.completedAt,
   startedAt: items.startedAt,
   priority: items.priority,
+  prioritySetAt: items.prioritySetAt,
   dueDate: items.dueDate,
   dueDateSetAt: items.dueDateSetAt,
   unseen: items.unseen,
@@ -1101,12 +1103,24 @@ export function recordRewriteOutcome(
   // that both happened and didn't (found in review).
   db.update(rewriteHistory)
     .set({
-      status: outcome.status,
+      // A delivery that changed nothing leaves a row that kept a priority
+      // (below) a change still, or the priority would stay set and vanish
+      // from what Cockpit changed.
+      status:
+        outcome.status === 'left-as-is'
+          ? sql`CASE WHEN ${rewriteHistory.prioritySet} IS NOT NULL THEN 'rewritten' ELSE 'left-as-is' END`
+          : outcome.status,
       message: outcome.message,
       titleAfter: outcome.titleAfter ?? null,
       descriptionAfter: outcome.descriptionAfter ?? null,
       proposedPanelId: outcome.proposedPanelId ?? null,
       proposedPanelReason: outcome.proposedPanelReason ?? null,
+      // **The one field kept rather than set whole.** A priority an earlier
+      // delivery set stays on the item, and a later delivery finds the field
+      // holding a value and sets nothing - so the row keeps saying what this
+      // attempt set, whatever a redelivery did ("Read a priority you say when
+      // you capture", issue 1076).
+      prioritySet: sql`coalesce(${outcome.prioritySet ?? null}, ${rewriteHistory.prioritySet})`,
     })
     .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.id, attemptId)))
     .run();
@@ -1135,6 +1149,7 @@ const rewriteHistoryColumns = {
   message: rewriteHistory.message,
   attemptedAt: rewriteHistory.attemptedAt,
   looksAt: rewriteHistory.looksAt,
+  prioritySet: rewriteHistory.prioritySet,
   beforeId: panelBefore.id,
   beforeName: panelBefore.name,
   beforeDeletedAt: panelBefore.deletedAt,
@@ -1171,6 +1186,7 @@ function asRewriteHistoryEntry(row: {
   message: string | null;
   attemptedAt: string;
   looksAt: string | null;
+  prioritySet: string | null;
   beforeId: string | null;
   beforeName: string | null;
   beforeDeletedAt: string | null;
@@ -1210,6 +1226,8 @@ function asRewriteHistoryEntry(row: {
       row.beforeDashboardDeletedAt,
     ),
     suggestedPanelAfter: after,
+    // A value outside the set reads as none, as `looksAt` above does.
+    prioritySet: prioritySchema.safeParse(row.prioritySet).data ?? null,
   };
 }
 
