@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { createStore, del, set, values, type UseStore } from 'idb-keyval';
 import { uuidv7, type Priority } from '@cockpit/shared';
 import { sendCommand, uploadAttachment } from './api/client';
+import { deviceTimeZone } from './deviceTimeZone';
 import {
   ENTRY_VERSION,
   NOTHING_HEARD,
@@ -96,6 +97,18 @@ export function browserLock(name = 'cockpit-capture-outbox'): Lock {
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (!locks) return inTabLock();
   return <T,>(work: () => Promise<T>) => locks.request(name, work) as Promise<T>;
+}
+
+/**
+ * The device's time zone as an entry keeps it, read as the entry is written -
+ * the moment Capture is pressed or the recording handed over - so a capture
+ * sent later from elsewhere is still read on the calendar it was made on
+ * ("Read a due date you say when you capture, on your own calendar", issue
+ * 1077).
+ */
+function zoneNow(): { timeZone?: string } {
+  const timeZone = deviceTimeZone();
+  return timeZone ? { timeZone } : {};
 }
 
 /** A capture as the form hands it over. */
@@ -292,6 +305,7 @@ export class CaptureOutbox {
       message: capture.message,
       ...(capture.priority ? { priority: capture.priority } : {}),
       ...(capture.dueDate ? { dueDate: capture.dueDate } : {}),
+      ...zoneNow(),
       files,
       landed: false,
       refused: null,
@@ -320,6 +334,7 @@ export class CaptureOutbox {
       workspaceId: capture.workspaceId,
       decided: capture.decided,
       message: '',
+      ...zoneNow(),
       files: [],
       recording: {
         type: capture.recording.type,

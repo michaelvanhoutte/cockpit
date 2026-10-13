@@ -91,6 +91,10 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     // said. Which of the two texts it becomes is `textsFromCapture`, and why an
     // Item has both is on the field in packages/shared/src/domain/item.ts.
     capturedMessage: cmd.message,
+    // The calendar a due date the note states is read on, beside `createdAt`,
+    // the instant it was captured ("Read a due date you say when you capture,
+    // on your own calendar", issue 1077).
+    capturedTimeZone: cmd.timeZone ?? null,
     title: texts.title,
     description: texts.description,
     // Nobody has taken these two over, so Cockpit may still replace them once
@@ -124,6 +128,8 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     // The ramp a due date colours along starts when it is given, which for a
     // capture is the capture itself - the same rule `applySetDueDate` follows.
     dueDateSetAt: cmd.dueDate === undefined ? null : cmd.issuedAt,
+    // The person's own, as `prioritySetAt` is above (issue 1077).
+    dueDateChosenAt: cmd.dueDate === undefined ? null : cmd.issuedAt,
     unseen: false,
     deletedAt: null,
     createdAt: cmd.issuedAt,
@@ -245,14 +251,28 @@ export function priorityIsOpen(item: Pick<Item, 'priority' | 'prioritySetAt'>): 
   return item.prioritySetAt === null && item.priority === null;
 }
 
-/** Whether any field a reading of the note can set is still open to it - what decides a reading is worth asking for once the texts are settled. */
-export function aStatedFieldIsOpen(item: Pick<Item, 'priority' | 'prioritySetAt'>): boolean {
-  return priorityIsOpen(item);
+/** Whether a reading of the note may still set the due date: the person has not set or cleared it, and it holds none ("Read a due date you say when you capture, on your own calendar", issue 1077). */
+export function dueDateIsOpen(item: Pick<Item, 'dueDate' | 'dueDateChosenAt'>): boolean {
+  return item.dueDateChosenAt === null && item.dueDate === null;
+}
+
+/**
+ * Whether any field a reading of the note can set is still open to it - what
+ * decides a reading is worth asking for once the texts are settled. The due
+ * date counts only where the day the note was captured on is known, since
+ * without one no due date is asked for.
+ */
+export function aStatedFieldIsOpen(
+  item: Pick<Item, 'priority' | 'prioritySetAt' | 'dueDate' | 'dueDateChosenAt'>,
+  dayKnown: boolean,
+): boolean {
+  return priorityIsOpen(item) || (dayKnown && dueDateIsOpen(item));
 }
 
 /** What a reading of the note set on an Item, field by field; a field it left alone is absent. */
 export interface FieldsSet {
   priority?: Priority | undefined;
+  dueDate?: string | undefined;
 }
 
 /**
@@ -276,8 +296,21 @@ export function applyProposedFields(
   if (cmd.priority !== undefined && priorityIsOpen(item)) {
     set.priority = cmd.priority;
   }
+  if (cmd.dueDate !== undefined && dueDateIsOpen(item)) {
+    set.dueDate = cmd.dueDate;
+  }
   if (Object.keys(set).length === 0) return null;
-  return { item: { ...item, priority: set.priority ?? item.priority }, set };
+  return {
+    item: {
+      ...item,
+      priority: set.priority ?? item.priority,
+      // The ramp a due date colours along starts when it is given, as
+      // `applySetDueDate` says - here, the moment the reading landed. The
+      // person's marker is left unstamped: the date is Cockpit's reading.
+      ...(set.dueDate === undefined ? {} : { dueDate: set.dueDate, dueDateSetAt: cmd.issuedAt }),
+    },
+    set,
+  };
 }
 
 export function applySetItemType(item: Item, cmd: SetItemTypeCommand): Item | null {
@@ -290,6 +323,12 @@ export function applySetItemType(item: Item, cmd: SetItemTypeCommand): Item | nu
  * action's own deadline as it approaches, and mark it red once passed",
  * issue 473) - the command's own clock whenever `dueDate` becomes non-null,
  * so editing it to a new date restarts the ramp, and cleared along with it.
+ *
+ * **Setting or clearing it also makes it the person's own, for good**
+ * (`dueDateChosenAt`; "Read a due date you say when you capture, on your own
+ * calendar", issue 1077) - the first answer wins, as `applySetPriority` says,
+ * and unlike `dueDateSetAt` a clear keeps it, since a deliberate clear is an
+ * answer too.
  */
 export function applySetDueDate(item: Item, cmd: SetDueDateCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
@@ -297,6 +336,7 @@ export function applySetDueDate(item: Item, cmd: SetDueDateCommand): Item | null
     ...item,
     dueDate: cmd.dueDate,
     dueDateSetAt: cmd.dueDate === null ? null : cmd.issuedAt,
+    dueDateChosenAt: item.dueDateChosenAt ?? cmd.issuedAt,
     updatedAt: cmd.issuedAt,
   };
 }

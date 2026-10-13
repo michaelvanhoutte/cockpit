@@ -91,6 +91,22 @@ export const itemReadingSchema = z.object({
 export type ItemReading = z.infer<typeof itemReadingSchema>;
 
 /**
+ * The device's IANA time zone, as a capture carries it ("Read a due date you
+ * say when you capture, on your own calendar", issue 1077) - `Europe/Brussels`,
+ * `America/Argentina/Buenos_Aires`, `UTC`, `Etc/GMT+5`.
+ *
+ * **Checked for shape only, never against a list of zones.** A zone the
+ * browser knows and the server's runtime does not would otherwise refuse the
+ * whole capture, which the outbox reads as a refusal and stops sending. A
+ * well-formed name the server cannot read is stored and read as no zone
+ * (`captureDay`, apps/api/src/domain/capture-day.ts).
+ */
+export const captureTimeZoneSchema = z
+  .string()
+  .max(64)
+  .regex(/^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+)*$/u, { message: 'not a time zone name' });
+
+/**
  * Fields are kept in three groups — write-once, source-owned, app-owned
  * (architecture.md, "Schema conventions"; §4.4 for what that means field by
  * field on this schema).
@@ -106,6 +122,8 @@ export const itemSchema = z.object({
   // -- write-once --
   /** What arrived, or what you said, as it stood when the Item was made. See `textsFromCapture`. */
   capturedMessage: z.string().nullable(),
+  /** The device's time zone when the person captured this, beside `createdAt`, the instant they did - the calendar a stated due date is read on ("Read a due date you say when you capture, on your own calendar", issue 1077). Null for every other front door, and for every Item from before it. Permissive here, checked on the way in (`captureTimeZoneSchema`). */
+  capturedTimeZone: z.string().nullable(),
 
   // -- source-owned --
   source: sourceSchema,
@@ -144,6 +162,8 @@ export const itemSchema = z.object({
   dueDate: z.iso.date().nullable(),
   /** When `dueDate` was last set, non-null exactly when `dueDate` is - what a row's own colour ramps from ("Colour an action's own deadline as it approaches, and mark it red once passed", issue 473). Null on an item that carried a due date before this shipped; the ramp falls back to `createdAt` for those. */
   dueDateSetAt: z.iso.datetime().nullable(),
+  /** When the person first set or cleared `dueDate` - by a capture that carried one or by an edit - and null while Cockpit may still set it from what the note said ("Read a due date you say when you capture, on your own calendar", issue 1077). Unlike `dueDateSetAt`, never cleared, so a deliberate clear still counts as set. */
+  dueDateChosenAt: z.iso.datetime().nullable(),
   unseen: z.boolean(),
   /** Tombstone, never a hard delete (architecture.md §4.2). */
   deletedAt: z.iso.datetime().nullable(),

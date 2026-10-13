@@ -29,6 +29,7 @@ import { KeptRecordings, KeptRecordingsProvider, browserRecordingStore } from '.
 import type { StartRecording } from '../../../src/recording';
 import type { WakeLockApi } from '../../../src/wakeLock';
 import { aRecorder, aTranscriber } from '../support/recording';
+import { deviceIsIn } from '../support/timeZone';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -519,6 +520,34 @@ describe('Capture', () => {
     });
   });
 
+  /**
+   * "Read a due date you say when you capture, on your own calendar" (issue
+   * 1077): a spoken note says which calendar it was made on, whichever way it
+   * reaches the server.
+   */
+  describe('a spoken note says which time zone it was recorded in', () => {
+    it.each([
+      { situation: 'kept to send', store: undefined },
+      {
+        situation: 'sent at once where it cannot be kept on this device',
+        store: {
+          all: () => Promise.resolve([]),
+          put: () => Promise.reject(new Error('private window')),
+          remove: () => Promise.resolve(),
+        } as OutboxStore,
+      },
+    ])('$situation', async ({ store }) => {
+      deviceIsIn('Europe/Brussels');
+      const { user, transcriber } = await drivingWith(store ? { store } : {});
+
+      await says(user, transcriber, 'call the garage friday');
+
+      await waitFor(() => expect([...capturedCalls(), ...held.mutate.mock.calls.map(([args]) => args.payload)]).toHaveLength(1));
+      expect([...capturedCalls(), ...held.mutate.mock.calls.map(([args]) => args.payload)][0]).toMatchObject({
+        timeZone: 'Europe/Brussels',
+      });
+    });
+  });
   describe('when recording fails, the status says why in large text and nothing is captured', () => {
     it.each([
       ['the microphone is blocked', 'NotAllowedError', DICTATION_BLOCKED],

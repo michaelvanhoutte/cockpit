@@ -3,6 +3,7 @@ import { panelPlace, type RefinementScope, type RewriteHistoryEntry, type Sugges
 import { changedFields, fieldChanged, fieldsLookedAt, type ChangedField } from '../cockpitChanges';
 import { LoadFailure } from './LoadFailure';
 import { PRIORITY_LABELS } from '../priority';
+import { dueDateLabel } from '../dueDate';
 
 /**
  * What Cockpit changed, drawn: a time's words, and the before-and-after it
@@ -17,6 +18,7 @@ const FIELD_LABEL: Record<ChangedField, string> = {
   description: 'Description',
   suggestedPanel: 'Suggested panel',
   priority: 'Priority',
+  dueDate: 'Due date',
 };
 
 export const WHY: Record<RefinementScope, string> = {
@@ -46,6 +48,9 @@ function lineFor(entry: RewriteHistoryEntry, field: ChangedField): FieldLine {
   // Shown only where one was set, onto an item that had none.
   if (field === 'priority') {
     return { field, kind: 'changed', before: 'None', after: entry.prioritySet ? PRIORITY_LABELS[entry.prioritySet] : 'None' };
+  }
+  if (field === 'dueDate') {
+    return { field, kind: 'changed', before: 'None', after: dueDateLabel(entry.dueDateSet) ?? 'None' };
   }
   if (field === 'suggestedPanel') {
     if (entry.looksAt === null) return { field, kind: 'not-recorded' };

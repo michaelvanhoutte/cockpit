@@ -589,3 +589,46 @@ describe('Capture', () => {
     });
   });
 });
+
+/**
+ * "Read a due date you say when you capture, on your own calendar" (issue
+ * 1077): the same decision for the due date, each field on its own marker -
+ * the interleaving is the integration tier's (tests/integration/http/note-cleanup.test.ts).
+ */
+describe('Capture', () => {
+  describe('a due date the note states is set only where you have not chosen one yourself', () => {
+    it.each([
+      { situation: 'nobody has touched the due date', item: () => anItem(), expected: '2026-08-14' },
+      {
+        situation: 'you chose one in the Capture strip',
+        item: () =>
+          captureItem(
+            { ...request, issuedAt: MADE, itemId: '018f0000-0000-7000-8000-000000000003', message: 'call bob', dueDate: '2026-08-13' },
+            'tenant-default',
+          ),
+        expected: null,
+      },
+      { situation: 'you set one since', item: () => dueDated(anItem(), LATER, '2026-08-20')!, expected: null },
+      {
+        situation: 'you set one and cleared it again',
+        item: () => dueDated(dueDated(anItem(), LATER, '2026-08-20')!, LATEST, null)!,
+        expected: null,
+      },
+      {
+        situation: 'it held one from before Cockpit recorded who set it',
+        item: () => anItem({ dueDate: '2026-08-20', dueDateChosenAt: null }),
+        expected: null,
+      },
+      { situation: 'you chose only the priority', item: () => prioritised(anItem(), LATER, 'low'), expected: '2026-08-14' },
+    ])('when $situation', ({ item, expected }) => {
+      const before = item();
+      const read = applyProposedFields(before, { ...request, issuedAt: LATEST, itemId: before.id, dueDate: '2026-08-14' });
+
+      expect(read?.set.dueDate ?? null).toBe(expected);
+      if (read) {
+        expect(read.item).toMatchObject({ dueDate: expected, dueDateSetAt: LATEST, dueDateChosenAt: null });
+        expect(read.item.updatedAt).toBe(before.updatedAt);
+      }
+    });
+  });
+});

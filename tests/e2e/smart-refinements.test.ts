@@ -79,6 +79,7 @@ test.describe('Capture', () => {
                 suggestedPanelBefore: null,
                 suggestedPanelAfter: null,
                 prioritySet: null,
+                dueDateSet: null,
               },
             ],
           },

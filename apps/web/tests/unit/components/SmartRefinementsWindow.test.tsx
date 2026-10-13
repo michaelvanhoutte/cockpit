@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RewriteHistoryEntry } from '@cockpit/shared';
 import { SmartRefinementsWindow } from '../../../src/components/SmartRefinementsWindow';
+import { dueDateLabel } from '../../../src/dueDate';
 
 /**
  * F1: what the What Cockpit changed window draws from the rows it is handed
@@ -47,6 +48,7 @@ function aRefinement(overrides: Partial<RewriteHistoryEntry> = {}): RewriteHisto
     suggestedPanelBefore: null,
     suggestedPanelAfter: null,
     prioritySet: null,
+    dueDateSet: null,
     ...overrides,
   };
 }
@@ -238,6 +240,25 @@ describe('What Cockpit changed', () => {
     });
   });
 
+  /** "Read a due date you say when you capture, on your own calendar" (issue 1077). */
+  describe('a refinement lists the due date it set from what the note said, and no due date where it set none', () => {
+    it.each([
+      { situation: 'it set Friday', dueDateSet: '2026-10-16', says: 'Changed the title and due date', due: dueDateLabel('2026-10-16') },
+      { situation: 'it set none', dueDateSet: null, says: 'Changed the title', due: null },
+    ])('$situation', async ({ dueDateSet, says, due }) => {
+      const dialog = await openWith([aRefinement({ titleAfter: 'Send Anna the Q3 numbers', dueDateSet })]);
+
+      expect(within(theRow(dialog)).getByText(says)).toBeVisible();
+      const lines = await openTheRow(dialog);
+      const line = lines.find((candidate) => candidate.field === 'Due date');
+      if (due === null) {
+        expect(line).toBeUndefined();
+      } else {
+        expect(within(line!.says).getByRole('deletion')).toHaveTextContent('None');
+        expect(within(line!.says).getByRole('insertion')).toHaveTextContent(due);
+      }
+    });
+  });
   describe('a row recorded before this shipped shows what it has and says what it lacks', () => {
     it('gives no reason why, its title change as recorded, and the suggested panel as not recorded', async () => {
       const dialog = await openWith([

@@ -7,6 +7,7 @@ import {
 import {
   associationKindSchema,
   capturedFromSchema,
+  captureTimeZoneSchema,
   dashboardNameSchema,
   itemDescriptionSchema,
   itemReadingSchema,
@@ -354,6 +355,14 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    */
   priority: prioritySchema.optional(),
   dueDate: z.iso.date().optional(),
+  /**
+   * The device's time zone, read the moment Capture is pressed - not when the
+   * capture is sent, so a note kept offline is read on the calendar it was
+   * captured on ("Read a due date you say when you capture, on your own
+   * calendar", issue 1077). Sent by every front door a person captures through
+   * in the app; left out by the others, and by an outbox entry kept before it.
+   */
+  timeZone: captureTimeZoneSchema.optional(),
   /**
    * Never given: a capture carries no Type ("Capture without a Type, at every
    * front door", issue 1067). Named only so a client still sending one is
@@ -730,12 +739,15 @@ export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
  * enrichment job rather than sent by a client ("Read a priority you say when
  * you capture", issue 1076). Each field is absent where the note stated none,
  * and each is applied or refused on its own: one the person set, or one that
- * already holds a value, is left as it is. Priority only, for now; the due
- * date and the Workspace a note names join it as fields of their own.
+ * already holds a value, is left as it is. Priority and the due date ("Read a
+ * due date you say when you capture, on your own calendar", issue 1077); the
+ * Workspace a note names joins them as a field of its own.
  */
 export const proposeItemFieldsSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   priority: prioritySchema.optional(),
+  /** A calendar day, never a time ("Read a due date you say when you capture, on your own calendar", issue 1077). */
+  dueDate: z.iso.date().optional(),
 });
 export type ProposeItemFieldsCommand = z.infer<typeof proposeItemFieldsSchema>;
 
@@ -975,6 +987,6 @@ export const commandResultSchema = z.object({
   applied: z.boolean(),
   settledRouting: z.boolean().optional(),
   recordedCorrection: z.boolean().optional(),
-  fieldsSet: z.object({ priority: prioritySchema.optional() }).optional(),
+  fieldsSet: z.object({ priority: prioritySchema.optional(), dueDate: z.iso.date().optional() }).optional(),
 });
 export type CommandResult = z.infer<typeof commandResultSchema>;

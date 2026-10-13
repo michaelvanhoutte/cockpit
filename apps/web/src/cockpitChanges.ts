@@ -13,7 +13,7 @@ import { REWRITE_HISTORY_LIMIT, type RefinementScope, type RewriteHistoryEntry }
  * throws.
  */
 
-export type ChangedField = 'title' | 'description' | 'suggestedPanel' | 'priority';
+export type ChangedField = 'title' | 'description' | 'suggestedPanel' | 'priority' | 'dueDate';
 
 /** Which fields a refinement looks at; a row from before that was recorded is read as having looked at all three. */
 export const LOOKS_AT: Record<RefinementScope, ChangedField[]> = {
@@ -26,17 +26,23 @@ export const LOOKS_AT: Record<RefinementScope, ChangedField[]> = {
  * The fields to show for an attempt: what it looked at, and the priority where
  * it set one from what the note said ("Read a priority you say when you
  * capture", issue 1076) - shown only then, since every other attempt, and
- * every one recorded before it could, left the priority alone.
+ * every one recorded before it could, left the priority alone. The due date
+ * likewise ("Read a due date you say when you capture, on your own calendar",
+ * issue 1077).
  */
 export function fieldsLookedAt(entry: RewriteHistoryEntry): ChangedField[] {
-  const looked = LOOKS_AT[entry.looksAt ?? 'texts-and-panel'];
-  return entry.prioritySet === null ? looked : [...looked, 'priority'];
+  return [
+    ...LOOKS_AT[entry.looksAt ?? 'texts-and-panel'],
+    ...(entry.prioritySet === null ? [] : (['priority'] as const)),
+    ...(entry.dueDateSet === null ? [] : (['dueDate'] as const)),
+  ];
 }
 
 /** Whether one field of an attempt differs from what it started as. */
 export function fieldChanged(entry: RewriteHistoryEntry, field: ChangedField): boolean {
   // Only ever set onto an item that had none, so having set one is the change.
   if (field === 'priority') return entry.prioritySet !== null;
+  if (field === 'dueDate') return entry.dueDateSet !== null;
   if (field === 'suggestedPanel') {
     // A row from before this was recorded never recorded the panel.
     if (entry.looksAt === null) return false;

@@ -48,6 +48,8 @@ export interface NoteTexts {
   panel: RoutingCandidate | null;
   /** The priority the note stated, or null where it stated none ("Read a priority you say when you capture", issue 1076). */
   priority: Priority | null;
+  /** The day the note named as due, `YYYY-MM-DD`, or null where it named none ("Read a due date you say when you capture, on your own calendar", issue 1077). */
+  dueDate: string | null;
 }
 
 /**
@@ -184,7 +186,14 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
       ? (prioritySchema.safeParse((parsed as Record<string, unknown>).priority).data ?? null)
       : null;
 
-  return { proposal: { ...read.data, readings, panel, priority } };
+  // The same for a due date: anything but a calendar day - a time, a word,
+  // a date that does not exist - is no due date (issue 1077).
+  const dueDate =
+    typeof parsed === 'object' && parsed !== null
+      ? (z.iso.date().safeParse((parsed as Record<string, unknown>).dueDate).data ?? null)
+      : null;
+
+  return { proposal: { ...read.data, readings, panel, priority, dueDate } };
 }
 
 /**

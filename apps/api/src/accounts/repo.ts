@@ -1,6 +1,7 @@
 import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
+import { z } from 'zod';
 import {
   DEFAULT_ITEM_FORM_PRESENTATION,
   REWRITE_HISTORY_LIMIT,
@@ -633,6 +634,7 @@ const itemColumns = {
   sender: items.sender,
   sourceTimestamp: items.sourceTimestamp,
   capturedMessage: items.capturedMessage,
+  capturedTimeZone: items.capturedTimeZone,
   title: items.title,
   description: items.description,
   textsSettledAt: items.textsSettledAt,
@@ -649,6 +651,7 @@ const itemColumns = {
   prioritySetAt: items.prioritySetAt,
   dueDate: items.dueDate,
   dueDateSetAt: items.dueDateSetAt,
+  dueDateChosenAt: items.dueDateChosenAt,
   unseen: items.unseen,
   deletedAt: items.deletedAt,
   createdAt: items.createdAt,
@@ -1024,6 +1027,31 @@ export function decisionHistoryForWorkspace(
  */
 const RECENTLY_CAPTURED_LIMIT = 20;
 
+/** How many of an account's latest time zones a capture without a readable one of its own may fall back through. */
+const RECENT_TIME_ZONES_LIMIT = 5;
+
+/**
+ * The distinct time zones this account's captures carried, the most recently
+ * captured in first, and none where none did ("Read a due date you say when
+ * you capture, on your own calendar", issue 1077) - the calendars a capture
+ * without a readable zone of its own is read on, the first the runtime can
+ * read winning, so a zone only the browser knows never hides one before it.
+ * Most recent by the instant it was captured, dismissed Items included, since
+ * where somebody is is not a property of what they kept.
+ */
+export function recentCapturedTimeZones(db: AccountDb, tenantId: string): string[] {
+  const latest = max(items.createdAt);
+  return db
+    .select({ timeZone: items.capturedTimeZone })
+    .from(items)
+    .where(and(eq(items.tenantId, tenantId), isNotNull(items.capturedTimeZone)))
+    .groupBy(items.capturedTimeZone)
+    .orderBy(desc(latest))
+    .limit(RECENT_TIME_ZONES_LIMIT)
+    .all()
+    .flatMap((row) => (row.timeZone === null ? [] : [row.timeZone]));
+}
+
 export function recentlyCapturedUnfiled(
   db: AccountDb,
   tenantId: string,
@@ -1103,12 +1131,12 @@ export function recordRewriteOutcome(
   // that both happened and didn't (found in review).
   db.update(rewriteHistory)
     .set({
-      // A delivery that changed nothing leaves a row that kept a priority
-      // (below) a change still, or the priority would stay set and vanish
-      // from what Cockpit changed.
+      // A delivery that changed nothing leaves a row that kept a priority or
+      // a due date (below) a change still, or the field would stay set and
+      // vanish from what Cockpit changed.
       status:
         outcome.status === 'left-as-is'
-          ? sql`CASE WHEN ${rewriteHistory.prioritySet} IS NOT NULL THEN 'rewritten' ELSE 'left-as-is' END`
+          ? sql`CASE WHEN ${rewriteHistory.prioritySet} IS NOT NULL OR ${rewriteHistory.dueDateSet} IS NOT NULL THEN 'rewritten' ELSE 'left-as-is' END`
           : outcome.status,
       message: outcome.message,
       titleAfter: outcome.titleAfter ?? null,
@@ -1121,6 +1149,9 @@ export function recordRewriteOutcome(
       // attempt set, whatever a redelivery did ("Read a priority you say when
       // you capture", issue 1076).
       prioritySet: sql`coalesce(${outcome.prioritySet ?? null}, ${rewriteHistory.prioritySet})`,
+      // Kept the same way, for the same reason ("Read a due date you say when
+      // you capture, on your own calendar", issue 1077).
+      dueDateSet: sql`coalesce(${outcome.dueDateSet ?? null}, ${rewriteHistory.dueDateSet})`,
     })
     .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.id, attemptId)))
     .run();
@@ -1150,6 +1181,7 @@ const rewriteHistoryColumns = {
   attemptedAt: rewriteHistory.attemptedAt,
   looksAt: rewriteHistory.looksAt,
   prioritySet: rewriteHistory.prioritySet,
+  dueDateSet: rewriteHistory.dueDateSet,
   beforeId: panelBefore.id,
   beforeName: panelBefore.name,
   beforeDeletedAt: panelBefore.deletedAt,
@@ -1187,6 +1219,7 @@ function asRewriteHistoryEntry(row: {
   attemptedAt: string;
   looksAt: string | null;
   prioritySet: string | null;
+  dueDateSet: string | null;
   beforeId: string | null;
   beforeName: string | null;
   beforeDeletedAt: string | null;
@@ -1228,6 +1261,7 @@ function asRewriteHistoryEntry(row: {
     suggestedPanelAfter: after,
     // A value outside the set reads as none, as `looksAt` above does.
     prioritySet: prioritySchema.safeParse(row.prioritySet).data ?? null,
+    dueDateSet: z.iso.date().safeParse(row.dueDateSet).data ?? null,
   };
 }
 

@@ -2,9 +2,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
 import { callThrough, inRealTime, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
 import { providerCallsIn } from '../gateway/record.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v12.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v13.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v2.js';
 import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
+import type { CaptureDay } from '../domain/capture-day.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
@@ -15,7 +16,7 @@ export type { ItemToPlace } from './prompts/choose-a-panel.v2.js';
  * The prompt files the two calls are built from, as a record names them -
  * changed with the import above them when a prompt gets a new version.
  */
-const CLEAN_UP_A_NOTE = 'clean-up-a-note.v12';
+const CLEAN_UP_A_NOTE = 'clean-up-a-note.v13';
 const CHOOSE_A_PANEL = 'choose-a-panel.v2';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
@@ -87,6 +88,11 @@ export interface AiService {
    * *fails* - no network, a 5xx, a rate limit - throws, because that is worth
    * retrying and a discarded proposal is not.
    *
+   * `day` is the day the note was captured on, on the calendar of whoever
+   * captured it, or null where no calendar is known - which leaves the due
+   * date unasked for ("Read a due date you say when you capture, on your own
+   * calendar", issue 1077).
+   *
    * `callFor` names whom the call is for in its record, never in the prompt.
    */
   cleanUpNote(
@@ -96,6 +102,7 @@ export interface AiService {
     recentlyCaptured: readonly string[],
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
+    day: CaptureDay | null,
     callFor: CallFor,
   ): Promise<ProposalRead>;
 
@@ -223,9 +230,10 @@ export class ClaudeAiService implements AiService {
     recentlyCaptured: readonly string[],
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
+    day: CaptureDay | null,
     callFor: CallFor,
   ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote({ panels, history, recentlyCaptured }, corrections, stood);
+    const prompt = buildCleanUpANote({ panels, history, recentlyCaptured }, corrections, stood, day);
     const answer = await this.#ask(prompt, capturedMessage, { ...callFor, operation: 'clean-up-a-note', promptVersion: CLEAN_UP_A_NOTE });
     return 'refused' in answer ? { discarded: answer.refused } : readProposal(answer.text, panels.map((panel) => panel.id));
   }

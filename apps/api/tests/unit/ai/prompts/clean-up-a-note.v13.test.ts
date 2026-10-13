@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v12.js';
+import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v13.js';
 import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
@@ -16,7 +16,7 @@ import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text
 const A_STOOD_SAMPLE: WhatStood = { proposedTotal: 10, correctedTotal: 2, sample: ['A title that stood'] };
 
 function systemFor(corrections: readonly TextCorrectionEntry[], stood: WhatStood | null): string {
-  return whole(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, corrections, stood));
+  return whole(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, corrections, stood, null));
 }
 
 /** The system prompt as the model reads it, its three parts in order. */
@@ -56,12 +56,13 @@ describe('Capture', () => {
   describe('what a proposal is told reads the same for every account, until its own record begins', () => {
     const built = [
       // An account with nothing yet.
-      buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null),
+      buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null, null),
       // An account with something in every input.
       buildCleanUpANote(
         { panels: [{ id: 'panel-2', name: 'Legal questions' }], history: [A_DECISION], recentlyCaptured: ['still waiting to be filed'] },
         [A_CORRECTION],
         A_STOOD_SAMPLE,
+        null,
       ),
     ];
 
@@ -156,7 +157,7 @@ describe('Capture', () => {
    */
   describe("every reading is told to keep the note's formatting", () => {
     it('says so, without allowing headings or bullets the note lacks', () => {
-      const { instructions } = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null).system;
+      const { instructions } = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null, null).system;
 
       expect(instructions).toContain('keep them on the same words in the message');
       expect(instructions).toContain('no headings and no bullet points unless the note itself was a list');
@@ -170,7 +171,7 @@ describe('Capture', () => {
    * holds that the prompt asks for it, and what shape the answer may take.
    */
   describe('every reading is told to take a priority only from words the note says', () => {
-    const prompt = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null);
+    const prompt = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null, null);
 
     it('asks for a stated priority, forbids reading tone, and takes the words it read out of the title', () => {
       const { instructions } = prompt.system;
@@ -187,6 +188,37 @@ describe('Capture', () => {
 
       expect(schema.properties.priority?.enum).toEqual(['low', 'normal', 'high']);
       expect(schema.required).not.toContain('priority');
+    });
+  });
+  /**
+   * "Read a due date you say when you capture, on your own calendar" (issue
+   * 1077). Whether the model counts the days right is the contract tier's;
+   * this holds that it is told the day, and asked for a date only then.
+   */
+  describe('a due date is asked for only where the day the note was captured on is known', () => {
+    const ROUTING_NONE = { panels: [], history: [], recentlyCaptured: [] };
+    const withADay = buildCleanUpANote(ROUTING_NONE, [], null, { date: '2026-10-13', weekday: 'Tuesday' });
+    const withNone = buildCleanUpANote(ROUTING_NONE, [], null, null);
+
+    it.each([
+      { situation: 'the day is known', prompt: withADay, told: 'Captured on: Tuesday 2026-10-13', asked: true },
+      { situation: 'no day is known', prompt: withNone, told: 'Captured on: (not known', asked: false },
+    ])('when $situation', ({ prompt, told, asked }) => {
+      const schema = prompt.schema as { properties: Record<string, unknown>; required: string[] };
+
+      expect(prompt.system.recent).toContain(told);
+      expect('dueDate' in schema.properties).toBe(asked);
+      expect(schema.required).not.toContain('dueDate');
+    });
+
+    it('drops a time, leaves an unclear day out, and takes the words it read out of the title', () => {
+      const { instructions } = withADay.system;
+
+      expect(instructions).toContain('give the day alone');
+      expect(instructions).toContain('"end of the month"');
+      expect(instructions).toContain('leave the due date out');
+      // The day itself is never in the part every note shares.
+      expect(withNone.system.instructions).toBe(instructions);
     });
   });
 
@@ -208,10 +240,10 @@ describe('Capture', () => {
       decidedAt: '2026-09-02T09:00:00.000Z',
     };
     const ANOTHER_CORRECTION: TextCorrectionEntry = { ...A_CORRECTION, itemId: 'item-2', capturedMessage: 'mail priya' };
-    const base = buildCleanUpANote(ROUTING, [A_CORRECTION], A_STOOD_SAMPLE).system;
+    const base = buildCleanUpANote(ROUTING, [A_CORRECTION], A_STOOD_SAMPLE, null).system;
 
     it('two captures with the same history and corrections and different recent notes are identical up to the recent notes', () => {
-      const later = buildCleanUpANote({ ...ROUTING, recentlyCaptured: ['another one waiting'] }, [A_CORRECTION], A_STOOD_SAMPLE).system;
+      const later = buildCleanUpANote({ ...ROUTING, recentlyCaptured: ['another one waiting'] }, [A_CORRECTION], A_STOOD_SAMPLE, null).system;
 
       expect(later.instructions).toBe(base.instructions);
       expect(later.stable).toBe(base.stable);
@@ -220,7 +252,7 @@ describe('Capture', () => {
     });
 
     it('a filing added to the history changes it and what follows, and leaves the rules and the Panels alone', () => {
-      const filed = buildCleanUpANote({ ...ROUTING, history: [A_DECISION, ANOTHER_DECISION] }, [A_CORRECTION], A_STOOD_SAMPLE).system;
+      const filed = buildCleanUpANote({ ...ROUTING, history: [A_DECISION, ANOTHER_DECISION] }, [A_CORRECTION], A_STOOD_SAMPLE, null).system;
       const untilTheHistory = base.stable.slice(0, base.stable.indexOf('Decision history'));
 
       expect(filed.instructions).toBe(base.instructions);
@@ -231,7 +263,7 @@ describe('Capture', () => {
     });
 
     it('a correction added changes the corrections and what follows, and leaves the rules and the history alone', () => {
-      const corrected = buildCleanUpANote(ROUTING, [A_CORRECTION, ANOTHER_CORRECTION], A_STOOD_SAMPLE).system;
+      const corrected = buildCleanUpANote(ROUTING, [A_CORRECTION, ANOTHER_CORRECTION], A_STOOD_SAMPLE, null).system;
       const untilTheCorrections = base.stable.slice(0, base.stable.indexOf('You are also given this account'));
 
       expect(corrected.instructions).toBe(base.instructions);
@@ -243,7 +275,7 @@ describe('Capture', () => {
     });
 
     it('an account with no history and no corrections is sent no empty block, and no heading over nothing', () => {
-      const bare = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null).system;
+      const bare = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null, null).system;
 
       for (const part of Object.values(bare)) expect(part.trim()).not.toBe('');
       expect(bare.stable).not.toContain('Corrections');

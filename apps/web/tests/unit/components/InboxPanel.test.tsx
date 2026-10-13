@@ -118,6 +118,8 @@ function anItem(title: string, completedAt: string | null = null): Item {
     startedAt: null,
     priority: null,
     prioritySetAt: null,
+    dueDateChosenAt: null,
+    capturedTimeZone: null,
     dueDate: null,
     dueDateSetAt: null,
     unseen: false,

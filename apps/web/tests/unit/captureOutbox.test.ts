@@ -230,6 +230,11 @@ describe('Offline', () => {
       expect(capturePayload(anEntry())).not.toHaveProperty('priority');
       expect(capturePayload(anEntry())).not.toHaveProperty('dueDate');
     });
+
+    it('carries the time zone it was captured in, and none for an entry kept before captures carried one', () => {
+      expect(capturePayload(anEntry({ timeZone: 'Europe/Brussels' }))).toMatchObject({ timeZone: 'Europe/Brussels' });
+      expect(capturePayload(anEntry())).not.toHaveProperty('timeZone');
+    });
   });
 
   describe('a waiting capture says where it stands, and what putting it back returns', () => {
