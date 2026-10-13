@@ -1103,7 +1103,13 @@ export function recordRewriteOutcome(
   // that both happened and didn't (found in review).
   db.update(rewriteHistory)
     .set({
-      status: outcome.status,
+      // A delivery that changed nothing leaves a row that kept a priority
+      // (below) a change still, or the priority would stay set and vanish
+      // from what Cockpit changed.
+      status:
+        outcome.status === 'left-as-is'
+          ? sql`CASE WHEN ${rewriteHistory.prioritySet} IS NOT NULL THEN 'rewritten' ELSE 'left-as-is' END`
+          : outcome.status,
       message: outcome.message,
       titleAfter: outcome.titleAfter ?? null,
       descriptionAfter: outcome.descriptionAfter ?? null,

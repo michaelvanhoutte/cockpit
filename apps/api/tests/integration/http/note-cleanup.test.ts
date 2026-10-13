@@ -1300,6 +1300,26 @@ describe('Capture', () => {
       expect(history).toHaveLength(1);
       expect(history[0]!.prioritySet).toBe('high');
     });
+
+    it('still lists the priority it set when the same note is read again after you edit the title', async () => {
+      theModelIs({ says: { ...A_READING, priority: 'high' } });
+      const itemId = await captureANote();
+      await untilTheChangeIsRecorded(itemId);
+      const [first] = await historyOf(itemId);
+      await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:01.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Mine',
+      });
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: first!.id }), env);
+
+      const [entry] = await historyOf(itemId);
+      expect(entry?.status).toBe('rewritten');
+      expect(entry?.prioritySet).toBe('high');
+    });
   });
 
   describe('what Cockpit changed records the priority it set', () => {

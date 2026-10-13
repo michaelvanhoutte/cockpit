@@ -11,7 +11,7 @@ import { aiFor } from '../ai/index.js';
 import type { Trigger } from '../gateway/attempts.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import type { NoteTexts, PanelRead, RoutingCandidate } from '../ai/index.js';
-import type { FieldsSet } from '../domain/items.js';
+import { aStatedFieldIsOpen, type FieldsSet } from '../domain/items.js';
 import {
   asFarAsItReads,
   canReadMeaning,
@@ -502,9 +502,10 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // theirs or already filled. The store would refuse every write for the same
   // reasons - this is what stops a model call being paid for to be refused.
   // Texts settled alone are no reason to skip it: each field is decided on its
-  // own, so a person's title never blocks a stated priority (parent issue 1073,
-  // "Own setting wins by the same mechanism as the tidied texts").
-  if (item.textsSettledAt !== null && !aStatedFieldCouldLand(item)) {
+  // own, so a person's title never blocks a stated priority ("Read the
+  // priority, due date and workspace you say when you capture", issue 1073,
+  // its Technical design).
+  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item)) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
@@ -683,14 +684,6 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       proposedPanelReason: routed === 'routed' ? (read.proposal.panel?.reason ?? null) : null,
     }),
   );
-}
-
-/**
- * Whether any field a note can state is still open to it - neither set by the
- * person nor holding a value - by the rule `applyProposedFields` applies.
- */
-function aStatedFieldCouldLand(item: { priority: string | null; prioritySetAt: string | null }): boolean {
-  return item.prioritySetAt === null && item.priority === null;
 }
 
 /**

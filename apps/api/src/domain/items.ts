@@ -242,6 +242,16 @@ export function applySetPriority(item: Item, cmd: SetPriorityCommand): Item | nu
   };
 }
 
+/** Whether a reading of the note may still set the priority: the person has not set or cleared it, and it holds none. */
+export function priorityIsOpen(item: Pick<Item, 'priority' | 'prioritySetAt'>): boolean {
+  return item.prioritySetAt === null && item.priority === null;
+}
+
+/** Whether any field a reading of the note can set is still open to it - what decides a reading is worth asking for once the texts are settled. */
+export function aStatedFieldIsOpen(item: Pick<Item, 'priority' | 'prioritySetAt'>): boolean {
+  return priorityIsOpen(item);
+}
+
 /** What a reading of the note set on an Item, field by field; a field it left alone is absent. */
 export interface FieldsSet {
   priority?: Priority | undefined;
@@ -265,7 +275,7 @@ export function applyProposedFields(
   cmd: ProposeItemFieldsCommand,
 ): { item: Item; set: FieldsSet } | null {
   const set: FieldsSet = {};
-  if (cmd.priority !== undefined && item.prioritySetAt === null && item.priority === null) {
+  if (cmd.priority !== undefined && priorityIsOpen(item)) {
     set.priority = cmd.priority;
   }
   if (Object.keys(set).length === 0) return null;

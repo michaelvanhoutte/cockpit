@@ -409,7 +409,12 @@ const PULLED_LINK_CHOICE: Change = {
  * - **A backup restored from before it:** the restore replays the recorded
  *   changes, so this one applies the next time the account is opened.
  */
-/*
+const CONNECTION_CHOICE: Change = {
+  name: '0065-connection-choice',
+  statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `choice` text' }],
+};
+
+/**
  * Who set an Item's priority, and the priority a refinement set from what the
  * note said ("Read a priority you say when you capture", issue 1076) - one
  * nullable column on `items` and one on `rewrite_history`, each a change of
@@ -441,11 +446,6 @@ const ITEM_PRIORITY_SET_AT: Change = {
 const REWRITE_HISTORY_PRIORITY_SET: Change = {
   name: '0070-rewrite-history-priority-set',
   statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `priority_set` text' }],
-};
-
-const CONNECTION_CHOICE: Change = {
-  name: '0065-connection-choice',
-  statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `choice` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
