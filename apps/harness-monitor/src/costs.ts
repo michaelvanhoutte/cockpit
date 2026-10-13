@@ -119,6 +119,8 @@ export interface CostGroup {
   label: string;
   /** A second line under the label. */
   sub: string | null;
+  /** A catch-all gathers costs nothing names (Unattributed, No issue, unknown, No branch): it keeps its row and numbers but draws no split bar. */
+  catchAll: boolean;
   /** The pull request a by-pull-request group is, once linked. */
   prNumber: number | null;
   /** The issue a by-pull-request or by-issue group names; null for none. */
@@ -213,26 +215,28 @@ function placeOf(row: TotalRow, group: Group, linking: (row: TotalRow) => 'linki
   const linked = row.prNumber !== null;
   switch (group) {
     case 'category':
-      return { key: row.category, label: categoryName(row.category as Category), sub: null };
+      return { key: row.category, label: categoryName(row.category as Category), sub: null, catchAll: false };
     case 'day':
-      return { key: row.day, label: row.day, sub: null };
+      return { key: row.day, label: row.day, sub: null, catchAll: false };
     case 'engineer':
       return linked
-        ? { key: row.engineer ?? '~unknown', label: row.engineer ?? 'unknown', sub: null }
-        : { key: UNATTRIBUTED, label: 'Unattributed', sub: null };
+        ? { key: row.engineer ?? '~unknown', label: row.engineer ?? 'unknown', sub: null, catchAll: row.engineer === null }
+        : { key: UNATTRIBUTED, label: 'Unattributed', sub: null, catchAll: true };
     case 'issue':
-      if (!linked) return { key: UNATTRIBUTED, label: 'Unattributed', sub: null };
+      if (!linked) return { key: UNATTRIBUTED, label: 'Unattributed', sub: null, catchAll: true };
       return row.issue === null
-        ? { key: '~none', label: 'No issue', sub: null }
-        : { key: `issue-${row.issue}`, label: issueLabel(row.issue, row.issueTitle), sub: null };
+        ? { key: '~none', label: 'No issue', sub: null, catchAll: true }
+        : { key: `issue-${row.issue}`, label: issueLabel(row.issue, row.issueTitle), sub: null, catchAll: false };
     case 'pr':
+      // A single named branch no pull request names is one branch, not a catch-all, so it keeps its bar.
       return linked
         ? {
             key: `pr-${row.prNumber}`,
             label: `#${row.prNumber} ${row.title}`,
             sub: row.issue === null ? 'No issue' : `Issue #${row.issue}`,
+            catchAll: false,
           }
-        : { key: `branch-${row.branch}`, label: row.branch === '' ? 'No branch' : row.branch, sub: row.branch === '' ? 'unattributed' : linking(row) };
+        : { key: `branch-${row.branch}`, label: row.branch === '' ? 'No branch' : row.branch, sub: row.branch === '' ? 'unattributed' : linking(row), catchAll: row.branch === '' };
   }
 }
 

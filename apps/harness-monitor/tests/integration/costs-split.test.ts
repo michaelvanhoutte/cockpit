@@ -102,6 +102,76 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe('a catch-all row keeps every number and its total but draws no split bar', () => {
+    beforeEach(async () => {
+      await send([
+        spend('none', 2, { branch: null, category: 'building' }),
+        spend('stray', 1, { branch: 'b/unlinked', category: 'building' }),
+        spend('named', 3, { branch: 'b/10', category: 'building' }),
+      ]);
+      await linked(pullRequest({ number: 10, title: 'Nobody', headRefName: 'b/10', author: null, closingIssuesReferences: { nodes: [] } }));
+    });
+
+    it.each([
+      { situation: 'an issue grouping, requests on no pull request', group: 'issue', label: 'Unattributed', total: '$3.00' },
+      { situation: 'an issue grouping, a pull request closing no issue', group: 'issue', label: 'No issue', total: '$3.00' },
+      { situation: 'an engineer grouping, requests on no pull request', group: 'engineer', label: 'Unattributed', total: '$3.00' },
+      { situation: 'an engineer grouping, a pull request with no author', group: 'engineer', label: 'unknown', total: '$3.00' },
+      { situation: 'a pull request grouping, requests on no branch', group: 'pr', label: 'No branch', total: '$2.00' },
+    ])('$situation', async ({ group, label, total }) => {
+      const row = costRows(await thePage(`?period=all&group=${group}`)).find((r) => r.label === label)!;
+
+      expect(row.segments).toBe(0);
+      expect(row.total).toBe(total);
+      expect(row.categories.filter((c) => c !== '—')).toEqual([total]);
+    });
+  });
+
+  describe('the other rows scale to the largest row that draws a bar', () => {
+    it('a catch-all larger than every named row leaves the largest named row full width', async () => {
+      await send([
+        spend('big', 10, { branch: null, category: 'building' }),
+        spend('a', 3, { branch: 'b/10', category: 'building' }),
+        spend('b', 1.5, { branch: 'b/11', category: 'after-push' }),
+      ]);
+      await linked(
+        pullRequest({ number: 10, title: 'Largest', headRefName: 'b/10' }),
+        pullRequest({ number: 11, title: 'Second', headRefName: 'b/11' }),
+      );
+
+      const rows = costRows(await thePage('?period=all&group=pr'));
+
+      expect(rows.map((r) => [r.label, r.widths])).toEqual([
+        ['No branch', []],
+        ['#10 Largest', [100]],
+        ['#11 Second', [50]],
+      ]);
+    });
+
+    it('with only catch-all rows on the page there are no bars, and the page still renders', async () => {
+      await send([spend('none', 2, { branch: null, category: 'building' })]);
+
+      const html = await thePage('?period=all&group=pr');
+
+      expect(costRows(html).map((r) => [r.label, r.total, r.widths])).toEqual([['No branch', '$2.00', []]]);
+      expect(whereItWent(html).heading).toBe("Where the period's $2.00 went");
+    });
+  });
+
+  describe('a named branch that no pull request names is not a catch-all', () => {
+    it('in the pull request grouping it keeps its bar, sized against the largest row', async () => {
+      await send([spend('solo', 2, { branch: 'b/solo', category: 'building' }), spend('a', 1, { branch: 'b/10', category: 'building' })]);
+      await linked(pullRequest({ number: 10, title: 'Named', headRefName: 'b/10' }));
+
+      const rows = costRows(await thePage('?period=all&group=pr'));
+
+      expect(rows.map((r) => [r.label, r.widths])).toEqual([
+        ['b/solo', [100]],
+        ['#10 Named', [50]],
+      ]);
+    });
+  });
+
   describe('the Model and Requests filters keep only matching cost, everywhere on the page', () => {
     /** Pull request 10: $3 and $1 of Sonnet (the second by a subagent) and $2 of Opus. Pull request 11: $4 of Sonnet. */
     beforeEach(async () => {
