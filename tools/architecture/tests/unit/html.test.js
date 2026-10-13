@@ -79,7 +79,7 @@ describe('The architecture page', () => {
       drawnFrom: { commit: null, date: null, repo: null },
       context: { cockpit: { name: 'x', summary: 'x', runs: '' }, people: [], services: [] },
       modules: { layers: [], connectors: [], releasedOnItsOwn: [], workers: [], counts: { areas: 0, undescribed: 0, gone: 0, connectorFilesInCore: 0, connectorBreaches: 0 } },
-      dependencies: { areas: [], cells: [], cyclePairs: [], undecidedPairs: [], order: { method: 'exact', areas: 0, limit: 18, upwardFiles: 0 } },
+      dependencies: { areas: [], cells: [], cyclePairs: [], undecidedPairs: [], order: { method: 'exact', areas: 0, limit: 20, upwardFiles: 0 } },
       deployment: { environments: [{ name: 'x', kind: 'environment', worker: '<b>w</b>', resources: [], deployedBy: [] }], workflows: [] },
     });
     expect(html).toContain('&lt;b&gt;w&lt;/b&gt;');
@@ -233,15 +233,15 @@ describe('Dependencies', () => {
     });
 
     it('says the order is exact, and that it could not decide a cycle of equal halves', () => {
-      expect(section(html)).toContain('The order is exact: every order of the 3 areas was weighed, up to 18.');
+      expect(section(html)).toContain('The order is exact: every order of the 3 areas was weighed, up to 20.');
       expect(section(html)).toContain('The order could not decide <code>a</code> and <code>b</code>');
     });
   });
 
   it('says the order is approximate when there are more areas than the exact search weighs', () => {
-    const names = Array.from({ length: 19 }, (_, at) => `m${at}`);
+    const names = Array.from({ length: 21 }, (_, at) => `m${at}`);
     const html = drawn(names.map(named), names.map((name) => on(`apps/api/src/${name}`, { 'x.ts': 'export {}' })));
-    expect(section(html)).toContain('The order is approximate: 19 areas are more than the 18 an exact search weighs');
+    expect(section(html)).toContain('The order is approximate: 21 areas are more than the 20 an exact search weighs');
   });
 
   it('mutes the area the file declares read by everything, and says why in the legend', () => {
