@@ -45,6 +45,8 @@ export type Reach = {
   ask: (scope: Scope) => void;
   /** `push` adds a history entry, `replace` swaps the current one, `back` returns to the one before. */
   go: (to: { workspaceId: string; dashboardId: string }, how: 'push' | 'replace' | 'back') => void;
+  /** Takes the screen to a Workspace's *All items*, which opening switches its tab on. */
+  goToAllItems: (workspaceId: string, how: 'push' | 'replace') => void;
 };
 
 /**
@@ -151,6 +153,11 @@ export function useReach(asked: Scope, ask: (scope: Scope) => void): Reach {
     [router, navigate],
   );
 
+  const goToAllItems = useCallback<Reach['goToAllItems']>(
+    (target, how) => void navigate({ to: '/w/$workspaceId/items', params: { workspaceId: target }, replace: how === 'replace' }),
+    [navigate],
+  );
+
   const snapshot = snapshots[workspaces.findIndex((workspace) => workspace.id === workspaceId)]?.data;
-  return { workspaceId, dashboardId, workspaces: reaching, snapshot, ask, go };
+  return { workspaceId, dashboardId, workspaces: reaching, snapshot, ask, go, goToAllItems };
 }

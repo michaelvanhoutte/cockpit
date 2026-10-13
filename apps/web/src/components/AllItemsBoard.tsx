@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import {
@@ -12,6 +12,7 @@ import {
 } from '../allItems';
 import { allItemsFilterId } from '../allItemsTab';
 import {
+  clearDashboardFilter,
   isFiltering,
   itemIdsWithAttachments,
   itemIdsWithRun,
@@ -20,6 +21,7 @@ import {
 } from '../dashboardFilter';
 import { dayOf } from '../filters';
 import { useOpenItem } from '../itemForm';
+import { rowOf, settleLanding, useLanding, useLandingStep } from '../landOnItem';
 import { browserStore } from '../lastVisited';
 import { PRIORITY_LABELS } from '../priority';
 import { DashboardFilterBar } from './DashboardFilterBar';
@@ -35,6 +37,11 @@ import { LoadFailure } from './LoadFailure';
  *
  * **Sorted and filtered over every row, then drawn 50 at a time** with the
  * total said, so a filtered view never reads as the whole.
+ *
+ * **It takes Find's landing request for a finished Item** ("Include finished
+ * Items in Find, and land on them in All items", issue 829): the filter that
+ * hides the Item is cleared, rows are drawn until it is among them, and its row
+ * is landed on, as a Dashboard's board does for an open one.
  */
 export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) {
   const { data, error, refetch } = useQuery(snapshotQuery(workspaceId));
@@ -44,26 +51,52 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
   // How many rows are drawn, and what they were drawn for: a different sort or
   // filter starts again from the first page.
   const [paging, setPaging] = useState({ of: '', shown: ALL_ITEMS_PAGE });
-
-  if (error && !data) return <LoadFailure error={error} onRetry={() => void refetch()} />;
-  if (!data) return <p className="text-ink-faint">Loading…</p>;
+  const landing = useLanding();
+  const stepLanding = useLandingStep();
+  const body = useRef<HTMLTableSectionElement>(null);
 
   const filtering = isFiltering(filter);
-  const withAttachments = itemIdsWithAttachments(data.attachments ?? []);
-  const withRun = itemIdsWithRun(data.agentRuns ?? []);
+  const withAttachments = itemIdsWithAttachments(data?.attachments ?? []);
+  const withRun = itemIdsWithRun(data?.agentRuns ?? []);
   const today = dayOf(new Date());
-  const rows = allItemsRows(
-    {
-      ...data,
-      items: filtering
-        ? data.items.filter((item) => matchesDashboardFilter(filter, item, withAttachments, today, withRun))
-        : data.items,
-    },
-    sort,
-  );
+  const rows = data
+    ? allItemsRows(
+        {
+          ...data,
+          items: filtering
+            ? data.items.filter((item) => matchesDashboardFilter(filter, item, withAttachments, today, withRun))
+            : data.items,
+        },
+        sort,
+      )
+    : [];
   const viewKey = JSON.stringify([sort, filter]);
   const shown = paging.of === viewKey ? paging.shown : ALL_ITEMS_PAGE;
   const drawn = rows.slice(0, shown);
+
+  // Find's request for a row of this table, and where in the rows it is (-1: not among them).
+  const landingHere = data && landing?.place.kind === 'allItems' && landing.place.workspaceId === workspaceId ? landing : null;
+  const at = landingHere ? rows.findIndex((row) => row.item.id === landingHere.itemId) : -1;
+  const pagesNeeded = at < 0 ? 0 : Math.ceil((at + 1) / ALL_ITEMS_PAGE) * ALL_ITEMS_PAGE;
+  useEffect(() => {
+    if (pagesNeeded > shown) setPaging({ of: viewKey, shown: pagesNeeded });
+  }, [pagesNeeded, shown, viewKey]);
+
+  useEffect(() => {
+    if (!landingHere) return;
+    if (at < 0) {
+      // Hidden by the filter: cleared, and the table draws again. Not there at all: nothing to land on.
+      if (filtering) clearDashboardFilter(browserStore(), allItemsFilterId(workspaceId));
+      else settleLanding(landingHere);
+      return;
+    }
+    // Rows are being drawn until it is among them.
+    if (at >= shown) return;
+    return stepLanding(landingHere, rowOf(body.current, landingHere.itemId));
+  });
+
+  if (error && !data) return <LoadFailure error={error} onRetry={() => void refetch()} />;
+  if (!data) return <p className="text-ink-faint">Loading…</p>;
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -103,10 +136,11 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
                   ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody ref={body}>
                 {drawn.map((row) => (
                   <tr
                     key={row.item.id}
+                    data-item-id={row.item.id}
                     onClick={() => openItem(row.item.id)}
                     className={`cursor-pointer border-b border-shade/5 last:border-b-0 hover:bg-accent-tint ${
                       row.status === 'done' ? 'text-ink-faint' : ''

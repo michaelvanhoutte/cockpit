@@ -97,6 +97,37 @@ describe('Dashboards', () => {
     });
   });
 
+  describe('Include done adds the finished Items, in Workspace only, after the open ones', () => {
+    const snapshot = () =>
+      aSnapshot(
+        [
+          anItem('open-old', { title: 'rent open', updatedAt: '2026-08-01T00:00:00.000Z' }),
+          anItem('done-new', {
+            title: 'rent done',
+            completedAt: '2026-08-31T09:00:00.000Z',
+            updatedAt: '2026-08-30T00:00:00.000Z',
+          }),
+        ],
+        [['open-old', 'plan'], ['done-new', 'plan']],
+      );
+    const listed = (scope: 1 | 2, withDone: boolean) =>
+      findItems(indexForFind(snapshot()), 'rent', scope, 'today', FIND_LIMIT, withDone).rows;
+
+    it('lists no finished Item unless asked', () => {
+      expect(listed(2, false).map((row) => row.itemId)).toEqual(['open-old']);
+    });
+
+    it('lists the finished Item after the open one, saying done and going to no Panel', () => {
+      const rows = listed(2, true);
+      expect(rows.map((row) => row.itemId)).toEqual(['open-old', 'done-new']);
+      expect(rows[1]).toMatchObject({ where: 'done', panel: null, done: true });
+    });
+
+    it('lists no finished Item in Dashboard, ticked or not', () => {
+      expect(listed(1, true).map((row) => row.itemId)).toEqual(['open-old']);
+    });
+  });
+
   describe('at most 50 rows are drawn', () => {
     const many = (n: number) => aSnapshot(Array.from({ length: n }, (_, at) => anItem(`item-${at}`)));
 
