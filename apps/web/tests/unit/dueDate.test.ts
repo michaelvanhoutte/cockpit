@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deadlineOf, dueDateLabel } from '../../src/dueDate';
+import { deadlineOf, dueDateLabel, shortDueDateLabel } from '../../src/dueDate';
 
 describe('Triage', () => {
   describe('a due date reads in the viewer’s own browser locale', () => {
@@ -22,6 +22,24 @@ describe('Triage', () => {
       // and stays exactly as it was: without it, a timezone west of UTC would
       // read this back as 2025-12-31.
       expect(dueDateLabel('2026-01-01', 'en-US')).toBe('Jan 1, 2026');
+    });
+  });
+
+  describe('a picked day on a phone reads as day and month, with the year only when it is not this year', () => {
+    // F1: a pure formatter of the date, today and the locale. "This year" is
+    // the viewer's own calendar year, so today is built from local parts.
+    const today = new Date(2026, 9, 13);
+    it.each([
+      { situation: 'a day this year', picked: '2026-10-29', reads: '29 Oct' },
+      { situation: 'a day next year', picked: '2027-12-29', reads: '29 Dec 27' },
+      { situation: '1 Jan next year, the day after this year ends', picked: '2027-01-01', reads: '1 Jan 27' },
+      { situation: 'a day last year', picked: '2025-10-29', reads: '29 Oct 25' },
+    ])('reads $situation as $reads', ({ picked, reads }) => {
+      expect(shortDueDateLabel(picked, today, 'en-GB')).toBe(reads);
+    });
+
+    it('reads 31 Dec of this year without the year', () => {
+      expect(shortDueDateLabel('2026-12-31', today, 'en-GB')).toBe('31 Dec');
     });
   });
 

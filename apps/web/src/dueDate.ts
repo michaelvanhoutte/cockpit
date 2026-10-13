@@ -77,3 +77,22 @@ export function dueDateLabel(dueDate: string | null, locale?: string): string | 
   if (Number.isNaN(parsed.getTime())) return null;
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(parsed);
 }
+
+/**
+ * A due date as a phone's narrow strip shows it: day and month ("29 Oct", in
+ * the viewer's own order), with a two-digit year only when the date is not in
+ * `now`'s year ("29 Dec 27"). `null` for none and for anything that is not
+ * really a date, as `dueDateLabel` is. Given `now` rather than reading a clock,
+ * and `locale` only to test the formatting, for the same reasons.
+ */
+export function shortDueDateLabel(dueDate: string | null, now: Date, locale?: string): string | null {
+  if (dueDate === null) return null;
+  const parsed = new Date(dueDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    ...(parsed.getUTCFullYear() === now.getFullYear() ? {} : { year: '2-digit' }),
+    timeZone: 'UTC',
+  }).format(parsed);
+}
