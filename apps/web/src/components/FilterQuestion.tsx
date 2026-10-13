@@ -14,7 +14,6 @@ import {
   type FilterCondition,
   type FilterGrouping,
   type FilterMatch,
-  type ItemType,
   type Layout,
   type Panel,
   type Priority,
@@ -23,7 +22,6 @@ import { GROUPING_NAMES, WINDOW_LABELS, isAPeriod } from '../filters';
 import { orderedAsDrawn } from '../filterGroups';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
-import { NO_TYPES } from '../itemTypes';
 import { PRIORITY_LABELS } from '../priority';
 
 /** What a Panel condition's value picker says when the Workspace has no items Panel to offer at all. */
@@ -39,7 +37,7 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
  * conditions", issue 504; "Join a Filter's conditions with and/or beside each
  * row", issue 909). The rows are a list
  * rather than a sentence with clauses because that is what the question grows
- * into - Due date, Priority, Type and, since "Filter a Filter panel by panel,
+ * into - Due date, Priority and, since "Filter a Filter panel by panel,
  * and name the Filters a panel's deletion affects" (issue 465), Panel, each
  * its own row rather than another form.
  *
@@ -65,7 +63,6 @@ function FilterQuestion({
   conditions,
   match: initialMatch,
   groupBy: initialGroupBy,
-  itemTypes,
   panels,
   dashboards,
   layouts,
@@ -83,8 +80,6 @@ function FilterQuestion({
   match: FilterMatch;
   /** What the Filter's rows are grouped under, which the *Group by* choice opens on. */
   groupBy: FilterGrouping;
-  /** The account's live Types, what a Type condition offers to choose from. */
-  itemTypes: readonly ItemType[];
   /**
    * The Workspace's own Panels, what a Panel condition offers to choose from -
    * filtered here to the ones an Item can be filed onto (`panelTakesItems`),
@@ -179,7 +174,6 @@ function FilterQuestion({
                       <ConditionRow
                         at={at}
                         row={row}
-                        itemTypes={itemTypes}
                         panels={panels}
                         dashboards={dashboards}
                         layouts={layouts}
@@ -312,13 +306,12 @@ function Joiner({
 }
 
 /** The fields a condition can be about, in the order *+ Add a condition* offers them. */
-const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'type', 'panel', 'dashboard', 'status'];
+const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'panel', 'dashboard', 'status'];
 
 /** What each field is called on the add menu and beside its row. */
 const FIELD_LABELS: Record<FilterCondition['field'], string> = {
   dueDate: 'Due date',
   priority: 'Priority',
-  type: 'Type',
   panel: 'Panel',
   dashboard: 'Dashboard',
   status: 'Status',
@@ -328,7 +321,6 @@ const FIELD_LABELS: Record<FilterCondition['field'], string> = {
 function defaultConditionFor(field: FilterCondition['field']): FilterCondition {
   if (field === 'dueDate') return { field: 'dueDate', window: 'today', orOverdue: true };
   if (field === 'priority') return { field: 'priority', values: [] };
-  if (field === 'type') return { field: 'type', values: [] };
   if (field === 'panel') return { field: 'panel', values: [] };
   if (field === 'dashboard') return { field: 'dashboard', values: [] };
   return { field: 'status', values: ['in_progress'] };
@@ -338,7 +330,6 @@ function defaultConditionFor(field: FilterCondition['field']): FilterCondition {
 function ConditionRow({
   at,
   row,
-  itemTypes,
   panels,
   dashboards,
   layouts,
@@ -347,7 +338,6 @@ function ConditionRow({
 }: {
   at: number;
   row: FilterCondition;
-  itemTypes: readonly ItemType[];
   panels: readonly Panel[];
   dashboards: readonly Dashboard[];
   layouts: readonly Layout[];
@@ -364,21 +354,6 @@ function ConditionRow({
         values={row.values}
         options={prioritySchema.options.map((value) => ({ id: value, label: PRIORITY_LABELS[value] }))}
         onChange={(values) => onChange({ ...row, values: values as Priority[] })}
-        onRemove={onRemove}
-      />
-    );
-  }
-  if (row.field === 'type') {
-    return (
-      <ValuesCondition
-        at={at}
-        label={FIELD_LABELS.type}
-        exclude={row.exclude === true}
-        onExclude={(exclude) => onChange(withExclusion(row, exclude))}
-        values={row.values}
-        options={itemTypes.map((type) => ({ id: type.id, label: type.name }))}
-        empty={NO_TYPES}
-        onChange={(values) => onChange({ ...row, values })}
         onRemove={onRemove}
       />
     );
@@ -555,7 +530,7 @@ function DueConditionRow({
 type ValueOption = { id: string; label: string; group?: string };
 
 /**
- * A Priority, a Type, a Panel, a Dashboard or a Status row: an *is / is not* choice, the
+ * A Priority, a Panel, a Dashboard or a Status row: an *is / is not* choice, the
  * chosen values as chips, and a list to choose them from ("Filter a Filter
  * panel by priority and type", issue 464; "Filter a Filter panel by panel, and
  * name the Filters a panel's deletion affects", issue 465; "Choose a Filter
@@ -566,12 +541,12 @@ type ValueOption = { id: string; label: string; group?: string };
  * chosen values ("Include or exclude a Filter panel condition's values, and
  * filter on To do as well as In progress", issue 908); a new card opens on
  * *is*. Status's options are To do and In progress. Priority's are the three
- * levels the schema carries; a Type's are the account's live Types; a Panel's
+ * levels the schema carries; a Panel's
  * are the Workspace's own items Panels - never a Filter or a Panel of text,
  * nothing being filed onto either.
  *
  * **Chips are drawn from the options, not from the stored values.** A value
- * naming a Type or a Panel since deleted is not among them, so it shows no
+ * naming a Panel since deleted is not among them, so it shows no
  * chip and the list does not offer it - matching what it now means
  * (`filters.ts`) with nothing here needing to know about a deleted one.
  *
@@ -596,7 +571,7 @@ function ValuesCondition({
   onExclude: (exclude: boolean) => void;
   values: readonly string[];
   options: readonly ValueOption[];
-  /** What to say instead of any chips and list where there is nothing to offer - a Type condition where the account has no Types at all. */
+  /** What to say instead of any chips and list where there is nothing to offer - a Panel condition where the Workspace has no Panels to choose from. */
   empty?: string;
   onChange: (values: string[]) => void;
   onRemove: () => void;

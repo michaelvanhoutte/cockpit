@@ -4,6 +4,8 @@ import {
   panelFilterAsStored,
   panelFilterFrom,
   panelGathers,
+  panelSortAsStored,
+  panelSortFrom,
   panelHoldsText,
   panelPlace,
   panelSchema,
@@ -22,7 +24,6 @@ import {
 
 const DUE_TODAY: FilterCondition = { field: 'dueDate', window: 'today', orOverdue: true };
 const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
-const TYPE_OKR: FilterCondition = { field: 'type', values: ['type-okr'] };
 const PANEL_Q3: FilterCondition = { field: 'panel', values: ['panel-q3'] };
 
 describe('Layouts', () => {
@@ -96,15 +97,15 @@ describe('Panels', () => {
       });
     });
 
-    it('reads back a Priority, a Type and a Panel condition beside a Due date one', () => {
-      // The four fields together, each carrying its own value shape - a
+    it('reads back a Priority and a Panel condition beside a Due date one', () => {
+      // The fields together, each carrying its own value shape - a
       // discriminated union rather than a reshaping of every stored Filter
       // ("Filter a Filter panel by priority and type", issue 464; "Filter a
       // Filter panel by panel, and name the Filters a panel's deletion
       // affects", issue 465).
       expect(
-        panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3])),
-      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3], match: 'all', groupBy: 'none' });
+        panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, PANEL_Q3])),
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, PANEL_Q3], match: 'all', groupBy: 'none' });
     });
 
     it('reads a Filter stored before exclusion and Status values as including, with Status as In progress', () => {
@@ -112,10 +113,10 @@ describe('Panels', () => {
       // release wrote is read as what it meant then ("Include or exclude a
       // Filter panel condition's values...", issue 908).
       const read = panelFilterFrom(
-        '{"conditions":[{"field":"type","values":["type-okr"]},{"field":"status"}]}',
+        '{"conditions":[{"field":"priority","values":["high"]},{"field":"status"}]}',
       );
 
-      expect(read?.conditions[0]).toEqual({ field: 'type', values: ['type-okr'] });
+      expect(read?.conditions[0]).toEqual({ field: 'priority', values: ['high'] });
       expect(read?.conditions[0]).not.toHaveProperty('exclude');
       expect(read?.conditions[1]).toEqual({ field: 'status' });
       expect(statusValuesOf({ field: 'status' })).toEqual(['in_progress']);
@@ -177,6 +178,57 @@ describe('Panels', () => {
         match: 'all',
         groupBy: 'none',
       });
+    });
+  });
+
+  describe('a stored Filter keeps every condition but a Type one', () => {
+    const TYPE = { field: 'type', values: ['type-okr'] };
+    const stored = (conditions: unknown[], match?: string) => JSON.stringify({ conditions, match });
+
+    it.each([
+      {
+        situation: 'Type beside Priority, all of them',
+        stored: stored([TYPE, PRIORITY_HIGH], 'all'),
+        reads: { conditions: [PRIORITY_HIGH], match: 'all' },
+      },
+      {
+        situation: 'Type alone, which is nothing chosen',
+        stored: stored([TYPE]),
+        reads: { conditions: [], match: 'all' },
+      },
+      {
+        situation: 'Type is not beside a Due date',
+        stored: stored([{ ...TYPE, exclude: true }, DUE_TODAY]),
+        reads: { conditions: [DUE_TODAY], match: 'all' },
+      },
+      {
+        situation: 'Type beside a Due date, any of them',
+        stored: stored([TYPE, DUE_TODAY], 'any'),
+        reads: { conditions: [DUE_TODAY], match: 'any' },
+      },
+    ])('reads $situation without the Type', ({ stored, reads }) => {
+      expect(panelFilterFrom(stored)).toEqual({ ...reads, groupBy: 'none' });
+    });
+
+    it('still shows nothing chosen for a shape it cannot read, Type or not', () => {
+      expect(panelFilterFrom(stored([{ field: 'assignee', values: [] }, TYPE]))).toEqual(NO_CONDITIONS);
+    });
+  });
+
+  describe('a stored Sort keeps its other criteria, in order, and is Manual when none is left', () => {
+    const TITLE = { field: 'title', direction: 'asc' } as const;
+    const PRIORITY = { field: 'priority', direction: 'desc' } as const;
+    const TYPE = { field: 'type', direction: 'asc' } as const;
+    const stored = (criteria: unknown[]) => JSON.stringify({ criteria });
+
+    it.each([
+      { situation: 'Type, then Title', stored: stored([TYPE, TITLE]), reads: [TITLE] },
+      { situation: 'Title, then Type, then Priority', stored: stored([TITLE, TYPE, PRIORITY]), reads: [TITLE, PRIORITY] },
+      { situation: 'Type alone', stored: stored([TYPE]), reads: null },
+      { situation: 'Title, then a field no release knows', stored: stored([TITLE, { field: 'colour', direction: 'asc' }]), reads: null },
+      { situation: 'Title and Priority, as saved', stored: panelSortAsStored([TITLE, PRIORITY]), reads: [TITLE, PRIORITY] },
+    ])('reads $situation as the criteria it keeps', ({ stored, reads }) => {
+      expect(panelSortFrom(stored)).toEqual(reads);
     });
   });
 
