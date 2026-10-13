@@ -430,7 +430,7 @@ export function PanelList({
 
   if (collapsed) {
     /** One half of the strip: a mode, named for what it does and the two keys that open it. */
-    const half = (opens: PanelListMode, name: string, key: string, tip: 'panels' | 'find') => (
+    const half = (opens: PanelListMode, name: string, key: string, tip?: 'panels') => (
       <button
         type="button"
         onClick={() => {
@@ -461,7 +461,7 @@ export function PanelList({
       <div className="well flex w-8 shrink-0 flex-col pb-[var(--edge-bottom)]">
         {half('panel', 'Go to panel', KEY_NAME, 'panels')}
         <div className="mx-1 border-t border-shade/15" />
-        {half('item', 'Find item', FIND_NAME, 'find')}
+        {half('item', 'Find item', FIND_NAME)}
       </div>
     );
   }
@@ -599,7 +599,7 @@ export function PanelList({
             onClick={() => onCollapse(true)}
             title={`Hide ${finding ? 'Find item' : 'Go to panel'} (${finding ? FIND_NAME : KEY_NAME})`}
             aria-label={finding ? 'Hide Find item' : 'Hide Go to panel'}
-            data-shortcut-tip={finding ? 'find' : 'panels'}
+            data-shortcut-tip={finding ? undefined : 'panels'}
             className="-mr-1 ml-auto rounded px-1 text-xs text-ink-faint hover:text-ink"
           >
             »

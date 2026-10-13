@@ -6,7 +6,7 @@ import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { INBOX_KEY } from '../inboxCollapsed';
-import { landOn, rowOf, settleLanding, useLanding } from '../landOnItem';
+import { rowOf, useLanding, useLandingStep } from '../landOnItem';
 import { restedLongEnough } from '../switchWhileDragging';
 
 // Out of the initial bundle, and mounted only once asked for - the same way
@@ -191,16 +191,10 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   // Shift+F, and land on its row", issue 828); the shell has opened the column.
   const landing = useLanding();
   const box = useRef<HTMLDivElement>(null);
-  const [, setLandingAttempts] = useState(0);
+  const stepLanding = useLandingStep();
   useEffect(() => {
     if (!landing || landing.place.kind !== 'inbox') return;
-    const row = rowOf(box.current, landing.itemId);
-    if (!row) {
-      const again = window.setTimeout(() => setLandingAttempts((n) => n + 1), 100);
-      return () => window.clearTimeout(again);
-    }
-    settleLanding(landing);
-    landOn(row, landing.focus);
+    return stepLanding(landing, rowOf(box.current, landing.itemId));
   });
 
   /**

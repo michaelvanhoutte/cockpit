@@ -90,7 +90,6 @@ export function useFindIndex(snapshot: WorkspaceSnapshot | undefined): FindIndex
   return useMemo(() => (snapshot ? indexForFind(snapshot) : []), [snapshot]);
 }
 
-
 /**
  * The open Items matching what is typed, in scope, and how many more there are
  * past the limit. Nothing typed matches nothing. *Dashboard* keeps the Items

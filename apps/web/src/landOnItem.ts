@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 
 /**
  * Land on an Item ("Find an open Item with F and Shift+F, and land on its row",
@@ -100,4 +100,29 @@ export function landOn(row: HTMLElement, focus: boolean): void {
   row.tabIndex = -1;
   row.focus({ preventScroll: true });
   row.addEventListener('focusout', off);
+}
+
+/**
+ * One step of a board's landing, run from an effect that runs on every render:
+ * the row now drawn is landed on, and looked at again shortly until it has
+ * stayed `LANDING_STAYS_MS`, since a list just switched to redraws its rows as
+ * they load and the landing is then made again on the row now there. Returns
+ * the effect's cleanup. **Shared by every board, so they settle alike.**
+ */
+export function useLandingStep(): (request: LandingRequest, row: HTMLElement | null) => () => void {
+  const landed = useRef<{ request: LandingRequest; row: HTMLElement; at: number } | null>(null);
+  const [, again] = useState(0);
+  return (request, row) => {
+    const timer = window.setTimeout(() => again((n) => n + 1), 100);
+    const last = landed.current;
+    if (!row) return () => window.clearTimeout(timer);
+    if (last?.request !== request || last.row !== row) {
+      landed.current = { request, row, at: Date.now() };
+      landOn(row, request.focus);
+    } else if (Date.now() - last.at > LANDING_STAYS_MS) {
+      window.clearTimeout(timer);
+      settleLanding(request);
+    }
+    return () => window.clearTimeout(timer);
+  };
 }

@@ -35,8 +35,6 @@ describe('Shortcuts', () => {
       { situation: 'Go to panel’s strip', tip: 'panels', says: 'Tip: press G to go to a Panel' },
       { situation: 'the dock\u2019s hide control', tip: 'dock', says: 'Tip: press A to hide or show the agents\u2019 dock' },
       { situation: 'the dock\u2019s show strip', tip: 'dock', says: 'Tip: press A to hide or show the agents\u2019 dock' },
-      { situation: 'Find item’s hide control', tip: 'find', says: 'Tip: press F to find an Item' },
-      { situation: 'Find item’s strip', tip: 'find', says: 'Tip: press F to find an Item' },
       { situation: 'the funnel on a Dashboard’s tab', tip: 'filter', says: null },
       { situation: 'anything else', tip: undefined, says: null },
     ])('$situation', ({ tip, says }) => {

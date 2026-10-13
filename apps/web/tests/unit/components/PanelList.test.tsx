@@ -1315,7 +1315,7 @@ describe('Dashboards', () => {
       const find = screen.getByRole('button', { name: 'Open Find item' });
       expect(find).toHaveTextContent('Find item');
       expect(find).toHaveTextContent('⇧F');
-      expect(find).toHaveAttribute('data-shortcut-tip', 'find');
+      expect(find).not.toHaveAttribute('data-shortcut-tip');
       await user.click(find);
 
       expect(chosenScope()).toEqual(['Dashboard']);
