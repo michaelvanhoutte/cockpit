@@ -130,11 +130,11 @@ async function postChange<N extends CommandName>(name: N, payload: CommandPayloa
   expect(response.status).toBe(200);
 }
 
-async function captureANote(userId: string = USER_ID, typeId: string = TASK_TYPE_ID): Promise<string> {
+async function captureANote(userId: string = USER_ID): Promise<string> {
   const itemId = nextId();
   await postChange(
     'capture_item',
-    { commandId: nextId(), issuedAt: '2026-10-08T10:00:00.000Z', workspaceId: WORKSPACE_ID, itemId, message: NOTE, typeId },
+    { commandId: nextId(), issuedAt: '2026-10-08T10:00:00.000Z', workspaceId: WORKSPACE_ID, itemId, message: NOTE },
     userId,
   );
   return itemId;
@@ -400,7 +400,7 @@ describe('AI usage', () => {
 
   describe('a user’s records stay when the user is deleted', () => {
     it('keeps what they spent, naming them by id alone', async () => {
-      const theirs = await captureANote(OTHER_USER_ID, taskTypeIn(OTHER_ACCOUNT_NAME));
+      const theirs = await captureANote(OTHER_USER_ID);
       await untilThereAre(1);
 
       const removed = await asUser(`http://cockpit.test/v1/admin/users/${OTHER_USER_ID}`, { method: 'DELETE' });

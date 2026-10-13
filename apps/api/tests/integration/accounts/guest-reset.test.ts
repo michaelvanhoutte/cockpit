@@ -150,7 +150,6 @@ async function guestsUseIt(cookie: string, workspaces: Workspace[], seeded: Held
     workspaceId: first!.id,
     itemId: nextId(),
     message: 'A guest was here',
-    typeId: taskTypeIn(GUEST_ACCOUNT_NAME),
   });
   await send('rename_workspace', cookie, { workspaceId: first!.id, name: 'Renamed by a guest' });
   await send('delete_workspace', cookie, { workspaceId: second!.id });
@@ -186,7 +185,6 @@ describe('Accounts', () => {
         workspaceId: workspaces[0]!.id,
         itemId,
         message: 'A guest attached a file',
-        typeId: taskTypeIn(GUEST_ACCOUNT_NAME),
       });
       const attachmentId = nextId();
       const key = `${GUEST_ACCOUNT_NAME}/${itemId}/${attachmentId}`;
@@ -217,7 +215,6 @@ describe('Accounts', () => {
         workspaceId: WORKSPACE_ID,
         itemId: nextId(),
         message: 'Mine, and nothing resets it',
-        typeId: taskTypeIn(ACCOUNT_NAME),
       });
       expect((await asUser('http://cockpit.test/v1/workspaces', {}, OTHER_USER_ID)).status).toBe(200);
       const { cookie, workspaces, seeded } = await openAsGuest();

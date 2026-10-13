@@ -317,8 +317,6 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
   /** Capped where a description is capped, on the way in only (architecture.md §4.4). */
   message: z.string().trim().min(1).max(60_000),
   nextAction: z.string().optional(),
-  /** Required — every Item has a Type ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). */
-  typeId: z.string().min(1),
   /**
    * Whether the envelope's Workspace is where this Item belongs, or merely
    * where it was captured from ("Capture something before you know which
@@ -354,6 +352,12 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    */
   priority: prioritySchema.optional(),
   dueDate: z.iso.date().optional(),
+  /**
+   * Never given: a capture carries no Type ("Capture without a Type, at every
+   * front door", issue 1067). Named only so a client still sending one is
+   * refused - an unknown key is dropped, which would accept it in silence.
+   */
+  typeId: z.never({ error: 'a capture is not given a type' }).optional(),
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 

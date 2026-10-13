@@ -1031,54 +1031,6 @@ describe('Item editing', () => {
   });
 });
 
-describe('Capture', () => {
-  describe('the capture page is drawn only once it can capture', () => {
-    /**
-     * The route's half of the rule; what the page does with that snapshot is
-     * apps/web/tests/unit/pages/CapturePage.test.tsx, under the same words.
-     *
-     * F1 because it is about what is on screen while a read is in flight, which
-     * needs the read held open on purpose.
-     *
-     * A typed address, which is the one way here that does not already hold
-     * that snapshot.
-     */
-    it('waits for the workspace it captures from, rather than drawing an empty box', async () => {
-      let answer!: () => void;
-      let wasAsked!: () => void;
-      const held = new Promise<void>((resolve) => {
-        answer = resolve;
-      });
-      const askedFor = new Promise<void>((resolve) => {
-        wasAsked = resolve;
-      });
-
-      await open('/capture', [work, personal], dashboardsOf, {
-        types: [TASK],
-        until: () => {
-          wasAsked();
-          return held;
-        },
-      });
-      // Waited for by the read itself rather than by a clock, which F1 may not
-      // touch (the testing skill, "L1/F1 may not touch"). Once the snapshot has
-      // been asked for, everything ahead of it has answered - so the next line
-      // says something, where without this the box would be missing only
-      // because nothing had rendered yet.
-      await askedFor;
-      await act(async () => {});
-
-      // Not the box on its own, which is the page inviting a capture it would
-      // throw away.
-      expect(screen.queryByLabelText('What is on your mind?')).toBeNull();
-      answer();
-
-      expect(await screen.findByLabelText('What is on your mind?')).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Task' })).toBeVisible();
-    });
-  });
-});
-
 describe('Sign-in', () => {
   describe('opening the app shows your last view before it checks that you are still signed in', () => {
     /**

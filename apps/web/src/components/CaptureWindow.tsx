@@ -5,7 +5,7 @@ import { ManageWindow } from './ManageWindow';
 /**
  * Capture over the screen you are on ("Capture over the screen you are on, and
  * open it with C", issue 536): what the header's Capture tab and `C` open at a
- * desk, with the full form - several lines, the Type and Where chips, *Just
+ * desk, with the full form - several lines, the Where chips, *Just
  * captured* under it - and Escape back to where you were, the note already in
  * the Inbox beside it.
  *

@@ -152,7 +152,6 @@ async function captureANote(
       workspaceId: WORKSPACE_ID,
       itemId,
       message: NOTE,
-      typeId: TASK_TYPE_ID,
       ...overrides,
     },
     userId,
@@ -1186,7 +1185,7 @@ describe('Capture', () => {
   describe('a note is only ever read for the account it was captured in', () => {
     it('does nothing for an item of another account, and never reads it', async () => {
       const theirs = await captureANote(
-        { workspaceId: WORKSPACE_ID, typeId: taskTypeIn(OTHER_ACCOUNT_NAME) },
+        { workspaceId: WORKSPACE_ID },
         OTHER_USER_ID,
       );
       // Their own note is read by their own job first, so what follows is the
@@ -1256,7 +1255,7 @@ describe('Triage', () => {
 
     it('never surfaces a correction made in another account', async () => {
       const theirs = await captureANote(
-        { workspaceId: WORKSPACE_ID, typeId: taskTypeIn(OTHER_ACCOUNT_NAME) },
+        { workspaceId: WORKSPACE_ID },
         OTHER_USER_ID,
       );
       await vi.waitFor(

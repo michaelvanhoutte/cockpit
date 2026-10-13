@@ -144,7 +144,7 @@ async function aPanel(workspaceId = WORKSPACE_ID, dashboardId = DASHBOARD_ID): P
 
 async function anItem(message: string, panelId: string | null, workspaceId = WORKSPACE_ID): Promise<string> {
   const itemId = nextId();
-  expect((await postChange('capture_item', { workspaceId, itemId, message, typeId: TASK_TYPE_ID })).status).toBe(200);
+  expect((await postChange('capture_item', { workspaceId, itemId, message })).status).toBe(200);
   if (panelId) {
     expect(
       (await postChange('move_item_to_panel', { workspaceId, itemId, panelId, order: [itemId] })).status,

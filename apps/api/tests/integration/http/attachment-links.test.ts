@@ -56,7 +56,7 @@ async function aFileOnAnItem(userId = USER_ID): Promise<{ itemId: string; attach
   const attachmentId = nextId();
   await postChange(
     'capture_item',
-    { workspaceId: WORKSPACE_ID, itemId, message: 'A broken layout', typeId: taskTypeIn(accountOf(userId)) },
+    { workspaceId: WORKSPACE_ID, itemId, message: 'A broken layout' },
     userId,
   );
   const res = await asUser(

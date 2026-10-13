@@ -111,8 +111,7 @@ async function postChange<N extends CommandName>(name: N, payload: Omit<CommandP
 /** Captures a note in the guest's Workspace and returns what the Item is called afterwards. */
 async function capture(message: string): Promise<{ itemId: string; title: string }> {
   const itemId = nextId();
-  const { itemTypes } = await snapshot();
-  await postChange('capture_item', { workspaceId: WORKSPACE, itemId, message, typeId: itemTypes[0]!.id });
+  await postChange('capture_item', { workspaceId: WORKSPACE, itemId, message });
   const item = (await snapshot()).items.find((one) => one.id === itemId)!;
   return { itemId, title: item.title };
 }
@@ -149,7 +148,6 @@ async function aSignedInAccountHasCapturedToo(): Promise<void> {
       workspaceId: WORKSPACE_ID,
       itemId: nextId(),
       message: 'call the plumber about the leak',
-      typeId: TASK_TYPE_ID,
     }),
   });
   expect(response.status).toBe(200);
@@ -172,7 +170,7 @@ async function aSignedInAccountHasFiledToo(): Promise<void> {
   const panelId = nextId();
   const itemId = nextId();
   await send('add_panel', { dashboardId: DASHBOARD_ID, panelId, name: 'Somewhere else', kind: 'items' });
-  await send('capture_item', { itemId, message: 'call the plumber about the leak', typeId: TASK_TYPE_ID });
+  await send('capture_item', { itemId, message: 'call the plumber about the leak'});
   await send('move_item_to_panel', { itemId, panelId, order: [itemId] });
   await vi.waitFor(() => expect(held.some((job) => job.accountName === ACCOUNT_NAME && job.kind === 're-propose-panels')).toBe(true), {
     timeout: 15_000,

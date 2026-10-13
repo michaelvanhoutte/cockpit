@@ -34,7 +34,6 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
         'Sign in with Google. Conversations you label Cockpit, or star, become tasks, and the label or star follows the task.',
       supportsPush: false,
       pulled: true,
-      arrivesAs: 'task',
       mirrorsOpenState: true,
       // The label is Cockpit's own and so is the default; a star counts only
       // from the moment of connecting, since Gmail never says when it was set.

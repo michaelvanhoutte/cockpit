@@ -11,7 +11,7 @@ import {
 } from '../../src/commands.js';
 
 describe('Capture', () => {
-  describe('a capture missing what the app needs to track it is refused', () => {
+  describe('a capture missing what the app needs to track it, or carrying a type, is refused', () => {
     it.each([
       {
         // Without it a retry could not be recognised as one.
@@ -23,25 +23,21 @@ describe('Capture', () => {
           message: 'x',
         },
       },
-      // Every Item is some kind of thing, so a capture that says nothing about
-      // what kind never reaches the account. It stopped being optional when
-      // both pickers stopped offering *No type*; a front door with nobody to
-      // answer waits for auto-detection rather than writing an Item with none.
+      // A capture carries no Type, and a key Zod does not know would be
+      // dropped in silence, so the refusal is the schema's own.
       {
-        situation: 'saying nothing about what kind of thing it is',
+        situation: 'carrying a type id',
         capture: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId: 'ws-work',
           itemId: uuidv7(),
           message: 'x',
+          typeId: 'tenant-default-type-action',
         },
       },
-      // Guards the `min(1)` rather than the requirement above it: a blank
-      // string is a field filled in with nothing, which is the shape a form
-      // sends when somebody clears it.
       {
-        situation: 'naming an empty type',
+        situation: 'carrying an empty type id',
         capture: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
@@ -85,7 +81,6 @@ describe('Capture', () => {
         workspaceId: 'ws-work',
         itemId: uuidv7(),
         message,
-        typeId: 'tenant-default-type-action',
       });
       expect(parsed.success).toBe(accepted);
     });
@@ -99,7 +94,6 @@ describe('Capture', () => {
         workspaceId: 'ws-work',
         itemId: uuidv7(),
         message: 'Make appointment with Novy',
-        typeId: 'tenant-default-type-action',
       });
       expect(parsed.success).toBe(true);
     });

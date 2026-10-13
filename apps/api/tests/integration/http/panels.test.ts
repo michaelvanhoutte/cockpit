@@ -212,7 +212,7 @@ function move(panelId: string, dashboardId: string, workspaceId: string = WORKSP
 async function anItem(message: string): Promise<string> {
   const itemId = nextId();
   expect(
-    (await send('capture_item', { workspaceId: WORKSPACE_ID, itemId, message, typeId: TASK_TYPE_ID }))
+    (await send('capture_item', { workspaceId: WORKSPACE_ID, itemId, message}))
       .status,
   ).toBe(200);
   return itemId;

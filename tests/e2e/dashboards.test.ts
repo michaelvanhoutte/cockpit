@@ -321,8 +321,6 @@ test.describe('Dashboards', () => {
       // by hand is a minute spent on nothing this proves (that paging is by
       // count is apps/web/tests/unit/components/AllItemsBoard.test.tsx).
       const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
-      const known = await page.request.get('/v1/item-types');
-      const [aType] = ((await known.json()) as { itemTypes: { id: string }[] }).itemTypes;
       for (let at = 0; at < 60; at += 1) {
         const sent = await page.request.post('/v1/commands/capture_item', {
           data: {
@@ -331,7 +329,6 @@ test.describe('Dashboards', () => {
             workspaceId,
             itemId: randomUUID(),
             message: uniqueTitle(`Entry ${at}`),
-            typeId: aType!.id,
           },
         });
         expect(sent.ok(), `capturing from outside failed: ${sent.status()}`).toBe(true);
@@ -462,8 +459,6 @@ test.describe('Dashboards', () => {
       await openDashboard(page, 'Dashboard 1', isMobile);
       await chooseTabAction(page, workspaceTab(page, workspace), 'Show All items tab', isMobile);
       const [, , workspaceId, , dashboardId] = new URL(page.url()).pathname.split('/');
-      const known = await page.request.get('/v1/item-types');
-      const [aType] = ((await known.json()) as { itemTypes: { id: string }[] }).itemTypes;
       const send = async (command: string, data: Record<string, unknown>) => {
         const sent = await page.request.post(`/v1/commands/${command}`, {
           data: { commandId: randomUUID(), issuedAt: new Date().toISOString(), workspaceId, ...data },
@@ -492,7 +487,6 @@ test.describe('Dashboards', () => {
             send('capture_item', {
               itemId,
               message: uniqueTitle('High'),
-              typeId: aType!.id,
               priority: 'high',
             }),
           ),
@@ -501,7 +495,6 @@ test.describe('Dashboards', () => {
           send('capture_item', {
             itemId: randomUUID(),
             message: uniqueTitle(`Entry ${at}`),
-            typeId: aType!.id,
           }),
         ),
       ]);

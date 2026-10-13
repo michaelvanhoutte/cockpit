@@ -333,19 +333,6 @@ export const allItemsRoute = createRoute({
  *
  * With no workspace at all there is nowhere to capture *from*, and the screen
  * that makes one is the invitation, exactly as it is for the address above.
- *
- * **It waits for the snapshot of the workspace it captures from**, which is
- * where the account's types come from - so the page is never drawn unable to
- * capture (pages/CapturePage.tsx). Free on every way of getting here but a
- * typed address, because coming from a workspace means the shell already holds
- * it.
- *
- * **Which workspace that is gets asked here and again on the page**, and the
- * two are not one decision to be made once: this one is "whose snapshot must
- * be in hand before drawing", answered at load, and the page's is "which
- * workspace is this capture recorded against", which has to keep being
- * answered because a workspace can be deleted while you sit there
- * (pages/CapturePage.tsx).
  */
 const capturing =
   (loadView: () => Promise<unknown>) =>
@@ -353,12 +340,11 @@ const capturing =
     const { workspaces } = await orTheLogonPage(
       context.queryClient.ensureQueryData(workspacesQuery),
     );
-    const from = workspaceToCaptureFrom(browserStore(), workspaces);
     // No workspace to capture from is an account with none, since every other
     // answer falls back to the first one there is (`lastVisited.ts`).
-    if (!from) throw redirect({ to: '/start' });
-    // The view too, which is fetched behind the shell (`captureForm.ts`).
-    await Promise.all([snapshotOf(context.queryClient, from), loadView()]);
+    if (!workspaceToCaptureFrom(browserStore(), workspaces)) throw redirect({ to: '/start' });
+    // The view, which is fetched behind the shell (`captureForm.ts`).
+    await loadView();
   };
 
 const captureRoute = createRoute({

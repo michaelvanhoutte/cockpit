@@ -1505,15 +1505,6 @@ export function runCommand<N extends CommandName>(
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
-      // The type the capture names, checked here rather than left to the
-      // foreign key, for the reason the workspace above is: a constraint would
-      // surface a caller's mistake as a 500, and a type of another account is
-      // a 404 like any other missing thing. Unconditional now that every
-      // capture names one - the shape says there is a type, and this says it
-      // is a type of this account.
-      if (!getItemType(db, tenantId, cmd.typeId)) {
-        throw new ItemTypeNotFoundError(cmd.typeId);
-      }
       const item = captureItem(cmd, tenantId);
       // An item belonging to no workspace shows in every workspace's Inbox, so
       // every workspace's snapshot is now stale - not only the one it was

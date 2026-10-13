@@ -46,7 +46,6 @@ async function capture(workspaceId: string, message: string) {
       workspaceId,
       itemId: nextId(),
       message,
-      typeId: TASK_TYPE_ID,
       workspaceDecided: true,
     }),
   });

@@ -18,16 +18,14 @@ import {
 
 /**
  * Integration level, through the account's real store and the Worker's real
- * queue consumer: what a pulled connector's Items arrive as, by what its
- * manifest declares ("Bring a pulled connector's Items in as titled Tasks
- * where it says so", issue 939). Against a fake pulled connector whose
- * manifest each case sets, registered in place of the registry's list.
+ * queue consumer: what a pulled connector's Items arrive as - titled, with no
+ * Type ("Capture without a Type, at every front door", issue 1067). Against a
+ * fake pulled connector, registered in place of the registry's list.
  */
 
 const FAKE = 'fake-arrivals';
 
 const fake = {
-  arrivesAs: undefined as 'note' | 'task' | undefined,
   emit: [] as SourceItem[],
 };
 
@@ -39,7 +37,6 @@ function fakeConnector(): Connector {
       cardText: 'A source Cockpit pulls from.',
       supportsPush: false,
       pulled: true,
-      ...(fake.arrivesAs ? { arrivesAs: fake.arrivesAs } : {}),
       auth: { kind: 'none' },
     },
     async sync(host: ConnectorHost) {
@@ -138,7 +135,6 @@ beforeEach(async () => {
       throw new Error('nothing here sends a batch');
     },
   } as unknown as typeof env.ENRICHMENT;
-  fake.arrivesAs = undefined;
   fake.emit = [];
   env.TEST_CONNECTORS = [fakeConnector()];
 });
@@ -150,69 +146,54 @@ afterEach(() => {
 });
 
 describe('Connector management', () => {
-  describe("a pulled connector's Items arrive as its manifest declares", () => {
-    it('files a Task carrying the emitted title where it declares tasks', async () => {
-      fake.arrivesAs = 'task';
+  describe("a pulled connector's Items arrive titled and with no Type", () => {
+    it('files an Item carrying the emitted title', async () => {
       fake.emit = [aPage('a', 'The subject line')];
       env.TEST_CONNECTORS = [fakeConnector()];
 
       await connectedAndChecked();
 
-      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'The subject line', typeId: TASK_TYPE_ID }]);
+      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'The subject line', typeId: null }]);
     });
 
-    it('files a Task titled from its message where it declares tasks and emits no title', async () => {
-      fake.arrivesAs = 'task';
+    it('files an Item titled from its message where the connector emits no title', async () => {
       fake.emit = [aPage('a')];
       env.TEST_CONNECTORS = [fakeConnector()];
 
       await connectedAndChecked();
 
-      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'What page a says', typeId: TASK_TYPE_ID }]);
+      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'What page a says', typeId: null }]);
     });
 
-    it('files a Task without repeating a title that is all the source said as its description', async () => {
-      fake.arrivesAs = 'task';
+    it('files an Item without repeating a title that is all the source said as its description', async () => {
       fake.emit = [{ ...aPage('a', 'Only a title'), capturedMessage: null }];
       env.TEST_CONNECTORS = [fakeConnector()];
 
       await connectedAndChecked();
 
-      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'Only a title', description: null, typeId: TASK_TYPE_ID }]);
+      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'Only a title', description: null, typeId: null }]);
     });
 
-    it('files an untitled Note where it declares nothing, whatever title it emits', async () => {
+    it('files an Item where the account has no Types at all, rather than failing the check', async () => {
+      for (const typeId of [TASK_TYPE_ID, await noteTypeId()]) {
+        const deleted = await asUser('http://cockpit.test/v1/commands/delete_item_type', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: crypto.randomUUID(),
+            issuedAt: new Date().toISOString(),
+            workspaceId: WORKSPACE_ID,
+            typeId,
+          }),
+        });
+        expect(deleted.status).toBe(200);
+      }
       fake.emit = [aPage('a', 'The subject line')];
       env.TEST_CONNECTORS = [fakeConnector()];
 
       await connectedAndChecked();
 
-      expect(await arrived()).toMatchObject([
-        { sourceId: 'a', title: 'What page a says', typeId: await noteTypeId() },
-      ]);
-    });
-
-    it('files the title under the fallback Type where the account no longer has its Task', async () => {
-      const deleted = await asUser('http://cockpit.test/v1/commands/delete_item_type', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          commandId: crypto.randomUUID(),
-          issuedAt: new Date().toISOString(),
-          workspaceId: WORKSPACE_ID,
-          typeId: TASK_TYPE_ID,
-        }),
-      });
-      expect(deleted.status).toBe(200);
-      fake.arrivesAs = 'task';
-      fake.emit = [aPage('a', 'The subject line')];
-      env.TEST_CONNECTORS = [fakeConnector()];
-
-      await connectedAndChecked();
-
-      expect(await arrived()).toMatchObject([
-        { sourceId: 'a', title: 'The subject line', typeId: await noteTypeId() },
-      ]);
+      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'The subject line', typeId: null }]);
     });
   });
 });

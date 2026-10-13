@@ -7,8 +7,6 @@ import type {
 import type { Env } from '../env.js';
 import { AccountNotInRegisterError, openAccount, type Account } from '../accounts/index.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
-import { noteTypeId } from '../accounts/changes.js';
-import { typeToCaptureAs } from '../domain/item-types.js';
 import { open, sealingKey } from './credential-crypto.js';
 import { connectionsFor, forgetConnection, type ConnectionPointer } from './directory.js';
 
@@ -143,7 +141,6 @@ function connectedHost(
         workspaceId: pointer.workspaceId,
         itemId,
         message: item.capturedMessage ?? item.title ?? '',
-        typeId: await noteTypeOf(pointer.accountName, account),
         capturedFrom: {
           // The connector's own id, whatever it said: a connector never
           // chooses where its Items say they came from.
@@ -173,13 +170,6 @@ function logged(
   const line = JSON.stringify({ level, connector: connectorId, message, data });
   if (level === 'error') console.error(line);
   else console.log(line);
-}
-
-/** Which Type a saved message is captured as - the Note, as for any capture nobody typed (`domain/item-types.ts`). */
-async function noteTypeOf(accountName: string, account: Account): Promise<string> {
-  const note = typeToCaptureAs(await account.itemTypes(), noteTypeId(accountName));
-  if (!note) throw new Error(`account ${accountName} has no type to capture a saved message as`);
-  return note.id;
 }
 
 /**

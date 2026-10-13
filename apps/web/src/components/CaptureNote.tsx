@@ -1,8 +1,8 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { plainWords, prioritySchema, uuidv7, type ItemType, type Priority, type Workspace } from '@cockpit/shared';
+import { plainWords, prioritySchema, uuidv7, type Priority, type Workspace } from '@cockpit/shared';
 import { CommandRefused, uploadAttachment } from '../api/client';
-import { snapshotQuery, workspacesQuery } from '../api/queries';
+import { workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
@@ -10,7 +10,6 @@ import { needsWords, stateOf, whatGoesBack, type EntryState, type OutboxEntry } 
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
 import type { Arrived } from '../shares';
-import { NO_TYPES, typesOffered } from '../itemTypes';
 import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
 import { dueDateLabel } from '../dueDate';
 import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
@@ -28,7 +27,7 @@ export const RECORDING_NOT_TRANSCRIBED = 'A recording, not transcribed';
 export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to retry, so it stays listed.';
 
 /**
- * The Capture form itself: the note, the types as chips, where it goes as one
+ * The Capture form itself: the note, where it goes as one
  * more row of chips, and what was just captured under it ("Capture Page",
  * artboards 2a and 2c).
  *
@@ -97,29 +96,6 @@ export function CaptureNote({
    * capture with and no chip to say so.
    */
   const from = workspaceToCaptureFrom(browserStore(), workspaces);
-
-  /**
-   * The workspace you came from, read for its types *and* its items: one read
-   * for both halves of the Type row, and the same query key the shell already
-   * holds. **Not the account's types as a resource of their own** - nothing
-   * ahead of this page fetches that one, so it arrived after the page was drawn
-   * and left it unable to capture (`CapturePage.test.tsx`, "the capture page is
-   * drawn only once it can capture"). `itemTypesQuery` stays for the window
-   * that manages them, which really is outside every workspace.
-   */
-  const snapshot = useQuery({ ...snapshotQuery(from ?? ''), enabled: Boolean(from) });
-
-  const known = snapshot.data?.itemTypes ?? [];
-  const offered = typesOffered(known, snapshot.data?.items ?? []);
-  /**
-   * Whether the account has *said* what types it has, which is not the same as
-   * this page having none to show: `?? []` above turns a question still in
-   * flight into an empty list, and "No types yet" is a claim about the account
-   * rather than about what has arrived. Asked of the field rather than of the
-   * snapshot around it, because a stored copy can predate the field - the same
-   * guard the Inbox's row used to carry.
-   */
-  const answered = snapshot.data?.itemTypes !== undefined;
 
   const [message, setMessage] = useState('');
   /**
@@ -198,18 +174,6 @@ export function CaptureNote({
     }
     setGeneration((was) => was + 1);
   }, [shown, formatted]);
-  /**
-   * The type pressed, by id, or the empty string for *not yet pressed one* -
-   * which is not an answer, only the absence of one. What that resolves to is
-   * `chosen` below.
-   *
-   * It was a name while a name that matched nothing was a second answer to this
-   * question - the box beside the chips, which made a type. Types are now made
-   * in the window they are managed in ("Make a type where types are managed,
-   * not while capturing", issue 203), so every answer this row can give is one
-   * of the chips and an id says it exactly.
-   */
-  const [typeId, setTypeId] = useState('');
   /** Which workspace it belongs to, or null for *Any workspace*. */
   const [where, setWhere] = useState<string | null>(startsIn);
   const [refused, setRefused] = useState<string | null>(null);
@@ -266,7 +230,6 @@ export function CaptureNote({
               id: entry.id,
               at: Date.parse(entry.capturedAt),
               message: entry.message,
-              typeId: entry.typeId,
               workspaceId: entry.decided ? entry.workspaceId : null,
             },
             ...was.filter((one) => one.id !== entry.id),
@@ -361,7 +324,6 @@ export function CaptureNote({
     if (back.message !== null) {
       const note = back.message;
       setMessage((was) => (was.trim() ? `${was}\n${note}` : note));
-      setTypeId(entry.typeId);
       setWhere(entry.decided ? entry.workspaceId : null);
       // Back with the note they were set for, unless something has been chosen since.
       if (entry.priority) setPriority((was) => was ?? entry.priority ?? null);
@@ -423,20 +385,6 @@ export function CaptureNote({
   };
 
   /**
-   * The type chosen, as against the one that was pressed: **every Item has a
-   * Type**, so a row that has not been pressed yet and one whose type was
-   * deleted in another tab both fall back to the type used last rather than to
-   * none. Unlike the Where row one line down, which keeps *Any workspace* as a
-   * real answer - not saying where it goes yet is the point of capturing here,
-   * and not saying what it is never was.
-   *
-   * Undefined only where there is nothing to fall back to - an account with no
-   * types, or an answer that has not arrived yet - and capture waits either
-   * way, because there is no type to give.
-   */
-  const chosen = offered.find((type) => type.id === typeId) ?? offered[0];
-
-  /**
    * Where it belongs, as against which chip was pressed: a workspace deleted in
    * another tab takes its chip off this row, and what was chosen then falls
    * back to *Any workspace* rather than to a capture the server will refuse.
@@ -487,10 +435,6 @@ export function CaptureNote({
       setRefused(NO_WORKSPACE);
       return;
     }
-    if (!chosen) {
-      setRefused(answered && offered.length === 0 ? NO_TYPES : STILL_READING);
-      return;
-    }
 
     // The workspace this is captured against, the same one `ask` is given
     // below - read once, so what the queued files upload against on success
@@ -504,7 +448,6 @@ export function CaptureNote({
     const dueAtSubmit = due;
     const what = {
       message: trimmed,
-      typeId: chosen.id,
       // The workspace chosen, or the one this was captured from - and the
       // difference between the two is the whole of `decided`.
       workspaceId: targetWorkspace,
@@ -553,9 +496,9 @@ export function CaptureNote({
     function sendDirectly() {
       ask(what, {
         asking: emptied,
-        captured: (captureType, itemId) => {
+        captured: (itemId) => {
           setLandedHere((already) => [
-            { id: itemId, at: Date.now(), message: trimmed, typeId: captureType, workspaceId: belongsTo },
+            { id: itemId, at: Date.now(), message: trimmed, workspaceId: belongsTo },
             ...already,
           ]);
           void uploadQueued(queuedAtSubmit, itemId, targetWorkspace);
@@ -586,7 +529,6 @@ export function CaptureNote({
         : entry.refused === null
           ? RECORDING_WAITING_FOR_WORDS
           : RECORDING_NOT_TRANSCRIBED,
-      typeId: entry.typeId,
       workspaceId: entry.decided ? entry.workspaceId : null,
       state: stateOf(entry),
       entry,
@@ -820,36 +762,6 @@ export function CaptureNote({
         </p>
       )}
 
-      {/* The box that used to sit at the end of this row, dashed, naming a
-          type that was not there yet, is gone: types are made in the window
-          they are managed in ("Make a type where types are managed, not while
-          capturing", issue 203), so every answer to this question is now one
-          of the chips.
-
-          **And there is no chip for none.** Every Item is some kind of thing,
-          so this row has no way back to having said nothing - where *No type*
-          sat, the type you used last is already lit. What a front door with
-          nobody to press a chip does is auto-detection's, not a blank. */}
-      <Choice label="Type">
-        {offered.map((type) => (
-          <Chip
-            key={type.id}
-            name={type.name}
-            dot={type.color}
-            chosen={chosen?.id === type.id}
-            onChoose={() => setTypeId(type.id)}
-          />
-        ))}
-        {/* Nothing to press, so the row says why rather than standing empty:
-            deleting every type is what gets you here, and making one is what
-            gets you out. Only once the account has answered - before that
-            there are no chips either, and this would be saying the account
-            holds nothing when nobody has looked. */}
-        {answered && offered.length === 0 && (
-          <span className="text-[15px] text-ink-faint sm:text-sm">{NO_TYPES}</span>
-        )}
-      </Choice>
-
       <Choice label="Where" optional>
         {/* First and selected to start with: the whole point of capturing
             here is not having to answer this yet. */}
@@ -874,7 +786,7 @@ export function CaptureNote({
       <div className="order-2 mt-3 flex items-center gap-3.5 sm:order-none sm:mt-[22px]">
         <button
           type="submit"
-          disabled={busy || !chosen}
+          disabled={busy}
           className="milled min-h-13 w-full rounded-md bg-accent text-[17px] font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50 sm:min-h-0 sm:w-auto sm:flex-none sm:rounded-md sm:px-[22px] sm:py-[11px] sm:text-[15px]"
         >
           Capture
@@ -915,7 +827,6 @@ export function CaptureNote({
                 <CapturedRow
                   key={one.id}
                   captured={one}
-                  types={known}
                   workspaces={workspaces}
                   onPutBack={entry && !putBackRows.has(entry.id) ? () => void putBack(entry) : null}
                 />
@@ -932,16 +843,8 @@ export function CaptureNote({
 const JUST_CAPTURED = 'just-captured';
 
 /**
- * What the shortcut says when it arrives before the workspace this captures
- * from has been read. Names the note as kept, because that is the question
- * somebody who just pressed it is asking.
- */
-export const STILL_READING = 'Still reading your workspace — your note is safe, try that again.';
-
-/**
  * And what it says when there is no workspace to capture into at all. Named
- * where one is made, the way the types' line names where a type is made, rather
- * than inviting a retry that cannot come good.
+ * where one is made, rather than inviting a retry that cannot come good.
  *
  * The `+` rather than a menu: making a workspace is the strip's own control,
  * and the window this used to name is gone ("Change a workspace or a dashboard
@@ -1244,8 +1147,6 @@ interface Captured {
   /** When Capture was pressed. */
   at: number;
   message: string;
-  /** Which type it was given, which every capture has. */
-  typeId: string;
   /** Null where it was left on *Any workspace*. */
   workspaceId: string | null;
 }
@@ -1349,42 +1250,28 @@ function Chip({
 }
 
 /**
- * One row of what was just captured: what you wrote, what kind of thing it is,
- * where it went, and how long ago - or, while it is still on this device,
+ * One row of what was just captured: what you wrote, where it went, and how long ago - or, while it is still on this device,
  * *Waiting to send*, or *Not sent* with the server's reason and **Put back**.
- *
- * **The type is looked up rather than remembered**, so a row renamed or
- * recoloured in the window types are managed in says so here too, without this
- * list keeping a second copy of a name that can go stale behind it.
  */
 function CapturedRow({
   captured,
-  types,
   workspaces,
   onPutBack,
 }: {
   captured: Row;
-  types: readonly ItemType[];
   workspaces: readonly Workspace[];
   /** Offered only on a row the server refused, which is one still in the outbox. */
   onPutBack: (() => void) | null;
 }) {
-  const type = types.find((one) => one.id === captured.typeId);
   const workspace = workspaces.find((one) => one.id === captured.workspaceId);
   const { state } = captured;
 
   return (
     <li className="flex flex-col gap-0.5 border-b border-shade/5 py-2 last:border-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:py-[7px]">
       <span className="flex min-w-0 items-center gap-2 sm:flex-1">
-        <span
-          aria-hidden="true"
-          className="size-2 shrink-0 rounded-full"
-          style={{ backgroundColor: type?.color ?? 'var(--color-ink-faint)' }}
-        />
         <span className="min-w-0 truncate text-[15px] sm:text-sm">{plainWords(captured.message)}</span>
       </span>
-      <span className="flex shrink-0 items-center gap-2 pl-4 text-xs sm:pl-0">
-        {type && <span className="text-accent-deep">{type.name}</span>}
+      <span className="flex shrink-0 items-center gap-2 text-xs sm:pl-0">
         <span className="rounded-full bg-accent-tint px-1.5 text-accent-deep">
           {workspace?.name ?? 'Any workspace'}
         </span>
@@ -1397,7 +1284,7 @@ function CapturedRow({
         ) : null}
       </span>
       {state && !state.waiting && (
-        <span className="flex w-full items-center gap-2 pl-4 text-xs sm:pl-4">
+        <span className="flex w-full items-center gap-2 text-xs">
           <span className="min-w-0 flex-1 text-over-ink">Not sent: {state.notSent}</span>
           {onPutBack && (
             <button

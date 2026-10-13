@@ -117,7 +117,6 @@ function anItem(overrides: Partial<Item> = {}): Item {
       {
         commandId: '018f0000-0000-7000-8000-000000000001',
         workspaceId: 'ws-work',
-        typeId: 'tenant-default-type-action',
         issuedAt: MADE,
         itemId: 'b',
         message: 'Reply to Bart',

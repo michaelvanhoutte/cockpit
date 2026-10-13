@@ -116,7 +116,6 @@ async function aNoteNobodyRead(
       workspaceId: WORKSPACE_ID,
       itemId,
       message,
-      typeId: taskTypeIn(account),
       ...overrides,
     },
     userId,

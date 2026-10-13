@@ -208,7 +208,6 @@ async function fileANote(note: string, panelId: string, workspaceId = WORKSPACE_
     workspaceId,
     itemId,
     message: note,
-    typeId: TASK_TYPE_ID,
   });
   await postChange('move_item_to_panel', {
     commandId: nextId(),

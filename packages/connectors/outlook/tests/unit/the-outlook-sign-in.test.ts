@@ -50,7 +50,7 @@ describe('Connector management', () => {
         { value: 'flag', label: 'Flagged' },
         { value: 'category', label: 'Category Cockpit' },
       ]);
-      expect(connector.manifest).toMatchObject({ pulled: true, arrivesAs: 'task' });
+      expect(connector.manifest).toMatchObject({ pulled: true });
     });
   });
 
