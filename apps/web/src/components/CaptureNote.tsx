@@ -6,7 +6,7 @@ import { snapshotQuery, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
-import { stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../captureOutbox';
+import { needsWords, stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
 import type { Arrived } from '../shares';
@@ -19,6 +19,13 @@ import { appendPhrase } from '../dictation';
 import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
 import { transcriptionOfferedQuery } from '../api/transcription';
 import { useKeptRecordings } from '../keptRecordings';
+
+/** How *Just captured* lists a note spoken in the Car view that is still waiting to be transcribed. */
+export const RECORDING_WAITING_FOR_WORDS = 'A recording, waiting for its words';
+/** And one refused before its words came back, whose **Put back** keeps it under the strip with Retry. */
+export const RECORDING_NOT_TRANSCRIBED = 'A recording, not transcribed';
+/** Said where that recording could not be kept under the strip, so it stays listed to put back again. */
+export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to retry, so it stays listed.';
 
 /**
  * The Capture form itself: the note, the types as chips, where it goes as one
@@ -132,11 +139,12 @@ export function CaptureNote({
     ...transcriptionOfferedQuery,
     enabled: dictating?.transcriber === undefined,
   });
+  const keptRecordings = useKeptRecordings();
   const dictation = useRecordedDictation({
     ...dictating,
     // A recording whose words do not come back waits on this device, with Retry
     // ("Keep a recording Write could not transcribe, with Retry", issue 1044).
-    keeping: useKeptRecordings(),
+    keeping: keptRecordings,
     transcriber: dictating?.transcriber ?? transcribable.data ?? false,
     onWords: (words) => changeNote(appendPhrase(noteNow.current, words)),
   });
@@ -332,6 +340,24 @@ export function CaptureNote({
     putBackHere.current.add(entry.id);
     setPutBack((was) => new Set(was).add(entry.id));
     const back = whatGoesBack(entry);
+    if (back.recording) {
+      // A spoken note refused before its words came back: its recording is
+      // kept under the strip with Retry before the entry goes, so it is never
+      // in neither (issue 1045).
+      const { bytes, type, seconds } = back.recording;
+      try {
+        await keptRecordings.keep(new Blob([bytes], { type }), seconds, entry.id);
+      } catch {
+        putBackHere.current.delete(entry.id);
+        setPutBack((was) => {
+          const next = new Set(was);
+          next.delete(entry.id);
+          return next;
+        });
+        setRefused(RECORDING_NOT_PUT_BACK);
+        return;
+      }
+    }
     if (back.message !== null) {
       const note = back.message;
       setMessage((was) => (was.trim() ? `${was}\n${note}` : note));
@@ -554,7 +580,12 @@ export function CaptureNote({
     ...waiting.map((entry) => ({
       id: entry.id,
       at: Date.parse(entry.capturedAt),
-      message: entry.message,
+      // A note spoken in the Car view has no words until the outbox can transcribe it (issue 1045).
+      message: !needsWords(entry)
+        ? entry.message
+        : entry.refused === null
+          ? RECORDING_WAITING_FOR_WORDS
+          : RECORDING_NOT_TRANSCRIBED,
       typeId: entry.typeId,
       workspaceId: entry.decided ? entry.workspaceId : null,
       state: stateOf(entry),

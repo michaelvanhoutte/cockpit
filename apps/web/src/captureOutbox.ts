@@ -30,15 +30,40 @@ export interface WaitingFile {
 }
 
 /**
+ * A note spoken in the Car view, kept in place of its text until it can be
+ * transcribed ("Capture in the Car view without a connection, from the
+ * recording", issue 1045). Its sound is bytes, as a file's is.
+ */
+export interface WaitingRecording {
+  /** The recorder's own format, sent with it, such as `audio/webm;codecs=opus`. */
+  type: string;
+  bytes: ArrayBuffer;
+  /** How long it is, in whole seconds. */
+  seconds: number;
+  /** Its words are in the entry's message; it is not sent to be transcribed again. */
+  transcribed: boolean;
+}
+
+/**
  * One capture, from the moment Capture is pressed until it has landed whole.
  *
  * **There is no "sending" state**, deliberately: a tab that dies mid-send must
  * leave the entry waiting rather than stranded, and a resend carries the same
  * item, command and attachment ids, which the server applies once.
+ *
+ * **A spoken one carries its recording** and an empty message until the
+ * recording is transcribed; the words then go in the message and the capture
+ * is sent as any other. The recording goes with the entry, once it has landed
+ * whole or is put back, never before.
  */
 export interface OutboxEntry {
-  /** What this build can read. An entry with any other is left alone, never deleted. */
-  v: typeof ENTRY_VERSION;
+  /**
+   * What this build can read: `ENTRY_VERSION` for a typed note, which every
+   * build since the outbox began sends unchanged, and `RECORDED_ENTRY_VERSION`
+   * for a spoken one, which an older build leaves alone rather than sending
+   * its empty message. An entry with any other is left alone, never deleted.
+   */
+  v: typeof ENTRY_VERSION | typeof RECORDED_ENTRY_VERSION;
   /** The Item's id, which is also the entry's. */
   id: string;
   /** Whoever captured it: it is sent and shown only while they are signed in. */
@@ -56,6 +81,8 @@ export interface OutboxEntry {
   priority?: Priority;
   dueDate?: string;
   files: WaitingFile[];
+  /** What a spoken note is transcribed from; absent on a typed one. */
+  recording?: WaitingRecording;
   /** The note is on the server, though a file may still be to go. */
   landed: boolean;
   /** Why the server refused the note, where it did. Nothing of it is sent again. */
@@ -63,16 +90,35 @@ export interface OutboxEntry {
 }
 
 export const ENTRY_VERSION = 1;
+export const RECORDED_ENTRY_VERSION = 2;
 
 /** The entry, if this build can read it, or null for one it must leave alone. */
 export function readEntry(raw: unknown): OutboxEntry | null {
   if (!raw || typeof raw !== 'object') return null;
   const entry = raw as Partial<OutboxEntry>;
-  if (entry.v !== ENTRY_VERSION) return null;
+  if (entry.v !== ENTRY_VERSION && entry.v !== RECORDED_ENTRY_VERSION) return null;
   if (typeof entry.id !== 'string' || typeof entry.owner !== 'string') return null;
   if (typeof entry.capturedAt !== 'string' || !Array.isArray(entry.files)) return null;
+  if (entry.v === RECORDED_ENTRY_VERSION && !readRecording(entry.recording)) return null;
   return entry as OutboxEntry;
 }
+
+function readRecording(raw: unknown): WaitingRecording | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const one = raw as Partial<WaitingRecording>;
+  if (typeof one.type !== 'string' || typeof one.transcribed !== 'boolean') return null;
+  // Asked of the shape, not by `instanceof`: what IndexedDB hands back can be another realm's ArrayBuffer.
+  if (typeof one.bytes !== 'object' || one.bytes === null || typeof one.bytes.byteLength !== 'number') return null;
+  return one as WaitingRecording;
+}
+
+/** Whether an entry is a spoken note still waiting to be transcribed. */
+export function needsWords(entry: OutboxEntry): boolean {
+  return entry.recording !== undefined && !entry.recording.transcribed;
+}
+
+/** Why a spoken note that turned out to hold nothing is not sent. */
+export const NOTHING_HEARD = 'Nothing was heard in the recording.';
 
 /** Oldest first, which is the order they were captured in and the order they are sent in. */
 const byCaptureTime = (a: OutboxEntry, b: OutboxEntry) =>
@@ -113,10 +159,22 @@ export function landedWhole(entry: OutboxEntry): boolean {
   return entry.landed && entry.files.every((file) => file.landed);
 }
 
-/** What putting a refused entry back returns to the box: the note too only where it never landed. */
-export function whatGoesBack(entry: OutboxEntry): { message: string | null; files: WaitingFile[] } {
-  if (!entry.landed) return { message: entry.message, files: entry.files };
-  return { message: null, files: entry.files.filter((file) => file.refused !== null) };
+/**
+ * What putting a refused entry back returns: the note too only where it never
+ * landed. A spoken note refused before its words came back has no note to
+ * return, only its recording, which goes to Write's kept recordings to retry
+ * rather than with the entry - unless it held nothing.
+ */
+export function whatGoesBack(entry: OutboxEntry): {
+  message: string | null;
+  files: WaitingFile[];
+  recording: WaitingRecording | null;
+} {
+  if (entry.recording && !entry.recording.transcribed) {
+    return { message: null, files: entry.files, recording: entry.refused === NOTHING_HEARD ? null : entry.recording };
+  }
+  if (!entry.landed) return { message: entry.message, files: entry.files, recording: null };
+  return { message: null, files: entry.files.filter((file) => file.refused !== null), recording: null };
 }
 
 /** A note's send that took longer than this is abandoned, aborted, and tried again later. */
@@ -131,6 +189,15 @@ export const SEND_TIMEOUT_MS = 15_000;
  */
 export function uploadTimeoutMs(bytes: number, base: number = SEND_TIMEOUT_MS): number {
   return base + Math.ceil(bytes / (100 * 1024)) * 1_000;
+}
+
+/**
+ * How long a recording's transcription is given: the upload's time for its
+ * size, on four times the note's base, since Whisper has the whole recording
+ * to listen to before it answers.
+ */
+export function transcribeTimeoutMs(bytes: number, base: number = SEND_TIMEOUT_MS): number {
+  return uploadTimeoutMs(bytes, base * 4);
 }
 
 /** The first wait after a pass that could not get through, doubling to `LONGEST_WAIT_MS`. */

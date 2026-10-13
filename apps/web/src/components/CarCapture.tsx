@@ -5,10 +5,19 @@ import { snapshotQuery, workspacesQuery } from '../api/queries';
 import { useAppearance } from '../appearance';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
-import { useOutbox } from '../captureOutboxSender';
+import { stateOf } from '../captureOutbox';
+import { useOutbox, useWaitingCaptures, type Heard } from '../captureOutboxSender';
 import { typesOffered } from '../itemTypes';
-import { transcriptionOfferedQuery } from '../api/transcription';
-import { browserRecorder, clock, useRecordedDictation, type StartRecording } from '../recording';
+import { useKeptRecordings } from '../keptRecordings';
+import { TooManyTranscriptions, transcribeRecording, transcriptionOfferedQuery } from '../api/transcription';
+import {
+  DICTATION_COULD_NOT_TRANSCRIBE,
+  DICTATION_TOO_MANY,
+  browserRecorder,
+  clock,
+  useRecordedDictation,
+  type StartRecording,
+} from '../recording';
 import { browserWakeLock, useScreenWakeLock, type WakeLockApi } from '../wakeLock';
 
 /**
@@ -21,13 +30,20 @@ import { browserWakeLock, useScreenWakeLock, type WakeLockApi } from '../wakeLoc
  * own (`recording.ts`), so the card shows a running time in place of live words,
  * *Transcribing…* follows the second tap, and Whisper tells English from Dutch
  * itself. A recording that reaches the limit stops and is captured as if tapped.
- * A transcription that fails says why in large text and captures nothing.
  *
- * **Once the words are back they are captured at once.** The note goes to *Any
- * workspace* with the Type Capture starts on, no priority and no due date,
- * through the same outbox the Capture form keeps its notes in
- * (`captureOutboxSender.tsx`). Transcribing needs a connection, so with none
- * nothing is captured.
+ * **The recording is captured, not only its words** ("Capture in the Car view
+ * without a connection, from the recording", issue 1045). On the second tap it
+ * goes into the same outbox the Capture form keeps its notes in
+ * (`captureOutboxSender.tsx`), to *Any workspace* with the Type Capture starts
+ * on, no priority and no due date; the outbox transcribes it and sends the
+ * capture. The button shows ✓ as soon as the words are kept - or, with no
+ * connection, a transcription that fails or the account at its limit, as soon
+ * as that is known, and the note is listed as waiting for its words until the
+ * outbox can get them, while Cockpit is open. Only where the outbox cannot be
+ * written is it transcribed here and sent directly, and lost if that fails.
+ * A note spoken before the workspace and its types have been read waits for
+ * them rather than being thrown away, and one with no workspace or type to go
+ * into is kept under Write's strip with Retry, as Write keeps its own.
  *
  * **The screen is kept on for as long as this is shown** (`wakeLock.ts`).
  *
@@ -46,7 +62,7 @@ import { browserWakeLock, useScreenWakeLock, type WakeLockApi } from '../wakeLoc
  * it is in the first bundle.
  */
 
-type Phase = 'idle' | 'starting' | 'listening' | 'transcribing' | 'capturing' | 'captured' | 'nothing';
+type Phase = 'idle' | 'starting' | 'listening' | 'transcribing' | 'captured' | 'nothing';
 
 /** The status line for each phase. */
 const STATUS: Record<Phase, string> = {
@@ -54,16 +70,23 @@ const STATUS: Record<Phase, string> = {
   starting: 'Starting…',
   listening: 'Listening — tap to capture',
   transcribing: 'Transcribing…',
-  capturing: 'Capturing…',
   captured: 'Captured',
   nothing: 'Nothing heard',
 };
+
+/** How a spoken note is listed while the outbox still waits to transcribe it. */
+export const WAITING_FOR_WORDS = 'Waiting for its words';
+
+/** How long a note spoken before the workspace and its types have been read waits for them. */
+const STILL_READING_FOR_MS = 10_000;
 
 export const NO_RECORDING_HERE = 'Car capture needs a browser that can record audio, and this one cannot.';
 export const NO_TRANSCRIBER_HERE = 'Car capture needs Cockpit to transcribe speech, and this one cannot.';
 export const CAR_NO_WORKSPACE = 'There is no workspace to capture into.';
 export const CAR_STILL_READING = 'Still reading your workspace. Tap to try again.';
 export const CAR_NO_TYPES = 'There is no type to give a note. Make one in a workspace first.';
+/** Said after any of those three where the recording could be kept, as Write keeps one it could not transcribe. */
+export const CAR_KEPT_IN_WRITE = 'The recording is kept in Write to retry.';
 
 const SCREEN_LINES = {
   held: 'Screen stays on while this is open',
@@ -98,15 +121,16 @@ export function writeCarDark(store: Storage | undefined, dark: boolean): void {
 /** How many of the notes captured from this view are listed. */
 const RECENT = 3;
 
-/** One note captured from this view, as it is listed. */
+/** One note captured from this view, by its Item's id, with its words where they were had here. */
 interface Recent {
   id: string;
-  message: string;
+  message: string | null;
 }
 
 /** What the view records with and transcribes with: the browser's recorder and the Worker, unless a test hands in fakes. */
 interface Dictating {
   record?: StartRecording | null;
+  /** Used only where the outbox cannot be written; the outbox transcribes with its own sender. */
   transcribe?: (recording: Blob) => Promise<string>;
   /** Whether the Worker can transcribe; left out, the page asks `/health`. */
   transcriber?: boolean;
@@ -175,19 +199,29 @@ function Driving({
   const snapshot = useQuery({ ...snapshotQuery(from ?? ''), enabled: Boolean(from) });
   const chosen = typesOffered(snapshot.data?.itemTypes ?? [], snapshot.data?.items ?? [])[0];
   const answered = snapshot.data?.itemTypes !== undefined;
+  /** Whether there is an answer to what a note is captured into, even "nothing". */
+  const readYet = list !== undefined && (!from || answered);
 
   const outbox = useOutbox();
+  const waitingHere = useWaitingCaptures();
+  const keptRecordings = useKeptRecordings();
   const { ask } = useCapture();
   const screen = useScreenWakeLock(wakeLock);
 
-  /**
-   * Where the note is once the words are back: being written to the outbox, kept
-   * (✓), or empty. Recording and transcribing are the recorder's, not kept here.
-   */
-  const [outcome, setOutcome] = useState<'idle' | 'capturing' | 'captured' | 'nothing'>('idle');
+  /** Where the note is once its first try at words is over: kept (✓), or empty. Recording and transcribing are the recorder's. */
+  const [outcome, setOutcome] = useState<'idle' | 'captured' | 'nothing'>('idle');
   /** Why nothing could be captured, said as the status until the next tap. */
   const [why, setWhy] = useState<string | null>(null);
   const [recent, setRecent] = useState<Recent[]>([]);
+  /** The words of notes that landed while this was open, in this tab or another. */
+  const [landedWords, setLandedWords] = useState<ReadonlyMap<string, string>>(new Map());
+  useEffect(
+    () =>
+      outbox.onLanding(({ entry }) => {
+        if (entry.message) setLandedWords((was) => new Map(was).set(entry.id, entry.message));
+      }),
+    [outbox],
+  );
   const store = dictating.store ?? browserStore();
   /** This view's own choice, kept while the app is dark and not shown then. */
   const [chosenDark, setDark] = useState(() => readCarDark(store));
@@ -206,9 +240,14 @@ function Driving({
   }, [dark]);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // What the capture is made from, as it stands when the words arrive.
-  const target = useRef({ from, chosen, answered });
-  target.current = { from, chosen, answered };
+  // What the capture is made from, as it stands when the recording is handed over.
+  const target = useRef({ from, chosen, answered, readYet });
+  target.current = { from, chosen, answered, readYet };
+  /** Notes waiting for the workspace and its types to be read, told once they have been. */
+  const whenRead = useRef(new Set<() => void>());
+  useEffect(() => {
+    if (readYet) for (const told of [...whenRead.current]) told();
+  });
 
   useEffect(
     () => () => {
@@ -222,56 +261,128 @@ function Driving({
     resetTimer.current = setTimeout(() => setOutcome('idle'), capturedFor);
   };
 
+  /** What a note is captured into, once read - or as it stands after a while of waiting for it. */
+  const onceRead = () =>
+    new Promise<typeof target.current>((resolve) => {
+      if (target.current.readYet) return resolve(target.current);
+      const told = () => {
+        clearTimeout(late);
+        whenRead.current.delete(told);
+        resolve(target.current);
+      };
+      const late = setTimeout(told, STILL_READING_FOR_MS);
+      whenRead.current.add(told);
+    });
+
+  /** ✓, the vibration, and the note at the top of the list. */
+  const captured = (id: string, message: string | null) => {
+    setRecent((was) => [{ id, message }, ...was]);
+    setOutcome('captured');
+    vibrate(200);
+    resetSoon();
+  };
+
+  const nothingHeard = () => {
+    setOutcome('nothing');
+    resetSoon();
+  };
+
   /**
-   * Keeps what was said, or says there was nothing. **Never waits on the
-   * network**: the button reads ✓ and the phone vibrates once the note is
-   * written to the outbox, which sends it behind - not before, since a ✓ for a
-   * note still being written is lost to a reload.
+   * Keeps the recording, or says there was nothing in it. **Never waits on the
+   * capture reaching the server**: ✓ shows once the words are kept in the
+   * outbox, or once it is known they cannot be had yet - never before the
+   * recording is written, since a ✓ for one still being written is lost to a
+   * reload.
    */
-  const keep = (heard: string) => {
-    const message = heard.trim();
-    if (!message) {
-      setOutcome('nothing');
-      resetSoon();
-      return;
-    }
-    const { from: workspaceId, chosen: type, answered: known } = target.current;
+  const keepRecording = async (sound: Blob, seconds: number) => {
+    const { from: workspaceId, chosen: type, answered: known } = await onceRead();
     if (!workspaceId || !type) {
-      setWhy(!workspaceId ? CAR_NO_WORKSPACE : known ? CAR_NO_TYPES : CAR_STILL_READING);
-      setOutcome('idle');
+      const reason = !workspaceId ? CAR_NO_WORKSPACE : known ? CAR_NO_TYPES : CAR_STILL_READING;
+      // Nothing to capture it into, so kept under Write's strip with Retry rather than lost.
+      const keptForWrite = await keptRecordings.keep(sound, seconds, uuidv7()).then(
+        () => true,
+        () => false,
+      );
+      setWhy(keptForWrite ? `${reason} ${CAR_KEPT_IN_WRITE}` : reason);
       return;
     }
     const id = uuidv7();
-    const what = { message, typeId: type.id, workspaceId, decided: false };
-    const captured = () => {
-      setRecent((was) => [{ id, message }, ...was]);
-      setOutcome('captured');
-      vibrate(200);
-      resetSoon();
-    };
-    setOutcome('capturing');
-    // ✓ only once the note is kept, so leaving at the vibration loses nothing;
-    // the write is local and quick. Where the outbox cannot be written (a
-    // private window), it is sent at once instead.
-    void outbox.add({ ...what, id, files: [] }).then(captured, () => {
-      captured();
-      ask(what, {
+    const what = { typeId: type.id, workspaceId, decided: false };
+    let heard: Heard;
+    try {
+      heard = await outbox.addRecorded({ ...what, id, recording: sound, seconds });
+    } catch {
+      // The outbox cannot be written (a private window): transcribed here and sent at once.
+      await sendDirectly(sound, what, id);
+      return;
+    }
+    if (heard === 'nothing') {
+      // Said here, so it is not also left among the notes not sent.
+      void outbox.remove(id).catch(() => undefined);
+      nothingHeard();
+      return;
+    }
+    captured(id, null);
+  };
+
+  const sendDirectly = async (
+    sound: Blob,
+    what: { typeId: string; workspaceId: string; decided: boolean },
+    id: string,
+  ) => {
+    let message: string;
+    try {
+      message = (await (dictating.transcribe ?? transcribeRecording)(sound)).trim();
+    } catch (failure) {
+      setWhy(failure instanceof TooManyTranscriptions ? DICTATION_TOO_MANY : DICTATION_COULD_NOT_TRANSCRIBE);
+      return;
+    }
+    if (!message) return nothingHeard();
+    captured(id, message);
+    ask(
+      { ...what, message },
+      {
         refused: (reason) => {
           setRecent((was) => was.filter((one) => one.id !== id));
           setWhy(reason);
         },
-      });
-    });
+      },
+    );
   };
 
   const dictation = useRecordedDictation({
     record: dictating.record ?? null,
-    ...(dictating.transcribe ? { transcribe: dictating.transcribe } : {}),
     ...(dictating.limitSeconds ? { limitSeconds: dictating.limitSeconds } : {}),
     // The view is only drawn where a transcriber was found or is still being asked.
     transcriber: true,
-    onWords: keep,
+    onWords: () => undefined,
+    onRecording: keepRecording,
   });
+
+  /**
+   * The notes captured from here, newest first: those of this visit, and the
+   * spoken ones the outbox still holds, which a reload keeps. Each by its
+   * words, or as waiting for them.
+   */
+  const stillWaiting = waitingHere.filter((entry) => entry.recording && stateOf(entry).waiting);
+  // One kept from before a reload stays listed, by its words, once it lands.
+  const waitingIds = stillWaiting.map((entry) => entry.id).join(' ');
+  useEffect(() => {
+    const ids = waitingIds ? waitingIds.split(' ') : [];
+    setRecent((was) => {
+      const missing = ids.filter((id) => !was.some((one) => one.id === id));
+      return missing.length === 0 ? was : [...was, ...missing.map((id) => ({ id, message: null }))];
+    });
+  }, [waitingIds]);
+  const listed = [...new Set([...recent.map((one) => one.id), ...stillWaiting.map((entry) => entry.id)])]
+    // Ids are made in time order, so the newest is the greatest.
+    .sort((a, b) => (a < b ? 1 : -1))
+    .flatMap((id) => {
+      const entry = stillWaiting.find((one) => one.id === id);
+      if (entry) return [{ id, words: entry.message || WAITING_FOR_WORDS, waiting: !entry.message }];
+      const words = recent.find((one) => one.id === id)?.message ?? landedWords.get(id);
+      return words ? [{ id, words, waiting: false }] : [];
+    });
 
   const tap = () => {
     if (outcome !== 'idle') return;
@@ -299,7 +410,6 @@ function Driving({
     starting: 'Starting',
     listening: 'Capture',
     transcribing: 'Transcribing',
-    capturing: 'Capturing',
     captured: 'Captured',
     nothing: 'Nothing heard',
   }[phase];
@@ -337,7 +447,7 @@ function Driving({
             onClick={tap}
             aria-label={label}
             aria-disabled={
-              phase === 'transcribing' || phase === 'capturing' || phase === 'captured' || phase === 'nothing'
+              phase === 'transcribing' || phase === 'captured' || phase === 'nothing'
             }
             className={`milled relative flex size-40 items-center justify-center rounded-full ${
               dark
@@ -432,11 +542,16 @@ function Driving({
           )}
           <span>{SCREEN_LINES[screen]}</span>
         </div>
-        {recent.length > 0 && (
+        {listed.length > 0 && (
           <ul aria-label="Captured here" className="mt-2">
-            {recent.slice(0, RECENT).map((one) => (
-              <li key={one.id} className={`truncate py-0.5 ${d('text-ink-soft', 'text-night-ink-soft')}`}>
-                {one.message}
+            {listed.slice(0, RECENT).map((one) => (
+              <li
+                key={one.id}
+                className={`truncate py-0.5 ${
+                  one.waiting ? d('text-ink-faint', 'text-night-faint') : d('text-ink-soft', 'text-night-ink-soft')
+                }`}
+              >
+                {one.words}
               </li>
             ))}
           </ul>

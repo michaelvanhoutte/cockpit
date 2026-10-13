@@ -5,12 +5,16 @@ import { uuidv7, type Priority } from '@cockpit/shared';
 import { sendCommand, uploadAttachment } from './api/client';
 import {
   ENTRY_VERSION,
+  NOTHING_HEARD,
+  RECORDED_ENTRY_VERSION,
   SEND_TIMEOUT_MS,
   TimedOut,
   capturePayload,
   landedWhole,
+  needsWords,
   nextWait,
   outcomeOf,
+  transcribeTimeoutMs,
   uploadTimeoutMs,
   readEntry,
   shownTo,
@@ -62,11 +66,16 @@ export function browserOutboxStore(): OutboxStore {
 export interface Sender {
   capture: (payload: ReturnType<typeof capturePayload>, signal: AbortSignal) => Promise<unknown>;
   upload: (args: Parameters<typeof uploadAttachment>[0] & { signal: AbortSignal }) => Promise<unknown>;
+  /** A spoken note's recording, as words. */
+  transcribe: (recording: Blob, signal: AbortSignal) => Promise<string>;
 }
 
 export const serverSender: Sender = {
   capture: (payload, signal) => sendCommand('capture_item', payload, signal),
   upload: uploadAttachment,
+  // Fetched when a recording is first sent, so none of it is in the first bundle.
+  transcribe: async (recording, signal) =>
+    (await import('./api/transcription')).transcribeRecording(recording, signal),
 };
 
 /** Runs a pass with no other tab's pass running at the same time. */
@@ -101,6 +110,25 @@ export interface NewCapture {
   files: { id: string; file: File }[];
 }
 
+/** A note spoken in the Car view, handed over as its recording in place of its words. */
+export interface NewRecordedCapture {
+  /** Fixed when it is handed over, so however often and from whichever tab it is sent, it is one Item. */
+  id: string;
+  typeId: string;
+  workspaceId: string;
+  decided: boolean;
+  recording: Blob;
+  seconds: number;
+}
+
+/**
+ * What became of a spoken note's first try at its words: they came back
+ * (`words`), it held nothing (`nothing`), or it is kept to try again
+ * (`waiting`) - for want of a connection, a transcriber, or the turn of
+ * another capture ahead of it.
+ */
+export type Heard = 'words' | 'nothing' | 'waiting';
+
 /**
  * What one tab tells the others: that what is stored changed; that a capture
  * landed whole - which only the tab that sent it would otherwise hear, and
@@ -121,6 +149,9 @@ export interface Landing {
 
 type PassResult = 'clear' | 'waits';
 
+/** What sending one entry came to: done with for now, the connection gone, or its words not to be had yet. */
+type EntryResult = 'done' | 'waits' | 'skipped';
+
 export class CaptureOutbox {
   private entries: OutboxEntry[] = [];
   private shown: OutboxEntry[] = [];
@@ -137,6 +168,8 @@ export class CaptureOutbox {
   private readonly inFlight = new Set<AbortController>();
   /** Which read of storage is the latest, so one that finishes late is not applied over it. */
   private reads = 0;
+  /** The spoken notes handed over in this tab whose first try at their words is still to be told. */
+  private readonly hearing = new Map<string, (heard: Heard) => void>();
 
   constructor(
     private readonly deps: {
@@ -271,6 +304,59 @@ export class CaptureOutbox {
     void this.send();
   }
 
+  /**
+   * Keeps a spoken note as its recording, before anything is sent, so nothing
+   * from here on can lose it: not the page closing while it is transcribed,
+   * nor no connection at all. Throws where it could not be kept, as `add`
+   * does. Then sends, and answers once the first try at its words is over -
+   * as soon as they are kept in the entry, not once the capture has landed.
+   */
+  async addRecorded(capture: NewRecordedCapture): Promise<Heard> {
+    const owner = this.owner;
+    if (owner === null) throw new Error('nobody is signed in to keep a capture for');
+    const entry: OutboxEntry = {
+      v: RECORDED_ENTRY_VERSION,
+      id: capture.id,
+      owner,
+      commandId: uuidv7(),
+      capturedAt: new Date().toISOString(),
+      workspaceId: capture.workspaceId,
+      decided: capture.decided,
+      message: '',
+      typeId: capture.typeId,
+      files: [],
+      recording: {
+        type: capture.recording.type,
+        bytes: await bytesOf(capture.recording),
+        seconds: capture.seconds,
+        transcribed: false,
+      },
+      landed: false,
+      refused: null,
+    };
+    await this.deps.store.put(entry);
+    await this.changedHere();
+    const heard = new Promise<Heard>((resolve) => this.hearing.set(entry.id, resolve));
+    // A pass that never reached it - offline, or held up behind another capture - leaves it waiting.
+    void this.send().then(() => this.told(entry.id, this.heardOf(entry.id)));
+    return heard;
+  }
+
+  /** What is kept of a spoken note now, as its first try at its words would tell it. */
+  private heardOf(id: string): Heard {
+    const entry = this.entries.find((one) => one.id === id);
+    if (!entry) return 'words';
+    if (needsWords(entry)) return 'waiting';
+    return entry.refused === NOTHING_HEARD ? 'nothing' : 'words';
+  }
+
+  private told(id: string, heard: Heard): void {
+    const tell = this.hearing.get(id);
+    if (!tell) return;
+    this.hearing.delete(id);
+    tell(heard);
+  }
+
   /** Deletes one entry - only ever after **Put back** has returned it to the box. */
   async remove(id: string): Promise<void> {
     await this.deps.store.remove(id);
@@ -343,15 +429,57 @@ export class CaptureOutbox {
       this.waitedOnAnAnswer = false;
       return 'waits';
     }
+    let result: PassResult = 'clear';
     for (const entry of due) {
       if (this.owner !== owner) return 'clear';
-      if ((await this.sendOne(entry)) === 'waits') return 'waits';
+      // Once one recording's words could not be had though the server answered
+      // - the account at its limit, the model down - the others wait too,
+      // rather than each spending a request the limit counts.
+      if (result === 'waits' && needsWords(entry)) {
+        this.told(entry.id, 'waiting');
+        continue;
+      }
+      const sent = await this.sendOne(entry);
+      if (sent === 'waits') return 'waits';
+      // Its words could not be had, though the server answered: the captures behind it still go.
+      if (sent === 'skipped') result = 'waits';
     }
-    return 'clear';
+    return result;
   }
 
-  private async sendOne(entry: OutboxEntry): Promise<'waits' | 'done'> {
+  private async sendOne(entry: OutboxEntry): Promise<EntryResult> {
     let current = entry;
+    if (needsWords(current) && current.recording) {
+      const { recording } = current;
+      let words: string;
+      try {
+        const sound = new Blob([recording.bytes], { type: recording.type });
+        words = await this.timed(
+          (signal) => this.deps.sender.transcribe(sound, signal),
+          transcribeTimeoutMs(recording.bytes.byteLength, this.noteTimeout()),
+        );
+      } catch (error) {
+        const outcome = outcomeOf(error);
+        if (outcome.waits) {
+          this.waitedOnAnAnswer = outcome.answered;
+          this.told(current.id, 'waiting');
+          return outcome.answered ? 'skipped' : 'waits';
+        }
+        await this.save({ ...current, refused: outcome.reason });
+        this.told(current.id, 'waiting');
+        return 'done';
+      }
+      const message = words.trim();
+      if (!message) {
+        await this.save({ ...current, refused: NOTHING_HEARD });
+        this.told(current.id, 'nothing');
+        return 'done';
+      }
+      // The words are kept before the capture is sent, so it is never transcribed twice.
+      current = { ...current, message, recording: { ...recording, transcribed: true } };
+      await this.save(current);
+      this.told(current.id, 'words');
+    }
     if (!current.landed) {
       try {
         const payload = capturePayload(current);
@@ -468,8 +596,8 @@ export class CaptureOutbox {
   }
 }
 
-/** A file's bytes, through whichever reading this browser offers. */
-function bytesOf(file: File): Promise<ArrayBuffer> {
+/** A file's or a recording's bytes, through whichever reading this browser offers. */
+function bytesOf(file: Blob): Promise<ArrayBuffer> {
   return typeof file.arrayBuffer === 'function' ? file.arrayBuffer() : new Response(file).arrayBuffer();
 }
 
