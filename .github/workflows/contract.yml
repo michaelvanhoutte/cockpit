@@ -1,14 +1,14 @@
 name: Contract
 
-# The tier that talks to the real third parties - Claude, the Workers AI model
-# that reads what a note means, and the Bot Framework's published signing keys
+# The tier that talks to the real third parties - Claude, the Workers AI models
+# that read what a note means and transcribe a recording, and the Bot Framework's published signing keys
 # (docs/testing-strategy.md, "Third parties"):
 # everything below it runs against a fake, and this is what says the fake still
 # resembles the thing. The whole tier runs when the half of the contract we own
 # changes, which is a prompt, and by hand from the Actions tab. The Claude
 # suites never run on the schedule, because every run spends real money; the
 # weekly run takes only the suites that cost next to nothing - Teams' signing
-# keys, Gmail and the meaning model - so a change on their side still shows
+# keys, Gmail and the meaning model and Whisper - so a change on their side still shows
 # within a week.
 #
 # Not a required check: while it can fail for a reason the change did not cause
@@ -17,6 +17,7 @@ on:
   pull_request:
     paths:
       - 'apps/api/src/ai/**'
+      - 'apps/api/src/transcription/**'
       - 'apps/api/tests/contract/**'
       - 'packages/connectors/gmail/tests/contract/**'
       - 'packages/connectors/outlook/tests/contract/**'
@@ -75,9 +76,10 @@ jobs:
       # Workers AI: Read on that token beside the scopes a deploy needs
       # (docs/deployment.md, "Bootstrap runbook").
       #
-      # The weekly run names the free meaning suite and withholds the Claude
+      # The weekly run names the two near-free Workers AI suites (meaning, and
+      # Whisper, a few seconds of audio at $0.0005 a minute) and withholds the Claude
       # key, so it cannot spend on the model even if a Claude suite were selected.
-      - run: pnpm --filter @cockpit/api test:contract ${{ github.event_name == 'schedule' && 'read-what-a-note-means' || '' }}
+      - run: pnpm --filter @cockpit/api test:contract ${{ github.event_name == 'schedule' && 'read-what-a-note-means transcribe-a-recording' || '' }}
         env:
           ANTHROPIC_API_KEY: ${{ github.event_name != 'schedule' && secrets.ANTHROPIC_API_KEY || '' }}
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}

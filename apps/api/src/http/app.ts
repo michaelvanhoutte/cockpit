@@ -21,6 +21,8 @@ import {
   connectClaudeCodeSchema,
   demoAddress,
   MAX_ATTACHMENT_SIZE,
+  MAX_RECORDING_BYTES,
+  TRANSCRIPTION_PATH,
   itemTypeListSchema,
   registeredUserListSchema,
   usageSchema,
@@ -77,6 +79,7 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
+import { transcriberFor } from '../transcription/index.js';
 import { ALLOWANCE_SPENT_MESSAGE, allowanceSpent } from '../accounts/allowance.js';
 import { attachmentR2Key, type AttachmentForDownload } from '../domain/attachments.js';
 import {
@@ -296,7 +299,7 @@ for (const prefix of MOVED_OPERATOR_PREFIXES) {
  * before starting the e2e suite. The two below say which half was unwell, for
  * whoever reads the answer by hand.
  *
- * apps/web/src/api/loadFailure.ts reads none of them. It asks this endpoint only
+ * apps/web/src/api/loadFailure.ts reads none of them (the page reads `transcription`, below). It asks this endpoint only
  * whether *anything* answers, which is how it tells a dead connection from a
  * request that vanished on its way here; what the answer says is the deploy
  * check's business and the uptime monitor's, not the app's.
@@ -324,6 +327,11 @@ for (const prefix of MOVED_OPERATOR_PREFIXES) {
  * from `ai` because the two are separately configured - an environment can
  * have either, both or neither - and outside `ok` for the same reason.
  *
+ * **`transcription` is the same again for turning a recording into words**
+ * ("Dictate in Write with Whisper", issue 1041): whether there is a binding, or
+ * the stand-in the local stacks use, and so whether Capture draws a mic. The
+ * page reads it (`apps/web/src/api/transcription.ts`), unlike the rest.
+ *
  * **Whether there is a key, never what it is.** This endpoint answers anybody
  * at all (docs/deployment.md, "`/health` answers without a sign-in").
  */
@@ -342,6 +350,7 @@ const healthRoute = createRoute({
             store: z.boolean(),
             ai: z.boolean(),
             embeddings: z.boolean(),
+            transcription: z.boolean(),
             allowanceSpent: z.literal(true).optional(),
           }),
         },
@@ -917,6 +926,37 @@ async function bodyWithin(request: Request, limit: number): Promise<string | nul
 }
 
 /**
+ * A request body as bytes, or null where it runs past `limit` - read a chunk at
+ * a time, so a body that says nothing of its length is still cut off rather than
+ * read whole first. The binary twin of `bodyWithin`.
+ */
+async function bytesWithin(request: Request, limit: number): Promise<Uint8Array | null> {
+  const declared = Number(request.headers.get('content-length') ?? '0');
+  if (declared > limit) return null;
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const whole = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    whole.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return whole;
+}
+
+/**
  * Starting an Agent on an Item: a run recorded as starting, one call to
  * Claude, and the answer written back to the run ("Drop an agent on an item
  * to start a Claude Code session on it", issue 571). The drop and the row's
@@ -1214,7 +1254,7 @@ const routes = app
     return c.json(holdings, 200);
   })
   .openapi(healthRoute, async (c) => {
-    const { register, store, ai, embeddings, failure, allowanceSpent: spent } = await checkHealth(c.env);
+    const { register, store, ai, embeddings, transcription, failure, allowanceSpent: spent } = await checkHealth(c.env);
     // The reason goes to the logs and not into the body: this endpoint answers
     // anyone at all, and why a change would not apply names tables and columns.
     if (failure) {
@@ -1222,7 +1262,7 @@ const routes = app
     }
     // Present only when the limit is spent, so a healthy answer is unchanged.
     return c.json(
-      { ok: register && store, register, store, ai, embeddings, ...(spent ? { allowanceSpent: true } : {}) },
+      { ok: register && store, register, store, ai, embeddings, transcription, ...(spent ? { allowanceSpent: true } : {}) },
       200,
     );
   })
@@ -1785,6 +1825,31 @@ const routes = app
   .openapi(commandRoute('set_item_form_presentation'), async (c) =>
     c.json(await change(c, 'set_item_form_presentation', c.req.valid('json')), 200),
   )
+  // --- dictation ("Dictate in Write with Whisper", issue 1041): outside the
+  // OpenAPI/JSON contract for the reason attachments are - the body is the
+  // recording's own bytes. Behind the sign-in gate like everything not named
+  // there, and answered in the request: the person is waiting on the words.
+  .post(TRANSCRIPTION_PATH, async (c) => {
+    // Refused from the headers alone, before a byte of the body is read or the
+    // model is reached.
+    if (!/^audio\//i.test(c.req.header('content-type') ?? '')) {
+      return c.json({ error: 'that is not a recording' }, 415);
+    }
+    const transcriber = transcriberFor(c.env);
+    if (!transcriber) return c.json({ error: 'this environment cannot transcribe' }, 503);
+    // Counted before the body is read, and every request is counted, refused
+    // ones included: the guest account on production is shared by every visitor.
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    if ((await account.transcriptionArrived(new Date().toISOString())) === 'too-many') {
+      return c.json({ error: 'too many transcriptions in the last minute' }, 429);
+    }
+    const audio = await bytesWithin(c.req.raw, MAX_RECORDING_BYTES);
+    if (audio === null) return c.json({ error: 'that recording is longer than Cockpit transcribes' }, 413);
+    if (audio.byteLength === 0) return c.json({ error: 'nothing was recorded' }, 400);
+    // Held in memory for this call and passed on; never written anywhere.
+    const text = await transcriber.transcribe(audio, c.get('visitor').accountName);
+    return c.json({ text }, 200);
+  })
   // --- attachments ("Attach a file to an item", issue 441): outside the
   // OpenAPI/JSON contract, the same as the ingress and operator routes below
   // - a file's bytes cannot ride in a `commandRoute`'s JSON body, and a

@@ -160,6 +160,7 @@ A second, separate service: Worker `harness-monitor` with its own D1 database `h
 - **The page is cached at the edge** for `PAGE_CACHE_SECONDS` (`wrangler.jsonc`, 300) **only once a custom domain or route is attached**, because Cloudflare's Cache API does nothing on `workers.dev`. Until then every view reads D1, from the totals alone. A cached request costs no database read, and a new report shows within that time. Local runs and tests set it to 0.
 - **Reading is public; writing rows and starting jobs need the write key**, the Worker secret `HARNESS_WRITE_KEY`, sent as `Authorization: Bearer <key>`. Unset, every write is refused. Rotate it with `wrangler secret put HARNESS_WRITE_KEY` and update each holder of it.
 - **Prices come from LiteLLM's public file** (`raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json`, no secret), fetched by the daily cron. To correct or add a model before LiteLLM does, edit `apps/harness-monitor/src/price-overrides.json` (USD per million tokens; it wins over LiteLLM for the models it names). The page shows what the last price run did, or why its fetch failed.
+- **Files left out of a pull request's size** (lockfiles, snapshots, generated files) are the patterns in `apps/harness-monitor/src/excluded-files.json`, written as in `.gitignore`. A change to the list reaches a pull request when linking next reads it; `pnpm harness:run linking --full` reads them all.
 - **Branch linking needs a GitHub token**, the Worker secret `GITHUB_TOKEN`. Without it the hourly job records "Skipped" as its last run on the page. Make it as a **fine-grained personal access token** owned by the repository owner, with *Only select repositories* set to this repository, and these repository permissions, all read-only: *Pull requests*, *Issues*, *Metadata*. Nothing else; it can then read but never write. Put it on the Worker with `pnpm exec wrangler secret put GITHUB_TOKEN` (in `apps/harness-monitor`), and renew it before it expires: an expired token fails every run and the page shows the error beside the time of the last run. The repository is read from `GITHUB_REPOSITORY` in `wrangler.jsonc`.
 - **Locally**, `pnpm dev:harness` (or `pnpm --filter @harness-monitor/worker dev`) applies the local migrations and runs the Worker on this checkout's own port (`harnessMonitor` in `scripts/lib/ports.mjs`), printing the address and a local-only write key. It sets no GitHub token, so linking reports itself skipped; fire any job on that address with `pnpm harness:run`.
 - **Start a job now with `pnpm harness:run <linking [--full]|prices|rebuild>`**, with `HARNESS_MONITOR_URL` and `HARNESS_WRITE_KEY` set as for the hook. Use it after putting a token or a price override on the Worker, or to find out why a scheduled run did nothing: it runs the schedule's own code on the live Worker, prints what it did or the error it met, and exits non-zero on failure. `prices` starts again until a run prices nothing more (one run is capped), then starts `rebuild` once, since the page's dollars follow the rebuilt totals; a failed run stops the command without rebuilding. `linking` and `rebuild` run once. The page shows the run within a few minutes where it is cached (`PAGE_CACHE_SECONDS`), at once otherwise. A command that times out after five minutes may still be running: read its last run on the page.
@@ -784,7 +785,7 @@ own code. It is outside Cockpit's own gate (`PATHS_OUTSIDE_THE_GATE` in
 `apps/api/src/auth/gate.ts`), and anything ever put in front of the deployment
 has to be told to leave it alone.
 
-`/health` returns `{"ok":true,"register":true,"store":true,"ai":true,"embeddings":true}`
+`/health` returns `{"ok":true,"register":true,"store":true,"ai":true,"embeddings":true,"transcription":true}`
 and nothing else, so it discloses only whether each half answered — never *why*
 one did not, since the reason an update will not apply names tables and columns
 and this endpoint answers anyone. That reason goes to the logs. The one exception is `"allowanceSpent":true`, added
@@ -808,6 +809,11 @@ and so whether it can flag one saying what another one already said ("Flag a
 captured note that says what another one already said", issue 407). Separate
 from `ai` because the two are separately configured — one is the `AI` binding,
 the other the Claude key — and an environment can have either, both or neither.
+
+**`transcription` is the same again for turning a recording into words**
+("Dictate in Write with Whisper", issue 1041): whether there is an `AI` binding
+(or the stand-in the two local stacks use) and so whether Capture draws a mic.
+Unlike the rest, the app reads this one; it is outside `ok` for the same reason.
 
 `store` is checked against a store belonging to no account, addressed by a name
 the same request confirms is absent from the register. An unauthenticated endpoint

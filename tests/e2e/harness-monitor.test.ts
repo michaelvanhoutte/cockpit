@@ -48,23 +48,36 @@ const SEED = {
     request('6', 'claude/e2e-filter-panel', 'building', 0, {}),
   ],
   pullRequests: [
-    { branch: 'claude/e2e-filter-panel', number: 9001, title: 'Add a filter panel', state: 'MERGED', mergedAt: '2026-01-02T10:00:00Z', issue: 9000, engineer: 'e2e-alice' },
+    { branch: 'claude/e2e-filter-panel', number: 9001, title: 'Add a filter panel', state: 'MERGED', mergedAt: '2026-01-02T10:00:00Z', issue: 9000, engineer: 'e2e-alice', size: { added: 120, removed: 30, openedAt: '2026-01-01T10:00:00Z', ciRounds: 2, issueTitle: 'Filter the inbox' } },
     { branch: 'claude/e2e-teams-message', number: 9002, title: 'Save a Teams message', state: 'OPEN', mergedAt: null, issue: null, engineer: 'e2e-bob' },
   ],
 };
 
 test.describe('Harness Monitor', () => {
-  test('the costs page opens grouped by pull request, opens one pull request and exports it, regroups by engineer, narrows to a category, and splits by model', async ({ page, request: api }) => {
+  test('the costs page opens on Over time, groups by pull request, opens one pull request through Sessions and exports it, regroups by engineer, narrows to a category, and splits by model', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const seeded = await api.post(`${monitor}/__e2e/seed`, { data: SEED });
     expect(seeded.ok()).toBe(true);
 
     await page.goto(`${monitor}/`);
 
+    // The bare address is Over time: its tab pressed, the chart drawn, and the table's own column still reads Day.
+    await expect(page.getByRole('button', { name: 'Over time' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('img', { name: /^Cost per day/ })).toBeVisible();
+    // The change card names this period and the one before it.
+    const change = page.getByRole('region', { name: 'Change on the previous period' });
+    await expect(change).toContainText('Last 30 days');
+    await expect(change).toContainText('the previous period');
+    await expect(page.getByRole('region', { name: 'Cost by day' }).getByRole('columnheader', { name: 'Day' })).toBeVisible();
+
     // Grouped by pull request, the bar and the not-measured note shown.
+    await page.getByRole('button', { name: 'Pull request' }).click();
     const table = page.getByRole('region', { name: 'Cost by pull request' });
     await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ })).toContainText('$6.00');
     await expect(table.getByRole('row', { name: /#9002 Save a Teams message/ })).toContainText('$2.00');
+    // What linking read of a pull request: its lines, how long it was open, and its CI rounds.
+    await expect(table.getByRole('columnheader', { name: 'Lines' })).toBeVisible();
+    await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ })).toContainText('+120 −30');
     await expect(page.getByRole('heading', { name: /Where the period.s \$8\.00 went/ })).toBeVisible();
     await expect(page.getByRole('img', { name: /Building \$5\.00.*After push \$2\.00.*CI reviews \$1\.00/ })).toBeVisible();
     await expect(page.getByText('billed through claude.ai, and is not measured')).toBeVisible();
@@ -73,7 +86,9 @@ test.describe('Harness Monitor', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
     // Open one pull request from the table: its total, categories and sessions.
-    await table.getByRole('link', { name: /#9001 Add a filter panel/ }).click();
+    // The title opens GitHub in a new tab; Sessions opens the monitor's own page.
+    await expect(table.getByRole('link', { name: /#9001 Add a filter panel/ })).toHaveAttribute('target', '_blank');
+    await table.getByRole('row', { name: /#9001 Add a filter panel/ }).getByRole('link', { name: 'Sessions' }).click();
     await expect(page.getByRole('heading', { level: 1, name: /#9001 Add a filter panel/ })).toBeVisible();
     await expect(page.locator('#pr-total')).toHaveText('$6.00');
     const byCategory = page.getByRole('region', { name: 'By category' });
@@ -101,7 +116,8 @@ test.describe('Harness Monitor', () => {
     expect(csv[0]).toMatch(/^time,session,branch,pull_request,issue,engineer,category,model,/);
     expect(csv).toHaveLength(2);
     expect(csv[1]).toContain(',claude/e2e-filter-panel,9001,9000,e2e-alice,after-push,');
-    await page.getByRole('link', { name: 'All pull requests' }).click();
+    await page.getByRole('link', { name: 'All costs' }).click();
+    await expect(page.getByRole('button', { name: 'Over time' })).toHaveAttribute('aria-pressed', 'true');
 
     // Switch to engineer: the same dollars, regrouped.
     await page.getByRole('button', { name: 'Engineer' }).click();

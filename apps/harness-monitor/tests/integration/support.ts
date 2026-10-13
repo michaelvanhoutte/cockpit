@@ -37,12 +37,13 @@ export async function emptyTheDatabase() {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM usage_requests'),
     env.DB.prepare('DELETE FROM daily_totals'),
-    env.DB.prepare('DELETE FROM daily_branch_totals'),
     env.DB.prepare('DELETE FROM daily_split_totals'),
+    env.DB.prepare('DELETE FROM session_starts'),
     env.DB.prepare('DELETE FROM price_list'),
     env.DB.prepare('DELETE FROM branch_links'),
     env.DB.prepare('DELETE FROM link_state'),
     env.DB.prepare('DELETE FROM job_runs'),
+    env.DB.prepare('DELETE FROM pull_request_stats'),
   ]);
 }
 
@@ -116,9 +117,15 @@ export async function dollars(): Promise<{ micros: number; unpriced: number }> {
   return row!;
 }
 
-/** The public page as a visitor opens it, with the filters in the address (`?group=issue&period=all`). */
-export async function thePage(query = ''): Promise<string> {
+/** The public page exactly as the address asks for it; the bare address is Over time. */
+export async function theBarePage(query = ''): Promise<string> {
   return (await SELF.fetch(`https://monitor.test/${query}`)).text();
+}
+
+/** The public page as a visitor opens it, with the filters in the address (`?group=issue&period=all`); by pull request unless the address names a grouping. */
+export async function thePage(query = ''): Promise<string> {
+  if (/[?&]group=/.test(query)) return theBarePage(query);
+  return theBarePage(`${query === '' ? '?' : `${query}&`}group=pr`);
 }
 
 export interface CostRow {
@@ -147,7 +154,7 @@ export function costRows(html: string): CostRow[] {
     const [, total, unpriced] = /^([^<]*?)(?: <span class="unpriced">(.*?)<\/span>)?$/.exec(rest.at(-1)!)!;
     return {
       label: decode(label!.replace(/<\/?a[^>]*>/g, '')),
-      sub: sub === undefined ? null : decode(sub),
+      sub: sub === undefined ? null : decode(sub.replace(/<\/?a[^>]*>/g, '').replace(/ · Sessions$/, '')),
       details: rest.slice(0, split).map(decode),
       categories: rest.slice(split + 1, -1),
       segments: [...rest[split]!.matchAll(/<div style=/g)].length,

@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
 import { canReadMeaning } from '../embeddings/index.js';
+import { canTranscribe } from '../transcription/index.js';
 import { ALLOWANCE_SPENT_MESSAGE, allowanceSpent } from './allowance.js';
 
 /**
@@ -65,6 +66,13 @@ export interface Health {
    */
   embeddings: boolean;
   /**
+   * Whether this environment can turn a recording into words, and so whether
+   * Capture should draw a mic ("Dictate in Write with Whisper", issue 1041).
+   * Its own field for the reason `embeddings` is: a binding, separately
+   * configured and separately absent. Not part of the verdict.
+   */
+  transcription: boolean;
+  /**
    * The store said no because the free tier's daily allowance is spent, not
    * because an update will not apply. Absent otherwise.
    */
@@ -80,6 +88,7 @@ export async function checkHealth(env: Env): Promise<Health> {
   // able to say whether somebody remembered to put the key in.
   const ai = Boolean(env.ANTHROPIC_API_KEY);
   const embeddings = canReadMeaning(env);
+  const transcription = canTranscribe(env);
 
   // Each field says only what was actually established, which is the point of
   // the whole change. `register` is false for both of its failures - the
@@ -89,10 +98,10 @@ export async function checkHealth(env: Env): Promise<Health> {
   // is false because nothing looked, not because a store said no. Which of the
   // three it was is in `failure`, and so in the logs.
   if (register.failure) {
-    return { register: false, store: false, ai, embeddings, failure: register.failure };
+    return { register: false, store: false, ai, embeddings, transcription, failure: register.failure };
   }
 
-  return { register: true, ai, embeddings, ...(await checkStore(env)) };
+  return { register: true, ai, embeddings, transcription, ...(await checkStore(env)) };
 }
 
 /**

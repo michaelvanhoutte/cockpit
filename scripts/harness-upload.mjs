@@ -14,11 +14,11 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { mainSessionFilesIn, subagentFilesUnder, thisRepoProjectDirs } from './lib/issue-cost.mjs';
 import { parseRecord, recordFileName } from './lib/session-record.mjs';
-import { readLog, whereItRan } from './lib/usage-report.mjs';
+import { readLog, subagentIdentity, whereItRan } from './lib/usage-report.mjs';
 import { postBatches, summarizeUpload, uploadRows } from './lib/usage-upload.mjs';
 
 const key = process.env.HARNESS_WRITE_KEY;
@@ -67,14 +67,23 @@ const marksOf = (branch) => {
   return marksByBranch.get(branch);
 };
 
+// A subagent's sidecar holds its type; one that is missing leaves the type unknown.
+const metaOf = (jsonlPath) => {
+  try {
+    return readFileSync(jsonlPath.replace(/\.jsonl$/, '.meta.json'), 'utf8');
+  } catch {
+    return '';
+  }
+};
+
 const ranWhere = whereItRan(process.env);
 let unreadable = 0;
 let unreadableFiles = 0;
-const read = (path, sessionId, subagent) => {
+const read = (path, sessionId, subagent, identity) => {
   try {
     const log = readLog(readFileSync(path, 'utf8'));
     unreadable += log.unreadable;
-    return [{ lines: log.lines, sessionId, subagent }];
+    return [{ lines: log.lines, sessionId, subagent, identity }];
   } catch {
     unreadableFiles += 1;
     console.error(`could not read ${path}`);
@@ -89,7 +98,7 @@ for (const dir of thisRepoProjectDirs(repoRoot, projectsDir)) {
   for (const { path, sessionId } of mainSessionFilesIn(dir)) {
     const logs = [
       ...read(path, sessionId, false),
-      ...subagentFilesUnder(join(dir, sessionId)).flatMap((sub) => read(sub.path, sessionId, true)),
+      ...subagentFilesUnder(join(dir, sessionId)).flatMap((sub) => read(sub.path, sessionId, true, subagentIdentity(basename(sub.path), metaOf(sub.path)))),
     ];
     for (const row of uploadRows(logs, { ranWhere, marksOf })) {
       if (seen.has(row.requestId)) continue;

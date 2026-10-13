@@ -48,7 +48,7 @@ const HEADING = '### Session record';
 const list = (words) => words.map((word) => `\`${word}\``).join(', ');
 
 /**
- * One mark, from the words after `mark` on the command line. Throws, naming what it does know, for a phase it does not, a review without its kind and level, or any word left over - which is where a time would arrive.
+ * One mark, from the words after `mark` on the command line. A `review-end` may end with how many findings the review reported; a record without one still reads, its count unknown. Throws, naming what it does know, for a phase it does not, a review without its kind and level, a count that is not a whole number, or any word left over - which is where a time would arrive.
  */
 export function parseMark(words) {
   const [phase, ...rest] = words;
@@ -59,11 +59,14 @@ export function parseMark(words) {
     if (rest.length > 0) throw new Error(`${phase} takes nothing after it, and the time comes from the clock - got ${JSON.stringify(rest.join(' '))}.`);
     return { phase };
   }
-  const [kind, level, ...extra] = rest;
+  const [kind, level, ...more] = rest;
+  const counted = phase === 'review-end';
+  const [count, ...extra] = counted ? more : [undefined, ...more];
   if (!REVIEW_KINDS.includes(kind)) throw new Error(`${phase} needs the review's kind next: ${list(REVIEW_KINDS)}.`);
   if (!REVIEW_LEVELS.includes(level)) throw new Error(`${phase} ${kind} needs the review's level next: ${list(REVIEW_LEVELS)}.`);
-  if (extra.length > 0) throw new Error(`${phase} takes only a kind and a level, and the time comes from the clock - got ${JSON.stringify(extra.join(' '))} after them.`);
-  return { phase, kind, level };
+  if (count !== undefined && !/^(0|[1-9]\d*)$/.test(count)) throw new Error(`${phase} ${kind} ${level} takes the number of findings the review reported as a whole number, 0 or more - got ${JSON.stringify(count)}.`);
+  if (extra.length > 0) throw new Error(`${phase} takes only a kind and a level${counted ? ' and a finding count' : ''}, and the time comes from the clock - got ${JSON.stringify(extra.join(' '))} after them.`);
+  return { phase, kind, level, ...(count === undefined ? {} : { count: Number(count) }) };
 }
 
 const time = (text) => (typeof text === 'string' ? Date.parse(text) : Number.NaN);
@@ -108,9 +111,11 @@ export function markPhase(entries, words, now = () => new Date()) {
   return [...entries, { ...parseMark(words), at: now().toISOString() }];
 }
 
-/** One mark as the line the block carries: `- <time> <phase>[ <kind> <level>]`. */
-function line({ at, phase, kind, level }) {
-  return `- ${at} ${[phase, kind, level].filter(Boolean).join(' ')}`;
+/**
+ * One mark as the line the block carries: `- <time> <phase>[ <kind> <level>]`. A review's count rides on its level as `<level>:<count>`, so a reader that knows only four words per line still sees the same phase, kind and level word.
+ */
+function line({ at, phase, kind, level, count }) {
+  return `- ${at} ${[phase, kind, level === undefined ? undefined : count === undefined ? level : `${level}:${count}`].filter(Boolean).join(' ')}`;
 }
 
 /** Runs that overlap, or touch, as one interval naming every scope in them - a workspace run's packages in parallel count once. Runs one after the other stay apart, the same suite twice in a row included. */
@@ -181,7 +186,10 @@ export function readBlock(body) {
     .split(/\r?\n/)
     .map((text) => /^- (\S+) (\S+)(?: (\S+) (\S+))?$/.exec(text))
     .filter(Boolean)
-    .map(([, at, phase, kind, level]) => ({ at, phase, ...(kind ? { kind, level } : {}) }));
+    .map(([, at, phase, kind, level]) => {
+      const [word, count] = level === undefined ? [] : level.split(':');
+      return { at, phase, ...(kind ? { kind, level: word } : {}), ...(count !== undefined && /^\d+$/.test(count) ? { count: Number(count) } : {}) };
+    });
 }
 
 /** Where the block sits in a body, `null` where it has none. Throws where exactly one marker is there, or they appear out of order or more than once. */

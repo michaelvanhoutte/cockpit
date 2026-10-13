@@ -250,3 +250,36 @@ describe('bodies already written read as they do', () => {
     assert.ok(renderBlock(entries) !== null);
   });
 });
+
+describe('a review’s end can carry how many findings it reported', () => {
+  const end = (...words) => markPhase([], ['review-end', ...words], at('2026-09-21T10:30:00.000Z'))[0];
+
+  it('records the count given after the level', () => {
+    assert.deepEqual(end('code-review', 'high', '3'), { phase: 'review-end', kind: 'code-review', level: 'high', count: 3, at: '2026-09-21T10:30:00.000Z' });
+    assert.equal(end('code-review', 'high', '0').count, 0);
+  });
+
+  it('records a review end without a count as before, its count unknown', () => {
+    assert.equal('count' in end('code-review', 'high'), false);
+  });
+
+  it('refuses a count that is not a whole number of 0 or more', () => {
+    for (const bad of ['-1', '1.5', 'three', '03', '']) assert.throws(() => end('code-review', 'high', bad), /whole number/, bad);
+    assert.throws(() => end('code-review', 'high', '3', '4'), /takes only a kind and a level and a finding count/);
+    assert.throws(() => markPhase([], ['review-start', 'code-review', 'high', '3']), /takes only a kind and a level/);
+  });
+
+  it('keeps the count on the block’s line and reads it back', () => {
+    const entries = [end('code-review', 'high', '3'), end('security-review', 'high')];
+    const block = renderBlock(entries);
+    assert.match(block, /review-end code-review high:3\n/);
+    assert.match(block, /review-end security-review high\n/);
+    assert.deepEqual(readBlock(applyBlock('', block)), entries);
+  });
+
+  it('leaves a reader that knows four words a line seeing the same phase, kind and level word', () => {
+    const block = renderBlock([end('code-review', 'high', '3')]);
+    const found = /^- (\S+) (\S+)(?: (\S+) (\S+))?$/.exec(block.split(/\r?\n/).find((l) => l.includes('review-end')));
+    assert.deepEqual([found[2], found[3], found[4].split(':')[0]], ['review-end', 'code-review', 'high']);
+  });
+});

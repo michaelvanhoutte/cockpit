@@ -27,17 +27,71 @@ WHERE excluded.pr_updated_at > branch_links.pr_updated_at
      OR (${NEW_ISSUE}) IS NOT branch_links.issue_number OR (${NEW_ENGINEER}) IS NOT branch_links.engineer))`;
 
 /**
+ * Stores each pull request's size, timing, CI rounds, closing issue's title and the
+ * local review rounds and findings its body's session record gives, one
+ * row per pull request, from the same JSON array. An older read never replaces a
+ * newer one. A size the run could not finish reading is stored as none, so the page
+ * shows it blank rather than an older or shorter one; only an answer carrying errors,
+ * which may have left the files out altogether, keeps the stored size. A push GitHub
+ * did not list keeps the stored rounds; a title it did not give keeps the stored one
+ * only when its answer carried errors, since a pull request that no longer closes an
+ * issue has none. The review counts follow the body as it is now, so an edit that
+ * adds a round updates them; only an answer carrying errors, which may have left the
+ * body out, keeps the stored ones.
+ */
+const UPSERT_STATS = `INSERT INTO pull_request_stats (
+  pr_number, lines_added, lines_removed, opened_at, ci_rounds, issue_title, local_rounds, findings, pr_updated_at, read_at
+)
+SELECT value ->> '$.number',
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.additions' IS NULL
+            THEN (SELECT lines_added FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.additions' END,
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.deletions' IS NULL
+            THEN (SELECT lines_removed FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.deletions' END,
+       value ->> '$.openedAt', value ->> '$.ciRounds',
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.issueTitle' IS NULL
+            THEN (SELECT issue_title FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.issueTitle' END,
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.localRounds' IS NULL
+            THEN (SELECT local_rounds FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.localRounds' END,
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.localRounds' IS NULL
+            THEN (SELECT findings FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.findings' END,
+       value ->> '$.updatedAt', ?2
+FROM json_each(?1) WHERE true
+ORDER BY key
+ON CONFLICT (pr_number) DO UPDATE SET
+  lines_added = excluded.lines_added, lines_removed = excluded.lines_removed,
+  opened_at = COALESCE(excluded.opened_at, pull_request_stats.opened_at),
+  ci_rounds = COALESCE(excluded.ci_rounds, pull_request_stats.ci_rounds),
+  issue_title = excluded.issue_title,
+  local_rounds = excluded.local_rounds, findings = excluded.findings,
+  pr_updated_at = excluded.pr_updated_at, read_at = excluded.read_at
+WHERE excluded.pr_updated_at >= pull_request_stats.pr_updated_at`;
+
+/**
  * The run's place and, when it caught up, the time. A full re-read sets its
  * place whatever is stored; any other run only moves the place it started from
  * (?3), so one that overlapped a full re-read and finished after it cannot undo
  * the rewind. A run that lost its place changes nothing here, which its
  * `changes` of 0 says.
  */
-const SAVE_STATE = `INSERT INTO link_state (id, page_cursor, last_success_at) VALUES (1, ?1, ?2)
+const SAVE_STATE = `INSERT INTO link_state (id, page_cursor, last_success_at, sizing_version) VALUES (1, ?1, ?2, ?5)
 ON CONFLICT (id) DO UPDATE SET
   page_cursor = excluded.page_cursor,
-  last_success_at = COALESCE(excluded.last_success_at, link_state.last_success_at)
+  last_success_at = COALESCE(excluded.last_success_at, link_state.last_success_at),
+  sizing_version = COALESCE(excluded.sizing_version, link_state.sizing_version)
 WHERE ?4 = 1 OR link_state.page_cursor IS ?3`;
+
+/**
+ * What linking reads of each pull request. Raise it when it reads more, and the
+ * next run re-reads every pull request from the first, once: it rewinds the place
+ * and stores this version beside it in the same batch, so a run that fails
+ * rewinds again and one that stored carries on from where it stopped.
+ */
+export const SIZING_VERSION = 1;
 
 export interface LinkEnv {
   DB: D1Database;
@@ -86,9 +140,14 @@ export async function linkBranches(env: LinkEnv, { now = Date.now(), full = fals
     return { status: 'skipped' };
   }
   try {
-    const state = await env.DB.prepare('SELECT page_cursor AS cursor FROM link_state WHERE id = 1').first<{ cursor: string | null }>();
+    const state = await env.DB.prepare('SELECT page_cursor AS cursor, sizing_version AS sizing FROM link_state WHERE id = 1').first<{
+      cursor: string | null;
+      sizing: number | null;
+    }>();
     const started = state?.cursor ?? null;
-    const fetched = await fetchChangedPullRequests(env.GITHUB_REPOSITORY, env.GITHUB_TOKEN, full ? null : started);
+    // Pull requests linked before the sizing version are read again from the first.
+    const rewind = full || state?.sizing !== SIZING_VERSION;
+    const fetched = await fetchChangedPullRequests(env.GITHUB_REPOSITORY, env.GITHUB_TOKEN, rewind ? null : started);
 
     // Oldest first, so the newest-updated pull request of a branch is stored last and wins.
     const ordered: PullRequest[] = [...fetched.pullRequests].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
@@ -96,7 +155,8 @@ export async function linkBranches(env: LinkEnv, { now = Date.now(), full = fals
     const results = await env.DB.batch([
       env.DB.prepare(UPSERT_LINKS).bind(links(false), now, 0),
       env.DB.prepare(UPSERT_LINKS).bind(links(true), now, 1),
-      env.DB.prepare(SAVE_STATE).bind(fetched.cursor, fetched.caughtUp ? now : null, started, full ? 1 : 0),
+      env.DB.prepare(UPSERT_STATS).bind(JSON.stringify(ordered), now),
+      env.DB.prepare(SAVE_STATE).bind(fetched.cursor, fetched.caughtUp ? now : null, started, rewind ? 1 : 0, rewind ? SIZING_VERSION : null),
     ]);
     const moved = results.at(-1)!.meta.changes === 0;
     const status = moved ? 'place-moved' : fetched.caughtUp ? 'caught-up' : 'more-to-read';

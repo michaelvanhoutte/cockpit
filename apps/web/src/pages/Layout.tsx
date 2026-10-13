@@ -56,6 +56,7 @@ import { useConnections } from '../connections';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
+import { useKeepingRecordings, useKeptRecordings, useWaitingRecordings } from '../keptRecordings';
 import { loadCaptureForms, loadCaptureNote } from '../captureForm';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 
@@ -69,6 +70,18 @@ const INBOX_HEADING = 'the-inbox';
 /** What the profile control shows in place of a photograph nobody has set. */
 function initialOf(name: string | undefined): string {
   return name?.trim().charAt(0).toUpperCase() || '?';
+}
+
+/** The question before a sign-out that deletes what waits on this device: captures not sent, recordings not transcribed. */
+function whatSigningOutLoses(captures: number, recordings: number): string {
+  const lost = [
+    ...(captures > 0 ? [captures === 1 ? "1 capture hasn't been sent" : `${captures} captures haven't been sent`] : []),
+    ...(recordings > 0
+      ? [recordings === 1 ? "1 recording hasn't been transcribed" : `${recordings} recordings haven't been transcribed`]
+      : []),
+  ];
+  if (lost.length === 0) return '';
+  return lost.length === 1 ? `${lost[0]} and will be lost` : `${lost.join(', and ')}; all will be lost`;
 }
 
 /**
@@ -542,6 +555,11 @@ function TheShell() {
   useSendingCaptures(signedOut ? null : (me?.user.id ?? null));
   const outbox = useOutbox();
   const unsent = useWaitingCaptures().length;
+  // A recording Write could not transcribe is theirs on the same terms ("Keep a
+  // recording Write could not transcribe, with Retry", issue 1044).
+  useKeepingRecordings(signedOut ? null : (me?.user.id ?? null));
+  const keptRecordings = useKeptRecordings();
+  const untranscribed = useWaitingRecordings().length;
   /** The question asked before signing out loses captures that have not been sent. */
   const [askingToSignOut, setAskingToSignOut] = useState(false);
   // Fetched once the shell has painted, so Capture opens on a form already here.
@@ -610,12 +628,10 @@ function TheShell() {
    */
   const signOutLosingWhatWaits = async () => {
     setAskingToSignOut(false);
-    try {
-      await outbox.discardAll();
-    } catch {
-      // Storage that cannot be written to still holds them, under this
-      // person, unsent and unshown to anybody else.
-    }
+    // Storage that cannot be written to still holds them, under this person,
+    // unsent and unshown to anybody else.
+    await outbox.discardAll().catch(() => {});
+    await keptRecordings.discardAll().catch(() => {});
     leave.mutate();
   };
   /**
@@ -929,7 +945,7 @@ function TheShell() {
                   </DropdownMenu.Item>
                 )}
                 <DropdownMenu.Item
-                  onSelect={() => (unsent > 0 ? setAskingToSignOut(true) : leave.mutate())}
+                  onSelect={() => (unsent + untranscribed > 0 ? setAskingToSignOut(true) : leave.mutate())}
                   className={menuItemClass}
                 >
                   Sign out
@@ -1234,11 +1250,7 @@ function TheShell() {
       />
 
       <DeleteQuestion
-        question={
-          unsent === 1
-            ? "1 capture hasn't been sent and will be lost"
-            : `${unsent} captures haven't been sent and will be lost`
-        }
+        question={whatSigningOutLoses(unsent, untranscribed)}
         confirmLabel="Sign out, losing what has not been sent"
         confirmText="Sign out"
         open={askingToSignOut}

@@ -6,7 +6,7 @@ import { snapshotQuery, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
-import { stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../captureOutbox';
+import { needsWords, stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
 import type { Arrived } from '../shares';
@@ -15,14 +15,17 @@ import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from 
 import { dueDateLabel } from '../dueDate';
 import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
 import { PRIORITY_LABELS } from '../priority';
-import {
-  DICTATION_LANGUAGES,
-  appendPhrase,
-  replacePhrase,
-  useDictation,
-  type Dictation,
-  type EngineFactory,
-} from '../dictation';
+import { appendPhrase } from '../dictation';
+import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
+import { transcriptionOfferedQuery } from '../api/transcription';
+import { useKeptRecordings } from '../keptRecordings';
+
+/** How *Just captured* lists a note spoken in the Car view that is still waiting to be transcribed. */
+export const RECORDING_WAITING_FOR_WORDS = 'A recording, waiting for its words';
+/** And one refused before its words came back, whose **Put back** keeps it under the strip with Retry. */
+export const RECORDING_NOT_TRANSCRIBED = 'A recording, not transcribed';
+/** Said where that recording could not be kept under the strip, so it stays listed to put back again. */
+export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to retry, so it stays listed.';
 
 /**
  * The Capture form itself: the note, the types as chips, where it goes as one
@@ -62,8 +65,19 @@ export function CaptureNote({
   onPutOn?: (() => void) | undefined;
   /** Said when a capture is made on this form. */
   onCaptured?: (() => void) | undefined;
-  /** Where speech comes from and where the language is kept: the browser's own, unless a test hands in a fake. */
-  dictating?: { engine?: EngineFactory | null; store?: Storage | undefined } | undefined;
+  /**
+   * What dictation records with and transcribes with: the browser's recorder and
+   * the Worker, unless a test hands in fakes. `transcriber` says whether the
+   * Worker can transcribe; left out, the page asks `/health`.
+   */
+  dictating?:
+    | {
+        record?: StartRecording | null;
+        transcribe?: (recording: Blob) => Promise<string>;
+        transcriber?: boolean;
+        limitSeconds?: number;
+      }
+    | undefined;
 }) {
   const { data: list } = useQuery(workspacesQuery);
   const workspaces = list?.workspaces ?? [];
@@ -109,21 +123,32 @@ export function CaptureNote({
 
   const [message, setMessage] = useState('');
   /**
-   * What the engine is still working out, shown after the note and replaced by
-   * its final reading ("Dictate a note in Capture", issue 714). Kept apart from
-   * `message` so it can be replaced rather than added to; it joins the note when
-   * the engine settles on it, or when dictation stops with it still unsettled.
+   * The note as it stands this instant, for the two things that arrive between
+   * renders: the words of a dictation, which land after whatever was typed while
+   * they were being transcribed ("Dictate in Write with Whisper", issue 1041),
+   * and Capture pressed while they are still on their way.
    */
-  const [provisional, setProvisional] = useState('');
-  const dictation = useDictation({
-    ...dictating,
-    onPhrase: (text, final, replaces) => {
-      if (final) {
-        setMessage((was) => (replaces ? replacePhrase(was, replaces, text) : appendPhrase(was, text)));
-      } else setProvisional(text);
-    },
+  const noteNow = useRef(message);
+  noteNow.current = message;
+  const changeNote = (next: string) => {
+    noteNow.current = next;
+    setMessage(next);
+  };
+  /** Whether the Worker can transcribe at all; the mic is drawn only where it can. */
+  const transcribable = useQuery({
+    ...transcriptionOfferedQuery,
+    enabled: dictating?.transcriber === undefined,
   });
-  const shown = appendPhrase(message, provisional);
+  const keptRecordings = useKeptRecordings();
+  const dictation = useRecordedDictation({
+    ...dictating,
+    // A recording whose words do not come back waits on this device, with Retry
+    // ("Keep a recording Write could not transcribe, with Retry", issue 1044).
+    keeping: keptRecordings,
+    transcriber: dictating?.transcriber ?? transcribable.data ?? false,
+    onWords: (words) => changeNote(appendPhrase(noteNow.current, words)),
+  });
+  const shown = message;
   /**
    * Whether the note is written in the formatted editor ("Switch the Capture
    * note to formatted", issue 758). Always plain on opening, and kept through
@@ -315,6 +340,24 @@ export function CaptureNote({
     putBackHere.current.add(entry.id);
     setPutBack((was) => new Set(was).add(entry.id));
     const back = whatGoesBack(entry);
+    if (back.recording) {
+      // A spoken note refused before its words came back: its recording is
+      // kept under the strip with Retry before the entry goes, so it is never
+      // in neither (issue 1045).
+      const { bytes, type, seconds } = back.recording;
+      try {
+        await keptRecordings.keep(new Blob([bytes], { type }), seconds, entry.id);
+      } catch {
+        putBackHere.current.delete(entry.id);
+        setPutBack((was) => {
+          const next = new Set(was);
+          next.delete(entry.id);
+          return next;
+        });
+        setRefused(RECORDING_NOT_PUT_BACK);
+        return;
+      }
+    }
     if (back.message !== null) {
       const note = back.message;
       setMessage((was) => (was.trim() ? `${was}\n${note}` : note));
@@ -401,12 +444,24 @@ export function CaptureNote({
    */
   const belongsTo = workspaces.some((one) => one.id === where) ? where : null;
 
-  const submit = (e: React.FormEvent) => {
+  /** Capture was pressed and is waiting on words still being recorded or transcribed. */
+  const waitingOnWords = useRef(false);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Listening stops with the press, and what was still being recognised stays
-    // in the note: `shown` already holds it, and so does the box once it empties.
-    const trimmed = shown.trim();
-    dictation.stop();
+    // Pressed mid-dictation: the recording ends and the press waits for its
+    // words, which then join the note as they would have. Where they cannot be
+    // had, nothing is captured and the line under the strip says why, so that
+    // speech is never dropped without a word.
+    if (dictation.busy) {
+      if (waitingOnWords.current) return;
+      waitingOnWords.current = true;
+      const heard = await dictation.finish().finally(() => {
+        waitingOnWords.current = false;
+      });
+      if (!heard) return;
+    }
+    const trimmed = noteNow.current.trim();
     // Nothing written is nothing to say anything about.
     if (!trimmed) return;
 
@@ -525,7 +580,12 @@ export function CaptureNote({
     ...waiting.map((entry) => ({
       id: entry.id,
       at: Date.parse(entry.capturedAt),
-      message: entry.message,
+      // A note spoken in the Car view has no words until the outbox can transcribe it (issue 1045).
+      message: !needsWords(entry)
+        ? entry.message
+        : entry.refused === null
+          ? RECORDING_WAITING_FOR_WORDS
+          : RECORDING_NOT_TRANSCRIBED,
       typeId: entry.typeId,
       workspaceId: entry.decided ? entry.workspaceId : null,
       state: stateOf(entry),
@@ -538,13 +598,7 @@ export function CaptureNote({
   const plainBox = (readOnly: boolean) => (
     <textarea
       value={shown}
-      onChange={(e) => {
-        // Typing over what was just heard makes it part of the note, and the
-        // engine must not deliver it again, as a final or as a longer reading.
-        dictation.forgetPhrase();
-        setProvisional('');
-        setMessage(e.target.value);
-      }}
+      onChange={(e) => changeNote(e.target.value)}
       placeholder="What is on your mind?"
       aria-label="What is on your mind?"
       autoFocus={!readOnly}
@@ -658,10 +712,8 @@ export function CaptureNote({
                   initial={shown}
                   label="What is on your mind?"
                   onChange={(markdown) => {
-                    dictation.forgetPhrase();
-                    setProvisional('');
                     fromEditor.current = markdown;
-                    setMessage(markdown);
+                    changeNote(markdown);
                   }}
                   editable={!busy}
                   fill
@@ -958,7 +1010,7 @@ function PriorityAndDue({
   due: string | null;
   onDue: (due: string | null) => void;
   disabled: boolean;
-  dictation: Dictation;
+  dictation: RecordedDictation;
   formatted: boolean;
   onFormatted: () => void;
   /** False once the editor has failed to load, which asking again would not mend. */
@@ -1092,25 +1144,59 @@ function PriorityAndDue({
         {dictation.error}
       </p>
     )}
+    {dictation.notice && !dictation.error && (
+      <p role="status" className="px-3 pb-2 text-sm text-ink-soft">
+        {dictation.notice}
+      </p>
+    )}
+    {/* Each recording kept for want of its words, oldest first, with Retry
+        ("Keep a recording Write could not transcribe, with Retry", issue
+        1044): drawn only while one waits, and whether or not the mic is, since
+        what is kept is yours either way. */}
+    {dictation.waiting.length > 0 && (
+      <div role="group" aria-label="Not yet transcribed" className="flex flex-col gap-1 px-3 pb-2">
+        {dictation.waiting.map((one) => (
+          <div key={one.id} className="flex items-center gap-2 text-sm">
+            <span className="min-w-0 flex-1 text-ink-soft">
+              A recording of {clock(one.seconds)}, not yet transcribed
+            </span>
+            {one.retrying ? (
+              <span className="text-xs text-ink-faint">Transcribing…</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => dictation.retry(one.id)}
+                className={`${STRIP_BUTTON} ${QUIET_BUTTON}`}
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
     </>
   );
 }
 
 /**
- * The mic and the language it listens in, at the right end of the strip, drawn
- * only where the browser can recognise speech. The mic is the size of a flag;
- * it is filled and pulsing only once the engine has actually started
- * (`dictation.ts`), and the tag beside it is switched off while it listens.
+ * The mic at the right end of the strip, drawn only where the browser can record
+ * and the page has a transcriber. It is filled and pulsing once the recorder has
+ * started, with the time recorded beside it; on stop it gives way to
+ * *Transcribing…* until the words are in the note ("Dictate in Write with
+ * Whisper", issue 1041). There is no language to choose: Whisper hears which.
  */
-function Dictate({ dictation, disabled }: { dictation: Dictation; disabled: boolean }) {
-  const { listening, language } = dictation;
-  const { tag, name } = DICTATION_LANGUAGES[language];
+function Dictate({ dictation, disabled }: { dictation: RecordedDictation; disabled: boolean }) {
+  const { listening, transcribing } = dictation;
   return (
     <div role="group" aria-label="Dictation" className="flex items-center gap-1.5">
+      <span aria-live="polite" className="text-xs tabular-nums text-ink-faint">
+        {listening ? `Listening · ${clock(dictation.seconds)}` : transcribing ? 'Transcribing…' : ''}
+      </span>
       <button
         type="button"
         onClick={dictation.toggle}
-        disabled={disabled && !listening}
+        disabled={(disabled && !listening) || transcribing}
         aria-pressed={listening}
         aria-label="Dictate"
         title={listening ? 'Stop dictating' : 'Dictate the note'}
@@ -1137,16 +1223,6 @@ function Dictate({ dictation, disabled }: { dictation: Dictation; disabled: bool
             strokeLinecap="round"
           />
         </svg>
-      </button>
-      <button
-        type="button"
-        onClick={dictation.toggleLanguage}
-        disabled={listening}
-        aria-label={`Dictation language: ${name}`}
-        title={listening ? `Dictating in ${name}` : `Dictating in ${name}. Press to switch.`}
-        className={`${STRIP_BUTTON} ${QUIET_BUTTON} font-medium tracking-[0.05em]`}
-      >
-        {tag}
       </button>
     </div>
   );

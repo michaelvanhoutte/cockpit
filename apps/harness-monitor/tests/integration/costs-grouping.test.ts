@@ -51,7 +51,7 @@ describe('Harness Monitor', () => {
 
     it('by issue, pull requests closing the same issue are summed together', async () => {
       expect(await rows('issue')).toEqual([
-        ['Issue #5', '$10.00', '—', '—', '$5.00', '—', '—', '$4.00', '$1.00'],
+        ['#5', '$10.00', '—', '—', '$5.00', '—', '—', '$4.00', '$1.00'],
         ['No issue', '$3.00', '—', '—', '—', '$3.00', '—', '—', '—'],
         ['Unattributed', '$0.75', '—', '$0.25', '$0.50', '—', '—', '—', '—'],
       ]);
@@ -80,7 +80,7 @@ describe('Harness Monitor', () => {
       ]);
     });
 
-    it('by day there is one group per UTC day', async () => {
+    it('by day there is one group per UTC day, the newest first', async () => {
       await send([
         spend('d1', 1, { time: '2026-10-02T23:59:59Z', branch: 'b/10' }),
         spend('d2', 1, { time: '2026-10-03T00:00:01Z', branch: 'b/10' }),
@@ -88,9 +88,9 @@ describe('Harness Monitor', () => {
       ]);
 
       expect((await rows('day')).map((r) => [r[0], r[1]])).toEqual([
-        ['2026-10-01', '$13.75'],
-        ['2026-10-02', '$6.00'],
         ['2026-10-03', '$1.00'],
+        ['2026-10-02', '$6.00'],
+        ['2026-10-01', '$13.75'],
       ]);
     });
 

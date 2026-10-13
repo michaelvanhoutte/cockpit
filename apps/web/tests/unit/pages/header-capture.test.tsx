@@ -13,6 +13,12 @@ import {
   inTabLock,
   type Sender,
 } from '../../../src/captureOutboxSender';
+import {
+  KeptRecordings,
+  KeptRecordingsProvider,
+  browserRecordingStore,
+  type KeptRecording,
+} from '../../../src/keptRecordings';
 import { Layout } from '../../../src/pages/Layout';
 import { aShare, holdAShare, howManyAreHeld } from '../support/shares';
 
@@ -113,12 +119,15 @@ async function theShell({
   // workspace address is never capture. Named only where a case is about it.
   address = inside ? `/w/${inside}` : '/capture',
   waiting = [] as OutboxEntry[],
+  recordings = [] as KeptRecording[],
 }: {
   workspaces?: unknown[];
   inside?: string | null;
   address?: string;
   /** Captures kept on this browser and not landed, by whoever captured them. */
   waiting?: OutboxEntry[];
+  /** Recordings kept on this browser for want of their words. */
+  recordings?: KeptRecording[];
 } = {}) {
   held.workspaces = workspaces;
   at.pathname = address;
@@ -129,10 +138,15 @@ async function theShell({
   for (const entry of waiting) await store.put(entry);
   // Offline, so what is waiting stays waiting while a case looks at it.
   const outbox = new CaptureOutbox({ store, sender: NEVER_SENT, lock: inTabLock(), online: () => false });
+  const recordingStore = browserRecordingStore();
+  for (const one of recordings) await recordingStore.put(one);
+  const kept = new KeptRecordings({ store: recordingStore, lock: inTabLock() });
   const { container } = render(
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
-        <Layout />
+        <KeptRecordingsProvider value={kept}>
+          <Layout />
+        </KeptRecordingsProvider>
       </OutboxProvider>
     </QueryClientProvider>,
   );
@@ -140,12 +154,26 @@ async function theShell({
   // case is about the header holding *nothing*, and a list that has not
   // arrived yet looks exactly like that.
   await waitFor(() => expect(client.getQueryData(['workspaces'])).toBeDefined());
-  return { header: within(container.querySelector('header')!), container, outbox, store };
+  return { header: within(container.querySelector('header')!), container, outbox, store, recordingStore, kept };
+}
+
+/** A recording kept on this browser for want of its words - Michael's, unless a case says whose. */
+function aKeptRecording(at: string, owner = 'user-michael'): KeptRecording {
+  return {
+    v: 1,
+    id: `recording-${at}`,
+    owner,
+    recordedAt: at,
+    seconds: 12,
+    type: 'audio/webm',
+    bytes: new TextEncoder().encode('audio').buffer as ArrayBuffer,
+  };
 }
 
 const NEVER_SENT: Sender = {
   capture: () => Promise.reject(new TypeError('Failed to fetch')),
   upload: () => Promise.reject(new TypeError('Failed to fetch')),
+  transcribe: () => Promise.reject(new TypeError('Failed to fetch')),
 };
 
 /** A capture kept on this browser - Michael's, unless a case says whose. */
@@ -478,6 +506,67 @@ describe('Offline', () => {
 
       await waitFor(() => expect(signOut).toHaveBeenCalled());
       expect(await store.all()).toEqual([]);
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * "Keep a recording Write could not transcribe, with Retry" (issue 1044): a
+   * recording waiting for its words is its recorder's on the outbox's terms, so
+   * their confirmed sign-out is the one way it goes besides its words landing.
+   * Who it is offered to is tests/unit/components/CaptureNote.test.tsx.
+   */
+  describe('a waiting recording belongs to whoever recorded it', () => {
+    const signOutFromTheMenu = async () => {
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
+      return user;
+    };
+
+    it.each([
+      {
+        situation: 'a recording waiting',
+        waiting: [],
+        question: "1 recording hasn't been transcribed and will be lost",
+      },
+      {
+        situation: 'a capture and a recording waiting',
+        waiting: [aWaitingCapture('one')],
+        question: "1 capture hasn't been sent, and 1 recording hasn't been transcribed; all will be lost",
+      },
+    ])('is deleted only by a confirmed sign-out, which asks first, with $situation', async ({ waiting, question }) => {
+      const { recordingStore, kept } = await theShell({
+        waiting,
+        recordings: [aKeptRecording('2026-10-12T07:00:00.000Z')],
+      });
+      await waitFor(() => expect(kept.getShown()).toHaveLength(1));
+
+      let user = await signOutFromTheMenu();
+      const asked = await screen.findByRole('alertdialog');
+      expect(asked).toHaveTextContent(question);
+      await user.click(within(asked).getByRole('button', { name: 'Cancel' }));
+      expect(signOut).not.toHaveBeenCalled();
+      expect(await recordingStore.all()).toHaveLength(1);
+
+      user = await signOutFromTheMenu();
+      await user.click(await screen.findByRole('button', { name: 'Sign out, losing what has not been sent' }));
+
+      await waitFor(() => expect(signOut).toHaveBeenCalled());
+      expect(await recordingStore.all()).toEqual([]);
+    });
+
+    it('leaves somebody else’s recording on the device, asking nothing', async () => {
+      const { recordingStore } = await theShell({
+        recordings: [aKeptRecording('2026-10-12T07:00:00.000Z', 'user-bob')],
+      });
+
+      await signOutFromTheMenu();
+
+      await waitFor(() => expect(signOut).toHaveBeenCalled());
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(await recordingStore.all()).toHaveLength(1);
     });
   });
 });

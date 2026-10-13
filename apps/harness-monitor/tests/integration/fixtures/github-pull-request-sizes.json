@@ -1,0 +1,361 @@
+{
+  "data": {
+    "repository": {
+      "a": {
+        "id": "PR_kwDOTylnL88AAAABHzXVZQ",
+        "number": 979,
+        "title": "Stand up the Harness Monitor: store each Claude Code request once, and show daily token totals (#971)",
+        "state": "MERGED",
+        "createdAt": "2026-10-11T11:05:10Z",
+        "mergedAt": "2026-10-11T11:27:27Z",
+        "updatedAt": "2026-10-11T11:27:29Z",
+        "headRefName": "claude/build-971-fd1134",
+        "isCrossRepository": false,
+        "author": {
+          "login": "michaelvanhoutte"
+        },
+        "files": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "MzA"
+          },
+          "nodes": [
+            {
+              "path": ".github/workflows/deploy-harness-monitor.yml",
+              "additions": 77,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/migrations/0001_usage.sql",
+              "additions": 38,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/package.json",
+              "additions": 28,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/src/auth.ts",
+              "additions": 26,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/src/page.ts",
+              "additions": 27,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/src/store.ts",
+              "additions": 88,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/src/validate.ts",
+              "additions": 148,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/src/worker.ts",
+              "additions": 52,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/env.d.ts",
+              "additions": 14,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/integration/apply-migrations.ts",
+              "additions": 4,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/integration/counted-once.test.ts",
+              "additions": 101,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/integration/daily-page.test.ts",
+              "additions": 36,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/integration/daily-totals.test.ts",
+              "additions": 64,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/integration/refused-batch.test.ts",
+              "additions": 17,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/integration/support.ts",
+              "additions": 57,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/integration/write-key.test.ts",
+              "additions": 46,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/unit/auth.test.ts",
+              "additions": 18,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tests/unit/validate.test.ts",
+              "additions": 91,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/tsconfig.json",
+              "additions": 20,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/vitest.config.ts",
+              "additions": 26,
+              "deletions": 0
+            },
+            {
+              "path": "apps/harness-monitor/wrangler.jsonc",
+              "additions": 28,
+              "deletions": 0
+            },
+            {
+              "path": "docs/architecture.md",
+              "additions": 14,
+              "deletions": 2
+            },
+            {
+              "path": "docs/deployment.md",
+              "additions": 30,
+              "deletions": 2
+            },
+            {
+              "path": "eslint.config.mjs",
+              "additions": 20,
+              "deletions": 0
+            },
+            {
+              "path": "package.json",
+              "additions": 1,
+              "deletions": 0
+            },
+            {
+              "path": "pnpm-lock.yaml",
+              "additions": 21,
+              "deletions": 0
+            },
+            {
+              "path": "scripts/dev-harness.mjs",
+              "additions": 56,
+              "deletions": 0
+            },
+            {
+              "path": "scripts/lib/ports.mjs",
+              "additions": 4,
+              "deletions": 0
+            },
+            {
+              "path": "tools/test-explorer/concepts.json",
+              "additions": 11,
+              "deletions": 0
+            },
+            {
+              "path": "tools/test-explorer/src/analyze/rules.js",
+              "additions": 1,
+              "deletions": 1
+            }
+          ]
+        },
+        "commits": {
+          "totalCount": 3,
+          "nodes": [
+            {
+              "commit": {
+                "committedDate": "2026-10-11T11:01:04Z"
+              }
+            },
+            {
+              "commit": {
+                "committedDate": "2026-10-11T11:03:33Z"
+              }
+            },
+            {
+              "commit": {
+                "committedDate": "2026-10-11T11:04:40Z"
+              }
+            }
+          ]
+        },
+        "closingIssuesReferences": {
+          "nodes": [
+            {
+              "number": 971,
+              "title": "Stand up the Harness Monitor: store each Claude Code request once, and show daily token totals"
+            }
+          ]
+        }
+      },
+      "b": {
+        "id": "PR_kwDOTylnL88AAAABGIlp-Q",
+        "number": 618,
+        "title": "Bump serialize-javascript from 7.1.1 to 7.1.2",
+        "state": "OPEN",
+        "createdAt": "2026-10-01T16:35:24Z",
+        "mergedAt": null,
+        "updatedAt": "2026-10-01T16:35:25Z",
+        "headRefName": "dependabot/npm_and_yarn/serialize-javascript-7.1.2",
+        "isCrossRepository": false,
+        "author": {
+          "login": "dependabot"
+        },
+        "files": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "MQ"
+          },
+          "nodes": [
+            {
+              "path": "pnpm-lock.yaml",
+              "additions": 262,
+              "deletions": 158
+            }
+          ]
+        },
+        "commits": {
+          "totalCount": 1,
+          "nodes": [
+            {
+              "commit": {
+                "committedDate": "2026-10-01T16:35:23Z"
+              }
+            }
+          ]
+        },
+        "closingIssuesReferences": {
+          "nodes": []
+        }
+      },
+      "c": {
+        "id": "PR_kwDOTylnL88AAAABHUfrWA",
+        "number": 884,
+        "title": "Hold a web test file's teardown until Milkdown's timers have fired",
+        "state": "MERGED",
+        "createdAt": "2026-10-08T11:42:28Z",
+        "mergedAt": "2026-10-08T12:03:58Z",
+        "updatedAt": "2026-10-08T12:04:00Z",
+        "headRefName": "fix/milkdown-timer-outlives-jsdom",
+        "isCrossRepository": false,
+        "author": {
+          "login": "michaelvanhoutte"
+        },
+        "files": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "MQ"
+          },
+          "nodes": [
+            {
+              "path": "apps/web/tests/setup.ts",
+              "additions": 44,
+              "deletions": 1
+            }
+          ]
+        },
+        "commits": {
+          "totalCount": 1,
+          "nodes": [
+            {
+              "commit": {
+                "committedDate": "2026-10-08T11:40:36Z"
+              }
+            }
+          ]
+        },
+        "closingIssuesReferences": {
+          "nodes": []
+        }
+      },
+      "d": {
+        "id": "PR_kwDOTylnL88AAAABHy91EQ",
+        "number": 969,
+        "title": "Stop a build relaxing the architecture document without the engineer agreeing (#965)",
+        "state": "MERGED",
+        "createdAt": "2026-10-11T09:50:26Z",
+        "mergedAt": "2026-10-11T10:33:01Z",
+        "updatedAt": "2026-10-11T10:33:03Z",
+        "headRefName": "claude/build-965-968-bcd508",
+        "isCrossRepository": false,
+        "author": {
+          "login": "michaelvanhoutte"
+        },
+        "files": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "NA"
+          },
+          "nodes": [
+            {
+              "path": ".claude/commands/build.md",
+              "additions": 2,
+              "deletions": 0
+            },
+            {
+              "path": "CLAUDE.md",
+              "additions": 1,
+              "deletions": 1
+            },
+            {
+              "path": "scripts/lib/what-changed.mjs",
+              "additions": 21,
+              "deletions": 0
+            },
+            {
+              "path": "scripts/lib/what-changed.test.mjs",
+              "additions": 39,
+              "deletions": 2
+            }
+          ]
+        },
+        "commits": {
+          "totalCount": 4,
+          "nodes": [
+            {
+              "commit": {
+                "committedDate": "2026-10-11T09:48:29Z"
+              }
+            },
+            {
+              "commit": {
+                "committedDate": "2026-10-11T09:49:01Z"
+              }
+            },
+            {
+              "commit": {
+                "committedDate": "2026-10-11T09:49:08Z"
+              }
+            },
+            {
+              "commit": {
+                "committedDate": "2026-10-11T09:50:00Z"
+              }
+            }
+          ]
+        },
+        "closingIssuesReferences": {
+          "nodes": [
+            {
+              "number": 965,
+              "title": "Stop a build relaxing a binding architecture rule without the engineer agreeing"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

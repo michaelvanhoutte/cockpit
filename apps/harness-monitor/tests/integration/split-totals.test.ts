@@ -38,6 +38,18 @@ describe('Harness Monitor', () => {
       ]);
     });
 
+    it('with the old per-branch table dropped by migration 0013, a batch still counts its rows and the nightly rebuild succeeds', async () => {
+      const old = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'daily_branch_totals'").all();
+      expect(old.results).toEqual([]);
+
+      await send(mixed());
+      const written = await splitTotals();
+      expect(written.reduce((sum, t) => sum + t.requests, 0)).toBe(5);
+
+      await runTheNightlyJob();
+      expect(await splitTotals()).toEqual(written);
+    });
+
     it('the nightly rebuild leaves the totals as writing the rows made them', async () => {
       await send(mixed());
       const written = await splitTotals();
