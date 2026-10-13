@@ -1071,6 +1071,62 @@ describe('Item editing', () => {
     });
   });
 
+  describe('a row with keyboard focus opens its form with Enter and its menu with the menu key', () => {
+    const focused = () => {
+      const row = screen.getByRole('listitem');
+      row.tabIndex = -1;
+      row.focus();
+      return row;
+    };
+
+    it('opens the form on Enter, even over a selection', async () => {
+      const user = userEvent.setup();
+      const onOpen = vi.fn();
+      aRow({
+        onOpen,
+        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection: () => {} },
+      });
+      focused();
+
+      await user.keyboard('{Enter}');
+
+      expect(onOpen).toHaveBeenCalledOnce();
+    });
+
+    it('leaves Enter on the menu button to the menu', async () => {
+      const user = userEvent.setup();
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+      screen.getByLabelText('Item actions').focus();
+
+      await user.keyboard('{Enter}');
+
+      expect(await screen.findAllByRole('menuitem')).not.toHaveLength(0);
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { situation: 'the menu key', keys: '{ContextMenu}' },
+      { situation: 'Shift+F10', keys: '{Shift>}{F10}{/Shift}' },
+    ])('offers the right-click menu on $situation, and Escape closes it', async ({ keys }) => {
+      const user = userEvent.setup();
+      aRow({ onOpen: () => {}, onMoveTo: () => {} });
+      await user.click(screen.getByLabelText('Item actions'));
+      const fromTheDots = (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
+      await user.keyboard('{Escape}');
+      const row = focused();
+
+      await user.keyboard(keys);
+
+      expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual(
+        fromTheDots,
+      );
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('menuitem')).toBeNull();
+      expect(row).toHaveFocus();
+    });
+  });
+
   describe('a right-click on a row opens the same menu as its three dots', () => {
     /** Every entry the open menu offers, in order. */
     const entriesOpen = async () =>

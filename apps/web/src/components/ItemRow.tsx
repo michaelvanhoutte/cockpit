@@ -973,6 +973,29 @@ export function ItemRow({
         }
         onOpen?.();
       }}
+      // A focused row (Find lands on one, issue 828) opens with Enter and offers
+      // its menu with the menu key or Shift+F10, as a double-click and a
+      // right-click do (issue 830). Only for the row itself: a button inside it
+      // keeps its own Enter, and the menu's entries reach here from a portal.
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          onOpen?.();
+        } else if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+          event.preventDefault();
+          lastPointerType.current = 'mouse';
+          const box = event.currentTarget.getBoundingClientRect();
+          event.currentTarget.dispatchEvent(
+            new MouseEvent('contextmenu', {
+              bubbles: true,
+              cancelable: true,
+              clientX: box.left + 16,
+              clientY: box.top + box.height / 2,
+            }),
+          );
+        }
+      }}
       // Nothing drawn in a portal from this row opens the row's menu: its own
       // dropdown's entries reach here through the React tree, and a menu opening
       // over a menu is not what a right-click on an entry means.
