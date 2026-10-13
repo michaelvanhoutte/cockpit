@@ -28,8 +28,7 @@ import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { scrollWhileDragging } from '../dragScroll';
 import { groupFilterRows } from '../filterGroups';
-import { choiceFromRows, dayOf, filtersUsingPanel, isGrouped, joinedBy, rowsFromChoice } from '../filters';
-import type { FilterMatch } from '../filters';
+import { dayOf, filtersUsingPanel, isGrouped, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
 import {
   clearDashboardFilter,
@@ -1338,17 +1337,14 @@ export function PanelBoard({
 
   /**
    * What a Filter shows, saved whole ("Add a Filter panel that shows every
-   * filed item due in a window", issue 463) - as rows, the question's *All /
-   * Any* choice turned into a row per condition or one row of them all
-   * (`rowsFromChoice`).
+   * filed item due in a window", issue 463) - as the question's rows.
    *
    * Closed only once it lands, the way the rename is: a refusal leaves the
    * question up with the rows still in it rather than losing what was chosen.
    */
   const setFilter = (
     panelId: string,
-    conditions: FilterCondition[],
-    match: FilterMatch,
+    rows: FilterCondition[][],
     groupBy: FilterGrouping,
   ) => {
     command.mutate(
@@ -1359,7 +1355,7 @@ export function PanelBoard({
           issuedAt: new Date().toISOString(),
           workspaceId,
           panelId,
-          rows: rowsFromChoice(conditions, match),
+          rows,
           groupBy,
         },
       },
@@ -1758,12 +1754,12 @@ export function PanelBoard({
               key={beingFiltered.id}
               open
               panelName={beingFiltered.name}
-              {...choiceFromRows((beingFiltered.filter ?? NO_CONDITIONS).rows)}
+              rows={(beingFiltered.filter ?? NO_CONDITIONS).rows}
               groupBy={(beingFiltered.filter ?? NO_CONDITIONS).groupBy}
               panels={panelsInWorkspace}
               dashboards={dashboards}
               layouts={layouts}
-              onSave={(conditions, match, groupBy) => setFilter(beingFiltered.id, conditions, match, groupBy)}
+              onSave={(rows, groupBy) => setFilter(beingFiltered.id, rows, groupBy)}
               onCancel={() => {
                 setFiltering(null);
                 command.reset();

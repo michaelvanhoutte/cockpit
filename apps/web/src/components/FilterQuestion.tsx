@@ -17,7 +17,7 @@ import {
   type Panel,
   type Priority,
 } from '@cockpit/shared';
-import { GROUPING_NAMES, WINDOW_LABELS, isAPeriod, type FilterMatch } from '../filters';
+import { GROUPING_NAMES, WINDOW_LABELS, isAPeriod } from '../filters';
 import { orderedAsDrawn } from '../filterGroups';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
@@ -31,16 +31,18 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
  * shows every filed item due in a window", issue 463; "Filter a Filter panel
  * by priority and type", issue 464).
  *
- * **One row per condition, and all of them have to hold** unless the second
- * row's joiner says *or* ("Let a Filter show items that meet any of its
- * conditions", issue 504; "Join a Filter's conditions with and/or beside each
- * row", issue 909). The rows are a list
- * rather than a sentence with clauses because that is what the question grows
- * into - Due date, Priority and, since "Filter a Filter panel by panel,
- * and name the Filters a panel's deletion affects" (issue 465), Panel, each
- * its own row rather than another form.
+ * **Rows joined by *and*, each holding one or more conditions joined by *or***
+ * ("Edit a Filter as rows joined by and, each holding alternatives joined by
+ * or", issue 1082). A row of one condition is a plain card; a row of several is
+ * a tinted box with *or* between its cards. The rows are a list rather than a
+ * sentence with clauses because that is what the question grows into - Due
+ * date, Priority, Panel and the rest, each its own card rather than another
+ * form.
  *
- * **Saved whole, including saved empty.** Taking the last row out and saving is
+ * **A field is offered once per row**, in any number of rows: *Priority is
+ * High or due today, and Priority is not Low* is two rows using Priority.
+ *
+ * **Saved whole, including saved empty.** Taking the last card out and saving is
  * a real answer: the Filter goes back to saying it has nothing chosen, which is
  * the state a new one arrives in.
  *
@@ -59,8 +61,7 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
  */
 function FilterQuestion({
   panelName,
-  conditions,
-  match: initialMatch,
+  rows: initialRows,
   groupBy: initialGroupBy,
   panels,
   dashboards,
@@ -73,10 +74,8 @@ function FilterQuestion({
   returnFocusTo,
 }: {
   panelName: string;
-  /** What the Filter shows now, which the rows open on. */
-  conditions: readonly FilterCondition[];
-  /** Whether the Filter needs all of them or any one, which the second row's joiner opens on. */
-  match: FilterMatch;
+  /** What the Filter shows now, which the question opens on. */
+  rows: readonly (readonly FilterCondition[])[];
   /** What the Filter's rows are grouped under, which the *Group by* choice opens on. */
   groupBy: FilterGrouping;
   /**
@@ -92,7 +91,7 @@ function FilterQuestion({
   /** Their Layouts, which put each Dashboard's Panels in the order its board draws them. */
   layouts: readonly Layout[];
   open: boolean;
-  onSave: (conditions: FilterCondition[], match: FilterMatch, groupBy: FilterGrouping) => void;
+  onSave: (rows: FilterCondition[][], groupBy: FilterGrouping) => void;
   onCancel: () => void;
   refusal?: string | null;
   busy?: boolean;
@@ -110,31 +109,30 @@ function FilterQuestion({
    * here is that the later save stands - and a refusal leaves what was chosen
    * on the form.
    */
-  const [rows, setRows] = useState<FilterCondition[]>([...conditions]);
-  /**
-   * Whether an Item has to meet all of the rows or any one, read once like
-   * them. **Kept when rows are removed down to one**, the way *or overdue* is
-   * kept when the window changes: the joiner that sets it exists only from the
-   * second row, but what was chosen is still what saves.
-   */
-  const [match, setMatch] = useState<FilterMatch>(initialMatch);
+  const [rows, setRows] = useState<FilterCondition[][]>(() => initialRows.map((row) => [...row]));
   /** What the rows are grouped under, saved with the conditions ("Group a Filter panel's items by the Dashboard or Panel they are filed on", issue 805). */
   const [groupBy, setGroupBy] = useState<FilterGrouping>(initialGroupBy);
-  // With fewer than two rows the two answers are the same one, and the question
-  // reads as it always did.
-  const any = rows.length >= 2 && match === 'any';
 
-  const change = (at: number, row: FilterCondition) =>
-    setRows(rows.map((was, index) => (index === at ? row : was)));
+  /** Puts `next` in place of one condition, or takes it out for `null`; a row left with nothing goes with it. */
+  const replace = (row: number, at: number, next: FilterCondition | null) =>
+    setRows(
+      rows
+        .map((was, index) =>
+          index !== row ? was : next ? was.map((c, i) => (i === at ? next : c)) : was.filter((_, i) => i !== at),
+        )
+        .filter((was) => was.length > 0),
+    );
 
-  /**
-   * The fields the question does not already have a row for - what
-   * *+ Add a condition* offers, and the whole of how "a field already on the
-   * filter is not offered a second time" (issue 464) is kept on this side: a
-   * field with a row already is left off the menu rather than shown and
-   * refused.
-   */
-  const available = FIELD_ORDER.filter((field) => !rows.some((row) => row.field === field));
+  /** Adds a condition to a row as an alternative, or as a row of its own where `row` is null. */
+  const add = (row: number | null, field: FilterCondition['field']) =>
+    setRows(
+      row === null
+        ? [...rows, [defaultConditionFor(field)]]
+        : rows.map((was, index) => (index === row ? [...was, defaultConditionFor(field)] : was)),
+    );
+
+  /** The number a condition goes by in reading order across every row, which names its controls. */
+  const numberOf = (row: number, at: number) => rows.slice(0, row).reduce((n, was) => n + was.length, 0) + at;
 
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
@@ -152,13 +150,14 @@ function FilterQuestion({
             What does {panelName} show?
           </Dialog.Title>
           <Dialog.Description className="pt-2 text-sm text-ink-soft">
-            Every item filed on a panel of this workspace that meets {any ? 'any' : 'all'} of these.
+            Every item filed on a panel of this workspace that meets every row, a row being met by any one of its
+            conditions.
           </Dialog.Description>
 
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              onSave(rows, match, groupBy);
+              onSave(rows, groupBy);
             }}
             className="pt-4"
           >
@@ -166,18 +165,40 @@ function FilterQuestion({
               <p className="text-sm text-ink-faint">Nothing chosen yet.</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {rows.map((row, at) => (
-                  <li key={row.field} className="flex items-start gap-2">
-                    <Joiner at={at} match={match} onChange={setMatch} />
-                    <div className="min-w-0 flex-1 rounded-md border border-shade/10 p-3">
-                      <ConditionRow
-                        at={at}
-                        row={row}
-                        panels={panels}
-                        dashboards={dashboards}
-                        layouts={layouts}
-                        onChange={(next) => change(at, next)}
-                        onRemove={() => setRows(rows.filter((_, index) => index !== at))}
+                {rows.map((row, rowAt) => (
+                  <li key={rowAt} className="flex items-start gap-2">
+                    {/* Fixed words, not a choice: rows are always joined by and. */}
+                    <span className="w-14 shrink-0 pt-3 text-right text-sm text-ink-soft">
+                      {rowAt === 0 ? 'Where' : 'and'}
+                    </span>
+                    <div
+                      className={
+                        row.length > 1
+                          ? 'flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-accent-soft/40 bg-accent-tint/40 p-2'
+                          : 'flex min-w-0 flex-1 flex-col gap-1'
+                      }
+                    >
+                      {row.map((condition, at) => (
+                        <div key={condition.field} className="flex flex-col gap-1">
+                          {at > 0 && <span className="px-1 text-xs font-semibold text-ink-soft">or</span>}
+                          <div className="rounded-md border border-shade/10 bg-surface p-3">
+                            <ConditionRow
+                              at={numberOf(rowAt, at)}
+                              row={condition}
+                              panels={panels}
+                              dashboards={dashboards}
+                              layouts={layouts}
+                              onChange={(next) => replace(rowAt, at, next)}
+                              onRemove={() => replace(rowAt, at, null)}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      <AddMenu
+                        label="+ Or…"
+                        name={`+ Or… to row ${rowAt + 1}`}
+                        fields={FIELD_ORDER.filter((field) => !row.some((condition) => condition.field === field))}
+                        onAdd={(field) => add(rowAt, field)}
                       />
                     </div>
                   </li>
@@ -185,27 +206,7 @@ function FilterQuestion({
               </ul>
             )}
 
-            {available.length > 0 && (
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger
-                  type="button"
-                  className="mt-3 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
-                >
-                  + Add a condition
-                </DropdownMenu.Trigger>
-                <MenuContent>
-                  {available.map((field) => (
-                    <DropdownMenu.Item
-                      key={field}
-                      className={menuItemClass}
-                      onSelect={() => setRows([...rows, defaultConditionFor(field)])}
-                    >
-                      {FIELD_LABELS[field]}
-                    </DropdownMenu.Item>
-                  ))}
-                </MenuContent>
-              </DropdownMenu.Root>
-            )}
+            <AddMenu label="+ And…" name="+ And…" fields={FIELD_ORDER} onAdd={(field) => add(null, field)} />
 
             {/* How the list is drawn is its own section, apart from what it shows. */}
             <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-shade/10 pt-4">
@@ -262,53 +263,48 @@ const GROUPING_HINTS: Record<FilterGrouping, string> = {
 };
 
 /**
- * The word in the left gutter that joins a row to the ones above it: *Where*
- * on the first, then *and* or *or* ("Join a Filter's conditions with and/or
- * beside each row", issue 909).
- *
- * **The second row's joiner is the question's all-or-any, and the rows after it
- * only repeat it as text.** This question asks all or any as a whole, saved as
- * a row per condition or one row of them all (`rowsFromChoice`), so a third
- * row offering its own choice would promise something it cannot save. A
- * `select` rather than a segmented control: two words in a gutter a few
- * characters wide.
+ * *+ Or…* at the end of a row and *+ And…* under the rows: the same menu of
+ * fields, offering a row's alternatives only the fields it does not already
+ * hold ("a field once per row") and a new row every field. Absent where there
+ * is nothing left to offer.
  */
-function Joiner({
-  at,
-  match,
-  onChange,
+function AddMenu({
+  label,
+  name,
+  fields,
+  onAdd,
 }: {
-  at: number;
-  match: FilterMatch;
-  onChange: (match: FilterMatch) => void;
+  label: string;
+  /** What a screen reader calls the button, so the several *+ Or…* can be told apart. */
+  name: string;
+  fields: readonly FilterCondition['field'][];
+  onAdd: (field: FilterCondition['field']) => void;
 }) {
+  if (fields.length === 0) return null;
   return (
-    <span className="w-14 shrink-0 pt-3 text-right text-sm text-ink-soft">
-      {at === 0 ? (
-        'Where'
-      ) : at === 1 ? (
-        <select
-          value={match}
-          aria-label="How the conditions combine"
-          onChange={(event) => onChange(event.target.value as FilterMatch)}
-          className="w-full rounded-md border border-shade/10 bg-surface px-1 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-        >
-          <option value="all">and</option>
-          <option value="any">or</option>
-        </select>
-      ) : match === 'any' ? (
-        'or'
-      ) : (
-        'and'
-      )}
-    </span>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger
+        type="button"
+        aria-label={name}
+        className="mt-1 self-start rounded-md border border-shade/10 bg-surface px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+      >
+        {label}
+      </DropdownMenu.Trigger>
+      <MenuContent>
+        {fields.map((field) => (
+          <DropdownMenu.Item key={field} className={menuItemClass} onSelect={() => onAdd(field)}>
+            {FIELD_LABELS[field]}
+          </DropdownMenu.Item>
+        ))}
+      </MenuContent>
+    </DropdownMenu.Root>
   );
 }
 
-/** The fields a condition can be about, in the order *+ Add a condition* offers them. */
+/** The fields a condition can be about, in the order the add menus offer them. */
 const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'panel', 'dashboard', 'status'];
 
-/** What each field is called on the add menu and beside its row. */
+/** What each field is called on the add menus and beside its row. */
 const FIELD_LABELS: Record<FilterCondition['field'], string> = {
   dueDate: 'Due date',
   priority: 'Priority',

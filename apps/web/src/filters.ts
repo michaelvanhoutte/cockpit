@@ -4,7 +4,6 @@ import type {
   Filing,
   FilterCondition,
   FilterGrouping,
-  FilterRow,
   Item,
   PanelFilter,
   PanelSort,
@@ -33,40 +32,6 @@ import { DEFAULT_FILTER_SORT, inSortOrder } from './sorting';
  * the week of whoever is looking, which a server answering for an account
  * cannot say.
  */
-
-/**
- * Whether the Filter question's conditions all have to hold or any one - its
- * *All / Any* choice, which is saved as rows rather than stored ("Store every
- * Filter as rows, and save the All / Any choice as rows", issue 1081).
- */
-export type FilterMatch = 'all' | 'any';
-
-/** The rows the question's *All / Any* choice saves: a row per condition for *All*, one row of them all for *Any*. */
-export function rowsFromChoice(conditions: readonly FilterCondition[], match: FilterMatch): FilterRow[] {
-  if (conditions.length === 0) return [];
-  return match === 'any' ? [[...conditions]] : conditions.map((condition) => [condition]);
-}
-
-/**
- * The question's conditions and *All / Any* choice, from a Filter's rows: one
- * row of alternatives reads as *Any*, anything else as *All* of every
- * condition, each field once - the question keeps one condition per field.
- * Rows that are neither shape cannot be saved from the question, only sent
- * whole through the API, and the question built on rows replaces this.
- */
-export function choiceFromRows(rows: readonly (readonly FilterCondition[])[]): {
-  conditions: FilterCondition[];
-  match: FilterMatch;
-} {
-  if (rows.length === 1 && rows[0]!.length > 1) return { conditions: [...rows[0]!], match: 'any' };
-  const seen = new Set<FilterCondition['field']>();
-  const conditions = rows.flat().filter((condition) => {
-    if (seen.has(condition.field)) return false;
-    seen.add(condition.field);
-    return true;
-  });
-  return { conditions, match: 'all' };
-}
 
 /** A calendar day, as an Item's due date is stored: `2026-09-17`. */
 export type Day = string;

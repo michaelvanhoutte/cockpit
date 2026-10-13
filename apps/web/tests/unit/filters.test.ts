@@ -18,12 +18,17 @@ import {
   inFilterOrder,
   itemsMatchingFilter,
   panelAndFilterIdsByItem,
-  rowsFromChoice,
   saysWhatItShows,
   shownOn,
-  type FilterMatch,
 } from '../../src/filters';
 import { DEFAULT_FILTER_SORT } from '../../src/sorting';
+
+/** The two shapes the older tests are written in: *all* is a row per condition, *any* one row holding them all. */
+type FilterMatch = 'all' | 'any';
+function rowsOf(conditions: readonly FilterCondition[], match: FilterMatch): FilterCondition[][] {
+  if (conditions.length === 0) return [];
+  return match === 'any' ? [[...conditions]] : conditions.map((condition) => [condition]);
+}
 
 /**
  * F1: what a Filter gathers is a view over the snapshot evaluated in the
@@ -132,12 +137,12 @@ function shown(
     match?: FilterMatch;
   } = {},
 ): string[] {
-  return shownByRows(items, filings, rowsFromChoice(conditions, match), { panels, dashboards, on });
+  return shownByRows(items, filings, rowsOf(conditions, match), { panels, dashboards, on });
 }
 
 /** A Filter of these conditions, saved as the question's All / Any choice saves it. */
 function asFilter(conditions: FilterCondition[], match: FilterMatch = 'all') {
-  return { rows: rowsFromChoice(conditions, match), groupBy: 'none' as const };
+  return { rows: rowsOf(conditions, match), groupBy: 'none' as const };
 }
 
 /** What a Filter of these rows draws, out of these items and filings. */
@@ -888,7 +893,7 @@ describe('Panels', () => {
         reads: 'Not filed on wiki',
       },
     ])('reads $situation', ({ conditions, panels = [], reads }) => {
-      expect(saysWhatItShows(rowsFromChoice(conditions, 'all'), panels)).toBe(reads);
+      expect(saysWhatItShows(rowsOf(conditions, 'all'), panels)).toBe(reads);
     });
 
     it.each([
@@ -921,7 +926,7 @@ describe('Panels', () => {
         reads: 'Nothing chosen yet',
       },
     ])('reads any, with $situation', ({ conditions, reads }) => {
-      expect(saysWhatItShows(rowsFromChoice(conditions, 'any'), [])).toBe(reads);
+      expect(saysWhatItShows(rowsOf(conditions, 'any'), [])).toBe(reads);
     });
 
     it.each([
@@ -930,7 +935,7 @@ describe('Panels', () => {
       { situation: 'by nothing, which adds nothing', groupBy: 'none' as const, conditions: [due('week')], match: 'all' as const, reads: 'Due this week or overdue' },
       { situation: 'by Panel, set to any', groupBy: 'panel' as const, conditions: [due('week'), priority('high')], match: 'any' as const, reads: 'Any of: Due this week or overdue; Priority is High; grouped by Panel' },
     ])('ends with the grouping where there is one, grouped $situation', ({ conditions, match, groupBy, reads }) => {
-      expect(saysWhatItShows(rowsFromChoice(conditions, match), [], groupBy)).toBe(reads);
+      expect(saysWhatItShows(rowsOf(conditions, match), [], groupBy)).toBe(reads);
     });
 
     it.each([
