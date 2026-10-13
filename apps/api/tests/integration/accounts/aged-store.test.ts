@@ -65,11 +65,6 @@ function fixtureName(index: number): string {
 }
 
 /**
- * Puts a store in the state an account is in when it has applied everything up
- * to `applied` and nothing since - recorded as applied, exactly as the store
- * itself records it, so that opening it afterwards has real outstanding work.
- */
-/**
  * An Item's row without the columns changes after the one a case is about add,
  * which an open brings in holding NULL - those changes hold their own rows.
  */
@@ -78,6 +73,11 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
   return rest;
 }
 
+/**
+ * Puts a store in the state an account is in when it has applied everything up
+ * to `applied` and nothing since - recorded as applied, exactly as the store
+ * itself records it, so that opening it afterwards has real outstanding work.
+ */
 async function agedTo(name: string, applied: number): Promise<void> {
   const changes = accountChanges(name);
   await inStoreAsItIs(name, (sql) => {
