@@ -1138,7 +1138,8 @@ describe('Capture', () => {
         field: { description: 'Mine to write' },
       },
     ])('leaves both texts alone once you have edited $situation', async ({ name, field }) => {
-      const itemId = await captureANote();
+      // Captured with a priority, so the texts are the last thing a reading could set.
+      const itemId = await captureANote({ priority: 'normal' });
       await untilTheNoteHasBeenRead(itemId);
       await postChange(name, {
         commandId: nextId(),
@@ -1161,6 +1162,24 @@ describe('Capture', () => {
       // job before the model is called at all, so nothing is spent on an answer
       // that would only be refused.
       expect(asked).toHaveLength(0);
+    });
+
+    it('still sets the priority the note states once you have edited the title', async () => {
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+      await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:01.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Mine',
+      });
+      theModelIs({ says: { ...SOMETHING_ELSE, priority: 'high' } });
+
+      await readAgain(itemId);
+
+      expect((await textsOf(itemId))?.title).toBe('Mine');
+      expect((await priorityOf(itemId))?.priority).toBe('high');
     });
 
     /**

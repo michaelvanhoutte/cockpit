@@ -498,16 +498,20 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     return say(job.itemId, 'nothing was enriched: the item has no captured note');
   }
   // Somebody edited the title or the description while this was queued, so the
-  // two texts are theirs. The store refuses the write for the same reason - this
-  // is what stops a model call being paid for to be refused.
-  if (item.textsSettledAt !== null) {
+  // two texts are theirs, and every field the note could state is already
+  // theirs or already filled. The store would refuse every write for the same
+  // reasons - this is what stops a model call being paid for to be refused.
+  // Texts settled alone are no reason to skip it: each field is decided on its
+  // own, so a person's title never blocks a stated priority (parent issue 1073,
+  // "Own setting wins by the same mechanism as the tidied texts").
+  if (item.textsSettledAt !== null && !aStatedFieldCouldLand(item)) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
-        message: 'nothing was proposed: the texts are already edited',
+        message: 'nothing was proposed: the texts are already edited and every field is already set',
       }),
     );
-    return say(job.itemId, 'nothing was proposed: the texts are already edited');
+    return say(job.itemId, 'nothing was proposed: the texts are already edited and every field is already set');
   }
 
   // Read fresh, for this call: the Panels this call may propose among are
@@ -679,6 +683,14 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       proposedPanelReason: routed === 'routed' ? (read.proposal.panel?.reason ?? null) : null,
     }),
   );
+}
+
+/**
+ * Whether any field a note can state is still open to it - neither set by the
+ * person nor holding a value - by the rule `applyProposedFields` applies.
+ */
+function aStatedFieldCouldLand(item: { priority: string | null; prioritySetAt: string | null }): boolean {
+  return item.prioritySetAt === null && item.priority === null;
 }
 
 /**
