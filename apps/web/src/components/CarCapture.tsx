@@ -8,6 +8,7 @@ import { useCapture } from '../capture';
 import { stateOf } from '../captureOutbox';
 import { useOutbox, useWaitingCaptures, type Heard } from '../captureOutboxSender';
 import { typesOffered } from '../itemTypes';
+import { useKeptRecordings } from '../keptRecordings';
 import { TooManyTranscriptions, transcribeRecording, transcriptionOfferedQuery } from '../api/transcription';
 import {
   DICTATION_COULD_NOT_TRANSCRIBE,
@@ -41,7 +42,8 @@ import { browserWakeLock, useScreenWakeLock, type WakeLockApi } from '../wakeLoc
  * outbox can get them, while Cockpit is open. Only where the outbox cannot be
  * written is it transcribed here and sent directly, and lost if that fails.
  * A note spoken before the workspace and its types have been read waits for
- * them rather than being thrown away.
+ * them rather than being thrown away, and one with no workspace or type to go
+ * into is kept under Write's strip with Retry, as Write keeps its own.
  *
  * **The screen is kept on for as long as this is shown** (`wakeLock.ts`).
  *
@@ -83,6 +85,8 @@ export const NO_TRANSCRIBER_HERE = 'Car capture needs Cockpit to transcribe spee
 export const CAR_NO_WORKSPACE = 'There is no workspace to capture into.';
 export const CAR_STILL_READING = 'Still reading your workspace. Tap to try again.';
 export const CAR_NO_TYPES = 'There is no type to give a note. Make one in a workspace first.';
+/** Said after any of those three where the recording could be kept, as Write keeps one it could not transcribe. */
+export const CAR_KEPT_IN_WRITE = 'The recording is kept in Write to retry.';
 
 const SCREEN_LINES = {
   held: 'Screen stays on while this is open',
@@ -200,6 +204,7 @@ function Driving({
 
   const outbox = useOutbox();
   const waitingHere = useWaitingCaptures();
+  const keptRecordings = useKeptRecordings();
   const { ask } = useCapture();
   const screen = useScreenWakeLock(wakeLock);
 
@@ -292,7 +297,13 @@ function Driving({
   const keepRecording = async (sound: Blob, seconds: number) => {
     const { from: workspaceId, chosen: type, answered: known } = await onceRead();
     if (!workspaceId || !type) {
-      setWhy(!workspaceId ? CAR_NO_WORKSPACE : known ? CAR_NO_TYPES : CAR_STILL_READING);
+      const reason = !workspaceId ? CAR_NO_WORKSPACE : known ? CAR_NO_TYPES : CAR_STILL_READING;
+      // Nothing to capture it into, so kept under Write's strip with Retry rather than lost.
+      const keptForWrite = await keptRecordings.keep(sound, seconds, uuidv7()).then(
+        () => true,
+        () => false,
+      );
+      setWhy(keptForWrite ? `${reason} ${CAR_KEPT_IN_WRITE}` : reason);
       return;
     }
     const id = uuidv7();

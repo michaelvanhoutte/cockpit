@@ -854,6 +854,26 @@ describe('Offline', () => {
       expect(outbox.getShown().map((entry) => needsWords(entry))).toEqual([true]);
       outbox.stop();
     });
+
+    it('sends no other recording in the pass once the transcriber has turned one away for now', async () => {
+      const server = aServer();
+      server.reachable = false;
+      const outbox = aTab(server);
+      await outbox.addRecorded(spoken('Ring the plumber'));
+      await outbox.addRecorded(spoken('Pay the gas bill'));
+      Object.assign(server, {
+        reachable: true,
+        transcribeCalls: 0,
+        transcriptionRefused: new CommandRefused(429, 'transcribing failed: 429'),
+      });
+
+      await outbox.send();
+      await settled();
+
+      expect(server.transcribeCalls).toBe(1);
+      expect(outbox.getShown().map((entry) => needsWords(entry))).toEqual([true, true]);
+      outbox.stop();
+    });
   });
 
   describe('a spoken note is one Item however often, and from however many tabs, it is sent', () => {

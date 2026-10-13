@@ -8,6 +8,8 @@ import type { Item, ItemType } from '@cockpit/shared';
 import { sendCommand } from '../../../src/api/client';
 import {
   CAR_DARK_KEY,
+  CAR_KEPT_IN_WRITE,
+  CAR_NO_TYPES,
   CarCapture,
   NO_RECORDING_HERE,
   NO_TRANSCRIBER_HERE,
@@ -24,6 +26,7 @@ import {
   type OutboxStore,
 } from '../../../src/captureOutboxSender';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
+import { KeptRecordings, KeptRecordingsProvider, browserRecordingStore } from '../../../src/keptRecordings';
 import type { StartRecording } from '../../../src/recording';
 import type { WakeLockApi } from '../../../src/wakeLock';
 import { aRecorder, aTranscriber } from '../support/recording';
@@ -123,6 +126,7 @@ function pageIs(state: 'visible' | 'hidden') {
 
 async function theCar({
   items = [] as Item[],
+  types = [ACTION, THOUGHT],
   dictating,
   wakeLock = aWakeLock().api,
   vibrate = vi.fn(),
@@ -132,6 +136,7 @@ async function theCar({
   online = true,
 }: {
   items?: Item[];
+  types?: ItemType[];
   dictating?: {
     record?: StartRecording | null;
     transcribe?: (recording: Blob) => Promise<string>;
@@ -148,7 +153,7 @@ async function theCar({
   /** False where the browser says it is offline. */
   online?: boolean;
 } = {}) {
-  held.types = [ACTION, THOUGHT];
+  held.types = types;
   held.items = items;
   localStorage.clear();
   localStorage.setItem('cockpit.last-visited.workspace', 'ws-home');
@@ -165,15 +170,19 @@ async function theCar({
     timeoutMs: 500,
   });
   outbox.signedInAs('user-michael');
+  const kept = new KeptRecordings({ store: browserRecordingStore(), lock: inTabLock() });
+  kept.signedInAs('user-michael');
   const view = render(
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
-        <CarCapture
-          dictating={dictating ? { transcriber: true, ...dictating } : undefined}
-          wakeLock={wakeLock}
-          vibrate={vibrate}
-          capturedFor={capturedFor}
-        />
+        <KeptRecordingsProvider value={kept}>
+          <CarCapture
+            dictating={dictating ? { transcriber: true, ...dictating } : undefined}
+            wakeLock={wakeLock}
+            vibrate={vibrate}
+            capturedFor={capturedFor}
+          />
+        </KeptRecordingsProvider>
       </OutboxProvider>
     </QueryClientProvider>,
   );
@@ -181,7 +190,7 @@ async function theCar({
   await act(async () => {
     for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
   });
-  return Object.assign(userEvent.setup(), { unmount: view.unmount, vibrate });
+  return Object.assign(userEvent.setup(), { unmount: view.unmount, vibrate, kept });
 }
 
 /** A phone that can record, a Worker that transcribes when told to, and the Car view over them. */
@@ -511,6 +520,17 @@ describe('Capture', () => {
       await transcriber.answers('buy oat milk');
 
       expect(await theCapture()).toMatchObject({ message: 'buy oat milk', typeId: ACTION.id });
+    });
+
+    it('keeps the recording in Write to retry where there is no type to capture it as', async () => {
+      const { user, transcriber } = await drivingWith({ types: [] });
+      await recording(user);
+      await user.click(theButton());
+
+      await waitFor(() => expect(theStatus()).toHaveTextContent(`${CAR_NO_TYPES} ${CAR_KEPT_IN_WRITE}`));
+      expect(user.kept.getShown()).toHaveLength(1);
+      expect(transcriber.sent()).toBe(0);
+      expect(capturedCalls()).toEqual([]);
     });
 
     it('transcribes it here and sends it at once where the recording cannot be kept on this device', async () => {

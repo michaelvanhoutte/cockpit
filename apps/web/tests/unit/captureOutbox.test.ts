@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CommandRefused } from '../../src/api/client';
 import {
+  NOTHING_HEARD,
   TimedOut,
   capturePayload,
   needsWords,
@@ -267,10 +268,34 @@ describe('Offline', () => {
         message: null,
         files: ['f2'],
       },
-    ])('$situation', ({ entry, message, files }) => {
+      {
+        situation: 'a spoken note refused before its words came back returns its recording, not an empty note',
+        entry: aSpokenEntry({ refused: 'The recording could not be transcribed (415).' }),
+        message: null,
+        files: [],
+        recording: true,
+      },
+      {
+        situation: 'a spoken note that held nothing returns nothing',
+        entry: aSpokenEntry({ refused: NOTHING_HEARD }),
+        message: null,
+        files: [],
+      },
+      {
+        situation: 'a spoken note refused once its words were kept returns the words, not the recording',
+        entry: aSpokenEntry({
+          message: 'Ring the plumber',
+          recording: { type: 'audio/webm', bytes: new ArrayBuffer(5), seconds: 3, transcribed: true },
+          refused: 'workspace ws-work not found',
+        }),
+        message: 'Ring the plumber',
+        files: [],
+      },
+    ])('$situation', ({ entry, message, files, recording = false }) => {
       const back = whatGoesBack(entry);
       expect(back.message).toBe(message);
       expect(back.files.map((file) => file.id)).toEqual(files);
+      expect(back.recording !== null).toBe(recording);
     });
   });
 });

@@ -9,6 +9,7 @@ import { CommandRefused, sendCommand, uploadAttachment } from '../../../src/api/
 import {
   CaptureNote,
   NO_WORKSPACE,
+  RECORDING_NOT_TRANSCRIBED,
   RECORDING_WAITING_FOR_WORDS,
   STILL_LISTED,
   STILL_READING,
@@ -714,6 +715,33 @@ describe('Capture', () => {
       const row = await screen.findByText(RECORDING_WAITING_FOR_WORDS);
       expect(row.closest('li')).toHaveTextContent('Waiting to send');
       vi.unstubAllGlobals();
+    });
+
+    it('puts back a spoken note refused before its words came back as its recording, kept with Retry', async () => {
+      const store = browserOutboxStore();
+      await store.put({
+        v: 2,
+        id: '01900000-0000-7000-8000-000000000001',
+        owner: 'user-michael',
+        commandId: '01900000-0000-7000-8000-000000000002',
+        capturedAt: new Date().toISOString(),
+        workspaceId: 'ws-home',
+        decided: false,
+        message: '',
+        typeId: ACTION.id,
+        files: [],
+        recording: { type: 'audio/webm', bytes: new ArrayBuffer(5), seconds: 3, transcribed: false },
+        landed: false,
+        refused: 'The recording could not be transcribed (415).',
+      });
+      const user = await thePage({ store });
+      await user.type(box(), 'Half a thought');
+
+      await user.click(rowOf(RECORDING_NOT_TRANSCRIBED).getByRole('button', { name: 'Put back' }));
+
+      expect(await screen.findByText('A recording of 0:03, not yet transcribed')).toBeVisible();
+      expect(box()).toHaveValue('Half a thought');
+      await waitFor(() => expect(user.outbox.getShown()).toEqual([]));
     });
 
     it('puts a note back once only, even where it cannot then be taken off the list', async () => {

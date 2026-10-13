@@ -432,6 +432,13 @@ export class CaptureOutbox {
     let result: PassResult = 'clear';
     for (const entry of due) {
       if (this.owner !== owner) return 'clear';
+      // Once one recording's words could not be had though the server answered
+      // - the account at its limit, the model down - the others wait too,
+      // rather than each spending a request the limit counts.
+      if (result === 'waits' && needsWords(entry)) {
+        this.told(entry.id, 'waiting');
+        continue;
+      }
       const sent = await this.sendOne(entry);
       if (sent === 'waits') return 'waits';
       // Its words could not be had, though the server answered: the captures behind it still go.

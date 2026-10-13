@@ -159,10 +159,22 @@ export function landedWhole(entry: OutboxEntry): boolean {
   return entry.landed && entry.files.every((file) => file.landed);
 }
 
-/** What putting a refused entry back returns to the box: the note too only where it never landed. */
-export function whatGoesBack(entry: OutboxEntry): { message: string | null; files: WaitingFile[] } {
-  if (!entry.landed) return { message: entry.message, files: entry.files };
-  return { message: null, files: entry.files.filter((file) => file.refused !== null) };
+/**
+ * What putting a refused entry back returns: the note too only where it never
+ * landed. A spoken note refused before its words came back has no note to
+ * return, only its recording, which goes to Write's kept recordings to retry
+ * rather than with the entry - unless it held nothing.
+ */
+export function whatGoesBack(entry: OutboxEntry): {
+  message: string | null;
+  files: WaitingFile[];
+  recording: WaitingRecording | null;
+} {
+  if (entry.recording && !entry.recording.transcribed) {
+    return { message: null, files: entry.files, recording: entry.refused === NOTHING_HEARD ? null : entry.recording };
+  }
+  if (!entry.landed) return { message: entry.message, files: entry.files, recording: null };
+  return { message: null, files: entry.files.filter((file) => file.refused !== null), recording: null };
 }
 
 /** A note's send that took longer than this is abandoned, aborted, and tried again later. */
