@@ -79,6 +79,7 @@ import { DashboardSelection } from './DashboardSelection';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 import { publishPanelList, withdrawPanelList } from '../panelList';
 import type { PanelListRow } from '../panelList';
+import { LANDING_STAYS_MS, landOn, rowOf, settleLanding, useLanding } from '../landOnItem';
 import { settleTheShowRequest, useShowRequest } from '../showItem';
 
 /** How long a Panel stays outlined after the list jumps to it, in milliseconds. */
@@ -901,6 +902,45 @@ export function PanelBoard({
     };
   });
   useEffect(() => () => unhighlight(), []);
+
+  /**
+   * Find's landing ("Find an open Item with F and Shift+F, and land on its
+   * row", issue 828): the row of an Item filed on one of this Dashboard's
+   * Panels, scrolled to and outlined, or focused. **A Dashboard filter that
+   * hides the row is cleared first**, as going to a hidden Panel does; an Item
+   * no longer on the Panel settles the request with nothing landed on.
+   */
+  const landing = useLanding();
+  const landedOn = useRef<{ request: unknown; row: HTMLElement; at: number } | null>(null);
+  const [, setLandingAttempts] = useState(0);
+  useEffect(() => {
+    if (!landing || landing.place.kind !== 'panel' || landing.place.dashboardId !== dashboard.id) return;
+    const { panelId } = landing.place;
+    if (!panels.some((panel) => panel.id === panelId)) {
+      settleLanding(landing);
+      return;
+    }
+    if (!(shows.get(panelId) ?? []).some((item) => item.id === landing.itemId)) {
+      if (filteringOn) clearDashboardFilter(browserStore(), dashboard.id);
+      else settleLanding(landing);
+      return;
+    }
+    const cell = rowsRef.current?.querySelector<HTMLElement>('[data-panel-cell="' + panelId + '"]');
+    const row = rowOf(cell ?? null, landing.itemId);
+    // Looked at again shortly until the row has stayed: a Dashboard just switched to draws its lists lazily and
+    // replaces rows as they load, so the landing is made again on the row now there, while the request is live.
+    const again = window.setTimeout(() => setLandingAttempts((n) => n + 1), 100);
+    if (row && landedOn.current?.request === landing && landedOn.current.row === row) {
+      if (Date.now() - landedOn.current.at > LANDING_STAYS_MS) {
+        window.clearTimeout(again);
+        settleLanding(landing);
+      }
+    } else if (row) {
+      landedOn.current = { request: landing, row, at: Date.now() };
+      landOn(row, landing.focus);
+    }
+    return () => window.clearTimeout(again);
+  });
   useEffect(
     () => () => {
       if (outlined.current) window.clearTimeout(outlined.current.timer);

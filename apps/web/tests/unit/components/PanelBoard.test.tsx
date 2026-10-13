@@ -27,6 +27,7 @@ import {
   type DashboardFilter,
 } from '../../../src/dashboardFilter';
 import { askToShow } from '../../../src/showItem';
+import { askToLand, forgetLanding } from '../../../src/landOnItem';
 import { dayOf } from '../../../src/filters';
 import { QUIET } from '../../../src/panels/PanelText';
 import {
@@ -4300,6 +4301,74 @@ describe('Dashboards', () => {
 
       expect(document.querySelector('[data-shown]')).toBeNull();
       expect(document.querySelector('[data-jumped-to]')).toBeNull();
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  describe('Find lands on an Item’s row of this Dashboard, outlined or focused, clearing a filter that hides it', () => {
+    const ID = (n: number) => `11111111-1111-7111-8111-00000000000${n}`;
+    const vat = anItem(ID(1), 'VAT return');
+    const rent = anItem(ID(2), 'Pay the rent');
+    const FILED = [
+      { panelId: 'falcon', itemId: ID(1), position: 0 },
+      { panelId: 'falcon', itemId: ID(2), position: 1 },
+    ];
+    const rowOf = (title: string) => screen.getByText(title).closest<HTMLElement>('[data-item-id]')!;
+    const land = (itemId: string, focus: boolean, dashboardId = DASHBOARD.id) =>
+      act(() => askToLand({ itemId, place: { kind: 'panel', dashboardId, panelId: 'falcon' }, focus }));
+
+    beforeEach(() => {
+      screenIs(1280);
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      act(() => forgetLanding());
+      vi.useRealTimers();
+      localStorage.clear();
+    });
+
+    it('outlines the row for a moment without taking the focus', () => {
+      showBoard({ items: [vat, rent], filings: FILED });
+
+      land(ID(2), false);
+
+      expect(rowOf('Pay the rent')).toHaveAttribute('data-shown');
+      expect(rowOf('Pay the rent')).not.toHaveFocus();
+      expect(rowOf('VAT return')).not.toHaveAttribute('data-shown');
+      act(() => void vi.advanceTimersByTime(5000));
+      expect(rowOf('Pay the rent')).not.toHaveAttribute('data-shown');
+    });
+
+    it('focuses the row on Enter, outlined until focus leaves it', () => {
+      showBoard({ items: [vat, rent], filings: FILED });
+
+      land(ID(2), true);
+
+      expect(rowOf('Pay the rent')).toHaveFocus();
+      expect(rowOf('Pay the rent')).toHaveAttribute('data-shown');
+      act(() => rowOf('Pay the rent').blur());
+      expect(rowOf('Pay the rent')).not.toHaveAttribute('data-shown');
+    });
+
+    it('clears a Dashboard filter that hides the row, then lands', () => {
+      filterTheDashboard({ text: 'vat' });
+      showBoard({ items: [vat, rent], filings: FILED });
+      expect(screen.queryByText('Pay the rent')).toBeNull();
+
+      land(ID(2), true);
+
+      expect(isFiltering(readDashboardFilter(localStorage, DASHBOARD.id))).toBe(false);
+      expect(rowOf('Pay the rent')).toHaveFocus();
+    });
+
+    it('does nothing for another Dashboard’s request, and settles one for an Item no longer on the Panel', () => {
+      showBoard({ items: [vat, rent], filings: [FILED[0]!] });
+
+      land(ID(2), false, 'some-other-dashboard');
+      land(ID(2), false);
+
+      expect(document.querySelector('[data-shown]')).toBeNull();
     });
   });
 });

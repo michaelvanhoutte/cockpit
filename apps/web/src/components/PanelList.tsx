@@ -1,15 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { clearDashboardFilter } from '../dashboardFilter';
 import { isTypedInto, somethingIsOpenOverThePage } from '../inboxCollapsed';
 import { browserStore } from '../lastVisited';
-import { entriesIn, isListedSection, PANEL_LIST_KEY, rowsLeftBy, rowsOfRun, togglesThePanelList } from '../panelList';
-import type { PanelListEntry, PanelListing, PanelListRow } from '../panelList';
+import { findItems, useFindIndex } from '../itemFind';
+import type { FindScope, FoundItem } from '../itemFind';
+import { askToLand, forgetLanding } from '../landOnItem';
+import { entriesIn, FIND_ITEM_KEY, isListedSection, modeOfKeyPress, PANEL_LIST_KEY, rowsLeftBy, rowsOfRun } from '../panelList';
+import type { PanelListEntry, PanelListing, PanelListMode, PanelListRow } from '../panelList';
 import { usePanelListWidth } from '../panelListWidth';
 import { useReach } from '../panelReach';
 import type { Reach, ReachDashboard, ReachWorkspace, Scope } from '../panelReach';
 
 const KEY_NAME = PANEL_LIST_KEY.toUpperCase();
+const FIND_NAME = FIND_ITEM_KEY.toUpperCase();
 
 /** The id the open column's heading carries, which names the column. */
 const HEADING_ID = 'panel-list-heading';
@@ -69,6 +73,13 @@ const SCOPES: readonly { scope: Scope; label: string }[] = [
  * that one, so Back after Enter returns to where G was pressed and Esc, which
  * goes back, leaves nothing behind.
  * Everything here is the column's own; the shell only holds whether it is shown.
+ *
+ * **Find item is the same column in a second mode** ("Find an open Item with F
+ * and Shift+F, and land on its row", issue 828), under the same rules: F on this
+ * Dashboard, Shift+F on its Workspace (there is no *All*), nothing listed until
+ * something is typed, then the open Items matching (`itemFind.ts`). The screen
+ * follows the highlight onto the Item's row, and Enter lands focus on it, by a
+ * request that outlives the column (`landOnItem.ts`).
  */
 export function PanelList({
   listing,
@@ -87,6 +98,8 @@ export function PanelList({
   const resize = usePanelListWidth(browserStore(), rowWidth);
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>(1);
+  const [mode, setMode] = useState<PanelListMode>('panel');
+  const finding = mode === 'item';
   /** The highlighted entry; -1 is the cursor in the box with nothing highlighted yet. */
   const [at, setAt] = useState(-1);
   const [active, setActive] = useState(false);
@@ -102,10 +115,13 @@ export function PanelList({
   const restore = useRef<{ dashboardId: string; scrollTop: number } | null>(null);
 
   const here = reach.workspaces.find((workspace) => workspace.id === reach.workspaceId);
+  /** Whether the Workspace adds a Dashboard to go to; Find's Workspace scope adds the Inbox, so it is always there. */
+  const workspaceAddsPanels = (here?.dashboardCount ?? 0) > 1;
+  /** Find searches this Workspace at most, so no other Workspace's snapshot is read. */
   const available: Record<Scope, boolean> = {
     1: true,
-    2: (here?.dashboardCount ?? 0) > 1,
-    3: reach.workspaces.length > 1,
+    2: finding || workspaceAddsPanels,
+    3: !finding && reach.workspaces.length > 1,
   };
   const needle = query.trim().toLowerCase();
   const matches = (name: string) => needle !== '' && name.toLowerCase().includes(needle);
@@ -122,7 +138,7 @@ export function PanelList({
 
   /** The wider scopes: a section per Workspace, a group per Dashboard, narrowed by the search at every level. */
   const sections =
-    scope === 1
+    scope === 1 || finding
       ? []
       : reach.workspaces
           .filter((workspace) => scope === 3 || workspace.id === reach.workspaceId)
@@ -150,11 +166,20 @@ export function PanelList({
     scope === 1
       ? entriesIn(shownRows).map(onThisDashboard)
       : sections.flatMap((section) => section.groups.flatMap((group) => group.targets));
-  const current = at < 0 ? -1 : Math.min(at, Math.max(flat.length - 1, 0));
+  // Find item: the open Items matching, over an index built once per snapshot and only while Find is open.
+  const findIndex = useFindIndex(finding ? reach.snapshot : undefined);
+  const findScope: FindScope = scope === 2 ? 2 : 1;
+  const found = useMemo(
+    () => (finding ? findItems(findIndex, query, findScope, reach.dashboardId) : { rows: [] as FoundItem[], more: 0 }),
+    [finding, findIndex, query, findScope, reach.dashboardId],
+  );
+  const size = finding ? found.rows.length : flat.length;
+  const current = at < 0 ? -1 : Math.min(at, Math.max(size - 1, 0));
 
-  useEffect(() => setAt(-1), [needle, scope]);
+  useEffect(() => setAt(-1), [needle, scope, mode]);
   const { ask } = reach;
-  useEffect(() => ask(scope), [ask, scope]);
+  // Find never reads past the Workspace on screen, which the board has already read.
+  useEffect(() => ask(finding ? 1 : scope), [ask, scope, finding]);
 
   // A Panel is gone to once the board of its Dashboard, its filter cleared, draws it.
   useEffect(() => {
@@ -181,6 +206,7 @@ export function PanelList({
     start.current = null;
     setActive(false);
     setQuery('');
+    setMode('panel');
     // Hidden, it asks for no other Workspace's snapshot any more.
     setScope(1);
   }, [collapsed]);
@@ -199,7 +225,7 @@ export function PanelList({
   const scroller = () => document.querySelector<HTMLElement>(SCROLLER);
 
   /** Begins the mode on `chosen`; `keys` puts the cursor in the box, `keepText` leaves what is typed there. */
-  const enter = (keys: boolean, chosen: Scope = 1, keepText = false) => {
+  const enter = (keys: boolean, chosenMode: PanelListMode = 'panel', chosen: Scope = 1, keepText = false) => {
     shownAt.current = { workspaceId: reach.workspaceId, dashboardId: reach.dashboardId };
     start.current = {
       scrollTop: scroller()?.scrollTop ?? 0,
@@ -212,19 +238,27 @@ export function PanelList({
     restore.current = null;
     setActive(true);
     if (!keepText) setQuery('');
+    setMode(chosenMode);
     setScope(chosen);
     setAt(-1);
   };
 
-  /** Ends the mode; `back` puts the screen where it was and hides the column, whatever showed it. */
-  const leave = (back: boolean) => {
+  /**
+   * Ends the mode; `back` puts the screen where it was and hides the column,
+   * whatever showed it. `keepFocus` leaves the cursor where it is, for a column
+   * about to be hidden over a row that is to take the focus.
+   */
+  const leave = (back: boolean, keepFocus = false) => {
     const from = start.current;
     start.current = null;
     pending.current = null;
     setActive(false);
     setQuery('');
     setScope(1);
+    setMode('panel');
     if (back) {
+      // Nothing left to land on: the screen is going back.
+      forgetLanding();
       if (from?.left) {
         // The one entry the moves added is undone by going back over it.
         restore.current = { dashboardId: from.dashboardId, scrollTop: from.scrollTop };
@@ -236,7 +270,7 @@ export function PanelList({
       }
       onCollapse(true);
     }
-    (document.activeElement as HTMLElement | null)?.blur();
+    if (!keepFocus) (document.activeElement as HTMLElement | null)?.blur();
   };
 
   /**
@@ -269,6 +303,35 @@ export function PanelList({
     if (from) from.left = true;
   };
 
+  /**
+   * Brings the screen to an Item's row, on the same history rules as a Panel's.
+   * **The request to land is made first and outlives the column**, which the
+   * board drawing the row (or the shell, for the Inbox) takes: a highlight lands
+   * on the row outlined, and going (`commit`) focuses it.
+   */
+  const showFound = (item: FoundItem, commit: boolean) => {
+    const from = start.current;
+    const target = item.panel;
+    askToLand({
+      itemId: item.itemId,
+      place: target ? { kind: 'panel', dashboardId: target.dashboardId, panelId: target.panelId } : { kind: 'inbox' },
+      focus: commit,
+    });
+    // The Inbox is the Workspace's, drawn beside every Dashboard of it.
+    if (!target) return;
+    const to = { workspaceId: reach.workspaceId, dashboardId: target.dashboardId };
+    if (commit && from?.left && target.dashboardId === from.dashboardId) {
+      from.left = false;
+      shownAt.current = to;
+      reach.go(to, 'back');
+      return;
+    }
+    if (target.dashboardId === shownAt.current.dashboardId) return;
+    shownAt.current = to;
+    reach.go(to, from?.left ? 'replace' : 'push');
+    if (from) from.left = true;
+  };
+
   const goTo = (entry: Target | undefined) => {
     if (!entry) return;
     show(entry, true);
@@ -279,10 +342,22 @@ export function PanelList({
     onCollapse(true);
   };
 
+  const goToFound = (item: FoundItem | undefined) => {
+    if (!item) return;
+    showFound(item, true);
+    leave(false, true);
+    onCollapse(true);
+  };
+
   const moveTo = (next: number) => {
-    if (flat.length === 0 || (next < 0 && current < 0)) return;
-    const clamped = Math.max(0, Math.min(flat.length - 1, next));
+    if (size === 0 || (next < 0 && current < 0)) return;
+    const clamped = Math.max(0, Math.min(size - 1, next));
     setAt(clamped);
+    if (finding) {
+      const item = found.rows[clamped];
+      if (item) showFound(item, false);
+      return;
+    }
     const entry = flat[clamped];
     if (entry) show(entry, false);
   };
@@ -291,14 +366,14 @@ export function PanelList({
     if (available[chosen]) setScope(chosen);
   };
 
-  // G and Shift+G show the column on a scope, hide it, or switch its scope. Heard
-  // here rather than in the shell: this is mounted whenever the column is on
-  // screen, strip or open.
-  const latest = useRef({ collapsed, enter, leave, scope, available });
-  latest.current = { collapsed, enter, leave, scope, available };
+  // G, Shift+G, F and Shift+F show the column in a mode on a scope, hide it, or
+  // switch its mode and scope. Heard here rather than in the shell: this is
+  // mounted whenever the column is on screen, strip or open.
+  const latest = useRef({ collapsed, enter, leave, scope, mode, workspaceAddsPanels });
+  latest.current = { collapsed, enter, leave, scope, mode, workspaceAddsPanels };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const toggles = togglesThePanelList(
+      const pressed = modeOfKeyPress(
         {
           key: event.key,
           ctrlKey: event.ctrlKey,
@@ -310,21 +385,22 @@ export function PanelList({
         },
         somethingIsOpenOverThePage(),
       );
-      if (!toggles) return;
+      if (!pressed) return;
       event.preventDefault();
       const now = latest.current;
-      // Shift+G where the Workspace adds nothing is G.
-      const chosen: Scope = event.shiftKey && now.available[2] ? 2 : 1;
+      // Shift+G where the Workspace adds nothing is G; Shift+F is always the Workspace.
+      const chosen: Scope = event.shiftKey && (pressed === 'item' || now.workspaceAddsPanels) ? 2 : 1;
       if (now.collapsed) {
         onCollapse(false);
-        now.enter(true, chosen);
-      } else if (now.scope === chosen) {
+        now.enter(true, pressed, chosen);
+      } else if (now.mode === pressed && now.scope === chosen) {
         if (start.current) now.leave(true);
         else onCollapse(true);
       } else if (start.current) {
+        setMode(pressed);
         setScope(chosen);
         searchRef.current?.focus();
-      } else now.enter(true, chosen, true);
+      } else now.enter(true, pressed, chosen, true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -344,7 +420,8 @@ export function PanelList({
     } else if (event.key === 'Enter') {
       handled();
       // With nothing highlighted, the top match.
-      goTo(flat[Math.max(current, 0)]);
+      if (finding) goToFound(found.rows[Math.max(current, 0)]);
+      else goTo(flat[Math.max(current, 0)]);
     } else if (event.key === 'Escape') {
       handled();
       leave(true);
@@ -352,14 +429,18 @@ export function PanelList({
   };
 
   if (collapsed) {
-    return (
+    /** One half of the strip: a mode, named for what it does and the two keys that open it. */
+    const half = (opens: PanelListMode, name: string, key: string, tip: 'panels' | 'find') => (
       <button
         type="button"
-        onClick={() => onCollapse(false)}
-        title={`Go to panel: ${KEY_NAME} on this Dashboard, Shift+${KEY_NAME} on its Workspace`}
-        aria-label="Open Go to panel"
-        data-shortcut-tip="panels"
-        className="well flex w-8 shrink-0 flex-col items-center gap-3 py-3 pb-[calc(0.75rem+var(--edge-bottom))] hover:bg-accent-tint/40"
+        onClick={() => {
+          onCollapse(false);
+          enter(true, opens);
+        }}
+        title={`${name}: ${key} on this Dashboard, Shift+${key} on its Workspace`}
+        aria-label={`Open ${name}`}
+        data-shortcut-tip={tip}
+        className="flex flex-col items-center gap-3 py-3 hover:bg-accent-tint/40"
       >
         <span aria-hidden="true" className="text-xs text-ink-faint">
           «
@@ -368,13 +449,20 @@ export function PanelList({
           className="text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep"
           style={{ writingMode: 'vertical-rl' }}
         >
-          Go to panel
+          {name}
         </span>
         <span className="flex flex-col items-center gap-1">
-          <kbd className={KBD}>{KEY_NAME}</kbd>
-          <kbd className={KBD}>⇧{KEY_NAME}</kbd>
+          <kbd className={KBD}>{key}</kbd>
+          <kbd className={KBD}>⇧{key}</kbd>
         </span>
       </button>
+    );
+    return (
+      <div className="well flex w-8 shrink-0 flex-col pb-[var(--edge-bottom)]">
+        {half('panel', 'Go to panel', KEY_NAME, 'panels')}
+        <div className="mx-1 border-t border-shade/15" />
+        {half('item', 'Find item', FIND_NAME, 'find')}
+      </div>
     );
   }
 
@@ -426,13 +514,36 @@ export function PanelList({
       );
     });
 
+  /** A row of Find: the Item's label over, fainter, where it is. */
+  const foundButton = (item: FoundItem) => {
+    const highlighted = active && found.rows[current]?.itemId === item.itemId;
+    return (
+      <li key={item.itemId}>
+        <button
+          type="button"
+          tabIndex={-1}
+          data-current={highlighted ? '' : undefined}
+          onClick={() => goToFound(item)}
+          className={`flex w-full flex-col px-4 py-1.5 text-left text-sm text-ink ${
+            highlighted ? 'bg-accent-tint' : 'hover:bg-accent-tint/40'
+          }`}
+        >
+          <span className="truncate">{item.title}</span>
+          <span className="truncate text-[11px] text-ink-faint">{item.where}</span>
+        </button>
+      </li>
+    );
+  };
+
   const scopeTitle = (chosen: Scope): string => {
     if (!available[chosen]) {
+      if (finding) return 'Find searches this Workspace at most';
       return chosen === 2 ? 'Only one Dashboard in this Workspace' : 'Only one Workspace';
     }
-    if (chosen === 1) return `Search this Dashboard (${KEY_NAME})`;
+    const key = finding ? FIND_NAME : KEY_NAME;
+    if (chosen === 1) return `Search this Dashboard (${key})`;
     return chosen === 2
-      ? `Search every Dashboard of ${here?.name ?? 'this Workspace'} (Shift+${KEY_NAME})`
+      ? `Search every ${finding ? 'open Item' : 'Dashboard'} of ${here?.name ?? 'this Workspace'} (Shift+${key})`
       : 'Search every Workspace';
   };
 
@@ -462,7 +573,7 @@ export function PanelList({
         tabIndex={-1}
         onKeyDown={onListKey}
         onFocus={(event) => {
-          if (!start.current) enter(false, scope, true);
+          if (!start.current) enter(false, mode, scope, true);
           // The box is where the keys go: a click on the column outside its controls puts the cursor there.
           if (event.target === event.currentTarget) searchRef.current?.focus();
         }}
@@ -480,15 +591,15 @@ export function PanelList({
             id={HEADING_ID}
             className="text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep"
           >
-            Go to panel
+            {finding ? 'Find item' : 'Go to panel'}
           </h2>
-          <kbd className={KBD}>{KEY_NAME}</kbd>
+          <kbd className={KBD}>{finding ? FIND_NAME : KEY_NAME}</kbd>
           <button
             type="button"
             onClick={() => onCollapse(true)}
-            title={`Hide Go to panel (${KEY_NAME})`}
-            aria-label="Hide Go to panel"
-            data-shortcut-tip="panels"
+            title={`Hide ${finding ? 'Find item' : 'Go to panel'} (${finding ? FIND_NAME : KEY_NAME})`}
+            aria-label={finding ? 'Hide Find item' : 'Hide Go to panel'}
+            data-shortcut-tip={finding ? 'find' : 'panels'}
             className="-mr-1 ml-auto rounded px-1 text-xs text-ink-faint hover:text-ink"
           >
             »
@@ -500,8 +611,8 @@ export function PanelList({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            aria-label="Search Panels"
-            placeholder="Search Panels"
+            aria-label={finding ? 'Find an Item' : 'Search Panels'}
+            placeholder={finding ? 'Find an Item' : 'Search Panels'}
             className="w-full rounded border border-shade/20 bg-ground px-2 py-1 text-sm"
           />
           <div role="group" aria-label="Search in" className="mt-2 flex min-w-0 items-center gap-1 text-xs">
@@ -531,9 +642,17 @@ export function PanelList({
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {noPanels && <p className="px-4 py-1.5 text-sm text-ink-faint">No Panels on this Dashboard.</p>}
-          {noMatch && <p className="px-4 py-1.5 text-sm text-ink-faint">No Panel matches.</p>}
-          {scope === 1 && listedRows(shownRows, onThisDashboard, true)}
+          {finding && needle === '' && <p className="px-4 py-1.5 text-sm text-ink-faint">Type to find an Item.</p>}
+          {finding && needle !== '' && found.rows.length === 0 && (
+            <p className="px-4 py-1.5 text-sm text-ink-faint">No Item matches.</p>
+          )}
+          {finding && <ul>{found.rows.map(foundButton)}</ul>}
+          {finding && found.more > 0 && (
+            <p className="px-4 py-1.5 text-xs text-ink-faint">and {found.more} more — keep typing</p>
+          )}
+          {!finding && noPanels && <p className="px-4 py-1.5 text-sm text-ink-faint">No Panels on this Dashboard.</p>}
+          {!finding && noMatch && <p className="px-4 py-1.5 text-sm text-ink-faint">No Panel matches.</p>}
+          {!finding && scope === 1 && listedRows(shownRows, onThisDashboard, true)}
           {sections.map(({ workspace, groups, unread }) => (
             <section key={workspace.id}>
               {scope === 3 && <WorkspaceHeading workspace={workspace} />}
@@ -558,7 +677,9 @@ export function PanelList({
         <div className="border-t border-shade/10 px-3 py-2 text-[10px] leading-relaxed text-ink-faint">
           <kbd>↑↓</kbd> move · <kbd>Enter</kbd> go · <kbd>Esc</kbd> back
           <br />
-          <kbd>{KEY_NAME}</kbd> Dashboard · <kbd>⇧{KEY_NAME}</kbd> Workspace
+          <kbd>{KEY_NAME}</kbd> Dashboard Panels · <kbd>⇧{KEY_NAME}</kbd> Workspace Panels
+          <br />
+          <kbd>{FIND_NAME}</kbd> Dashboard Items · <kbd>⇧{FIND_NAME}</kbd> Workspace Items
         </div>
       </div>
     </aside>
