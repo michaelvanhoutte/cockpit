@@ -45,14 +45,6 @@ test.describe('Offline', () => {
       // the last one, which now says which view of it is open.
       const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
 
-      // Every capture names what kind of thing it is, so this one asks the
-      // account what it has rather than naming a type of its own: the ids are
-      // derived from the account, and a capture naming one it does not have is
-      // refused.
-      const known = await page.request.get('/v1/item-types');
-      expect(known.ok(), `reading the types failed: ${known.status()}`).toBe(true);
-      const [aType] = ((await known.json()) as { itemTypes: { id: string }[] }).itemTypes;
-
       const message = uniqueTitle('Arrived while nobody looked');
       const sent = await page.request.post('/v1/commands/capture_item', {
         data: {
@@ -61,7 +53,6 @@ test.describe('Offline', () => {
           workspaceId,
           itemId: crypto.randomUUID(),
           message,
-          typeId: aType!.id,
         },
       });
       expect(sent.ok(), `capturing from outside failed: ${sent.status()}`).toBe(true);

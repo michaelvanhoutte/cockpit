@@ -26,7 +26,6 @@ function capture(extra: Record<string, unknown>) {
       workspaceId: WORKSPACE_ID,
       itemId: ITEM_ID,
       message: 'Send the invoice',
-      typeId: TASK_TYPE_ID,
       ...extra,
     }),
   });

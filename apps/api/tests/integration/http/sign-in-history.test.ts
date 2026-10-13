@@ -86,7 +86,6 @@ function aCapture() {
     workspaceId: WORKSPACE_ID,
     itemId: `018f0000-0000-7000-8000-0000000b${n}`,
     message: 'Something the guest thought of',
-    typeId: taskTypeIn(GUEST_ACCOUNT_NAME),
   };
 }
 
@@ -258,7 +257,7 @@ describe('Sign-in', () => {
 
     it('counts nothing for a named user', async () => {
       const cookie = sessionIn(await signInWithGoogle('michael@example.com'))!;
-      const capture = { ...aCapture(), typeId: TASK_TYPE_ID };
+      const capture = aCapture();
 
       expect((await post(cookie, 'capture_item', capture)).status).toBe(200);
       expect((await snapshotOf(cookie)).status).toBe(200);

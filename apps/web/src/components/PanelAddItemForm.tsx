@@ -1,11 +1,9 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { uuidv7 } from '@cockpit/shared';
 import { useCapture } from '../capture';
 import { CommandRefused } from '../api/client';
-import { snapshotQuery, useLatestSnapshot, useSendCommand } from '../api/queries';
+import { useLatestSnapshot, useSendCommand } from '../api/queries';
 import { filedOrderOnPanel, orderWithItemAt } from '../filing';
-import { NO_TYPES, typesOffered } from '../itemTypes';
 
 /**
  * A panel's own front door, collapsed until asked for ("Create an item on a
@@ -15,12 +13,6 @@ import { NO_TYPES, typesOffered } from '../itemTypes';
  * items already on a panel is what it is opened for most of the time; adding
  * straight to it is the secondary action next to that, so this asks first
  * rather than spending a row on every panel whether or not it is used.
- *
- * **It reads the snapshot itself**, the way `ItemList` beside it already does
- * (`ItemList.tsx`'s own doc comment), rather than having `PanelBoard` and
- * `PanelCard` thread the account's types and this panel's held order through
- * two more components' props for a leaf that is closed, and reads none of it,
- * most of the time.
  *
  * **Two commands, not one.** There is no server command that captures and
  * files in a single write - `capture_item` always lands in the Inbox - so
@@ -43,7 +35,6 @@ export function PanelAddItemForm({
 }) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');
-  const [typeId, setTypeId] = useState('');
   const [refused, setRefused] = useState<string | null>(null);
   const { ask, busy: capturing } = useCapture();
   const send = useSendCommand();
@@ -51,15 +42,9 @@ export function PanelAddItemForm({
   const [filing, setFiling] = useState(false);
   const busy = capturing || filing;
 
-  // Asked for only once the row is open: a collapsed row - most panels, most
-  // of the time - never reads what this returns, and every panel on a board
-  // carries one of these.
-  const { data } = useQuery({ ...snapshotQuery(workspaceId), enabled: open });
-
   const close = () => {
     setOpen(false);
     setMessage('');
-    setTypeId('');
     setRefused(null);
   };
 
@@ -75,24 +60,19 @@ export function PanelAddItemForm({
     );
   }
 
-  const types = data?.itemTypes;
-  const offered = typesOffered(types ?? [], data?.items ?? []);
-  const answered = types !== undefined;
-  const chosen = offered.find((type) => type.id === typeId) ?? offered[0];
-
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = message.trim();
-    if (!trimmed || !chosen) return;
+    if (!trimmed) return;
 
     ask(
-      { message: trimmed, typeId: chosen.id, workspaceId, decided: true },
+      { message: trimmed, workspaceId, decided: true },
       {
         asking: () => {
           setMessage('');
           setRefused(null);
         },
-        captured: (_typeId, itemId) => {
+        captured: (itemId) => {
           setFiling(true);
           void (async () => {
             try {
@@ -147,23 +127,9 @@ export function PanelAddItemForm({
         autoFocus
         className="min-w-0 flex-1 basis-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm shadow-field outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
-      {chosen && (
-        <select
-          value={chosen.id}
-          onChange={(e) => setTypeId(e.target.value)}
-          aria-label="What kind of thing this is"
-          className="min-w-0 flex-1 rounded-md border border-shade/10 bg-field px-3 py-2 text-sm shadow-field outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-        >
-          {offered.map((type) => (
-            <option key={type.id} value={type.id}>
-              {type.name}
-            </option>
-          ))}
-        </select>
-      )}
       <button
         type="submit"
-        disabled={busy || !chosen}
+        disabled={busy}
         className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
       >
         Add
@@ -176,9 +142,6 @@ export function PanelAddItemForm({
       >
         Cancel
       </button>
-      {answered && offered.length === 0 && (
-        <p className="basis-full text-sm text-ink-faint">{NO_TYPES}</p>
-      )}
       {refused && (
         <p role="alert" className="basis-full text-sm text-over-ink">
           {refused}

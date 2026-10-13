@@ -97,7 +97,6 @@ async function captureANote(note: string): Promise<string> {
     workspaceId: WORKSPACE_ID,
     itemId,
     message: note,
-    typeId: taskTypeIn(ACCOUNT_NAME),
   });
   expect(response.status).toBe(200);
   return itemId;

@@ -547,7 +547,7 @@ describe('MCP connections', () => {
 
 describe('Capture', () => {
   describe('a note an app captures lands exactly where the Capture page would put it', () => {
-    it('waits in every Inbox as a Note when no workspace or type is named, with its clean-up and reading queued', async () => {
+    it('waits in every Inbox with no Type when no workspace is named, with its clean-up and reading queued', async () => {
       await alsoWorkspaces();
       const { token } = await connected();
       const queued: unknown[] = [];
@@ -567,7 +567,7 @@ describe('Capture', () => {
 
       for (const workspaceId of [WORKSPACE_ID, 'ws-atlas', 'ws-personal']) {
         const item = (await inboxOf(workspaceId)).find((one) => one.capturedMessage === 'Ring the plumber about the boiler');
-        expect(item, workspaceId).toMatchObject({ workspaceDecided: false, typeId: `${ACCOUNT_NAME}-type-thought` });
+        expect(item, workspaceId).toMatchObject({ workspaceDecided: false, typeId: null });
       }
       expect(queued).toEqual(
         expect.arrayContaining([
@@ -577,20 +577,20 @@ describe('Capture', () => {
       );
     });
 
-    it("lands in the named workspace's Inbox as the named type", async () => {
+    it("lands in the named workspace's Inbox with no Type", async () => {
       await alsoWorkspaces();
       const { token } = await connected();
-      const said = await createItem(token, { message: 'Send the quote', workspace: 'atlas copco', type: 'Task' });
+      const said = await createItem(token, { message: 'Send the quote', workspace: 'atlas copco' });
       expect(said.isError).toBeFalsy();
 
       const item = (await inboxOf('ws-atlas')).find((one) => one.capturedMessage === 'Send the quote');
-      expect(item).toMatchObject({ workspaceId: 'ws-atlas', workspaceDecided: true, typeId: `${ACCOUNT_NAME}-type-action` });
+      expect(item).toMatchObject({ workspaceId: 'ws-atlas', workspaceDecided: true, typeId: null });
       expect((await inboxOf('ws-personal')).some((one) => one.capturedMessage === 'Send the quote')).toBe(false);
     });
 
     const refusals = [
       { situation: 'a workspace there is no such one of', args: { message: 'Lost', workspace: 'Nowhere' }, names: 'Workspace 1' },
-      { situation: 'a type there is no such one of', args: { message: 'Lost', type: 'Errand' }, names: 'Task' },
+      { situation: 'a type, of any name', args: { message: 'Lost', type: 'Task' }, names: 'type is not an argument' },
       { situation: 'an empty message', args: { message: '   ' }, names: '60,000' },
       { situation: 'a message over 60,000 characters', args: { message: 'x'.repeat(60_001) }, names: '60,000' },
     ];
@@ -648,8 +648,8 @@ describe('Capture', () => {
     });
   });
 
-  describe("an app is told the person's own workspaces and types, as they are now", () => {
-    it("names both of somebody's workspaces and their types, and nothing of another account's", async () => {
+  describe("an app is told the person's own workspaces, as they are now", () => {
+    it("names all of somebody's workspaces, and no Types, and nothing of another account's", async () => {
       await alsoWorkspaces();
       const { token } = await connected(OTHER_USER_ID);
       // Michael's three, which Ada's app must never be told about.
@@ -660,7 +660,8 @@ describe('Capture', () => {
       const own = await listedTool((await connected(USER_ID)).token);
       expect(own.inputSchema.properties.workspace!.enum).toEqual(['Workspace 1', 'Atlas Copco', 'Personal']);
       expect(own.description).toContain('"Atlas Copco"');
-      expect(own.inputSchema.properties.type!.enum).toEqual(expect.arrayContaining(['Task', 'Note']));
+      expect(own.inputSchema.properties).not.toHaveProperty('type');
+      expect(own.description).not.toContain('Task');
     });
 
     it('names a workspace by its new name once it is renamed', async () => {

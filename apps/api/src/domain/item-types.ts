@@ -68,34 +68,3 @@ export function ordersTypesExactly(
   if (named.size !== live.length) return false;
   return live.every((type) => named.has(type.id));
 }
-
-/**
- * The Type a capture takes when nobody chose one: the account's own Note where
- * it still has one, and its first Type otherwise - or undefined for an account
- * with no Types at all.
- *
- * Every capture names a Type, and the front doors nobody is at a keyboard for -
- * a connector's push, an app's `create_item` - decide it here, in one place.
- * Note rather than Task, because what arrives that way is something said or
- * read rather than something somebody has said they will do, and the Inbox is
- * where they decide which it is.
- */
-export function typeToCaptureAs(types: readonly ItemType[], noteTypeId: string): ItemType | undefined {
-  return types.find((type) => type.id === noteTypeId) ?? types[0];
-}
-
-/**
- * The Type a pulled connector's Item arrives as where its manifest says
- * `task`: the account's own Task, a conversation labelled or starred being
- * somebody saying it is theirs to do ("Bring in the conversations already
- * labelled Cockpit as tasks", issue 725; issue 939) - and, where the account
- * no longer has its Task, whatever any other capture nobody chose a Type for
- * takes.
- */
-export function typeToBringInAs(
-  types: readonly ItemType[],
-  taskTypeId: string,
-  noteTypeId: string,
-): ItemType | undefined {
-  return types.find((type) => type.id === taskTypeId) ?? typeToCaptureAs(types, noteTypeId);
-}

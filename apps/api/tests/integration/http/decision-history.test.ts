@@ -65,7 +65,6 @@ async function anItem(message: string): Promise<string> {
         workspaceId: WORKSPACE_ID,
         itemId,
         message,
-        typeId: TASK_TYPE_ID,
       })
     ).status,
   ).toBe(200);

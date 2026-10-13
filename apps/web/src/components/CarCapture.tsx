@@ -1,13 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { uuidv7 } from '@cockpit/shared';
-import { snapshotQuery, workspacesQuery } from '../api/queries';
+import { workspacesQuery } from '../api/queries';
 import { useAppearance } from '../appearance';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
 import { stateOf } from '../captureOutbox';
 import { useOutbox, useWaitingCaptures, type Heard } from '../captureOutboxSender';
-import { typesOffered } from '../itemTypes';
 import { useKeptRecordings } from '../keptRecordings';
 import { TooManyTranscriptions, transcribeRecording, transcriptionOfferedQuery } from '../api/transcription';
 import {
@@ -34,16 +33,14 @@ import { browserWakeLock, useScreenWakeLock, type WakeLockApi } from '../wakeLoc
  * **The recording is captured, not only its words** ("Capture in the Car view
  * without a connection, from the recording", issue 1045). On the second tap it
  * goes into the same outbox the Capture form keeps its notes in
- * (`captureOutboxSender.tsx`), to *Any workspace* with the Type Capture starts
- * on, no priority and no due date; the outbox transcribes it and sends the
+ * (`captureOutboxSender.tsx`), to *Any workspace*, no priority and no due date; the outbox transcribes it and sends the
  * capture. The button shows ✓ as soon as the words are kept - or, with no
  * connection, a transcription that fails or the account at its limit, as soon
  * as that is known, and the note is listed as waiting for its words until the
  * outbox can get them, while Cockpit is open. Only where the outbox cannot be
  * written is it transcribed here and sent directly, and lost if that fails.
- * A note spoken before the workspace and its types have been read waits for
- * them rather than being thrown away, and one with no workspace or type to go
- * into is kept under Write's strip with Retry, as Write keeps its own.
+ * A note spoken before the workspaces have been read waits for them rather
+ * than being thrown away, and one with no workspace to go into is kept under Write's strip with Retry, as Write keeps its own.
  *
  * **The screen is kept on for as long as this is shown** (`wakeLock.ts`).
  *
@@ -77,15 +74,14 @@ const STATUS: Record<Phase, string> = {
 /** How a spoken note is listed while the outbox still waits to transcribe it. */
 export const WAITING_FOR_WORDS = 'Waiting for its words';
 
-/** How long a note spoken before the workspace and its types have been read waits for them. */
+/** How long a note spoken before the workspaces have been read waits for them. */
 const STILL_READING_FOR_MS = 10_000;
 
 export const NO_RECORDING_HERE = 'Car capture needs a browser that can record audio, and this one cannot.';
 export const NO_TRANSCRIBER_HERE = 'Car capture needs Cockpit to transcribe speech, and this one cannot.';
 export const CAR_NO_WORKSPACE = 'There is no workspace to capture into.';
 export const CAR_STILL_READING = 'Still reading your workspace. Tap to try again.';
-export const CAR_NO_TYPES = 'There is no type to give a note. Make one in a workspace first.';
-/** Said after any of those three where the recording could be kept, as Write keeps one it could not transcribe. */
+/** Said after either of those where the recording could be kept, as Write keeps one it could not transcribe. */
 export const CAR_KEPT_IN_WRITE = 'The recording is kept in Write to retry.';
 
 const SCREEN_LINES = {
@@ -193,14 +189,11 @@ function Driving({
   const { data: list } = useQuery(workspacesQuery);
   const workspaces = list?.workspaces ?? [];
   // The workspace this is captured *from*, which every Item records even while
-  // it belongs to none, and the type it starts on: the same two answers the
-  // Capture form gives (components/CaptureNote.tsx).
+  // it belongs to none: the same answer the Capture form gives
+  // (components/CaptureNote.tsx).
   const from = workspaceToCaptureFrom(browserStore(), workspaces);
-  const snapshot = useQuery({ ...snapshotQuery(from ?? ''), enabled: Boolean(from) });
-  const chosen = typesOffered(snapshot.data?.itemTypes ?? [], snapshot.data?.items ?? [])[0];
-  const answered = snapshot.data?.itemTypes !== undefined;
   /** Whether there is an answer to what a note is captured into, even "nothing". */
-  const readYet = list !== undefined && (!from || answered);
+  const readYet = list !== undefined;
 
   const outbox = useOutbox();
   const waitingHere = useWaitingCaptures();
@@ -241,9 +234,9 @@ function Driving({
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // What the capture is made from, as it stands when the recording is handed over.
-  const target = useRef({ from, chosen, answered, readYet });
-  target.current = { from, chosen, answered, readYet };
-  /** Notes waiting for the workspace and its types to be read, told once they have been. */
+  const target = useRef({ from, readYet });
+  target.current = { from, readYet };
+  /** Notes waiting for the workspaces to be read, told once they have been. */
   const whenRead = useRef(new Set<() => void>());
   useEffect(() => {
     if (readYet) for (const told of [...whenRead.current]) told();
@@ -295,9 +288,9 @@ function Driving({
    * reload.
    */
   const keepRecording = async (sound: Blob, seconds: number) => {
-    const { from: workspaceId, chosen: type, answered: known } = await onceRead();
-    if (!workspaceId || !type) {
-      const reason = !workspaceId ? CAR_NO_WORKSPACE : known ? CAR_NO_TYPES : CAR_STILL_READING;
+    const { from: workspaceId, readYet: known } = await onceRead();
+    if (!workspaceId) {
+      const reason = known ? CAR_NO_WORKSPACE : CAR_STILL_READING;
       // Nothing to capture it into, so kept under Write's strip with Retry rather than lost.
       const keptForWrite = await keptRecordings.keep(sound, seconds, uuidv7()).then(
         () => true,
@@ -307,7 +300,7 @@ function Driving({
       return;
     }
     const id = uuidv7();
-    const what = { typeId: type.id, workspaceId, decided: false };
+    const what = { workspaceId, decided: false };
     let heard: Heard;
     try {
       heard = await outbox.addRecorded({ ...what, id, recording: sound, seconds });
@@ -327,7 +320,7 @@ function Driving({
 
   const sendDirectly = async (
     sound: Blob,
-    what: { typeId: string; workspaceId: string; decided: boolean },
+    what: { workspaceId: string; decided: boolean },
     id: string,
   ) => {
     let message: string;

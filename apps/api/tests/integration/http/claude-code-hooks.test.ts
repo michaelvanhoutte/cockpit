@@ -97,7 +97,7 @@ async function aWorkingRun(): Promise<{ itemId: string; runId: string; agentId: 
   const panelId = nextId();
   await postChange('add_panel', { workspaceId: WORKSPACE_ID, dashboardId: DASHBOARD_ID, panelId, name: `Now ${seq}`, kind: 'items' });
   const itemId = nextId();
-  await postChange('capture_item', { workspaceId: WORKSPACE_ID, itemId, message: 'Chase the invoice', typeId: TASK_TYPE_ID });
+  await postChange('capture_item', { workspaceId: WORKSPACE_ID, itemId, message: 'Chase the invoice' });
   await postChange('move_item_to_panel', { workspaceId: WORKSPACE_ID, itemId, panelId, order: [itemId] });
   const runId = nextId();
   const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/items/${itemId}/agent-runs`, {

@@ -76,7 +76,13 @@ export interface OutboxEntry {
   /** Whether that workspace is where it belongs, or only where it came from. */
   decided: boolean;
   message: string;
-  typeId: string;
+  /**
+   * Only on an entry an older build queued, from when a capture named a Type.
+   * It is sent as it was, so the server refuses it and the entry shows *Not
+   * sent* with **Put back**, which keeps the note and its files; no build
+   * writes one.
+   */
+  typeId?: string;
   /** What the Capture form's strip chose ("Set a priority and a due date while capturing", issue 611); absent on an entry written without one, which is every entry from before it. */
   priority?: Priority;
   dueDate?: string;
@@ -250,10 +256,12 @@ export function capturePayload(entry: OutboxEntry): CommandPayload<'capture_item
     workspaceId: entry.workspaceId,
     itemId: entry.id,
     message: entry.message,
-    typeId: entry.typeId,
+    // An older build's Type is sent on, to be refused (`OutboxEntry.typeId`):
+    // the contract no longer has the field, hence the cast.
+    ...(entry.typeId ? { typeId: entry.typeId } : {}),
     // Sent only when false, as an online capture always has (`capture.ts`).
     ...(entry.decided ? {} : { workspaceDecided: false }),
     ...(entry.priority ? { priority: entry.priority } : {}),
     ...(entry.dueDate ? { dueDate: entry.dueDate } : {}),
-  };
+  } as unknown as CommandPayload<'capture_item'>;
 }

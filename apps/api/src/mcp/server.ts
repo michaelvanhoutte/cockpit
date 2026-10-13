@@ -8,7 +8,6 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, openAccount, type Account } from '../accounts/index.js';
-import { noteTypeId } from '../accounts/changes.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
@@ -78,8 +77,7 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     try {
-      const [workspaces, types] = await Promise.all([account.workspaces(), account.itemTypes()]);
-      return { tools: [createItemTool(workspaces, types)] };
+      return { tools: [createItemTool(await account.workspaces())] };
     } catch (error) {
       logged(error);
       throw new McpError(ErrorCode.InternalError, SOMETHING_BROKE);
@@ -124,16 +122,15 @@ async function capture(
   // Asked together: the count is the store's memory and the two reads are its
   // tables, and a call refused for being one too many has simply read for
   // nothing. Every call is counted, refused ones included.
-  const [admitted, workspaces, types] = await Promise.all([
+  const [admitted, workspaces] = await Promise.all([
     account.appCaptureArrived(app.grantId, new Date().toISOString()),
     account.workspaces(),
-    account.itemTypes(),
   ]);
   if (admitted === 'too-many') {
     return { refusal: 'Too many calls in the last minute. Wait a minute and try again.' };
   }
 
-  const read = readCapture(args, workspaces, types, noteTypeId(accountName));
+  const read = readCapture(args, workspaces);
   if (!read.ok) return { refusal: read.refusal };
 
   const itemId = uuidv7();
@@ -145,7 +142,6 @@ async function capture(
       workspaceId: read.workspaceId,
       itemId,
       message: read.message,
-      typeId: read.typeId,
       ...(read.decided ? {} : { workspaceDecided: false }),
       // Said by this route and by no client: the app's registered name is the
       // sender a row shows ("Show which app captured an item", issue 598), and
@@ -157,10 +153,10 @@ async function capture(
       },
     });
   } catch (error) {
-    // A workspace or type deleted between the read above and the write: the
+    // A workspace deleted between the read above and the write: the
     // same refusal a name that matched nothing gets, so the model can retry.
     if (error instanceof NotFoundInAccountError) {
-      return { refusal: 'That workspace or type was just removed. List the tools again for the current names.' };
+      return { refusal: 'That workspace was just removed. List the tools again for the current names.' };
     }
     throw error;
   }

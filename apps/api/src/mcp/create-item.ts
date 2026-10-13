@@ -1,5 +1,4 @@
-import { TITLE_LENGTH, captureItemSchema, cutTo, type ItemType, type Workspace } from '@cockpit/shared';
-import { typeToCaptureAs } from '../domain/item-types.js';
+import { TITLE_LENGTH, captureItemSchema, cutTo, type Workspace } from '@cockpit/shared';
 import { namedTheSame } from '../domain/names.js';
 
 /**
@@ -36,7 +35,7 @@ export interface ToolDefinition {
 }
 
 /**
- * The tool, naming this account's workspaces and types as they are now.
+ * The tool, naming this account's workspaces as they are now.
  *
  * **Named twice, in the description and as an `enum`**, because clients use
  * them differently: some show the model only the description, and a schema
@@ -44,9 +43,8 @@ export interface ToolDefinition {
  * An account with no workspaces gets no `workspace` enum at all rather than an
  * empty one, which a validating client would read as "no value is allowed".
  */
-export function createItemTool(workspaces: readonly Workspace[], types: readonly ItemType[]): ToolDefinition {
+export function createItemTool(workspaces: readonly Workspace[]): ToolDefinition {
   const workspaceNames = workspaces.map((w) => w.name);
-  const typeNames = types.map((t) => t.name);
   const named = (names: string[]) => (names.length ? names.map((n) => `"${n}"`).join(', ') : 'none yet');
   return {
     name: CREATE_ITEM,
@@ -54,7 +52,6 @@ export function createItemTool(workspaces: readonly Workspace[], types: readonly
       "Capture a note into the user's Cockpit, the way they would type it into its capture box.",
       'Cockpit proposes a title and a fuller description from the message itself.',
       `Workspaces: ${named(workspaceNames)}. Leave workspace out when it is unclear, and the item waits in every Inbox for the user to decide.`,
-      `Types: ${named(typeNames)}. Leave type out for a Note.`,
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -69,11 +66,6 @@ export function createItemTool(workspaces: readonly Workspace[], types: readonly
           type: 'string',
           ...(workspaceNames.length ? { enum: workspaceNames } : {}),
           description: 'Which workspace it belongs to, by name.',
-        },
-        type: {
-          type: 'string',
-          ...(typeNames.length ? { enum: typeNames } : {}),
-          description: 'What kind of item it is, by name.',
         },
       },
       required: ['message'],
@@ -93,7 +85,6 @@ export type ReadCapture =
       workspaceId: string;
       /** False where no workspace was named, which is the capture page's "Not sure yet". */
       decided: boolean;
-      typeId: string;
     }
   | { ok: false; refusal: string };
 
@@ -112,14 +103,12 @@ export type ReadCapture =
  *   as the capture page records one against the workspace it was opened from.
  *   With no workspace at all there is nowhere to record it, which the capture
  *   page answers by offering to make one, and this answers in words.
- * - No type named is a Note: the account's own Note where it has one, its
- *   first type otherwise, which is what a connector's capture is too.
+ * - A `type` is refused: a capture carries none, and an argument ignored in
+ *   silence would let a caller believe it had been honoured.
  */
 export function readCapture(
   args: unknown,
   workspaces: readonly Workspace[],
-  types: readonly ItemType[],
-  noteTypeId: string,
 ): ReadCapture {
   const given = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
 
@@ -146,18 +135,9 @@ export function readCapture(
     }
   }
 
-  let type: ItemType | undefined;
-  if (given.type !== undefined && given.type !== null && given.type !== '') {
-    if (typeof given.type === 'string') type = namedTheSame(types, given.type);
-    if (!type) {
-      return {
-        ok: false,
-        refusal: `No type is called ${JSON.stringify(given.type)}. The types are ${names(types)}; or leave type out for a Note.`,
-      };
-    }
+  if (given.type !== undefined) {
+    return { ok: false, refusal: 'type is not an argument of create_item; leave it out.' };
   }
-  type ??= typeToCaptureAs(types, noteTypeId);
-  if (!type) return { ok: false, refusal: 'This Cockpit has no types to capture with yet.' };
 
   const into = workspace ?? workspaces[0];
   if (!into) {
@@ -167,7 +147,7 @@ export function readCapture(
     };
   }
 
-  return { ok: true, message: message.data, workspaceId: into.id, decided: workspace !== undefined, typeId: type.id };
+  return { ok: true, message: message.data, workspaceId: into.id, decided: workspace !== undefined };
 }
 
 /**

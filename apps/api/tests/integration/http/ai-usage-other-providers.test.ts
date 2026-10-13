@@ -81,7 +81,7 @@ async function postChange<N extends CommandName>(name: N, payload: Omit<CommandP
 
 async function captureANote(): Promise<string> {
   const itemId = nextId();
-  await postChange('capture_item', { workspaceId: WORKSPACE_ID, itemId, message: NOTE, typeId: TASK_TYPE_ID });
+  await postChange('capture_item', { workspaceId: WORKSPACE_ID, itemId, message: NOTE });
   return itemId;
 }
 
@@ -285,7 +285,7 @@ describe('AI usage', () => {
       const panelId = nextId();
       await postChange('add_panel', { workspaceId: WORKSPACE_ID, dashboardId: DASHBOARD_ID, panelId, name: 'Now', kind: 'items' });
       const itemId = nextId();
-      await postChange('capture_item', { workspaceId: WORKSPACE_ID, itemId, message: 'Chase the invoice', typeId: TASK_TYPE_ID });
+      await postChange('capture_item', { workspaceId: WORKSPACE_ID, itemId, message: 'Chase the invoice' });
       await postChange('move_item_to_panel', { workspaceId: WORKSPACE_ID, itemId, panelId, order: [itemId] });
 
       const started = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/items/${itemId}/agent-runs`, {

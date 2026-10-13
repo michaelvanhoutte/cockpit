@@ -67,7 +67,6 @@ async function captureThought(userId: string, workspaceId: string, message: stri
         // A type of the account being captured into, which is the point of
         // deriving it from the person rather than sharing one constant: a
         // capture naming another account's type is refused.
-        typeId: taskTypeIn(accountOf(userId)),
       }),
     },
     userId,

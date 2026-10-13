@@ -1,7 +1,4 @@
 import {
-  captureBox,
-  closeCapture,
-  openCapture,
   closeSettings,
   openSettings,
   chooseRowAction,
@@ -19,7 +16,7 @@ import {
  * F3, because none of this exists below a real browser: the header's menu is
  * opened by a tap on a 480px screen and by a mouse on a 1280px one, the window
  * it leads to is drawn over the workspace, and a type made and then renamed in
- * it has to reach the capture row and the rows of a workspace already open.
+ * it has to reach the rows of a workspace already open.
  *
  * It is not re-proving the naming rules, which
  * apps/api/tests/integration/http/item-types.test.ts owns against a real store,
@@ -32,8 +29,8 @@ import {
  * specs' types with it.
  */
 test.describe('Capture', () => {
-  test.describe('a type is made where types are managed, and used at capture', () => {
-    test('offers a type made in the window, and shows a rename on the rows without a reload', async ({
+  test.describe('a type is made where types are managed, and shown on the rows', () => {
+    test('shows a type made in the window, and a rename on the rows without a reload', async ({
       page,
       isMobile,
     }) => {
@@ -54,16 +51,26 @@ test.describe('Capture', () => {
       await expect(page.getByRole('button', { name: `Actions for ${kind}` })).toBeVisible();
       await closeSettings(page, isMobile);
 
-      // On offer at capture the moment it exists, without a reload.
+      // Capture never asks for a Type ("Capture without a Type, at every front
+      // door", issue 1067), so an Item takes this one the way a form gives it:
+      // here by the same two commands, which is all the rename needs to show.
       await openInbox(page, isMobile);
       const thought = uniqueTitle('Why is this slow?');
-      await openCapture(page, isMobile);
-      await captureBox(page).fill(thought);
-      await press(page.getByRole('group', { name: 'Type' }).getByRole('button', { name: kind }), isMobile);
-      await captureBox(page).press('ControlOrMeta+Enter');
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(thought)).toBeVisible();
-      await closeCapture(page, isMobile);
-      await expect(itemRow(page, thought).getByText(kind)).toBeVisible();
+      const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
+      const known = await page.request.get('/v1/item-types');
+      const { id: typeId } = ((await known.json()) as { itemTypes: { id: string; name: string }[] }).itemTypes.find(
+        (one) => one.name === kind,
+      )!;
+      const itemId = crypto.randomUUID();
+      const send = async (command: string, data: Record<string, unknown>) => {
+        const sent = await page.request.post(`/v1/commands/${command}`, {
+          data: { commandId: crypto.randomUUID(), issuedAt: new Date().toISOString(), workspaceId, itemId, ...data },
+        });
+        expect(sent.ok(), `${command} from outside failed: ${sent.status()}`).toBe(true);
+      };
+      await send('capture_item', { message: thought });
+      await send('set_item_type', { typeId });
+      await expect(itemRow(page, thought).getByText(kind)).toBeVisible({ timeout: 30_000 });
 
       await openSettings(page, 'Types', isMobile);
       const renamed = uniqueTitle('Renamed');

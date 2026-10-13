@@ -320,32 +320,23 @@ test.describe('Capture', () => {
     });
   });
 
-  test.describe('capturing a thought shows it in the inbox as a thought', () => {
-    test('says what kind of thing it is on its own row', async ({ page, isMobile }) => {
+  test.describe('capturing a thought never asks what kind of thing it is', () => {
+    test('shows it in the inbox with no Type on its row', async ({ page, isMobile }) => {
       await openInbox(page, isMobile);
       await openCapture(page, isMobile);
 
-      // Chosen from the types the account has, which is all this row offers -
-      // one is made in the window they are managed in ("Make a type where types
-      // are managed, not while capturing", issue 203), and that walk is
-      // tests/e2e/item-types.test.ts.
-      // One of the two every account starts with ("Call the two standard types
-      // Task and Note", issue 194) rather than a name this walk invents:
-      // capture chooses among the types there are.
-      const kind = page.getByRole('group', { name: 'Type' }).getByRole('button', { name: 'Note' });
-      await expect(kind).toBeInViewport();
+      // Capture never asks ("Capture without a Type, at every front door",
+      // issue 1067): the Where row is all there is to choose.
+      await expect(page.getByRole('group', { name: 'Where' })).toBeInViewport();
+      await expect(page.getByRole('group', { name: 'Type' })).toHaveCount(0);
 
       const thought = uniqueTitle('Maybe split the pricing page');
       await captureBox(page).fill(thought);
-      await press(kind, isMobile);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
       await expect(page.getByRole('region', { name: 'Just captured' }).getByText(thought)).toBeVisible();
       await closeCapture(page, isMobile);
 
-      // The word under the title, which is one of the two marks the type took
-      // from the status ("Capture a thought or an action, and see which it
-      // is", issue 155).
-      await expect(itemRow(page, thought).getByText('Note')).toBeVisible();
+      await expect(itemRow(page, thought)).toBeVisible();
       await expectNoSidewaysScroll(page);
 
       // The note written formatted ("Switch the Capture note to formatted",

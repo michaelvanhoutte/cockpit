@@ -47,7 +47,6 @@ describe('Offline', () => {
               workspaceId: 'ws-work',
               itemId: '01a0f83f-c040-749a-b6e6-330d17bc4141',
               message: 'Ring the plumber',
-              typeId: 'type-task',
             },
             signal,
           ),

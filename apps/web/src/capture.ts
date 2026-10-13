@@ -19,31 +19,14 @@ import { useCommand } from './api/queries';
  * cannot be written; the Panel's row always comes here, because it files what
  * it makes and filing needs the server.
  *
- * **It used to make the type first**, where the name typed matched none of the
- * account's, and that was the only way a type came into existence. Types are
- * now made in the window they are managed in ("Make a type where types are
- * managed, not while capturing", issue 203), so capture chooses among the types
- * there are and nothing else: what arrives here is a type's id, and every
- * capture carries one.
+ * **It names no Type**: a capture carries none, and the server refuses one
+ * ("Capture without a Type, at every front door", issue 1067).
  */
 
 /** What is being captured, once the surface has read it off the screen. */
 export interface WhatToCapture {
   /** The note, already trimmed and known not to be empty. */
   message: string;
-  /**
-   * The type it was given, which every capture has: *No type* was an answer
-   * until every Item needed one, and both surfaces now fall back to the type
-   * used last rather than to none.
-   *
-   * An id rather than a name, which is what changed when capture stopped making
-   * types: a name was an answer that might not name anything yet, and this
-   * cannot be. The surface is what checks it against the types it is showing,
-   * so one deleted in another tab is replaced here rather than sent as an id
-   * the server would refuse - and a surface with no types to show does not
-   * capture at all.
-   */
-  typeId: string;
   /** The workspace it is captured against - where it belongs, or came from. */
   workspaceId: string;
   /**
@@ -68,8 +51,8 @@ export interface CaptureAnswers {
    * on the way out and put back by `refused` if it has to be.
    */
   asking?: () => void;
-  /** It landed, with the type it ended up carrying and the id it was given. */
-  captured?: (typeId: string, itemId: string) => void;
+  /** It landed, with the id it was given. */
+  captured?: (itemId: string) => void;
   /** It did not, and this is what to say. */
   refused: (why: string) => void;
 }
@@ -122,7 +105,6 @@ export function useCapture(): {
           workspaceId: what.workspaceId,
           itemId,
           message: what.message,
-          typeId: what.typeId,
           // Sent only when it is false, so every front door that captures
           // into a named workspace reads exactly as it did before this
           // landed.
@@ -139,7 +121,7 @@ export function useCapture(): {
           // the item's form dock to the side of the screen instead of opening
           // as a dialog", issue 481), leaving the keyboard in the capture box.
           if (dockNow.current.openId !== null) dockNow.current.show(itemId, { keepFocus: true });
-          answers.captured?.(what.typeId, itemId);
+          answers.captured?.(itemId);
         },
         /**
          * **The note goes back in the box**, which is the other half of

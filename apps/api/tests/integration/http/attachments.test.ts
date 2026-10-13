@@ -42,7 +42,6 @@ async function captureAnItem(overrides: Partial<CommandPayload<'capture_item'>> 
     workspaceId: WORKSPACE_ID,
     itemId,
     message: 'A scanned receipt',
-    typeId: TASK_TYPE_ID,
     ...overrides,
   });
   return itemId;

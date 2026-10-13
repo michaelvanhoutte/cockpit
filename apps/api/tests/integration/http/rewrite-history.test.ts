@@ -102,7 +102,6 @@ async function captureANote(overrides: Partial<CommandPayload<'capture_item'>> =
     workspaceId: WORKSPACE_ID,
     itemId,
     message: 'call the plumber about the leak',
-    typeId: TASK_TYPE_ID,
     ...overrides,
   });
   expect(response.status).toBe(200);
