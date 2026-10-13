@@ -19,7 +19,8 @@ import { categoriesIn, categoryChange, flagChange, markOf, type Mark } from './m
  * **Confirmed only once Graph has answered**, so a run that stops between the
  * write and the host's record writes it again, harmlessly. A message that is
  * gone counts as confirmed. Microsoft holding the mailbox back (a `429`, a
- * `5xx`) leaves the rest waiting; any other refusal is given up on, so one
+ * `5xx`) leaves the rest waiting, and a write meeting a save of the message
+ * (a `409`) leaves that one waiting; any other refusal is given up on, so one
  * message cannot hold up the rest. Every call is spent from the run's budget,
  * shared with the listing that follows.
  */
@@ -56,13 +57,19 @@ export async function mirrorOpenStates(
   return { confirmed, gaveUp };
 }
 
-/** Whether the message now holds what is wanted: false for a category write that kept meeting a changed message, or could not be made conditional. */
+/** Whether the message now holds what is wanted: false for a write that met a changed message (every attempt, for a category), or a category write that could not be made conditional. */
 async function pushed(mailbox: Mailbox, mark: Mark, one: OpenStateWanted): Promise<boolean> {
   const path = `messages/${encodeURIComponent(one.sourceId)}`;
   // A message gone (null) has nothing left to mark.
   if (mark === 'flag') {
-    await mailbox.patch(path, flagChange(one.open));
-    return true;
+    try {
+      await mailbox.patch(path, flagChange(one.open));
+      return true;
+    } catch (error) {
+      // A conflict with a save made at the same moment is handed back, never given up.
+      if (error instanceof Changed) return false;
+      throw error;
+    }
   }
   for (let attempt = 0; attempt < CATEGORY_ATTEMPTS; attempt++) {
     const answer = await mailbox.get(`${path}?$select=categories`);

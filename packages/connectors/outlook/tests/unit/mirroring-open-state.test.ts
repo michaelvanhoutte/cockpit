@@ -171,6 +171,21 @@ describe('Connector management', () => {
       expect(host.logged.some((one) => one.level === 'warn')).toBe(true);
     });
 
+    it('hands a flag write back next run, neither confirmed nor given up, when it meets a save of the message at the same moment', async () => {
+      const world = new GraphWorld();
+      world.arrives('m-1', { flag: 'flagged' });
+      world.arrives('m-2', { flag: 'flagged' });
+      world.failures.push({ prefix: 'messages/m-1', status: 409, body: { error: { code: 'ErrorIrresolvableConflict' } } });
+
+      const answer = await world.connector().mirrorOpenState!(signedInHost({ choice: 'flag' }), [
+        { sourceId: 'm-1', open: false },
+        { sourceId: 'm-2', open: false },
+      ]);
+
+      expect(answered(answer)).toEqual({ confirmed: ['m-2'], gaveUp: [] });
+      expect(world.flagOf('m-1')).toBe('flagged');
+    });
+
     it('refreshes a sign-in Graph stopped accepting once, and writes the change', async () => {
       const world = new GraphWorld();
       world.arrives('m-1', { flag: 'flagged' });

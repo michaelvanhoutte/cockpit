@@ -79,7 +79,7 @@ export class Refused extends Error {
     super(`Microsoft refused the request for this mailbox: ${status} to ${where}`);
   }
 }
-/** A conditional write refused because the message changed since the version it named was read. */
+/** A write refused because the message changed since the version it named was read, or while it was written (a 412, a 409). */
 export class Changed extends Error {}
 /** The run's calls are spent; what is left is the next run's. */
 export class OutOfCalls extends Error {}
@@ -173,9 +173,10 @@ export class Mailbox {
       throw new NotAnswering(`Graph answered ${response.status} to ${where}`);
     }
     // 412 is the version named no longer the message's; 409 is Exchange's own
-    // word for the same (ErrorIrresolvableConflict).
-    if (request.ifMatch !== undefined && (response.status === 412 || response.status === 409)) {
-      throw new Changed(`Graph answered ${response.status}: the message changed since it was read`);
+    // word for the same (ErrorIrresolvableConflict), which a write naming no
+    // version can meet too, saved against at the same moment. Neither is for good.
+    if (response.status === 412 || response.status === 409) {
+      throw new Changed(`Graph answered ${response.status}: the message changed while it was written`);
     }
     // Anything else refused (a mailbox with no Exchange Online, a permission
     // an administrator took away) is not going to pass by asking again.

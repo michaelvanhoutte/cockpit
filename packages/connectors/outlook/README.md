@@ -115,7 +115,8 @@ flag or category off in Outlook when its task is done in Cockpit", issue 1047).
   for the same, is read alike). A refused write is read again and retried, three
   attempts a run, then handed back next run. A list already as wanted is not
   written; one Graph gives no version for is never written unconditionally, and
-  waits. A `404` is a message gone, and confirmed. `408`, `429` and `5xx` leave
+  waits. A flag write answered `409`, a save of the message at the same moment,
+  waits for the next run. A `404` is a message gone, and confirmed. `408`, `429` and `5xx` leave
   that change and every one after it for the next run; any other refusal (`403`,
   `400`) is given up on, so one message cannot hold up the rest. A `401` is
   refreshed once. The writes spend the run's `callsPerRun` before the listing does.

@@ -244,10 +244,15 @@ describe.skipIf(!provisioned)('Connector management', () => {
       // Any change moves the version on, a write of the same list among them.
       await graph(path, { method: 'PATCH', body: { categories: stale.categories } });
 
-      const refused = await graphAnswer(path, { method: 'PATCH', body: { categories: categoryChange(stale.categories, false) }, ifMatch: stale.version! });
+      try {
+        const refused = await graphAnswer(path, { method: 'PATCH', body: { categories: categoryChange(stale.categories, false) }, ifMatch: stale.version! });
 
-      expect([409, 412], `Graph answered ${refused.status} to a write against a stale version`).toContain(refused.status);
-      expect(isMarked(await graph(`${path}?$select=categories`), 'category')).toBe(true);
+        expect([409, 412], `Graph answered ${refused.status} to a write against a stale version`).toContain(refused.status);
+        expect(isMarked(await graph(`${path}?$select=categories`), 'category')).toBe(true);
+      } finally {
+        // A Graph that took the stale write would otherwise leave the test mailbox without its marked message.
+        await graph(path, { method: 'PATCH', body: { categories: stale.categories } });
+      }
     });
   });
 });
