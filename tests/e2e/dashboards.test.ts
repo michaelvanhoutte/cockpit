@@ -789,8 +789,6 @@ test.describe('Dashboards', () => {
       const itemId = randomUUID();
       const itemPanelId = randomUUID();
       const word = uniqueTitle('Quarterly').replace(/\s+/g, '');
-      const known2 = await page.request.get('/v1/item-types');
-      const [aType] = ((await known2.json()) as { itemTypes: { id: string }[] }).itemTypes;
       const asCommand = async (command: string, data: Record<string, unknown>) => {
         const sent = await page.request.post(`/v1/commands/${command}`, {
           data: { commandId: randomUUID(), issuedAt: new Date().toISOString(), workspaceId, ...data },
@@ -798,7 +796,7 @@ test.describe('Dashboards', () => {
         expect(sent.ok(), `${command} from outside failed: ${sent.status()} ${await sent.text()}`).toBe(true);
       };
       await asCommand('add_panel', { dashboardId: elsewhereId, panelId: itemPanelId, name: 'Found here' });
-      await asCommand('capture_item', { itemId, message: `Pay ${word}`, typeId: aType!.id });
+      await asCommand('capture_item', { itemId, message: `Pay ${word}` });
       await asCommand('add_item_to_panel', { itemId, panelId: itemPanelId, order: [itemId] });
       await page.reload();
       await expect(page.getByRole('button', { name: 'Open Find item' })).toBeVisible();
