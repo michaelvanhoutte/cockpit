@@ -13,7 +13,8 @@ import {
 
 /**
  * A run of Outlook, in the order it must go (the quirks behind each step are in
- * the package README):
+ * the package README). Before it, the host has had the waiting open states
+ * pushed (`mirrorOpenStates`), so the listing agrees with what was pushed.
  *
  * 1. **List the immutable ids of every message carrying the mark**, mailbox-wide
  *    and leaving out Deleted Items, a page at a time. A listing that stops

@@ -66,6 +66,39 @@ export function isMarked(message: unknown, mark: Mark): boolean {
   );
 }
 
+/** What a flag is set to for an Item opened or closed in Cockpit: the flag alone, nothing else of the message. */
+export function flagChange(open: boolean): { flag: { flagStatus: 'flagged' | 'complete' } } {
+  return { flag: { flagStatus: open ? 'flagged' : 'complete' } };
+}
+
+/**
+ * A message's categories as Graph answers `$select=categories`, with the
+ * version they were read at (`@odata.etag`) - or null where the answer names
+ * no list. `version` is null where Graph gave none, and then nothing can be
+ * written conditionally.
+ */
+export function categoriesIn(answer: unknown): { categories: string[]; version: string | null } | null {
+  const { categories, '@odata.etag': etag } = (answer ?? {}) as Record<string, unknown>;
+  if (!Array.isArray(categories)) return null;
+  return {
+    categories: categories.filter((one): one is string => typeof one === 'string'),
+    version: typeof etag === 'string' && etag ? etag : null,
+  };
+}
+
+/**
+ * The category list a message should carry for its Item to be open or closed:
+ * Cockpit added, or taken off in whatever case it was written, and every other
+ * category kept in its order - or null where the list already says so and
+ * nothing is to be written.
+ */
+export function categoryChange(categories: readonly string[], open: boolean): string[] | null {
+  const isCockpit = (one: string) => one.toLowerCase() === COCKPIT_CATEGORY.toLowerCase();
+  const holds = categories.some(isCockpit);
+  if (holds === open) return null;
+  return open ? [...categories, COCKPIT_CATEGORY] : categories.filter((one) => !isCockpit(one));
+}
+
 /** The id of the mailbox's Deleted Items folder, from `mailFolders/deleteditems` - or null where there is none. */
 export function deletedItemsIn(answer: unknown): string | null {
   const { id } = (answer ?? {}) as { id?: unknown };

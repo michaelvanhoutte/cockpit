@@ -3,8 +3,9 @@
 Messages a person flags for follow-up in a Microsoft 365 mailbox, or categorises
 `Cockpit`, arrive in Cockpit as Tasks. Built on the connector SDK alone
 ("Build Outlook as a connector package on the SDK, unregistered", issue 1046),
-and **not registered**: nothing in the application offers it yet. It only reads
-the mailbox; closing and reopening Items in the mailbox is a later slice.
+and **not registered**: nothing in the application offers it yet. Done, Dismiss
+and reopening a Task put the mark back on its message or take it off ("Take the
+flag or category off in Outlook when its task is done in Cockpit", issue 1047).
 
 ## The quirks, which is what this file is for
 
@@ -102,6 +103,22 @@ the mailbox; closing and reopening Items in the mailbox is a later slice.
   message with no subject is titled `(no subject)`; with no text, its title
   stands in. The sender is the name in From, else the address, else none. The
   link is `webLink`, which opens the message in Outlook on the web.
+- **Open state is mirrored, one field at a time** (`mirrorsOpenState`), and the
+  host pushes it before the run lists, so the listing agrees with what was
+  pushed. Following the flag, the flag alone is `PATCH`ed to `complete` or
+  `flagged`, unread first: setting it to what it is changes nothing. Following
+  the category, the list is read (`$select=categories`) and written back whole,
+  `Cockpit` added or taken off in whatever case it was written and every other
+  category kept, **conditional on the version read**: `If-Match` names the
+  message's `@odata.etag`, and a write against a version Graph has moved past is
+  refused with `412` (`409` and `ErrorIrresolvableConflict`, Exchange's word
+  for the same, is read alike). A refused write is read again and retried, three
+  attempts a run, then handed back next run. A list already as wanted is not
+  written; one Graph gives no version for is never written unconditionally, and
+  waits. A `404` is a message gone, and confirmed. `408`, `429` and `5xx` leave
+  that change and every one after it for the next run; any other refusal (`403`,
+  `400`) is given up on, so one message cannot hold up the rest. A `401` is
+  refreshed once. The writes spend the run's `callsPerRun` before the listing does.
 
 ## Not yet known
 
@@ -114,4 +131,10 @@ the mailbox; closing and reopening Items in the mailbox is a later slice.
   `InefficientFilter` error, and whether `categories/any(c:c eq 'Cockpit')`
   matches without regard to case.** The connector does not depend on either: it
   checks the marks itself. The contract test is where this is settled.
+- **Whether Graph honours `If-Match` on a message `PATCH`**, rather than
+  ignoring it, and answers `412` or `409`. Graph documents the `412` for drive
+  and list items and returns `@odata.etag` on a message, but says nothing of a
+  conditional message write; were it ignored, a category changed between the
+  read and the write would be lost. The contract test's stale-version case is
+  where this is settled.
 - **The call budget.** Measured when the connector is registered.

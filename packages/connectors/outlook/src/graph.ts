@@ -70,6 +70,17 @@ export class SignInLost extends Error {
 }
 /** Graph or Microsoft did not answer usefully this time - a 5xx, a rate limit, the network. */
 export class NotAnswering extends Error {}
+/** Graph refusing a request in a way asking again will not alter (a 403, a 400); `status` is what it answered. */
+export class Refused extends Error {
+  constructor(
+    readonly status: number,
+    where: string,
+  ) {
+    super(`Microsoft refused the request for this mailbox: ${status} to ${where}`);
+  }
+}
+/** A conditional write refused because the message changed since the version it named was read. */
+export class Changed extends Error {}
 /** The run's calls are spent; what is left is the next run's. */
 export class OutOfCalls extends Error {}
 
@@ -100,6 +111,13 @@ export function mailboxOf(host: ConnectorHost, config: OutlookConnectorConfig): 
 /** The requests' headers: **immutable ids always**, since Graph's default ids change when a message moves folder. */
 const IMMUTABLE_IDS = 'IdType="ImmutableId"';
 
+/** One request to Graph: a read where it carries no `body`, a change where it does. */
+interface GraphRequest {
+  readonly prefer: string;
+  readonly body?: unknown;
+  readonly ifMatch?: string | undefined;
+}
+
 export class Mailbox {
   #token: string | null;
   readonly #origin: string;
@@ -124,32 +142,57 @@ export class Mailbox {
     // A next link is followed only to the origin the token is meant for.
     if (!url.startsWith(`${this.#origin}/`)) throw new NotAnswering('Graph named a next page somewhere else');
     const prefer = options.bodyAsText ? `${IMMUTABLE_IDS}, outlook.body-content-type="text"` : IMMUTABLE_IDS;
+    return this.#ask(url, { prefer });
+  }
+
+  /**
+   * One change to what a path under `/v1.0/me/` names, `body` merged into it -
+   * Graph's answer, or null where what it names is not there. `ifMatch` makes
+   * it conditional on the version read (`@odata.etag`): a message changed
+   * since is `Changed`, and nothing is written.
+   */
+  patch(path: string, body: unknown, options: { ifMatch?: string } = {}): Promise<unknown> {
+    return this.#ask(`${this.#origin}/v1.0/me/${path}`, { prefer: IMMUTABLE_IDS, body, ifMatch: options.ifMatch });
+  }
+
+  async #ask(url: string, request: GraphRequest): Promise<unknown> {
     const refreshedHere = this.#token === null;
     const token = this.#token ?? (await this.#refresh());
-    let response = await this.#call(url, token, prefer);
+    let response = await this.#call(url, token, request);
     if (response.status === 401) {
       // A token Microsoft has stopped accepting early is refreshed once; a
       // second refusal is the sign-in's. One refreshed a moment ago for this
       // very call is not refreshed again: that refusal is already the second.
       if (refreshedHere) throw new SignInLost();
-      response = await this.#call(url, await this.#refresh(), prefer);
+      response = await this.#call(url, await this.#refresh(), request);
       if (response.status === 401) throw new SignInLost();
     }
     if (response.status === 404) return null;
-    const where = url.slice(this.#origin.length).split('?')[0];
+    const where = url.slice(this.#origin.length).split('?')[0]!;
     if (response.status === 408 || response.status === 429 || response.status >= 500) {
       throw new NotAnswering(`Graph answered ${response.status} to ${where}`);
     }
+    // 412 is the version named no longer the message's; 409 is Exchange's own
+    // word for the same (ErrorIrresolvableConflict).
+    if (request.ifMatch !== undefined && (response.status === 412 || response.status === 409)) {
+      throw new Changed(`Graph answered ${response.status}: the message changed since it was read`);
+    }
     // Anything else refused (a mailbox with no Exchange Online, a permission
     // an administrator took away) is not going to pass by asking again.
-    if (!response.ok) throw new Error(`Microsoft refused the request for this mailbox: ${response.status} to ${where}`);
+    if (!response.ok) throw new Refused(response.status, where);
     return response.json();
   }
 
-  async #call(url: string, token: string, prefer: string): Promise<Response> {
+  async #call(url: string, token: string, request: GraphRequest): Promise<Response> {
     this.#spend();
+    const headers: Record<string, string> = { authorization: `Bearer ${token}`, prefer: request.prefer };
+    if (request.body !== undefined) headers['content-type'] = 'application/json';
+    if (request.ifMatch !== undefined) headers['if-match'] = request.ifMatch;
     try {
-      return await (this.config.fetch ?? fetch)(url, { headers: { authorization: `Bearer ${token}`, prefer } });
+      return await (this.config.fetch ?? fetch)(url, {
+        ...(request.body === undefined ? {} : { method: 'PATCH', body: JSON.stringify(request.body) }),
+        headers,
+      });
     } catch (error) {
       throw new NotAnswering(error instanceof Error ? error.message : String(error));
     }
