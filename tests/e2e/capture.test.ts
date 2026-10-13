@@ -448,10 +448,11 @@ test.describe('Capture', () => {
           expect(await middle(clear)).toBeCloseTo(top, 0);
           await expectEverythingInsideTheBox();
         }
-        // Next year's carries the year, this year's does not.
-        await expect(picked).toContainText(String(now.getFullYear() + 1).slice(2), { useInnerText: true });
+        // Next year's carries the year, this year's does not: counted as
+        // numbers in the label, since the day itself can match a year's digits.
+        await expect(picked).toHaveText(/^\D*\d+\D+\d+\D*$/, { useInnerText: true });
         await pick(thisYear);
-        await expect(picked).not.toContainText(String(now.getFullYear()).slice(2), { useInnerText: true });
+        await expect(picked).toHaveText(/^\D*\d+\D*$/, { useInnerText: true });
       } else {
         // One row, with the label, and the full date beside the 📅.
         await expect(due.getByText('Due', { exact: true })).toBeVisible();
