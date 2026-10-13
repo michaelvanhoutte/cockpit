@@ -39,6 +39,8 @@ export type Reach = {
   dashboardId: string;
   /** In tab order. */
   workspaces: readonly ReachWorkspace[];
+  /** The Workspace on screen as its snapshot holds it, which Find item searches; undefined until it has been read. */
+  snapshot?: WorkspaceSnapshot | undefined;
   /** Says how wide the list is searching, so no Workspace is read before a wider scope is chosen. */
   ask: (scope: Scope) => void;
   /** `push` adds a history entry, `replace` swaps the current one, `back` returns to the one before. */
@@ -149,5 +151,6 @@ export function useReach(asked: Scope, ask: (scope: Scope) => void): Reach {
     [router, navigate],
   );
 
-  return { workspaceId, dashboardId, workspaces: reaching, ask, go };
+  const snapshot = snapshots[workspaces.findIndex((workspace) => workspace.id === workspaceId)]?.data;
+  return { workspaceId, dashboardId, workspaces: reaching, snapshot, ask, go };
 }

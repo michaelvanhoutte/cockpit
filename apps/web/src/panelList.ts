@@ -58,16 +58,25 @@ export function forgetPanelListCollapsed(store: Storage | undefined): void {
   }
 }
 
+/** The key that shows the column in its second mode, Find item ("Find an open Item with F and Shift+F, and land on its row", issue 828). */
+export const FIND_ITEM_KEY = 'f';
+
+/** What the column is looking for: a Panel to go to, or an Item to find. */
+export type PanelListMode = 'panel' | 'item';
+
 /**
- * Whether this key press shows or hides the column: not while typing, not with
- * a modifier held, not while a menu or a window is open, and not for a key held
- * down - the four guards `togglesTheInbox` carries, for the same reasons.
+ * The mode whose key this press is, or null where it shows, hides or switches
+ * nothing: not while typing, not with a modifier held, not while a menu or a
+ * window is open, and not for a key held down - the four guards `togglesTheInbox`
+ * carries, for the same reasons. Shift is the Workspace scope of the same mode.
  */
-export function togglesThePanelList(press: KeyPress, covered: boolean): boolean {
-  if (press.key.toLowerCase() !== PANEL_LIST_KEY) return false;
-  if (press.ctrlKey || press.altKey || press.metaKey) return false;
-  if (press.repeat || press.defaultPrevented) return false;
-  return !press.typing && !covered;
+export function modeOfKeyPress(press: KeyPress, covered: boolean): PanelListMode | null {
+  const key = press.key.toLowerCase();
+  const mode = key === PANEL_LIST_KEY ? 'panel' : key === FIND_ITEM_KEY ? 'item' : null;
+  if (mode === null) return null;
+  if (press.ctrlKey || press.altKey || press.metaKey) return null;
+  if (press.repeat || press.defaultPrevented) return null;
+  return !press.typing && !covered ? mode : null;
 }
 
 /**

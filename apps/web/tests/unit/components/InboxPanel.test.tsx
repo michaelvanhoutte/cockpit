@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Filing, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { InboxHeading, InboxPanel } from '../../../src/components/InboxPanel';
+import { askToLand, forgetLanding } from '../../../src/landOnItem';
 
 /**
  * F1: what the Inbox holds is a view over the snapshot evaluated in the
@@ -225,6 +226,21 @@ describe('What Cockpit changed', () => {
       const dialog = await screen.findByRole('dialog', { name: 'What Cockpit changed' });
       expect(await within(dialog).findByText('Read across ws-work')).toBeVisible();
       expect(within(dialog).getByRole('columnheader', { name: 'Item' })).toBeVisible();
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  describe('Find lands on an Item of the Inbox, focusing its row', () => {
+    it('focuses the row asked for, outlined, and settles the request', async () => {
+      await showWorkspace([anItem('Buy milk'), anItem('Call Ann')]);
+      const row = screen.getByText('Call Ann').closest<HTMLElement>('[data-item-id]')!;
+
+      act(() => askToLand({ itemId: row.getAttribute('data-item-id')!, place: { kind: 'inbox' }, focus: true }));
+
+      expect(row).toHaveFocus();
+      expect(row).toHaveAttribute('data-shown');
+      act(() => forgetLanding());
     });
   });
 });

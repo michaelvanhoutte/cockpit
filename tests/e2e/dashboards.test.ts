@@ -783,6 +783,38 @@ test.describe('Dashboards', () => {
       await expect(page).toHaveURL(new RegExp(`/w/${abroad.id}/d/`));
       await page.goBack();
       await expect(page).toHaveURL(startAt);
+
+      // **Find item** (issue 828): Shift+F, a word, Enter lands keyboard focus on the Item's row on another
+      // Dashboard - a real router switch and a real layout, which only a browser has - leaving no form and no column.
+      const itemId = randomUUID();
+      const itemPanelId = randomUUID();
+      const word = uniqueTitle('Quarterly').replace(/\s+/g, '');
+      const known2 = await page.request.get('/v1/item-types');
+      const [aType] = ((await known2.json()) as { itemTypes: { id: string }[] }).itemTypes;
+      const asCommand = async (command: string, data: Record<string, unknown>) => {
+        const sent = await page.request.post(`/v1/commands/${command}`, {
+          data: { commandId: randomUUID(), issuedAt: new Date().toISOString(), workspaceId, ...data },
+        });
+        expect(sent.ok(), `${command} from outside failed: ${sent.status()} ${await sent.text()}`).toBe(true);
+      };
+      await asCommand('add_panel', { dashboardId: elsewhereId, panelId: itemPanelId, name: 'Found here' });
+      await asCommand('capture_item', { itemId, message: `Pay ${word}`, typeId: aType!.id });
+      await asCommand('add_item_to_panel', { itemId, panelId: itemPanelId, order: [itemId] });
+      await page.reload();
+      await expect(page.getByRole('button', { name: 'Open Find item' })).toBeVisible();
+      await page.keyboard.press('Shift+F');
+      const find = page.getByRole('complementary', { name: 'Find item' });
+      await expect(find).toBeVisible();
+      await expect(page.getByRole('searchbox', { name: 'Find an Item' })).toBeFocused();
+      await page.keyboard.type(word);
+      await expect(find.getByRole('listitem')).toHaveCount(1);
+      await page.keyboard.press('Enter');
+      await expect(find).toHaveCount(0);
+      await expect(page).toHaveURL(new RegExp(`/d/${elsewhereId}$`));
+      const row = page.locator(`[data-item-id="${itemId}"]`);
+      await expect(row).toBeFocused();
+      await expect(row).toHaveAttribute('data-shown', '');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { PanelList } from '../../../src/components/PanelList';
@@ -7,6 +7,8 @@ import { readDashboardFilter, writeDashboardFilter } from '../../../src/dashboar
 import type { DashboardFilter } from '../../../src/dashboardFilter';
 import type { PanelListing } from '../../../src/panelList';
 import type { Reach, ReachWorkspace } from '../../../src/panelReach';
+import type { WorkspaceSnapshot } from '@cockpit/shared';
+import { forgetLanding, useLanding } from '../../../src/landOnItem';
 
 /**
  * F1: what the column draws from what it is handed, the keys it holds once G
@@ -1179,8 +1181,8 @@ describe('Dashboards', () => {
 
       await userEvent.click(screen.getByRole('button', { name: 'Hide Go to panel' }));
       expect(screen.queryByRole('separator')).toBeNull();
-      expect(strip()!.className).toContain('w-8');
-      expect(strip()!.style.width).toBe('');
+      expect(strip()!.parentElement!.className).toContain('w-8');
+      expect(strip()!.parentElement!.style.width).toBe('');
     });
 
     it('draws a stored width wider than the row allows at what the row allows, and keeps the stored one', () => {
@@ -1201,6 +1203,193 @@ describe('Dashboards', () => {
       render(<Held listing={three()} startsHidden={false} />);
       drag(800, 700);
       expect(drawnWidth()).toBe('324px');
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  describe('F and Shift+F open Find item on a scope, and the four keys close or switch', () => {
+    const snapshot = {
+      items: [
+        { id: 'rent', title: 'Pay the rent', description: null, nextAction: null, sender: null, completedAt: null, updatedAt: '2026-08-02T00:00:00.000Z' },
+        { id: 'vat', title: 'VAT return', description: null, nextAction: null, sender: null, completedAt: null, updatedAt: '2026-08-01T00:00:00.000Z' },
+        { id: 'stray', title: 'Stray VAT note', description: null, nextAction: null, sender: null, completedAt: null, updatedAt: '2026-08-03T00:00:00.000Z' },
+      ],
+      dashboards: [
+        { id: 'today', name: 'Today' },
+        { id: 'research', name: 'Research' },
+      ],
+      panels: [
+        { id: 'one', dashboardId: 'today', name: 'One', kind: 'items' },
+        { id: 'papers', dashboardId: 'research', name: 'Papers', kind: 'items' },
+      ],
+      filings: [
+        { itemId: 'rent', panelId: 'one', position: 0 },
+        { itemId: 'vat', panelId: 'papers', position: 0 },
+      ],
+    } as unknown as WorkspaceSnapshot;
+    const finder = (over: Partial<Reach> = {}) => wide({ snapshot, ...over });
+    const chosenScope = () =>
+      within(screen.getByRole('group', { name: 'Search in' }))
+        .getAllByRole('button')
+        .filter((button) => button.getAttribute('aria-pressed') === 'true')
+        .map((button) => button.textContent);
+    const findList = () => screen.queryByRole('complementary', { name: 'Find item' });
+    const finderBox = () => screen.getByRole('searchbox', { name: 'Find an Item' });
+    const rows = () => within(findList()!).queryAllByRole('listitem').map((row) => row.textContent);
+    const calls = (go: Reach['go']) => vi.mocked(go).mock.calls.map(([to, how]) => [to.dashboardId, how]);
+    /** What is waiting to be landed on, as the board that draws the row would read it. */
+    const Probe = () => {
+      const waiting = useLanding();
+      return <output data-testid="landing">{waiting ? JSON.stringify({ item: waiting.itemId, place: waiting.place, focus: waiting.focus }) : ''}</output>;
+    };
+    const landing = () => screen.getByTestId('landing').textContent;
+    const shown = (reach: Reach) => (
+      <>
+        <Held listing={aListing([[['One', 1]]])} reach={reach} />
+        <Probe />
+      </>
+    );
+
+    afterEach(() => act(() => forgetLanding()));
+
+    it('opens Find on Dashboard with the cursor in the box and nothing listed, and Shift+F on the Workspace even with one Dashboard', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={three()} reach={aReach({ snapshot })} />);
+
+      await user.keyboard('f');
+      expect(screen.getByRole('heading', { name: 'Find item' })).toBeInTheDocument();
+      expect(chosenScope()).toEqual(['Dashboard']);
+      expect(finderBox()).toHaveFocus();
+      expect(findList()).toHaveTextContent('Type to find an Item.');
+      expect(rows()).toEqual([]);
+
+      await user.click(document.body);
+      await user.keyboard('{Shift>}F{/Shift}');
+      expect(chosenScope()).toEqual(['Workspace']);
+    });
+
+    it('closes on the key of the open mode and scope, and switches keeping the text on another of the four', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={three()} reach={finder()} />);
+
+      await user.keyboard('g');
+      await user.keyboard('adm');
+      await user.click(document.body);
+      await user.keyboard('f');
+      expect(screen.getByRole('heading', { name: 'Find item' })).toBeInTheDocument();
+      expect(finderBox()).toHaveValue('adm');
+
+      await user.click(document.body);
+      await user.keyboard('f');
+      expect(findList()).toBeNull();
+    });
+
+    it('draws All unavailable with a tooltip saying why, and reads no other Workspace', async () => {
+      const user = userEvent.setup();
+      const reach = finder();
+      render(<Held listing={three()} reach={reach} />);
+
+      await user.keyboard('{Shift>}F{/Shift}');
+
+      const all = screen.getByRole('button', { name: 'All' });
+      expect(all).toHaveAttribute('aria-disabled', 'true');
+      expect(all).toHaveAttribute('title', 'Find searches this Workspace at most');
+      await user.click(all);
+      expect(chosenScope()).toEqual(['Workspace']);
+      expect(vi.mocked(reach.ask)).not.toHaveBeenCalledWith(3);
+    });
+
+    it('takes F as a letter in the box', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={three()} reach={finder()} />);
+      await user.keyboard('f');
+      await user.keyboard('ff');
+      expect(finderBox()).toHaveValue('ff');
+    });
+
+    it('is opened from the strip’s Find item, on Dashboard with the cursor in the box', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={three()} reach={finder()} />);
+
+      const find = screen.getByRole('button', { name: 'Open Find item' });
+      expect(find).toHaveTextContent('Find item');
+      expect(find).toHaveTextContent('⇧F');
+      expect(find).not.toHaveAttribute('data-shortcut-tip');
+      await user.click(find);
+
+      expect(chosenScope()).toEqual(['Dashboard']);
+      expect(finderBox()).toHaveFocus();
+    });
+
+    it('names all four keys in the legend', () => {
+      render(<Held listing={three()} startsHidden={false} reach={finder()} />);
+      for (const key of ['⇧G', '⇧F']) expect(shownList()).toHaveTextContent(key);
+    });
+
+    describe('the screen follows the highlight onto the Item’s row, and Enter lands focus on it', () => {
+      it('asks to land on a row of this Dashboard without leaving it, and on another Dashboard after one history entry', async () => {
+        const user = userEvent.setup();
+        const reach = finder();
+        render(shown(reach));
+
+        await user.keyboard('{Shift>}F{/Shift}');
+        await user.keyboard('pay{ArrowDown}');
+        expect(rows()[0]).toContain('Pay the rent');
+        expect(landing()).toContain('"item":"rent"');
+        expect(landing()).toContain('"focus":false');
+        expect(calls(reach.go)).toEqual([]);
+
+        await user.clear(finderBox());
+        await user.keyboard('return{ArrowDown}');
+        expect(rows()[0]).toContain('VAT return');
+        expect(landing()).toContain('"item":"vat"');
+        expect(landing()).toContain('"dashboardId":"research"');
+        expect(calls(reach.go)).toEqual([['research', 'push']]);
+      });
+
+      it('asks for the Inbox rather than leaving the Dashboard for an Item filed nowhere', async () => {
+        const user = userEvent.setup();
+        const reach = finder();
+        render(shown(reach));
+
+        await user.keyboard('{Shift>}F{/Shift}');
+        await user.keyboard('stray{ArrowDown}');
+
+        expect(rows()[0]).toContain('Inbox');
+        expect(landing()).toContain('"kind":"inbox"');
+        expect(calls(reach.go)).toEqual([]);
+      });
+
+      it('goes on Enter with focus asked for, leaving the column hidden and the form closed', async () => {
+        const user = userEvent.setup();
+        const reach = finder();
+        render(shown(reach));
+
+        await user.keyboard('{Shift>}F{/Shift}');
+        await user.keyboard('return{Enter}');
+
+        expect(findList()).toBeNull();
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(landing()).toContain('"item":"vat"');
+        expect(landing()).toContain('"focus":true');
+        expect(calls(reach.go)).toEqual([['research', 'push']]);
+      });
+
+      it('puts the screen back on Esc after moving, asking to land on nothing', async () => {
+        const user = userEvent.setup();
+        const reach = finder();
+        render(shown(reach));
+
+        await user.keyboard('{Shift>}F{/Shift}');
+        await user.keyboard('return{ArrowDown}');
+        expect(calls(reach.go)).toEqual([['research', 'push']]);
+        await user.keyboard('{Escape}');
+
+        expect(landing()).toBe('');
+        expect(vi.mocked(reach.go).mock.calls.at(-1)?.[1]).toBe('back');
+        expect(findList()).toBeNull();
+      });
     });
   });
 });

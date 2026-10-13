@@ -11,7 +11,7 @@ import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
 import type { Arrived } from '../shares';
 import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
-import { dueDateLabel } from '../dueDate';
+import { dueDateLabel, shortDueDateLabel } from '../dueDate';
 import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
 import { PRIORITY_LABELS } from '../priority';
 import { appendPhrase } from '../dictation';
@@ -961,10 +961,16 @@ function PriorityAndDue({
         })}
       </div>
 
-      <div role="group" aria-label="Due" className="flex flex-wrap items-center gap-1">
+      {/* On a phone the date shortcuts are the strip's top row and the flags,
+          Aa and the mic the bottom one; at a desk it is one row, flags first. */}
+      <div
+        role="group"
+        aria-label="Due"
+        className="order-first flex w-full flex-wrap items-center gap-1 sm:order-none sm:w-auto"
+      >
         <span
           aria-hidden="true"
-          className="text-[11px] font-semibold tracking-[0.11em] text-ink-faint uppercase sm:text-xs"
+          className="hidden text-xs font-semibold tracking-[0.11em] text-ink-faint uppercase sm:inline"
         >
           Due
         </span>
@@ -992,8 +998,11 @@ function PriorityAndDue({
             onClick={openPicker}
             className={`${STRIP_BUTTON} gap-1 ${custom ? LIT_BUTTON : QUIET_BUTTON}`}
           >
-            <span aria-hidden="true">📅</span>
-            {custom && <span>{dueDateLabel(custom)}</span>}
+            <span aria-hidden="true" className={custom ? 'hidden sm:inline' : undefined}>
+              📅
+            </span>
+            {custom && <span className="hidden sm:inline">{dueDateLabel(custom)}</span>}
+            {custom && <span className="sm:hidden">{shortDueDateLabel(custom, today)}</span>}
           </button>
           {custom && (
             <button
@@ -1027,7 +1036,9 @@ function PriorityAndDue({
         </span>
       </div>
 
-      <div className="ml-auto flex items-center gap-1.5">
+      {/* Flattened (`contents`), so that the mic's status below can wrap onto
+          a row of its own on a phone and sit beside the mic at a desk. */}
+      <div className="contents">
         <button
           type="button"
           disabled={disabled || !canFormat}
@@ -1035,7 +1046,7 @@ function PriorityAndDue({
           aria-label="Format the note"
           title={formatted ? 'Back to plain text' : 'Format the note'}
           onClick={onFormatted}
-          className={`${STRIP_BUTTON} w-9 font-serif sm:w-7 ${formatted ? LIT_BUTTON : QUIET_BUTTON}`}
+          className={`${STRIP_BUTTON} ml-auto w-9 font-serif sm:w-7 ${formatted ? LIT_BUTTON : QUIET_BUTTON}`}
         >
           Aa
         </button>
@@ -1092,8 +1103,17 @@ function PriorityAndDue({
 function Dictate({ dictation, disabled }: { dictation: RecordedDictation; disabled: boolean }) {
   const { listening, transcribing } = dictation;
   return (
-    <div role="group" aria-label="Dictation" className="flex items-center gap-1.5">
-      <span aria-live="polite" className="text-xs tabular-nums text-ink-faint">
+    <div role="group" aria-label="Dictation" className="contents">
+      {/* The one live region. Under the buttons on a phone, so they never move
+          while recording; beside the mic at a desk. */}
+      <span
+        aria-live="polite"
+        className={
+          listening || transcribing
+            ? 'order-last w-full text-sm tabular-nums text-ink-soft sm:order-none sm:-ml-0.5 sm:w-auto sm:text-xs sm:text-ink-faint'
+            : 'sr-only'
+        }
+      >
         {listening ? `Listening · ${clock(dictation.seconds)}` : transcribing ? 'Transcribing…' : ''}
       </span>
       <button
@@ -1103,7 +1123,7 @@ function Dictate({ dictation, disabled }: { dictation: RecordedDictation; disabl
         aria-pressed={listening}
         aria-label="Dictate"
         title={listening ? 'Stop dictating' : 'Dictate the note'}
-        className={`${STRIP_BUTTON} w-9 sm:w-7 ${
+        className={`${STRIP_BUTTON} -ml-0.5 w-9 sm:w-7 ${
           listening ? `${LIT_BUTTON_SOLID} motion-safe:animate-pulse` : QUIET_BUTTON
         }`}
       >

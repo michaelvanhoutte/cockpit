@@ -9,7 +9,6 @@ import {
   type AttachmentsChoice,
   type PriorityChoice,
 } from '../dashboardFilter';
-import { useContainingFieldFocus } from '../filterKey';
 import { WINDOW_LABELS, isAPeriod } from '../filters';
 import { browserStore } from '../lastVisited';
 import { PRIORITY_LABELS } from '../priority';
@@ -144,8 +143,6 @@ function FilterBar({
   const [filter, setFilter] = useDashboardFilter(browserStore(), dashboardId);
   const [open, setOpen] = useFilterBarOpen(dashboardId);
   const filtering = isFiltering(filter);
-  const containing = useRef<HTMLInputElement>(null);
-  useContainingFieldFocus(dashboardId, containing);
   if (!open && !filtering) return null;
 
   const chip = (on: boolean) =>
@@ -276,7 +273,6 @@ function FilterBar({
         <label className="flex min-w-40 flex-1 items-center gap-1.5">
           <span className="sr-only">Containing</span>
           <input
-            ref={containing}
             type="search"
             placeholder="Containing…"
             className={`w-full rounded px-2 py-0.5 text-xs ${set(filter.text.trim() !== '')}`}
