@@ -3,7 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import {
   forgetPanelListCollapsed,
   readPanelListCollapsed,
-  togglesThePanelList,
+  modeOfKeyPress,
   usePanelListCollapsed,
   writePanelListCollapsed,
 } from '../../src/panelList';
@@ -35,21 +35,26 @@ function aStore(): Storage {
 }
 
 describe('Dashboards', () => {
-  describe('G shows and hides Go to panel, and only when nothing else has the keys', () => {
+  describe('G and F show, hide and switch the column, and only when nothing else has the keys', () => {
     it.each([
-      { situation: 'a plain g', press: {}, covered: false, toggles: true },
-      { situation: 'a capital G', press: { key: 'G' }, covered: false, toggles: true },
-      { situation: 'the old key, P', press: { key: 'p' }, covered: false, toggles: false },
-      { situation: 'the Inbox’s key', press: { key: 'i' }, covered: false, toggles: false },
-      { situation: 'typing in a field', press: { typing: true }, covered: false, toggles: false },
-      { situation: 'Ctrl held', press: { ctrlKey: true }, covered: false, toggles: false },
-      { situation: 'Alt held', press: { altKey: true }, covered: false, toggles: false },
-      { situation: '⌘ held', press: { metaKey: true }, covered: false, toggles: false },
-      { situation: 'a key held down', press: { repeat: true }, covered: false, toggles: false },
-      { situation: 'a press something already took', press: { defaultPrevented: true }, covered: false, toggles: false },
-      { situation: 'a menu or window open', press: {}, covered: true, toggles: false },
+      { situation: 'a plain g', press: {}, covered: false, toggles: 'panel' },
+      { situation: 'a capital G', press: { key: 'G' }, covered: false, toggles: 'panel' },
+      { situation: 'a plain f', press: { key: 'f' }, covered: false, toggles: 'item' },
+      { situation: 'a capital F', press: { key: 'F' }, covered: false, toggles: 'item' },
+      { situation: 'F typing in a field', press: { key: 'f', typing: true }, covered: false, toggles: null },
+      { situation: 'F with Ctrl held', press: { key: 'f', ctrlKey: true }, covered: false, toggles: null },
+      { situation: 'F under a menu or window', press: { key: 'f' }, covered: true, toggles: null },
+      { situation: 'the old key, P', press: { key: 'p' }, covered: false, toggles: null },
+      { situation: 'the Inbox’s key', press: { key: 'i' }, covered: false, toggles: null },
+      { situation: 'typing in a field', press: { typing: true }, covered: false, toggles: null },
+      { situation: 'Ctrl held', press: { ctrlKey: true }, covered: false, toggles: null },
+      { situation: 'Alt held', press: { altKey: true }, covered: false, toggles: null },
+      { situation: '⌘ held', press: { metaKey: true }, covered: false, toggles: null },
+      { situation: 'a key held down', press: { repeat: true }, covered: false, toggles: null },
+      { situation: 'a press something already took', press: { defaultPrevented: true }, covered: false, toggles: null },
+      { situation: 'a menu or window open', press: {}, covered: true, toggles: null },
     ])('$situation', ({ press, covered, toggles }) => {
-      expect(togglesThePanelList({ ...PLAIN, ...press }, covered)).toBe(toggles);
+      expect(modeOfKeyPress({ ...PLAIN, ...press }, covered)).toBe(toggles);
     });
   });
 

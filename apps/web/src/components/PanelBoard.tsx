@@ -78,6 +78,7 @@ import { DashboardSelection } from './DashboardSelection';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 import { publishPanelList, withdrawPanelList } from '../panelList';
 import type { PanelListRow } from '../panelList';
+import { rowOf, settleLanding, useLanding, useLandingStep } from '../landOnItem';
 import { settleTheShowRequest, useShowRequest } from '../showItem';
 
 /** How long a Panel stays outlined after the list jumps to it, in milliseconds. */
@@ -892,6 +893,32 @@ export function PanelBoard({
     };
   });
   useEffect(() => () => unhighlight(), []);
+
+  /**
+   * Find's landing ("Find an open Item with F and Shift+F, and land on its
+   * row", issue 828): the row of an Item filed on one of this Dashboard's
+   * Panels, scrolled to and outlined, or focused. **A Dashboard filter that
+   * hides the row is cleared first**, as going to a hidden Panel does; an Item
+   * no longer on the Panel settles the request with nothing landed on.
+   */
+  const landing = useLanding();
+  const stepLanding = useLandingStep();
+  useEffect(() => {
+    if (!landing || landing.place.kind !== 'panel' || landing.place.dashboardId !== dashboard.id) return;
+    const { panelId } = landing.place;
+    if (!panels.some((panel) => panel.id === panelId)) {
+      settleLanding(landing);
+      return;
+    }
+    if (!(shows.get(panelId) ?? []).some((item) => item.id === landing.itemId)) {
+      if (filteringOn) clearDashboardFilter(browserStore(), dashboard.id);
+      else settleLanding(landing);
+      return;
+    }
+    const cell = rowsRef.current?.querySelector<HTMLElement>('[data-panel-cell="' + panelId + '"]');
+    const row = rowOf(cell ?? null, landing.itemId);
+    return stepLanding(landing, row);
+  });
   useEffect(
     () => () => {
       if (outlined.current) window.clearTimeout(outlined.current.timer);

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { askToLand, forgetLanding } from '../../../src/landOnItem';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../../../src/pages/Layout';
@@ -724,6 +725,21 @@ describe('Dashboards', () => {
       expect(list()).not.toBeNull();
       expect(localStorage.getItem('cockpit.inbox-collapsed')).toBe('1');
       expect(localStorage.getItem('cockpit.panel-list-collapsed')).toBe('0');
+    });
+
+    it('opens a collapsed Inbox when Find asks to land on one of its Items', async () => {
+      onADesk(true);
+      openADashboard();
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('button', { name: 'Open Go to panel' });
+      await user.keyboard('i');
+      expect(localStorage.getItem('cockpit.inbox-collapsed')).toBe('1');
+
+      act(() => askToLand({ itemId: 'an-item', place: { kind: 'inbox' }, focus: false }));
+
+      expect(localStorage.getItem('cockpit.inbox-collapsed')).toBeNull();
+      act(() => forgetLanding());
     });
   });
 });
