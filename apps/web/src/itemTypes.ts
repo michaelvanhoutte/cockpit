@@ -1,8 +1,9 @@
 import type { Item, ItemType } from '@cockpit/shared';
 
 /**
- * Which types capture offers, and in what order ("Capture a thought or an
- * action, and see which it is", issue 155).
+ * Which types an Item's form offers, and in what order ("Capture a thought or
+ * an action, and see which it is", issue 155; capture itself no longer offers
+ * them, issue 1067).
  *
  * **Derived from the snapshot rather than remembered in the browser**, which is
  * the opposite of what `recentPanels.ts` does and for a stated reason: which
@@ -50,15 +51,6 @@ export function typesOffered(types: readonly ItemType[], items: readonly Item[])
   const recent = recentlyUsedTypes(types, items);
   return [...recent, ...types.filter((type) => !recent.some((used) => used.id === type.id))];
 }
-
-/**
- * What a capture surface says where the account has no types at all, which is
- * reachable by deleting every one of them. Said the same way by both front
- * doors - the Capture form and the Panel's *Add an item* row - because they
- * refuse the same capture for the same reason, and it names the one window that
- * gets you out of it.
- */
-export const NO_TYPES = 'No types yet — make one in Settings → Types.';
 
 /** The type an item is, or undefined - which a row draws as having none. */
 export function typeOf(types: readonly ItemType[], item: Item): ItemType | undefined {
