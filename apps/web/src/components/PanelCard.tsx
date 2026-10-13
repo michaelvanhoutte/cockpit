@@ -6,7 +6,6 @@ import {
   panelTakesItems,
   type Dashboard,
   type Item,
-  type ItemType,
   type Panel,
 } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -84,8 +83,6 @@ export interface PanelCardProps {
    * Absent where the Filter is not, and on every other Panel.
    */
   groups?: readonly FilterGroup[] | undefined;
-  /** The account's live Types - what a Filter's funnel reads a Type condition's values back against. */
-  itemTypes: readonly ItemType[];
   /** The workspace's own Panels - what a Filter's funnel reads a Panel condition's values back against. */
   panelsInWorkspace: readonly Panel[];
   /** The Workspace's Dashboards, which name a Filter's Dashboard condition in its funnel sentence. */
@@ -168,7 +165,6 @@ export function PanelCard({
   workspaceId,
   items,
   groups,
-  itemTypes,
   panelsInWorkspace,
   dashboards,
   renaming,
@@ -198,7 +194,7 @@ export function PanelCard({
   const filter = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS) : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
   const shows = filter
-    ? saysWhatItShows(filter.rows, itemTypes, panelsInWorkspace, filter.groupBy, dashboards)
+    ? saysWhatItShows(filter.rows, panelsInWorkspace, filter.groupBy, dashboards)
     : null;
   /**
    * How a Panel is sorted, read back as a sentence by the mark beside its name

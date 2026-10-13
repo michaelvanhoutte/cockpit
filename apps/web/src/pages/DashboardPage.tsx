@@ -57,7 +57,6 @@ export function DashboardPage() {
           layouts={data.layouts ?? []}
           items={data.items}
           filings={data.filings ?? []}
-          itemTypes={data.itemTypes}
           attachments={data.attachments ?? []}
           agentRuns={data.agentRuns ?? []}
         />

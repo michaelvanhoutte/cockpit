@@ -51,6 +51,7 @@ import {
 } from '../inboxCollapsed';
 import { readAgentDockHidden, togglesTheAgentDock, writeAgentDockHidden } from '../agentDockHidden';
 import { useRoomForTheInbox } from '../roomForTheInbox';
+import { useLanding } from '../landOnItem';
 import { usePanelListCollapsed, usePanelListing } from '../panelList';
 import { useConnections } from '../connections';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
@@ -189,6 +190,11 @@ function TheShell() {
   const collapsedRef = useRef(inboxCollapsed);
   collapsedRef.current = inboxCollapsed;
   const inWorkspace = params.workspaceId !== undefined;
+  // Find landing on an Item of the Inbox opens a collapsed one first (issue 828).
+  const landingOnTheInbox = useLanding()?.place.kind === 'inbox';
+  useEffect(() => {
+    if (landingOnTheInbox && roomForTheInbox && inWorkspace && collapsedRef.current) collapseInbox(false);
+  }, [landingOnTheInbox, roomForTheInbox, inWorkspace, collapseInbox]);
   useEffect(() => {
     if (!roomForTheInbox || !inWorkspace) return;
     const onKey = (event: KeyboardEvent) => {

@@ -6,7 +6,6 @@ import type {
   FilterGrouping,
   FilterRow,
   Item,
-  ItemType,
   PanelFilter,
   PanelSort,
   Panel,
@@ -157,9 +156,9 @@ export function isAPeriod(window: DueWindow): boolean {
 /**
  * Whether one condition holds for one Item, on the day the person is looking.
  *
- * **Priority, Type, Panel and Dashboard all match on "any of"**, never on all of them at
+ * **Priority, Panel and Dashboard all match on "any of"**, never on all of them at
  * once - *Priority is High or Normal* is one condition an Item meets by
- * holding either. An Item with no Priority, or no Type, matches neither
+ * holding either. An Item with no Priority matches neither
  * ("Filter a Filter panel by priority and type", issue 464) - absence is not
  * among the values on offer, the same way *not set* has to be asked for on a
  * Due date. A Panel condition asks a different question of an Item that can
@@ -167,17 +166,16 @@ export function isAPeriod(window: DueWindow): boolean {
  * than holding one of several values - so it reads `filedPanelIds` instead of
  * a single field off the Item.
  *
- * **A Type or a Panel condition's values are read against what is still live
- * alone.** A value naming a Type or a Panel since deleted is ignored rather
- * than refused (`typeConditionSchema`'s and `panelConditionSchema`'s own
- * comments), so it simply cannot be what an Item matches on - and where
- * deleting leaves a condition with no live value left, every Item fails to
- * match and the condition matches nothing, never widening to stand for every
- * Type or every Panel.
+ * **A Panel condition's values are read against what is still live alone.** A
+ * value naming a Panel since deleted is ignored rather than refused
+ * (`panelConditionSchema`'s own comment), so it simply cannot be what an Item
+ * matches on - and where deleting leaves a condition with no live value left,
+ * every Item fails to match and the condition matches nothing, never widening
+ * to stand for every Panel.
  *
  * **An *is not* condition matches an Item holding none of its live values**
  * ("Include or exclude a Filter panel condition's values, and filter on To do
- * as well as In progress", issue 908), so an Item with no Priority or no Type
+ * as well as In progress", issue 908), so an Item with no Priority
  * passes, and an Item filed on any one excluded Panel fails. **With no live
  * value left it filters nothing**, answered as `null` - the opposite of an *is*
  * condition left in the same state, which fails: `meetsRow` says what a row
@@ -187,7 +185,6 @@ function holdsFor(
   condition: FilterCondition,
   item: Item,
   on: Day,
-  liveTypeIds: ReadonlySet<string>,
   livePanelIds: ReadonlySet<string>,
   filedPanelIds: ReadonlySet<string>,
   liveDashboardIds: ReadonlySet<string>,
@@ -196,12 +193,6 @@ function holdsFor(
   if (condition.field !== 'dueDate' && condition.exclude) {
     if (condition.field === 'priority') {
       return excluding(condition.values, (live) => item.priority === null || !live.includes(item.priority));
-    }
-    if (condition.field === 'type') {
-      return excluding(
-        condition.values.filter((id) => liveTypeIds.has(id)),
-        (live) => item.typeId === null || !live.includes(item.typeId),
-      );
     }
     if (condition.field === 'panel') {
       return excluding(
@@ -221,10 +212,6 @@ function holdsFor(
   }
   if (condition.field === 'priority') {
     return item.priority !== null && condition.values.includes(item.priority);
-  }
-  if (condition.field === 'type') {
-    if (item.typeId === null) return false;
-    return condition.values.some((id) => liveTypeIds.has(id) && id === item.typeId);
   }
   if (condition.field === 'panel') {
     return condition.values.some((id) => livePanelIds.has(id) && filedPanelIds.has(id));
@@ -289,18 +276,14 @@ export function dueHolds(
  * Panel ends on the order you set, and a Filter has none. Adding Created
  * ascending where the sort does not name it is that rule, and changes nothing
  * where it does. An Item with no value for a criterion goes last in either
- * direction, which is what lets a Filter with only a Priority or a Type
+ * direction, which is what lets a Filter with only a Priority
  * condition mix dated and undated Items freely.
  */
-export function inFilterOrder(
-  items: readonly Item[],
-  sort: PanelSort,
-  itemTypes: readonly ItemType[],
-): Item[] {
+export function inFilterOrder(items: readonly Item[], sort: PanelSort): Item[] {
   const withTheTie = sort.some((criterion) => criterion.field === 'createdAt')
     ? sort
     : [...sort, { field: 'createdAt' as const, direction: 'asc' as const }];
-  return inSortOrder(items, withTheTie, itemTypes);
+  return inSortOrder(items, withTheTie);
 }
 
 /**
@@ -327,18 +310,14 @@ export function itemsMatchingFilter(
   panelsInWorkspace: readonly Panel[],
   /** The Workspace's live Dashboards, which is what a Dashboard condition's values are read against. */
   dashboards: readonly Pick<Dashboard, 'id'>[],
-  /** The account's live Types, which is what a Type condition's values are read against. */
-  itemTypes: readonly ItemType[],
   filter: PanelFilter,
   on: Day,
   /** How the Filter is sorted, which a Filter nobody has sorted answers with `DEFAULT_FILTER_SORT`. */
   sort: PanelSort = DEFAULT_FILTER_SORT,
 ): Item[] {
   if (filter.rows.length === 0) return [];
-  const liveTypeIds = new Set(itemTypes.map((type) => type.id));
   // What a Panel condition's values are read against - every items Panel of
-  // the Workspace still there to be chosen, the same live-or-ignored rule a
-  // Type condition's values already read against `liveTypeIds`.
+  // the Workspace still there to be chosen.
   const livePanelIds = new Set(panelsInWorkspace.filter(panelTakesItems).map((panel) => panel.id));
   const filed = filingsThatFile(filings, panelsInWorkspace);
   const filedPanelIdsByItem = panelIdsFiledOnto(filed);
@@ -362,7 +341,6 @@ export function itemsMatchingFilter(
               condition,
               item,
               on,
-              liveTypeIds,
               livePanelIds,
               filedPanelIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS,
               liveDashboardIds,
@@ -373,7 +351,6 @@ export function itemsMatchingFilter(
       ),
     ),
     sort,
-    itemTypes,
   );
 }
 
@@ -423,7 +400,6 @@ export function panelAndFilterIdsByItem(
   filings: readonly Filing[],
   panelsInWorkspace: readonly Panel[],
   dashboards: readonly Pick<Dashboard, 'id'>[],
-  itemTypes: readonly ItemType[],
   on: Day,
 ): Map<string, Set<string>> {
   const byItem = new Map<string, Set<string>>();
@@ -436,7 +412,6 @@ export function panelAndFilterIdsByItem(
       filings,
       panelsInWorkspace,
       dashboards,
-      itemTypes,
       filter.filter ?? NO_CONDITIONS,
       on,
     );
@@ -535,11 +510,10 @@ export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): s
  * *Or overdue* is said only where it widens something: on *overdue* itself and
  * on *not set* it is stored but means nothing.
  *
- * **A Type or a Panel condition's values are read against `itemTypes` and
- * `panels`**, the same live lists matching itself reads against
- * (`itemsMatchingFilter`), so a value naming a Type or a Panel since deleted
- * is left out of the sentence exactly as it is left out of what the condition
- * matches.
+ * **A Panel condition's values are read against `panels`**, the same live list
+ * matching itself reads against (`itemsMatchingFilter`), so a value naming a
+ * Panel since deleted is left out of the sentence exactly as it is left out of
+ * what the condition matches.
  *
  * **An *is not* condition that filters nothing is left out** ("Include or
  * exclude a Filter panel condition's values, and filter on To do as well as In
@@ -549,7 +523,6 @@ export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): s
  */
 export function saysWhatItShows(
   rows: readonly (readonly FilterCondition[])[],
-  itemTypes: readonly ItemType[] = [],
   panels: readonly Panel[] = [],
   groupBy: FilterGrouping = 'none',
   dashboards: readonly Pick<Dashboard, 'id' | 'name'>[] = [],
@@ -558,7 +531,7 @@ export function saysWhatItShows(
   const said = rows
     .map((row) =>
       row
-        .map((condition) => sentenceFor(condition, itemTypes, panels, dashboards))
+        .map((condition) => sentenceFor(condition, panels, dashboards))
         .filter((part): part is string => part !== null),
     )
     .filter((parts) => parts.length > 0);
@@ -606,7 +579,6 @@ function valuesSentence(
 
 function sentenceFor(
   condition: FilterCondition,
-  itemTypes: readonly ItemType[],
   panels: readonly Panel[],
   dashboards: readonly Pick<Dashboard, 'id' | 'name'>[],
 ): string | null {
@@ -618,12 +590,6 @@ function sentenceFor(
   }
   if (condition.field === 'priority') {
     return valuesSentence('Priority is', 'Priority is not', condition.exclude, condition.values.map((value) => PRIORITY_LABELS[value]));
-  }
-  if (condition.field === 'type') {
-    const names = condition.values
-      .map((id) => itemTypes.find((type) => type.id === id)?.name)
-      .filter((name): name is string => name !== undefined);
-    return valuesSentence('Type is', 'Type is not', condition.exclude, names);
   }
   if (condition.field === 'panel') {
     // Read against the same items-Panels-only set matching itself reads
@@ -752,11 +718,10 @@ export function shownOn(
   filings: readonly Filing[],
   panelsInWorkspace: readonly Panel[],
   dashboards: readonly Pick<Dashboard, 'id' | 'name'>[],
-  itemTypes: readonly ItemType[],
   on: Day,
 ): string[] | null {
   if (item.completedAt) return null;
-  const ids = panelAndFilterIdsByItem(items, filings, panelsInWorkspace, dashboards, itemTypes, on).get(item.id) ?? EMPTY_IDS;
+  const ids = panelAndFilterIdsByItem(items, filings, panelsInWorkspace, dashboards, on).get(item.id) ?? EMPTY_IDS;
   const filed = filingsThatFile(filings, panelsInWorkspace).some((filing) => filing.itemId === item.id);
   const places = panelsInWorkspace
     .filter((panel) => ids.has(panel.id))

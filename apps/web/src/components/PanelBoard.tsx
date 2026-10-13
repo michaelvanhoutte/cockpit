@@ -19,7 +19,6 @@ import type {
   AgentRun,
   Attachment,
   Item,
-  ItemType,
   Layout,
   LayoutRow,
   Panel,
@@ -79,6 +78,7 @@ import { DashboardSelection } from './DashboardSelection';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 import { publishPanelList, withdrawPanelList } from '../panelList';
 import type { PanelListRow } from '../panelList';
+import { rowOf, settleLanding, useLanding, useLandingStep } from '../landOnItem';
 import { settleTheShowRequest, useShowRequest } from '../showItem';
 
 /** How long a Panel stays outlined after the list jumps to it, in milliseconds. */
@@ -154,7 +154,6 @@ export function PanelBoard({
   layouts,
   items,
   filings,
-  itemTypes,
   attachments = [],
   agentRuns = [],
 }: {
@@ -181,12 +180,6 @@ export function PanelBoard({
   /** Every open item of the workspace; each panel is handed the ones filed on it. */
   items: readonly Item[];
   filings: readonly Filing[];
-  /**
-   * The account's live Types - what a Filter's Type condition offers to
-   * choose from and reads its values against ("Filter a Filter panel by
-   * priority and type", issue 464).
-   */
-  itemTypes: readonly ItemType[];
   /** Every attachment of the workspace's items, which is all a Dashboard filter's Attachments condition reads. */
   attachments?: readonly Attachment[];
   /** The workspace's open runs, which is all a Dashboard filter's Agent running condition reads. */
@@ -449,7 +442,6 @@ export function PanelBoard({
       filings,
       panelsInWorkspace,
       dashboards,
-      itemTypes,
       filter: dashboardFilter,
       withAttachments,
       withRun,
@@ -901,6 +893,32 @@ export function PanelBoard({
     };
   });
   useEffect(() => () => unhighlight(), []);
+
+  /**
+   * Find's landing ("Find an open Item with F and Shift+F, and land on its
+   * row", issue 828): the row of an Item filed on one of this Dashboard's
+   * Panels, scrolled to and outlined, or focused. **A Dashboard filter that
+   * hides the row is cleared first**, as going to a hidden Panel does; an Item
+   * no longer on the Panel settles the request with nothing landed on.
+   */
+  const landing = useLanding();
+  const stepLanding = useLandingStep();
+  useEffect(() => {
+    if (!landing || landing.place.kind !== 'panel' || landing.place.dashboardId !== dashboard.id) return;
+    const { panelId } = landing.place;
+    if (!panels.some((panel) => panel.id === panelId)) {
+      settleLanding(landing);
+      return;
+    }
+    if (!(shows.get(panelId) ?? []).some((item) => item.id === landing.itemId)) {
+      if (filteringOn) clearDashboardFilter(browserStore(), dashboard.id);
+      else settleLanding(landing);
+      return;
+    }
+    const cell = rowsRef.current?.querySelector<HTMLElement>('[data-panel-cell="' + panelId + '"]');
+    const row = rowOf(cell ?? null, landing.itemId);
+    return stepLanding(landing, row);
+  });
   useEffect(
     () => () => {
       if (outlined.current) window.clearTimeout(outlined.current.timer);
@@ -1610,7 +1628,6 @@ export function PanelBoard({
                           dashboardFiltered={filteringOn}
                           items={shows.get(panel.id) ?? []}
                           groups={groupsOf(panel)}
-                          itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
                           dashboards={dashboards}
                           renaming={renaming?.id === panel.id ? renaming.name : null}
@@ -1743,7 +1760,6 @@ export function PanelBoard({
               panelName={beingFiltered.name}
               {...choiceFromRows((beingFiltered.filter ?? NO_CONDITIONS).rows)}
               groupBy={(beingFiltered.filter ?? NO_CONDITIONS).groupBy}
-              itemTypes={itemTypes}
               panels={panelsInWorkspace}
               dashboards={dashboards}
               layouts={layouts}

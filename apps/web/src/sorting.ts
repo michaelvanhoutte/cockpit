@@ -1,7 +1,6 @@
 import { panelGathers, panelTakesItems } from '@cockpit/shared';
 import type {
   Item,
-  ItemType,
   Panel,
   PanelSort,
   Priority,
@@ -49,7 +48,6 @@ export const SORT_FIELD_LABELS: Record<SortField, string> = {
   priority: 'Priority',
   createdAt: 'Created',
   dueDate: 'Due date',
-  type: 'Type',
 };
 
 /** What each direction means for each field, which hovering the direction says. */
@@ -58,10 +56,6 @@ export const SORT_DIRECTION_MEANS: Record<SortField, Record<SortDirection, strin
   priority: { asc: 'Low to High', desc: 'High to Low' },
   createdAt: { asc: 'Oldest first', desc: 'Newest first' },
   dueDate: { asc: 'Soonest first', desc: 'Latest first' },
-  type: {
-    asc: 'In the order of your Types',
-    desc: 'The order of your Types, reversed',
-  },
 };
 
 /**
@@ -80,19 +74,13 @@ const titles = new Intl.Collator(undefined, { sensitivity: 'accent' });
 
 /**
  * One Item's value for one field, or null where it has none - no title, no
- * priority, no due date, no Type or a Type since deleted. `typeRank` is the
- * place of each live Type in the order you put them in.
+ * priority, no due date.
  */
-function valueOf(
-  item: Item,
-  field: SortField,
-  typeRank: ReadonlyMap<string, number>,
-): string | number | null {
+function valueOf(item: Item, field: SortField): string | number | null {
   if (field === 'title') return item.title.trim() || null;
   if (field === 'priority') return item.priority ? PRIORITY_RANK[item.priority] : null;
   if (field === 'createdAt') return item.createdAt;
-  if (field === 'dueDate') return item.dueDate ?? null;
-  return item.typeId === null ? null : (typeRank.get(item.typeId) ?? null);
+  return item.dueDate ?? null;
 }
 
 function compareValues(field: SortField, one: string | number, other: string | number): number {
@@ -111,17 +99,12 @@ function compareValues(field: SortField, one: string | number, other: string | n
  * in either direction**, so turning a sort round never brings the undated or
  * untitled rows to the top. Manual (null) is the order handed in.
  */
-export function inSortOrder(
-  items: readonly Item[],
-  sort: PanelSort | null,
-  itemTypes: readonly ItemType[],
-): Item[] {
+export function inSortOrder(items: readonly Item[], sort: PanelSort | null): Item[] {
   if (sort === null) return [...items];
-  const typeRank = new Map(itemTypes.map((type, at) => [type.id, at]));
   return items.slice().sort((one, other) => {
     for (const { field, direction } of sort) {
-      const a = valueOf(one, field, typeRank);
-      const b = valueOf(other, field, typeRank);
+      const a = valueOf(one, field);
+      const b = valueOf(other, field);
       if (a === null && b === null) continue;
       if (a === null) return 1;
       if (b === null) return -1;

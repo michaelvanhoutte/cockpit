@@ -12,7 +12,6 @@ import type {
   FilterCondition,
   FilterGrouping,
   Item,
-  ItemType,
   Layout,
   Panel,
   PanelSort,
@@ -26,6 +25,7 @@ import {
   type DashboardFilter,
 } from '../../../src/dashboardFilter';
 import { askToShow } from '../../../src/showItem';
+import { askToLand, forgetLanding } from '../../../src/landOnItem';
 import { dayOf, rowsFromChoice, type FilterMatch } from '../../../src/filters';
 import { QUIET } from '../../../src/panels/PanelText';
 import {
@@ -141,11 +141,6 @@ function aFilter(
 
 const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
 
-/** A live Type, exactly as `itemTypeSchema` shapes one. */
-function aType(id: string, name: string): ItemType {
-  return { id, tenantId: 'tenant', name, color: '#000000', position: 0, createdAt: '2026-08-31T08:00:00.000Z' };
-}
-
 /**
  * A layout of one row holding every panel, side by side - which is what the
  * flat arrangement these cases were written against drew, so a panel still has
@@ -217,8 +212,6 @@ function showBoard({
   attachments = [] as Attachment[],
   agentRuns = [] as AgentRun[],
   filings = [] as Filing[],
-  /** The account's live Types - what a Filter's Type condition offers, unless a case wants its own. */
-  itemTypes = [] as ItemType[],
   error,
   variables,
   /**
@@ -238,7 +231,6 @@ function showBoard({
   attachments?: Attachment[];
   agentRuns?: AgentRun[];
   filings?: Filing[];
-  itemTypes?: ItemType[];
   error?: Error;
   variables?: { name: string; payload: Record<string, unknown> };
   settles?: boolean;
@@ -278,7 +270,6 @@ function showBoard({
         attachments={drawnAttachments}
         agentRuns={drawnRuns}
         filings={filings}
-        itemTypes={itemTypes}
       />
     </QueryClientProvider>
   );
@@ -2049,7 +2040,6 @@ describe('Panels', () => {
       expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
         'Created',
         'Due date',
-        'Type',
       ]);
       await user.keyboard('{Escape}');
 
@@ -2071,7 +2061,7 @@ describe('Panels', () => {
 
       await choose(user, 'Project Falcon', 'Sort…');
       await user.click(await screen.findByRole('radio', { name: 'Sorted' }));
-      for (const field of ['Title', 'Priority', 'Created', 'Due date', 'Type']) await addCriterion(user, field);
+      for (const field of ['Title', 'Priority', 'Created', 'Due date']) await addCriterion(user, field);
 
       expect(screen.queryByRole('button', { name: '+ Then by…' })).toBeNull();
     });
@@ -2282,7 +2272,7 @@ describe('Onboarding', () => {
         expect(screen.queryByRole('combobox', { name: ALL_OR_ANY })).toBeNull();
 
         await addCondition(user, 'Priority');
-        await addCondition(user, 'Type');
+        await addCondition(user, 'Panel');
 
         const joiner = screen.getByRole('combobox', { name: ALL_OR_ANY });
         expect(joiner).toHaveValue('all');
@@ -2294,7 +2284,7 @@ describe('Onboarding', () => {
 
       it('reads or on every row after the first, and says any in its description, once or is chosen', async () => {
         const { mutate, user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH, { field: 'type', values: [] }])],
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH, { field: 'panel', values: [] }])],
         });
 
         await choose(user, 'Due soon', 'Filter…');
@@ -2305,7 +2295,7 @@ describe('Onboarding', () => {
         await user.click(screen.getByRole('button', { name: 'Save' }));
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
-            payload: expect.objectContaining({ rows: [[DUE_TODAY, PRIORITY_HIGH, { field: 'type', values: [] }]] }),
+            payload: expect.objectContaining({ rows: [[DUE_TODAY, PRIORITY_HIGH, { field: 'panel', values: [] }]] }),
           }),
           expect.anything(),
         );
@@ -2348,7 +2338,7 @@ describe('Onboarding', () => {
 
       it('removes the condition whose own cross is pressed and keeps the others in order', async () => {
         const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH, { field: 'type', values: [] }])],
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH, { field: 'panel', values: [] }])],
         });
 
         await choose(user, 'Due soon', 'Filter…');
@@ -2356,7 +2346,7 @@ describe('Onboarding', () => {
 
         expect(screen.getAllByRole('button', { name: /^Remove condition/ })).toHaveLength(2);
         expect(screen.queryByRole('combobox', { name: 'Priority is or is not' })).toBeNull();
-        expect(screen.getByRole('combobox', { name: 'Type is or is not' })).toBeVisible();
+        expect(screen.getByRole('combobox', { name: 'Panel is or is not' })).toBeVisible();
         expect(screen.getByRole('combobox', { name: /Due date is/ })).toBeVisible();
       });
 
@@ -2365,13 +2355,13 @@ describe('Onboarding', () => {
 
         await choose(user, 'Due soon', 'Filter…');
         await addCondition(user, 'Priority');
-        await addCondition(user, 'Type');
+        await addCondition(user, 'Panel');
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
             payload: expect.objectContaining({
-              rows: [[DUE_TODAY], [{ field: 'priority', values: [] }], [{ field: 'type', values: [] }]],
+              rows: [[DUE_TODAY], [{ field: 'priority', values: [] }], [{ field: 'panel', values: [] }]],
             }),
           }),
           expect.anything(),
@@ -2725,30 +2715,6 @@ describe('Onboarding', () => {
       );
     });
 
-    it('sends a Type condition’s chosen Type, offered from the account’s live Types', async () => {
-      const okr = aType('type-okr', 'OKR');
-      const { mutate, user } = showBoard({
-        panels: [aFilter('due', 'Due soon')],
-        itemTypes: [okr],
-      });
-
-      await choose(user, 'Due soon', 'Filter…');
-      await addCondition(user, 'Type');
-      await pick(user, 'Type', 'OKR');
-      await user.click(screen.getByRole('button', { name: 'Save' }));
-
-      expect(mutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'set_panel_filter',
-          payload: expect.objectContaining({
-            panelId: 'due',
-            rows: [[{ field: 'type', values: ['type-okr'] }]],
-          }),
-        }),
-        expect.anything(),
-      );
-    });
-
     it('sends a Panel condition’s chosen panels, offered only from the workspace’s items panels', async () => {
       const project = aPanel('project', 'Project Falcon');
       const notes = aPanelOfText('notes', 'Notes');
@@ -2788,13 +2754,10 @@ describe('Onboarding', () => {
      * values card offers the choice, opens on *is*, and sends what was chosen
      * ("Include or exclude a Filter panel condition's values...", issue 908).
      */
-    it.each(['Type', 'Priority', 'Panel', 'Dashboard', 'Status'])(
+    it.each(['Priority', 'Panel', 'Dashboard', 'Status'])(
       'opens a new %s card on is, and offers is not beside it',
       async (field) => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon')],
-          itemTypes: [aType('type-okr', 'OKR')],
-        });
+        const { user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
 
         await choose(user, 'Due soon', 'Filter…');
         await addCondition(user, field);
@@ -2870,35 +2833,37 @@ describe('Onboarding', () => {
 
     describe('a values card shows what it holds as chips and changes them from a list', () => {
       const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf'];
-      const types = (count: number) => NAMES.slice(0, count).map((name) => aType(`type-${name}`, name));
+      /** A Filter holding these conditions, in a Workspace of this many items Panels to choose from. */
+      const withPanels = (count: number, conditions: FilterCondition[] = []) => {
+        const filter = aFilter('due', 'Due soon', conditions);
+        const named = NAMES.slice(0, count).map((name) => aPanel(`panel-${name}`, name));
+        return showBoard({ panels: [filter], panelsInWorkspace: [filter, ...named] });
+      };
       const chipsOf = () =>
         screen.queryAllByRole('button', { name: /^Take .* out$/ }).map((cross) => cross.getAttribute('aria-label'));
 
       it('adds a chip for a value ticked in the list, and sends it', async () => {
-        const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')], itemTypes: types(2) });
+        const { mutate, user } = withPanels(2);
 
         await choose(user, 'Due soon', 'Filter…');
-        await addCondition(user, 'Type');
-        await pick(user, 'Type', 'Bravo');
+        await addCondition(user, 'Panel');
+        await pick(user, 'Panel', 'Bravo');
 
         expect(chipsOf()).toEqual(['Take Bravo out']);
         await user.click(screen.getByRole('button', { name: 'Save' }));
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
-            payload: expect.objectContaining({ rows: [[{ field: 'type', values: ['type-Bravo'] }]] }),
+            payload: expect.objectContaining({ rows: [[{ field: 'panel', values: ['panel-Bravo'] }]] }),
           }),
           expect.anything(),
         );
       });
 
       it('closes the list on Escape without closing the Filter, and hands focus back to its button', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: [] }])],
-          itemTypes: types(2),
-        });
+        const { user } = withPanels(2, [{ field: 'panel', values: [] }]);
 
         await choose(user, 'Due soon', 'Filter…');
-        const trigger = await screen.findByRole('button', { name: '+ Type' });
+        const trigger = await screen.findByRole('button', { name: '+ Panel' });
         trigger.focus();
         await user.keyboard('{Enter}');
         await screen.findAllByRole('checkbox');
@@ -2912,71 +2877,56 @@ describe('Onboarding', () => {
       });
 
       it('takes the chip away and unticks the value when its own cross is pressed', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: ['type-Alpha', 'type-Bravo'] }])],
-          itemTypes: types(2),
-        });
+        const { user } = withPanels(2, [{ field: 'panel', values: ['panel-Alpha', 'panel-Bravo'] }]);
 
         await choose(user, 'Due soon', 'Filter…');
         await user.click(await screen.findByRole('button', { name: 'Take Alpha out' }));
 
         expect(chipsOf()).toEqual(['Take Bravo out']);
-        await openList(user, 'Type');
+        await openList(user, 'Panel');
         expect(screen.getByRole('checkbox', { name: 'Alpha' })).not.toBeChecked();
         expect(screen.getByRole('checkbox', { name: 'Bravo' })).toBeChecked();
       });
 
       it('takes the chip away when its value is unticked in the list', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: ['type-Alpha'] }])],
-          itemTypes: types(2),
-        });
+        const { user } = withPanels(2, [{ field: 'panel', values: ['panel-Alpha'] }]);
 
         await choose(user, 'Due soon', 'Filter…');
-        await openList(user, 'Type');
+        await openList(user, 'Panel');
         await user.click(screen.getByRole('checkbox', { name: 'Alpha' }));
 
         expect(chipsOf()).toEqual([]);
       });
 
-      it('shows no chip and offers no checkbox for a Type since deleted', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: ['type-gone', 'type-Alpha'] }])],
-          itemTypes: types(2),
-        });
+      it('shows no chip and offers no checkbox for a Panel since deleted', async () => {
+        const { user } = withPanels(2, [{ field: 'panel', values: ['panel-gone', 'panel-Alpha'] }]);
 
         await choose(user, 'Due soon', 'Filter…');
         await screen.findByRole('button', { name: 'Take Alpha out' });
-        await openList(user, 'Type');
+        await openList(user, 'Panel');
 
         expect(chipsOf()).toEqual(['Take Alpha out']);
         expect(screen.getAllByRole('checkbox')).toHaveLength(2);
       });
 
       it.each([
-        { situation: 'six Types', count: 6, searchable: false },
-        { situation: 'seven Types', count: 7, searchable: true },
+        { situation: 'six Panels', count: 6, searchable: false },
+        { situation: 'seven Panels', count: 7, searchable: true },
       ])('offers a search box for $situation: $searchable', async ({ count, searchable }) => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: [] }])],
-          itemTypes: types(count),
-        });
+        const { user } = withPanels(count, [{ field: 'panel', values: [] }]);
 
         await choose(user, 'Due soon', 'Filter…');
-        await openList(user, 'Type');
+        await openList(user, 'Panel');
 
         expect(screen.getAllByRole('checkbox')).toHaveLength(count);
         expect(screen.queryByRole('searchbox') !== null).toBe(searchable);
       });
 
       it('narrows the list to the names containing what is typed, and says so when none do', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: [] }])],
-          itemTypes: types(7),
-        });
+        const { user } = withPanels(7, [{ field: 'panel', values: [] }]);
 
         await choose(user, 'Due soon', 'Filter…');
-        await openList(user, 'Type');
+        await openList(user, 'Panel');
         await user.type(screen.getByRole('searchbox'), 'ho');
         expect(screen.getAllByRole('checkbox').map((box) => box.parentElement?.textContent)).toEqual(['Echo']);
 
@@ -3124,10 +3074,24 @@ describe('Onboarding', () => {
 
       expect(screen.queryByRole('menuitem', { name: 'Due date' })).toBeNull();
       expect(screen.getByRole('menuitem', { name: 'Priority' })).toBeVisible();
-      expect(screen.getByRole('menuitem', { name: 'Type' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Panel' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Dashboard' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Status' })).toBeVisible();
+    });
+
+    it('offers Due date, Priority, Panel, Dashboard and Status on its add menu, and no Type', async () => {
+      const { user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+
+      await choose(user, 'Due soon', 'Filter…');
+      await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+
+      expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
+        'Due date',
+        'Priority',
+        'Panel',
+        'Dashboard',
+        'Status',
+      ]);
     });
 
     it('stops offering to add once every field is already on the filter', async () => {
@@ -3136,7 +3100,6 @@ describe('Onboarding', () => {
           aFilter('due', 'Due soon', [
             DUE_TODAY,
             { field: 'priority', values: ['high'] },
-            { field: 'type', values: [] },
             { field: 'panel', values: [] },
             { field: 'dashboard', values: [] },
             { field: 'status' },
@@ -3155,22 +3118,14 @@ describe('Onboarding', () => {
       expect(screen.queryByRole('button', { name: '+ Add a condition' })).toBeNull();
     });
 
-    it('reads a Priority and a Type condition back on hover, beside what a Due date already reads', async () => {
-      const okr = aType('type-okr', 'OKR');
-      const task = aType('type-task', 'Task');
+    it('reads a Priority and a Due date condition back on hover', async () => {
       showBoard({
-        panels: [
-          aFilter('due', 'Due soon', [
-            { field: 'priority', values: ['high'] },
-            { field: 'type', values: [okr.id, task.id] },
-          ]),
-        ],
-        itemTypes: [okr, task],
+        panels: [aFilter('due', 'Due soon', [{ field: 'priority', values: ['high'] }, DUE_TODAY])],
       });
 
       const due = await screen.findByRole('region', { name: 'Due soon' });
       expect(
-        within(due).getByRole('img', { name: 'Shows priority is high and type is okr or task' }),
+        within(due).getByRole('img', { name: 'Shows priority is high and due today or overdue' }),
       ).toBeVisible();
     });
   });
@@ -4304,6 +4259,74 @@ describe('Dashboards', () => {
 
       expect(document.querySelector('[data-shown]')).toBeNull();
       expect(document.querySelector('[data-jumped-to]')).toBeNull();
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  describe('Find lands on an Item’s row of this Dashboard, outlined or focused, clearing a filter that hides it', () => {
+    const ID = (n: number) => `11111111-1111-7111-8111-00000000000${n}`;
+    const vat = anItem(ID(1), 'VAT return');
+    const rent = anItem(ID(2), 'Pay the rent');
+    const FILED = [
+      { panelId: 'falcon', itemId: ID(1), position: 0 },
+      { panelId: 'falcon', itemId: ID(2), position: 1 },
+    ];
+    const rowOf = (title: string) => screen.getByText(title).closest<HTMLElement>('[data-item-id]')!;
+    const land = (itemId: string, focus: boolean, dashboardId = DASHBOARD.id) =>
+      act(() => askToLand({ itemId, place: { kind: 'panel', dashboardId, panelId: 'falcon' }, focus }));
+
+    beforeEach(() => {
+      screenIs(1280);
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      act(() => forgetLanding());
+      vi.useRealTimers();
+      localStorage.clear();
+    });
+
+    it('outlines the row for a moment without taking the focus', () => {
+      showBoard({ items: [vat, rent], filings: FILED });
+
+      land(ID(2), false);
+
+      expect(rowOf('Pay the rent')).toHaveAttribute('data-shown');
+      expect(rowOf('Pay the rent')).not.toHaveFocus();
+      expect(rowOf('VAT return')).not.toHaveAttribute('data-shown');
+      act(() => void vi.advanceTimersByTime(5000));
+      expect(rowOf('Pay the rent')).not.toHaveAttribute('data-shown');
+    });
+
+    it('focuses the row on Enter, outlined until focus leaves it', () => {
+      showBoard({ items: [vat, rent], filings: FILED });
+
+      land(ID(2), true);
+
+      expect(rowOf('Pay the rent')).toHaveFocus();
+      expect(rowOf('Pay the rent')).toHaveAttribute('data-shown');
+      act(() => rowOf('Pay the rent').blur());
+      expect(rowOf('Pay the rent')).not.toHaveAttribute('data-shown');
+    });
+
+    it('clears a Dashboard filter that hides the row, then lands', () => {
+      filterTheDashboard({ text: 'vat' });
+      showBoard({ items: [vat, rent], filings: FILED });
+      expect(screen.queryByText('Pay the rent')).toBeNull();
+
+      land(ID(2), true);
+
+      expect(isFiltering(readDashboardFilter(localStorage, DASHBOARD.id))).toBe(false);
+      expect(rowOf('Pay the rent')).toHaveFocus();
+    });
+
+    it('does nothing for another Dashboard’s request, and settles one for an Item no longer on the Panel', () => {
+      showBoard({ items: [vat, rent], filings: [FILED[0]!] });
+
+      land(ID(2), false, 'some-other-dashboard');
+      land(ID(2), false);
+
+      expect(document.querySelector('[data-shown]')).toBeNull();
     });
   });
 });

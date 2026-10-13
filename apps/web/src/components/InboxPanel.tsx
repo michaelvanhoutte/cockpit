@@ -1,4 +1,4 @@
-import { Suspense, lazy, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { filingsThatFile, itemsInTheInbox } from '../filing';
@@ -6,6 +6,7 @@ import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { INBOX_KEY } from '../inboxCollapsed';
+import { rowOf, useLanding, useLandingStep } from '../landOnItem';
 import { restedLongEnough } from '../switchWhileDragging';
 
 // Out of the initial bundle, and mounted only once asked for - the same way
@@ -186,6 +187,16 @@ export function InboxHeading({
 export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   const { data, isLoading, error } = useQuery(snapshotQuery(workspaceId));
 
+  // Find's landing on an Item of the Inbox ("Find an open Item with F and
+  // Shift+F, and land on its row", issue 828); the shell has opened the column.
+  const landing = useLanding();
+  const box = useRef<HTMLDivElement>(null);
+  const stepLanding = useLandingStep();
+  useEffect(() => {
+    if (!landing || landing.place.kind !== 'inbox') return;
+    return stepLanding(landing, rowOf(box.current, landing.itemId));
+  });
+
   /**
    * **The column never says the workspace could not be read**, however badly
    * it went. The shell says it once for the whole window (pages/Layout.tsx)
@@ -217,7 +228,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
     // At least as tall as the column it is drawn in, so the list takes what the
     // form above it leaves: as tall as the whole column, it overflowed by the
     // form's own height and always scrolled.
-    <div className="flex min-h-full flex-col">
+    <div ref={box} className="flex min-h-full flex-col">
       <ItemList
         workspaceId={workspaceId}
         items={inbox}

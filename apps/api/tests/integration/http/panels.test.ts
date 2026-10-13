@@ -121,8 +121,8 @@ const DUE_TODAY = { field: 'dueDate', window: 'today', orOverdue: true };
 /** A Priority condition: matches an item holding either level ("Filter a Filter panel by priority and type", issue 464). */
 const PRIORITY_HIGH_OR_NORMAL = { field: 'priority', values: ['high', 'normal'] };
 
-/** A Type condition: matches an item of the seeded workspace's Task type. */
-const TYPE_TASK = { field: 'type', values: [TASK_TYPE_ID] };
+/** A Status condition: matches an item still to do. */
+const STATUS_TO_DO = { field: 'status', values: ['to_do'] };
 
 /** A Filter with nothing chosen, as one reads back. */
 const NOTHING_CHOSEN = { rows: [], groupBy: 'none' };
@@ -874,15 +874,15 @@ describe('Panels', () => {
       expect((await panelNow(panelId)).filter).toEqual(NOTHING_CHOSEN);
     });
 
-    it('accepts a Priority, a Type and a Panel condition beside a Due date one', async () => {
-      // The four fields together, each carrying its own value shape - what
+    it('accepts a Priority and a Panel condition beside a Due date one', async () => {
+      // The fields together, each carrying its own value shape - what
       // extends `filterConditionSchema` from a Due date alone to a union
       // ("Filter a Filter panel by priority and type", issue 464; "Filter a
       // Filter panel by panel, and name the Filters a panel's deletion
       // affects", issue 465).
       const { panelId: itemsPanelId } = await aPanelOfItems();
       const { panelId } = await aFilter();
-      const rows = [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [TYPE_TASK], [{ field: 'panel', values: [itemsPanelId] }]];
+      const rows = [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [STATUS_TO_DO], [{ field: 'panel', values: [itemsPanelId] }]];
 
       expect((await setFilter(panelId, rows)).status).toBe(200);
       expect((await panelNow(panelId)).filter).toEqual({ rows, groupBy: 'none' });
@@ -961,24 +961,24 @@ describe('Panels', () => {
       { situation: 'a window nothing knows about', rows: [[{ field: 'dueDate', window: 'fortnight', orOverdue: true }]], stored: false },
       { situation: 'a condition about nothing the product has', rows: [[{ field: 'weather', window: 'today', orOverdue: true }]], stored: false },
       { situation: 'a priority level nothing knows about', rows: [[{ field: 'priority', values: ['urgent'] }]], stored: false },
-      { situation: 'a Type condition naming nothing at all', rows: [[{ field: 'type', values: [''] }]], stored: false },
       { situation: 'a Panel condition naming nothing at all', rows: [[{ field: 'panel', values: [''] }]], stored: false },
+      { situation: 'a Type condition, which no Filter takes any more', rows: [[{ field: 'type', values: [TASK_TYPE_ID] }]], stored: false },
     ])('$situation', async ({ rows, stored }) => {
       const { panelId } = await aFilter();
-      expect((await setFilter(panelId, [[TYPE_TASK]])).status).toBe(200);
+      expect((await setFilter(panelId, [[STATUS_TO_DO]])).status).toBe(200);
 
       expect((await setFilter(panelId, rows)).status).toBe(stored ? 200 : 400);
 
       // And nothing of a refusal is stored: one that half-landed would leave a
       // Filter gathering something nobody asked for.
-      expect((await panelNow(panelId)).filter).toEqual({ rows: stored ? rows : [[TYPE_TASK]], groupBy: 'none' });
+      expect((await panelNow(panelId)).filter).toEqual({ rows: stored ? rows : [[STATUS_TO_DO]], groupBy: 'none' });
     });
 
     it('refuses the conditions and all-or-any a tab on the previous release sends, and keeps the rows stored', async () => {
       // That tab reads a Filter stored in rows as nothing chosen, so a save
       // from it would overwrite the real Filter with that.
       const { panelId } = await aFilter();
-      const rows = [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [TYPE_TASK]];
+      const rows = [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [STATUS_TO_DO]];
       expect((await setFilter(panelId, rows)).status).toBe(200);
 
       const fromThePreviousRelease = await send('set_panel_filter', {
