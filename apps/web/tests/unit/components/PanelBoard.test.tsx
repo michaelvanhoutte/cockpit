@@ -185,6 +185,7 @@ function anItem(id: string, title: string): Item {
     completedAt: null,
     startedAt: null,
     priority: null,
+    prioritySetAt: null,
     dueDate: null,
     dueDateSetAt: null,
     unseen: false,

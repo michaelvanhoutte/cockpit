@@ -315,7 +315,7 @@ export type FilterGrouping = z.infer<typeof filterGroupingSchema>;
  * catch is on the field, so a value this release cannot read costs the setting
  * alone and leaves the rows intact. **A Filter stored in the flat shape before
  * rows - `conditions` and `match` - reads as no rows**: every one was rewritten
- * by `0069-filter-rows` (changes.ts), so one met here was written by an older
+ * by `0071-filter-rows` (changes.ts), so one met here was written by an older
  * release after a rollback, and a repair change carrying that change's
  * statements is what brings it back.
  */

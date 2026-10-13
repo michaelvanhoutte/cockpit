@@ -78,6 +78,7 @@ test.describe('Capture', () => {
                 looksAt: 'texts-and-panel',
                 suggestedPanelBefore: null,
                 suggestedPanelAfter: null,
+                prioritySet: null,
               },
             ],
           },

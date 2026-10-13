@@ -1,4 +1,4 @@
-import { itemDescriptionSchema, itemTitleSchema } from '@cockpit/shared';
+import { itemDescriptionSchema, itemTitleSchema, prioritySchema, type Priority } from '@cockpit/shared';
 import { z } from 'zod';
 
 /**
@@ -46,6 +46,8 @@ export interface NoteTexts {
   readings: ReadingCandidate[];
   /** The Panel this note belongs on, or null where nothing was proposed. */
   panel: RoutingCandidate | null;
+  /** The priority the note stated, or null where it stated none ("Read a priority you say when you capture", issue 1076). */
+  priority: Priority | null;
 }
 
 /**
@@ -175,7 +177,14 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
       ? readPanelCandidate((parsed as Record<string, unknown>).panel, offeredPanelIds)
       : null;
 
-  return { proposal: { ...read.data, readings, panel } };
+  // Read on its own like the panel: a priority outside the three is no
+  // priority, never a reason to discard the texts beside it (issue 1076).
+  const priority =
+    typeof parsed === 'object' && parsed !== null
+      ? (prioritySchema.safeParse((parsed as Record<string, unknown>).priority).data ?? null)
+      : null;
+
+  return { proposal: { ...read.data, readings, panel, priority } };
 }
 
 /**

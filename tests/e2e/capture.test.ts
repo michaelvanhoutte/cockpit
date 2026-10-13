@@ -37,7 +37,7 @@ const A_PNG_BASE64 =
  * fake, which would prove the walk and nothing about the feature. What holds it
  * instead: apps/api/tests/integration/http/note-cleanup.test.ts drives a real
  * capture through the real queue to the real consumer, and
- * apps/api/tests/contract/clean-up-a-note.v11.test.ts asks the real model
+ * apps/api/tests/contract/clean-up-a-note.v12.test.ts asks the real model
  * whenever the prompt changes.
  *
  * **The row's mark and the form's picker for the other readings have no walk

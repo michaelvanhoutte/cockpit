@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
@@ -13,6 +13,7 @@ import {
   useFilterBarOpen,
   writeDashboardFilter,
 } from '../../../src/dashboardFilter';
+import { askToLand, forgetLanding } from '../../../src/landOnItem';
 import { browserStore } from '../../../src/lastVisited';
 
 /**
@@ -108,6 +109,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  act(() => forgetLanding());
   cleanup();
   browserStore()?.clear();
   vi.unstubAllGlobals();
@@ -287,6 +289,56 @@ describe('Inbox', () => {
 
       await screen.findByRole('table');
       expect(titlesInOrder()).toEqual(['finished']);
+    });
+  });
+
+  describe('Find lands on a finished Item’s row, drawing rows and clearing the filter until it is shown', () => {
+    const landOnIt = (itemId: string, workspaceId = 'ws-work') =>
+      act(() => askToLand({ itemId, place: { kind: 'allItems', workspaceId }, focus: true }));
+    const rowOfIt = (itemId: string) => document.querySelector<HTMLElement>(`[data-item-id="${itemId}"]`);
+
+    it('focuses its row, outlined', async () => {
+      theTable(manyItems(120, [3]));
+      await screen.findByRole('table');
+
+      landOnIt('item-003');
+
+      await waitFor(() => expect(rowOfIt('item-003')).toHaveFocus());
+      expect(rowOfIt('item-003')).toHaveAttribute('data-shown');
+    });
+
+    it('draws more rows until an Item past the first 50 is among them', async () => {
+      theTable(manyItems(120, [110]));
+      await screen.findByRole('table');
+      expect(rowCount()).toBe(50);
+
+      landOnIt('item-110');
+
+      await waitFor(() => expect(rowOfIt('item-110')).toHaveFocus());
+      expect(rowCount()).toBe(120);
+    });
+
+    it('clears the filter that hides the Item, then lands on it', async () => {
+      storedStatuses('to_do');
+      theTable(manyItems(120, [5]));
+      await screen.findByRole('table');
+      expect(rowOfIt('item-005')).toBeNull();
+
+      landOnIt('item-005');
+
+      await waitFor(() => expect(rowOfIt('item-005')).toHaveFocus());
+      expect(readDashboardFilter(browserStore(), allItemsFilterId('ws-work'))).toEqual(NO_DASHBOARD_FILTER);
+    });
+
+    it('lands on nothing for another Workspace’s request', async () => {
+      theTable(manyItems(120, [3]));
+      await screen.findByRole('table');
+
+      landOnIt('item-003', 'ws-other');
+
+      await new Promise((done) => setTimeout(done, 600));
+      expect(screen.getByRole('table')).not.toContainElement(document.activeElement as HTMLElement);
+      expect(rowCount()).toBe(50);
     });
   });
 });

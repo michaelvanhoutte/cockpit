@@ -65,6 +65,15 @@ function fixtureName(index: number): string {
 }
 
 /**
+ * An Item's row without the columns changes after the one a case is about add,
+ * which an open brings in holding NULL - those changes hold their own rows.
+ */
+function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<string, SqlStorageValue> {
+  const { priority_set_at: _prioritySetAt, ...rest } = row;
+  return rest;
+}
+
+/**
  * Puts a store in the state an account is in when it has applied everything up
  * to `applied` and nothing since - recorded as applied, exactly as the store
  * itself records it, so that opening it afterwards has real outstanding work.
@@ -262,7 +271,7 @@ const rowsFor: {
   {
     // Filters of each kind an account holds once Panels can gather
     // (`0035-panel-filters`), stored flat as every one was before
-    // `0069-filter-rows`: All, Any, one saved with a field twice, and one that
+    // `0071-filter-rows`: All, Any, one saved with a field twice, and one that
     // cannot be read - so every update from there on meets real Filters.
     table: 'panels',
     sql: 'SELECT 1',
@@ -1907,7 +1916,8 @@ const connectorRowsIn = (name: string) =>
       .toArray()
       .map(({ follows: _follows, ...row }) => row),
     failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
-    items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+    // Without `priority_set_at`, which `0069-item-priority-set-at` adds on the same open.
+    items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
   }));
 
 describe('Connector management', () => {
@@ -1998,7 +2008,8 @@ const keptBesideGmail = (name: string) =>
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
       .map(({ follows: _follows, ...row }) => row),
-    items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+    // Without `priority_set_at`, which `0069-item-priority-set-at` adds on the same open.
+    items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
     links: sql.exec('SELECT * FROM pulled_links ORDER BY source_id').toArray(),
     checkpoints: sql.exec('SELECT * FROM pulled_connections ORDER BY source_account_id').toArray(),
   }));
@@ -2337,7 +2348,7 @@ describe('Capture', () => {
         ),
       );
       const rowOf = () =>
-        inStoreAsItIs(name, (sql) => sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]);
+        inStoreAsItIs(name, (sql) => withoutLaterColumns(sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]!));
       const before = await rowOf();
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
@@ -2549,7 +2560,7 @@ describe('Accounts', () => {
         ),
       );
       const rowOf = () =>
-        inStoreAsItIs(name, (sql) => sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]);
+        inStoreAsItIs(name, (sql) => withoutLaterColumns(sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]!));
       const before = await rowOf();
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
@@ -2680,7 +2691,7 @@ describe('Accounts', () => {
  * bring-up; that rows match the Items they did is the client's
  * (apps/web/tests/unit/filters.test.ts).
  */
-const FILTER_ROWS = '0069-filter-rows';
+const FILTER_ROWS = '0071-filter-rows';
 
 /** What it logs when it leaves a Filter it cannot read alone. */
 const LEFT_ALONE_FILTERS = 'Filters stored as neither conditions nor rows were left as they are';

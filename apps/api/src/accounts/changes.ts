@@ -153,6 +153,8 @@ export function accountChanges(accountId: string): readonly Change[] {
     gmailConnectionsReconnect(accountId),
     DROP_GMAIL_TABLES,
     connectorItemsStoredInternal(accountId),
+    ITEM_PRIORITY_SET_AT,
+    REWRITE_HISTORY_PRIORITY_SET,
     filterRows(accountId),
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -410,6 +412,40 @@ const PULLED_LINK_CHOICE: Change = {
 const CONNECTION_CHOICE: Change = {
   name: '0065-connection-choice',
   statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `choice` text' }],
+};
+
+/**
+ * Who set an Item's priority, and the priority a refinement set from what the
+ * note said ("Read a priority you say when you capture", issue 1076) - one
+ * nullable column on `items` and one on `rewrite_history`, each a change of
+ * its own so each is one statement tracked on its own.
+ *
+ * Their failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `ADD COLUMN`s, and no statement that writes to a row.
+ * - **If it stops halfway:** the first column exists and the second does not;
+ *   the first is recorded as applied, so the next open applies only the second.
+ * - **The second time it runs:** neither re-runs once recorded, and SQLite
+ *   refuses a column that already exists rather than adding it twice.
+ * - **Rows that predate it:** every Item reads NULL, so no Item is marked; a
+ *   priority it already holds is protected by the rule that the reading only
+ *   fills an empty one, so nothing is backfilled. Every history row reads
+ *   NULL, which is true: nothing set a priority before this.
+ * - **Rolled back after it has run:** an older release never names either
+ *   column, and a `set_priority` it applies leaves the marker unstamped: a
+ *   priority set then is still protected by holding a value, and one cleared
+ *   then may be filled by a reading still in flight - the whole cost.
+ */
+const ITEM_PRIORITY_SET_AT: Change = {
+  name: '0069-item-priority-set-at',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `priority_set_at` text' }],
+};
+
+/** The second of the two columns above, under the same failure modes. */
+const REWRITE_HISTORY_PRIORITY_SET: Change = {
+  name: '0070-rewrite-history-priority-set',
+  statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `priority_set` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
@@ -690,7 +726,7 @@ const FIRST_OF_EACH_FIELD = `SELECT c.value AS v FROM json_each(panels.filter_co
   ORDER BY c.key`;
 
 /**
- * The statements that rewrite every flat Filter into rows (`0069-filter-rows`),
+ * The statements that rewrite every flat Filter into rows (`0071-filter-rows`),
  * named so that the repair after a rollback by promotion can carry them again
  * (deployment.md, "Migrations and rollback", on one-shot backfills): they touch
  * only Filters still flat, so a Filter already in rows is left byte for byte.
@@ -761,7 +797,7 @@ export function filterRowsStatements(accountId: string): readonly Statement[] {
  */
 function filterRows(accountId: string): Change {
   return {
-    name: '0069-filter-rows',
+    name: '0071-filter-rows',
     leavesAlone: {
       count: {
         sql: `SELECT count(*) AS n FROM panels

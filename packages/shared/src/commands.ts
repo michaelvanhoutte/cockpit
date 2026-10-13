@@ -722,6 +722,20 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
 /**
+ * propose_item_fields — the fields a captured note stated, read by the
+ * enrichment job rather than sent by a client ("Read a priority you say when
+ * you capture", issue 1076). Each field is absent where the note stated none,
+ * and each is applied or refused on its own: one the person set, or one that
+ * already holds a value, is left as it is. Priority only, for now; the due
+ * date and the Workspace a note names join it as fields of their own.
+ */
+export const proposeItemFieldsSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  priority: prioritySchema.optional(),
+});
+export type ProposeItemFieldsCommand = z.infer<typeof proposeItemFieldsSchema>;
+
+/**
  * connect_source_account — a Workspace's sign-in to a source, once the
  * source has said who it was and the credential has been sealed ("Connect a
  * Microsoft Teams source account", issue 485; "Connect and disconnect a
@@ -879,6 +893,7 @@ export const commandSchemas = {
   set_item_form_presentation: setItemFormPresentationSchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
+  propose_item_fields: proposeItemFieldsSchema,
   connect_source_account: connectSourceAccountSchema,
   disconnect_source_account: disconnectSourceAccountSchema,
   set_connection_choice: setConnectionChoiceSchema,
@@ -897,6 +912,7 @@ export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchem
 export type SelfSentCommandName =
   | 'propose_item_texts'
   | 'propose_item_panel'
+  | 'propose_item_fields'
   // Sent by the callback Microsoft returns to, which is a navigation rather
   // than a request a page makes - and which carries a sealed credential no
   // browser may ever hand over (see `connectSourceAccountSchema` above).
@@ -942,13 +958,19 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * pattern as `settledRouting` above ("Re-read the rest of the inbox the
  * moment you fix a title", issue 399).
  *
- * Both absent, not `false`, everywhere else - every other command answers
- * `applied` alone, exactly as before either existed.
+ * `fieldsSet` is present only for `propose_item_fields`, and only where it
+ * applied: the fields it set, each refused or set on its own, read off the
+ * same atomic call by the job that records what it changed ("Read a priority
+ * you say when you capture", issue 1076).
+ *
+ * All absent, not `false`, everywhere else - every other command answers
+ * `applied` alone, exactly as before any of them existed.
  */
 export const commandResultSchema = z.object({
   ok: z.literal(true),
   applied: z.boolean(),
   settledRouting: z.boolean().optional(),
   recordedCorrection: z.boolean().optional(),
+  fieldsSet: z.object({ priority: prioritySchema.optional() }).optional(),
 });
 export type CommandResult = z.infer<typeof commandResultSchema>;

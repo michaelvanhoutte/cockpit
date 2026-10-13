@@ -77,6 +77,7 @@ function anItem(
     completedAt: holding.completedAt ?? null,
     startedAt: holding.startedAt ?? null,
     priority: holding.priority ?? null,
+    prioritySetAt: null,
     dueDate: holding.dueDate ?? null,
     dueDateSetAt: null,
     unseen: false,
