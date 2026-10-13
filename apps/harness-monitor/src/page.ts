@@ -382,13 +382,13 @@ function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: 
         ? `<td>${number(g.pullRequests)}</td>`
         : '';
   const cost = (s: Series) => g.bySeries[s.key] ?? 0;
-  // A catch-all keeps its empty split cell, so the columns line up, and draws nothing in it.
+  // A catch-all draws nothing in its split cell, not even the track, which would read as a bar at $0.
   const split = g.catchAll
     ? ''
     : series.map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / max) * 100).toFixed(1)}%;background:${colourOf(query.split, s.key, models)}"></div>` : '')).join('');
   const cells = series.map((s) => `<td class="num mono${s.key === 'ci-reviews' ? ' muted' : ''}">${cost(s) > 0 ? dollars(cost(s)) : '—'}</td>`).join('');
   const unpriced = g.unpricedRequests > 0 ? ` <span class="unpriced">+ ${number(g.unpricedRequests)} unpriced</span>` : '';
-  return `<tr>${first}${extra}<td><div class="split">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td></tr>`;
+  return `<tr>${first}${extra}<td><div class="split${g.catchAll ? ' bare' : ''}">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td></tr>`;
 }
 
 function table(page: CostsPage, repository: string | null): string {
@@ -452,7 +452,7 @@ th,td{padding:12px 8px;text-align:left;border-bottom:1px solid var(--line-soft);
 th{font-size:12px;font-weight:500;color:var(--muted);border-bottom-color:var(--line)}
 th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padding-right:16px}
 .num{text-align:right}.total{font-weight:500}.first{max-width:380px}
-.split-head{width:220px}.split{display:flex;height:10px;background:var(--track);border-radius:2px;overflow:hidden;margin-top:4px}
+.split-head{width:220px}.split{display:flex;height:10px;background:var(--track);border-radius:2px;overflow:hidden;margin-top:4px}.split.bare{background:none}
 .unpriced{color:var(--warn-ink);font-size:.85em;white-space:nowrap}
 .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:12px 16px;color:var(--muted);font-size:13px}
 .jobs{list-style:none;margin:12px 16px;padding:0;font-size:13px}

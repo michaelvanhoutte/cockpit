@@ -151,7 +151,7 @@ export function costRows(html: string): CostRow[] {
   return [...html.matchAll(/<tr>(<td class="first">.*?)<\/tr>/gs)].map(([, row]) => {
     const cells = [...row!.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((m) => m[1]!);
     const [first, ...rest] = cells;
-    const split = rest.findIndex((c) => c.startsWith('<div class="split">'));
+    const split = rest.findIndex((c) => c.startsWith('<div class="split'));
     const [, label, sub] = /^(.*?)(?:<div class="muted small">(.*?)<\/div>)?$/s.exec(first!)!;
     const [, total, unpriced] = /^([^<]*?)(?: <span class="unpriced">(.*?)<\/span>)?$/.exec(rest.at(-1)!)!;
     const widths = [...rest[split]!.matchAll(/<div style="width:([\d.]+)%/g)].map((m) => Number(m[1]));
