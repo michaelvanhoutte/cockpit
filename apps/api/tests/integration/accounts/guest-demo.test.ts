@@ -269,12 +269,8 @@ describe('Accounts', () => {
         ['In progress', "This week's priorities"].sort(),
       );
       expect(filters.find((panel) => panel.name === "This week's priorities")!.filter).toEqual({
-        match: 'all',
         groupBy: 'none',
-        conditions: [
-          { field: 'dueDate', window: 'week', orOverdue: true },
-          { field: 'priority', values: ['high'] },
-        ],
+        rows: [[{ field: 'dueDate', window: 'week', orOverdue: true }], [{ field: 'priority', values: ['high'] }]],
       });
       expect(halcyon.filings.some((one) => filters.some((panel) => panel.id === one.panelId))).toBe(
         false,

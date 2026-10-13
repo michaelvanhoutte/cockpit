@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GRID_COLUMNS, demoAddress, demoPageOf, type PanelFilter } from '@cockpit/shared';
+import { GRID_COLUMNS, demoAddress, demoPageOf, panelFilterFrom, type FilterCondition, type PanelFilter } from '@cockpit/shared';
 import {
   accountChanges,
   checkedGuestDemo,
@@ -221,7 +221,7 @@ describe('Accounts', () => {
      * cannot slip past unchecked.
      */
     function mightShow(filter: PanelFilter, item: SeedItem): boolean {
-      const results = filter.conditions.map((condition) => {
+      const holds = (condition: FilterCondition) => {
         if (condition.field === 'dueDate') {
           if (item.due === undefined) return false;
           if (condition.window === 'today') return item.due <= 0;
@@ -233,8 +233,8 @@ describe('Accounts', () => {
         }
         if (condition.field === 'status') return item.started !== undefined;
         throw new Error('the check does not know this Filter condition');
-      });
-      return filter.match === 'any' ? results.some(Boolean) : results.every(Boolean);
+      };
+      return filter.rows.every((row) => row.some(holds));
     }
 
     it('shows five items or fewer on every panel of every workspace, filters included', () => {
@@ -429,8 +429,9 @@ describe('Accounts', () => {
       inbox,
       dashboards: [{ name: 'Day to day', rows: panels.map((row) => ({ panels: row })) }],
     });
-    const filter = (name: string, conditions: unknown[], match = 'all', groupBy = 'none'): SeedPanel =>
-      ({ name, filter: { match, groupBy, conditions } }) as SeedPanel;
+    const filter = (name: string, rows: unknown[][], groupBy = 'none'): SeedPanel =>
+      ({ name, filter: { groupBy, rows } }) as SeedPanel;
+    const DUE_SOON = { field: 'dueDate', window: 'week', orOverdue: true };
 
     it.each([
       {
@@ -469,38 +470,44 @@ describe('Accounts', () => {
         demo: [
           workspace(
             'Personal',
-            [[filter('Due soon', [{ field: 'dueDate', window: 'week', orOverdue: true }])]],
+            [[filter('Due soon', [[DUE_SOON]])]],
             [{ title: 'x', suggest: { panel: 'Due soon', why: 'y' } }],
           ),
         ],
         says: 'suggests "Due soon"',
       },
       {
-        why: 'a filter has no conditions',
+        why: 'a filter has no rows',
         demo: [workspace('Personal', [[filter('Everything', [])]])],
         says: 'the Filter "Everything"',
       },
       {
+        why: 'a filter has an empty row',
+        demo: [workspace('Personal', [[filter('Gap', [[DUE_SOON], []])]])],
+        says: 'the Filter "Gap"',
+      },
+      {
+        why: 'a filter is written as flat conditions rather than rows',
+        demo: [
+          workspace('Personal', [
+            [{ name: 'Flat', filter: { match: 'all', groupBy: 'none', conditions: [DUE_SOON] } } as unknown as SeedPanel],
+          ]),
+        ],
+        says: 'the Filter "Flat"',
+      },
+      {
         why: 'a filter has a condition the app cannot read',
-        demo: [workspace('Personal', [[filter('Soon', [{ field: 'dueDate', window: 'fortnight' }])]])],
+        demo: [workspace('Personal', [[filter('Soon', [[{ field: 'dueDate', window: 'fortnight' }]])]])],
         says: 'the Filter "Soon"',
       },
       {
-        why: 'a filter says how its conditions combine in a way the app would read as All',
-        demo: [
-          workspace('Personal', [
-            [filter('Either', [{ field: 'dueDate', window: 'week', orOverdue: true }], 'anyy')],
-          ]),
-        ],
-        says: 'the Filter "Either"',
+        why: 'a filter has one field twice in a row, which the app reads as its first',
+        demo: [workspace('Personal', [[filter('Twice', [[DUE_SOON, { field: 'dueDate', window: 'today', orOverdue: true }]])]])],
+        says: 'the Filter "Twice"',
       },
       {
         why: 'a filter is grouped in a way the app would read as None',
-        demo: [
-          workspace('Personal', [
-            [filter('Grouped', [{ field: 'dueDate', window: 'week', orOverdue: true }], 'all', 'panels')],
-          ]),
-        ],
+        demo: [workspace('Personal', [[filter('Grouped', [[DUE_SOON]], 'panels')]])],
         says: 'the Filter "Grouped"',
       },
     ])('refuses a dataset where $why', ({ demo, says }) => {
@@ -509,6 +516,22 @@ describe('Accounts', () => {
 
     it('accepts the demonstration that is actually shipped', () => {
       expect(() => checkedGuestDemo(GUEST_DEMO)).not.toThrow();
+    });
+
+    it('stores every Filter of the demonstration as rows', () => {
+      // The demonstration is written by this release, never migrated
+      // ("Store every Filter as rows, and save the All / Any choice as rows",
+      // issue 1081), so what it stores has to be what the app reads.
+      const filters = guestSeed()
+        .filter((one) => one.sql.includes('INSERT INTO panels '))
+        .map((one) => one.params![5])
+        .filter((stored): stored is string => stored !== null);
+
+      expect(filters).toHaveLength(GUEST_DEMO.flatMap(panelsOf).filter(isFilter).length);
+      for (const stored of filters) {
+        expect(Object.keys(JSON.parse(stored)).sort(), stored).toEqual(['groupBy', 'rows']);
+        expect(panelFilterFrom(stored)?.rows.length, stored).toBeGreaterThan(0);
+      }
     });
   });
 });

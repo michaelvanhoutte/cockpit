@@ -199,7 +199,7 @@ describe('Panels', () => {
         issuedAt: new Date().toISOString(),
         workspaceId: 'ws-work',
         panelId: uuidv7(),
-        conditions,
+        rows: [conditions],
       });
 
     it('keeps the exclusion flag and the Status values through the schema, the stored text and the read', () => {
@@ -211,9 +211,9 @@ describe('Panels', () => {
       expect(saved.success).toBe(true);
       if (!saved.success) return;
 
-      const read = panelFilterFrom(panelFilterAsStored(saved.data.conditions, saved.data.match, saved.data.groupBy));
+      const read = panelFilterFrom(panelFilterAsStored(saved.data.rows, saved.data.groupBy));
 
-      expect(read?.conditions).toEqual(conditions);
+      expect(read?.rows).toEqual([conditions]);
     });
 
     it('refuses a Status value of Done, which a Filter never draws', () => {

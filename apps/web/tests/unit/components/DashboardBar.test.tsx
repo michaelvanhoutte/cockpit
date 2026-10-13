@@ -662,7 +662,7 @@ describe('Dashboards', () => {
       const aFilterOn = (name: string, ...conditions: FilterCondition[]): Panel => ({
         ...aPanel(name, 'ws-work-dashboard 1'),
         kind: 'filter',
-        filter: { conditions, match: 'all', groupBy: 'none' },
+        filter: { rows: conditions.map((condition) => [condition]), groupBy: 'none' },
       });
       const research = 'ws-work-research';
       const onResearch = (...values: string[]): FilterCondition => ({ field: 'dashboard', values });

@@ -13,13 +13,12 @@ import {
   type DueWindow,
   type FilterCondition,
   type FilterGrouping,
-  type FilterMatch,
   type ItemType,
   type Layout,
   type Panel,
   type Priority,
 } from '@cockpit/shared';
-import { GROUPING_NAMES, WINDOW_LABELS, isAPeriod } from '../filters';
+import { GROUPING_NAMES, WINDOW_LABELS, isAPeriod, type FilterMatch } from '../filters';
 import { orderedAsDrawn } from '../filterGroups';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
@@ -273,11 +272,12 @@ const GROUPING_HINTS: Record<FilterGrouping, string> = {
  * on the first, then *and* or *or* ("Join a Filter's conditions with and/or
  * beside each row", issue 909).
  *
- * **The second row's joiner is the Filter's all-or-any, and the rows after it
- * only repeat it as text.** A Filter is all or any as a whole (mixes such as
- * *(A and B) or C* are not built), so a third row offering its own choice would
- * promise something the Filter cannot hold. A `select` rather than a segmented
- * control: two words in a gutter a few characters wide.
+ * **The second row's joiner is the question's all-or-any, and the rows after it
+ * only repeat it as text.** This question asks all or any as a whole, saved as
+ * a row per condition or one row of them all (`rowsFromChoice`), so a third
+ * row offering its own choice would promise something it cannot save. A
+ * `select` rather than a segmented control: two words in a gutter a few
+ * characters wide.
  */
 function Joiner({
   at,

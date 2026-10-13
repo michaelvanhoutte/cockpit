@@ -29,6 +29,11 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * `v15` because a Filter panel's conditions became rows ("Store every Filter
+ * as rows, and save the All / Any choice as rows", issue 1081). A restored
+ * Filter from before it holds `conditions` and `match` and no `rows`, which
+ * matching and the funnel read directly.
+ *
  * `v14` because a connection's row gained `followsLabel` and a snapshot its
  * `sourceNames`, while a Gmail Item's source became `gmail` ("Take source
  * names out of the shared contract", issue 927). A restored copy from before
@@ -106,7 +111,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v14';
+export const CACHE_BUSTER = 'v15';
 
 /**
  * What is worth keeping on disk, which is everything the app paints itself from

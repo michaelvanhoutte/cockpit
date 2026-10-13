@@ -7,7 +7,6 @@ import {
   NAME_MAX_LENGTH,
   demoAddress,
   filterGroupingSchema,
-  filterMatchSchema,
   panelFilterSchema,
   themeOf,
 } from '@cockpit/shared';
@@ -154,6 +153,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     gmailConnectionsReconnect(accountId),
     DROP_GMAIL_TABLES,
     connectorItemsStoredInternal(accountId),
+    filterRows(accountId),
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -653,6 +653,125 @@ function connectorItemsStoredInternal(accountId: string): Change {
         params: [accountId],
       },
     ],
+  };
+}
+
+/**
+ * Whether a Filter's stored text is the flat shape stored before rows: a JSON
+ * object holding `conditions` as an array of objects, and no `rows`. A `CASE`
+ * rather than `AND`, because SQLite does not promise to stop at
+ * `json_valid` and the JSON functions throw on text that is not JSON - which
+ * would stop the account opening.
+ */
+const FILTER_IS_FLAT = `CASE
+  WHEN filter_conditions IS NULL OR NOT json_valid(filter_conditions) THEN 0
+  WHEN json_type(filter_conditions) <> 'object' THEN 0
+  WHEN json_type(filter_conditions, '$.rows') IS NOT NULL THEN 0
+  WHEN json_type(filter_conditions, '$.conditions') IS NOT 'array' THEN 0
+  ELSE NOT EXISTS (SELECT 1 FROM json_each(filter_conditions, '$.conditions') WHERE type <> 'object')
+END`;
+
+/** Whether a Filter's stored text is already rows - what a rerun of `filterRowsStatements` leaves alone. */
+const FILTER_IS_ROWS = `CASE
+  WHEN filter_conditions IS NULL OR NOT json_valid(filter_conditions) THEN 0
+  WHEN json_type(filter_conditions) <> 'object' THEN 0
+  ELSE json_type(filter_conditions, '$.rows') IS NOT NULL
+END`;
+
+/**
+ * A flat Filter's conditions, the first of each field alone, in the order they
+ * were stored - which is how the reader before rows read a Filter saved with a
+ * field twice, so the Filter goes on showing what it showed.
+ */
+const FIRST_OF_EACH_FIELD = `SELECT c.value AS v FROM json_each(panels.filter_conditions, '$.conditions') AS c
+  WHERE NOT EXISTS (
+    SELECT 1 FROM json_each(panels.filter_conditions, '$.conditions') AS e
+     WHERE e.key < c.key AND json_extract(e.value, '$.field') = json_extract(c.value, '$.field'))
+  ORDER BY c.key`;
+
+/**
+ * The statements that rewrite every flat Filter into rows (`0069-filter-rows`),
+ * named so that the repair after a rollback by promotion can carry them again
+ * (deployment.md, "Migrations and rollback", on one-shot backfills): they touch
+ * only Filters still flat, so a Filter already in rows is left byte for byte.
+ *
+ * *All* - and a `match` that is missing or unreadable, which the reader before
+ * rows read as *All* - becomes one row per condition; *Any* one row holding
+ * them all; no conditions, no rows. `groupBy` and anything else the object
+ * holds is kept as it is. Every `json(...)` around a subquery is there because
+ * SQLite drops a value's JSON subtype on its way out of one, and would store it
+ * as a quoted string.
+ */
+export function filterRowsStatements(accountId: string): readonly Statement[] {
+  return [
+    {
+      sql: `UPDATE panels
+               SET filter_conditions = json_set(
+                     json_remove(filter_conditions, '$.conditions', '$.match'),
+                     '$.rows',
+                     CASE
+                       WHEN json_extract(filter_conditions, '$.match') IS NOT 'any'
+                         THEN json((SELECT json_group_array(json_array(json(v))) FROM (${FIRST_OF_EACH_FIELD})))
+                       WHEN json_array_length(filter_conditions, '$.conditions') = 0 THEN json('[]')
+                       ELSE json_array(json((SELECT json_group_array(json(v)) FROM (${FIRST_OF_EACH_FIELD}))))
+                     END)
+             WHERE tenant_id = ? AND ${FILTER_IS_FLAT}`,
+      params: [accountId],
+    },
+  ];
+}
+
+/**
+ * Every Filter stored as rows - conditions within a row joined by *or*, rows
+ * joined by *and* - in place of its flat `conditions` and `match` ("Store every
+ * Filter as rows, and save the All / Any choice as rows", issue 1081;
+ * `filterRowsStatements` says how each is rewritten).
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `UPDATE` of one column, only on a Filter in the flat
+ *   shape. `pnpm backup:export` runs before the deploy that carries it.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts), so an account has
+ *   every Filter in rows or none, and the next open retries.
+ * - **The second time it runs:** it does not, having been recorded; and its
+ *   `WHERE` matches no Filter already in rows, so a repair carrying the same
+ *   statements changes nothing already migrated.
+ * - **Rows that break the rule:** a Filter whose text is not JSON, or JSON of
+ *   no known shape, is left as it is and reads as nothing chosen, as it did;
+ *   `leavesAlone` counts them and the store logs the count. A field stored
+ *   twice keeps its first condition, and an unreadable `match` is *All*, each
+ *   as the reader before rows read it.
+ * - **What is in each environment:** real *All* and *Any* Filters in staging
+ *   and production, rewritten on each account's first open after the deploy,
+ *   with no parameter count growing with them. The guest demo is seeded in
+ *   rows (`guestDemoSeed`), and this rewrites what it holds until its nightly
+ *   rebuild.
+ * - **The windows it can be interrupted in.** *Before it runs*: the flat
+ *   shape, read by nothing yet. *Inside it*: rolled back whole. *After it*: a
+ *   tab on the previous release reads every Filter as nothing chosen, and its
+ *   save is refused (`setPanelFilterSchema`) until it reloads.
+ * - **Rolled back after it has run:** this release is a promotion floor. An
+ *   older release reads every Filter as nothing chosen, and a Filter it saves
+ *   is flat again, which this release reads as nothing; the repair is another
+ *   change carrying `filterRowsStatements`, being recorded as applied.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+function filterRows(accountId: string): Change {
+  return {
+    name: '0069-filter-rows',
+    leavesAlone: {
+      count: {
+        sql: `SELECT count(*) AS n FROM panels
+               WHERE tenant_id = ? AND filter_conditions IS NOT NULL
+                 AND NOT (${FILTER_IS_FLAT}) AND NOT (${FILTER_IS_ROWS})`,
+        params: [accountId],
+      },
+      because: 'Filters stored as neither conditions nor rows were left as they are',
+    },
+    statements: filterRowsStatements(accountId),
   };
 }
 
@@ -4290,15 +4409,18 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
           }
           panelNames.add(folded);
           // A Filter the app cannot read draws as one with nothing chosen
-          // (`panelFilterFrom`), one with no conditions demonstrates nothing,
-          // and a `match` or `groupBy` it cannot read is quietly All or None -
-          // each a typo here rather than a choice.
+          // (`panelFilterFrom`), one with no rows - or an empty row -
+          // demonstrates nothing, a field twice in a row is read as its first,
+          // and a `groupBy` it cannot read is quietly None - each a typo here
+          // rather than a choice.
           if (isFilter(panel)) {
             const read = panelFilterSchema.safeParse(panel.filter);
             if (
               !read.success ||
-              read.data.conditions.length === 0 ||
-              !filterMatchSchema.safeParse(panel.filter.match).success ||
+              read.data.rows.length === 0 ||
+              read.data.rows.some(
+                (row) => row.length === 0 || new Set(row.map((condition) => condition.field)).size !== row.length,
+              ) ||
               !filterGroupingSchema.safeParse(panel.filter.groupBy).success
             ) {
               wrong(`the Filter "${panel.name}" has no conditions the app can read`);

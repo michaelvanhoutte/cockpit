@@ -16,7 +16,6 @@ import type {
   Filing,
   FilterCondition,
   FilterGrouping,
-  FilterMatch,
   AgentRun,
   Attachment,
   Item,
@@ -30,7 +29,8 @@ import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { scrollWhileDragging } from '../dragScroll';
 import { groupFilterRows } from '../filterGroups';
-import { dayOf, filtersUsingPanel, isGrouped, joinedBy } from '../filters';
+import { choiceFromRows, dayOf, filtersUsingPanel, isGrouped, joinedBy, rowsFromChoice } from '../filters';
+import type { FilterMatch } from '../filters';
 import { browserStore } from '../lastVisited';
 import {
   clearDashboardFilter,
@@ -1320,7 +1320,9 @@ export function PanelBoard({
 
   /**
    * What a Filter shows, saved whole ("Add a Filter panel that shows every
-   * filed item due in a window", issue 463).
+   * filed item due in a window", issue 463) - as rows, the question's *All /
+   * Any* choice turned into a row per condition or one row of them all
+   * (`rowsFromChoice`).
    *
    * Closed only once it lands, the way the rename is: a refusal leaves the
    * question up with the rows still in it rather than losing what was chosen.
@@ -1339,8 +1341,7 @@ export function PanelBoard({
           issuedAt: new Date().toISOString(),
           workspaceId,
           panelId,
-          conditions,
-          match,
+          rows: rowsFromChoice(conditions, match),
           groupBy,
         },
       },
@@ -1740,8 +1741,7 @@ export function PanelBoard({
               key={beingFiltered.id}
               open
               panelName={beingFiltered.name}
-              conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
-              match={(beingFiltered.filter ?? NO_CONDITIONS).match}
+              {...choiceFromRows((beingFiltered.filter ?? NO_CONDITIONS).rows)}
               groupBy={(beingFiltered.filter ?? NO_CONDITIONS).groupBy}
               itemTypes={itemTypes}
               panels={panelsInWorkspace}
