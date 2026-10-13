@@ -83,7 +83,6 @@ export interface PanelCardProps {
    * Absent where the Filter is not, and on every other Panel.
    */
   groups?: readonly FilterGroup[] | undefined;
-  /** The account's live Types - what a Filter's funnel reads a Type condition's values back against. */
   /** The workspace's own Panels - what a Filter's funnel reads a Panel condition's values back against. */
   panelsInWorkspace: readonly Panel[];
   /** The Workspace's Dashboards, which name a Filter's Dashboard condition in its funnel sentence. */
