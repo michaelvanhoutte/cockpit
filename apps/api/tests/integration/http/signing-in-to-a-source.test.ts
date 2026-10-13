@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Connector } from '@cockpit/connector-sdk';
 import { GMAIL_REFUSALS } from '@cockpit/connector-gmail';
+import { OUTLOOK_REFUSALS } from '@cockpit/connector-outlook';
 import {
   OTHER_USER_ID,
   USER_ID,
@@ -291,7 +292,7 @@ describe('Connector management', () => {
         }
       ).connectors;
 
-    it('lists Gmail and Teams with the name and text their manifests give, and a source registered nowhere else', async () => {
+    it('lists Gmail, Outlook and Teams with the name and text their manifests give, and a source registered nowhere else', async () => {
       expect(await listed()).toEqual([
         {
           id: 'gmail',
@@ -307,6 +308,21 @@ describe('Connector management', () => {
             ],
           },
           refusals: GMAIL_REFUSALS,
+        },
+        {
+          id: 'outlook',
+          displayName: 'Outlook',
+          cardText:
+            'Sign in with your Microsoft 365 work or school account. Messages you flag, or categorise Cockpit, become tasks, and the flag or category follows the task. Your organisation may have to approve Cockpit first.',
+          asksFirst: true,
+          choice: {
+            question: 'Bring in messages',
+            options: [
+              { value: 'flag', label: 'Flagged' },
+              { value: 'category', label: 'Category Cockpit' },
+            ],
+          },
+          refusals: OUTLOOK_REFUSALS,
         },
         {
           id: 'teams',
@@ -336,9 +352,29 @@ describe('Connector management', () => {
       const bot = settings.MS_BOT_APP_ID;
       delete settings.MS_BOT_APP_ID;
       try {
-        expect((await listed()).map((one) => one.id)).toEqual(['gmail', FIXED, EXTRAS]);
+        expect((await listed()).map((one) => one.id)).toEqual(['gmail', 'outlook', FIXED, EXTRAS]);
       } finally {
         settings.MS_BOT_APP_ID = bot;
+      }
+    });
+
+    it('lists no Outlook where the Microsoft client is not configured, and has no way to connect it', async () => {
+      const id = settings.MS_CLIENT_ID;
+      const secret = settings.MS_CLIENT_SECRET;
+      delete settings.MS_CLIENT_ID;
+      delete settings.MS_CLIENT_SECRET;
+      try {
+        expect((await listed()).map((one) => one.id)).not.toContain('outlook');
+        const session = await signInAs(USER_ID);
+        const started = await startConnecting('outlook', session);
+        const returned = await SELF.fetch('http://cockpit.test/v1/connections/outlook/callback?code=a-code&state=a-state', {
+          redirect: 'manual',
+          headers: { cookie: session },
+        });
+        expect({ started: started.res.status, returned: returned.status }).toEqual({ started: 404, returned: 404 });
+      } finally {
+        settings.MS_CLIENT_ID = id;
+        settings.MS_CLIENT_SECRET = secret;
       }
     });
 

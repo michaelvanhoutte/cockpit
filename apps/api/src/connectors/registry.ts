@@ -1,8 +1,24 @@
 import type { Connector } from '@cockpit/connector-sdk';
 import { GMAIL_IDENTITY, createGmailConnector } from '@cockpit/connector-gmail';
+import { OUTLOOK_IDENTITY, createOutlookConnector } from '@cockpit/connector-outlook';
 import { TEAMS_IDENTITY, createTeamsConnector } from '@cockpit/connector-teams';
 import type { Env } from '../env.js';
 import { NAMED_SOURCES } from '../domain/named-sources.js';
+
+/**
+ * How many calls to Microsoft one Outlook run may make, the refresh included,
+ * measured on the generic host ("Connect Outlook from Settings, wherever the
+ * Microsoft client is set", issue 1048). The Workers free plan allows 50 calls
+ * out per invocation, and a run on the host makes exactly its connector's
+ * calls plus one read of the issuer's discovery document on a cold isolate:
+ * the host adds none of its own, so 49 is the most that fits. 45 leaves four
+ * for whatever the host comes to ask, a few reads fewer a run for it, and a
+ * listing too long for one run is carried on by the next check a few seconds
+ * later. Its store round trips and queue sends count against the separate 1,000
+ * for Cloudflare's own services, as with Gmail. outlook-on-the-host.test.ts
+ * holds a run to both.
+ */
+export const OUTLOOK_CALLS_PER_RUN = 45;
 
 /**
  * The composition root (architecture §6.2): the application knows connectors
@@ -20,8 +36,9 @@ import { NAMED_SOURCES } from '../domain/named-sources.js';
  * source through one generic sign-in flow", issue 892).
  */
 export function connectors(env: Env): Connector[] {
-  const gmailIssuer = standIn(env.OIDC_ISSUER);
+  const standInIssuer = standIn(env.OIDC_ISSUER);
   const gmailApi = standIn(env.GMAIL_API_ORIGIN);
+  const graphApi = standIn(env.GRAPH_API_ORIGIN);
   return [
     ...(env.GMAIL_CLIENT_ID?.trim() && env.GMAIL_CLIENT_SECRET?.trim()
       ? [
@@ -30,8 +47,23 @@ export function connectors(env: Env): Connector[] {
             clientSecret: env.GMAIL_CLIENT_SECRET.trim(),
             // The stub issuer and its stand-in mailbox locally and in the
             // browser suite; Google's own wherever else (`standIn`).
-            ...(gmailIssuer ? { issuer: gmailIssuer } : {}),
+            ...(standInIssuer ? { issuer: standInIssuer } : {}),
             ...(gmailApi ? { apiOrigin: gmailApi } : {}),
+          }),
+        ]
+      : []),
+    // Outlook asks for mail on the Microsoft client Teams connects through, so it
+    // is offered wherever that client is set and nowhere else.
+    ...(env.MS_CLIENT_ID?.trim() && env.MS_CLIENT_SECRET?.trim()
+      ? [
+          createOutlookConnector({
+            clientId: env.MS_CLIENT_ID.trim(),
+            clientSecret: env.MS_CLIENT_SECRET.trim(),
+            callsPerRun: OUTLOOK_CALLS_PER_RUN,
+            // The stub issuer and its stand-in Graph mailbox locally and in the
+            // browser suite; Microsoft's own wherever else (`standIn`).
+            ...(standInIssuer ? { issuer: standInIssuer } : {}),
+            ...(graphApi ? { apiOrigin: graphApi } : {}),
           }),
         ]
       : []),
@@ -82,6 +114,7 @@ export function standIn(value: string | undefined): string | null {
  */
 const KNOWN_CONNECTORS: readonly { readonly id: string; readonly displayName: string }[] = [
   GMAIL_IDENTITY,
+  OUTLOOK_IDENTITY,
   TEAMS_IDENTITY,
 ];
 

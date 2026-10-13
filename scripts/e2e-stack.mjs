@@ -277,6 +277,9 @@ const api = start(
     // Gmail's API is the issuer's stand-in mailbox, never Google's (issue 725).
     '--var',
     `GMAIL_API_ORIGIN:${issuer.origin}`,
+    // Outlook's Graph is its stand-in mailbox too, never Microsoft's (issue 1048).
+    '--var',
+    `GRAPH_API_ORIGIN:${issuer.origin}`,
     // Set, because a walk about continuing as a guest needs the environment to
     // offer it. That it is *absent* somewhere - which is what refuses the route
     // on staging - is held one tier down, where taking a variable away is a

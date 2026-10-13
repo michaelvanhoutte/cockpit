@@ -2,8 +2,9 @@
 
 Messages a person flags for follow-up in a Microsoft 365 mailbox, or categorises
 `Cockpit`, arrive in Cockpit as Tasks. Built on the connector SDK alone
-("Build Outlook as a connector package on the SDK, unregistered", issue 1046),
-and **not registered**: nothing in the application offers it yet. Done, Dismiss
+("Build Outlook as a connector package on the SDK, unregistered", issue 1046)
+and registered wherever the Microsoft client is set ("Connect Outlook from
+Settings, wherever the Microsoft client is set", issue 1048). Done, Dismiss
 and reopening a Task put the mark back on its message or take it off ("Take the
 flag or category off in Outlook when its task is done in Cockpit", issue 1047).
 
@@ -138,4 +139,3 @@ flag or category off in Outlook when its task is done in Cockpit", issue 1047).
   conditional message write; were it ignored, a category changed between the
   read and the write would be lost. The contract test's stale-version case is
   where this is settled.
-- **The call budget.** Measured when the connector is registered.

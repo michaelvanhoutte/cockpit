@@ -67,7 +67,7 @@ context:
     - { name: AI agents, detail: 'Claude.ai, Claude Code over MCP' }
   services:
     - { name: Google, detail: 'sign-in, Gmail API' }
-    - { name: Microsoft, detail: 'Entra sign-in, Teams via Bot Framework' }
+    - { name: Microsoft, detail: 'Entra sign-in, Teams via Bot Framework, Outlook mail via Graph' }
     - { name: Anthropic, detail: 'Claude API reads captured notes' }
     - { name: Cloudflare Workers AI, detail: 'embeddings, notes that repeat; Whisper, dictation' }
     - { name: GitHub, detail: 'code, CI, deploys, report pages' }

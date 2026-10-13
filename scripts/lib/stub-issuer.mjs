@@ -2,6 +2,7 @@ import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
+import { createStubGraph } from './stub-graph.mjs';
 
 //
 // An OpenID Connect issuer, for local development and the browser suite.
@@ -216,6 +217,10 @@ export async function startStubIssuer({ port, seedPath }) {
     json(response, { thread: thread.id, historyId: at });
   }
 
+  // Microsoft Graph's stand-in mailbox, at Graph's own paths and read with an
+  // access token this issuer issued (stub-graph.mjs).
+  const graph = createStubGraph({ mailboxOfToken: (token) => mailboxOf(token, 'access'), json });
+
   const server = createServer((request, response) => {
     const url = new URL(request.url, issuer);
     if (url.pathname === '/.well-known/openid-configuration') {
@@ -301,6 +306,7 @@ export async function startStubIssuer({ port, seedPath }) {
         .end('<!doctype html><meta charset="utf-8"><title>Claude Code session</title><h1>A stand-in Claude Code session</h1>');
     }
 
+    if (graph.handle(url, request, response, issuer)) return;
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
     const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star|unstar)$/);
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
@@ -383,7 +389,9 @@ export async function startStubIssuer({ port, seedPath }) {
       // only where offline access was asked for, and every scope asked
       // granted, as if nothing on the consent screen was unticked.
       scope: ask.scope ?? '',
-      offline: ask.access_type === 'offline',
+      // Google's way of asking for a refresh token, or Microsoft's: the scope
+      // `offline_access`, which is all the Outlook connector's sign-in asks.
+      offline: ask.access_type === 'offline' || (ask.scope ?? '').split(' ').includes('offline_access'),
       challenge: ask.code_challenge,
       clientId: ask.client_id,
       redirectUri: ask.redirect_uri,
