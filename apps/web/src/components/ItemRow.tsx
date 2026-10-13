@@ -981,6 +981,8 @@ export function ItemRow({
         if (event.target !== event.currentTarget) return;
         if (event.key === 'Enter') {
           event.preventDefault();
+          // A double-click's first click ends a held selection; Enter has no click.
+          if (selecting?.revealed) selecting.onEndSelection();
           onOpen?.();
         } else if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
           event.preventDefault();

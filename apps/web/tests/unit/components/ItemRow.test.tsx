@@ -1079,18 +1079,20 @@ describe('Item editing', () => {
       return row;
     };
 
-    it('opens the form on Enter, even over a selection', async () => {
+    it('opens the form on Enter, ending a selection held', async () => {
       const user = userEvent.setup();
       const onOpen = vi.fn();
+      const onEndSelection = vi.fn();
       aRow({
         onOpen,
-        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection: () => {} },
+        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection },
       });
       focused();
 
       await user.keyboard('{Enter}');
 
       expect(onOpen).toHaveBeenCalledOnce();
+      expect(onEndSelection).toHaveBeenCalledOnce();
     });
 
     it('leaves Enter on the menu button to the menu', async () => {
