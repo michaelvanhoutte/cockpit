@@ -115,7 +115,6 @@ function zoneNow(): { timeZone?: string } {
 export interface NewCapture {
   id: string;
   message: string;
-  typeId: string;
   workspaceId: string;
   decided: boolean;
   priority?: Priority;
@@ -127,7 +126,6 @@ export interface NewCapture {
 export interface NewRecordedCapture {
   /** Fixed when it is handed over, so however often and from whichever tab it is sent, it is one Item. */
   id: string;
-  typeId: string;
   workspaceId: string;
   decided: boolean;
   recording: Blob;
@@ -305,7 +303,6 @@ export class CaptureOutbox {
       workspaceId: capture.workspaceId,
       decided: capture.decided,
       message: capture.message,
-      typeId: capture.typeId,
       ...(capture.priority ? { priority: capture.priority } : {}),
       ...(capture.dueDate ? { dueDate: capture.dueDate } : {}),
       ...zoneNow(),
@@ -337,7 +334,6 @@ export class CaptureOutbox {
       workspaceId: capture.workspaceId,
       decided: capture.decided,
       message: '',
-      typeId: capture.typeId,
       ...zoneNow(),
       files: [],
       recording: {

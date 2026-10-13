@@ -2,10 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
-import type { Filing, Item, ItemType, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Filing, WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { PanelAddItemForm } from '../../../src/components/PanelAddItemForm';
-import { NO_TYPES } from '../../../src/itemTypes';
 import { useCommand, useLatestSnapshot, useSendCommand } from '../../../src/api/queries';
 
 /**
@@ -19,8 +18,6 @@ import { useCommand, useLatestSnapshot, useSendCommand } from '../../../src/api/
  */
 
 const held = vi.hoisted(() => ({
-  itemTypes: undefined as ItemType[] | undefined,
-  items: [] as Item[],
   /** What the panel is filed with *now*, read fresh by `useLatestSnapshot` right before a submit sends. */
   filings: [] as Filing[],
 }));
@@ -29,48 +26,11 @@ vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   useSendCommand: vi.fn(),
   useLatestSnapshot: vi.fn(),
-  snapshotQuery: (workspaceId: string) => ({
-    queryKey: ['snapshot', workspaceId],
-    queryFn: (): Promise<WorkspaceSnapshot> =>
-      Promise.resolve({
-        workspace: {
-          id: workspaceId,
-          tenantId: 'tenant',
-          name: 'Work',
-          color: '#6f62b5',
-          bar: '#dbd7ee',
-          ground: '#e3e1f2',
-          header: '#d2cdea',
-        },
-        items: held.items,
-        dashboards: [],
-        panels: [],
-        layouts: [],
-        associations: [],
-        itemTypes: held.itemTypes,
-        duplicates: [],
-        filings: held.filings,
-        generatedAt: '2026-08-31T09:00:00.000Z',
-      } as unknown as WorkspaceSnapshot),
-  }),
 }));
 
 const mockUseCommand = vi.mocked(useCommand);
 const mockUseSendCommand = vi.mocked(useSendCommand);
 const mockUseLatestSnapshot = vi.mocked(useLatestSnapshot);
-
-function aType(name: string, at: number): ItemType {
-  return {
-    id: `11111111-1111-7111-8111-${String(at).padStart(12, '0')}`,
-    tenantId: 'tenant',
-    name,
-    color: '#6f62b5',
-    position: at,
-    createdAt: '2026-08-31T08:00:00.000Z',
-  };
-}
-
-const ACTION = aType('Action', 0);
 
 /**
  * The row, with the capture half wired to answer synchronously (mirroring
@@ -79,19 +39,15 @@ const ACTION = aType('Action', 0);
  * sending through `sent`, which a case can make resolve or reject.
  */
 function aRow({
-  types = [ACTION] as ItemType[] | null,
   /** The panel's own held order right now - what `useLatestSnapshot` answers with when the row submits. */
   heldOrder = [] as string[],
   refusesCapture,
   sent = vi.fn((_args: unknown) => Promise.resolve({ ok: true, applied: true })),
 }: {
-  types?: ItemType[] | null;
   heldOrder?: string[];
   refusesCapture?: Error;
   sent?: ReturnType<typeof vi.fn>;
 } = {}) {
-  held.itemTypes = types ?? undefined;
-  held.items = [];
   held.filings = heldOrder.map((itemId, at) => ({ panelId: 'panel-falcon', itemId, position: at }));
 
   const mutate = vi.fn(
@@ -129,13 +85,13 @@ describe('Panels', () => {
       expect(screen.queryByLabelText('Capture a note or to-do')).toBeNull();
     });
 
-    it('opens the Inbox’s own message, type dropdown and submit on request', async () => {
+    it('opens the Inbox’s own message and submit on request', async () => {
       const { user } = aRow();
 
       await openTheRow(user);
 
       expect(await screen.findByLabelText('Capture a note or to-do')).toBeVisible();
-      expect(screen.getByLabelText('What kind of thing this is')).toBeVisible();
+      expect(screen.queryByLabelText('What kind of thing this is')).toBeNull();
       expect(screen.getByRole('button', { name: 'Add' })).toBeVisible();
     });
   });
@@ -153,6 +109,7 @@ describe('Panels', () => {
       const capture = asked(mutate, 'capture_item');
       expect(capture.payload.message).toBe('Buy milk');
       expect(capture.payload.workspaceId).toBe('ws-work');
+      expect(capture.payload).not.toHaveProperty('typeId');
       // The box empties the moment the capture is asked for, before either
       // answer comes back - the Inbox row's own choreography.
       expect(box).toHaveValue('');
@@ -221,7 +178,7 @@ describe('Panels', () => {
     });
   });
 
-  describe('cancelling closes the row without capturing, and forgets the type chosen', () => {
+  describe('cancelling closes the row without capturing', () => {
     it('sends nothing and hides the fields', async () => {
       const { mutate, user } = aRow();
 
@@ -231,21 +188,6 @@ describe('Panels', () => {
 
       expect(mutate).not.toHaveBeenCalled();
       expect(screen.getByRole('button', { name: '+ Add an item' })).toBeVisible();
-    });
-  });
-
-  describe('with no types to give it, the row says so instead of capturing', () => {
-    it('shows no type box, says where one is made, and disables Add', async () => {
-      const { mutate, user } = aRow({ types: [] });
-
-      await openTheRow(user);
-      await user.type(await screen.findByLabelText('Capture a note or to-do'), 'Buy milk');
-      await user.click(screen.getByRole('button', { name: 'Add' }));
-
-      expect(screen.queryByLabelText('What kind of thing this is')).toBeNull();
-      expect(screen.getByText(NO_TYPES)).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
-      expect(mutate).not.toHaveBeenCalled();
     });
   });
 

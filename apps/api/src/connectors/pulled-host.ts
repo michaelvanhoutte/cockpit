@@ -66,7 +66,7 @@ export async function checkPulledConnection(
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
     }
-    const host = pulledHost(env, begun, run, connector.manifest.arrivesAs ?? 'note', (itemId) => filed(job.accountName, itemId, begun.connectorId));
+    const host = pulledHost(env, begun, run, (itemId) => filed(job.accountName, itemId, begun.connectorId));
     // Before the source is read, so a change a person made that it has not
     // heard yet is pushed first and wins over what the read finds. A push that
     // fails does not stop the read - what waits still wins over it - but is
@@ -127,7 +127,6 @@ function pulledHost(
   env: Env,
   begun: PulledRunStarted,
   run: PulledRun,
-  arrivesAs: 'note' | 'task',
   filed: (itemId: string) => Promise<void>,
 ): ConnectorHost {
   const { connectorId } = begun;
@@ -195,7 +194,6 @@ function pulledHost(
       const answer = await run.fileItem(
         { ...item, sourceId },
         { itemId, commandId: await derivedUuid(`pulled-capture:${named}`) },
-        arrivesAs,
       );
       // Disconnected meanwhile: nothing was filed, and nothing is asked of
       // the connector - the run ends with whatever it does next.

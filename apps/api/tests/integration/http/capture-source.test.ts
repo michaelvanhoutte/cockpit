@@ -35,7 +35,6 @@ describe('Capture', () => {
           workspaceId: WORKSPACE_ID,
           itemId,
           message: 'Ring the plumber',
-          typeId: TASK_TYPE_ID,
           capturedFrom: { source: 'mcp', sourceId: 'claude-1', sender: 'Claude' },
         }),
       });
@@ -72,7 +71,6 @@ describe('Capture', () => {
           workspaceId: WORKSPACE_ID,
           itemId,
           message: 'Reply to Anna',
-          typeId: TASK_TYPE_ID,
         }),
       });
       expect(captured.status).toBe(200);

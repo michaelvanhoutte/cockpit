@@ -127,8 +127,8 @@ describe('Capture', () => {
         workspaceId: WORKSPACE_ID,
         itemId,
         message: 'Maybe split the pricing page',
-        typeId: note.id,
       });
+      await postChange('set_item_type', { ...envelope(), workspaceId: WORKSPACE_ID, itemId, typeId: note.id });
 
       expect(
         (await postChange('delete_item_type', { ...envelope(), typeId: note.id })).status,

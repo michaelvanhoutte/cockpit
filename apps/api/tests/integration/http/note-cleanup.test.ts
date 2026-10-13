@@ -152,7 +152,6 @@ async function captureANote(
       workspaceId: WORKSPACE_ID,
       itemId,
       message: NOTE,
-      typeId: TASK_TYPE_ID,
       ...overrides,
     },
     userId,
@@ -1409,7 +1408,6 @@ describe('Capture', () => {
         workspaceId: WORKSPACE_ID,
         itemId,
         message: NOTE,
-        typeId: TASK_TYPE_ID,
         timeZone: 'nine hours ahead',
       });
 
@@ -1465,10 +1463,7 @@ describe('Capture', () => {
     });
 
     it('never reads a note on the time zone of another account’s capture', async () => {
-      await captureANote(
-        { workspaceId: WORKSPACE_ID, typeId: taskTypeIn(OTHER_ACCOUNT_NAME), timeZone: 'Pacific/Auckland', message: 'theirs' },
-        OTHER_USER_ID,
-      );
+      await captureANote({ workspaceId: WORKSPACE_ID, timeZone: 'Pacific/Auckland', message: 'theirs' }, OTHER_USER_ID);
       const message = 'mine, with no time zone';
 
       await captureANote({ issuedAt: '2026-09-09T13:00:00.000Z', message });
@@ -1598,7 +1593,7 @@ describe('Capture', () => {
   describe('a note is only ever read for the account it was captured in', () => {
     it('does nothing for an item of another account, and never reads it', async () => {
       const theirs = await captureANote(
-        { workspaceId: WORKSPACE_ID, typeId: taskTypeIn(OTHER_ACCOUNT_NAME) },
+        { workspaceId: WORKSPACE_ID },
         OTHER_USER_ID,
       );
       // Their own note is read by their own job first, so what follows is the
@@ -1668,7 +1663,7 @@ describe('Triage', () => {
 
     it('never surfaces a correction made in another account', async () => {
       const theirs = await captureANote(
-        { workspaceId: WORKSPACE_ID, typeId: taskTypeIn(OTHER_ACCOUNT_NAME) },
+        { workspaceId: WORKSPACE_ID },
         OTHER_USER_ID,
       );
       await vi.waitFor(

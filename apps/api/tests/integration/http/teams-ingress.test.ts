@@ -455,37 +455,21 @@ describe('Capture', () => {
     });
   });
 
-  describe('a save that cannot be filed fails the call, so the next delivery still lands once', () => {
-    it('refuses while there is no type to capture as, and files one item when there is', async () => {
+  describe('a saved message is filed whether or not the account has Types', () => {
+    it('files one item with no Type, whether or not the account has any Types', async () => {
       await connectTeams();
       // An account can be left with no Types at all, every one of them being
-      // deletable - and a saved message has to name one, with nobody at a
-      // keyboard to pick it. The guide's Tasks go first, being of one of them.
+      // deletable - and a saved message no longer needs one.
       await withoutTheGuide();
       await inTheStore((sql) => sql.exec('DELETE FROM item_types'));
-
-      const failed = await saveFromTeams();
-
-      expect(failed.status).toBeGreaterThanOrEqual(500);
-      expect(await itemsIn()).toEqual([]);
-
-      await asUser('http://cockpit.test/v1/commands/create_item_type', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          commandId: '0195c0f6-0000-7000-8000-000000000002',
-          issuedAt: new Date().toISOString(),
-          workspaceId: WORKSPACE_ID,
-          typeId: '0195c0f6-0000-7000-8000-000000000003',
-          name: 'Note',
-        }),
-      });
 
       const delivered = await saveFromTeams();
       const again = await saveFromTeams();
 
       expect([delivered.status, again.status]).toEqual([200, 200]);
-      expect(await itemsIn()).toHaveLength(1);
+      const items = await itemsIn();
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ typeId: null });
     });
   });
 

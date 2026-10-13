@@ -105,7 +105,7 @@ async function aPanelOfText(dashboardId: string, name: string): Promise<string> 
 async function anItem(message: string, workspaceId: string = WORKSPACE_ID): Promise<string> {
   const itemId = nextId();
   expect(
-    (await send('capture_item', { workspaceId, itemId, message, typeId: TASK_TYPE_ID })).status,
+    (await send('capture_item', { workspaceId, itemId, message})).status,
   ).toBe(200);
   return itemId;
 }
@@ -715,7 +715,6 @@ describe('Capture', () => {
           workspaceId: from,
           itemId,
           message,
-          typeId: TASK_TYPE_ID,
           workspaceDecided: false,
         })
       ).status,

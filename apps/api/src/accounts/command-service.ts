@@ -1196,11 +1196,11 @@ export function runCommand<N extends CommandName>(
       refuseUnlessAFilter(panel);
       db.transaction((tx) => {
         tx.update(panels)
-          // The whole list, over whatever is there: the question is saved at
+          // The whole Filter, over whatever is there: the question is saved at
           // once, so the later save standing is the same answer this app gives
           // everywhere else.
           .set({
-            filterConditions: panelFilterAsStored(cmd.conditions, cmd.match, cmd.groupBy),
+            filterConditions: panelFilterAsStored(cmd.rows, cmd.groupBy),
           })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
@@ -1508,15 +1508,6 @@ export function runCommand<N extends CommandName>(
       // mistake as a 500, and this is a 404 like any other missing thing.
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
-      }
-      // The type the capture names, checked here rather than left to the
-      // foreign key, for the reason the workspace above is: a constraint would
-      // surface a caller's mistake as a 500, and a type of another account is
-      // a 404 like any other missing thing. Unconditional now that every
-      // capture names one - the shape says there is a type, and this says it
-      // is a type of this account.
-      if (!getItemType(db, tenantId, cmd.typeId)) {
-        throw new ItemTypeNotFoundError(cmd.typeId);
       }
       const item = captureItem(cmd, tenantId);
       // An item belonging to no workspace shows in every workspace's Inbox, so

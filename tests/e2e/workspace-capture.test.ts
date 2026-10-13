@@ -79,21 +79,20 @@ async function captureWithoutAWorkspace(
   // it, and below the Where row at a desk. Asserted here because this is the
   // walk already on that page, and the area's walk ceiling has no room for one
   // of its own.
-  const [noteBox, buttonBox, typeBox, whereBox] = await Promise.all(
+  const [noteBox, buttonBox, whereBox] = await Promise.all(
     [
       box,
       page.getByRole('button', { name: 'Capture', exact: true }),
-      page.getByRole('group', { name: 'Type' }),
       page.getByRole('group', { name: 'Where' }),
     ].map((one) => one.boundingBox()),
   );
   if (isMobile) {
     expect(buttonBox!.y).toBeGreaterThanOrEqual(noteBox!.y + noteBox!.height);
-    expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(typeBox!.y);
+    expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(whereBox!.y);
   } else {
     // And the note stays first, above the chips: it once sorted last at a desk
     // because only the phone's ordering was undone for the other rows.
-    expect(noteBox!.y + noteBox!.height).toBeLessThanOrEqual(typeBox!.y);
+    expect(noteBox!.y + noteBox!.height).toBeLessThanOrEqual(whereBox!.y);
     expect(buttonBox!.y).toBeGreaterThanOrEqual(whereBox!.y + whereBox!.height);
   }
 

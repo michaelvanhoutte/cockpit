@@ -57,7 +57,6 @@ async function captureAnItem(overrides: Partial<CommandPayload<'capture_item'>> 
     workspaceId: WORKSPACE_ID,
     itemId,
     message: 'Make appointment with Novy',
-    typeId: TASK_TYPE_ID,
     ...overrides,
   });
   return itemId;
@@ -124,7 +123,6 @@ describe('Offline', () => {
           workspaceId: WORKSPACE_ID,
           itemId: targetId,
           message: 'Make appointment with Novy',
-          typeId: TASK_TYPE_ID,
         }),
       },
       {
@@ -428,7 +426,6 @@ describe('Capture', () => {
           workspaceId: WORKSPACE_ID,
           itemId,
           message: 'Make appointment with Novy',
-          typeId: TASK_TYPE_ID,
         });
 
       await capture(nextId());
@@ -474,34 +471,23 @@ describe('Associations', () => {
 
 describe('Capture', () => {
   /**
-   * The workspace and the type on a capture are both client-supplied and only
-   * shape-validated, so they are the two ids that can name something that is
-   * not there - the type since every capture had to name one. The database
-   * refuses either way; what this pins is that the caller is told what was
-   * wrong instead of getting an internal error.
+   * The workspace on a capture is client-supplied and only shape-validated, so
+   * it can name something that is not there. The database refuses it either
+   * way; what this pins is that the caller is told what was wrong instead of
+   * getting an internal error.
    */
-  describe('a thought captured against something that does not exist is refused and nothing is stored', () => {
-    const missing = [
-      {
-        situation: 'a workspace that was never created',
-        named: 'ws-that-was-never-created',
-        capture: { workspaceId: 'ws-that-was-never-created', typeId: TASK_TYPE_ID },
-      },
-      {
-        situation: 'a kind of thing that was never made',
-        named: 'type-that-was-never-created',
-        capture: { workspaceId: WORKSPACE_ID, typeId: 'type-that-was-never-created' },
-      },
-    ];
+  describe('a thought captured against a workspace that does not exist is refused and nothing is stored', () => {
+    const named = 'ws-that-was-never-created';
+    const capture = () => ({
+      commandId: nextId(),
+      issuedAt: '2026-08-12T10:00:00.000Z',
+      workspaceId: named,
+      itemId: nextId(),
+      message: 'Make appointment with Novy',
+    });
 
-    it.each(missing)('$situation is named back', async ({ named, capture }) => {
-      const response = await postChange('capture_item', {
-        commandId: nextId(),
-        issuedAt: '2026-08-12T10:00:00.000Z',
-        itemId: nextId(),
-        message: 'Make appointment with Novy',
-        ...capture,
-      });
+    it('is named back', async () => {
+      const response = await postChange('capture_item', capture());
 
       expect(response.status).toBe(404);
       expect((await response.json()) as { error: string }).toMatchObject({
@@ -509,19 +495,12 @@ describe('Capture', () => {
       });
     });
 
-    it.each(missing)('$situation leaves no trace of the attempt', async ({ capture }) => {
-      const itemId = nextId();
-      const requestId = nextId();
-      await postChange('capture_item', {
-        commandId: requestId,
-        issuedAt: '2026-08-12T10:00:00.000Z',
-        itemId,
-        message: 'Make appointment with Novy',
-        ...capture,
-      });
+    it('leaves no trace of the attempt', async () => {
+      const change = capture();
+      await postChange('capture_item', change);
 
-      expect(await storedIn('items', 'id', itemId)).toHaveLength(0);
-      expect(await storedIn('commands', 'command_id', requestId)).toHaveLength(0);
+      expect(await storedIn('items', 'id', change.itemId)).toHaveLength(0);
+      expect(await storedIn('commands', 'command_id', change.commandId)).toHaveLength(0);
     });
   });
 });
@@ -753,27 +732,42 @@ describe('Capture', () => {
     });
   });
 
-  describe('a capture naming a type this account does not have finds nothing', () => {
+  describe('a capture stores an Item with no Type, whether or not the account has any Types', () => {
     it.each([
-      { situation: 'a type of this account', ofThisAccount: true, answers: 200 },
-      { situation: 'a type nothing here has', ofThisAccount: false, answers: 404 },
-    ])('$situation', async ({ ofThisAccount, answers }) => {
-      const [task] = await inTheStore((sql) =>
-        sql.exec<{ id: string }>("SELECT id FROM item_types WHERE folded_name = 'task'").toArray(),
-      );
+      { situation: 'an account with its Types', deleteTypes: false },
+      { situation: 'an account every Type was deleted from', deleteTypes: true },
+    ])('$situation', async ({ deleteTypes }) => {
+      if (deleteTypes) {
+        await inTheStore((sql) => sql.exec('UPDATE items SET type_id = NULL'));
+        await inTheStore((sql) => sql.exec('DELETE FROM item_types'));
+      }
+      const itemId = await captureAnItem();
+
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.type_id).toBeNull();
+    });
+  });
+
+  describe('a capture carrying a type id is refused and nothing is stored', () => {
+    it.each([
+      { situation: 'a type of this account', typeId: () => TASK_TYPE_ID },
+      { situation: 'a type nothing here has', typeId: () => '018f0000-0000-7000-8000-999999999999' },
+    ])('$situation', async ({ typeId }) => {
       const itemId = nextId();
+      const commandId = nextId();
 
       const response = await postChange('capture_item', {
-        commandId: nextId(),
+        commandId,
         issuedAt: '2026-09-04T10:00:00.000Z',
         workspaceId: WORKSPACE_ID,
         itemId,
         message: 'Make appointment with Novy',
-        typeId: ofThisAccount ? task!.id : '018f0000-0000-7000-8000-999999999999',
-      });
+        typeId: typeId(),
+      } as unknown as CommandPayload<'capture_item'>);
 
-      expect(response.status).toBe(answers);
-      expect(await storedIn('items', 'id', itemId)).toHaveLength(answers === 200 ? 1 : 0);
+      expect(response.status).toBe(400);
+      expect(await storedIn('items', 'id', itemId)).toHaveLength(0);
+      expect(await storedIn('commands', 'command_id', commandId)).toHaveLength(0);
     });
   });
 });
@@ -834,7 +828,7 @@ describe('Item editing', () => {
 
       expect(await response.json()).toEqual({ ok: true, applied: false });
       const [item] = await storedIn('items', 'id', itemId);
-      expect(item?.type_id).toBe(TASK_TYPE_ID);
+      expect(item?.type_id).toBeNull();
     });
   });
 });

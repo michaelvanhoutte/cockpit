@@ -25,7 +25,7 @@ const captureOneNote = (dock: DockedItem) => {
   );
   const { result } = renderHook(() => useCapture(), { wrapper });
   result.current.ask(
-    { workspaceId: 'ws-1', message: 'Call Jan', typeId: 'type-1', decided: true },
+    { workspaceId: 'ws-1', message: 'Call Jan', decided: true },
     { refused: () => {} },
   );
   const [command, options] = held.mutate.mock.calls[0]!;

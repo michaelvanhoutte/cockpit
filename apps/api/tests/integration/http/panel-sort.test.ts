@@ -85,7 +85,7 @@ async function panelNow(panelId: string): Promise<Panel> {
 async function anItem(message: string): Promise<string> {
   const itemId = nextId();
   expect(
-    (await send('capture_item', { workspaceId: WORKSPACE_ID, itemId, message, typeId: TASK_TYPE_ID })).status,
+    (await send('capture_item', { workspaceId: WORKSPACE_ID, itemId, message})).status,
   ).toBe(200);
   return itemId;
 }

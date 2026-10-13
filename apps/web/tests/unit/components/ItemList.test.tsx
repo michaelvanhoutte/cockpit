@@ -670,7 +670,7 @@ describe('Panels', () => {
           body: '',
           readOnly: false,
           neverPropose: false,
-          filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const, groupBy: 'none' as const },
+          filter: { rows: [[{ field: 'panel' as const, values: ['p-falcon'] }]], groupBy: 'none' as const },
           sort: null,
         },
       ];
@@ -692,7 +692,7 @@ describe('Panels', () => {
         body: '',
         readOnly: false,
         neverPropose: false,
-        filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const, groupBy: 'none' as const },
+        filter: { rows: [[{ field: 'panel' as const, values: ['p-falcon'] }]], groupBy: 'none' as const },
         sort: null,
       };
       held.panels = [...held.panels, gathers];

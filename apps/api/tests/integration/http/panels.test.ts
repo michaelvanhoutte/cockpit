@@ -121,13 +121,18 @@ const DUE_TODAY = { field: 'dueDate', window: 'today', orOverdue: true };
 /** A Priority condition: matches an item holding either level ("Filter a Filter panel by priority and type", issue 464). */
 const PRIORITY_HIGH_OR_NORMAL = { field: 'priority', values: ['high', 'normal'] };
 
-/** A save carrying `match` and `groupBy` only where given: leaving them out is what a client from before they existed sends. */
-function setFilter(panelId: string, conditions: unknown[], match?: unknown, groupBy?: unknown) {
+/** A Status condition: matches an item still to do. */
+const STATUS_TO_DO = { field: 'status', values: ['to_do'] };
+
+/** A Filter with nothing chosen, as one reads back. */
+const NOTHING_CHOSEN = { rows: [], groupBy: 'none' };
+
+/** A save carrying `groupBy` only where given: leaving it out is what a client from before it existed sends. */
+function setFilter(panelId: string, rows: unknown[][], groupBy?: unknown) {
   return send('set_panel_filter', {
     workspaceId: WORKSPACE_ID,
     panelId,
-    conditions,
-    ...(match === undefined ? {} : { match }),
+    rows,
     ...(groupBy === undefined ? {} : { groupBy }),
   });
 }
@@ -212,7 +217,7 @@ function move(panelId: string, dashboardId: string, workspaceId: string = WORKSP
 async function anItem(message: string): Promise<string> {
   const itemId = nextId();
   expect(
-    (await send('capture_item', { workspaceId: WORKSPACE_ID, itemId, message, typeId: TASK_TYPE_ID }))
+    (await send('capture_item', { workspaceId: WORKSPACE_ID, itemId, message}))
       .status,
   ).toBe(200);
   return itemId;
@@ -848,7 +853,7 @@ describe('Panels', () => {
       const { panelId } = await aFilter();
 
       expect((await send('rename_panel', { workspaceId: WORKSPACE_ID, panelId, name: aName() })).status).toBe(200);
-      expect((await setFilter(panelId, [DUE_TODAY])).status).toBe(200);
+      expect((await setFilter(panelId, [[DUE_TODAY]])).status).toBe(200);
 
       expect(await panelNow(panelId)).toMatchObject({ kind: 'filter' });
     });
@@ -858,15 +863,15 @@ describe('Panels', () => {
     it('arrives with nothing chosen, and keeps what was chosen for it', async () => {
       const { panelId } = await aFilter();
 
-      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [], match: 'all', groupBy: 'none' } });
+      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: NOTHING_CHOSEN });
 
-      expect((await setFilter(panelId, [DUE_TODAY])).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all', groupBy: 'none' });
+      expect((await setFilter(panelId, [[DUE_TODAY]])).status).toBe(200);
+      expect((await panelNow(panelId)).filter).toEqual({ rows: [[DUE_TODAY]], groupBy: 'none' });
 
       // Saved whole, so taking the last one out puts it back to saying nothing
       // has been chosen rather than leaving the old answer standing.
       expect((await setFilter(panelId, [])).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [], match: 'all', groupBy: 'none' });
+      expect((await panelNow(panelId)).filter).toEqual(NOTHING_CHOSEN);
     });
 
     it('accepts a Priority and a Panel condition beside a Due date one', async () => {
@@ -877,35 +882,10 @@ describe('Panels', () => {
       // affects", issue 465).
       const { panelId: itemsPanelId } = await aPanelOfItems();
       const { panelId } = await aFilter();
-      const conditions = [
-        DUE_TODAY,
-        PRIORITY_HIGH_OR_NORMAL,
-        { field: 'panel', values: [itemsPanelId] },
-      ];
+      const rows = [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [STATUS_TO_DO], [{ field: 'panel', values: [itemsPanelId] }]];
 
-      expect((await setFilter(panelId, conditions)).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'all', groupBy: 'none' });
-    });
-
-    it('keeps whether an item has to meet all of its conditions or any one, and a save without it means all', async () => {
-      const { panelId } = await aFilter();
-      const conditions = [DUE_TODAY, PRIORITY_HIGH_OR_NORMAL];
-
-      expect((await setFilter(panelId, conditions, 'any')).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'any', groupBy: 'none' });
-
-      // A stale tab or a queued change saves the whole Filter without the
-      // setting: the later whole save stands, and it stands as all.
-      expect((await setFilter(panelId, conditions)).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'all', groupBy: 'none' });
-    });
-
-    it('refuses a setting that is neither all nor any, and stores nothing of it', async () => {
-      const { panelId } = await aFilter();
-
-      expect((await setFilter(panelId, [DUE_TODAY], 'either')).status).toBe(400);
-
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [], match: 'all', groupBy: 'none' });
+      expect((await setFilter(panelId, rows)).status).toBe(200);
+      expect((await panelNow(panelId)).filter).toEqual({ rows, groupBy: 'none' });
     });
 
     it.each([
@@ -913,45 +893,22 @@ describe('Panels', () => {
       { situation: 'saved grouped by Panel, then saved again with none given by a stale tab', save: ['panel', undefined], reads: 'none' },
     ])('keeps the grouping it was $situation, for every device', async ({ save, reads }) => {
       const { panelId } = await aFilter();
-      const conditions = [DUE_TODAY];
+      const rows = [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL]];
 
       for (const groupBy of save) {
-        expect((await setFilter(panelId, conditions, 'any', groupBy)).status).toBe(200);
+        expect((await setFilter(panelId, rows, groupBy)).status).toBe(200);
       }
 
-      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'any', groupBy: reads });
+      expect((await panelNow(panelId)).filter).toEqual({ rows, groupBy: reads });
     });
 
     it('refuses a grouping nothing knows about, and the stored grouping stays as it was', async () => {
       const { panelId } = await aFilter();
-      expect((await setFilter(panelId, [DUE_TODAY], 'all', 'panel')).status).toBe(200);
+      expect((await setFilter(panelId, [[DUE_TODAY]], 'panel')).status).toBe(200);
 
-      expect((await setFilter(panelId, [DUE_TODAY], 'all', 'priority')).status).toBe(400);
+      expect((await setFilter(panelId, [[DUE_TODAY]], 'priority')).status).toBe(400);
 
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all', groupBy: 'panel' });
-    });
-
-    it('still refuses a field twice where the filter is set to any', async () => {
-      const { panelId } = await aFilter();
-
-      expect(
-        (await setFilter(panelId, [DUE_TODAY, { ...DUE_TODAY, window: 'week' }], 'any')).status,
-      ).toBe(400);
-    });
-
-    it('reads a filter stored before there was a setting as all, conditions intact', async () => {
-      // Written straight into the store: the only way to hold what an older
-      // release wrote, which no request here can produce.
-      const { panelId } = await aFilter();
-      await inTheStore((sql) =>
-        sql.exec(
-          'UPDATE panels SET filter_conditions = ? WHERE id = ?',
-          JSON.stringify({ conditions: [DUE_TODAY] }),
-          panelId,
-        ),
-      );
-
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all', groupBy: 'none' });
+      expect((await panelNow(panelId)).filter).toEqual({ rows: [[DUE_TODAY]], groupBy: 'panel' });
     });
 
     it('shows nothing chosen where what is stored cannot be read, and the workspace still opens', async () => {
@@ -962,87 +919,78 @@ describe('Panels', () => {
         sql.exec('UPDATE panels SET filter_conditions = ? WHERE id = ?', '{not json', panelId),
       );
 
-      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [], match: 'all', groupBy: 'none' } });
+      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: NOTHING_CHOSEN });
     });
 
-    it.each([
-      {
-        situation: 'a panel of items, which gathers nothing',
-        panel: async () => (await aPanelOfItems()).panelId,
-        conditions: [DUE_TODAY],
-        status: 400,
-      },
-      {
-        situation: 'a panel of text, which gathers nothing either',
-        panel: async () => (await aPanelOfText()).panelId,
-        conditions: [DUE_TODAY],
-        status: 400,
-      },
-      {
-        situation: 'a window nothing knows about',
-        panel: async () => (await aFilter()).panelId,
-        conditions: [{ field: 'dueDate', window: 'fortnight', orOverdue: true }],
-        status: 400,
-      },
-      {
-        situation: 'a condition about nothing the product has',
-        panel: async () => (await aFilter()).panelId,
-        conditions: [{ field: 'weather', window: 'today', orOverdue: true }],
-        status: 400,
-      },
-      {
-        situation: 'a priority level nothing knows about',
-        panel: async () => (await aFilter()).panelId,
-        conditions: [{ field: 'priority', values: ['urgent'] }],
-        status: 400,
-      },
-      {
-        situation: 'a Type condition, which no Filter takes any more',
-        panel: async () => (await aFilter()).panelId,
-        conditions: [{ field: 'type', values: [TASK_TYPE_ID] }],
-        status: 400,
-      },
-      {
-        situation: 'a Panel condition naming nothing at all',
-        panel: async () => (await aFilter()).panelId,
-        conditions: [{ field: 'panel', values: [''] }],
-        status: 400,
-      },
-      {
-        // "A field already on the filter is not offered a second time" (issue
-        // 464) refused server-side too, not only left off the add menu: two
-        // Due date conditions in the one list this sends.
-        situation: 'a field already on the filter',
-        panel: async () => (await aFilter()).panelId,
-        conditions: [DUE_TODAY, { field: 'dueDate', window: 'week', orOverdue: false }],
-        status: 400,
-      },
-      {
-        // The column is read and shipped on every snapshot of the workspace,
-        // so what one command may put in it is bounded here rather than left
-        // to whatever a caller sends.
-        situation: 'more conditions than the command will take',
-        panel: async () => (await aFilter()).panelId,
-        conditions: Array.from({ length: CONDITIONS_LIMIT + 1 }, () => DUE_TODAY),
-        status: 400,
-      },
-    ])('refuses what it shows being set against $situation', async ({ panel, conditions, status }) => {
-      const panelId = await panel();
-
-      expect((await setFilter(panelId, conditions)).status).toBe(status);
-
-      // And nothing of it is stored: a refusal that half-landed would leave a
-      // panel gathering something nobody asked for.
-      expect((await panelNow(panelId)).filter).toEqual(
-        (await panelNow(panelId)).kind === 'filter' ? { conditions: [], match: 'all', groupBy: 'none' } : null,
-      );
+    it('refuses what it shows being set against a panel that gathers nothing', async () => {
+      for (const panelId of [(await aPanelOfItems()).panelId, (await aPanelOfText()).panelId]) {
+        expect((await setFilter(panelId, [[DUE_TODAY]])).status).toBe(400);
+        expect((await panelNow(panelId)).filter).toBeNull();
+      }
     });
 
     it('refuses what a panel that has been deleted shows', async () => {
       const { panelId } = await aFilter();
       expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId })).status).toBe(200);
 
-      expect((await setFilter(panelId, [DUE_TODAY])).status).toBe(404);
+      expect((await setFilter(panelId, [[DUE_TODAY]])).status).toBe(404);
+    });
+  });
+
+  describe('a Filter is saved as whole rows, and anything else is refused with the stored Filter unchanged', () => {
+    const NOT_LOW = { field: 'priority', values: ['low'], exclude: true };
+
+    it.each([
+      { situation: 'two rows', rows: [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [NOT_LOW]], stored: true },
+      { situation: 'Priority in two rows', rows: [[PRIORITY_HIGH_OR_NORMAL, DUE_TODAY], [NOT_LOW]], stored: true },
+      {
+        // "A field already in a row is not offered a second time" (issue 464)
+        // refused server-side too, not only left off the add menu.
+        situation: 'a field twice in one row',
+        rows: [[DUE_TODAY, { field: 'dueDate', window: 'week', orOverdue: false }]],
+        stored: false,
+      },
+      { situation: 'an empty row', rows: [[DUE_TODAY], []], stored: false },
+      {
+        // The column is read and shipped on every snapshot of the workspace,
+        // so what one save may put in it is bounded here, across its rows.
+        situation: 'more conditions than the limit, across rows',
+        rows: Array.from({ length: CONDITIONS_LIMIT / 2 + 1 }, () => [DUE_TODAY, PRIORITY_HIGH_OR_NORMAL]),
+        stored: false,
+      },
+      { situation: 'a window nothing knows about', rows: [[{ field: 'dueDate', window: 'fortnight', orOverdue: true }]], stored: false },
+      { situation: 'a condition about nothing the product has', rows: [[{ field: 'weather', window: 'today', orOverdue: true }]], stored: false },
+      { situation: 'a priority level nothing knows about', rows: [[{ field: 'priority', values: ['urgent'] }]], stored: false },
+      { situation: 'a Panel condition naming nothing at all', rows: [[{ field: 'panel', values: [''] }]], stored: false },
+      { situation: 'a Type condition, which no Filter takes any more', rows: [[{ field: 'type', values: [TASK_TYPE_ID] }]], stored: false },
+    ])('$situation', async ({ rows, stored }) => {
+      const { panelId } = await aFilter();
+      expect((await setFilter(panelId, [[STATUS_TO_DO]])).status).toBe(200);
+
+      expect((await setFilter(panelId, rows)).status).toBe(stored ? 200 : 400);
+
+      // And nothing of a refusal is stored: one that half-landed would leave a
+      // Filter gathering something nobody asked for.
+      expect((await panelNow(panelId)).filter).toEqual({ rows: stored ? rows : [[STATUS_TO_DO]], groupBy: 'none' });
+    });
+
+    it('refuses the conditions and all-or-any a tab on the previous release sends, and keeps the rows stored', async () => {
+      // That tab reads a Filter stored in rows as nothing chosen, so a save
+      // from it would overwrite the real Filter with that.
+      const { panelId } = await aFilter();
+      const rows = [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [STATUS_TO_DO]];
+      expect((await setFilter(panelId, rows)).status).toBe(200);
+
+      const fromThePreviousRelease = await send('set_panel_filter', {
+        workspaceId: WORKSPACE_ID,
+        panelId,
+        conditions: [],
+        match: 'all',
+        groupBy: 'none',
+      });
+
+      expect(fromThePreviousRelease.status).toBe(400);
+      expect((await panelNow(panelId)).filter).toEqual({ rows, groupBy: 'none' });
     });
   });
 

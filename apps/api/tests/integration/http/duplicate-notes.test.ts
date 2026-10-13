@@ -107,7 +107,6 @@ async function captureANote(
     workspaceId: WORKSPACE_ID,
     itemId,
     message,
-    typeId: TASK_TYPE_ID,
     ...overrides,
   });
   expect(response.status).toBe(200);
@@ -409,7 +408,6 @@ describe('Triage', () => {
         workspaceId: WORKSPACE_ID,
         itemId: nextId(),
         message: A_NOTE,
-        typeId: TASK_TYPE_ID,
       };
       expect((await postChange('capture_item', sameCapture)).status).toBe(200);
       const other = await captureANote(THE_SAME_AGAIN);

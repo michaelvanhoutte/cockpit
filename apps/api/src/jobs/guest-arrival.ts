@@ -1,8 +1,6 @@
 import type { Env } from '../env.js';
 import { openAccount, AccountNotInRegisterError, NotFoundInAccountError } from '../accounts/index.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
-import { noteTypeId, taskTypeId } from '../accounts/changes.js';
-import { typeToBringInAs } from '../domain/item-types.js';
 import { demoAddress } from '@cockpit/shared';
 import type { GuestArrivalJob } from './enrichment.js';
 
@@ -103,12 +101,6 @@ export async function captureGuestArrival(env: Env, job: GuestArrivalJob): Promi
   if (!arrival) return;
   try {
     const account = await openAccount(env, job.accountName);
-    const type = typeToBringInAs(
-      await account.itemTypes(),
-      taskTypeId(job.accountName),
-      noteTypeId(job.accountName),
-    );
-    if (!type) return;
     const at = new Date().toISOString();
     await account.applyChange('capture_item', {
       commandId: job.commandId,
@@ -117,7 +109,6 @@ export async function captureGuestArrival(env: Env, job: GuestArrivalJob): Promi
       itemId: job.itemId,
       title: arrival.title,
       message: arrival.message,
-      typeId: type.id,
       capturedFrom: {
         source: arrival.source,
         sourceId: job.itemId,

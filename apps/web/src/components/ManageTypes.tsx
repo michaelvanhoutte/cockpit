@@ -20,7 +20,7 @@ import { RowForm, wasOnTheRow } from './RowForm';
 /**
  * Where types are managed ("Manage the types, and put them in the order you
  * want", issue 156). It lists them, makes them, renames them, recolours them,
- * puts them in the order capture offers them in, and deletes them.
+ * puts them in the order an item's form offers them in, and deletes them.
  *
  * **A sibling of the workspaces window, and the same window in every respect
  * that matters**: a box above the list makes one, a row keeps its shape, what
@@ -341,7 +341,7 @@ export function ManageTypes({
       ref={list}
     >
       <p className="mt-2 text-sm text-ink-faint">
-        What kind of thing an item is. Capture offers these, the ones you used last first.
+        What kind of thing an item is. An item's form offers these, the ones you used last first.
       </p>
 
       {/* Above the list, where the workspaces' window puts its own and for the

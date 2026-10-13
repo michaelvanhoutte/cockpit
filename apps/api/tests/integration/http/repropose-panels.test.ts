@@ -143,7 +143,6 @@ async function captureANote(
     workspaceId,
     itemId,
     message: note,
-    typeId: TASK_TYPE_ID,
     workspaceDecided: decided,
   });
   expect(response.status).toBe(200);

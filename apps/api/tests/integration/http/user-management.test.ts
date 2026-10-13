@@ -82,7 +82,6 @@ async function adaHasCaptured(): Promise<void> {
     workspaceId: WORKSPACE_ID,
     itemId: ADAS_ITEM,
     message: 'Ada’s own note',
-    typeId: taskTypeIn(OTHER_ACCOUNT_NAME),
   });
   expect(answer.status).toBe('ok');
 }

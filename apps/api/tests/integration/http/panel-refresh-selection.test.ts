@@ -181,7 +181,6 @@ async function fileANote(note: string, reading: readonly number[]): Promise<void
     workspaceId: WORKSPACE_ID,
     itemId,
     message: note,
-    typeId: TASK_TYPE_ID,
   });
   await aMeaning(itemId, reading);
   await postChange('move_item_to_panel', {

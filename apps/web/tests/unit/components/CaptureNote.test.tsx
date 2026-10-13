@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MAX_ATTACHMENT_SIZE, type Item, type ItemType } from '@cockpit/shared';
+import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
 import { CommandRefused, sendCommand, uploadAttachment } from '../../../src/api/client';
 import {
   CaptureNote,
@@ -12,7 +12,6 @@ import {
   RECORDING_NOT_TRANSCRIBED,
   RECORDING_WAITING_FOR_WORDS,
   STILL_LISTED,
-  STILL_READING,
   pasteKeyFor,
 } from '../../../src/components/CaptureNote';
 import { dueDateLabel } from '../../../src/dueDate';
@@ -32,7 +31,6 @@ import {
   type KeptRecording,
   type RecordingStore,
 } from '../../../src/keptRecordings';
-import { NO_TYPES } from '../../../src/itemTypes';
 import { forgetEverything } from '../../../src/session/forget';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
 import {
@@ -71,23 +69,10 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
  */
 const held = vi.hoisted(() => ({
   mutate: vi.fn(),
-  /**
-   * The types the account holds, which another tab can delete one of. Three
-   * things that are not each other: a list, `null` for an answer still in
-   * flight, and `PREDATES_TYPES` for a stored copy written before the snapshot
-   * carried the field at all.
-   */
-  types: [] as unknown[] | null | 'the copy predates the field',
   /** The workspaces the account holds, which another tab can delete one of. */
   workspaces: [] as unknown[],
-  items: [] as unknown[],
   /** What a capture is refused with, if it is. */
   refuses: null as Error | null,
-  /**
-   * The account's types asked for as a resource of their own, which this page
-   * must not do - so it is a spy that never answers rather than a fixture.
-   */
-  asksForTypesOnTheirOwn: vi.fn(),
   /**
    * Held rather than answered on the spot, for a test that needs the request
    * still in flight - `isPending` follows this, and `settle()` answers it
@@ -103,58 +88,14 @@ vi.mock('../../../src/api/queries', () => ({
     queryKey: ['workspaces'],
     queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
   },
-  // Still exported, because the window that manages types reads it - and still
-  // answering nothing, so a page that went back to reading it would draw no
-  // chips rather than quietly pass on a second copy of the same list.
-  itemTypesQuery: {
-    queryKey: ['itemTypes'],
-    queryFn: () => {
-      held.asksForTypesOnTheirOwn();
-      return new Promise(() => {});
-    },
-  },
-  /**
-   * The one read the page makes, carrying the account's types as well as the
-   * items they are ordered by - which is the snapshot's own shape, not this
-   * harness being convenient (packages/shared/src/api/snapshot.ts).
-   *
-   * Never settling is how "the answer has not arrived" is arranged, and a
-   * snapshot without the field is how a copy older than the field is: the page
-   * has to tell both apart from an account with no types.
-   */
-  snapshotQuery: (workspaceId: string) => ({
-    queryKey: ['snapshot', workspaceId],
-    queryFn: () => {
-      if (held.types === null) return new Promise(() => {});
-      if (held.types === PREDATES_TYPES) return Promise.resolve({ items: held.items });
-      return Promise.resolve({ items: held.items, itemTypes: held.types });
-    },
-  }),
 }));
 
-/** A stored snapshot from before it carried the account's types. */
-const PREDATES_TYPES = 'the copy predates the field';
 
 const WORK = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' };
 const HOME = { id: 'ws-home', tenantId: 'tenant', name: 'Home', color: '#3f8f78' };
 
-function aType(name: string, at: number, color: string): ItemType {
-  return {
-    id: `11111111-1111-7111-8111-${String(at).padStart(12, '0')}`,
-    tenantId: 'tenant',
-    name,
-    color,
-    position: at,
-    createdAt: '2026-09-01T08:00:00.000Z',
-  } as ItemType;
-}
-
-const ACTION = aType('Action', 0, '#6f62b5');
-const THOUGHT = aType('Thought', 1, '#3a72c8');
-const READ_LATER = aType('Read later', 2, '#b58a2f');
-
 /**
- * The page, with the account's types and with a workspace already remembered as
+ * The page, with a workspace already remembered as
  * the one you came from - which is what a capture that names no workspace is
  * recorded against (`lastVisited.ts`).
  */
@@ -170,8 +111,6 @@ afterEach(() => {
 });
 
 async function thePage({
-  types = [ACTION, THOUGHT, READ_LATER],
-  items = [] as Item[],
   cameFrom = 'ws-home',
   startsIn = null,
   heldMutation = false,
@@ -193,12 +132,6 @@ async function thePage({
   waitingRecordings?: KeptRecording[];
   /** Who is signed in on the device. */
   signedInAs?: string;
-  /**
-   * Null for an account that has not answered what types it has, and
-   * `PREDATES_TYPES` for a stored copy from before the field.
-   */
-  types?: ItemType[] | null | typeof PREDATES_TYPES;
-  items?: Item[];
   cameFrom?: string;
   /** The workspace Where starts on, or null for *Any workspace*. */
   startsIn?: string | null;
@@ -222,8 +155,6 @@ async function thePage({
   onPutOn?: () => void;
   onCaptured?: () => void;
 } = {}) {
-  held.types = types;
-  held.items = items;
   held.workspaces = [WORK, HOME];
   held.refuses = null;
   held.pending = false;
@@ -270,14 +201,8 @@ async function thePage({
       </OutboxProvider>
     </QueryClientProvider>,
   );
-  // Nothing to choose from until the account's types and workspaces arrive -
-  // or, where it has none, until the row says so. Where the answer never comes,
-  // or comes without the field, there is nothing to wait for and the box the
-  // note is typed into is what says the page is drawn.
-  if (types === null || types === PREDATES_TYPES) {
-    await screen.findByLabelText('What is on your mind?');
-  } else if (types.length > 0) await screen.findByRole('button', { name: types[0]!.name });
-  else await screen.findByText(NO_TYPES);
+  // Nothing to choose from until the workspaces arrive.
+  await screen.findByRole('button', { name: 'Work' });
   return Object.assign(userEvent.setup(), { client, outbox, kept, unmount: page.unmount, container: page.container });
 }
 
@@ -352,14 +277,13 @@ describe('Capture', () => {
     // A browser of its own for every case: nothing kept by the last one.
     globalThis.indexedDB = new IDBFactory();
     held.mutate.mockClear();
-    held.asksForTypesOnTheirOwn.mockClear();
     vi.mocked(sendCommand).mockReset();
     vi.mocked(sendCommand).mockResolvedValue({ ok: true as const, applied: true });
     vi.mocked(uploadAttachment).mockReset();
     vi.mocked(uploadAttachment).mockResolvedValue({ ok: true as const, applied: true });
   });
 
-  describe('the capture page writes down a note, what kind of thing it is, and where it goes', () => {
+  describe('the capture page writes down a note and where it goes', () => {
     it('captures against the workspace you came from, saying where it belongs is undecided', async () => {
       const user = await thePage();
 
@@ -373,17 +297,14 @@ describe('Capture', () => {
       expect((await captured()).payload.workspaceDecided).toBe(false);
     });
 
-    it('opens on the type used last, and captures whichever chip is lit', async () => {
+    it('asks no Type, and captures without one', async () => {
       const user = await thePage();
 
-      // Lit before anything is pressed: the type you want is nearly always the
-      // one you just used.
-      expect(chip('Action')).toHaveAttribute('aria-pressed', 'true');
-      await user.click(chip('Thought'));
+      expect(screen.queryByRole('group', { name: 'Type' })).toBeNull();
       await user.type(box(), 'Maybe the onboarding is two screens');
       await user.click(chip('Capture'));
 
-      expect((await captured()).payload.typeId).toBe(THOUGHT.id);
+      expect((await captured()).payload).not.toHaveProperty('typeId');
     });
 
     it('captures into a workspace once one is chosen, and says that is where it belongs', async () => {
@@ -422,27 +343,6 @@ describe('Capture', () => {
       expect(capturedCalls().map(({ payload }) => payload.workspaceId)).toEqual(['ws-home', 'ws-home']);
     });
 
-    it('falls back to the type used last when the one chosen is deleted in another tab', async () => {
-      const user = await thePage();
-      await user.click(chip('Read later'));
-
-      held.types = [ACTION, THOUGHT];
-      // Through the snapshot, which is what a deleted type really goes out
-      // through: changing the types invalidates every workspace's snapshot,
-      // because types are drawn on every row of every list (api/queries.ts).
-      await user.client.invalidateQueries({ queryKey: ['snapshot'] });
-      await waitFor(() => expect(screen.queryByRole('button', { name: 'Read later' })).toBeNull());
-
-      // Which is what the row now says, rather than nothing being chosen - and
-      // what it captures against, rather than a type the account would refuse.
-      // To the type used last rather than to none, because there is no none.
-      expect(chip('Action')).toHaveAttribute('aria-pressed', 'true');
-      await user.type(box(), 'Where does this go');
-      await user.click(chip('Capture'));
-
-      expect((await captured()).payload.typeId).toBe(ACTION.id);
-    });
-
     it('falls back to Any workspace when the one chosen is deleted in another tab', async () => {
       const user = await thePage();
       await user.click(chip('Work'));
@@ -471,8 +371,8 @@ describe('Capture', () => {
      * neither the last nor the screen behind you leaves you here on purpose
      * (components/ManageWorkspaces.tsx), and the list comes back without it.
      * A page holding the deleted one would read a snapshot that is a 404 for
-     * good, so there would be no type to give and the note would go in silence
-     * - which is what this whole change exists to stop.
+     * good, so the note would go in silence - which is what this whole change
+     * exists to stop.
      */
     it('captures against a workspace that is still there when the one it came from is deleted', async () => {
       const user = await thePage({ cameFrom: 'ws-home' });
@@ -504,48 +404,6 @@ describe('Capture', () => {
       await user.keyboard('{Control>}{Enter}{/Control}');
 
       expect((await captured()).payload.message).toBe('Two lines\nand a second');
-    });
-  });
-
-  /**
-   * The page invites a capture the moment it is on screen - the box is focused
-   * for it - so anything it needs to honour one has to be there by then. The
-   * types were the thing that was not: they were read as a resource of their
-   * own, which nothing ahead of this page fetches, so it arrived after the
-   * page did. The shortcut reaches the form past the disabled button, and
-   * captured nothing while saying nothing ("Find out why the
-   * capture-into-a-named-workspace walk fails intermittently", issue 219).
-   *
-   * That the *route* holds the page back until that snapshot is in hand is
-   * apps/web/tests/unit/router.test.tsx, under the same words.
-   */
-  describe('the capture page is drawn only once it can capture', () => {
-    // The separate read never answers in this file, so a page that went back to
-    // wanting it would have no chips to press and nothing to capture with.
-    it('captures on the first press, without a second answer having arrived', async () => {
-      const user = await thePage();
-
-      expect(held.asksForTypesOnTheirOwn).not.toHaveBeenCalled();
-      await user.type(box(), 'Book the venue deposit');
-      await user.keyboard('{Control>}{Enter}{/Control}');
-
-      expect((await captured()).payload.message).toBe('Book the venue deposit');
-      expect((await captured()).payload.typeId).toBe(ACTION.id);
-    });
-
-    /**
-     * A stored copy written before the snapshot carried types is *not known
-     * yet*, which is the one thing "No types yet" must not be said about - the
-     * same distinction the Inbox's row makes of the same field
-     * .
-     */
-    it('says nothing about an account whose stored copy predates the types', async () => {
-      await thePage({ types: PREDATES_TYPES });
-
-      const row = within(screen.getByRole('group', { name: 'Type' }));
-      expect(row.queryAllByRole('button')).toEqual([]);
-      expect(screen.queryByText(NO_TYPES)).toBeNull();
-      expect(chip('Capture')).toBeDisabled();
     });
   });
 
@@ -659,17 +517,15 @@ describe('Capture', () => {
 
   /**
    * The server refusing a capture is the one thing that stops it, and the
-   * row says why rather than the note going quietly: its workspace or its type
-   * deleted elsewhere while it waited.
+   * row says why rather than the note going quietly: its workspace deleted
+   * elsewhere while it waited.
    */
   describe('a waiting capture the server refuses says why and can be put back', () => {
     it.each([
       { situation: 'its workspace was deleted meanwhile', because: 'workspace ws-work not found' },
-      { situation: 'its type was deleted meanwhile', because: `item type ${THOUGHT.id} not found` },
     ])('reads Not sent with the reason when $situation, and Put back returns the note and its file', async ({ because }) => {
       vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(404, because));
       const user = await thePage();
-      await user.click(chip('Thought'));
       await user.click(chip('Work'));
       fireEvent.drop(box(), carrying(aPhoto()));
       await screen.findByText('photo.png');
@@ -679,13 +535,11 @@ describe('Capture', () => {
       expect(await screen.findByText(`Not sent: ${because}`)).toBeVisible();
       expect(uploadAttachment).not.toHaveBeenCalled();
       // Chosen afresh before putting it back, so what comes back is visibly the capture's.
-      await user.click(chip('Action'));
       await user.click(chip('Any workspace'));
       await user.click(rowOf('Ask Ada about the backup window').getByRole('button', { name: 'Put back' }));
 
       expect(box()).toHaveValue('Ask Ada about the backup window');
       expect(screen.getByText('photo.png')).toBeVisible();
-      expect(chip('Thought')).toHaveAttribute('aria-pressed', 'true');
       expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
       await waitFor(() => expect(screen.queryByText('Just captured')).toBeNull());
       expect(user.outbox.getShown()).toEqual([]);
@@ -704,7 +558,6 @@ describe('Capture', () => {
         workspaceId: 'ws-home',
         decided: false,
         message: '',
-        typeId: ACTION.id,
         files: [],
         recording: { type: 'audio/webm', bytes: new ArrayBuffer(5), seconds: 3, transcribed: false },
         landed: false,
@@ -729,7 +582,6 @@ describe('Capture', () => {
         workspaceId: 'ws-home',
         decided: false,
         message: '',
-        typeId: ACTION.id,
         files: [],
         recording: { type: 'audio/webm', bytes: new ArrayBuffer(5), seconds: 3, transcribed: false },
         landed: false,
@@ -765,102 +617,14 @@ describe('Capture', () => {
     });
   });
 
-  /**
-   * The Capture page's half of the rule ("Make a type where types are managed,
-   * not while capturing", issue 203). The window that does make one owns the
-   * other half, in tests/unit/components/ManageTypes.test.tsx.
-   */
-  describe('a type is made where types are managed, and nowhere else', () => {
-    it('answers what kind of thing this is with chips alone', async () => {
-      await thePage();
-
-      // Nothing in the row is typed into: the dashed box that named a type has
-      // gone, and every answer left is one of the chips.
-      // And no chip for none either: every Item is some kind of thing, so
-      // where *No type* stood there is now only the account's own types.
-      const row = within(screen.getByRole('group', { name: 'Type' }));
-      expect(row.queryAllByRole('textbox')).toEqual([]);
-      expect(row.getAllByRole('button').map((one) => one.textContent)).toEqual([
-        'Action',
-        'Thought',
-        'Read later',
-      ]);
-    });
-
-    it('asks to capture, and never to make a type', async () => {
-      const user = await thePage();
-
-      await user.click(chip('Thought'));
-      await user.type(box(), 'Maybe the onboarding is two screens');
-      await user.click(chip('Capture'));
-
-      await captured();
-      await settled();
-      expect(everythingAsked()).toEqual(['capture_item']);
-    });
-  });
-
-  /**
-   * The one thing that stops this page capturing, and it is reachable: deleting
-   * every type of the account leaves the question with no answers, and a
-   * capture with no type is refused ("every Item has a Type"). The Panel's own
-   * *Add an item* row says the same sentence, in
-   * tests/unit/components/PanelAddItemForm.test.tsx.
-   */
-  describe('with no types to give it, capture says so instead of capturing', () => {
-    it('shows no chips, says where a type is made, and asks for nothing', async () => {
-      const user = await thePage({ types: [] });
-
-      await user.type(box(), 'Where does this go');
-      await user.click(chip('Capture'));
-
-      const row = within(screen.getByRole('group', { name: 'Type' }));
-      expect(row.queryAllByRole('button')).toEqual([]);
-      expect(screen.getByText(NO_TYPES)).toBeVisible();
-      expect(chip('Capture')).toBeDisabled();
-      await settled();
-      expect(capturedCalls()).toEqual([]);
-    });
-
+  describe('with nothing to capture into, capture says so instead of capturing', () => {
     /**
-     * "No types yet" is a claim about what the account holds, so it waits for
-     * the account to have said - the same guard the window that manages them
-     * carries (components/ManageTypes.tsx).
-     */
-    it('says nothing at all while the account has not answered', async () => {
-      await thePage({ types: null });
-
-      const row = within(screen.getByRole('group', { name: 'Type' }));
-      expect(row.queryAllByRole('button')).toEqual([]);
-      expect(screen.queryByText(NO_TYPES)).toBeNull();
-      expect(chip('Capture')).toBeDisabled();
-    });
-
-    /**
-     * The button is disabled through every one of these, so the shortcut is the
-     * way in that arrives - and it used to return having done nothing and said
-     * nothing, which is "Find out why the capture-into-a-named-workspace walk
-     * fails intermittently" (issue 219) itself. Said out loud rather than
-     * swallowed, whichever reason it is.
-     */
-    it.each([
-      { situation: 'the account has none', types: [] as ItemType[], says: NO_TYPES },
-      { situation: 'the workspace is still being read', types: null, says: STILL_READING },
-    ])('says why on the shortcut when $situation, and keeps the note', async ({ types, says }) => {
-      const user = await thePage({ types });
-
-      await user.type(box(), 'Book the venue deposit');
-      await user.keyboard('{Control>}{Enter}{/Control}');
-
-      await settled();
-      expect(capturedCalls()).toEqual([]);
-      expect(screen.getByRole('alert')).toHaveTextContent(says);
-      // Still there to try again with, which is what the words promise.
-      expect(box()).toHaveValue('Book the venue deposit');
-    });
-
-    /**
-     * A different answer, not a slower one: with the last workspace gone there
+     * The button is disabled through it, so the shortcut is the way in that
+     * arrives - and it used to return having done nothing and said nothing,
+     * which is "Find out why the capture-into-a-named-workspace walk fails
+     * intermittently" (issue 219) itself. Said out loud rather than swallowed.
+     *
+     * With the last workspace gone there
      * is nowhere to capture *into*, and nothing is being read that could change
      * that - so "try that again" would be a promise nothing can keep. Reached
      * by deleting your last workspace elsewhere, since this client is only told
@@ -890,7 +654,7 @@ describe('Capture', () => {
       expect(screen.queryByText('Just captured')).toBeNull();
     });
 
-    it('lists the note with what kind of thing it is, where it went and how long ago', async () => {
+    it('lists the note with where it went and how long ago', async () => {
       const user = await thePage();
 
       await user.click(chip('Work'));
@@ -898,7 +662,6 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       const row = await waitFor(() => rowOf('Book the venue deposit'));
-      expect(row.getByText('Action')).toBeInTheDocument();
       expect(row.getByText('Work')).toBeInTheDocument();
       expect(await row.findByText('now')).toBeInTheDocument();
     });
@@ -1023,7 +786,7 @@ describe('Capture', () => {
     it('queues a file pasted with the cursor on no field', async () => {
       await thePage();
 
-      fireEvent.paste(chip('Action'), {
+      fireEvent.paste(chip('Capture'), {
         clipboardData: { files: [aPhoto()], types: ['Files'], getData: () => '' },
       });
 
@@ -1370,9 +1133,8 @@ describe('Capture', () => {
       vi.useRealTimers();
     });
 
-    it('resets both once a capture lands, while Type and Where keep their choice', async () => {
+    it('resets both once a capture lands, while Where keeps its choice', async () => {
       const user = await thePage();
-      await user.click(chip('Thought'));
       await user.click(chip('Work'));
       await user.click(chip('High priority'));
       await user.click(chip('Today'));
@@ -1383,7 +1145,6 @@ describe('Capture', () => {
       expect((await captured()).payload).toMatchObject({ priority: 'high', dueDate: '2026-09-30' });
       await waitFor(() => expect(chip('High priority')).toHaveAttribute('aria-pressed', 'false'));
       expect(chip('Today')).toHaveAttribute('aria-pressed', 'false');
-      expect(chip('Thought')).toHaveAttribute('aria-pressed', 'true');
       expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
     });
 
@@ -1866,8 +1627,6 @@ describe('Capture', () => {
     });
 
     it('lands the words once when it is retried in two tabs, the second finding it gone', async () => {
-      held.types = [ACTION];
-      held.items = [];
       held.workspaces = [WORK, HOME];
       localStorage.setItem('cockpit.last-visited.workspace', 'ws-home');
       const recording = aKeptRecording(12, '2026-10-12T07:00:00.000Z');
@@ -2168,7 +1927,7 @@ describe('Capture', () => {
       const onCaptured = vi.fn();
       const page = await thePage({ onCaptured });
 
-      await page.outbox.add({ id: 'earlier', message: 'Made before', typeId: ACTION.id, workspaceId: 'ws-work', decided: false, files: [] });
+      await page.outbox.add({ id: 'earlier', message: 'Made before', workspaceId: 'ws-work', decided: false, files: [] });
       await waitFor(() => expect(sendCommand).toHaveBeenCalled());
 
       expect(onCaptured).not.toHaveBeenCalled();

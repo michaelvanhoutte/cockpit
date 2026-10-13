@@ -4,12 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Item, ItemType } from '@cockpit/shared';
 import { sendCommand } from '../../../src/api/client';
 import {
   CAR_DARK_KEY,
   CAR_KEPT_IN_WRITE,
-  CAR_NO_TYPES,
+  CAR_NO_WORKSPACE,
   CarCapture,
   NO_RECORDING_HERE,
   NO_TRANSCRIBER_HERE,
@@ -50,42 +49,25 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
  * letting go, the limit) as Write has them.
  */
 const held = vi.hoisted(() => ({
-  types: [] as unknown[],
-  items: [] as unknown[],
   mutate: vi.fn(),
   /** What the workspace's own read waits on: nothing, unless a test holds it. */
   reading: Promise.resolve(),
+  /** The account has no workspace left. */
+  noWorkspaces: false,
 }));
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: held.mutate, isPending: false }),
   workspacesQuery: {
     queryKey: ['workspaces'],
-    queryFn: () => Promise.resolve({ workspaces: [HOME_AND_WORK[0], HOME_AND_WORK[1]] }),
+    queryFn: () => held.reading.then(() => ({ workspaces: held.noWorkspaces ? [] : [HOME_AND_WORK[0], HOME_AND_WORK[1]] })),
   },
-  itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => new Promise(() => {}) },
-  snapshotQuery: (workspaceId: string) => ({
-    queryKey: ['snapshot', workspaceId],
-    queryFn: () => held.reading.then(() => ({ items: held.items, itemTypes: held.types })),
-  }),
 }));
 
 const HOME_AND_WORK = [
   { id: 'ws-home', tenantId: 'tenant', name: 'Home', color: '#3f8f78' },
   { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' },
 ];
-
-const aType = (name: string, at: number) =>
-  ({
-    id: `11111111-1111-7111-8111-${String(at).padStart(12, '0')}`,
-    tenantId: 'tenant',
-    name,
-    color: '#6f62b5',
-    position: at,
-    createdAt: '2026-09-01T08:00:00.000Z',
-  }) as ItemType;
-const ACTION = aType('Action', 0);
-const THOUGHT = aType('Thought', 1);
 
 /** The platform's wake lock: hands out locks the test can inspect and the browser can take back. */
 class FakeLock {
@@ -126,8 +108,6 @@ function pageIs(state: 'visible' | 'hidden') {
 }
 
 async function theCar({
-  items = [] as Item[],
-  types = [ACTION, THOUGHT],
   dictating,
   wakeLock = aWakeLock().api,
   vibrate = vi.fn(),
@@ -136,8 +116,6 @@ async function theCar({
   hidden = false,
   online = true,
 }: {
-  items?: Item[];
-  types?: ItemType[];
   dictating?: {
     record?: StartRecording | null;
     transcribe?: (recording: Blob) => Promise<string>;
@@ -154,8 +132,6 @@ async function theCar({
   /** False where the browser says it is offline. */
   online?: boolean;
 } = {}) {
-  held.types = types;
-  held.items = items;
   localStorage.clear();
   localStorage.setItem('cockpit.last-visited.workspace', 'ws-home');
   pageIs(hidden ? 'hidden' : 'visible');
@@ -251,6 +227,7 @@ describe('Capture', () => {
     globalThis.indexedDB = new IDBFactory();
     held.mutate.mockClear();
     held.reading = Promise.resolve();
+    held.noWorkspaces = false;
     vi.mocked(sendCommand).mockReset();
     vi.mocked(sendCommand).mockResolvedValue({ ok: true as const, applied: true });
   });
@@ -288,7 +265,7 @@ describe('Capture', () => {
     });
   });
 
-  describe('the second tap transcribes, then captures what was said at once, to Any workspace and the Type Capture starts on', () => {
+  describe('the second tap transcribes, then captures what was said at once, to Any workspace', () => {
     it('captures one note with no priority and no due date', async () => {
       const { user, transcriber } = await drivingWith();
 
@@ -298,21 +275,13 @@ describe('Capture', () => {
       expect(sent).toMatchObject({
         message: 'buy oat milk',
         workspaceId: 'ws-home',
-        typeId: ACTION.id,
         workspaceDecided: false,
       });
+      expect(sent).not.toHaveProperty('typeId');
       expect(sent).not.toHaveProperty('priority');
       expect(sent).not.toHaveProperty('dueDate');
       expect(capturedCalls()).toHaveLength(1);
       expect(transcriber.sent()).toBe(1);
-    });
-
-    it('starts on the Type the Capture form starts on: the one used last', async () => {
-      const { user, transcriber } = await drivingWith({ items: [{ typeId: THOUGHT.id } as Item] });
-
-      await says(user, transcriber, 'maybe split the page');
-
-      expect((await theCapture()).typeId).toBe(THOUGHT.id);
     });
 
     it('captures nothing when the transcription is empty, and says so before going back to the start', async () => {
@@ -520,15 +489,16 @@ describe('Capture', () => {
       await act(async () => read());
       await transcriber.answers('buy oat milk');
 
-      expect(await theCapture()).toMatchObject({ message: 'buy oat milk', typeId: ACTION.id });
+      expect(await theCapture()).toMatchObject({ message: 'buy oat milk' });
     });
 
-    it('keeps the recording in Write to retry where there is no type to capture it as', async () => {
-      const { user, transcriber } = await drivingWith({ types: [] });
+    it('keeps the recording in Write to retry where there is no workspace to capture it into', async () => {
+      held.noWorkspaces = true;
+      const { user, transcriber } = await drivingWith();
       await recording(user);
       await user.click(theButton());
 
-      await waitFor(() => expect(theStatus()).toHaveTextContent(`${CAR_NO_TYPES} ${CAR_KEPT_IN_WRITE}`));
+      await waitFor(() => expect(theStatus()).toHaveTextContent(`${CAR_NO_WORKSPACE} ${CAR_KEPT_IN_WRITE}`));
       expect(user.kept.getShown()).toHaveLength(1);
       expect(transcriber.sent()).toBe(0);
       expect(capturedCalls()).toEqual([]);

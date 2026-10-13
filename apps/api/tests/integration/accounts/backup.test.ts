@@ -92,7 +92,6 @@ async function captureInto(userId: string, message: string): Promise<void> {
         // Every capture names what kind of thing it is ("Say what kind of
         // thing it is when capturing it", pull request 212), and a type of the
         // account being captured into - the ids are derived from it.
-        typeId: taskTypeIn(accountOf(userId)),
       }),
     },
     userId,

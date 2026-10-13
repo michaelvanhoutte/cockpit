@@ -129,7 +129,6 @@ async function captureInto(workspaceId: string, message: string): Promise<string
       workspaceId,
       itemId,
       message,
-      typeId: TASK_TYPE_ID,
     }),
   });
   return itemId;

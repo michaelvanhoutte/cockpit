@@ -28,7 +28,6 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
         'Sign in with your Microsoft 365 work or school account. Messages you flag, or categorise Cockpit, become tasks, and the flag or category follows the task. Your organisation may have to approve Cockpit first.',
       supportsPush: false,
       pulled: true,
-      arrivesAs: 'task',
       mirrorsOpenState: true,
       // The flag is offered to start. Unlike a Gmail label, a mailbox needs no
       // category called Cockpit in its list: Outlook accepts the name on a

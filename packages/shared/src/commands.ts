@@ -26,7 +26,6 @@ import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
   filterConditionSchema,
   filterGroupingSchema,
-  filterMatchSchema,
   panelSortSchema,
   panelFormatSchema,
   panelKindSchema,
@@ -215,49 +214,52 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
  * set_panel_filter — what a Filter shows, whole ("Add a Filter panel that shows
  * every filed item due in a window", issue 463).
  *
- * The whole list rather than the row that changed, for the reason
+ * The whole Filter rather than the row that changed, for the reason
  * `set_panel_text` carries a whole document: the question is saved at once, and
  * two people editing it is the later save standing rather than a merge nobody
- * asked for. An empty list is a real answer — the Filter goes back to saying it
- * has nothing chosen.
+ * asked for. No rows is a real answer — the Filter goes back to saying it has
+ * nothing chosen.
  *
- * **Capped**, as `panelTextSchema` caps the other free-form thing a Panel
- * stores: this list is written into a column every snapshot of the Workspace
+ * **Rows only** ("Store every Filter as rows, and save the All / Any choice as
+ * rows", issue 1081): an Item meets every row, and meets a row by meeting any
+ * one of its conditions. The flat `conditions` and `match` a tab on the
+ * previous release sends is refused, since that tab reads a Filter stored in
+ * rows as nothing chosen, and its save would overwrite the real one with that.
+ *
+ * **Capped across rows**, as `panelTextSchema` caps the other free-form thing a
+ * Panel stores: this is written into a column every snapshot of the Workspace
  * then carries to every device on it, and nothing downstream bounds it the way
  * an `order` is bounded by the Items it names. Far past any question built a
- * row at a time.
+ * condition at a time.
  */
 export const CONDITIONS_LIMIT = 50;
 export const setPanelFilterSchema = commandEnvelopeSchema
   .extend({
     panelId: z.uuid(),
-    conditions: z.array(filterConditionSchema).max(CONDITIONS_LIMIT),
+    // An empty row would be met by every Item or none depending on how it was
+    // read, so it is refused rather than given a meaning.
+    rows: z.array(z.array(filterConditionSchema).min(1)).max(CONDITIONS_LIMIT),
     /**
-     * Whether an Item has to meet all of the conditions or any one ("Let a Filter
-     * show items that meet any of its conditions", issue 504). Left out means
-     * `all`, so a stale tab or a queued change from before this existed puts the
-     * Filter back to what it always meant, the later whole save standing.
-     */
-    match: filterMatchSchema.default('all'),
-    /**
-     * What the Filter's rows are grouped under ("Group a Filter panel's items by
-     * the Dashboard or Panel they are filed on", issue 805). Left out means
-     * `none`, for the reason `match` above gives. A grouping the contract does
-     * not name is refused rather than defaulted: a save is the one place a
-     * value is chosen, so reading it back as something else would hide the bug.
+     * What the Filter's Items are grouped under ("Group a Filter panel's items
+     * by the Dashboard or Panel they are filed on", issue 805). Left out means
+     * `none`. A grouping the contract does not name is refused rather than
+     * defaulted: a save is the one place a value is chosen, so reading it back
+     * as something else would hide the bug.
      */
     groupBy: filterGroupingSchema.default('none'),
   })
-  // A field already on the Filter is not offered a second time in the
-  // question ("Filter a Filter panel by priority and type", issue 464); this
-  // is that same rule refused server-side too, so a stale client cannot send
-  // what its own menu would no longer offer it.
+  .refine((cmd) => cmd.rows.reduce((total, row) => total + row.length, 0) <= CONDITIONS_LIMIT, {
+    message: `a Filter holds at most ${CONDITIONS_LIMIT} conditions`,
+    path: ['rows'],
+  })
+  // A field already in a row is not offered a second time in it ("Filter a
+  // Filter panel by priority and type", issue 464); this is that same rule
+  // refused server-side too, so a stale client cannot send what its own menu
+  // would no longer offer it. The same field in two rows is a real question.
   .refine(
-    (cmd) => {
-      const fields = cmd.conditions.map((condition) => condition.field);
-      return new Set(fields).size === fields.length;
-    },
-    { message: 'a field appears once on a Filter', path: ['conditions'] },
+    (cmd) =>
+      cmd.rows.every((row) => new Set(row.map((condition) => condition.field)).size === row.length),
+    { message: 'a field appears once in a row of a Filter', path: ['rows'] },
   );
 export type SetPanelFilterCommand = z.infer<typeof setPanelFilterSchema>;
 
@@ -318,8 +320,6 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
   /** Capped where a description is capped, on the way in only (architecture.md §4.4). */
   message: z.string().trim().min(1).max(60_000),
   nextAction: z.string().optional(),
-  /** Required — every Item has a Type ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). */
-  typeId: z.string().min(1),
   /**
    * Whether the envelope's Workspace is where this Item belongs, or merely
    * where it was captured from ("Capture something before you know which
@@ -363,6 +363,12 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    * in the app; left out by the others, and by an outbox entry kept before it.
    */
   timeZone: captureTimeZoneSchema.optional(),
+  /**
+   * Never given: a capture carries no Type ("Capture without a Type, at every
+   * front door", issue 1067). Named only so a client still sending one is
+   * refused - an unknown key is dropped, which would accept it in silence.
+   */
+  typeId: z.never({ error: 'a capture is not given a type' }).optional(),
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 
