@@ -241,8 +241,14 @@ function excluding<V>(live: readonly V[], passes: (live: readonly V[]) => boolea
  * every Item through as such a condition did under *All*, since rows are
  * joined by *and*.
  */
-function meetsRow(answers: readonly (boolean | null)[]): boolean {
-  return answers.includes(true) || answers.every((answer) => answer === null);
+function meetsRow(row: readonly FilterCondition[], holds: (condition: FilterCondition) => boolean | null): boolean {
+  let filtersSomething = false;
+  for (const condition of row) {
+    const answer = holds(condition);
+    if (answer === true) return true;
+    if (answer === false) filtersSomething = true;
+  }
+  return !filtersSomething;
 }
 
 /**
@@ -333,23 +339,15 @@ export function itemsMatchingFilter(
     }
   }
   return inFilterOrder(
-    itemsThatAreFiled(items, filed).filter((item) =>
-      filter.rows.every((row) =>
-        meetsRow(
-          row.map((condition) =>
-            holdsFor(
-              condition,
-              item,
-              on,
-              livePanelIds,
-              filedPanelIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS,
-              liveDashboardIds,
-              filedDashboardIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS,
-            ),
-          ),
+    itemsThatAreFiled(items, filed).filter((item) => {
+      const filedPanelIds = filedPanelIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS;
+      const filedDashboardIds = filedDashboardIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS;
+      return filter.rows.every((row) =>
+        meetsRow(row, (condition) =>
+          holdsFor(condition, item, on, livePanelIds, filedPanelIds, liveDashboardIds, filedDashboardIds),
         ),
-      ),
-    ),
+      );
+    }),
     sort,
   );
 }
