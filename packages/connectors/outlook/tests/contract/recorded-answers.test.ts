@@ -1,9 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { LIST_FIELDS, READ_FIELDS, deletedItemsIn, markFilter, messageFrom, messagePage } from '../../src/messages.js';
-import { deletedItemsAnswer, message, messagesPage } from '../graph-payloads.js';
+import {
+  LIST_FIELDS,
+  READ_FIELDS,
+  categoriesIn,
+  categoryChange,
+  deletedItemsIn,
+  flagChange,
+  isMarked,
+  markFilter,
+  messageFrom,
+  messagePage,
+} from '../../src/messages.js';
+import { categoriesAnswer, deletedItemsAnswer, message, messagesPage } from '../graph-payloads.js';
 
 /**
- * The contract tier: the calls the Outlook connector reads, asked of Microsoft
+ * The contract tier: the calls the Outlook connector reads and writes, asked of Microsoft
  * Graph itself against a dedicated Microsoft 365 test mailbox
  * (docs/testing-strategy.md, "Third parties"; "Build Outlook as a connector
  * package on the SDK, unregistered", issue 1046). **Never per change**
@@ -12,7 +23,8 @@ import { deletedItemsAnswer, message, messagesPage } from '../graph-payloads.js'
  *
  * What only this tier can prove: that Graph still answers in the shapes
  * tests/graph-payloads.ts records - which every tier below is faked with - and
- * that the connector's own readers still make sense of a live answer. A
+ * that the connector's own readers still make sense of a live answer, and that
+ * Graph refuses a write made against a version it has moved past. A
  * failure means those payloads describe a Graph that no longer exists, and
  * updating them is priority work, never something to re-run until it passes.
  *
@@ -54,18 +66,23 @@ function signedIn(): Promise<string> {
   return accessToken;
 }
 
-async function graph(path: string, init: { method?: string; body?: unknown } = {}): Promise<Record<string, unknown>> {
-  const answer = await fetch(`https://graph.microsoft.com/v1.0/me/${path}`, {
+async function graph(path: string, init: { method?: string; body?: unknown; ifMatch?: string } = {}): Promise<Record<string, unknown>> {
+  const answer = await graphAnswer(path, init);
+  expect(answer.ok, `Graph answered ${answer.status} to ${path.split('?')[0]}`).toBe(true);
+  return (await answer.json()) as Record<string, unknown>;
+}
+
+async function graphAnswer(path: string, init: { method?: string; body?: unknown; ifMatch?: string } = {}): Promise<Response> {
+  return fetch(`https://graph.microsoft.com/v1.0/me/${path}`, {
     method: init.method ?? 'GET',
     headers: {
       authorization: `Bearer ${await signedIn()}`,
       ...PREFER,
       ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(init.ifMatch === undefined ? {} : { 'if-match': init.ifMatch }),
     },
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
   });
-  expect(answer.ok, `Graph answered ${answer.status} to ${path.split('?')[0]}`).toBe(true);
-  return (await answer.json()) as Record<string, unknown>;
 }
 
 /**
@@ -168,6 +185,73 @@ describe.skipIf(!provisioned)('Capture', () => {
         expect(moved.parentFolderId).not.toBe(before.parentFolderId);
       } finally {
         await graph(`messages/${encodeURIComponent(String(moved.id))}/move`, { method: 'POST', body: { destinationId: before.parentFolderId } });
+      }
+    });
+  });
+});
+
+/**
+ * Putting the mark back or taking it off ("Take the flag or category off in
+ * Outlook when its task is done in Cockpit", issue 1047): each case changes a
+ * message and puts it back, so the mailbox ends as it started.
+ */
+describe.skipIf(!provisioned)('Connector management', () => {
+  describe('Microsoft Graph takes the one field the connector writes, and refuses a category write against a stale version', () => {
+    const marked = async (mark: 'flag' | 'category') => {
+      const deletedItems = deletedItemsIn(await graph('mailFolders/deleteditems?$select=id'))!;
+      const [id] = messagePage(await list(mark), mark, deletedItems).messageIds;
+      expect(id, `the test mailbox holds no message for ${mark}`).toBeTruthy();
+      return `messages/${encodeURIComponent(id!)}`;
+    };
+
+    it('sets a flag complete and back to flagged, its categories untouched', async () => {
+      const path = await marked('flag');
+      const before = await graph(`${path}?$select=flag,categories`);
+      try {
+        const done = await graph(path, { method: 'PATCH', body: flagChange(false) });
+        expect((done.flag as { flagStatus?: unknown }).flagStatus).toBe('complete');
+        expect(done.categories).toEqual(before.categories);
+      } finally {
+        const back = await graph(path, { method: 'PATCH', body: flagChange(true) });
+        expect((back.flag as { flagStatus?: unknown }).flagStatus).toBe('flagged');
+      }
+    });
+
+    it('takes Cockpit off and puts it back, another category kept, each write conditional on the version read', async () => {
+      const path = await marked('category');
+      const OTHER = 'Cockpit contract test';
+      const first = categoriesIn(await graph(`${path}?$select=categories`))!;
+      expect(missingFrom(await graph(`${path}?$select=categories`), categoriesAnswer({ id: 'a-message', categories: ['Cockpit'] }), ['@odata.etag', 'categories'])).toEqual([]);
+      await graph(path, { method: 'PATCH', body: { categories: [...first.categories, OTHER] } });
+      try {
+        const held = categoriesIn(await graph(`${path}?$select=categories`))!;
+        const off = await graph(path, { method: 'PATCH', body: { categories: categoryChange(held.categories, false) }, ifMatch: held.version! });
+        expect(off.categories).toContain(OTHER);
+        expect(isMarked(off, 'category')).toBe(false);
+
+        const unmarked = categoriesIn(await graph(`${path}?$select=categories`))!;
+        const on = await graph(path, { method: 'PATCH', body: { categories: categoryChange(unmarked.categories, true) }, ifMatch: unmarked.version! });
+        expect(on.categories).toContain(OTHER);
+        expect(isMarked(on, 'category')).toBe(true);
+      } finally {
+        await graph(path, { method: 'PATCH', body: { categories: first.categories } });
+      }
+    });
+
+    it('refuses a category write naming a version the message has moved past', async () => {
+      const path = await marked('category');
+      const stale = categoriesIn(await graph(`${path}?$select=categories`))!;
+      // Any change moves the version on, a write of the same list among them.
+      await graph(path, { method: 'PATCH', body: { categories: stale.categories } });
+
+      try {
+        const refused = await graphAnswer(path, { method: 'PATCH', body: { categories: categoryChange(stale.categories, false) }, ifMatch: stale.version! });
+
+        expect([409, 412], `Graph answered ${refused.status} to a write against a stale version`).toContain(refused.status);
+        expect(isMarked(await graph(`${path}?$select=categories`), 'category')).toBe(true);
+      } finally {
+        // A Graph that took the stale write would otherwise leave the test mailbox without its marked message.
+        await graph(path, { method: 'PATCH', body: { categories: stale.categories } });
       }
     });
   });

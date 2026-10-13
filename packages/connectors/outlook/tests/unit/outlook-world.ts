@@ -3,6 +3,8 @@ import { createOutlookConnector } from '../../src/index.js';
 import {
   ARCHIVE_ID,
   DELETED_ITEMS_ID,
+  VERSION_CHANGED,
+  categoriesAnswer,
   deletedItemsAnswer,
   message,
   messagesPage,
@@ -77,39 +79,80 @@ export class GraphWorld {
     if (path === 'mailFolders/deleteditems') return json(deletedItemsAnswer());
     if (path === 'messages') return this.#list(url, headers.get('prefer')?.includes('ImmutableId') ?? false);
     const read = /^messages\/(.+)$/.exec(path);
+    if (read && method === 'PATCH') return this.#write(decodeURIComponent(read[1]!), headers.get('if-match'), init?.body);
     if (read) {
       const id = decodeURIComponent(read[1]!);
       this.beforeRead(id);
       const found = this.#find(id);
-      return found ? json(message(found)) : json({ error: { code: 'ErrorItemNotFound' } }, 404);
+      if (!found) return json({ error: { code: 'ErrorItemNotFound' } }, 404);
+      return json(url.searchParams.get('$select') === 'categories' ? categoriesAnswer(found) : message(found));
     }
     return json({}, 404);
   };
 
+  /** Something the person does to a message between the connector reading its categories and writing them back. */
+  beforeWrite: (id: string) => void = () => {};
+
+  /** Every change written to a message, in order: its body and the version it was conditional on. */
+  readonly writes: { id: string; body: unknown; ifMatch: string | null }[] = [];
+
+  /** The flag of a message as Outlook shows it. */
+  flagOf(id: string): string {
+    return this.#get(id).flag ?? 'notFlagged';
+  }
+
+  /** The categories of a message as Outlook shows them, in order. */
+  categoriesOf(id: string): readonly string[] {
+    return this.#get(id).categories ?? [];
+  }
+
+  /**
+   * A `PATCH` of one message: refused where it names a version the message has
+   * moved past, merged into it otherwise - the flag's status, or the whole
+   * category list - with a new version.
+   */
+  #write(id: string, ifMatch: string | null, body: BodyInit | null | undefined): Response {
+    this.beforeWrite(id);
+    const found = this.#find(id);
+    if (!found) return json({ error: { code: 'ErrorItemNotFound' } }, 404);
+    const change = JSON.parse(String(body)) as { flag?: { flagStatus?: Stored['flag'] }; categories?: string[] };
+    this.writes.push({ id: found.id, body: change, ifMatch });
+    if (ifMatch !== null && ifMatch !== versionOf(found)) return json(VERSION_CHANGED, 412);
+    if (change.flag?.flagStatus) found.flag = change.flag.flagStatus;
+    if (change.categories) found.categories = [...change.categories];
+    this.#changed(found);
+    return json(message(found));
+  }
+
+  #changed(one: Stored): void {
+    one.version = `W/"v${Number(/v(\d+)/.exec(versionOf(one))?.[1] ?? 0) + 1}"`;
+  }
+
   /** A message arriving, carrying the marks it is given. */
   arrives(id: string, options: Omit<MessageOptions, 'id'> = {}): void {
-    this.#messages.unshift({ id, ...options });
+    this.#messages.unshift({ id, version: 'W/"v1"', ...options });
   }
 
   flag(id: string): void {
-    this.#get(id).flag = 'flagged';
+    this.#changed(Object.assign(this.#get(id), { flag: 'flagged' as const }));
   }
 
   complete(id: string): void {
-    this.#get(id).flag = 'complete';
+    this.#changed(Object.assign(this.#get(id), { flag: 'complete' as const }));
   }
 
   unflag(id: string): void {
-    this.#get(id).flag = 'notFlagged';
+    this.#changed(Object.assign(this.#get(id), { flag: 'notFlagged' as const }));
   }
 
   categorise(id: string, ...categories: string[]): void {
     const one = this.#get(id);
     one.categories = [...(one.categories ?? []), ...categories];
+    this.#changed(one);
   }
 
   uncategorise(id: string): void {
-    this.#get(id).categories = [];
+    this.#changed(Object.assign(this.#get(id), { categories: [] }));
   }
 
   moveTo(id: string, folder: string): void {
@@ -176,6 +219,11 @@ export class GraphWorld {
     }
     return json(messagesPage(shown, next));
   }
+}
+
+/** The version Graph names a message at. */
+function versionOf(one: Stored): string {
+  return one.version ?? 'W/"v1"';
 }
 
 /** What Graph calls a message without the immutable id header: it names the folder, so it changes when the message moves. */

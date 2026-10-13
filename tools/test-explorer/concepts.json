@@ -388,6 +388,7 @@
         "packages/connectors/outlook/src/sign-in.ts",
         "packages/connectors/outlook/src/credential.ts",
         "packages/connectors/outlook/src/graph.ts",
+        "packages/connectors/outlook/src/mirroring.ts",
         "apps/api/src/connectors/registry.ts",
         "apps/api/src/connectors/directory.ts",
         "packages/connector-sdk/src/index.ts",
