@@ -36,7 +36,6 @@ import { possibleDuplicatesOf } from '../duplicates';
 import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
 import { filingsThatFile } from '../filing';
 import { dayOf, shownOn } from '../filters';
-import { typeOf, typesOffered } from '../itemTypes';
 import {
   FIELDS,
   FIELD_NAMES,
@@ -140,7 +139,6 @@ export function whatChanged(
   description?: string | null;
   priority?: Priority | null;
   dueDate?: string | null;
-  typeId?: string | null;
   status?: ItemStatus;
 } {
   const changed: {
@@ -148,7 +146,6 @@ export function whatChanged(
     description?: string | null;
     priority?: Priority | null;
     dueDate?: string | null;
-    typeId?: string | null;
     status?: ItemStatus;
   } = {};
   const title = now.title.trim();
@@ -160,8 +157,6 @@ export function whatChanged(
   if (now.priority !== was.priority) changed.priority = now.priority;
   // A calendar date or null - nothing to trim either.
   if (now.dueDate !== was.dueDate) changed.dueDate = now.dueDate;
-  // An id from the list the form offers, or the none it opened on - not text either.
-  if (now.typeId !== was.typeId) changed.typeId = now.typeId;
   // Compared as the status chosen, never the start time it may keep.
   if (now.status !== was.status) changed.status = now.status;
   return changed;
@@ -887,14 +882,12 @@ function TheForm({
         description: item.description ?? '',
         priority: item.priority,
         dueDate: item.dueDate,
-        // A type since deleted reads as none, the way the row draws it.
-        typeId: typeOf(data?.itemTypes ?? [], item)?.id ?? null,
         status: itemStatus(item),
         started: !!item.startedAt,
       };
       changeEditing(() => ({ was: from, now: { ...from } }));
     }
-  }, [item, editing, data?.itemTypes]);
+  }, [item, editing]);
 
   /** Worked out only while Details is showing: it walks every filter against every item, which nothing else on the form needs on a keystroke. */
   const shownOnNames =
@@ -1134,19 +1127,16 @@ function TheForm({
         closeRefused.current = false;
         setRefusal(null);
       }
-      // A type cannot be put back to none - nothing sends that - so an item that
-      // had none has nothing to undo to.
-      const undoable = committed.filter(({ field, before }) => !(field === 'typeId' && before === null));
-      if (undoable.length === 0 || undoneCount.current !== undoneAtCall) return;
+      if (committed.length === 0 || undoneCount.current !== undoneAtCall) return;
       offerToUndo({
-        what: `Changed the ${undoable.map(({ field }) => FIELD_NAMES[field]).join(' and the ')}`,
+        what: `Changed the ${committed.map(({ field }) => FIELD_NAMES[field]).join(' and the ')}`,
         // Queued behind any write still in flight, for the reason the writes
         // are queued behind each other: run alongside one, it could land first
         // and be overwritten by a value the person had already gone back past.
         undo: () => {
           undoneCount.current += 1;
           const run = inTurn.current.then(async () => {
-            for (const { field, before, after, endedRunId } of [...undoable].reverse()) {
+            for (const { field, before, after, endedRunId } of [...committed].reverse()) {
               const back = asStored({ ...held.now, [field]: before }, field);
               const { failure, held: reached } = await writeField(field, back, { ...held.now, ...after }, endedRunId);
               if (failure !== null) {
@@ -1773,30 +1763,8 @@ function TheForm({
                       <div className={`flex flex-col gap-3${onAPage ? '' : ' @lg:col-start-1 @lg:row-start-1'}`}>
                       {!onAPage && (
                       <>
-                      {/* Type and status beside each other above the rest of the short fields (issue 528). */}
+                      {/* Status above the rest of the short fields, in the first of two equal columns so it sits over Priority (issue 528). */}
                       <div className="grid grid-cols-2 gap-3">
-                        <label className="block min-w-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                          Type
-                          <select
-                            disabled={saving}
-                            value={draft.typeId ?? ''}
-                            onChange={(e) => {
-                              // Nothing sets a type to none, so an empty pick is not a change.
-                              if (!e.target.value) return;
-                              setDraft({ ...draft, typeId: e.target.value });
-                              if (docked) void commitFields(['typeId']);
-                            }}
-                            className="mt-1 w-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-                          >
-                            {/* Only while the item has none: nothing sets a type to none, so once one is picked it is not offered again. */}
-                            {draft.typeId === null && <option value="">No type</option>}
-                            {typesOffered(data?.itemTypes ?? [], data?.items ?? []).map((type) => (
-                              <option key={type.id} value={type.id}>
-                                {type.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
                         <label className="block min-w-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                           Status
                           <select
@@ -1814,7 +1782,7 @@ function TheForm({
                           </select>
                         </label>
                       </div>
-                      {/* Priority and due date share a row (issue 480), in the same two equal columns as Type and status above so each sits under its neighbour at every width. */}
+                      {/* Priority and due date share a row (issue 480), in the same two equal columns as Status above so each sits under its neighbour at every width. */}
                       <div className="grid grid-cols-2 gap-3">
                         <div className="min-w-0">
                           <p
@@ -1922,17 +1890,14 @@ function TheForm({
                         </p>
                       )}
                       {onAPage && !chipsFailed && (
-                        // Chips, one row, each opening its own picker; a choice is held in the draft until Save ("Edit an Item's type, status, priority and due date from chips on a phone", issue 787). Fetched only here, so a desk never loads it.
+                        // Chips, one row, each opening its own picker; a choice is held in the draft until Save ("Edit an Item's status, priority and due date from chips on a phone", issue 787). Fetched only here, so a desk never loads it.
                         <WhateverTheQuestionDoes onFailure={() => setChipsFailed(true)}>
                         <Suspense fallback={<div className="h-9" aria-hidden="true" />}>
                           <ItemFormChips
-                            typeId={draft.typeId}
                             status={draft.status}
                             priority={draft.priority}
                             dueDate={draft.dueDate}
-                            types={typesOffered(data?.itemTypes ?? [], data?.items ?? [])}
                             disabled={saving}
-                            onType={(typeId) => setDraft({ ...draft, typeId })}
                             onStatus={(status) => setDraft({ ...draft, status })}
                             onPriority={(priority) => setDraft({ ...draft, priority })}
                             onDueDate={(dueDate) => setDraft({ ...draft, dueDate })}

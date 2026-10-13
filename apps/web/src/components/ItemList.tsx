@@ -49,7 +49,6 @@ import {
 } from '../selection';
 import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
-import { typeOf } from '../itemTypes';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { SelectionBar } from './SelectionBar';
 import { FetchedPicker } from './FetchedPicker';
@@ -153,12 +152,6 @@ export function ItemList({
   // Every workspace, for the Inboxes the picker offers an item that belongs to
   // none of them. The same cached read the tabs above are already doing.
   const { data: allWorkspaces } = useQuery(workspacesQuery);
-  // `?? []` for the reason the filings elsewhere carry one: a stored snapshot
-  // can predate the field, and a row with no type is drawn rather than hidden.
-  // Memoized so it stays one reference across renders - otherwise every
-  // render invalidates `alsoInByItem` below, since `?? []` makes a fresh
-  // array whenever `itemTypes` itself is absent.
-  const types = useMemo(() => data?.itemTypes ?? [], [data?.itemTypes]);
   /**
    * The filings that file - the one reading this list asks whenever it needs to
    * know whether an Item is in the Inbox, so the four places below cannot come
@@ -799,7 +792,6 @@ export function ItemList({
   const rowFor = (item: Item, alsoNotIn: string | null = null) => (
     <ItemRow
       item={item}
-      itemType={typeOf(types, item)}
       sourceNames={data?.sourceNames}
       workspaceId={workspaceId}
       inInbox={panelId === null}

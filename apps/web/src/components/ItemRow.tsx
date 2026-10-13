@@ -12,7 +12,6 @@ import {
   workspaceIsDecided,
   type AgentRun,
   type Item,
-  type ItemType,
   type Priority,
   type Agent,
 } from '@cockpit/shared';
@@ -75,7 +74,6 @@ const EMPTY_ALSO_IN: readonly string[] = [];
 
 export function ItemRow({
   item,
-  itemType,
   sourceNames,
   workspaceId,
   inInbox = false,
@@ -94,17 +92,7 @@ export function ItemRow({
   agentsHere,
 }: {
   item: Item;
-  /**
-   * What kind of thing this is ("Capture a thought or an action, and see which
-   * it is", issue 155), already looked up: the row is drawn once per item and
-   * the list has the types in hand, so searching them again per row would be
-   * the same search a dozen times.
-   *
-   * Undefined is a real state and is drawn as one - an item captured before
-   * types existed, and one whose type was deleted, both have none.
-   */
-  itemType?: ItemType | undefined;
-  /** What each source is called, from the Workspace's snapshot, for the same reason `itemType` is handed in. */
+  /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
   sourceNames?: SourceNames;
   workspaceId: string;
   /**
@@ -461,9 +449,8 @@ export function ItemRow({
 
   /**
    * The priority mark's label and colour, or nothing for an unset priority -
-   * and, the same as an item type nobody deleted-and-recreated the row's
-   * lookup for (`itemTypes.ts`, `recentlyUsedTypes`), nothing rather than a
-   * crash for a value this build does not recognise. Reachable from a tab
+   * and nothing rather than a crash for a value this build does not
+   * recognise. Reachable from a tab
    * left open across a deploy that adds a level (functional definition,
    * "Deploy breaks open tabs' lazy chunks"), since a priority read out of the
    * cache is never re-validated against the schema the way a fresh fetch is.
@@ -1085,13 +1072,10 @@ export function ItemRow({
         style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
       >
         {/* The priority flag, the row's one leading mark - always drawn, so every
-            title starts in the same place whether or not its row has a level
-            (the type's coloured dot that used to sit beside it made titles
-            step right by a flag's width). An item with none gets a faint grey
-            flag, decorative because there is nothing to name; the level is
-            named rather than decorative where there is one, since it is not
-            echoed in words anywhere else on the row, unlike the type. The type
-            is spelled out on the line below. */}
+            title starts in the same place whether or not its row has a level.
+            An item with none gets a faint grey flag, decorative because there
+            is nothing to name; the level is named rather than decorative where
+            there is one. */}
         {priorityMark ? (
           <span
             className={`mt-0.5 flex size-4 shrink-0 items-center justify-center self-start rounded-full text-[9px] leading-none text-white ${priorityMark.className}`}
@@ -1204,19 +1188,13 @@ export function ItemRow({
               </span>
             )}
           </span>
-          {/* What it is and where it came from, on one line under the title. The
-              two marks the status used to hold - the dot at the head of the row
-              and the first word here - are what the type took ("Capture a thought
-              or an action, and see which it is", issue 155). Its own element, so
-              it is a thing on the row rather than part of a sentence. */}
+          {/* Where it came from, on one line under the title. Its own element,
+              so it is a thing on the row rather than part of a sentence. */}
           <span className="flex min-w-0 gap-1 text-xs text-ink-faint">
-            {itemType && (
-              <span className="shrink-0 text-accent-deep">{itemType.name}</span>
-            )}
-            {/* Beside the type, the one thing worth saying about status on a
-                row that already leaves Done off it - a row wears no mark at
-                all for To do, its own long-standing default ("Mark an item In
-                progress, and see since when", issue 568). */}
+            {/* The one thing worth saying about status on a row that already
+                leaves Done off it - a row wears no mark at all for To do, its
+                own long-standing default ("Mark an item In progress, and see
+                since when", issue 568). */}
             {status === 'in_progress' && (
               <span className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep">
                 In progress
@@ -1251,7 +1229,6 @@ export function ItemRow({
                 </span>
               ))}
             <span className="truncate">
-              {itemType ? '· ' : ''}
               {/* The source by the name its connector gives it - "Gmail",
                   never the id `gmail` ("Take source names out of the shared
                   contract", issue 927). */}

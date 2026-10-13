@@ -40,7 +40,6 @@ vi.mock('../../../src/api/queries', () => ({
         dashboards: [{ id: 'd-work', name: 'Work' }],
         panels: [{ id: 'p-calls', dashboardId: 'd-work', name: 'Calls', kind: 'items' }],
         filings: [{ itemId: 'filed', panelId: 'p-calls', position: 0 }],
-        itemTypes: [{ id: 't-task', name: 'Task' }],
       } as unknown as WorkspaceSnapshot),
   }),
 }));
@@ -148,16 +147,15 @@ describe('Inbox', () => {
   });
 
   describe('each row says what the item is, where it is and when it last changed', () => {
-    it('draws the seven columns, with the place and a finished item greyed', async () => {
+    it('draws the six columns, with the place and a finished item greyed', async () => {
       theTable([
-        anItem('filed', { typeId: 't-task', priority: 'high', dueDate: '2026-09-20' }),
+        anItem('filed', { priority: 'high', dueDate: '2026-09-20' }),
         anItem('finished', { completedAt: '2026-09-11T09:00:00.000Z' }),
       ]);
       await screen.findByRole('table');
 
       expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
         'Title',
-        'Type',
         'Status',
         'Priority',
         'Due',
@@ -166,7 +164,6 @@ describe('Inbox', () => {
       ]);
       const filed = within(screen.getByRole('row', { name: /filed/ }));
       expect(filed.getByText('Work ▸ Calls')).toBeVisible();
-      expect(filed.getByText('Task')).toBeVisible();
       expect(filed.getByText('High')).toBeVisible();
       const finished = screen.getByRole('row', { name: /finished/ });
       expect(within(finished).getByText('Done')).toBeVisible();

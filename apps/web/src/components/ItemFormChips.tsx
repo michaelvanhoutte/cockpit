@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
-import { prioritySchema, type ItemStatus, type ItemType, type Priority } from '@cockpit/shared';
+import { prioritySchema, type ItemStatus, type Priority } from '@cockpit/shared';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../dueDateShortcuts';
 import type { Day } from '../filters';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
-import { MenuContent, menuItemClass, menuItemSplitClass } from './Menu';
+import { MenuContent, menuItemSplitClass } from './Menu';
 
 /**
  * The Item's fields on a phone's page, as a wrapping row of chips ("Edit an
- * Item's type, status, priority and due date from chips on a phone", issue
- * 787). Each says what is set and opens a picker for its own field; a pick
+ * Item's status, priority and due date from chips on a phone", issue 787,
+ * with the type since taken off). Each says what is set and opens a picker for its own field; a pick
  * changes the form's draft and nothing is written until Save, like every other
  * field there. Loaded only where the form is a page, so the desk never pays
  * for it.
@@ -35,14 +35,10 @@ const days: readonly [string, (now: Date) => Day][] = [
 ];
 
 export interface ItemFormChipsProps {
-  typeId: string | null;
   status: ItemStatus;
   priority: Priority | null;
   dueDate: string | null;
-  /** The Types as the form offers them: the ones used last first. */
-  types: readonly ItemType[];
   disabled: boolean;
-  onType: (typeId: string) => void;
   onStatus: (status: ItemStatus) => void;
   onPriority: (priority: Priority | null) => void;
   onDueDate: (dueDate: string | null) => void;
@@ -55,8 +51,7 @@ function Ticked({ on }: { on: boolean }) {
 }
 
 export default function ItemFormChips(props: ItemFormChipsProps) {
-  const { typeId, status, priority, dueDate, types, disabled } = props;
-  const type = types.find((candidate) => candidate.id === typeId);
+  const { status, priority, dueDate, disabled } = props;
   const statusName = STATUSES.find(([value]) => value === status)![1];
   const deadline = deadlineOf(dueDate, Date.now());
   const dueText = dueDateLabel(dueDate);
@@ -68,35 +63,6 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Fields">
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger
-          disabled={disabled}
-          className={`${CHIP} ${SET} bg-accent-tint text-accent-deep`}
-        >
-          <span className="truncate">{type?.name ?? (typeId === null ? 'No type' : 'Type')}</span>
-        </DropdownMenu.Trigger>
-        <MenuContent align="start">
-          {/* Only while the item has none: nothing sets a type to none. */}
-          {typeId === null && (
-            <DropdownMenu.Item disabled className={`${menuItemClass} text-ink-faint`}>
-              No type
-            </DropdownMenu.Item>
-          )}
-          {types.map((candidate) => (
-            <DropdownMenu.Item
-              key={candidate.id}
-              role="menuitemradio"
-              aria-checked={candidate.id === typeId}
-              className={menuItemSplitClass}
-              onSelect={() => props.onType(candidate.id)}
-            >
-              <span>{candidate.name}</span>
-              <Ticked on={candidate.id === typeId} />
-            </DropdownMenu.Item>
-          ))}
-        </MenuContent>
-      </DropdownMenu.Root>
-
       <DropdownMenu.Root>
         <DropdownMenu.Trigger disabled={disabled} className={`${CHIP} ${SET} bg-shade/5 text-ink`}>
           {statusName}

@@ -176,7 +176,8 @@ export async function setFormStatus(
     return;
   }
   const name = { to_do: 'To do', in_progress: 'In progress', done: 'Done' }[status];
-  await press(form.getByRole('group', { name: 'Fields' }).getByRole('button').nth(1), isMobile);
+  // The Status chip leads the phone's row of chips (issue 1068 took Type off it).
+  await press(form.getByRole('group', { name: 'Fields' }).getByRole('button').nth(0), isMobile);
   await press(page.getByRole('menuitemradio', { name, exact: true }), isMobile);
 }
 

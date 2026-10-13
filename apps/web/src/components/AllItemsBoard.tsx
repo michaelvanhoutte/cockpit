@@ -159,7 +159,6 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
                         {row.title}
                       </button>
                     </td>
-                    <td className="px-2 py-1.5">{row.type}</td>
                     <td className="px-2 py-1.5">{STATUS_LABELS[row.status]}</td>
                     <td className="px-2 py-1.5">{row.priority ? PRIORITY_LABELS[row.priority] : ''}</td>
                     <td className="whitespace-nowrap px-2 py-1.5">{row.due ?? ''}</td>
