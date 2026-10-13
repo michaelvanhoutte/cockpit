@@ -12,6 +12,7 @@ import type { Trigger } from '../gateway/attempts.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import type { NoteTexts, PanelRead, RoutingCandidate } from '../ai/index.js';
 import { aStatedFieldIsOpen, type FieldsSet } from '../domain/items.js';
+import { captureDay, type CaptureDay } from '../domain/capture-day.js';
 import {
   asFarAsItReads,
   canReadMeaning,
@@ -542,6 +543,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // the titles you correct", issue 394; `docs/text-learning.md`, "Scope: per
   // account").
   const { promptCorrections, promptStood } = await account.textLearningContext();
+  const day = await captureDayOf(account, item);
 
   let read;
   try {
@@ -552,6 +554,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       recentlyCaptured,
       promptCorrections,
       promptStood,
+      day,
       { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
     );
   } catch (error) {
@@ -620,7 +623,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // 1076).
   let fieldsSet: FieldsSet;
   try {
-    fieldsSet = await applyStatedFields(account, item, read.proposal);
+    fieldsSet = await applyStatedFields(account, item, read.proposal, day);
   } catch (error) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
@@ -637,6 +640,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       ? `proposed in ${read.proposal.language}`
       : 'nothing was written: the texts are already edited',
     prioritySet: fieldsSet.priority ?? null,
+    dueDateSet: fieldsSet.dueDate ?? null,
   };
   const fieldChanged = Object.keys(fieldsSet).length > 0;
   // Recorded the moment the texts settle, with the Panel as the item had it,
@@ -687,6 +691,23 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
 }
 
 /**
+ * The day a note was captured on, on the calendar of whoever captured it
+ * ("Read a due date you say when you capture, on your own calendar", issue
+ * 1077): the instant it was captured, read in the zone it carried - or, where
+ * it carried none (the Claude connector, an outbox entry kept before captures
+ * carried one), in the zone of the account's most recent capture that did.
+ * Null where there is none, or the zone is one this runtime cannot read: then
+ * no due date is asked for.
+ */
+async function captureDayOf(
+  account: Account,
+  item: { createdAt: string; capturedTimeZone: string | null },
+): Promise<CaptureDay | null> {
+  const zone = item.capturedTimeZone ?? (await account.latestCapturedTimeZone());
+  return captureDay(item.createdAt, zone);
+}
+
+/**
  * Sends the fields a note stated, where it stated any, and answers which the
  * store set - none where it stated nothing, where the person set each one
  * already, or where the item went while the note was being read, which the
@@ -696,15 +717,19 @@ async function applyStatedFields(
   account: Account,
   item: { id: string; workspaceId: string },
   proposal: NoteTexts,
+  day: CaptureDay | null,
 ): Promise<FieldsSet> {
-  if (proposal.priority === null) return {};
+  // A date is taken only where the call was told the day it counts from.
+  const dueDate = day === null ? null : proposal.dueDate;
+  if (proposal.priority === null && dueDate === null) return {};
   try {
     const written = await account.applyChange('propose_item_fields', {
       commandId: crypto.randomUUID(),
       issuedAt: new Date().toISOString(),
       workspaceId: item.workspaceId,
       itemId: item.id,
-      priority: proposal.priority,
+      ...(proposal.priority === null ? {} : { priority: proposal.priority }),
+      ...(dueDate === null ? {} : { dueDate }),
     });
     return written.fieldsSet ?? {};
   } catch (error) {

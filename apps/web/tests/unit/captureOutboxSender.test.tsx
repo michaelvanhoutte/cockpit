@@ -17,6 +17,7 @@ import {
   type OutboxStore,
   type Sender,
 } from '../../src/captureOutboxSender';
+import { deviceIsIn } from './support/timeZone';
 
 /**
  * F1: the outbox against a fake IndexedDB, and a fake of the server at the API
@@ -45,7 +46,7 @@ function aServer() {
     /** The note the server refuses, by what it says, and why. */
     refuseCapture: null as { message: string; because: Error } | null,
     refuseFile: null as string | null,
-    items: new Map<string, { itemId: string; message: string; issuedAt: string }>(),
+    items: new Map<string, { itemId: string; message: string; issuedAt: string; timeZone?: string | undefined }>(),
     attachments: new Map<string, { itemId: string; name: string; text: string }>(),
     captureOrder: [] as string[],
     captureCalls: 0,
@@ -78,6 +79,7 @@ function aServer() {
             itemId: payload.itemId,
             message: payload.message,
             issuedAt: payload.issuedAt,
+            timeZone: payload.timeZone,
           });
           server.captureOrder.push(payload.message);
         }
@@ -185,6 +187,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('Offline', () => {
@@ -325,6 +328,34 @@ describe('Offline', () => {
     });
   });
 
+  /**
+   * "Read a due date you say when you capture, on your own calendar" (issue
+   * 1077): the device's time zone is kept with the capture, so a note made in
+   * Brussels and sent after landing in New York is still read in Brussels.
+   */
+  describe('a waiting capture carries the time zone it was captured in, not the one it is sent from', () => {
+    it.each([
+      { situation: 'a typed note', keep: (outbox: CaptureOutbox) => outbox.add(capture('Ring the plumber')) },
+      { situation: 'a spoken note', keep: (outbox: CaptureOutbox) => outbox.addRecorded(spoken('Ring the plumber')) },
+    ])('for $situation', async ({ keep }) => {
+      const server = aServer();
+      server.reachable = false;
+      const outbox = aTab(server, { owner: null });
+      anOpenApp(outbox);
+      deviceIsIn('Europe/Brussels');
+      await keep(outbox);
+      await settled();
+
+      deviceIsIn('America/New_York');
+      server.reachable = true;
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+        await settled();
+      });
+
+      expect([...server.items.values()].map((item) => item.timeZone)).toEqual(['Europe/Brussels']);
+    });
+  });
   describe('a capture becomes one Item however many times it is sent', () => {
     it('is removed once a resend is told it was already applied, after the first answer was lost', async () => {
       const server = aServer();

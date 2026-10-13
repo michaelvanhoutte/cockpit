@@ -45,6 +45,7 @@ import {
 import { aRecorder, aTranscriber } from '../support/recording';
 import { whatArrived, type Arrived } from '../../../src/shares';
 import { aShare, aSharedPhoto } from '../support/shares';
+import { deviceIsIn } from '../support/timeZone';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -1337,6 +1338,30 @@ describe('Capture', () => {
     });
   });
 
+  /**
+   * "Read a due date you say when you capture, on your own calendar" (issue
+   * 1077): what Capture sends says which calendar it was made on, kept or sent
+   * at once. That a kept one keeps the zone it was captured in is the outbox's
+   * (tests/unit/captureOutboxSender.test.tsx).
+   */
+  describe('a capture says which time zone it was made in', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      { situation: 'kept to send', store: undefined },
+      { situation: 'sent at once where nothing can be kept', store: UNAVAILABLE },
+    ])('$situation', async ({ store }) => {
+      deviceIsIn('Europe/Brussels');
+      const user = await thePage(store ? { store } : {});
+
+      await user.type(box(), 'Send the invoice friday');
+      await user.click(chip('Capture'));
+
+      expect((await captured()).payload).toMatchObject({ timeZone: 'Europe/Brussels' });
+    });
+  });
   describe('priority and due date start empty for each note, and a refused capture keeps them', () => {
     beforeEach(() => {
       vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 8, 30, 12) });

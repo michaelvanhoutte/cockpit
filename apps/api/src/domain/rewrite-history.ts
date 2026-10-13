@@ -37,6 +37,8 @@ export interface RewriteOutcome {
   proposedPanelReason?: string | null;
   /** The priority this attempt set from what the note said; a later delivery's none never erases it (`recordRewriteOutcome`). */
   prioritySet?: Priority | null;
+  /** The due date this attempt set from what the note said, kept the same way. */
+  dueDateSet?: string | null;
 }
 
 /** One row as a rewrite-history table reads it back, joined to the Panels it names, if any. */
@@ -55,4 +57,5 @@ export interface RewriteHistoryEntryRow {
   suggestedPanelBefore: SuggestedPanel | null;
   suggestedPanelAfter: SuggestedPanel | null;
   prioritySet: Priority | null;
+  dueDateSet: string | null;
 }

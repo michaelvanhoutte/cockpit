@@ -48,6 +48,8 @@ function anItem(
     startedAt: null,
     priority: holding.priority ?? null,
     prioritySetAt: null,
+    dueDateChosenAt: null,
+    capturedTimeZone: null,
     dueDate: holding.dueDate ?? null,
     dueDateSetAt: null,
     unseen: false,

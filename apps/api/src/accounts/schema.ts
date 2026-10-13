@@ -843,6 +843,14 @@ export const items = sqliteTable(
 
     // -- write-once column --
     capturedMessage: text('captured_message'),
+    /**
+     * The device's time zone when the person captured this ("Read a due date
+     * you say when you capture, on your own calendar", issue 1077) - read with
+     * `created_at` for the calendar day a stated due date counts from. Nullable
+     * and carries no CHECK, the same shape `priority_set_at` is; NULL on every
+     * Item from before it, and on every Item another front door made.
+     */
+    capturedTimeZone: text('captured_time_zone'),
 
     // -- source-owned columns --
     source: text('source').$type<StoredSource>().notNull(),
@@ -985,6 +993,14 @@ export const items = sqliteTable(
      * carries no CHECK, the same shape `readings` and `texts_settled_at` are.
      */
     dueDateSetAt: text('due_date_set_at'),
+    /**
+     * When the person first set or cleared `due_date` ("Read a due date you say
+     * when you capture, on your own calendar", issue 1077) - the marker the
+     * note's reading is refused by, as `priority_set_at` is for the priority.
+     * Not `due_date_set_at`, which a clear empties: a deliberate clear has to
+     * count as set. Nullable and carries no CHECK, as that column is.
+     */
+    dueDateChosenAt: text('due_date_chosen_at'),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
 
@@ -1581,6 +1597,12 @@ export const rewriteHistory = sqliteTable(
      * No CHECK, for the reason `looks_at` has none.
      */
     prioritySet: text('priority_set').$type<Priority>(),
+    /**
+     * The due date the attempt set from what the note said, NULL where it set
+     * none ("Read a due date you say when you capture, on your own calendar",
+     * issue 1077) - only ever onto an item that had none, as `priority_set` is.
+     */
+    dueDateSet: text('due_date_set'),
   },
   (t) => [
     // Read per workspace, most recent first - the account-wide table opened

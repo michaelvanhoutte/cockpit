@@ -3,6 +3,7 @@ import { uuidv7, type Priority } from '@cockpit/shared';
 import { CommandRefused } from './api/client';
 import { useDockedItem } from './itemForm';
 import { useCommand } from './api/queries';
+import { deviceTimeZone } from './deviceTimeZone';
 
 /**
  * Capturing a note - the one piece of choreography behind every front door in
@@ -113,6 +114,7 @@ export function useCapture(): {
   const ask = (what: WhatToCapture, answers: CaptureAnswers) => {
     answers.asking?.();
     const itemId = uuidv7();
+    const timeZone = deviceTimeZone();
     command.mutate(
       {
         name: 'capture_item',
@@ -131,6 +133,8 @@ export function useCapture(): {
           // neither carries neither.
           ...(what.priority ? { priority: what.priority } : {}),
           ...(what.dueDate ? { dueDate: what.dueDate } : {}),
+          // The calendar a due date the note states is read on (issue 1077).
+          ...(timeZone ? { timeZone } : {}),
         },
       },
       {

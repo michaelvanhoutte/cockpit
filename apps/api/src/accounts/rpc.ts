@@ -97,6 +97,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     excludeItemId: string,
   ): Awaitable<Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>>;
   /**
+   * The time zone of the account's most recent capture that carried one, or
+   * null ("Read a due date you say when you capture, on your own calendar",
+   * issue 1077). Read by the enrichment job and by nothing else.
+   */
+  latestCapturedTimeZone(accountName: string): Awaitable<Answer<string | null>>;
+  /**
    * What a title or description proposal reads about how this account
    * writes ("Learn how you write from the titles you correct", issue 394). Per
    * account, not per workspace. Read by the enrichment job for the prompt,
