@@ -1,3 +1,5 @@
+import type { Locator } from '@playwright/test';
+
 import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE, TRANSCRIPTION_PATH } from '@cockpit/shared';
 import {
   captureBox,
@@ -105,11 +107,37 @@ test.describe('Capture', () => {
       await expectNoSidewaysScroll(page);
       const typed = uniqueTitle('Water');
       await captureBox(page).fill(typed);
+      // The status sits under the strip on a phone and the mic's box is where
+      // it was before the tap, so a thumb on it is not moved by recording; at a
+      // desk the time sits beside the mic. Held at "Transcribing…" until the
+      // walk has looked, since the stand-in answers at once.
+      const micBefore = (await mic.boundingBox())!;
+      let answer!: () => void;
+      const held = new Promise<void>((resolve) => (answer = resolve));
+      await page.route(`**${TRANSCRIPTION_PATH}`, async (route) => {
+        await held;
+        await route.continue();
+      });
       await press(mic, isMobile);
       await expect(mic).toHaveAttribute('aria-pressed', 'true');
       // A second in, so there is sound kept to send: a recording stopped the moment it starts can be empty.
-      await expect(page.getByText('Listening · 0:01')).toBeVisible();
+      const status = page.getByText('Listening · 0:01');
+      await expect(status).toBeVisible();
+      const listeningAt = (await status.boundingBox())!;
+      const micNow = (await mic.boundingBox())!;
+      if (isMobile) {
+        expect(micNow).toEqual(micBefore);
+        expect(listeningAt.y).toBeGreaterThanOrEqual(micBefore.y + micBefore.height);
+      } else {
+        expect(listeningAt.x + listeningAt.width).toBeLessThanOrEqual(micNow.x);
+      }
       await press(mic, isMobile);
+      const transcribing = page.getByText('Transcribing…');
+      await expect(transcribing).toBeVisible();
+      const transcribingAt = (await transcribing.boundingBox())!;
+      expect(transcribingAt.y).toBe(listeningAt.y);
+      if (isMobile) expect(await mic.boundingBox()).toEqual(micBefore);
+      answer();
       await expect(captureBox(page)).toHaveValue(`${typed} ${STAND_IN_WORDS}`);
       await expect(mic).toHaveAttribute('aria-pressed', 'false');
       await expect(page.getByText('Transcribing…')).toHaveCount(0);
@@ -346,6 +374,96 @@ test.describe('Capture', () => {
       const form = page.getByRole('dialog');
       await expect(form.getByRole('textbox', { name: 'Title' })).toHaveValue(bolded);
       await expect(form.getByRole('textbox', { name: 'Description' }).locator('strong')).toHaveText(bolded);
+    });
+  });
+
+  test.describe('the strip under the note is one row at a desk and two on a phone, and nothing in it runs past the note box', () => {
+    test('puts the date shortcuts above the flags, Aa and the mic on a phone, and everything inside the box', async ({
+      page,
+      isMobile,
+    }) => {
+      // The phone project is 480px wide, which is not the narrowest phone, so
+      // this walk narrows itself to 360px rather than adding a project that
+      // would run every spec again (playwright.config.ts).
+      if (isMobile) await page.setViewportSize({ width: 360, height: 740 });
+      await openInbox(page, isMobile);
+      await openCapture(page, isMobile);
+
+      const priority = page.getByRole('group', { name: 'Priority' });
+      const strip = priority.locator('xpath=..');
+      const noteBox = strip.locator('xpath=..');
+      const flags = priority.getByRole('button');
+      const shortcuts = ['Today', 'Tmrw', '+7d'].map((name) => page.getByRole('button', { name, exact: true }));
+      const aa = page.getByRole('button', { name: 'Format the note' });
+      const mic = page.getByRole('button', { name: 'Dictate' });
+      const due = page.getByRole('group', { name: 'Due' });
+      const datePicker = page.getByRole('button', { name: 'Pick a due date' });
+      const picked = page.getByRole('button', { name: /^Due / });
+      const clear = page.getByRole('button', { name: 'Clear the due date' });
+
+      const middle = async (control: Locator) => {
+        const box = (await control.boundingBox())!;
+        return box.y + box.height / 2;
+      };
+      const expectEverythingInsideTheBox = async () => {
+        const inside = (await noteBox.boundingBox())!;
+        for (const control of await strip.getByRole('button').all()) {
+          const box = (await control.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(inside.x);
+          expect(box.x + box.width).toBeLessThanOrEqual(inside.x + inside.width);
+        }
+        await expectNoSidewaysScroll(page);
+      };
+      /** Picks a day the way the native picker would: through the field's own setter, then its event. */
+      const pick = (day: string) =>
+        page.locator('input[type="date"]').evaluate((input: HTMLInputElement, value) => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }, day);
+      // A day that is none of the shortcuts, this year and next: December
+      // until July and March after, so it is never within a week of today.
+      const now = new Date();
+      const thisYear = `${now.getFullYear()}-${now.getMonth() < 6 ? '12' : '03'}-29`;
+      const nextYear = `${now.getFullYear() + 1}-12-29`;
+
+      if (isMobile) {
+        // Two rows: the shortcuts above, the flags with Aa and the mic below.
+        await expect(due.getByText('Due', { exact: true })).toBeHidden();
+        const top = await middle(shortcuts[0]!);
+        for (const control of [...shortcuts, datePicker]) expect(await middle(control)).toBeCloseTo(top, 0);
+        const bottom = await middle(flags.first());
+        expect(top).toBeLessThan(bottom);
+        for (const control of [...(await flags.all()), aa, mic]) expect(await middle(control)).toBeCloseTo(bottom, 0);
+        const right = async (control: Locator) => (await control.boundingBox())!.x;
+        expect(await right(aa)).toBeGreaterThan(await right(flags.last()));
+        expect(await right(mic)).toBeGreaterThan(await right(aa));
+        await expectEverythingInsideTheBox();
+
+        // A day picked shows short, without the 📅, and the ✕ stays beside it.
+        for (const day of [thisYear, nextYear]) {
+          await pick(day);
+          await expect(picked).toBeVisible();
+          await expect(picked).not.toContainText('📅', { useInnerText: true });
+          await expect(clear).toBeVisible();
+          expect(await middle(clear)).toBeCloseTo(top, 0);
+          await expectEverythingInsideTheBox();
+        }
+        // Next year's carries the year, this year's does not.
+        await expect(picked).toContainText(String(now.getFullYear() + 1).slice(2), { useInnerText: true });
+        await pick(thisYear);
+        await expect(picked).not.toContainText(String(now.getFullYear()).slice(2), { useInnerText: true });
+      } else {
+        // One row, with the label, and the full date beside the 📅.
+        await expect(due.getByText('Due', { exact: true })).toBeVisible();
+        const row = await middle(flags.first());
+        for (const control of [...shortcuts, datePicker, aa, mic]) expect(await middle(control)).toBeCloseTo(row, 0);
+        await expectEverythingInsideTheBox();
+        await pick(thisYear);
+        await expect(picked).toContainText('📅', { useInnerText: true });
+        await expect(picked).toContainText(String(now.getFullYear()), { useInnerText: true });
+        await expect(clear).toBeVisible();
+        await expectEverythingInsideTheBox();
+      }
     });
   });
 
