@@ -638,7 +638,7 @@ function ValuesCondition({
 const SEARCHABLE_ABOVE = 6;
 
 /**
- * The *+ Type* button and the checkbox list it opens: ticking adds the value's
+ * The *+ …* button and the checkbox list it opens: ticking adds the value's
  * chip and unticking takes it away, so the list and the chips are one choice
  * seen twice.
  *

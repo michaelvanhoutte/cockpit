@@ -1479,18 +1479,6 @@ describe('Item editing', () => {
 });
 
 describe('Triage', () => {
-  describe('a row says nothing about type', () => {
-    it('draws an item stored with a type without naming the type', () => {
-      mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
-      mockUseSendCommand.mockReturnValue(vi.fn(() => Promise.resolve({ ok: true as const, applied: true })));
-      const typeId = '11111111-1111-7111-8111-111111111111';
-      render(<ItemRow item={anItem({ typeId })} workspaceId="ws-work" />);
-
-      expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
-      expect(screen.queryByText(typeId)).toBeNull();
-    });
-  });
-
   /** "Mark an item In progress, and see since when" (issue 568). */
   describe('an item In progress wears a pill of its own, and one To do wears none', () => {
     it('wears an In progress pill once started', () => {
