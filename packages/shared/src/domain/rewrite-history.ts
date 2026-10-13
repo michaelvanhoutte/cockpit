@@ -60,6 +60,8 @@ export const rewriteHistoryEntrySchema = z.object({
   suggestedPanelAfter: suggestedPanelSchema.nullable(),
   /** The priority the refinement set from what the note said; null where it set none ("Read a priority you say when you capture", issue 1076). It only ever sets one onto an item that had none. */
   prioritySet: prioritySchema.nullable(),
+  /** The due date the refinement set from what the note said; null where it set none ("Read a due date you say when you capture, on your own calendar", issue 1077). Like the priority, only ever set onto an item that had none. */
+  dueDateSet: z.iso.date().nullable(),
 });
 export type RewriteHistoryEntry = z.infer<typeof rewriteHistoryEntrySchema>;
 

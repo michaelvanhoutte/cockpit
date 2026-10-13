@@ -65,6 +65,7 @@ describe('Capture', () => {
           readings: [],
           panel: null,
           priority: null,
+          dueDate: null,
         },
       });
     });
@@ -123,6 +124,7 @@ describe('Capture', () => {
           ],
           panel: null,
           priority: null,
+          dueDate: null,
         },
       });
     });
@@ -185,6 +187,7 @@ describe('Capture', () => {
           readings: [],
           panel: null,
           priority: null,
+          dueDate: null,
         },
       });
     });
@@ -268,6 +271,7 @@ describe('Capture', () => {
           readings: [],
           panel: null,
           priority: null,
+          dueDate: null,
         },
       });
     });
@@ -288,6 +292,24 @@ describe('Capture', () => {
       const read = readProposal(JSON.stringify({ ...JSON.parse(usable), ...(priority === undefined ? {} : { priority }) }), []);
 
       expect('proposal' in read && read.proposal.priority).toBe(expected);
+      expect('proposal' in read && read.proposal.title).toBe('Ask Novy about the Part 11 audit trail');
+    });
+  });
+  /**
+   * "Read a due date you say when you capture, on your own calendar" (issue
+   * 1077): read on its own, like the priority, and only as a calendar day.
+   */
+  describe('a due date the note states is read only as a calendar day, and never costs the note its texts', () => {
+    it.each([
+      { situation: 'the answer gave a day', dueDate: '2026-10-16', expected: '2026-10-16' },
+      { situation: 'the answer gave none', dueDate: undefined, expected: null },
+      { situation: 'the answer gave a weekday rather than a day', dueDate: 'Friday', expected: null },
+      { situation: 'the answer gave a time as well', dueDate: '2026-10-16T15:00:00Z', expected: null },
+      { situation: 'the answer gave a day that does not exist', dueDate: '2026-02-30', expected: null },
+    ])('when $situation', ({ dueDate, expected }) => {
+      const read = readProposal(JSON.stringify({ ...JSON.parse(usable), ...(dueDate === undefined ? {} : { dueDate }) }), []);
+
+      expect('proposal' in read && read.proposal.dueDate).toBe(expected);
       expect('proposal' in read && read.proposal.title).toBe('Ask Novy about the Part 11 audit trail');
     });
   });

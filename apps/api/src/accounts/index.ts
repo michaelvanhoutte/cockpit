@@ -149,6 +149,12 @@ export interface Account {
     excludeItemId: string,
   ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>;
   /**
+   * The distinct time zones of the account's latest captures, most recent
+   * first, and none where none carried one ("Read a due date you say when you
+   * capture, on your own calendar", issue 1077).
+   */
+  recentCapturedTimeZones(): Promise<string[]>;
+  /**
    * What a title or description proposal reads about how this account
    * writes ("Learn how you write from the titles you correct", issue 394).
    */
@@ -379,6 +385,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     routingContext: async (workspaceId, excludeItemId) =>
       unwrap(await store.routingContext(accountName, workspaceId, excludeItemId)),
     textLearningContext: async () => unwrap(await store.textLearningContext(accountName)),
+    recentCapturedTimeZones: async () => unwrap(await store.recentCapturedTimeZones(accountName)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     meaningsForRefresh: async (workspaceId, since, candidateIds, model) =>

@@ -156,6 +156,9 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_PRIORITY_SET_AT,
     REWRITE_HISTORY_PRIORITY_SET,
     filterRows(accountId),
+    ITEM_CAPTURED_TIME_ZONE,
+    ITEM_DUE_DATE_CHOSEN_AT,
+    REWRITE_HISTORY_DUE_DATE_SET,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -448,6 +451,48 @@ const REWRITE_HISTORY_PRIORITY_SET: Change = {
   statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `priority_set` text' }],
 };
 
+/**
+ * The time zone a capture was made in, the person's marker on the due date,
+ * and the due date a refinement set from what the note said ("Read a due date
+ * you say when you capture, on your own calendar", issue 1077) - three
+ * nullable columns, each a change of its own so each is one statement tracked
+ * on its own.
+ *
+ * Their failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): three `ADD COLUMN`s, and no statement that writes to a row.
+ * - **If it stops halfway:** the columns added so far are recorded as applied,
+ *   so the next open applies only the rest.
+ * - **The second time it runs:** none re-runs once recorded, and SQLite
+ *   refuses a column that already exists rather than adding it twice.
+ * - **Rows that predate it:** every Item reads NULL for its zone, so a
+ *   re-read of one reads a date only on the zone of the account's latest
+ *   capture that carried one, and none while there is none. Every Item reads
+ *   NULL for its marker, and a due date it already holds is protected by the
+ *   rule that the reading only fills an empty one, so nothing is backfilled.
+ *   Every history row reads NULL, which is true: nothing set a due date before.
+ * - **Rolled back after it has run:** an older release never names any of the
+ *   three; a capture it takes stores no zone and a `set_due_date` it applies
+ *   leaves the marker unstamped - a date cleared then may be filled by a
+ *   reading still in flight, the same cost `0069-item-priority-set-at` names.
+ */
+const ITEM_CAPTURED_TIME_ZONE: Change = {
+  name: '0072-item-captured-time-zone',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `captured_time_zone` text' }],
+};
+
+/** The second of the three columns above, under the same failure modes. */
+const ITEM_DUE_DATE_CHOSEN_AT: Change = {
+  name: '0073-item-due-date-chosen-at',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `due_date_chosen_at` text' }],
+};
+
+/** The third of the three columns above, under the same failure modes. */
+const REWRITE_HISTORY_DUE_DATE_SET: Change = {
+  name: '0074-rewrite-history-due-date-set',
+  statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `due_date_set` text' }],
+};
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
 export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect it to carry on.';
 

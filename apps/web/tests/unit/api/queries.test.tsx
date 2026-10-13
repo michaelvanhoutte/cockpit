@@ -522,6 +522,8 @@ function anItem(over: Partial<Item> = {}): Item {
     startedAt: null,
     priority: null,
     prioritySetAt: null,
+    dueDateChosenAt: null,
+    capturedTimeZone: null,
     dueDate: null,
     dueDateSetAt: null,
     unseen: false,

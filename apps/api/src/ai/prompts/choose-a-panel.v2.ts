@@ -1,5 +1,5 @@
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
-import { renderHistory, renderPanels, renderRecentlyCaptured } from './clean-up-a-note.v12.js';
+import { renderHistory, renderPanels, renderRecentlyCaptured } from './clean-up-a-note.v13.js';
 
 /**
  * The one Item a panel is being chosen for: what was captured, and the two
@@ -26,7 +26,7 @@ function descriptionShown(description: string): string {
 /**
  * Every word of the system prompt that is the same for every item and every
  * account, and nothing else - so it can be the first cached prefix
- * (`index.ts`), as `clean-up-a-note.v12`'s is.
+ * (`index.ts`), as `clean-up-a-note.v13`'s is.
  */
 const INSTRUCTIONS = `You are part of Cockpit, one person's inbox for their own work.
 
@@ -56,7 +56,7 @@ What else has been captured in this workspace recently and not yet filed is sepa
  * panels, the decision history and what else was captured lately - and none
  * of its writing guidance.
  *
- * **`v2` is sent in the three parts `clean-up-a-note.v12` is, and asks for
+ * **`v2` is sent in the three parts `clean-up-a-note.v13` is, and asks for
  * nothing different** ("Cut what cleaning up a captured note costs", issue
  * 887): `instructions`, then `stable` - the Panels and the decision history,
  * which change only on a filing - then `recent`, what was captured lately.

@@ -131,6 +131,7 @@ import {
   meaningsToCompareWith,
   queueRewriteAttempt,
   recentlyCapturedUnfiled,
+  recentCapturedTimeZones,
   recordRewriteOutcome,
   rememberMeaning,
   replaceDuplicatesOf,
@@ -477,6 +478,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       history: decisionHistoryForWorkspace(db, accountName, workspaceId),
       recentlyCaptured: recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
     }));
+  }
+
+  /**
+   * The distinct time zones of the account's latest captures, most recent
+   * first - the calendars a capture without a readable one of its own is read
+   * on ("Read a due date you say when you capture, on your own calendar", issue
+   * 1077).
+   */
+  recentCapturedTimeZones(accountName: string): Answer<string[]> {
+    return this.#answer(accountName, (db) => recentCapturedTimeZones(db, accountName));
   }
 
   /**

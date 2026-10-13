@@ -69,7 +69,12 @@ function fixtureName(index: number): string {
  * which an open brings in holding NULL - those changes hold their own rows.
  */
 function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<string, SqlStorageValue> {
-  const { priority_set_at: _prioritySetAt, ...rest } = row;
+  const {
+    priority_set_at: _prioritySetAt,
+    captured_time_zone: _capturedTimeZone,
+    due_date_chosen_at: _dueDateChosenAt,
+    ...rest
+  } = row;
   return rest;
 }
 
@@ -1916,7 +1921,7 @@ const connectorRowsIn = (name: string) =>
       .toArray()
       .map(({ follows: _follows, ...row }) => row),
     failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
-    // Without `priority_set_at`, which `0069-item-priority-set-at` adds on the same open.
+    // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
   }));
 
@@ -2008,7 +2013,7 @@ const keptBesideGmail = (name: string) =>
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
       .map(({ follows: _follows, ...row }) => row),
-    // Without `priority_set_at`, which `0069-item-priority-set-at` adds on the same open.
+    // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
     links: sql.exec('SELECT * FROM pulled_links ORDER BY source_id').toArray(),
     checkpoints: sql.exec('SELECT * FROM pulled_connections ORDER BY source_account_id').toArray(),

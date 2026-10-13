@@ -27,7 +27,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v12.test.ts).
+ * (tests/contract/clean-up-a-note.v13.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -249,10 +249,35 @@ async function priorityOf(itemId: string) {
 }
 
 /** What Cockpit changed on one item, newest first, as its own tab reads it. */
-async function historyOf(itemId: string): Promise<{ id: string; status: string; prioritySet: string | null }[]> {
+async function historyOf(
+  itemId: string,
+): Promise<{ id: string; status: string; prioritySet: string | null; dueDateSet: string | null }[]> {
   const response = await asUser(`http://cockpit.test/v1/items/${itemId}/rewrite-history`);
   expect(response.status).toBe(200);
-  return ((await response.json()) as { entries: { id: string; status: string; prioritySet: string | null }[] }).entries;
+  return (
+    (await response.json()) as {
+      entries: { id: string; status: string; prioritySet: string | null; dueDateSet: string | null }[];
+    }
+  ).entries;
+}
+
+/** An item's due date, whether the person made it theirs, and the time zone it was captured in, read straight out of the store. */
+async function dueDateOf(itemId: string, accountName = ACCOUNT_NAME) {
+  const rows = await inStoreAsItIs(accountName, (sql) =>
+    sql
+      .exec<{
+        due_date: string | null;
+        due_date_set_at: string | null;
+        due_date_chosen_at: string | null;
+        captured_time_zone: string | null;
+      }>(
+        'SELECT due_date, due_date_set_at, due_date_chosen_at, captured_time_zone FROM items WHERE id = ? AND tenant_id = ?',
+        itemId,
+        accountName,
+      )
+      .toArray(),
+  );
+  return rows[0] ?? null;
 }
 
 /** Waits for the reading that follows a capture to have been recorded as done, whatever it changed. */
@@ -732,7 +757,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v12.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v13.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {
@@ -1137,8 +1162,8 @@ describe('Capture', () => {
         field: { description: 'Mine to write' },
       },
     ])('leaves both texts alone once you have edited $situation', async ({ name, field }) => {
-      // Captured with a priority, so the texts are the last thing a reading could set.
-      const itemId = await captureANote({ priority: 'normal' });
+      // Captured with a priority and a due date, so the texts are the last thing a reading could set.
+      const itemId = await captureANote({ priority: 'normal', dueDate: '2026-09-30' });
       await untilTheNoteHasBeenRead(itemId);
       await postChange(name, {
         commandId: nextId(),
@@ -1161,6 +1186,29 @@ describe('Capture', () => {
       // job before the model is called at all, so nothing is spent on an answer
       // that would only be refused.
       expect(asked).toHaveLength(0);
+    });
+
+    it.each([
+      { situation: 'is read again for it where the day it was captured on is known', timeZone: 'Europe/Brussels', reads: 1, expected: '2026-09-11' },
+      { situation: 'is never read again for it where no day is known to count from', timeZone: undefined, reads: 0, expected: null },
+    ])('with only its due date open, $situation', async ({ timeZone, reads, expected }) => {
+      // The priority is chosen, so the due date is all a reading could still set.
+      const itemId = await captureANote({ priority: 'normal', ...(timeZone ? { timeZone } : {}) });
+      await untilTheNoteHasBeenRead(itemId);
+      await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:01.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Mine',
+      });
+      asked = [];
+      theModelIs({ says: { ...SOMETHING_ELSE, dueDate: '2026-09-11' } });
+
+      await readAgain(itemId);
+
+      expect(asked.filter(isACleanUp)).toHaveLength(reads);
+      expect((await dueDateOf(itemId))?.due_date).toBe(expected);
     });
 
     it('still sets the priority the note states once you have edited the title', async () => {
@@ -1331,6 +1379,182 @@ describe('Capture', () => {
       const [entry] = await historyOf(itemId);
       expect(entry?.status).toBe('rewritten');
       expect(entry?.prioritySet).toBe('high');
+    });
+  });
+
+  /**
+   * "Read a due date you say when you capture, on your own calendar" (issue
+   * 1077). The model is faked, so these prove which day Cockpit tells it the
+   * note was captured on and what it does with the date handed back - not how
+   * well a note is read. Which calendar day an instant falls on in a zone is
+   * `captureDay`'s, proved without a store (tests/unit/domain/capture-day.test.ts).
+   */
+  describe('a capture keeps the time zone it was made in', () => {
+    it.each([
+      { situation: 'a capture that carries its time zone', timeZone: 'Europe/Brussels', expected: 'Europe/Brussels' },
+      { situation: 'a capture kept offline before captures carried one', timeZone: undefined, expected: null },
+      { situation: 'a time zone this server does not know', timeZone: 'Mars/Olympus_Mons', expected: 'Mars/Olympus_Mons' },
+    ])('$situation', async ({ timeZone, expected }) => {
+      const itemId = await captureANote(timeZone === undefined ? {} : { timeZone });
+
+      expect((await dueDateOf(itemId))?.captured_time_zone).toBe(expected);
+    });
+
+    it('refuses a capture whose time zone is not a time zone name, and keeps nothing', async () => {
+      const itemId = nextId();
+      const response = await postChange('capture_item', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        message: NOTE,
+        timeZone: 'nine hours ahead',
+      });
+
+      expect(response.status).toBe(400);
+      // The store is brought up to date first: nothing before this has opened it.
+      expect(await inTheStore((sql) => sql.exec('SELECT id FROM items WHERE id = ?', itemId).toArray())).toEqual([]);
+    });
+  });
+
+  describe('a note is read on the calendar it was captured on', () => {
+    /** The day the model was told the note `message` was captured on. */
+    const toldOf = (message: string) =>
+      asked.find((call) => call.note === message && isACleanUp(call))?.system.match(/Captured on: [^\n]*/u)?.[0];
+
+    it.each([
+      {
+        situation: 'its own time zone, ahead of UTC across midnight',
+        earlier: [],
+        own: 'Pacific/Auckland',
+        told: 'Captured on: Thursday 2026-09-10',
+      },
+      {
+        situation: 'the time zone of the latest capture that had one, where it has none',
+        earlier: [
+          { zone: 'America/New_York', at: '2026-09-09T09:00:00.000Z' },
+          { zone: 'Pacific/Auckland', at: '2026-09-09T10:00:00.000Z' },
+        ],
+        own: undefined,
+        told: 'Captured on: Thursday 2026-09-10',
+      },
+      {
+        situation: 'an earlier capture’s readable time zone, where its own is one this server cannot read',
+        earlier: [{ zone: 'Pacific/Auckland', at: '2026-09-09T10:00:00.000Z' }],
+        own: 'Mars/Olympus_Mons',
+        told: 'Captured on: Thursday 2026-09-10',
+      },
+      {
+        situation: 'no day at all, where no capture of the account ever had a time zone',
+        earlier: [],
+        own: undefined,
+        told: 'Captured on: (not known',
+      },
+    ])('by $situation', async ({ earlier, own, told }) => {
+      for (const [index, { zone, at }] of earlier.entries()) {
+        await captureANote({ issuedAt: at, timeZone: zone, message: `earlier note ${index}` });
+      }
+      const message = 'send anna the q3 numbers friday';
+
+      await captureANote({ issuedAt: '2026-09-09T13:00:00.000Z', message, ...(own ? { timeZone: own } : {}) });
+
+      await vi.waitFor(() => expect(toldOf(message)).toBeDefined(), { timeout: 15_000, interval: 50 });
+      expect(toldOf(message)).toContain(told);
+    });
+
+    it('never reads a note on the time zone of another account’s capture', async () => {
+      await captureANote({ workspaceId: WORKSPACE_ID, timeZone: 'Pacific/Auckland', message: 'theirs' }, OTHER_USER_ID);
+      const message = 'mine, with no time zone';
+
+      await captureANote({ issuedAt: '2026-09-09T13:00:00.000Z', message });
+
+      await vi.waitFor(() => expect(toldOf(message)).toBeDefined(), { timeout: 15_000, interval: 50 });
+      expect(toldOf(message)).toContain('Captured on: (not known');
+    });
+
+    it('still reads the priority, and sets no due date, where it has no day to count from', async () => {
+      theModelIs({ says: { ...A_READING, priority: 'high', dueDate: '2026-09-11' } });
+
+      const itemId = await captureANote();
+      await untilTheChangeIsRecorded(itemId);
+
+      expect((await priorityOf(itemId))?.priority).toBe('high');
+      expect((await dueDateOf(itemId))?.due_date).toBeNull();
+    });
+  });
+
+  describe('a due date the note states is set on the item', () => {
+    it.each([
+      { situation: 'the note names a day', says: '2026-09-11', expected: '2026-09-11' },
+      { situation: 'the note names no day', says: undefined, expected: null },
+      { situation: 'the answer gives something that is not a day', says: 'Friday', expected: null },
+    ])('$situation', async ({ says, expected }) => {
+      theModelIs({ says: { ...A_READING, ...(says === undefined ? {} : { dueDate: says }) } });
+
+      const itemId = await captureANote({ timeZone: 'Europe/Brussels' });
+      await untilTheChangeIsRecorded(itemId);
+
+      const stored = await dueDateOf(itemId);
+      expect(stored?.due_date).toBe(expected);
+      // A date Cockpit read colours along from when it was read, and is not
+      // yours: you can still set or clear it, and nothing blocks you.
+      expect(stored?.due_date_set_at === null).toBe(expected === null);
+      expect(stored?.due_date_chosen_at).toBeNull();
+      expect((await textsOf(itemId))?.title).toBe(A_READING.title);
+    });
+  });
+
+  describe('a due date you choose yourself is never replaced by the one the note states', () => {
+    const setDueDate = (itemId: string, dueDate: string | null, issuedAt: string) =>
+      postChange('set_due_date', { commandId: nextId(), issuedAt, workspaceId: WORKSPACE_ID, itemId, dueDate });
+
+    it.each([
+      {
+        situation: 'keeps a due date chosen in the Capture strip',
+        capturedWith: { dueDate: '2026-09-10' },
+        meanwhile: null,
+        expected: '2026-09-10',
+      },
+      {
+        situation: 'keeps a due date cleared while Cockpit is still reading the note',
+        capturedWith: {},
+        meanwhile: async (itemId: string) => {
+          await setDueDate(itemId, '2026-09-30', '2026-09-09T10:00:01.000Z');
+          await setDueDate(itemId, null, '2026-09-09T10:00:02.000Z');
+        },
+        expected: null,
+      },
+      {
+        situation: 'still sets the due date where you chose only the priority',
+        capturedWith: { priority: 'normal' as const },
+        meanwhile: null,
+        expected: '2026-09-11',
+      },
+    ])('$situation', async ({ capturedWith, meanwhile, expected }) => {
+      theModelIs({ says: { ...A_READING, priority: 'high', dueDate: '2026-09-11' } });
+      const itemId = nextId();
+      if (meanwhile) whileReading = () => meanwhile(itemId);
+
+      await captureANote({ itemId, timeZone: 'Europe/Brussels', ...capturedWith });
+      await untilTheChangeIsRecorded(itemId);
+
+      expect((await dueDateOf(itemId))?.due_date).toBe(expected);
+      expect((await historyOf(itemId))[0]?.dueDateSet).toBe(expected === '2026-09-11' ? '2026-09-11' : null);
+    });
+  });
+
+  describe('what Cockpit changed records the due date it set', () => {
+    it('records the due date set on an item that had none, once however often the note is read', async () => {
+      theModelIs({ says: { ...A_READING, dueDate: '2026-09-11' } });
+      const itemId = await captureANote({ timeZone: 'Europe/Brussels' });
+      await untilTheChangeIsRecorded(itemId);
+      const [first] = await historyOf(itemId);
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: first!.id }), env);
+
+      const history = await historyOf(itemId);
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({ status: 'rewritten', dueDateSet: '2026-09-11' });
     });
   });
 
