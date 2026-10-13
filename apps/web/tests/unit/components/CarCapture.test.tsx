@@ -11,7 +11,9 @@ import {
   CarCapture,
   NO_RECORDING_HERE,
   NO_TRANSCRIBER_HERE,
+  WAITING_FOR_WORDS,
 } from '../../../src/components/CarCapture';
+import type { OutboxEntry } from '../../../src/captureOutbox';
 import styles from '../../../src/styles.css?raw';
 import {
   CaptureOutbox,
@@ -22,7 +24,7 @@ import {
   type OutboxStore,
 } from '../../../src/captureOutboxSender';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
-import { DICTATION_COULD_NOT_TRANSCRIBE, DICTATION_TOO_MANY, type StartRecording } from '../../../src/recording';
+import type { StartRecording } from '../../../src/recording';
 import type { WakeLockApi } from '../../../src/wakeLock';
 import { aRecorder, aTranscriber } from '../support/recording';
 
@@ -47,6 +49,8 @@ const held = vi.hoisted(() => ({
   types: [] as unknown[],
   items: [] as unknown[],
   mutate: vi.fn(),
+  /** What the workspace's own read waits on: nothing, unless a test holds it. */
+  reading: Promise.resolve(),
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -58,7 +62,7 @@ vi.mock('../../../src/api/queries', () => ({
   itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => new Promise(() => {}) },
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () => Promise.resolve({ items: held.items, itemTypes: held.types }),
+    queryFn: () => held.reading.then(() => ({ items: held.items, itemTypes: held.types })),
   }),
 }));
 
@@ -125,6 +129,7 @@ async function theCar({
   store = browserOutboxStore(),
   capturedFor = 40,
   hidden = false,
+  online = true,
 }: {
   items?: Item[];
   dictating?: {
@@ -140,6 +145,8 @@ async function theCar({
   capturedFor?: number;
   /** The page is hidden as the view opens. */
   hidden?: boolean;
+  /** False where the browser says it is offline. */
+  online?: boolean;
 } = {}) {
   held.types = [ACTION, THOUGHT];
   held.items = items;
@@ -148,11 +155,13 @@ async function theCar({
   pageIs(hidden ? 'hidden' : 'visible');
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The outbox transcribes what the view hands it, with the Worker the view was given.
+  const transcribe = dictating?.transcribe;
   const outbox = new CaptureOutbox({
     store,
-    sender: serverSender,
+    sender: transcribe ? { ...serverSender, transcribe: (recording) => transcribe(recording) } : serverSender,
     lock: inTabLock(),
-    online: () => true,
+    online: () => online,
     timeoutMs: 500,
   });
   outbox.signedInAs('user-michael');
@@ -231,6 +240,7 @@ describe('Capture', () => {
   beforeEach(() => {
     globalThis.indexedDB = new IDBFactory();
     held.mutate.mockClear();
+    held.reading = Promise.resolve();
     vi.mocked(sendCommand).mockReset();
     vi.mocked(sendCommand).mockResolvedValue({ ok: true as const, applied: true });
   });
@@ -358,7 +368,7 @@ describe('Capture', () => {
     });
 
     it('shows a running time on the card while recording, and Transcribing… after the second tap', async () => {
-      const { transcriber } = await drivingWith();
+      await drivingWith();
       vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
 
       fireEvent.click(theButton());
@@ -379,10 +389,9 @@ describe('Capture', () => {
       expect(card()).toHaveTextContent('Transcribing…');
       expect(card()).not.toHaveTextContent('Listening');
       expect(theButton()).toHaveAttribute('aria-disabled', 'true');
-      expect(transcriber.sent()).toBe(1);
     });
 
-    it('says Capturing while the note is still being written, with no tick and no vibration', async () => {
+    it('says Transcribing while the recording is still being kept, with no tick and no vibration', async () => {
       const vibrate = vi.fn();
       const writing: OutboxStore = {
         all: () => Promise.resolve([]),
@@ -391,10 +400,12 @@ describe('Capture', () => {
       };
       const { user, transcriber } = await drivingWith({ vibrate, store: writing });
 
-      await says(user, transcriber, 'call the dentist');
+      await recording(user);
+      await user.click(theButton());
       await settled();
 
-      expect(theStatus()).toHaveTextContent('Capturing…');
+      expect(theStatus()).toHaveTextContent('Transcribing…');
+      expect(transcriber.sent()).toBe(0);
       expect(vibrate).not.toHaveBeenCalled();
     });
 
@@ -423,7 +434,102 @@ describe('Capture', () => {
     });
   });
 
-  describe('when recording or transcribing fails, the status says why in large text and nothing is captured', () => {
+  describe('the Car view captures at once when the words cannot come back, and lists the note as waiting for them', () => {
+    it.each([
+      { situation: 'no connection', online: false, answer: null },
+      {
+        situation: 'the transcription fails',
+        online: true,
+        answer: (transcriber: ReturnType<typeof aTranscriber>) => transcriber.fails(),
+      },
+      {
+        situation: 'the account is held to its limit',
+        online: true,
+        answer: (transcriber: ReturnType<typeof aTranscriber>) => transcriber.isTurnedAway(),
+      },
+    ])('$situation', async ({ online, answer }) => {
+      const vibrate = vi.fn();
+      const { user, transcriber } = await drivingWith({ online, vibrate, capturedFor: 200 });
+      await recording(user);
+      await user.click(theButton());
+      await answer?.(transcriber);
+
+      await waitFor(() => expect(theStatus()).toHaveTextContent('Captured'));
+      expect(vibrate).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('list', { name: 'Captured here' })).toHaveTextContent(WAITING_FOR_WORDS);
+      const kept = (await browserOutboxStore().all()) as OutboxEntry[];
+      expect(kept.map((entry) => [entry.message, entry.recording?.transcribed])).toEqual([['', false]]);
+      await settled();
+      expect(capturedCalls()).toHaveLength(0);
+
+      // Opened again, as after a reload: still listed as waiting.
+      user.unmount();
+      await theCar({ dictating: { record: aRecorder().record, transcribe: transcriber.transcribe }, online: false });
+      expect(screen.getByRole('list', { name: 'Captured here' })).toHaveTextContent(WAITING_FOR_WORDS);
+    });
+
+    it('lists one kept from before the view was opened again by its words once it lands', async () => {
+      const { user, transcriber } = await drivingWith({ online: false });
+      await recording(user);
+      await user.click(theButton());
+      await waitFor(() => expect(theStatus()).toHaveTextContent('Captured'));
+
+      user.unmount();
+      await theCar({ dictating: { record: aRecorder().record, transcribe: transcriber.transcribe } });
+      await transcriber.answers('buy oat milk');
+
+      expect((await theCapture()).message).toBe('buy oat milk');
+      await waitFor(() =>
+        expect(screen.getByRole('list', { name: 'Captured here' })).toHaveTextContent('buy oat milk'),
+      );
+    });
+
+    it('keeps the recording when the view is switched away while it is transcribing', async () => {
+      const { user, transcriber } = await drivingWith();
+      await recording(user);
+      await user.click(theButton());
+
+      user.unmount();
+      await transcriber.answers('buy oat milk');
+
+      expect((await theCapture()).message).toBe('buy oat milk');
+    });
+
+    it('waits for the workspace to be read when the note is spoken before it has been, then captures it', async () => {
+      let read: () => void = () => {};
+      held.reading = new Promise((resolve) => {
+        read = resolve;
+      });
+      const { user, transcriber } = await drivingWith();
+      await recording(user);
+      await user.click(theButton());
+      await settled();
+      expect(theStatus()).toHaveTextContent('Transcribing…');
+      expect(transcriber.sent()).toBe(0);
+
+      await act(async () => read());
+      await transcriber.answers('buy oat milk');
+
+      expect(await theCapture()).toMatchObject({ message: 'buy oat milk', typeId: ACTION.id });
+    });
+
+    it('transcribes it here and sends it at once where the recording cannot be kept on this device', async () => {
+      const refusing: OutboxStore = {
+        all: () => Promise.resolve([]),
+        put: () => Promise.reject(new Error('private window')),
+        remove: () => Promise.resolve(),
+      };
+      const { user, transcriber } = await drivingWith({ store: refusing });
+
+      await says(user, transcriber, 'buy oat milk');
+
+      await waitFor(() => expect(theStatus()).toHaveTextContent('Captured'));
+      expect(held.mutate).toHaveBeenCalledTimes(1);
+      expect(held.mutate.mock.calls[0]![0]).toMatchObject({ name: 'capture_item', payload: { message: 'buy oat milk' } });
+    });
+  });
+
+  describe('when recording fails, the status says why in large text and nothing is captured', () => {
     it.each([
       ['the microphone is blocked', 'NotAllowedError', DICTATION_BLOCKED],
       ['there is no microphone', 'NotFoundError', DICTATION_NO_MICROPHONE],
@@ -437,48 +543,6 @@ describe('Capture', () => {
       expect(theButton()).toHaveAccessibleName('Speak a note');
       await settled();
       expect(capturedCalls()).toHaveLength(0);
-    });
-
-    it('says the transcription failed, and captures nothing, when it does not come back', async () => {
-      const { user, transcriber } = await drivingWith();
-      await recording(user);
-      await user.click(theButton());
-
-      await transcriber.fails();
-
-      expect(theStatus()).toHaveTextContent(DICTATION_COULD_NOT_TRANSCRIBE);
-      expect(theButton()).toHaveAccessibleName('Speak a note');
-      await settled();
-      expect(capturedCalls()).toHaveLength(0);
-    });
-
-    it('says too many were sent in a minute when the account is held to its limit, and captures nothing', async () => {
-      const { user, transcriber } = await drivingWith();
-      await recording(user);
-      await user.click(theButton());
-
-      await transcriber.isTurnedAway();
-
-      expect(theStatus()).toHaveTextContent(DICTATION_TOO_MANY);
-      expect(theButton()).toHaveAccessibleName('Speak a note');
-      await settled();
-      expect(capturedCalls()).toHaveLength(0);
-    });
-
-    it('clears the message once the next try starts, and captures that one', async () => {
-      const { user, transcriber } = await drivingWith();
-      await recording(user);
-      await user.click(theButton());
-      await transcriber.fails();
-      expect(theStatus()).toHaveTextContent(DICTATION_COULD_NOT_TRANSCRIBE);
-
-      await user.click(theButton());
-      await waitFor(() => expect(theStatus()).toHaveTextContent('Listening — tap to capture'));
-      expect(theStatus()).not.toHaveTextContent(DICTATION_COULD_NOT_TRANSCRIBE);
-      await user.click(theButton());
-      await transcriber.answers('second try');
-
-      expect((await theCapture()).message).toBe('second try');
     });
 
     it('lets go of the microphone and captures nothing when the view is left while recording', async () => {

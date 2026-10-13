@@ -5,7 +5,7 @@ import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CommandRefused } from '../../src/api/client';
-import { stateOf, type OutboxEntry } from '../../src/captureOutbox';
+import { NOTHING_HEARD, needsWords, stateOf, type OutboxEntry } from '../../src/captureOutbox';
 import {
   CaptureOutbox,
   OutboxProvider,
@@ -49,6 +49,15 @@ function aServer() {
     attachments: new Map<string, { itemId: string; name: string; text: string }>(),
     captureOrder: [] as string[],
     captureCalls: 0,
+    /** Captures reach the server, though transcriptions may. */
+    capturesReachable: true,
+    /** Why the transcriber turns a recording down, where it does. */
+    transcriptionRefused: null as Error | null,
+    transcribeCalls: 0,
+    /** Transcriptions that came back with words. */
+    transcribed: 0,
+    /** Looked at as each capture arrives: what the phone still holds then. */
+    atCapture: null as (() => Promise<void>) | null,
     inFlight: 0,
     mostAtOnce: 0,
     sender: null as unknown as Sender,
@@ -60,7 +69,8 @@ function aServer() {
       server.mostAtOnce = Math.max(server.mostAtOnce, server.inFlight);
       try {
         await new Promise((resolve) => setImmediate(resolve));
-        if (!server.reachable) throw new TypeError('Failed to fetch');
+        if (!server.reachable || !server.capturesReachable) throw new TypeError('Failed to fetch');
+        await server.atCapture?.();
         if (server.refuseCapture?.message === payload.message) throw server.refuseCapture.because;
         const applied = !server.items.has(payload.commandId);
         if (applied) {
@@ -88,6 +98,15 @@ function aServer() {
       server.attachments.set(attachmentId, { itemId, name: file.name, text: await file.text() });
       return { ok: true, applied: true };
     },
+    // The stand-in hears whatever the recording's bytes spell.
+    transcribe: async (recording) => {
+      server.transcribeCalls += 1;
+      await new Promise((resolve) => setImmediate(resolve));
+      if (!server.reachable) throw new TypeError('Failed to fetch');
+      if (server.transcriptionRefused) throw server.transcriptionRefused;
+      server.transcribed += 1;
+      return recording.text();
+    },
   };
   return server;
 }
@@ -102,11 +121,12 @@ function aTab(
     owner = 'user-ada' as string | null,
     store = browserOutboxStore(),
     announce = undefined as ((news: OutboxNews) => void) | undefined,
+    sender = server.sender,
   } = {},
 ) {
   const outbox = new CaptureOutbox({
     store,
-    sender: server.sender,
+    sender,
     lock,
     online: () => server.online,
     timeoutMs: 1_000,
@@ -130,6 +150,16 @@ const capture = (message: string, files: File[] = []) => ({
   workspaceId: 'ws-work',
   decided: true,
   files: files.map((file) => ({ id: crypto.randomUUID(), file })),
+});
+
+/** A note spoken in the Car view: its recording, whose bytes the stand-in transcriber reads back as `words`. */
+const spoken = (words: string) => ({
+  id: `item-${String((made += 1)).padStart(6, '0')}`,
+  typeId: 'type-task',
+  workspaceId: 'ws-work',
+  decided: false,
+  recording: new Blob([words], { type: 'audio/webm' }),
+  seconds: 4,
 });
 
 const photo = (name = 'photo.png', text = 'photo-bytes') => new File([text], name, { type: 'image/png' });
@@ -702,6 +732,217 @@ describe('Offline', () => {
 
       expect(messages(server)).toEqual(sends ? ['Ring the plumber'] : []);
       outbox.stop();
+    });
+  });
+
+  describe('a note spoken without a connection becomes an Item once its recording can be transcribed', () => {
+    it.each([
+      {
+        situation: 'the connection comes back',
+        meanwhile: () => undefined,
+        kept: { message: '', transcribed: false },
+      },
+      {
+        situation: 'the transcription fails again first',
+        meanwhile: (server: Server) => {
+          server.reachable = true;
+          server.transcriptionRefused = new CommandRefused(503, 'transcribing failed: 503');
+        },
+        kept: { message: '', transcribed: false },
+      },
+      {
+        situation: 'it is transcribed, but the capture goes unanswered first',
+        meanwhile: (server: Server) => {
+          server.reachable = true;
+          server.capturesReachable = false;
+        },
+        kept: { message: 'Ring the plumber', transcribed: true },
+      },
+    ])('$situation', async ({ meanwhile, kept }) => {
+      const server = aServer();
+      server.reachable = false;
+      const store = browserOutboxStore();
+      const outbox = aTab(server, { store });
+      expect(await outbox.addRecorded(spoken('Ring the plumber'))).toBe('waiting');
+      await settled();
+      meanwhile(server);
+      await outbox.send();
+      await settled();
+
+      const [waiting] = outbox.getShown();
+      expect({ message: waiting?.message, transcribed: waiting?.recording?.transcribed }).toEqual(kept);
+      expect(messages(server)).toEqual([]);
+
+      let heldAtCapture: unknown[] = [];
+      server.atCapture = async () => {
+        heldAtCapture = await store.all();
+      };
+      Object.assign(server, { reachable: true, capturesReachable: true, transcriptionRefused: null });
+      await outbox.send();
+      await settled();
+
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      expect(server.transcribed).toBe(1);
+      // The recording went only once the capture was answered.
+      expect(heldAtCapture.map((one) => (one as OutboxEntry).recording?.bytes.byteLength)).toEqual([16]);
+      expect(await store.all()).toEqual([]);
+      outbox.stop();
+    });
+
+    it('sends a typed note kept before spoken ones existed exactly as it always has, transcribing nothing', async () => {
+      const server = aServer();
+      const sent: unknown[] = [];
+      const answering = server.sender.capture;
+      server.sender.capture = (payload, signal) => {
+        sent.push(payload);
+        return answering(payload, signal);
+      };
+      const store = browserOutboxStore();
+      await store.put({
+        v: 1,
+        id: 'item-typed',
+        owner: 'user-ada',
+        commandId: 'command-typed',
+        capturedAt: '2026-10-01T08:00:00.000Z',
+        workspaceId: 'ws-work',
+        decided: true,
+        message: 'Ring the plumber',
+        typeId: 'type-task',
+        files: [],
+        landed: false,
+        refused: null,
+      });
+
+      const outbox = aTab(server, { store });
+      await outbox.send();
+      await settled();
+
+      expect(sent).toEqual([
+        {
+          commandId: 'command-typed',
+          issuedAt: '2026-10-01T08:00:00.000Z',
+          workspaceId: 'ws-work',
+          itemId: 'item-typed',
+          message: 'Ring the plumber',
+          typeId: 'type-task',
+        },
+      ]);
+      expect(server.transcribeCalls).toBe(0);
+      expect(await store.all()).toEqual([]);
+    });
+
+    it('is not sent with no words, and says nothing was heard, where the recording held none', async () => {
+      const server = aServer();
+      const outbox = aTab(server);
+
+      expect(await outbox.addRecorded(spoken('   '))).toBe('nothing');
+      await settled();
+
+      expect(server.captureCalls).toBe(0);
+      expect(outbox.getShown().map(stateOf)).toEqual([{ waiting: false, notSent: NOTHING_HEARD }]);
+    });
+
+    it('lets the captures behind it go while the transcriber turns it away for now', async () => {
+      const server = aServer();
+      server.transcriptionRefused = new CommandRefused(429, 'transcribing failed: 429');
+      const outbox = aTab(server);
+      await outbox.addRecorded(spoken('Ring the plumber'));
+      await outbox.add(capture('Pay the gas bill'));
+      await settled();
+
+      expect(messages(server)).toEqual(['Pay the gas bill']);
+      expect(outbox.getShown().map((entry) => needsWords(entry))).toEqual([true]);
+      outbox.stop();
+    });
+  });
+
+  describe('a spoken note is one Item however often, and from however many tabs, it is sent', () => {
+    it.each([
+      { situation: 'two tabs send it at once', losesAnswer: false },
+      { situation: 'the answer to its capture is lost, and it is sent again', losesAnswer: true },
+    ])('$situation', async ({ losesAnswer }) => {
+      const server = aServer();
+      server.reachable = false;
+      const acrossTabs: Lock = inTabLock();
+      const first = aTab(server, { lock: acrossTabs });
+      const second = aTab(server, { lock: acrossTabs });
+      const note = spoken('Ring the plumber');
+      await first.addRecorded(note);
+
+      server.reachable = true;
+      server.losesNextAnswer = losesAnswer;
+      await Promise.all([first.send(), second.send()]);
+      await first.send();
+      await settled();
+
+      expect([...server.items.values()].map(({ itemId, message }) => [itemId, message])).toEqual([
+        [note.id, 'Ring the plumber'],
+      ]);
+      expect(server.transcribed).toBe(1);
+      expect(first.getShown()).toEqual([]);
+      first.stop();
+      second.stop();
+    });
+  });
+
+  describe('a spoken note the page closed on is finished by the next page, as one Item', () => {
+    /** Storage that fails on its `dies`th write or delete of the note, as a frozen tab does between two steps. */
+    const dyingAt = (dies: number): OutboxStore => {
+      const real = browserOutboxStore();
+      let writes = 0;
+      return {
+        all: () => real.all(),
+        put: async (entry) => {
+          if ((writes += 1) === dies) throw new Error('the tab was frozen');
+          return real.put(entry);
+        },
+        remove: async (id) => {
+          if ((writes += 1) === dies) throw new Error('the tab was frozen');
+          return real.remove(id);
+        },
+      };
+    };
+
+    it.each([
+      {
+        situation: 'after it was kept, before it was sent to be transcribed',
+        firstTab: (server: Server) => aTab(server),
+        offline: true,
+      },
+      {
+        situation: 'while waiting on the transcriber',
+        firstTab: (server: Server) => aTab(server, { sender: { ...server.sender, transcribe: () => new Promise(() => {}) } }),
+        offline: false,
+      },
+      { situation: 'before its words were kept', firstTab: (server: Server) => aTab(server, { store: dyingAt(2) }), offline: false },
+      {
+        situation: 'between its words and the capture being answered',
+        firstTab: (server: Server) => aTab(server, { store: dyingAt(3) }),
+        offline: false,
+      },
+      {
+        situation: 'before the finished capture was forgotten',
+        firstTab: (server: Server) => aTab(server, { store: dyingAt(4) }),
+        offline: false,
+      },
+    ])('$situation', async ({ firstTab, offline }) => {
+      const server = aServer();
+      server.online = !offline;
+      const first = firstTab(server);
+      void first.addRecorded(spoken('Ring the plumber'));
+      await settled();
+      first.stop();
+
+      server.online = true;
+      const next = aTab(server, { owner: null });
+      next.signedInAs('user-ada');
+      await next.send();
+      await settled();
+
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      expect(next.getShown()).toEqual([]);
+      expect(await browserOutboxStore().all()).toEqual([]);
+      next.stop();
     });
   });
 });

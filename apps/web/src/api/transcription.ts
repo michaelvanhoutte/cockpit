@@ -1,13 +1,17 @@
 import { TRANSCRIPTION_PATH, transcriptionSchema } from '@cockpit/shared';
-import { refusal } from './client';
+import { CommandRefused, refusal } from './client';
 
 /** A request that has not answered by now is given up on, so "Transcribing…" and a waiting Capture always end. */
 const TRANSCRIBE_TIMEOUT_MS = 90_000;
 
-/** The Worker held this account to its 20 transcriptions a minute ("Hold each account to 20 transcriptions a minute", issue 1043). */
-export class TooManyTranscriptions extends Error {
+/**
+ * The Worker held this account to its 20 transcriptions a minute ("Hold each
+ * account to 20 transcriptions a minute", issue 1043). A refusal with its
+ * status, so the capture outbox waits it out as it does any 429.
+ */
+export class TooManyTranscriptions extends CommandRefused {
   constructor() {
-    super('transcribing failed: 429');
+    super(429, 'transcribing failed: 429');
     this.name = 'TooManyTranscriptions';
   }
 }
@@ -21,7 +25,9 @@ export class TooManyTranscriptions extends Error {
  * **Any failure is one failure to the caller**, and the view says so in one line:
  * a connection that never got through, a refusal, a model that was down. Only
  * the account's limit is told apart (`TooManyTranscriptions`), because trying
- * again at once cannot work.
+ * again at once cannot work. A refusal carries its status (`CommandRefused`),
+ * which the capture outbox reads to tell a recording that can never be
+ * transcribed from one to try again later (issue 1045).
  */
 export async function transcribeRecording(recording: Blob, signal: AbortSignal = AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS)): Promise<string> {
   const res = await fetch(TRANSCRIPTION_PATH, {
@@ -32,7 +38,8 @@ export async function transcribeRecording(recording: Blob, signal: AbortSignal =
     signal,
   });
   if (res.status === 429) throw new TooManyTranscriptions();
-  if (!res.ok) throw refusal('transcribing', res.status);
+  if (res.status === 401) throw refusal('transcribing', res.status);
+  if (!res.ok) throw new CommandRefused(res.status, `The recording could not be transcribed (${res.status}).`);
   return transcriptionSchema.parse(await res.json()).text;
 }
 

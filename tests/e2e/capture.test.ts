@@ -164,10 +164,30 @@ test.describe('Capture', () => {
       await expect(page.getByLabel('Recording')).toContainText('Listening · 0:01');
       await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(page.getByText('Captured', { exact: true })).toBeVisible();
-      await expect(page.getByRole('list', { name: 'Captured here' }).getByText(STAND_IN_WORDS)).toBeVisible();
+      const capturedHere = page.getByRole('list', { name: 'Captured here' });
+      await expect(capturedHere.getByText(STAND_IN_WORDS)).toBeVisible();
+
+      // With no connection it still captures at once: the recording waits on
+      // the phone for its words, and once the server can be reached it is
+      // transcribed and lands as an Item ("Capture in the Car view without a
+      // connection, from the recording", issue 1045). Only a browser keeps a
+      // real recording in IndexedDB and hears the connection come back.
+      await page.route('**/v1/**', (route) => route.abort('internetdisconnected'));
+      await press(drive, isMobile);
+      await expect(page.getByLabel('Recording')).toContainText('Listening · 0:01');
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
+      await expect(page.getByText('Captured', { exact: true })).toBeVisible();
+      await expect(capturedHere.getByText('Waiting for its words')).toBeVisible();
+      await page.unroute('**/v1/**');
+      await page.context().setOffline(true);
+      await page.context().setOffline(false);
+      await expect(capturedHere.getByText('Waiting for its words')).toHaveCount(0, { timeout: 15_000 });
+      await expect(capturedHere.getByText(STAND_IN_WORDS)).toHaveCount(2);
       await openInbox(page, isMobile);
       const spoken = page.getByRole('listitem').filter({ has: page.getByText(STAND_IN_WORDS, { exact: true }) });
       await expect(spoken.first()).toBeVisible();
+      // Both of this run's: the one spoken with a connection, and the one spoken without.
+      await expect.poll(() => spoken.count()).toBeGreaterThanOrEqual(2);
       // Put somewhere, because a note without a workspace waits in every Inbox
       // of the one account all specs share, and would turn up in their counts.
       // Every run of this walk speaks the same words, so each row still

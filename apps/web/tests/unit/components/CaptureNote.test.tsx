@@ -9,6 +9,7 @@ import { CommandRefused, sendCommand, uploadAttachment } from '../../../src/api/
 import {
   CaptureNote,
   NO_WORKSPACE,
+  RECORDING_WAITING_FOR_WORDS,
   STILL_LISTED,
   STILL_READING,
   pasteKeyFor,
@@ -686,6 +687,33 @@ describe('Capture', () => {
       expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
       await waitFor(() => expect(screen.queryByText('Just captured')).toBeNull());
       expect(user.outbox.getShown()).toEqual([]);
+    });
+
+    it('lists a note spoken in the Car view as a recording waiting for its words, until it can be transcribed', async () => {
+      // The Worker cannot be reached, so its words stay to be had.
+      vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')));
+      const store = browserOutboxStore();
+      await store.put({
+        v: 2,
+        id: '01900000-0000-7000-8000-000000000001',
+        owner: 'user-michael',
+        commandId: '01900000-0000-7000-8000-000000000002',
+        capturedAt: new Date().toISOString(),
+        workspaceId: 'ws-home',
+        decided: false,
+        message: '',
+        typeId: ACTION.id,
+        files: [],
+        recording: { type: 'audio/webm', bytes: new ArrayBuffer(5), seconds: 3, transcribed: false },
+        landed: false,
+        refused: null,
+      });
+
+      await thePage({ store });
+
+      const row = await screen.findByText(RECORDING_WAITING_FOR_WORDS);
+      expect(row.closest('li')).toHaveTextContent('Waiting to send');
+      vi.unstubAllGlobals();
     });
 
     it('puts a note back once only, even where it cannot then be taken off the list', async () => {

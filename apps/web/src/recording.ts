@@ -174,7 +174,7 @@ function whyNotTranscribed(failure: unknown, kept: boolean): string {
   return kept ? DICTATION_KEPT_TO_RETRY : DICTATION_COULD_NOT_TRANSCRIBE;
 }
 
-/** Where nothing keeps recordings: the Car view, until "Capture in the Car view without a connection" (issue 1045). */
+/** Where nothing keeps recordings: the Car view, whose recordings the capture outbox keeps instead (issue 1045). */
 const NO_KEEPER = {
   subscribe: () => () => {},
   getShown: (): KeptRecording[] => NOTHING_KEPT,
@@ -234,8 +234,16 @@ export function useRecordedDictation({
   transcribe = transcribeRecording,
   limitSeconds = MAX_RECORDING_SECONDS,
   keeping = null,
+  onRecording,
 }: {
   onWords: (words: string) => void;
+  /**
+   * Takes a stopped recording in place of transcribing it, which the Car view
+   * does to keep it in the capture outbox ("Capture in the Car view without a
+   * connection, from the recording", issue 1045). It stays *Transcribing…*
+   * until this settles, and `onWords` is then never called.
+   */
+  onRecording?: (recording: Blob, seconds: number) => Promise<void>;
   /** Whether the Worker can transcribe, as `/health` says; false until known. */
   transcriber: boolean;
   record?: StartRecording | null;
@@ -256,6 +264,8 @@ export function useRecordedDictation({
   transcribeNow.current = transcribe;
   const keeper = useRef(keeping);
   keeper.current = keeping;
+  const handOver = useRef(onRecording);
+  handOver.current = onRecording;
   const source = keeping ?? NO_KEEPER;
   const kept = useSyncExternalStore(source.subscribe, source.getShown, source.getShown);
   /**
@@ -359,6 +369,11 @@ export function useRecordedDictation({
       let id: string | null = null;
       try {
         const sound = await ended.stop();
+        // Handed over even where the view has gone meanwhile: it is the recording's keeper, not the view.
+        if (handOver.current) {
+          await handOver.current(sound, length);
+          return true;
+        }
         id = await keepIt(sound, length);
         const heard = await carryOver(sound, id);
         if (heard && atTheLimit && mounted.current) setNotice(DICTATION_STOPPED_AT_THE_LIMIT);

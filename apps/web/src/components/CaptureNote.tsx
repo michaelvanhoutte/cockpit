@@ -6,7 +6,7 @@ import { snapshotQuery, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
-import { stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../captureOutbox';
+import { needsWords, stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
 import type { Arrived } from '../shares';
@@ -19,6 +19,9 @@ import { appendPhrase } from '../dictation';
 import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
 import { transcriptionOfferedQuery } from '../api/transcription';
 import { useKeptRecordings } from '../keptRecordings';
+
+/** How *Just captured* lists a note spoken in the Car view that is still waiting to be transcribed. */
+export const RECORDING_WAITING_FOR_WORDS = 'A recording, waiting for its words';
 
 /**
  * The Capture form itself: the note, the types as chips, where it goes as one
@@ -554,7 +557,8 @@ export function CaptureNote({
     ...waiting.map((entry) => ({
       id: entry.id,
       at: Date.parse(entry.capturedAt),
-      message: entry.message,
+      // A note spoken in the Car view has no words until the outbox can transcribe it (issue 1045).
+      message: needsWords(entry) ? RECORDING_WAITING_FOR_WORDS : entry.message,
       typeId: entry.typeId,
       workspaceId: entry.decided ? entry.workspaceId : null,
       state: stateOf(entry),

@@ -3,11 +3,13 @@ import { CommandRefused } from '../../src/api/client';
 import {
   TimedOut,
   capturePayload,
+  needsWords,
   nextWait,
   outcomeOf,
   readEntry,
   stateOf,
   toSend,
+  transcribeTimeoutMs,
   uploadTimeoutMs,
   whatGoesBack,
   type OutboxEntry,
@@ -38,6 +40,16 @@ function anEntry(over: Partial<OutboxEntry> = {}): OutboxEntry {
     refused: null,
     ...over,
   };
+}
+
+/** A note spoken in the Car view, kept as its recording until it is transcribed. */
+function aSpokenEntry(over: Partial<OutboxEntry> = {}): OutboxEntry {
+  return anEntry({
+    v: 2,
+    message: '',
+    recording: { type: 'audio/webm', bytes: new ArrayBuffer(5), seconds: 3, transcribed: false },
+    ...over,
+  });
 }
 
 function aFile(over: Partial<WaitingFile> = {}): WaitingFile {
@@ -101,15 +113,33 @@ describe('Offline', () => {
 
   describe('a waiting capture this version cannot read is left alone', () => {
     it.each([
-      { situation: 'written by a later version', raw: { ...anEntry(), v: 2 } },
+      { situation: 'written by a later version', raw: { ...anEntry(), v: 3 } },
       { situation: 'missing whose it is', raw: { ...anEntry(), owner: undefined } },
       { situation: 'not a capture at all', raw: 'a string' },
+      { situation: 'spoken, with its recording missing', raw: { ...anEntry(), v: 2, message: '' } },
     ])('$situation', ({ raw }) => {
       expect(readEntry(raw)).toBeNull();
     });
 
-    it('reads one written by this version', () => {
-      expect(readEntry(anEntry())).toEqual(anEntry());
+    it.each([
+      { situation: 'typed', entry: anEntry() },
+      { situation: 'spoken, waiting for its words', entry: aSpokenEntry() },
+    ])('reads one written by this version: $situation', ({ entry }) => {
+      expect(readEntry(entry)).toEqual(entry);
+    });
+  });
+
+  describe('a spoken note is sent to be transcribed only until its words are kept', () => {
+    it.each([
+      { situation: 'typed', entry: anEntry(), sent: false },
+      { situation: 'spoken, waiting for its words', entry: aSpokenEntry(), sent: true },
+      {
+        situation: 'spoken, its words kept',
+        entry: aSpokenEntry({ message: 'Ring the plumber', recording: { ...aSpokenEntry().recording!, transcribed: true } }),
+        sent: false,
+      },
+    ])('$situation', ({ entry, sent }) => {
+      expect(needsWords(entry)).toBe(sent);
     });
   });
 
@@ -152,6 +182,15 @@ describe('Offline', () => {
       const second = nextWait(first);
       const third = nextWait(second);
       expect([first, second, third]).toEqual([30_000, 60_000, 60_000]);
+    });
+  });
+
+  describe('a recording is given a minute to be transcribed, and longer the bigger it is', () => {
+    it.each([
+      { situation: 'a few seconds of speech', bytes: 40 * 1024, ms: 61_000 },
+      { situation: 'five minutes of speech', bytes: 2.4 * 1024 * 1024, ms: 60_000 + 25_000 },
+    ])('$situation', ({ bytes, ms }) => {
+      expect(transcribeTimeoutMs(bytes)).toBe(ms);
     });
   });
 
