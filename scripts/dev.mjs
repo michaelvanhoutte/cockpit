@@ -207,6 +207,13 @@ if (running.api) {
         // failing row.
         '--var',
         `GMAIL_API_ORIGIN:${issuer.origin}`,
+        // Outlook's Graph is the same issuer's stand-in mailbox ("Connect
+        // Outlook from Settings, wherever the Microsoft client is set", issue
+        // 1048): two messages flagged and one categorised Cockpit for any
+        // address. Flag or categorise another with POST <issuer>/graph-stub/flag
+        // (or /categorise) ?email=&subject=.
+        '--var',
+        `GRAPH_API_ORIGIN:${issuer.origin}`,
         // Production sets this and staging deliberately does not, which is what
         // decides where "Continue as guest" works ("Sign in as a guest, without
         // a password", issue 354). Set here so the control can be driven

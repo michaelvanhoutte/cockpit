@@ -16,7 +16,7 @@ import {
 } from './support/app';
 
 const root = resolve(__dirname, '..', '..');
-/** The stub the stack runs, which stands in for Gmail's mailbox as well as for Google's sign-in. */
+/** The stub the stack runs, which stands in for Gmail's mailbox and Graph's as well as for Google's sign-in. */
 const issuer = `http://127.0.0.1:${portsFor(root, { linked: isLinkedWorktree(root), env: process.env }).e2eIssuer}`;
 
 /**
@@ -208,6 +208,47 @@ test.describe('Connector management', () => {
 
       const starred = await openSettings(page, 'Connections', isMobile);
       await expect(starred.getByText(/^Gmail · Starred \(flagged in Outlook\) · last checked /)).toBeVisible();
+      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+
+      // Outlook, a registered connector like the rest ("Connect Outlook from
+      // Settings, wherever the Microsoft client is set", issue 1048): its
+      // question, with what to know about the organisation before leaving, and
+      // the trip out and back through the same generic sign-in.
+      const microsoftAsks = page.getByRole('dialog', { name: 'Settings' });
+      await expect(microsoftAsks.getByText(/Your organisation may have to approve Cockpit first/)).toBeVisible();
+      await press(microsoftAsks.getByRole('button', { name: 'Connect Outlook' }), isMobile);
+      const outlookAsked = page.getByRole('dialog', { name: 'Connect Outlook' });
+      await expect(outlookAsked.getByRole('radio', { name: 'Flagged' })).toBeChecked();
+      await press(outlookAsked.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+      const backFromMicrosoft = page.getByRole('dialog', { name: 'Settings' });
+      await expect(backFromMicrosoft.getByText('Connected.')).toBeVisible();
+      await expect(backFromMicrosoft.getByText(/^Outlook · Flagged/)).toBeVisible();
+
+      // The check connecting queued brings the messages flagged in the stack's
+      // stand-in Graph mailbox in as Tasks from Outlook, openable there; Done
+      // on one completes its flag in that mailbox.
+      await closeSettings(page, isMobile);
+      await expect(page.getByText('Supplier contract to review')).toBeVisible();
+      await expect(page.getByText(/Outlook · Anna Peeters/)).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Open in Outlook' }).first()).toBeVisible();
+
+      const offsite = itemRow(page, 'Offsite dates for November');
+      await press(offsite.getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: /^Status/ }), isMobile);
+      await press(page.getByRole('menuitemradio', { name: 'Done' }), isMobile);
+      await expect(offsite).toHaveCount(0);
+      await expect
+        .poll(async () => {
+          const held = await fetch(`${issuer}/graph-stub/message?email=michael%40example.com&id=AAkALgStubLunch`);
+          return ((await held.json()) as { flagStatus: string }).flagStatus;
+        })
+        .toBe('complete');
+
+      const outlookChecked = await openSettings(page, 'Connections', isMobile);
+      await expect(outlookChecked.getByText(/^Outlook · Flagged · last checked /)).toBeVisible();
       await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
       await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
       await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();

@@ -172,6 +172,14 @@ export interface Env {
    */
   GMAIL_API_ORIGIN?: string;
   /**
+   * Where Microsoft Graph is reached, in place of `https://graph.microsoft.com`,
+   * for Outlook ("Connect Outlook from Settings, wherever the Microsoft client
+   * is set", issue 1048). Read exactly as `GMAIL_API_ORIGIN` is: set only by
+   * local development and the browser suite, at the stub issuer's stand-in
+   * mailbox, and believed only where it names a local host (`standIn`).
+   */
+  GRAPH_API_ORIGIN?: string;
+  /**
    * What a connected source account's credential is sealed with: 32 random
    * bytes, base64 (`src/connectors/credential-crypto.ts`).
    *

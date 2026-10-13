@@ -49,6 +49,9 @@ importers:
       '@cockpit/connector-gmail':
         specifier: workspace:*
         version: link:../../packages/connectors/gmail
+      '@cockpit/connector-outlook':
+        specifier: workspace:*
+        version: link:../../packages/connectors/outlook
       '@cockpit/connector-sdk':
         specifier: workspace:*
         version: link:../../packages/connector-sdk

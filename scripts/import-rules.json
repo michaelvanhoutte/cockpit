@@ -3,6 +3,9 @@
     "gmail": {
       "package": "@cockpit/connector-gmail"
     },
+    "outlook": {
+      "package": "@cockpit/connector-outlook"
+    },
     "teams": {
       "package": "@cockpit/connector-teams"
     },

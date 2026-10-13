@@ -10,8 +10,9 @@ import { syncMailbox } from './sync.js';
  * ("Build Outlook as a connector package on the SDK, unregistered", issue
  * 1046), and closing or reopening a Task in Cockpit takes the flag or category
  * off its message or puts it back ("Take the flag or category off in Outlook
- * when its task is done in Cockpit", issue 1047). Nothing offers this
- * connector until it is registered.
+ * when its task is done in Cockpit", issue 1047). Registered where the
+ * Microsoft client is set ("Connect Outlook from Settings, wherever the Microsoft
+ * client is set", issue 1048).
  *
  * Everything this package knows about Outlook and Microsoft Graph is in its README.
  */
@@ -24,7 +25,7 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
     manifest: {
       ...OUTLOOK_IDENTITY,
       cardText:
-        'Sign in with your Microsoft 365 work or school account. Messages you flag, or categorise Cockpit, become tasks, and the flag or category follows the task.',
+        'Sign in with your Microsoft 365 work or school account. Messages you flag, or categorise Cockpit, become tasks, and the flag or category follows the task. Your organisation may have to approve Cockpit first.',
       supportsPush: false,
       pulled: true,
       arrivesAs: 'task',

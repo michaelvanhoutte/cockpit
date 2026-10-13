@@ -512,7 +512,7 @@ wrangler secret put <NAME> --env staging
 |---|---|
 | `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/operator/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally, as long as it is the same string the commands send — see below for where they read it from. |
 | `ANTHROPIC_API_KEY` | what Cockpit reads a captured note with ("Clean up a captured note into a clear title and a fuller message", issue 296). Issued in the Anthropic Console; the application's own credential rather than anybody's, so it has no settings screen. **An environment without one works** — every capture succeeds and the Item keeps the title capture wrote — which is exactly why `/health` reports whether it is set: without that, a deployment nobody put a key in enriches nothing for months with every check green, the failure `CLAUDE_CODE_OAUTH_TOKEN` below already records. |
-| `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | the Entra application a Workspace connects its Teams account through ("Connect a Microsoft Teams source account", issue 485) — see "An Entra application" below for what to register. **The client id is a secret here only for want of a registration**: nothing has been registered yet, so a placeholder in `wrangler.jsonc` would be configuration nobody chose; it moves beside `GOOGLE_CLIENT_ID` the day one exists. An environment with neither refuses Connect and works in every other way. **Connecting Teams also needs `MS_BOT_APP_ID`**: the connector is only registered where it is set, and an unregistered source is not found by the connect route. |
+| `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | the Entra application a Workspace connects its Teams account and its Outlook mailbox through ("Connect a Microsoft Teams source account", issue 485; "Connect Outlook from Settings, wherever the Microsoft client is set", issue 1048) — see "An Entra application" below for what to register. **The client id is a secret here only for want of a registration**: nothing has been registered yet, so a placeholder in `wrangler.jsonc` would be configuration nobody chose; it moves beside `GOOGLE_CLIENT_ID` the day one exists. An environment with neither refuses Connect and works in every other way. **Connecting Teams also needs `MS_BOT_APP_ID`**: the connector is only registered where it is set, and an unregistered source is not found by the connect route. |
 | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` | the Google OAuth client a Workspace connects a Gmail account through ("Connect a Gmail account to a workspace, and disconnect it", issue 724) — see "A Google Cloud project for Gmail" below. **Its own client, never the sign-in one**, because it asks to change mail and is published unverified. An environment with neither does not offer Gmail at all and works in every other way. |
 | `MS_BOT_APP_ID` | the Azure Bot resource whose calls this Cockpit believes — the audience of every Bot Framework token a saved Teams message arrives with ("Save a Teams message to Cockpit", issue 486), and see "An Azure Bot" below. An environment without it has no `/ingress/teams/` address at all, which is a 404 rather than a route that refuses everything. |
 | `CONNECTOR_CREDENTIAL_KEY` | what a connected source account's credential is sealed with — 32 random bytes, base64 (`openssl rand -base64 32`), one per environment, invented the way `BACKUP_TOKEN` is. An environment without one stores no credential at all rather than storing one in the clear, which is the point of it. **Losing or rotating it makes every stored credential unreadable**: nobody loses work, and everybody holding a connection disconnects and connects again. The links to an Item's files an agent is sent are sealed under a key derived from it, so rotating it also stops those, which last an hour anyway. |
@@ -638,20 +638,25 @@ production" (pull request 139). Read it there rather than rediscovering it.
 **Not yet registered anywhere**, which is why `MS_CLIENT_ID` is in the secret
 table above rather than in `wrangler.jsonc`: until one exists, a deployed
 environment connects nothing and says so in the window ("Connect a Microsoft
-Teams source account", issue 485). What registering one takes, per environment,
+Teams source account", issue 485), and offers no Outlook either. What registering one takes, per environment,
 in the Microsoft Entra admin centre:
 
 1. **An app registration**, *Accounts in any organizational directory and
    personal Microsoft accounts* — multi-tenant, because whose Microsoft account
    somebody connects is theirs to choose, and it is what makes the `common`
    endpoint the one to ask.
-2. **One redirect URI**, type *Web*: `<APP_ORIGIN>/v1/connections/teams/callback`.
-   One address for every Workspace, for the reason the Google client has one:
+2. **Two redirect URIs**, type *Web*: `<APP_ORIGIN>/v1/connections/teams/callback`
+   and `<APP_ORIGIN>/v1/connections/outlook/callback` ("Connect Outlook from
+   Settings, wherever the Microsoft client is set", issue 1048). One address per
+   connector for every Workspace, for the reason the Google client has one:
    which Workspace asked is carried in a cookie, not in the address.
-3. **No API permissions at all beyond the delegated `openid`, `profile` and
-   `email`.** This asks who somebody is and reads nothing in their tenant, which
-   is what keeps it out of the admin-consent prompt a Graph scope would land in
-   — and it is the sentence to re-check before anything asks for more.
+3. **Delegated `openid`, `profile` and `email` for Teams, which asks who
+   somebody is and reads nothing in their tenant, and delegated
+   `Mail.ReadWrite` for Outlook**, which reads and changes the signed-in
+   person's own mail and is where a tenant may ask an administrator to approve
+   Cockpit first. Teams never asks for it, so an existing Teams grant is
+   untouched. Outlook is only offered where this client is set, and only asks
+   `Mail.ReadWrite` of the person who connects it.
 4. **A client secret**, and both values into the platform:
 
 ```bash
@@ -666,6 +671,14 @@ wrangler secret put MS_CLIENT_SECRET --env staging
 ```bash
 wrangler secret put CONNECTOR_CREDENTIAL_KEY     # openssl rand -base64 32
 ```
+
+**Nothing reads or writes an Outlook mailbox until somebody connects one there**,
+and nothing can until this application is registered. The only write is the flag
+or the `Cockpit` category on a message, taken off or put back as its Item is
+closed or reopened. Disconnecting forgets the sign-in; Microsoft offers no
+revoke for one application, so the person removes Cockpit at Microsoft to end
+the grant. Each connection is checked through the generic host about every five
+minutes, within the free plan's 50 calls out (`OUTLOOK_CALLS_PER_RUN`, 45).
 
 ### An Azure Bot
 

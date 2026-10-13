@@ -418,3 +418,61 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     assert.equal(asked.filter((one) => one.thread === thread).length, 3);
   });
 });
+
+describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Graph answers', () => {
+  async function accessTokenFor(email) {
+    // Microsoft asks for a refresh token with the scope `offline_access`, not Google's access type.
+    const granted = await (await spend(await codeFor(email, { scope: 'openid email offline_access Mail.ReadWrite' }))).json();
+    return granted.access_token;
+  }
+  const graph = (token, path, init = {}) =>
+    fetch(`${issuer.origin}/v1.0/me/${path}`, { ...init, headers: { authorization: `Bearer ${token}`, ...init.headers } });
+  const flagged = `messages?$filter=${encodeURIComponent("flag/flagStatus eq 'flagged'")}&$select=id,parentFolderId,flag,categories`;
+
+  it('lists the flagged messages a page at a time and the categorised ones apart, and reads each', async () => {
+    const token = await accessTokenFor('graph@example.com');
+    const first = await (await graph(token, `${flagged}&$top=1`)).json();
+    assert.equal(first.value.length, 1);
+    const second = await (await fetch(first['@odata.nextLink'], { headers: { authorization: `Bearer ${token}` } })).json();
+    assert.equal(second.value.length, 1);
+    assert.equal(second['@odata.nextLink'], undefined);
+
+    const category = `messages?$filter=${encodeURIComponent("categories/any(c:c eq 'Cockpit')")}`;
+    assert.equal((await (await graph(token, category)).json()).value.length, 1);
+
+    const message = await (await graph(token, `messages/${first.value[0].id}`)).json();
+    assert.equal(message.subject, 'Supplier contract to review');
+    assert.equal((await graph(token, 'messages/no-such-message')).status, 404);
+    assert.equal((await graph('not-a-stub-token', 'mailFolders/deleteditems')).status, 401);
+  });
+
+  it('completes a flag, and refuses a category write made against a version it has moved past', async () => {
+    const token = await accessTokenFor('graph-write@example.com');
+    const [{ id }] = (await (await graph(token, flagged)).json()).value;
+    const write = (body, ifMatch) =>
+      graph(token, `messages/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', ...(ifMatch ? { 'if-match': ifMatch } : {}) },
+        body: JSON.stringify(body),
+      });
+    const read = async () =>
+      (await fetch(`${issuer.origin}/graph-stub/message?email=graph-write%40example.com&id=${id}`)).json();
+
+    const { '@odata.etag': version } = await (await graph(token, `messages/${id}?$select=categories`)).json();
+    assert.equal((await write({ flag: { flagStatus: 'complete' } })).status, 200);
+    assert.equal((await read()).flagStatus, 'complete');
+    assert.equal((await write({ categories: ['Cockpit'] }, version)).status, 412);
+    assert.deepEqual((await read()).categories, []);
+  });
+
+  it('flags a new message for a walk, and records the calls it was asked', async () => {
+    const token = await accessTokenFor('graph-flagging@example.com');
+    const { id } = await fetch(`${issuer.origin}/graph-stub/flag?email=graph-flagging%40example.com&subject=Just%20flagged`, {
+      method: 'POST',
+    }).then((answer) => answer.json());
+    const listed = (await (await graph(token, flagged)).json()).value.map((one) => one.id);
+    assert.ok(listed.includes(id));
+    const asked = await (await fetch(`${issuer.origin}/graph-stub/asked?email=graph-flagging%40example.com`)).json();
+    assert.deepEqual(asked, [`GET ${flagged.split('?')[0]}`]);
+  });
+});
