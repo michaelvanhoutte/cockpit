@@ -20,7 +20,6 @@ import type {
   AgentRun,
   Attachment,
   Item,
-  ItemType,
   Layout,
   LayoutRow,
   Panel,
@@ -154,7 +153,6 @@ export function PanelBoard({
   layouts,
   items,
   filings,
-  itemTypes,
   attachments = [],
   agentRuns = [],
 }: {
@@ -181,12 +179,6 @@ export function PanelBoard({
   /** Every open item of the workspace; each panel is handed the ones filed on it. */
   items: readonly Item[];
   filings: readonly Filing[];
-  /**
-   * The account's live Types - what a Filter's Type condition offers to
-   * choose from and reads its values against ("Filter a Filter panel by
-   * priority and type", issue 464).
-   */
-  itemTypes: readonly ItemType[];
   /** Every attachment of the workspace's items, which is all a Dashboard filter's Attachments condition reads. */
   attachments?: readonly Attachment[];
   /** The workspace's open runs, which is all a Dashboard filter's Agent running condition reads. */
@@ -449,7 +441,6 @@ export function PanelBoard({
       filings,
       panelsInWorkspace,
       dashboards,
-      itemTypes,
       filter: dashboardFilter,
       withAttachments,
       withRun,
@@ -1609,7 +1600,6 @@ export function PanelBoard({
                           dashboardFiltered={filteringOn}
                           items={shows.get(panel.id) ?? []}
                           groups={groupsOf(panel)}
-                          itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
                           dashboards={dashboards}
                           renaming={renaming?.id === panel.id ? renaming.name : null}
@@ -1743,7 +1733,6 @@ export function PanelBoard({
               conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
               match={(beingFiltered.filter ?? NO_CONDITIONS).match}
               groupBy={(beingFiltered.filter ?? NO_CONDITIONS).groupBy}
-              itemTypes={itemTypes}
               panels={panelsInWorkspace}
               dashboards={dashboards}
               layouts={layouts}

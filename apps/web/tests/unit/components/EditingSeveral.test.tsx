@@ -129,7 +129,6 @@ function screenFor(now: World) {
           attachments={[]}
           agentRuns={[]}
           filings={now.filings}
-          itemTypes={TYPES}
         />
         {now.inbox && (
           <ItemList workspaceId="ws-work" items={now.inbox} openDashboardId={DASHBOARD.id} emptyMessage="Nothing to deal with." />

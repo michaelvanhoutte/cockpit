@@ -131,7 +131,7 @@ export type DueWindow = z.infer<typeof dueWindowSchema>;
  * One condition on a Filter, on its Due date.
  *
  * **`field` is written down though `dueConditionSchema` alone would not need
- * it**, so the Priority, Type and Panel conditions below are other members of
+ * it**, so the Priority and Panel conditions below are other members of
  * a union here rather than a reshaping of every stored Filter.
  *
  * `orOverdue` widens the four periods to take in what is already past — ticked
@@ -148,14 +148,14 @@ export const dueConditionSchema = z.object({
 export type DueCondition = z.infer<typeof dueConditionSchema>;
 
 /**
- * The most values a Priority or Type condition holds at once ("Filter a
+ * The most values a Priority or Panel condition holds at once ("Filter a
  * Filter panel by priority and type", issue 464).
  *
  * Bounded for the reason `CONDITIONS_LIMIT` (`commands.ts`) bounds the whole
  * list: this is written into the same uncapped column. Three is already every
- * Priority there is; a Type condition could in principle ask for more, and
- * this is a generous cap on a workspace's Types rather than a claim about how
- * many anyone would choose.
+ * Priority there is; a Panel condition could in principle ask for more, and
+ * this is a generous cap rather than a claim about how many anyone would
+ * choose.
  */
 export const CONDITION_VALUES_LIMIT = 50;
 
@@ -164,7 +164,7 @@ export const CONDITION_VALUES_LIMIT = 50;
  * priority and type", issue 464).
  *
  * **Matches any value it holds, never all of them** — *Priority is High or
- * Normal* is one condition met by either, the same way a Type condition below
+ * Normal* is one condition met by either, the same way a Panel condition below
  * reads. An Item with no Priority matches no Priority condition, whatever it
  * asks for: absence is not one of the values on offer.
  */
@@ -183,41 +183,15 @@ export const priorityConditionSchema = z.object({
 export type PriorityCondition = z.infer<typeof priorityConditionSchema>;
 
 /**
- * One condition on a Filter, on its Type ("Filter a Filter panel by priority
- * and type", issue 464).
- *
- * **Type ids rather than Types**, so a stored condition survives a Type being
- * renamed or recoloured untouched. A value naming a Type since deleted is
- * ignored when the condition is matched or read back
- * (`apps/web/src/filters.ts`) rather than refused on the way in — the same
- * choice `panelFilterFrom` makes for a shape this release cannot read at all,
- * and for the same reason: a Filter stored before a Type was deleted is not a
- * broken Filter.
- */
-export const typeConditionSchema = z.object({
-  field: z.literal('type'),
-  values: z.array(z.string().min(1)).max(CONDITION_VALUES_LIMIT),
-  /**
-   * Whether the condition leaves its values out rather than asking for them
-   * ("Include or exclude a Filter panel condition's values, and filter on To do
-   * as well as In progress", issue 908). Absent reads as including, which is
-   * what every Filter stored before this meant, so no stored Filter is
-   * rewritten.
-   */
-  exclude: z.boolean().optional(),
-});
-export type TypeCondition = z.infer<typeof typeConditionSchema>;
-
-/**
  * One condition on a Filter, on which Panel an Item is filed on ("Filter a
  * Filter panel by panel, and name the Filters a panel's deletion affects",
  * issue 465). Goals are Panels you file into, so this is what lets a Filter
- * ask "on Q3 goals" the way it already asks "of this Type".
+ * ask "on Q3 goals".
  *
- * **Panel ids, never Panels**, for the reason a Type condition holds Type ids:
- * a stored condition survives a Panel being renamed untouched. A value naming
- * a Panel since deleted is ignored rather than refused, the same choice and
- * the same reason `typeConditionSchema` makes for a Type — and a Panel left
+ * **Panel ids, never Panels**, so a stored condition survives a Panel being
+ * renamed untouched. A value naming
+ * a Panel since deleted is ignored rather than refused, the same choice
+ * `panelFilterFrom` makes for a shape it cannot read — and a Panel left
  * with none live matches nothing rather than widening to every Panel, which is
  * the one thing a deleted choice must never silently become.
  *
@@ -295,13 +269,12 @@ export function statusValuesOf(condition: StatusCondition): readonly ('to_do' | 
 }
 
 /**
- * One row of a Filter's question: a Due date, a Priority, a Type, a Panel, a
+ * One row of a Filter's question: a Due date, a Priority, a Panel, a
  * Dashboard or a Status condition.
  */
 export const filterConditionSchema = z.discriminatedUnion('field', [
   dueConditionSchema,
   priorityConditionSchema,
-  typeConditionSchema,
   panelConditionSchema,
   dashboardConditionSchema,
   statusConditionSchema,
@@ -383,7 +356,7 @@ export const NO_CONDITIONS: PanelFilter = { conditions: [], match: 'all', groupB
 export function panelFilterFrom(stored: string | null): PanelFilter | null {
   if (stored === null) return null;
   try {
-    const read = panelFilterSchema.safeParse(JSON.parse(stored));
+    const read = panelFilterSchema.safeParse(withoutType(JSON.parse(stored)));
     if (!read.success) return NO_CONDITIONS;
     return {
       conditions: uniqueByField(read.data.conditions),
@@ -393,6 +366,24 @@ export function panelFilterFrom(stored: string | null): PanelFilter | null {
   } catch {
     return NO_CONDITIONS;
   }
+}
+
+/**
+ * A stored Filter without its Type conditions, which no release reads any more
+ * ("Stop filtering and sorting Panels by Type", issue 1066). Dropped specifically,
+ * so a Filter keeps every other condition rather than failing whole; anything
+ * that is not a Filter's shape is passed on for the schema to refuse as before.
+ */
+function withoutType(stored: unknown): unknown {
+  if (typeof stored !== 'object' || stored === null) return stored;
+  const { conditions } = stored as { conditions?: unknown };
+  if (!Array.isArray(conditions)) return stored;
+  return {
+    ...stored,
+    conditions: conditions.filter(
+      (one) => !(typeof one === 'object' && one !== null && (one as { field?: unknown }).field === 'type'),
+    ),
+  };
 }
 
 /** The first condition stored for each field, in order — what `panelFilterFrom` reads a Filter back as. */
@@ -418,13 +409,13 @@ export function panelFilterAsStored(
  * What a Panel of items can be sorted by ("Sort a panel of items by the fields
  * you choose", issue 526), in the order the Sort question offers them.
  */
-export const SORT_FIELDS = ['title', 'priority', 'createdAt', 'dueDate', 'type'] as const;
+export const SORT_FIELDS = ['title', 'priority', 'createdAt', 'dueDate'] as const;
 export const sortFieldSchema = z.enum(SORT_FIELDS);
 export type SortField = z.infer<typeof sortFieldSchema>;
 
 /**
  * Which way one criterion runs. Ascending is A→Z, Low→High, oldest first,
- * soonest first and the order of your Types; an Item with no value goes last
+ * soonest first; an Item with no value goes last
  * either way (`apps/web/src/sorting.ts`).
  */
 export const SORT_DIRECTIONS = ['asc', 'desc'] as const;
@@ -462,12 +453,24 @@ export type PanelSort = z.infer<typeof panelSortSchema>;
  * `panelFilterFrom` gives: a Workspace that will not open over one Panel's
  * setting is far worse than a Panel drawn in the order you set. A field this
  * release has never heard of fails the whole sort rather than being dropped,
- * because the criteria left would be ordering by something nobody chose.
+ * because the criteria left would be ordering by something nobody chose. A Type
+ * criterion, which no release sorts by any more, is the one field dropped
+ * ("Stop filtering and sorting Panels by Type", issue 1066): a sort that was
+ * only Type is Manual.
  */
 export function panelSortFrom(stored: string | null): PanelSort | null {
   if (stored === null) return null;
   try {
-    const read = z.object({ criteria: panelSortSchema }).safeParse(JSON.parse(stored));
+    const parsed: unknown = JSON.parse(stored);
+    const criteria =
+      typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { criteria?: unknown }).criteria)
+        ? (parsed as { criteria: unknown[] }).criteria.filter(
+            (one) => !(typeof one === 'object' && one !== null && (one as { field?: unknown }).field === 'type'),
+          )
+        : parsed;
+    const read = z
+      .object({ criteria: panelSortSchema })
+      .safeParse(Array.isArray(criteria) ? { criteria } : criteria);
     return read.success ? read.data.criteria : null;
   } catch {
     return null;

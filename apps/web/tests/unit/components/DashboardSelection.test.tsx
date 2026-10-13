@@ -155,7 +155,6 @@ function screenFor(now: World) {
           attachments={[]}
           agentRuns={[]}
           filings={now.filings}
-          itemTypes={[]}
         />
         {now.inbox && (
           <ItemList

@@ -6,7 +6,6 @@ import type {
   FilterGrouping,
   FilterMatch,
   Item,
-  ItemType,
   Panel,
   Priority,
 } from '@cockpit/shared';
@@ -85,11 +84,6 @@ function anItem(
   };
 }
 
-/** A live Type, exactly as `itemTypeSchema` shapes one. */
-function aType(id: string, name: string): ItemType {
-  return { id, tenantId: 'tenant', name, color: '#000000', position: 0, createdAt: '2026-08-31T08:00:00.000Z' };
-}
-
 function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
   return {
     id,
@@ -125,19 +119,17 @@ function shown(
   {
     panels = [FALCON, GATHERS],
     dashboards = [...new Set(panels.map((panel) => panel.dashboardId))].map((id) => ({ id })),
-    itemTypes = [] as ItemType[],
     on = TODAY,
     match = 'all',
   }: {
     panels?: readonly Panel[];
     /** The Workspace's live Dashboards; the ones the Panels sit on unless a case says a Dashboard has gone. */
     dashboards?: readonly { id: string }[];
-    itemTypes?: readonly ItemType[];
     on?: string;
     match?: FilterMatch;
   } = {},
 ): string[] {
-  return itemsMatchingFilter(items, filings, panels, dashboards, itemTypes, { conditions, match, groupBy: 'none' }, on).map(
+  return itemsMatchingFilter(items, filings, panels, dashboards, { conditions, match, groupBy: 'none' }, on).map(
     (item) => item.id,
   );
 }
@@ -202,22 +194,21 @@ describe('Panels', () => {
     });
 
     it('draws only what meets every condition it has, across different fields', () => {
-      // A Type condition and a Due date condition together: only an OKR due
-      // this quarter, never an OKR due later or a Task due this quarter.
-      const okr = aType('type-okr', 'OKR');
-      const okrDueThisQuarter = anItem('okr-due', { typeId: okr.id, dueDate: TODAY });
-      const okrDueLater = anItem('okr-later', { typeId: okr.id, dueDate: '2027-01-01' });
-      const taskDueThisQuarter = anItem('task-due', { dueDate: TODAY });
-      const items = [okrDueThisQuarter, okrDueLater, taskDueThisQuarter];
+      // A Priority condition and a Due date condition together: only a High
+      // one due this quarter, never a High one due later or a Low one due this
+      // quarter.
+      const highDueThisQuarter = anItem('high-due', { priority: 'high', dueDate: TODAY });
+      const highDueLater = anItem('high-later', { priority: 'high', dueDate: '2027-01-01' });
+      const lowDueThisQuarter = anItem('low-due', { priority: 'low', dueDate: TODAY });
+      const items = [highDueThisQuarter, highDueLater, lowDueThisQuarter];
 
       expect(
         shown(
           items,
           items.map((item) => filed('falcon', item.id)),
-          [{ field: 'type', values: [okr.id] }, due('quarter', false)],
-          { itemTypes: [okr] },
+          [{ field: 'priority', values: ['high'] }, due('quarter', false)],
         ),
-      ).toEqual([okrDueThisQuarter.id]);
+      ).toEqual([highDueThisQuarter.id]);
     });
   });
 
@@ -266,17 +257,6 @@ describe('Panels', () => {
       ).toEqual(['due-normal']);
     });
 
-    it('lets a Type condition whose only Type was deleted add nothing rather than every Type', () => {
-      const typed = anItem('typed', { typeId: 'type-gone' });
-      expect(
-        shown(
-          [typed, highNoDate],
-          [filed('falcon', 'typed'), filed('falcon', 'high-undated')],
-          [{ field: 'type', values: ['type-gone'] }, { field: 'priority', values: ['high'] }],
-          { match: 'any' },
-        ),
-      ).toEqual(['high-undated']);
-    });
   });
 
   describe('a Priority condition matches an item holding any of its chosen levels, and none with no priority at all', () => {
@@ -308,57 +288,6 @@ describe('Panels', () => {
     ])('an item where $situation', ({ values, item, drawn }) => {
       expect(
         shown([item], [filed('falcon', item.id)], [{ field: 'priority', values }]),
-      ).toEqual(drawn ? [item.id] : []);
-    });
-  });
-
-  describe('a Type condition matches an item holding any of its live values, and matches nothing once none are', () => {
-    const okr = aType('type-okr', 'OKR');
-    const task = aType('type-task', 'Task');
-
-    it.each([
-      {
-        situation: 'one Type chosen, and the item holds it',
-        values: [okr.id],
-        types: [okr, task],
-        item: anItem('a', { typeId: okr.id }),
-        drawn: true,
-      },
-      {
-        situation: 'two Types chosen, and the item holds one of them',
-        values: [okr.id, task.id],
-        types: [okr, task],
-        item: anItem('a', { typeId: task.id }),
-        drawn: true,
-      },
-      {
-        situation: "the item's own Type has since been deleted",
-        values: [okr.id],
-        // Not among the live Types handed in - the same as it reads once
-        // deleted, whatever the condition still names.
-        types: [] as ItemType[],
-        item: anItem('a', { typeId: okr.id }),
-        drawn: false,
-      },
-      {
-        situation: 'every Type the condition names has since been deleted',
-        values: [okr.id, task.id],
-        types: [] as ItemType[],
-        item: anItem('a', { typeId: okr.id }),
-        drawn: false,
-      },
-      {
-        situation: 'the item has no Type at all',
-        values: [okr.id],
-        types: [okr],
-        item: anItem('a'),
-        drawn: false,
-      },
-    ])('an item where $situation', ({ values, types, item, drawn }) => {
-      expect(
-        shown([item], [filed('falcon', item.id)], [{ field: 'type', values }], {
-          itemTypes: types,
-        }),
       ).toEqual(drawn ? [item.id] : []);
     });
   });
@@ -609,43 +538,22 @@ describe('Panels', () => {
   });
 
   describe('an is not condition matches an item holding none of its live values', () => {
-    const note = aType('type-note', 'Note');
-    const okr = aType('type-okr', 'OKR');
-    const task = aType('type-task', 'Task');
     const archive = aPanel('archive');
     const q3 = aPanel('q3');
     const panels = [FALCON, GATHERS, archive, q3];
 
     it.each([
       {
-        situation: 'Type is not Note: a Task, a Note',
-        condition: { field: 'type', values: [note.id], exclude: true },
-        items: [anItem('task', { typeId: task.id }), anItem('note', { typeId: note.id })],
-        drawn: ['task'],
-      },
-      {
-        situation: 'Type is not Note: an Item with no Type',
-        condition: { field: 'type', values: [note.id], exclude: true },
-        items: [anItem('untyped')],
-        drawn: ['untyped'],
-      },
-      {
         situation: 'Priority is not High: Normal, High, no Priority',
         condition: { field: 'priority', values: ['high'], exclude: true },
         items: [anItem('normal', { priority: 'normal' }), anItem('high', { priority: 'high' }), anItem('none')],
         drawn: ['normal', 'none'],
       },
-      {
-        situation: 'Type is not Note and OKR: a Note, an OKR, a Task',
-        condition: { field: 'type', values: [note.id, okr.id], exclude: true },
-        items: [anItem('note', { typeId: note.id }), anItem('okr', { typeId: okr.id }), anItem('task', { typeId: task.id })],
-        drawn: ['task'],
-      },
     ] as { situation: string; condition: FilterCondition; items: Item[]; drawn: string[] }[])(
       '$situation',
       ({ condition, items, drawn }) => {
         const filings = items.map((item) => filed('falcon', item.id));
-        expect(shown(items, filings, [condition], { itemTypes: [note, okr, task] }).sort()).toEqual([...drawn].sort());
+        expect(shown(items, filings, [condition]).sort()).toEqual([...drawn].sort());
       },
     );
 
@@ -666,15 +574,14 @@ describe('Panels', () => {
     const later = anItem('later', { dueDate: '2026-12-01' });
     const items = [thisWeek, later];
     const filings = [filed('falcon', 'this-week'), filed('falcon', 'later')];
-    const nothingChosen: FilterCondition = { field: 'type', values: [], exclude: true };
-    const onlyDeleted: FilterCondition = { field: 'type', values: ['type-deleted'], exclude: true };
-    const panelDeleted: FilterCondition = { field: 'panel', values: ['gone'], exclude: true };
+    const nothingChosen: FilterCondition = { field: 'panel', values: [], exclude: true };
+    const onlyDeleted: FilterCondition = { field: 'panel', values: ['gone'], exclude: true };
 
     it.each([
-      { situation: 'all: Due this week, plus Type is not nothing', condition: nothingChosen, match: 'all', drawn: ['this-week'] },
-      { situation: 'any: Due this week, plus Type is not nothing', condition: nothingChosen, match: 'any', drawn: ['this-week'] },
-      { situation: 'any: Due this week, plus Panel is not a deleted Panel', condition: panelDeleted, match: 'any', drawn: ['this-week'] },
-      { situation: 'all: Due this week, plus Type is not a deleted Type', condition: onlyDeleted, match: 'all', drawn: ['this-week'] },
+      { situation: 'all: Due this week, plus Panel is not nothing', condition: nothingChosen, match: 'all', drawn: ['this-week'] },
+      { situation: 'any: Due this week, plus Panel is not nothing', condition: nothingChosen, match: 'any', drawn: ['this-week'] },
+      { situation: 'any: Due this week, plus Panel is not a deleted Panel', condition: onlyDeleted, match: 'any', drawn: ['this-week'] },
+      { situation: 'all: Due this week, plus Panel is not a deleted Panel', condition: onlyDeleted, match: 'all', drawn: ['this-week'] },
     ] as { situation: string; condition: FilterCondition; match: FilterMatch; drawn: string[] }[])(
       '$situation draws what Due this week draws alone',
       ({ condition, match, drawn }) => {
@@ -764,7 +671,7 @@ describe('Panels', () => {
       // A tie at every step: two dates, two priorities on the nearer one, and
       // two ages on the higher of those - and an undated row last, though it is
       // the oldest thing here by six years.
-      expect(inFilterOrder(items, DEFAULT_FILTER_SORT, []).map((item) => item.id)).toEqual([
+      expect(inFilterOrder(items, DEFAULT_FILTER_SORT).map((item) => item.id)).toEqual([
         'soonest-high-older',
         'soonest-high',
         'soonest-low',
@@ -780,7 +687,7 @@ describe('Panels', () => {
         anItem('older', { priority: 'high', createdAt: '2026-09-01T08:00:00.000Z' }),
       ];
       expect(
-        inFilterOrder(tied, [{ field: 'priority', direction: 'desc' }], []).map((item) => item.id),
+        inFilterOrder(tied, [{ field: 'priority', direction: 'desc' }]).map((item) => item.id),
       ).toEqual(['older', 'newer']);
     });
 
@@ -831,59 +738,34 @@ describe('Panels', () => {
   });
 
   describe('a filter reads its conditions back as a sentence', () => {
-    const okr = aType('type-okr', 'OKR');
-    const task = aType('type-task', 'Task');
     const wiki = aPanel('wiki', 'items');
     const notes = aPanel('notes', 'items');
 
     const priority = (...values: Priority[]): FilterCondition => ({ field: 'priority', values });
-    const type = (...values: string[]): FilterCondition => ({ field: 'type', values });
     const panel = (...values: string[]): FilterCondition => ({ field: 'panel', values });
     const status = (...values: ('to_do' | 'in_progress')[]): FilterCondition =>
       values.length === 0 ? { field: 'status' } : { field: 'status', values };
 
     it.each([
-      { situation: 'nothing chosen', conditions: [] as FilterCondition[], itemTypes: [] as ItemType[], reads: 'Nothing chosen yet' },
-      { situation: 'due today or overdue', conditions: [due('today')], itemTypes: [], reads: 'Due today or overdue' },
-      { situation: 'due today alone', conditions: [due('today', false)], itemTypes: [], reads: 'Due today' },
-      { situation: 'due this week or overdue', conditions: [due('week')], itemTypes: [], reads: 'Due this week or overdue' },
-      { situation: 'due this month alone', conditions: [due('month', false)], itemTypes: [], reads: 'Due this month' },
-      { situation: 'due this quarter or overdue', conditions: [due('quarter')], itemTypes: [], reads: 'Due this quarter or overdue' },
+      { situation: 'nothing chosen', conditions: [] as FilterCondition[], reads: 'Nothing chosen yet' },
+      { situation: 'due today or overdue', conditions: [due('today')], reads: 'Due today or overdue' },
+      { situation: 'due today alone', conditions: [due('today', false)], reads: 'Due today' },
+      { situation: 'due this week or overdue', conditions: [due('week')], reads: 'Due this week or overdue' },
+      { situation: 'due this month alone', conditions: [due('month', false)], reads: 'Due this month' },
+      { situation: 'due this quarter or overdue', conditions: [due('quarter')], reads: 'Due this quarter or overdue' },
       // *Or overdue* says nothing beside these two, so it is not read out: one
       // is overdue already, and the other is about an item with no date at all.
-      { situation: 'overdue', conditions: [due('overdue')], itemTypes: [], reads: 'Overdue' },
-      { situation: 'no due date', conditions: [due('none')], itemTypes: [], reads: 'No due date' },
+      { situation: 'overdue', conditions: [due('overdue')], reads: 'Overdue' },
+      { situation: 'no due date', conditions: [due('none')], reads: 'No due date' },
       {
         situation: 'priority is one level',
         conditions: [priority('high')],
-        itemTypes: [],
         reads: 'Priority is High',
       },
       {
         situation: 'priority is several levels',
         conditions: [priority('high', 'normal')],
-        itemTypes: [],
         reads: 'Priority is High or Normal',
-      },
-      {
-        situation: 'type is one Type',
-        conditions: [type(okr.id)],
-        itemTypes: [okr, task],
-        reads: 'Type is OKR',
-      },
-      {
-        situation: 'type is several Types',
-        conditions: [type(okr.id, task.id)],
-        itemTypes: [okr, task],
-        reads: 'Type is OKR or Task',
-      },
-      {
-        // Left out rather than named: there is no live Type to read its name
-        // off, the same reason matching ignores it (`filters.ts`).
-        situation: 'a Type among the values has since been deleted',
-        conditions: [type(okr.id, 'type-deleted')],
-        itemTypes: [okr],
-        reads: 'Type is OKR',
       },
       {
         // *And*, because that is what two conditions mean - a comma would read
@@ -891,20 +773,17 @@ describe('Panels', () => {
         // asked for.
         situation: 'two conditions, both of which hold',
         conditions: [due('week', false), due('none')],
-        itemTypes: [],
         reads: 'Due this week and No due date',
       },
       {
         situation: 'panel is one Panel',
         conditions: [panel(wiki.id)],
-        itemTypes: [],
         panels: [wiki, notes],
         reads: 'Filed on wiki',
       },
       {
         situation: 'panel is several Panels',
         conditions: [panel(wiki.id, notes.id)],
-        itemTypes: [],
         panels: [wiki, notes],
         reads: 'Filed on wiki or notes',
       },
@@ -913,7 +792,6 @@ describe('Panels', () => {
         // off, the same reason matching ignores it (`filters.ts`).
         situation: 'a Panel among the values has since been deleted',
         conditions: [panel(wiki.id, 'panel-deleted')],
-        itemTypes: [],
         panels: [wiki],
         reads: 'Filed on wiki',
       },
@@ -924,88 +802,66 @@ describe('Panels', () => {
         // sentence must not claim otherwise.
         situation: 'a value among the values names a live Panel of text',
         conditions: [panel(wiki.id, 'journal')],
-        itemTypes: [],
         panels: [wiki, aPanel('journal', 'text')],
         reads: 'Filed on wiki',
       },
       {
         situation: 'a status stored before Status took values',
         conditions: [status()],
-        itemTypes: [],
         reads: 'Status is In progress',
       },
-      { situation: 'status is To do', conditions: [status('to_do')], itemTypes: [], reads: 'Status is To do' },
+      { situation: 'status is To do', conditions: [status('to_do')], reads: 'Status is To do' },
       {
         situation: 'status is not In progress',
         conditions: [{ ...status('in_progress'), exclude: true } as FilterCondition],
-        itemTypes: [],
         reads: 'Status is not In progress',
-      },
-      {
-        situation: 'type is not several Types',
-        conditions: [{ ...type(okr.id, task.id), exclude: true } as FilterCondition],
-        itemTypes: [okr, task],
-        reads: 'Type is not OKR or Task',
       },
       {
         situation: 'priority is not one level',
         conditions: [{ ...priority('low'), exclude: true } as FilterCondition],
-        itemTypes: [],
         reads: 'Priority is not Low',
       },
       {
         situation: 'a Panel the item is not filed on',
         conditions: [{ ...panel(wiki.id), exclude: true } as FilterCondition],
-        itemTypes: [],
         panels: [wiki],
         reads: 'Not filed on wiki',
       },
-    ])('reads $situation', ({ conditions, itemTypes, panels = [], reads }) => {
-      expect(saysWhatItShows(conditions, itemTypes, panels)).toBe(reads);
+    ])('reads $situation', ({ conditions, panels = [], reads }) => {
+      expect(saysWhatItShows(conditions, panels)).toBe(reads);
     });
 
     it.each([
       {
         // An *is not* with nothing to exclude says nothing about what is
         // shown, so the sentence does not claim a narrowing.
-        situation: 'a Due condition beside a Type is not with nothing chosen, under any',
-        conditions: [due('week'), { field: 'type', values: [], exclude: true } as FilterCondition],
-        itemTypes: [] as ItemType[],
+        situation: 'a Due condition beside a Panel is not with nothing chosen, under any',
+        conditions: [due('week'), { field: 'panel', values: [], exclude: true } as FilterCondition],
         reads: 'Due this week or overdue',
       },
       {
-        situation: 'a Type is not whose only Type has since been deleted, beside a Due condition',
-        conditions: [due('week'), { field: 'type', values: ['type-deleted'], exclude: true } as FilterCondition],
-        itemTypes: [] as ItemType[],
+        situation: 'a Panel is not whose only Panel has since been deleted, beside a Due condition',
+        conditions: [due('week'), { field: 'panel', values: ['panel-deleted'], exclude: true } as FilterCondition],
         reads: 'Due this week or overdue',
       },
       {
         situation: 'two conditions, either of which will do',
         conditions: [due('week'), priority('high')],
-        itemTypes: [] as ItemType[],
         reads: 'Any of: Due this week or overdue; Priority is High',
       },
       {
         // One condition says the same under either, so it carries no prefix.
         situation: 'a single condition',
         conditions: [priority('high')],
-        itemTypes: [] as ItemType[],
         reads: 'Priority is High',
-      },
-      {
-        situation: 'a Type among the values has since been deleted',
-        conditions: [type(okr.id, 'type-deleted'), priority('high')],
-        itemTypes: [okr],
-        reads: 'Any of: Type is OKR; Priority is High',
       },
       {
         situation: 'nothing chosen',
         conditions: [] as FilterCondition[],
-        itemTypes: [] as ItemType[],
         reads: 'Nothing chosen yet',
       },
-    ])('reads any, with $situation', ({ conditions, itemTypes, reads }) => {
-      expect(saysWhatItShows(conditions, itemTypes, [], 'any')).toBe(reads);
+    ])('reads any, with $situation', ({ conditions, reads }) => {
+      expect(saysWhatItShows(conditions, [], 'any')).toBe(reads);
     });
 
     it.each([
@@ -1014,15 +870,15 @@ describe('Panels', () => {
       { situation: 'by nothing, which adds nothing', groupBy: 'none' as const, conditions: [due('week')], match: 'all' as const, reads: 'Due this week or overdue' },
       { situation: 'by Panel, set to any', groupBy: 'panel' as const, conditions: [due('week'), priority('high')], match: 'any' as const, reads: 'Any of: Due this week or overdue; Priority is High; grouped by Panel' },
     ])('ends with the grouping where there is one, grouped $situation', ({ conditions, match, groupBy, reads }) => {
-      expect(saysWhatItShows(conditions, [], [], match, groupBy)).toBe(reads);
+      expect(saysWhatItShows(conditions, [], match, groupBy)).toBe(reads);
     });
 
     it.each([
       { match: 'all' as const, reads: 'Everything filed; grouped by Panel' },
       { match: 'any' as const, reads: 'Nothing chosen yet; grouped by Panel' },
     ])('keeps the grouping when every condition is an is not that filters nothing, set to $match', ({ match, reads }) => {
-      const nothingToExclude: FilterCondition = { field: 'type', values: [], exclude: true };
-      expect(saysWhatItShows([nothingToExclude], [], [], match, 'panel')).toBe(reads);
+      const nothingToExclude: FilterCondition = { field: 'panel', values: [], exclude: true };
+      expect(saysWhatItShows([nothingToExclude], [], match, 'panel')).toBe(reads);
     });
 
     it.each([
@@ -1045,13 +901,13 @@ describe('Panels', () => {
           { id: 'work', name: 'Work' },
           { id: 'volleyball', name: 'Volleyball club' },
         ];
-        expect(saysWhatItShows([condition], [], [], 'all', 'none', dashboards)).toBe(reads);
+        expect(saysWhatItShows([condition], [], 'all', 'none', dashboards)).toBe(reads);
       },
     );
 
     it('adds nothing for a grouping it does not know, rather than naming one', () => {
       const unknown = 'type' as unknown as FilterGrouping;
-      expect(saysWhatItShows([due('week')], [], [], 'all', unknown)).toBe('Due this week or overdue');
+      expect(saysWhatItShows([due('week')], [], 'all', unknown)).toBe('Due this week or overdue');
     });
   });
 
@@ -1151,11 +1007,10 @@ describe('Panels', () => {
       filings: readonly Filing[],
       panelsInWorkspace: readonly Panel[],
       drawnPanelId: string | null,
-      itemTypes: readonly ItemType[] = [],
     ): string[] {
       return alsoShownOn(
         itemId,
-        panelAndFilterIdsByItem(items, filings, panelsInWorkspace, [{ id: 'today' }], itemTypes, TODAY),
+        panelAndFilterIdsByItem(items, filings, panelsInWorkspace, [{ id: 'today' }], TODAY),
         panelsInWorkspace,
         drawnPanelId,
       );
@@ -1233,7 +1088,7 @@ describe('Panels', () => {
   describe('the form lists where an item is shown, as dashboard and panel, or the inbox where it is filed nowhere', () => {
     const dashboards = [{ id: 'today', name: 'Today' }];
     const where = (item: Item, others: Item[], filings: Filing[], panels: Panel[]) =>
-      shownOn(item, [item, ...others], filings, panels, dashboards, [], TODAY);
+      shownOn(item, [item, ...others], filings, panels, dashboards, TODAY);
     const dueSoon = {
       ...aPanel('due-soon', 'filter'),
       name: 'Due soon',

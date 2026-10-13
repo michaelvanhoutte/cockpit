@@ -121,9 +121,6 @@ const DUE_TODAY = { field: 'dueDate', window: 'today', orOverdue: true };
 /** A Priority condition: matches an item holding either level ("Filter a Filter panel by priority and type", issue 464). */
 const PRIORITY_HIGH_OR_NORMAL = { field: 'priority', values: ['high', 'normal'] };
 
-/** A Type condition: matches an item of the seeded workspace's Task type. */
-const TYPE_TASK = { field: 'type', values: [TASK_TYPE_ID] };
-
 /** A save carrying `match` and `groupBy` only where given: leaving them out is what a client from before they existed sends. */
 function setFilter(panelId: string, conditions: unknown[], match?: unknown, groupBy?: unknown) {
   return send('set_panel_filter', {
@@ -872,8 +869,8 @@ describe('Panels', () => {
       expect((await panelNow(panelId)).filter).toEqual({ conditions: [], match: 'all', groupBy: 'none' });
     });
 
-    it('accepts a Priority, a Type and a Panel condition beside a Due date one', async () => {
-      // The four fields together, each carrying its own value shape - what
+    it('accepts a Priority and a Panel condition beside a Due date one', async () => {
+      // The fields together, each carrying its own value shape - what
       // extends `filterConditionSchema` from a Due date alone to a union
       // ("Filter a Filter panel by priority and type", issue 464; "Filter a
       // Filter panel by panel, and name the Filters a panel's deletion
@@ -883,7 +880,6 @@ describe('Panels', () => {
       const conditions = [
         DUE_TODAY,
         PRIORITY_HIGH_OR_NORMAL,
-        TYPE_TASK,
         { field: 'panel', values: [itemsPanelId] },
       ];
 
@@ -1001,9 +997,9 @@ describe('Panels', () => {
         status: 400,
       },
       {
-        situation: 'a Type condition naming nothing at all',
+        situation: 'a Type condition, which no Filter takes any more',
         panel: async () => (await aFilter()).panelId,
-        conditions: [{ field: 'type', values: [''] }],
+        conditions: [{ field: 'type', values: [TASK_TYPE_ID] }],
         status: 400,
       },
       {

@@ -7,6 +7,7 @@ import {
   proposeItemTextsSchema,
   setDuplicateSettledSchema,
   setPanelFilterSchema,
+  setPanelSortSchema,
 } from '../../src/commands.js';
 
 describe('Capture', () => {
@@ -204,7 +205,7 @@ describe('Panels', () => {
 
     it('keeps the exclusion flag and the Status values through the schema, the stored text and the read', () => {
       const conditions: FilterCondition[] = [
-        { field: 'type', values: ['type-note'], exclude: true },
+        { field: 'priority', values: ['low'], exclude: true },
         { field: 'status', values: ['to_do'], exclude: true },
       ];
       const saved = save(conditions);
@@ -218,6 +219,28 @@ describe('Panels', () => {
 
     it('refuses a Status value of Done, which a Filter never draws', () => {
       expect(save([{ field: 'status', values: ['done'] }]).success).toBe(false);
+    });
+  });
+
+  describe('a save naming Type is refused, since neither a Filter nor a Sort goes by Type any more', () => {
+    const envelope = {
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: 'ws-work',
+      panelId: uuidv7(),
+    };
+
+    it.each([
+      {
+        situation: 'a Filter with a Type condition',
+        refused: setPanelFilterSchema.safeParse({ ...envelope, conditions: [{ field: 'type', values: ['type-note'] }] }),
+      },
+      {
+        situation: 'a Sort with a Type criterion',
+        refused: setPanelSortSchema.safeParse({ ...envelope, sort: [{ field: 'type', direction: 'asc' }] }),
+      },
+    ])('refuses $situation', ({ refused }) => {
+      expect(refused.success).toBe(false);
     });
   });
 });

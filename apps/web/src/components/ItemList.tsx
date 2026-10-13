@@ -183,8 +183,8 @@ export function ItemList({
    */
   const alsoInByItem = useMemo(
     () =>
-      panelAndFilterIdsByItem(data?.items ?? [], data?.filings ?? [], data?.panels ?? [], data?.dashboards ?? [], types, today),
-    [data?.items, data?.filings, data?.panels, data?.dashboards, types, today],
+      panelAndFilterIdsByItem(data?.items ?? [], data?.filings ?? [], data?.panels ?? [], data?.dashboards ?? [], today),
+    [data?.items, data?.filings, data?.panels, data?.dashboards, today],
   );
   /**
    * The Agents a row here can be started with ("Drop an agent on an item to

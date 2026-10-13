@@ -905,7 +905,6 @@ function TheForm({
           data?.filings ?? [],
           data?.panels ?? [],
           data?.dashboards ?? [],
-          data?.itemTypes ?? [],
           dayOf(new Date()),
         )
       : [];
