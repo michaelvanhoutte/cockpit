@@ -36,6 +36,7 @@ function anItem(id: string): Item {
     completedAt: null,
     startedAt: null,
     priority: null,
+    prioritySetAt: null,
     dueDate: null,
     dueDateSetAt: null,
     unseen: false,

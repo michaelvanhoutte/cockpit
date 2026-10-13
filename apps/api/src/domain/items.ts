@@ -4,6 +4,8 @@ import {
   type Association,
   type CaptureItemCommand,
   type Item,
+  type Priority,
+  type ProposeItemFieldsCommand,
   type ProposeItemPanelCommand,
   type ProposeItemTextsCommand,
   type SetDescriptionCommand,
@@ -116,6 +118,10 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     completedAt: null,
     startedAt: null,
     priority: cmd.priority ?? null,
+    // A capture that carried a priority is the person's own choice, which the
+    // note's reading never replaces ("Read a priority you say when you
+    // capture", issue 1076).
+    prioritySetAt: cmd.priority === undefined ? null : cmd.issuedAt,
     dueDate: cmd.dueDate ?? null,
     // The ramp a due date colours along starts when it is given, which for a
     // capture is the capture itself - the same rule `applySetDueDate` follows.
@@ -220,9 +226,50 @@ export function applySetNextAction(item: Item, cmd: SetNextActionCommand): Item 
   return { ...item, nextAction: cmd.nextAction, updatedAt: cmd.issuedAt };
 }
 
+/**
+ * Setting or clearing a priority makes it the person's own, for good: the
+ * first answer wins, as `settledBy` below says of the texts, so the note's
+ * reading never replaces it ("Read a priority you say when you capture",
+ * issue 1076).
+ */
 export function applySetPriority(item: Item, cmd: SetPriorityCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
-  return { ...item, priority: cmd.priority, updatedAt: cmd.issuedAt };
+  return {
+    ...item,
+    priority: cmd.priority,
+    prioritySetAt: item.prioritySetAt ?? cmd.issuedAt,
+    updatedAt: cmd.issuedAt,
+  };
+}
+
+/** What a reading of the note set on an Item, field by field; a field it left alone is absent. */
+export interface FieldsSet {
+  priority?: Priority | undefined;
+}
+
+/**
+ * The fields a captured note stated, set where the person has not
+ * ("Read a priority you say when you capture", issue 1076) - or null where
+ * none of them was.
+ *
+ * **Each field is decided on its own**, refused where the person set it or
+ * cleared it (its marker), and refused where it already holds a value - which
+ * protects every Item from before the marker existed without a backfill, and
+ * makes a second delivery of the same reading change nothing.
+ *
+ * **`updatedAt` is left where it is**, for the reason `applyProposedTexts`
+ * gives: a person's offline edit with an earlier clock must still apply.
+ */
+export function applyProposedFields(
+  item: Item,
+  cmd: ProposeItemFieldsCommand,
+): { item: Item; set: FieldsSet } | null {
+  const set: FieldsSet = {};
+  if (cmd.priority !== undefined && item.prioritySetAt === null && item.priority === null) {
+    set.priority = cmd.priority;
+  }
+  if (Object.keys(set).length === 0) return null;
+  return { item: { ...item, priority: set.priority ?? item.priority }, set };
 }
 
 export function applySetItemType(item: Item, cmd: SetItemTypeCommand): Item | null {

@@ -973,6 +973,7 @@ describe('Item editing', () => {
       completedAt: null,
       startedAt: null,
       priority: null,
+      prioritySetAt: null,
       dueDate: null,
       dueDateSetAt: null,
       unseen: false,

@@ -119,6 +119,8 @@ import {
 import { agentFromCommand, agentNamed, decideAgentStart } from '../domain/agents.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
 import {
+  applyProposedFields,
+  type FieldsSet,
   applyProposedPanel,
   applyProposedTexts,
   applySetDescription,
@@ -914,6 +916,8 @@ export function runCommand<N extends CommandName>(
   // whether `textsProposedAt` was set before this write landed ("Re-read the
   // rest of the inbox the moment you fix a title", issue 399).
   let recordedCorrection = false;
+  // Set only by `propose_item_fields`, where it applied.
+  let fieldsSet: FieldsSet | null = null;
 
   switch (name) {
     case 'create_workspace': {
@@ -1892,6 +1896,33 @@ export function runCommand<N extends CommandName>(
       }
       break;
     }
+    case 'propose_item_fields': {
+      const cmd = payload as CommandPayload<'propose_item_fields'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      // The same 404, for the reason `propose_item_texts` above gives.
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+
+      // Decided here, against the Item as it stands, for the reason
+      // `propose_item_texts` gives: a priority the person set while the model
+      // was reading is already here, and one set after this waits for it.
+      const proposed = applyProposedFields(existing, cmd);
+      if (proposed === null) {
+        // Logged all the same, so a redelivery is a replay.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        db.transaction((tx) => {
+          tx.update(items)
+            .set(asStored(proposed.item))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
+        fieldsSet = proposed.set;
+      }
+      break;
+    }
     case 'set_duplicate_settled': {
       const cmd = payload as CommandPayload<'set_duplicate_settled'>;
       // Both items, because a pair is a fact about two of them and either one
@@ -2625,5 +2656,6 @@ export function runCommand<N extends CommandName>(
     applied,
     ...(settledRouting ? { settledRouting } : {}),
     ...(recordedCorrection ? { recordedCorrection } : {}),
+    ...(fieldsSet ? { fieldsSet } : {}),
   };
 }

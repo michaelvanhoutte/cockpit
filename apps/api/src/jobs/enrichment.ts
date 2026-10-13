@@ -10,7 +10,8 @@ import {
 import { aiFor } from '../ai/index.js';
 import type { Trigger } from '../gateway/attempts.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
-import type { PanelRead, RoutingCandidate } from '../ai/index.js';
+import type { NoteTexts, PanelRead, RoutingCandidate } from '../ai/index.js';
+import type { FieldsSet } from '../domain/items.js';
 import {
   asFarAsItReads,
   canReadMeaning,
@@ -608,20 +609,38 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     );
     throw error;
   }
+  // The fields the note stated, each set only where the person has not set it
+  // and it holds nothing yet - decided by the store, independently of whether
+  // the texts above landed ("Read a priority you say when you capture", issue
+  // 1076).
+  let fieldsSet: FieldsSet;
+  try {
+    fieldsSet = await applyStatedFields(account, item, read.proposal);
+  } catch (error) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(attemptId, {
+        status: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    throw error;
+  }
   const textsOutcome = {
     titleAfter: written.applied ? read.proposal.title : null,
     descriptionAfter: written.applied ? read.proposal.message : null,
     message: written.applied
       ? `proposed in ${read.proposal.language}`
       : 'nothing was written: the texts are already edited',
+    prioritySet: fieldsSet.priority ?? null,
   };
+  const fieldChanged = Object.keys(fieldsSet).length > 0;
   // Recorded the moment the texts settle, with the Panel as the item had it,
   // so nothing after this - the Panel write below, the queue - can leave the
   // row without what the texts did. The Panel step overwrites it whole.
   await recordHistory(() =>
     account.recordRewriteOutcome(attemptId, {
       ...textsOutcome,
-      status: written.applied ? 'rewritten' : 'left-as-is',
+      status: written.applied || fieldChanged ? 'rewritten' : 'left-as-is',
       proposedPanelId: item.proposedPanelId,
     }),
   );
@@ -655,11 +674,38 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   await recordHistory(() =>
     account.recordRewriteOutcome(attemptId, {
       ...textsOutcome,
-      status: written.applied || panelChanged ? 'rewritten' : 'left-as-is',
+      status: written.applied || fieldChanged || panelChanged ? 'rewritten' : 'left-as-is',
       proposedPanelId: panelItCarries(routed, read.proposal.panel, item.proposedPanelId),
       proposedPanelReason: routed === 'routed' ? (read.proposal.panel?.reason ?? null) : null,
     }),
   );
+}
+
+/**
+ * Sends the fields a note stated, where it stated any, and answers which the
+ * store set - none where it stated nothing, where the person set each one
+ * already, or where the item went while the note was being read, which the
+ * Panel step after this notices and says for itself.
+ */
+async function applyStatedFields(
+  account: Account,
+  item: { id: string; workspaceId: string },
+  proposal: NoteTexts,
+): Promise<FieldsSet> {
+  if (proposal.priority === null) return {};
+  try {
+    const written = await account.applyChange('propose_item_fields', {
+      commandId: crypto.randomUUID(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: item.workspaceId,
+      itemId: item.id,
+      priority: proposal.priority,
+    });
+    return written.fieldsSet ?? {};
+  } catch (error) {
+    if (error instanceof NotFoundInAccountError) return {};
+    throw error;
+  }
 }
 
 /**

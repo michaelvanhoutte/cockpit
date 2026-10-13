@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Item } from '@cockpit/shared';
 import {
+  applyProposedFields,
   applyProposedPanel,
   applyProposedTexts,
   applySetDescription,
   applySetDismissed,
   applySetDone,
   applySetDueDate,
+  applySetPriority,
   applySetStarted,
   applySetTitle,
   asStored,
@@ -530,6 +532,62 @@ describe('Offline', () => {
       // Typed a second after the capture, on a phone that only reached the
       // server after the reading had landed.
       expect(titled(read, LATER, 'Novy, appointment').title).toBe('Novy, appointment');
+    });
+  });
+});
+
+const prioritised = (item: Item, at: string, priority: Item['priority']) =>
+  applySetPriority(item, { ...request, issuedAt: at, itemId: item.id, priority })!;
+
+/**
+ * "Read a priority you say when you capture" (issue 1076): the decision alone,
+ * pure - which order a person's change and Cockpit's reading arrive in is the
+ * integration tier's question (tests/integration/http/note-cleanup.test.ts).
+ */
+describe('Capture', () => {
+  describe('a priority the note states is set only where you have not chosen one yourself', () => {
+    it.each([
+      { situation: 'nobody has touched the priority', item: () => anItem(), states: 'high' as const, expected: 'high' },
+      {
+        situation: 'you chose one in the Capture strip',
+        item: () =>
+          captureItem(
+            { ...request, issuedAt: MADE, itemId: '018f0000-0000-7000-8000-000000000003', message: 'call bob', priority: 'normal' },
+            'tenant-default',
+          ),
+        states: 'high' as const,
+        expected: null,
+      },
+      { situation: 'you set one since', item: () => prioritised(anItem(), LATER, 'low'), states: 'high' as const, expected: null },
+      {
+        situation: 'you set one and cleared it again',
+        item: () => prioritised(prioritised(anItem(), LATER, 'high'), LATEST, null),
+        states: 'high' as const,
+        expected: null,
+      },
+      {
+        situation: 'it held one from before Cockpit recorded who set it',
+        item: () => anItem({ priority: 'normal', prioritySetAt: null }),
+        states: 'high' as const,
+        expected: null,
+      },
+      { situation: 'the note states none', item: () => anItem(), states: undefined, expected: null },
+    ])('when $situation', ({ item, states, expected }) => {
+      const before = item();
+      const read = applyProposedFields(before, {
+        ...request,
+        issuedAt: LATEST,
+        itemId: before.id,
+        ...(states === undefined ? {} : { priority: states }),
+      });
+
+      expect(read?.set.priority ?? null).toBe(expected);
+      if (read) {
+        expect(read.item.priority).toBe(expected);
+        // A reading is not a change somebody made, so a change of theirs with an
+        // earlier clock is still newer than the item.
+        expect(read.item.updatedAt).toBe(before.updatedAt);
+      }
     });
   });
 });

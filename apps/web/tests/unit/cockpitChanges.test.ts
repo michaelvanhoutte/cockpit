@@ -67,6 +67,7 @@ function anAttempt(overrides: Partial<RewriteHistoryEntry> = {}): RewriteHistory
     looksAt: 'texts-and-panel',
     suggestedPanelBefore: null,
     suggestedPanelAfter: null,
+    prioritySet: null,
     ...overrides,
   };
 }
@@ -102,6 +103,7 @@ describe('What Cockpit changed', () => {
 
     it.each([
       { situation: 'only the suggested panel, which is in the tab and not the note', entries: [anAttempt({ looksAt: 'panel', suggestedPanelAfter: PANEL })] },
+      { situation: 'only the priority, which is in the tab and not the note', entries: [anAttempt({ prioritySet: 'high' })] },
       { situation: 'nothing changed', entries: [anAttempt()] },
       { situation: 'it looked and left the note as it was', entries: [anAttempt({ status: 'left-as-is', message: 'nothing to act on' })] },
       { situation: 'an attempt still working', entries: [anAttempt({ status: 'pending' })] },

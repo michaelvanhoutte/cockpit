@@ -46,6 +46,7 @@ function aRefinement(overrides: Partial<RewriteHistoryEntry> = {}): RewriteHisto
     looksAt: 'texts-and-panel',
     suggestedPanelBefore: null,
     suggestedPanelAfter: null,
+    prioritySet: null,
     ...overrides,
   };
 }
@@ -214,6 +215,26 @@ describe('What Cockpit changed', () => {
       const [panel] = await openTheRow(dialog);
       expect(within(panel!.says).getByRole('deletion')).toHaveTextContent('a deleted panel');
       expect(within(panel!.says).getByRole('insertion')).toHaveTextContent('None');
+    });
+  });
+
+  /** "Read a priority you say when you capture" (issue 1076). */
+  describe('a refinement lists the priority it set from what the note said, and no priority where it set none', () => {
+    it.each([
+      { situation: 'it set High', prioritySet: 'high' as const, says: 'Changed the title and priority', priority: 'High' },
+      { situation: 'it set none', prioritySet: null, says: 'Changed the title', priority: null },
+    ])('$situation', async ({ prioritySet, says, priority }) => {
+      const dialog = await openWith([aRefinement({ titleAfter: 'Call Bob', prioritySet })]);
+
+      expect(within(theRow(dialog)).getByText(says)).toBeVisible();
+      const lines = await openTheRow(dialog);
+      const line = lines.find((candidate) => candidate.field === 'Priority');
+      if (priority === null) {
+        expect(line).toBeUndefined();
+      } else {
+        expect(within(line!.says).getByRole('deletion')).toHaveTextContent('None');
+        expect(within(line!.says).getByRole('insertion')).toHaveTextContent(priority);
+      }
     });
   });
 

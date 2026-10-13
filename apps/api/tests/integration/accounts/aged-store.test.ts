@@ -69,6 +69,15 @@ function fixtureName(index: number): string {
  * to `applied` and nothing since - recorded as applied, exactly as the store
  * itself records it, so that opening it afterwards has real outstanding work.
  */
+/**
+ * An Item's row without the columns changes after the one a case is about add,
+ * which an open brings in holding NULL - those changes hold their own rows.
+ */
+function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<string, SqlStorageValue> {
+  const { priority_set_at: _prioritySetAt, ...rest } = row;
+  return rest;
+}
+
 async function agedTo(name: string, applied: number): Promise<void> {
   const changes = accountChanges(name);
   await inStoreAsItIs(name, (sql) => {
@@ -1884,7 +1893,8 @@ const connectorRowsIn = (name: string) =>
       .toArray()
       .map(({ follows: _follows, ...row }) => row),
     failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
-    items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+    // Without `priority_set_at`, which `0069-item-priority-set-at` adds on the same open.
+    items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
   }));
 
 describe('Connector management', () => {
@@ -1975,7 +1985,8 @@ const keptBesideGmail = (name: string) =>
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
       .map(({ follows: _follows, ...row }) => row),
-    items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+    // Without `priority_set_at`, which `0069-item-priority-set-at` adds on the same open.
+    items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
     links: sql.exec('SELECT * FROM pulled_links ORDER BY source_id').toArray(),
     checkpoints: sql.exec('SELECT * FROM pulled_connections ORDER BY source_account_id').toArray(),
   }));
@@ -2314,7 +2325,7 @@ describe('Capture', () => {
         ),
       );
       const rowOf = () =>
-        inStoreAsItIs(name, (sql) => sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]);
+        inStoreAsItIs(name, (sql) => withoutLaterColumns(sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]!));
       const before = await rowOf();
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
@@ -2526,7 +2537,7 @@ describe('Accounts', () => {
         ),
       );
       const rowOf = () =>
-        inStoreAsItIs(name, (sql) => sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]);
+        inStoreAsItIs(name, (sql) => withoutLaterColumns(sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]!));
       const before = await rowOf();
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });

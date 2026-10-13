@@ -212,6 +212,7 @@ function anItem(over: Partial<Item> = {}): Item {
     completedAt: null,
     startedAt: null,
     priority: null,
+    prioritySetAt: null,
     dueDate: null,
     dueDateSetAt: null,
     unseen: false,
@@ -2907,6 +2908,7 @@ describe('What Cockpit changed', () => {
       looksAt: 'texts-and-panel',
       suggestedPanelBefore: null,
       suggestedPanelAfter: null,
+      prioritySet: null,
       ...over,
     };
   }

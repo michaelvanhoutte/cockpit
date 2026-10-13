@@ -27,7 +27,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v11.test.ts).
+ * (tests/contract/clean-up-a-note.v12.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -233,6 +233,38 @@ async function routingOf(itemId: string, accountName = ACCOUNT_NAME) {
       .toArray(),
   );
   return rows[0] ?? null;
+}
+
+/** An item's priority and when the person last made it their own, read straight out of the store. */
+async function priorityOf(itemId: string) {
+  const rows = await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+    sql
+      .exec<{ priority: string | null; priority_set_at: string | null }>(
+        'SELECT priority, priority_set_at FROM items WHERE id = ? AND tenant_id = ?',
+        itemId,
+        ACCOUNT_NAME,
+      )
+      .toArray(),
+  );
+  return rows[0] ?? null;
+}
+
+/** What Cockpit changed on one item, newest first, as its own tab reads it. */
+async function historyOf(itemId: string): Promise<{ id: string; status: string; prioritySet: string | null }[]> {
+  const response = await asUser(`http://cockpit.test/v1/items/${itemId}/rewrite-history`);
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { entries: { id: string; status: string; prioritySet: string | null }[] }).entries;
+}
+
+/** Waits for the reading that follows a capture to have been recorded as done, whatever it changed. */
+async function untilTheChangeIsRecorded(itemId: string): Promise<void> {
+  await vi.waitFor(
+    async () => {
+      const [entry] = await historyOf(itemId);
+      expect(entry?.status).toMatch(/^(rewritten|left-as-is)$/);
+    },
+    { timeout: 15_000, interval: 50 },
+  );
 }
 
 /** Whether an item is filed on any Panel at all - the Inbox is the absence of one. */
@@ -701,7 +733,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v11.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v12.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {
@@ -1161,6 +1193,110 @@ describe('Capture', () => {
   });
 
   /**
+   * "Read a priority you say when you capture" (issue 1076). The model is
+   * faked, so these prove what Cockpit does with the priority it is handed back,
+   * not how well a note is read.
+   */
+  describe('a priority the note states is set on the item', () => {
+    it.each([
+      { situation: 'the note says it is high priority', says: 'high', expected: 'high' },
+      { situation: 'the note says there is no rush', says: 'low', expected: 'low' },
+      { situation: 'the note says nothing about its priority', says: undefined, expected: null },
+      { situation: 'the answer names a priority Cockpit does not have', says: 'urgent', expected: null },
+    ])('$situation', async ({ says, expected }) => {
+      theModelIs({ says: { ...A_READING, ...(says === undefined ? {} : { priority: says }) } });
+
+      const itemId = await captureANote();
+      await untilTheChangeIsRecorded(itemId);
+
+      expect((await priorityOf(itemId))?.priority).toBe(expected);
+      // The texts beside it land whatever the priority was.
+      expect((await textsOf(itemId))?.title).toBe(A_READING.title);
+    });
+  });
+
+  describe('a priority you choose yourself is never replaced by the one the note states', () => {
+    const setPriority = (itemId: string, priority: 'low' | 'normal' | 'high' | null, issuedAt: string) =>
+      postChange('set_priority', { commandId: nextId(), issuedAt, workspaceId: WORKSPACE_ID, itemId, priority });
+
+    it.each([
+      {
+        situation: 'chosen in the Capture strip',
+        capturedWith: 'normal' as const,
+        meanwhile: null,
+        expected: 'normal',
+      },
+      {
+        situation: 'set to Low while Cockpit is still reading the note',
+        capturedWith: undefined,
+        meanwhile: (itemId: string) => setPriority(itemId, 'low', '2026-09-09T10:00:01.000Z'),
+        expected: 'low',
+      },
+      {
+        situation: 'set to High and cleared again while Cockpit is still reading the note',
+        capturedWith: undefined,
+        meanwhile: async (itemId: string) => {
+          await setPriority(itemId, 'high', '2026-09-09T10:00:01.000Z');
+          await setPriority(itemId, null, '2026-09-09T10:00:02.000Z');
+        },
+        expected: null,
+      },
+    ])('keeps a priority $situation', async ({ capturedWith, meanwhile, expected }) => {
+      theModelIs({ says: { ...A_READING, priority: 'high' } });
+      const itemId = nextId();
+      if (meanwhile) whileReading = () => meanwhile(itemId);
+
+      await captureANote({ itemId, ...(capturedWith ? { priority: capturedWith } : {}) });
+      await untilTheChangeIsRecorded(itemId);
+
+      expect((await priorityOf(itemId))?.priority).toBe(expected);
+      // And the change list says nothing about a priority it did not set.
+      expect((await historyOf(itemId))[0]?.prioritySet).toBeNull();
+    });
+
+    it('takes a change you made offline, sent after the note was read', async () => {
+      theModelIs({ says: { ...A_READING, priority: 'high' } });
+      const itemId = await captureANote();
+      await untilTheChangeIsRecorded(itemId);
+      expect((await priorityOf(itemId))?.priority).toBe('high');
+
+      // Made a second after capturing, long before Cockpit read the note, and
+      // only arriving now: Cockpit's reading did not make it look stale.
+      const response = await setPriority(itemId, 'low', '2026-09-09T10:00:01.000Z');
+
+      expect(((await response.json()) as { applied: boolean }).applied).toBe(true);
+      expect((await priorityOf(itemId))?.priority).toBe('low');
+    });
+
+    it('sets the priority once when the same note is read twice', async () => {
+      theModelIs({ says: { ...A_READING, priority: 'high' } });
+      const itemId = await captureANote();
+      await untilTheChangeIsRecorded(itemId);
+      const [first] = await historyOf(itemId);
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: first!.id }), env);
+
+      expect((await priorityOf(itemId))?.priority).toBe('high');
+      const history = await historyOf(itemId);
+      expect(history).toHaveLength(1);
+      expect(history[0]!.prioritySet).toBe('high');
+    });
+  });
+
+  describe('what Cockpit changed records the priority it set', () => {
+    it('records the priority set on an item that had none', async () => {
+      theModelIs({ says: { ...A_READING, priority: 'high' } });
+
+      const itemId = await captureANote();
+      await untilTheChangeIsRecorded(itemId);
+
+      const [entry] = await historyOf(itemId);
+      expect(entry?.status).toBe('rewritten');
+      expect(entry?.prioritySet).toBe('high');
+    });
+  });
+
+  /**
    * The reading is Cockpit's own, so there is no way to ask for it from
    * outside. Held here rather than left to the comment on the command that says
    * so: the registry's own note says adding a command means adding it there and
@@ -1168,16 +1304,25 @@ describe('Capture', () => {
    * mechanically would publish this one.
    */
   describe('the reading is Cockpit’s to do, and cannot be asked for from outside', () => {
-    it('offers no address a signed-in browser could send a reading to', async () => {
-      const response = await postChange('propose_item_texts', {
+    it.each([
+      {
+        situation: 'the texts it read',
+        name: 'propose_item_texts' as const,
+        reading: {
+          title: 'Sent by hand',
+          description: 'Written by hand, and marked as Cockpit’s to overwrite.',
+          readings: [],
+        },
+      },
+      { situation: 'a priority the note stated', name: 'propose_item_fields' as const, reading: { priority: 'high' } },
+    ])('offers no address a signed-in browser could send $situation to', async ({ name, reading }) => {
+      const response = await postChange(name, {
         commandId: nextId(),
         issuedAt: '2026-09-09T10:00:00.000Z',
         workspaceId: WORKSPACE_ID,
         itemId: await captureANote(),
-        title: 'Sent by hand',
-        description: 'Written by hand, and marked as Cockpit’s to overwrite.',
-        readings: [],
-      });
+        ...reading,
+      } as CommandPayload<typeof name>);
 
       expect(response.status).toBe(404);
     });

@@ -154,6 +154,8 @@ export function accountChanges(accountId: string): readonly Change[] {
     gmailConnectionsReconnect(accountId),
     DROP_GMAIL_TABLES,
     connectorItemsStoredInternal(accountId),
+    ITEM_PRIORITY_SET_AT,
+    REWRITE_HISTORY_PRIORITY_SET,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -407,6 +409,40 @@ const PULLED_LINK_CHOICE: Change = {
  * - **A backup restored from before it:** the restore replays the recorded
  *   changes, so this one applies the next time the account is opened.
  */
+/*
+ * Who set an Item's priority, and the priority a refinement set from what the
+ * note said ("Read a priority you say when you capture", issue 1076) - one
+ * nullable column on `items` and one on `rewrite_history`, each a change of
+ * its own so each is one statement tracked on its own.
+ *
+ * Their failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `ADD COLUMN`s, and no statement that writes to a row.
+ * - **If it stops halfway:** the first column exists and the second does not;
+ *   the first is recorded as applied, so the next open applies only the second.
+ * - **The second time it runs:** neither re-runs once recorded, and SQLite
+ *   refuses a column that already exists rather than adding it twice.
+ * - **Rows that predate it:** every Item reads NULL, so no Item is marked; a
+ *   priority it already holds is protected by the rule that the reading only
+ *   fills an empty one, so nothing is backfilled. Every history row reads
+ *   NULL, which is true: nothing set a priority before this.
+ * - **Rolled back after it has run:** an older release never names either
+ *   column, and a `set_priority` it applies leaves the marker unstamped: a
+ *   priority set then is still protected by holding a value, and one cleared
+ *   then may be filled by a reading still in flight - the whole cost.
+ */
+const ITEM_PRIORITY_SET_AT: Change = {
+  name: '0069-item-priority-set-at',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `priority_set_at` text' }],
+};
+
+/** The second of the two columns above, under the same failure modes. */
+const REWRITE_HISTORY_PRIORITY_SET: Change = {
+  name: '0070-rewrite-history-priority-set',
+  statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `priority_set` text' }],
+};
+
 const CONNECTION_CHOICE: Change = {
   name: '0065-connection-choice',
   statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `choice` text' }],

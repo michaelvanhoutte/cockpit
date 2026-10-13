@@ -51,6 +51,7 @@ function anItemOf(type: ItemType | null, at: number): Item {
     completedAt: null,
     startedAt: null,
     priority: null,
+    prioritySetAt: null,
     dueDate: null,
     dueDateSetAt: null,
     unseen: false,
