@@ -1,12 +1,11 @@
-import { itemLabel, itemStatus, type Item, type ItemStatus, type ItemType, type Priority } from '@cockpit/shared';
+import { itemLabel, itemStatus, type Item, type ItemStatus, type Priority } from '@cockpit/shared';
 import { CommandRefused } from './api/client';
 import type { CommandArgs } from './api/queries';
 import { fieldWrites, type StatusState } from './itemFieldCommands';
 
 /**
- * Changing one field of everything a selection holds ("Change the type,
- * priority, due date or status of every selected item from the selection bar",
- * issue 864).
+ * Changing one field of everything a selection holds ("Change the priority, due
+ * date or status of every selected item from the selection bar", issue 864).
  *
  * **The deciding is here, and pure**, with the sending handed in: which Items
  * need a change, which commands each takes, and what putting each back means are
@@ -16,15 +15,13 @@ import { fieldWrites, type StatusState } from './itemFieldCommands';
  * another - no new command, nothing on the server.
  */
 
-/** The four fields the bar edits; the form's other two are text. */
-export type BulkField = 'typeId' | 'priority' | 'dueDate' | 'status';
-export type BulkValue = string | Priority | ItemStatus | null;
+/** The three fields the bar edits; the form's title and description are text. */
+export type BulkField = 'priority' | 'dueDate' | 'status';
+export type BulkValue = Priority | ItemStatus | string | null;
 
 /** What an Item holds for a field, in the form `fieldWrites` takes it. */
 export function valueOf(item: Item, field: BulkField): BulkValue {
   switch (field) {
-    case 'typeId':
-      return item.typeId ?? null;
     case 'priority':
       return item.priority ?? null;
     case 'dueDate':
@@ -41,8 +38,7 @@ export function stateOf(item: Item): StatusState {
 
 /**
  * What every Item shares for a field, or that they differ. A Done Item cannot
- * be picked, so a status is never Done here; an Item with no type beside typed
- * ones is a difference like any other.
+ * be picked, so a status is never Done here.
  */
 export type Shared = { mixed: true } | { mixed: false; value: BulkValue };
 
@@ -92,17 +88,8 @@ async function sendAll(sending: Sending, commands: readonly CommandArgs[]): Prom
   }
 }
 
-/**
- * The Items a choice would change: those not already holding the value. A type
- * that does not exist is offered to nobody, so it changes nothing.
- */
-export function needingTheChange(
-  items: readonly Item[],
-  field: BulkField,
-  value: BulkValue,
-  types: readonly ItemType[],
-): Item[] {
-  if (field === 'typeId' && !types.some((type) => type.id === value)) return [];
+/** The Items a choice would change: those not already holding the value. */
+export function needingTheChange(items: readonly Item[], field: BulkField, value: BulkValue): Item[] {
   return items.filter((item) => valueOf(item, field) !== value);
 }
 
@@ -122,7 +109,6 @@ export async function editSeveral(
     items: readonly Item[];
     field: BulkField;
     value: BulkValue;
-    types: readonly ItemType[];
     /** The open agent run of an Item, which Done ends. */
     runOf: (itemId: string) => string | undefined;
     /** Told which Item (counting from one) of how many is being sent. */
@@ -130,7 +116,7 @@ export async function editSeveral(
   },
 ): Promise<{ changed: Changed[]; refused: Refused[] }> {
   const { field, value } = options;
-  const toChange = needingTheChange(options.items, field, value, options.types);
+  const toChange = needingTheChange(options.items, field, value);
   const changed: Changed[] = [];
   const refused: Refused[] = [];
   for (const [at, item] of toChange.entries()) {
@@ -157,17 +143,9 @@ export async function editSeveral(
  * commands. **Stops at the first refusal and says how far it got**, leaving the
  * rest as they are now, because offering the same Undo again would be guessing a
  * second time.
- *
- * An Item that had no type has nothing to go back to - no command sets a type
- * to none - and is left out, as the form's Undo leaves it.
  */
-export async function putBack(
-  sending: Sending,
-  field: BulkField,
-  changed: readonly Changed[],
-): Promise<void> {
-  const toPutBack = changed.filter(({ before }) => !(field === 'typeId' && before === null));
-  for (const [at, { item, before, after, endedRunId }] of toPutBack.entries()) {
+export async function putBack(sending: Sending, field: BulkField, changed: readonly Changed[]): Promise<void> {
+  for (const [at, { item, before, after, endedRunId }] of changed.entries()) {
     const writes = fieldWrites(field, sending.envelope(item.id), before, after).map(({ command }) =>
       endedRunId && command.name === 'set_done' && !command.payload.done
         ? { ...command, payload: { ...command.payload, reopensRunId: endedRunId } }
@@ -177,20 +155,14 @@ export async function putBack(
       await sendAll(sending, writes);
     } catch (error) {
       throw new Error(
-        `${at} of ${toPutBack.length} put back, the rest still changed. ${whyNot(error)}`,
+        `${at} of ${changed.length} put back, the rest still changed. ${whyNot(error)}`,
       );
     }
   }
 }
 
-/** How many changed Items an Undo cannot return, for the sentence that offers it. */
-export function cannotBePutBack(field: BulkField, changed: readonly Changed[]): number {
-  return field === 'typeId' ? changed.filter(({ before }) => before === null).length : 0;
-}
-
 /** The names the bar uses for a field. */
 export const BULK_FIELD_NAMES: Record<BulkField, string> = {
-  typeId: 'Type',
   priority: 'Priority',
   dueDate: 'Due date',
   status: 'Status',
@@ -206,8 +178,7 @@ export function whatWasChanged(
   const done = valueName === null ? 'Due date cleared' : `${BULK_FIELD_NAMES[field]} set to ${valueName}`;
   const only = changed.length === 1 ? changed[0]!.item : null;
   const on = only ? `“${itemLabel(only)}”` : `${changed.length} items`;
-  const stays = cannotBePutBack(field, changed);
-  return `${done} on ${on}${stays > 0 ? ` (Undo leaves the ${stays} that had no type)` : ''}`;
+  return `${done} on ${on}`;
 }
 
 /** What the bar says of the Items a run could not change. */

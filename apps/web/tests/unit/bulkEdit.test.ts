@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Item, ItemType } from '@cockpit/shared';
+import type { Item } from '@cockpit/shared';
 import { CommandRefused } from '../../src/api/client';
 import type { CommandArgs } from '../../src/api/queries';
 import {
@@ -31,11 +31,6 @@ function anItem(id: string, over: Partial<Item> = {}): Item {
   } as unknown as Item;
 }
 
-const TYPES = [
-  { id: 'task', name: 'Task' },
-  { id: 'idea', name: 'Idea' },
-] as unknown as ItemType[];
-
 /** A send that records what it was given and refuses what it is told to, by Item. */
 function aSender(refusing: Record<string, 'refused' | 'offline' | 'stale'> = {}) {
   const sent: CommandArgs[] = [];
@@ -60,10 +55,10 @@ function aSender(refusing: Record<string, 'refused' | 'offline' | 'stale'> = {})
 const edit = (
   sending: Sending,
   items: Item[],
-  field: 'typeId' | 'priority' | 'dueDate' | 'status',
+  field: 'priority' | 'dueDate' | 'status',
   value: string | null,
   onProgress: (at: number, of: number) => void = () => {},
-) => editSeveral(sending, { items, field, value, types: TYPES, runOf: () => undefined, onProgress });
+) => editSeveral(sending, { items, field, value, runOf: () => undefined, onProgress });
 
 const summary = (sent: CommandArgs[]) =>
   sent.map((c) => `${c.name}:${(c.payload as { itemId: string }).itemId}`);
@@ -73,13 +68,11 @@ describe('Selection', () => {
     it.each([
       { situation: 'Priority all High', field: 'priority', items: [{ priority: 'high' }, { priority: 'high' }], mixed: false, value: 'high' },
       { situation: 'Priority High and none', field: 'priority', items: [{ priority: 'high' }, { priority: null }], mixed: true },
-      { situation: 'Type on an Item with no type beside a typed one', field: 'typeId', items: [{ typeId: 'task' }, { typeId: null }], mixed: true },
-      { situation: 'Type on Items that all have none', field: 'typeId', items: [{ typeId: null }, { typeId: null }], mixed: false, value: null },
       { situation: 'Status on Items to do and in progress', field: 'status', items: [{}, { startedAt: '2026-10-01T09:00:00.000Z' }], mixed: true },
       { situation: 'Status on Items all in progress', field: 'status', items: [{ startedAt: 'a' }, { startedAt: 'b' }], mixed: false, value: 'in_progress' },
     ] as {
       situation: string;
-      field: 'typeId' | 'priority' | 'status';
+      field: 'priority' | 'status';
       items: Partial<Item>[];
       mixed: boolean;
       value?: string | null;
@@ -144,14 +137,6 @@ describe('Selection', () => {
           return `${c.name}:${payload.done ?? payload.started}`;
         }),
       ).toEqual(sends);
-    });
-
-    it('sends only a type that exists', async () => {
-      const { sent, sending } = aSender();
-      await edit(sending, [anItem('a')], 'typeId', 'gone');
-      expect(sent).toEqual([]);
-      await edit(sending, [anItem('a')], 'typeId', 'idea');
-      expect(summary(sent)).toEqual(['set_item_type:a']);
     });
 
     it('counts the Items it is sending to, not the ones already holding the value', async () => {
@@ -245,7 +230,6 @@ describe('Selection', () => {
         items: [started],
         field: 'status',
         value: 'done',
-        types: TYPES,
         runOf: () => '0198a000-0000-7000-8000-000000000001',
         onProgress: () => {},
       });
@@ -256,17 +240,6 @@ describe('Selection', () => {
       expect(sent.map((c) => c.payload)).toMatchObject([
         { done: false, reopensRunId: '0198a000-0000-7000-8000-000000000001' },
       ]);
-    });
-
-    it('leaves an Item that had no type as it is, since no change sets a type to none, and says so', async () => {
-      const { sent, sending } = aSender();
-      const { changed } = await edit(sending, [anItem('a', { typeId: 'task' }), anItem('b')], 'typeId', 'idea');
-      sent.length = 0;
-
-      await putBack(sending, 'typeId', changed);
-
-      expect(sent.map((c) => c.payload)).toMatchObject([{ itemId: 'a', typeId: 'task' }]);
-      expect(whatWasChanged('typeId', 'Idea', changed)).toBe('Type set to Idea on 2 items (Undo leaves the 1 that had no type)');
     });
 
     it('names a single Item by its title and a cleared due date as cleared', async () => {

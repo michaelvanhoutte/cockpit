@@ -42,7 +42,6 @@ function rowsOf(items: Item[], filings: Filing[] = [], sort = DEFAULT_SORT) {
       filings,
       panels: PANELS,
       dashboards: DASHBOARDS,
-      itemTypes: [{ id: 't-task', name: 'Task' }],
     },
     sort,
   );
@@ -119,14 +118,15 @@ describe('Inbox', () => {
       expect(rowsOf([anItem(item)])[0]?.changedAt).toBe(changedAt);
     });
 
-    it('leaves the priority, due date and type empty for an item with none', () => {
-      const [row] = rowsOf([anItem({ typeId: 'gone' })]);
-      expect([row?.priority, row?.due, row?.type]).toEqual([null, null, '']);
+    it('leaves the priority and due date empty for an item with none', () => {
+      const [row] = rowsOf([anItem()]);
+      expect([row?.priority, row?.due]).toEqual([null, null]);
     });
 
-    it('names the type, priority and due date an item has', () => {
-      const [row] = rowsOf([anItem({ typeId: 't-task', priority: 'high', dueDate: '2026-09-20' })]);
-      expect([row?.type, row?.priority, row?.due]).toEqual(['Task', 'high', '2026-09-20']);
+    it('names the priority and due date an item has, and no type', () => {
+      const [row] = rowsOf([anItem({ priority: 'high', dueDate: '2026-09-20' })]);
+      expect([row?.priority, row?.due]).toEqual(['high', '2026-09-20']);
+      expect(Object.keys(row ?? {})).not.toContain('type');
     });
   });
 

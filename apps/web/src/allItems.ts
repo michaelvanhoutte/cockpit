@@ -47,11 +47,10 @@ export function placesFiledOn(
     });
 }
 
-export type AllItemsKey = 'title' | 'type' | 'status' | 'priority' | 'due' | 'where' | 'changed';
+export type AllItemsKey = 'title' | 'status' | 'priority' | 'due' | 'where' | 'changed';
 
 export const ALL_ITEMS_COLUMNS: readonly { key: AllItemsKey; label: string }[] = [
   { key: 'title', label: 'Title' },
-  { key: 'type', label: 'Type' },
   { key: 'status', label: 'Status' },
   { key: 'priority', label: 'Priority' },
   { key: 'due', label: 'Due' },
@@ -83,8 +82,6 @@ export function pressHeader(sort: AllItemsSort, key: AllItemsKey): AllItemsSort 
 export interface AllItemsRow {
   item: Item;
   title: string;
-  /** The Type's name, or empty for an item with none or whose Type has been deleted. */
-  type: string;
   status: ItemStatus;
   priority: Priority | null;
   due: string | null;
@@ -101,8 +98,6 @@ function sortValue(row: AllItemsRow, key: AllItemsKey): string | number {
   switch (key) {
     case 'title':
       return row.title.toLowerCase();
-    case 'type':
-      return row.type.toLowerCase();
     case 'status':
       return STATUS_RANK[row.status];
     case 'priority':
@@ -129,7 +124,6 @@ export function allItemsRows(
     filings?: readonly Filing[] | undefined;
     panels?: readonly Panel[] | undefined;
     dashboards?: readonly Dashboard[] | undefined;
-    itemTypes?: readonly { id: string; name: string }[] | undefined;
   },
   sort: AllItemsSort = DEFAULT_SORT,
 ): AllItemsRow[] {
@@ -138,7 +132,6 @@ export function allItemsRows(
     return {
       item,
       title: item.title.trim() || UNTITLED,
-      type: (snapshot.itemTypes ?? []).find((type) => type.id === item.typeId)?.name ?? '',
       status: itemStatus(item),
       priority: item.priority ?? null,
       due: item.dueDate ?? null,

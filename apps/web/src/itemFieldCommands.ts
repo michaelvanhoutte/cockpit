@@ -8,7 +8,7 @@ export interface StatusState {
 }
 
 /**
- * What the two boxes, the priority, type and status controls and the due date
+ * What the two boxes, the priority and status controls and the due date
  * hold, before anything is sent. `status` is what the Status control holds;
  * `started` is never picked, only what the item carries, and moves when a
  * status write lands.
@@ -19,12 +19,10 @@ export interface Draft extends StatusState {
   priority: Priority | null;
   /** ISO calendar date (`2026-09-30`), or `null` for none - the empty string the date input shows for "unset" is never stored in the draft. */
   dueDate: string | null;
-  /** The type the item is, or `null` where it has none (never had one, or its type was deleted) - only ever what the form opened on, never something a person can pick. */
-  typeId: string | null;
 }
 
-/** The six fields the item's form edits, in the order they are sent. */
-export const FIELDS = ['title', 'description', 'priority', 'dueDate', 'typeId', 'status'] as const;
+/** The five fields the item's form edits, in the order they are sent. */
+export const FIELDS = ['title', 'description', 'priority', 'dueDate', 'status'] as const;
 export type Field = (typeof FIELDS)[number];
 
 /** What each field is called where a person is told it changed. */
@@ -33,7 +31,6 @@ export const FIELD_NAMES: Record<Field, string> = {
   description: 'description',
   priority: 'priority',
   dueDate: 'due date',
-  typeId: 'type',
   status: 'status',
 };
 
@@ -122,8 +119,6 @@ export function fieldWrites(
       return one((e) => ({ name: 'set_priority', payload: { ...e, priority: value as Priority | null } }));
     case 'dueDate':
       return one((e) => ({ name: 'set_due_date', payload: { ...e, dueDate: value as string | null } }));
-    case 'typeId':
-      return one((e) => ({ name: 'set_item_type', payload: { ...e, typeId: value as string } }));
     case 'status': {
       let state = from;
       return statusSteps(from, value as ItemStatus).map((step) => {

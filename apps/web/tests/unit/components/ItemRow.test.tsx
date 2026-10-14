@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { STARTING_GIVES_UP_AFTER_MS, type Agent, type AgentRun, type Item, type ItemType } from '@cockpit/shared';
+import { STARTING_GIVES_UP_AFTER_MS, type Agent, type AgentRun, type Item } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { AGENT_BEING_DRAGGED, landAgent, liftAgent } from '../../../src/agentInTheAir';
 import { ItemRow } from '../../../src/components/ItemRow';
@@ -1481,47 +1481,8 @@ describe('Item editing', () => {
 });
 
 describe('Triage', () => {
-  describe('a row shows what type it is', () => {
-    /** One row, rendered on its own, with the type it was given. */
-    function aRowOf(itemType: ItemType | undefined) {
-      mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
-      mockUseSendCommand.mockReturnValue(vi.fn(() => Promise.resolve({ ok: true as const, applied: true })));
-      return render(
-        <ItemRow item={anItem({})} itemType={itemType} workspaceId="ws-work" />,
-      );
-    }
-
-    const aType = (name: string, color: string): ItemType => ({
-      id: '11111111-1111-7111-8111-111111111111',
-      tenantId: 'tenant',
-      name,
-      color,
-      position: 0,
-      createdAt: '2026-08-31T08:00:00.000Z',
-    });
-
-    it.each([
-      { situation: 'an action', itemType: aType('Action', '#6f62b5') },
-      { situation: 'a thought', itemType: aType('Thought', '#3a72c8') },
-      { situation: 'one made by using it', itemType: aType('Question', '#c06a45') },
-    ])('says the type in words for $situation', ({ itemType }) => {
-      const { unmount } = aRowOf(itemType);
-
-      // The word is the whole of it: the coloured dot that used to head the row
-      // gave its place to the priority flag.
-      expect(screen.getByText(itemType.name)).toBeInTheDocument();
-      unmount();
-    });
-
-    it('draws an item with no type, rather than hiding it', () => {
-      aRowOf(undefined);
-
-      expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
-    });
-  });
-
   /** "Mark an item In progress, and see since when" (issue 568). */
-  describe('an item In progress wears a pill beside its type, and one To do wears none', () => {
+  describe('an item In progress wears a pill of its own, and one To do wears none', () => {
     it('wears an In progress pill once started', () => {
       aRow({ item: anItem({ startedAt: '2026-09-04T10:00:00.000Z' }) });
 

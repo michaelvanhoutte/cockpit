@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import type { Item, ItemStatus, ItemType, Priority } from '@cockpit/shared';
+import type { Item, ItemStatus, Priority } from '@cockpit/shared';
 import { sharedValue, type BulkField, type BulkValue } from '../bulkEdit';
 import { dueDateLabel } from '../dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../dueDateShortcuts';
@@ -24,10 +24,10 @@ interface Choice {
 }
 
 /**
- * Edit ▾ on the selection bar: Type ▸, Priority ▸, Due ▸ and Status ▸, each
- * naming the value every picked Item shares - or *Mixed* - with a submenu that
- * ticks it ("Change the type, priority, due date or status of every selected
- * item from the selection bar", issue 864). The same menu on the Dashboard's bar
+ * Edit ▾ on the selection bar: Priority ▸, Due ▸ and Status ▸, each naming the
+ * value every picked Item shares - or *Mixed* - with a submenu that ticks it
+ * ("Change the priority, due date or status of every selected item from the
+ * selection bar", issue 864). The same menu on the Dashboard's bar
  * and the Inbox's.
  *
  * **Submenus open beside the menu and reach up from the trigger's foot**, so
@@ -44,13 +44,11 @@ interface Choice {
  */
 export function EditSeveralMenu({
   picked,
-  types,
   disabled,
   onSet,
   onPickDate,
 }: {
   picked: readonly Item[];
-  types: readonly ItemType[];
   /** Unavailable while a run is going or a filing is. */
   disabled: boolean;
   /** `name` is what the choice is called, or null for the due date being cleared. */
@@ -71,11 +69,6 @@ export function EditSeveralMenu({
   const roomBesideTheMenu = useRoomForTheInbox();
 
   const fields: { field: BulkField; name: string; choices: Choice[] }[] = [
-    {
-      field: 'typeId',
-      name: 'Type',
-      choices: types.map((type) => ({ name: type.name, value: type.id })),
-    },
     {
       field: 'priority',
       name: 'Priority',
@@ -113,7 +106,7 @@ export function EditSeveralMenu({
     if (shared.mixed) return 'Mixed';
     const named = choices.find((choice) => choice.value === shared.value)?.name;
     if (named) return named;
-    if (shared.value === null) return field === 'typeId' ? 'No type' : 'None';
+    if (shared.value === null) return 'None';
     // A due date that is not one of the shortcuts' days.
     return dueDateLabel(shared.value) ?? 'None';
   };
@@ -187,9 +180,6 @@ export function EditSeveralMenu({
                         </DropdownMenu.Item>
                       );
                     })}
-                    {field === 'typeId' && choices.length === 0 && (
-                      <div className="px-2 py-1.5 text-sm text-ink-faint">No types yet</div>
-                    )}
                     {field === 'dueDate' && (
                       <DropdownMenu.Item
                         className={menuItemSplitClass}

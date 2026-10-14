@@ -80,7 +80,6 @@ export function useEditingSeveral({
         items: picked,
         field,
         value,
-        types: data?.itemTypes ?? [],
         runOf: (itemId) => data?.agentRuns?.find((run) => run.itemId === itemId)?.id,
         onProgress: (at, of) => setSaving({ at, of }),
       });
@@ -111,7 +110,6 @@ export function useEditingSeveral({
     menu: (
       <EditSeveralMenu
         picked={picked}
-        types={data?.itemTypes ?? []}
         disabled={saving !== null || filing}
         onSet={(field, value, name) => void set(field, value, name)}
         onPickDate={() => setPickingDate(true)}

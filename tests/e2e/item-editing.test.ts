@@ -38,7 +38,7 @@ const priorityGroup = (page: Page) => form(page).getByRole('group', { name: 'Pri
 const priorityFlag = (page: Page, level: string) =>
   form(page).getByRole('button', { name: `${level} priority` });
 const dueDateBox = (page: Page) => form(page).getByLabel('Due date');
-/** On a phone's page the short fields are one row of chips: Type, Status, Priority, Due, + Attach. */
+/** On a phone's page the short fields are one row of chips: Status, Priority, Due, + Attach. */
 const chips = (page: Page) => form(page).getByRole('group', { name: 'Fields' }).getByRole('button');
 
 /** A level toggled, as the device draws it: the flag at a desk, the Priority chip and its picker on a phone. */
@@ -47,19 +47,19 @@ async function togglePriority(page: Page, level: string, isMobile: boolean): Pro
     await priorityFlag(page, level).click();
     return;
   }
-  await press(chips(page).nth(2), isMobile);
+  await press(chips(page).nth(1), isMobile);
   await press(page.getByRole('menuitemradio', { name: level, exact: true }), isMobile);
 }
 
 /** Priority set to none, as the device draws it: the lit flag pressed again at a desk, *No priority* in the chip's picker on a phone. */
 async function clearPriority(page: Page, level: string, isMobile: boolean): Promise<void> {
   if (!isMobile) return togglePriority(page, level, isMobile);
-  await press(chips(page).nth(2), isMobile);
+  await press(chips(page).nth(1), isMobile);
   await press(page.getByRole('menuitemradio', { name: 'No priority', exact: true }), isMobile);
 }
 
 async function expectPriority(page: Page, level: string, isMobile: boolean): Promise<void> {
-  if (isMobile) await expect(chips(page).nth(2)).toHaveAccessibleName(`${level} priority`);
+  if (isMobile) await expect(chips(page).nth(1)).toHaveAccessibleName(`${level} priority`);
   else await expect(priorityFlag(page, level)).toHaveAttribute('aria-pressed', 'true');
 }
 
@@ -325,11 +325,11 @@ test.describe('Item editing', () => {
       await expect(itemRow(page, marked).getByText('Due Sep 30, 2099')).toBeVisible();
 
       await openItem(page, marked, isMobile);
-      if (isMobile) await expect(chips(page).nth(3)).toHaveText('Due Sep 30, 2099');
+      if (isMobile) await expect(chips(page).nth(2)).toHaveText('Due Sep 30, 2099');
       else await expect(dueDateBox(page)).toHaveValue('2099-09-30');
       await clearPriority(page, 'High', isMobile);
       if (isMobile) {
-        await press(chips(page).nth(3), isMobile);
+        await press(chips(page).nth(2), isMobile);
         await press(page.getByRole('button', { name: 'Clear' }), isMobile);
       } else {
         await dueDateBox(page).fill('');
@@ -344,29 +344,10 @@ test.describe('Item editing', () => {
       await expect(itemRow(page, marked).getByLabel('High priority')).toHaveCount(0);
       await expect(itemRow(page, marked).getByText('Due Sep 30, 2099')).toHaveCount(0);
 
-      // Its type and its status, from the same form ("Change an item's type,
-      // and its status, from its form, and see where it is shown", issue 528):
-      // the type is still the one picked on the way back in, the Inbox is where
-      // Details says it is shown, and finishing it takes it off the list.
+      // Its details from the same form ("Change an item's status from its form,
+      // and see where it is shown", issue 528): the Inbox is where Details says
+      // it is shown, and finishing it takes it off the list.
       await openItem(page, marked, isMobile);
-      // The Type picked is what the chip, or the box, reads on the way back in.
-      let other: string;
-      if (isMobile) {
-        await press(chips(page).first(), isMobile);
-        const another = page.locator('[role="menuitemradio"][aria-checked="false"]').first();
-        other = (await another.textContent())!.trim();
-        await press(another, isMobile);
-      } else {
-        const types = form(page).getByLabel('Type');
-        other = (await types.locator('option:not(:checked)').first().getAttribute('value'))!;
-        await types.selectOption(other);
-      }
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-      await expect(form(page)).toHaveCount(0);
-
-      await openItem(page, marked, isMobile);
-      if (isMobile) await expect(chips(page).first()).toHaveText(other);
-      else await expect(form(page).getByLabel('Type')).toHaveValue(other);
       await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
       await expect(form(page).getByText('Shown on')).toBeVisible();
       await expect(form(page).getByText('Inbox', { exact: true })).toBeVisible();
@@ -929,11 +910,13 @@ test.describe('Item editing', () => {
       // 56rem, on a window wide enough that nothing clamps it.
       expect(Math.round((await form(page).boundingBox())!.width)).toBe(896);
 
-      // Priority sits under Type and Due date under Status, in two equal
-      // columns, and the due date's shortcuts stay on one line under it.
+      // Status sits over Priority, and Due date in the second of two equal
+      // columns beside it, with the due date's shortcuts on one line under it.
       const left = async (locator: Locator) => Math.round((await locator.boundingBox())!.x);
-      expect(await left(priorityGroup(page)), 'Priority under Type').toBe(await left(form(page).getByLabel('Type')));
-      expect(await left(dueDateBox(page)), 'Due date under Status').toBe(await left(form(page).getByLabel('Status')));
+      expect(await left(priorityGroup(page)), 'Priority under Status').toBe(await left(form(page).getByLabel('Status')));
+      expect(await left(dueDateBox(page)), 'Due date beside Priority, in the second column').toBeGreaterThan(
+        await left(priorityGroup(page)),
+      );
       const shortcutTops = await Promise.all(
         ['Today', 'Tmrw', '+7d'].map(async (name) =>
           Math.round((await form(page).getByRole('button', { name, exact: true }).boundingBox())!.y),
@@ -941,7 +924,7 @@ test.describe('Item editing', () => {
       );
       expect(new Set(shortcutTops).size, 'the due date shortcuts on one line').toBe(1);
 
-      // Type, the first of the short fields, and the description's own toolbar
+      // Status, the first of the short fields, and the description's own toolbar
       // sit on the same row when there is room for two columns - both near the
       // top of their own
       // column - and one column drops below the other's whole height once
@@ -950,7 +933,7 @@ test.describe('Item editing', () => {
       // the first field's own row to read as "the same row" even stacked.
       const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
       const sideBySide = async () => {
-        const firstField = (await form(page).getByLabel('Type').boundingBox())!;
+        const firstField = (await form(page).getByLabel('Status').boundingBox())!;
         const description = (await toolbar.boundingBox())!;
         return Math.abs(firstField.y - description.y) < 40;
       };
