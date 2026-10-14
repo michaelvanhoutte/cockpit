@@ -1,11 +1,14 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
-import { beforeEach, describe, expect, inject, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import worker from '../../src/worker';
 import { emptyTheDatabase, send, spend, theBarePage, usage, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
   await withPrices();
+});
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 async function runTheNightlyJob() {
@@ -139,16 +142,18 @@ describe('Harness Monitor', () => {
     });
 
     it('a period of 30 days has a point per day, and 90 days one per week', async () => {
-      const day = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+      // Wednesday 2026-10-14, so the pull request is on Tuesday 2026-10-13 and its week starts on Monday 2026-10-12.
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-14T12:00:00Z') });
+      const day = '2026-10-13';
+      const monday = '2026-10-12';
       await send([spend('p1', 1, { time: `${day}T10:00:00Z`, branch: 'b/1' })]);
       await merged(1, `${day}T12:00:00Z`, 500);
 
       const thirty = chart(await theBarePage('?period=30d'), 'pull-request-size');
-      const ninety = chart(await theBarePage('?period=90d'), 'pull-request-size') as Record<string, string[]>;
+      const ninety = chart(await theBarePage('?period=90d'), 'pull-request-size');
 
       expect(thirty).toEqual({ 'pull-request-size': [`${day} · 500 lines`] });
-      expect(ninety['pull-request-size']).toHaveLength(1);
-      expect(ninety['pull-request-size']![0]).not.toContain(day);
+      expect(ninety).toEqual({ 'pull-request-size': [`${monday} · 500 lines`] });
     });
 
     it('with nothing merged in the period the charts say so rather than drawing zero', async () => {
