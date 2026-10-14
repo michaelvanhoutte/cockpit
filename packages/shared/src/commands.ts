@@ -34,15 +34,15 @@ import {
 } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
+/** What a change to the whole account names instead of a workspace: the dock's Agents, the Item form's presentation. */
+export const ACCOUNT_WIDE = 'account';
+
 /**
  * Mutations are commands, not object PUTs (architecture.md, "Mutations are
  * commands, not object PUTs"). Every command carries a client-generated command
  * ID (idempotent retries) and the client timestamp (last-write-wins conflict
  * resolution).
  */
-/** What a change to the whole account names instead of a workspace: the dock's Agents, the Item form's presentation (architecture.md §4.4). */
-export const ACCOUNT_WIDE = 'account';
-
 export const commandEnvelopeSchema = z.object({
   commandId: z.uuid(),
   /** Client wall-clock time when the command was issued. */

@@ -17,7 +17,7 @@ export function agentNamed(taken: readonly Agent[], name: string): Agent | undef
 
 /**
  * A new Agent, after every Agent there has ever been - the same "highest
- * position, not how many are live" reasoning `itemTypeFromCommand` carries,
+ * position, not how many are live" reasoning every ordered list here uses,
  * so a new tile joins the end of the dock rather than the front.
  */
 export function agentFromCommand(
