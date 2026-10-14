@@ -148,8 +148,6 @@ export const itemSchema = z.object({
   proposedPanelId: z.uuid().nullable(),
   /** Why, beside the Panel above — in words meant for the row's own hover text. Null exactly when `proposedPanelId` is. */
   proposedPanelReason: z.string().nullable(),
-  /** What kind of thing this is ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). Nullable: an item with no type, or a deleted type, draws with none rather than hidden. */
-  typeId: z.string().nullable(),
   /** The current, always-editable next-action label (functional-definition.md §6.1). */
   nextAction: z.string().nullable(),
   /** When this was finished with — a time rather than a flag ("An item is either yours to deal with or finished with", issue 154; architecture.md §4.4). App-owned: a re-sync never clears it. */
@@ -256,7 +254,7 @@ export type Association = z.infer<typeof associationSchema>;
 /**
  * Names are compared trimmed and case-insensitively; the cap is a product
  * decision, not a storage one (architecture.md §4.4). Shared by
- * `dashboardNameSchema`, `panelNameSchema` and `itemTypeNameSchema` — only where uniqueness is scoped differs between them.
+ * `dashboardNameSchema` and `panelNameSchema` — only where uniqueness is scoped differs between them.
  */
 export const NAME_MAX_LENGTH = 60;
 

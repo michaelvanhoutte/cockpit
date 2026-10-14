@@ -22,7 +22,6 @@ function anItem(id: string, over: Partial<Item> = {}): Item {
   return {
     id,
     title: `Item ${id}`,
-    typeId: null,
     completedAt: null,
     startedAt: null,
     priority: null,

@@ -13,7 +13,6 @@ import {
   DEFAULT_ITEM_FORM_PRESENTATION,
   itemFormPresentationSchema,
 } from '../domain/item-form-presentation.js';
-import { itemTypeSchema } from '../domain/item-type.js';
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
 
 /**
@@ -43,12 +42,10 @@ export const workspaceSnapshotSchema = z.object({
    * with nothing attached, not a broken one.
    */
   attachments: z.array(attachmentSchema).default([]),
-  /** Every live Type of the account, in the order they are offered in ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). */
-  itemTypes: z.array(itemTypeSchema),
   /**
    * How the account has the Item's form drawn - centered, or docked to the
    * side ("Let the item's form dock to the side of the screen instead of
-   * opening as a dialog", issue 481). Account-wide like `itemTypes` above,
+   * opening as a dialog", issue 481). Account-wide,
    * defaulted for the reason `attachments` above is: a stored copy taken
    * before this field existed opens centered, the only presentation there
    * was.
@@ -70,7 +67,7 @@ export const workspaceSnapshotSchema = z.object({
    * before this field existed is an app with nothing flagged, not a broken one.
    */
   duplicates: z.array(possibleDuplicateSchema).default([]),
-  /** Every live Agent of the account, in dock order ("Keep your agents in a dock, and choose which each dashboard shows", issue 570). Account-wide like `itemTypes` above. */
+  /** Every live Agent of the account, in dock order ("Keep your agents in a dock, and choose which each dashboard shows", issue 570). Account-wide. */
   agents: z.array(agentSchema).default([]),
   /** Which Agents are hidden on which of this Workspace's Dashboards (issue 570). */
   hiddenAgents: z.array(hiddenAgentSchema).default([]),
@@ -106,9 +103,3 @@ export const workspaceListSchema = z.object({
   workspaces: z.array(workspaceSchema),
 });
 export type WorkspaceList = z.infer<typeof workspaceListSchema>;
-
-/** The account's live Types, in the order they are offered in ("Manage the types, and put them in the order you want", issue 156). Its own call because the page that manages them is outside any workspace. */
-export const itemTypeListSchema = z.object({
-  itemTypes: z.array(itemTypeSchema),
-});
-export type ItemTypeList = z.infer<typeof itemTypeListSchema>;

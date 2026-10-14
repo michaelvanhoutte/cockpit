@@ -6,21 +6,20 @@ import { hexColorSchema, WORKSPACE_THEMES } from './workspace-themes.js';
 /**
  * A named instruction for Claude, kept in the dock so it is reachable from
  * every Dashboard ("Keep your agents in a dock, and choose which each
- * dashboard shows", issue 570). Belongs to the Account, the same scope a Type
- * has and for the same reason: which agents you have says nothing about which
- * Workspace you are in.
+ * dashboard shows", issue 570). Belongs to the Account: which agents you have says
+ * nothing about which Workspace you are in.
  */
 
 /** An Agent's name obeys exactly the rules a Workspace's does, by being the same schema. */
 export const agentNameSchema = workspaceNameSchema;
 
-/** The colours an Agent can wear — the palette's tints, the same set a Type wears. */
+/** The colours an Agent can wear — the palette's tints, the same set a Workspace's theme draws from. */
 export const AGENT_COLORS: readonly string[] = WORKSPACE_THEMES.map((theme) => theme.tint);
 
 /** The colour an Agent gets when every one in the palette is already taken. */
 export const DEFAULT_AGENT_COLOR: string = AGENT_COLORS[0]!;
 
-/** Only the palette's colours, refused on the way in the way a Type's are. */
+/** Only the palette's colours, refused on the way in. */
 export const agentColorSchema = hexColorSchema.refine((color) => AGENT_COLORS.includes(color), {
   message: 'an agent wears one of the palette colours',
 });

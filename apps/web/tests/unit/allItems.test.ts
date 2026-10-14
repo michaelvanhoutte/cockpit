@@ -15,7 +15,6 @@ function anItem(fields: Partial<Item> = {}): Item {
   return {
     id: `item-${next}`,
     title: `Item ${next}`,
-    typeId: null,
     priority: null,
     dueDate: null,
     startedAt: null,

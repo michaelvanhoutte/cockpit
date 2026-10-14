@@ -98,7 +98,6 @@ vi.mock('../../../src/api/queries', () => ({
     queryKey: ['me'],
     queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
   },
-  itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () => Promise.resolve({ workspaces: held.workspaces }),

@@ -153,7 +153,7 @@ describe('Inbox', () => {
       const inbox = after.items.filter((item) => !after.filings.some((filing) => filing.itemId === item.id));
       const arrived = inbox.filter((item) => !before.items.some((seen) => seen.id === item.id));
       expect(arrived).toHaveLength(1);
-      expect(arrived[0]).toMatchObject({ ...expected, sourceLink: demoAddress(source), typeId: null });
+      expect(arrived[0]).toMatchObject({ ...expected, sourceLink: demoAddress(source) });
       const answer = await storeNamed(GUEST_ACCOUNT_NAME).changesSince(GUEST_ACCOUNT_NAME, since);
       const { events } = (answer as { status: 'ok'; value: { events: ServerEvent[] } }).value;
       expect(events.map((event) => event.workspaceId)).toContain(WORKSPACE);

@@ -6,13 +6,12 @@ import { SettingsModal } from './SettingsModal';
 
 // One chunk each, fetched when its section is first shown: only the modal is
 // fetched on opening, and a section still arriving never takes it down.
-const ManageTypes = lazy(() => import('./ManageTypes'));
 const ManageConnections = lazy(() => import('./ManageConnections'));
 const ManageConnectedApps = lazy(() => import('./ManageConnectedApps'));
 const ManageAppearance = lazy(() => import('./ManageAppearance'));
 
 /** The sections of Settings, in the order they are listed. */
-export type SettingsKey = 'types' | 'connections' | 'agents' | 'mcp' | 'appearance';
+export type SettingsKey = 'connections' | 'agents' | 'mcp' | 'appearance';
 
 /** How a trip out to Microsoft or Google ended, and the workspace it was made from. */
 export interface ConnectOutcomeFor {
@@ -23,9 +22,9 @@ export interface ConnectOutcomeFor {
 }
 
 /**
- * Settings: the account's types, its Gmail and Teams connections, the Claude Code
+ * Settings: the account's Gmail and Teams connections, the Claude Code
  * connection and the MCP apps, each the content of the window it used to have
- * ("Open Settings from the profile menu, with types, connections, agent
+ * ("Open Settings from the profile menu, with connections, agent
  * settings and MCP as its sections", issue 693).
  */
 export default function SettingsWindow({
@@ -58,7 +57,6 @@ export default function SettingsWindow({
       onClose={onClose}
       returnFocusTo={returnFocusTo}
       sections={onlyAppearance ? [appearance] : [
-        { key: 'types', label: 'Types', content: <ManageTypes open onClose={onClose} /> },
         {
           key: 'connections',
           label: 'Connections',

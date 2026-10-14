@@ -326,7 +326,7 @@ describe('Connector management', () => {
     const NOTION_CARD = {
       id: 'notion',
       displayName: 'Notion',
-      cardText: 'Pages become tasks.',
+      cardText: 'Pages arrive as items.',
       asksFirst: true,
       choice: {
         question: 'Bring in',
@@ -604,12 +604,12 @@ describe('Connector management', () => {
     });
 
     it('draws one card per registered connector, named and described as its manifest gives, and none for one the registry lacks', async () => {
-      held.registry = [{ id: 'notion', displayName: 'Notion', cardText: 'Pages become tasks.', asksFirst: false }];
+      held.registry = [{ id: 'notion', displayName: 'Notion', cardText: 'Pages arrive as items.', asksFirst: false }];
 
       showWindow();
 
       expect(await screen.findByRole('button', { name: 'Connect Notion' })).toBeInTheDocument();
-      expect(screen.getByText('Pages become tasks.')).toBeInTheDocument();
+      expect(screen.getByText('Pages arrive as items.')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Connect Microsoft Teams' })).toBeNull();
       // The one named card stays, and no source is drawn that the registry does not hold.
       expect(screen.getByRole('button', { name: 'Connect Claude Code' })).toBeInTheDocument();

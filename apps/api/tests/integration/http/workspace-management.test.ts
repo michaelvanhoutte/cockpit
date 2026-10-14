@@ -191,19 +191,12 @@ describe('Workspace management', () => {
       const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
 
       expect(res.status).toBe(200);
-      const snapshot = (await res.json()) as {
-        itemTypes: { name: string }[];
-      };
-      expect(res.status).toBe(200);
+      const snapshot = await res.json();
       expect(snapshot).toMatchObject({
         workspace: { id: workspaceId, name },
         items: [],
         associations: [],
       });
-      // Types belong to the account, not the workspace, so a workspace with
-      // nothing in it can still say what a thing is from its first capture
-      // ("Capture a thought or an action, and see which it is", issue 155).
-      expect(snapshot.itemTypes.map((type) => type.name)).toEqual(['Task', 'Note']);
     });
 
     it('leaves the workspaces that were already there alone', async () => {

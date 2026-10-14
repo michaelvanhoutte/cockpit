@@ -180,7 +180,7 @@ export function CaptureNote({
   /**
    * What the strip inside the box has chosen ("Set a priority and a due date
    * while capturing", issue 611): neither until pressed, and neither again once
-   * a capture has been kept - unlike Type and Where, which carry over, because
+   * a capture has been kept - unlike Where, which carries over, because
    * a deadline belongs to the one note it was set for. A refused capture puts
    * both back with the note.
    *

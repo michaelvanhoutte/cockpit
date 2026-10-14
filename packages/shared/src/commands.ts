@@ -22,7 +22,6 @@ import {
   agentEngineSchema,
 } from './domain/agent.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
-import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
   filterConditionSchema,
   filterGroupingSchema,
@@ -41,6 +40,9 @@ import { hexColorSchema } from './domain/workspace-themes.js';
  * ID (idempotent retries) and the client timestamp (last-write-wins conflict
  * resolution).
  */
+/** What a change to the whole account names instead of a workspace: the dock's Agents, the Item form's presentation (architecture.md §4.4). */
+export const ACCOUNT_WIDE = 'account';
+
 export const commandEnvelopeSchema = z.object({
   commandId: z.uuid(),
   /** Client wall-clock time when the command was issued. */
@@ -372,48 +374,6 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 
-/** create_item_type — made only from the types-management page ("Make a type where types are managed, not while capturing", issue 203; architecture.md §4.4). */
-export const createItemTypeSchema = commandEnvelopeSchema.extend({
-  typeId: z.uuid(),
-  name: itemTypeNameSchema,
-});
-export type CreateItemTypeCommand = z.infer<typeof createItemTypeSchema>;
-
-/** rename_item_type ("Manage the types, and put them in the order you want", issue 156; architecture.md §4.4). */
-export const renameItemTypeSchema = commandEnvelopeSchema.extend({
-  typeId: z.string().min(1),
-  name: itemTypeNameSchema,
-});
-export type RenameItemTypeCommand = z.infer<typeof renameItemTypeSchema>;
-
-export const setItemTypeColorSchema = commandEnvelopeSchema.extend({
-  typeId: z.string().min(1),
-  color: itemTypeColorSchema,
-});
-export type SetItemTypeColorCommand = z.infer<typeof setItemTypeColorSchema>;
-
-/** delete_item_type — its Items are left where they are and simply stop having a type. */
-export const deleteItemTypeSchema = commandEnvelopeSchema.extend({
-  typeId: z.string().min(1),
-});
-export type DeleteItemTypeCommand = z.infer<typeof deleteItemTypeSchema>;
-
-/** reorder_item_types — the whole order, not the move that produced it (architecture.md §4.4). */
-export const reorderItemTypesSchema = commandEnvelopeSchema
-  .extend({
-    typeId: z.string().min(1),
-    typeIds: z.array(z.string().min(1)).min(1),
-  })
-  .refine((cmd) => new Set(cmd.typeIds).size === cmd.typeIds.length, {
-    message: 'a type can only be in one place in the order',
-    path: ['typeIds'],
-  })
-  .refine((cmd) => cmd.typeIds.includes(cmd.typeId), {
-    message: 'the type that moved is not in the order',
-    path: ['typeIds'],
-  });
-export type ReorderItemTypesCommand = z.infer<typeof reorderItemTypesSchema>;
-
 /** create_agent — made from the dock's own "+ New agent" ("Keep your agents in a dock, and choose which each dashboard shows", issue 570). */
 export const createAgentSchema = commandEnvelopeSchema.extend({
   agentId: z.uuid(),
@@ -428,8 +388,7 @@ export type CreateAgentCommand = z.infer<typeof createAgentSchema>;
 
 /**
  * update_agent — every field the dock's own form edits, sent together: unlike
- * a Type's name and colour, which are two separate concerns with their own
- * collision rule, an Agent's fields are all on one form with one Save.
+ * a name and colour edited apart, an Agent's fields are all on one form with one Save.
  */
 export const updateAgentSchema = commandEnvelopeSchema.extend({
   agentId: z.string().min(1),
@@ -624,13 +583,6 @@ export const setPrioritySchema = commandEnvelopeSchema.extend({
   priority: prioritySchema.nullable(),
 });
 export type SetPriorityCommand = z.infer<typeof setPrioritySchema>;
-
-/** set_item_type - the type an item is, changed after capture; never "none", which capture does not offer either ("Change an item's type, and its status, from its form, and see where it is shown", issue 528). */
-export const setItemTypeSchema = commandEnvelopeSchema.extend({
-  itemId: z.uuid(),
-  typeId: z.string().min(1),
-});
-export type SetItemTypeCommand = z.infer<typeof setItemTypeSchema>;
 
 export const setDueDateSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -877,11 +829,6 @@ export const commandSchemas = {
   set_panel_sort: setPanelSortSchema,
   save_layout: saveLayoutSchema,
   capture_item: captureItemSchema,
-  create_item_type: createItemTypeSchema,
-  rename_item_type: renameItemTypeSchema,
-  set_item_type_color: setItemTypeColorSchema,
-  delete_item_type: deleteItemTypeSchema,
-  reorder_item_types: reorderItemTypesSchema,
   create_agent: createAgentSchema,
   update_agent: updateAgentSchema,
   delete_agent: deleteAgentSchema,
@@ -900,7 +847,6 @@ export const commandSchemas = {
   associate: associateSchema,
   set_next_action: setNextActionSchema,
   set_priority: setPrioritySchema,
-  set_item_type: setItemTypeSchema,
   set_due_date: setDueDateSchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,

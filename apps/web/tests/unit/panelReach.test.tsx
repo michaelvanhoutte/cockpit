@@ -72,7 +72,6 @@ const item = (id: string, title: string, over: Partial<Item> = {}): Item =>
     completedAt: null,
     deletedAt: null,
     startedAt: null,
-    typeId: null,
     ...over,
   }) as Item;
 
@@ -85,7 +84,6 @@ function aSnapshot(over: Partial<WorkspaceSnapshot>): WorkspaceSnapshot {
     panels: [],
     layouts: [],
     filings: [],
-    itemTypes: [],
     attachments: [],
     agentRuns: [],
     ...over,

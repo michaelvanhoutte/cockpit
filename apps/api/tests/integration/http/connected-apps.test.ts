@@ -293,7 +293,7 @@ describe('MCP connections', () => {
       };
       env.ACCOUNT = {
         idFromName: (name: string) => realStores.idFromName(name),
-        get: () => ({ workspaces: broken, itemTypes: broken, appCaptureArrived: broken }),
+        get: () => ({ workspaces: broken, appCaptureArrived: broken }),
       } as unknown as typeof env.ACCOUNT;
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
       try {
@@ -567,7 +567,7 @@ describe('Capture', () => {
 
       for (const workspaceId of [WORKSPACE_ID, 'ws-atlas', 'ws-personal']) {
         const item = (await inboxOf(workspaceId)).find((one) => one.capturedMessage === 'Ring the plumber about the boiler');
-        expect(item, workspaceId).toMatchObject({ workspaceDecided: false, typeId: null });
+        expect(item, workspaceId).toMatchObject({ workspaceDecided: false });
       }
       expect(queued).toEqual(
         expect.arrayContaining([
@@ -584,7 +584,7 @@ describe('Capture', () => {
       expect(said.isError).toBeFalsy();
 
       const item = (await inboxOf('ws-atlas')).find((one) => one.capturedMessage === 'Send the quote');
-      expect(item).toMatchObject({ workspaceId: 'ws-atlas', workspaceDecided: true, typeId: null });
+      expect(item).toMatchObject({ workspaceId: 'ws-atlas', workspaceDecided: true });
       expect((await inboxOf('ws-personal')).some((one) => one.capturedMessage === 'Send the quote')).toBe(false);
     });
 

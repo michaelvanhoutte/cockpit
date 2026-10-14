@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
-import type { Dashboard, Item, ItemFormPresentation, ItemType, Workspace } from '@cockpit/shared';
+import type { Dashboard, Item, ItemFormPresentation, Workspace } from '@cockpit/shared';
 import { createAppRouter } from '../../src/router';
 import {
   NotSignedIn,
@@ -42,16 +42,6 @@ const SIGNED_IN = { user: { id: 'user-michael', name: 'Michael', role: 'user' as
 const work: Workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
 const personal: Workspace = { id: 'ws-personal', tenantId: 'tenant', name: 'Personal', color: '#c06a45', bar: '#eedcc4', ground: '#f2e5d4', header: '#ead2b3' };
 
-/** One of the account's types, which every snapshot carries. */
-const TASK: ItemType = {
-  id: '11111111-1111-7111-8111-000000000001',
-  tenantId: 'tenant',
-  name: 'Task',
-  color: '#6f62b5',
-  position: 0,
-  createdAt: '2026-09-01T08:00:00.000Z',
-};
-
 /**
  * The dashboards a workspace has. Every workspace has at least one - it is
  * created with it - so the first of these is what a workspace opens on when
@@ -68,8 +58,7 @@ function dashboardsOf(workspaceId: string): Dashboard[] {
  * Opens the app at `at`, with `have` as the workspaces there are and, where a
  * case cares, `boards` as the dashboards each of them has.
  *
- * `types` are the account's, which ride on every snapshot rather than being
- * read on their own (packages/shared/src/api/snapshot.ts); `until` holds the
+ * `until` holds the
  * snapshot back, for the one case that is about a page not being drawn before
  * it arrives - called on the way in, so that case can tell when the read has
  * been asked for without waiting on a clock.
@@ -79,12 +68,10 @@ async function open(
   have: Workspace[],
   boards: (workspaceId: string) => Dashboard[] = dashboardsOf,
   {
-    types = [],
     until,
     items = [],
     presentation = 'centered',
   }: {
-    types?: ItemType[];
     until?: () => Promise<void>;
     items?: Item[];
     presentation?: ItemFormPresentation;
@@ -106,7 +93,6 @@ async function open(
       layouts: [],
       associations: [],
       attachments: [],
-      itemTypes: types,
       itemFormPresentation: presentation,
       duplicates: [],
       filings: [],
@@ -826,7 +812,6 @@ describe('Dashboards', () => {
           layouts: [],
           associations: [],
           attachments: [],
-          itemTypes: [],
     itemFormPresentation: 'centered',
     duplicates: [],
           filings: [],
@@ -906,7 +891,6 @@ describe('Dashboards', () => {
           layouts: [],
           associations: [],
           attachments: [],
-          itemTypes: [],
           itemFormPresentation: 'centered',
           duplicates: [],
           filings: [],
@@ -968,7 +952,6 @@ describe('Item editing', () => {
       sourceResolvedAt: null,
       title: 'Part 11',
       description: null,
-      typeId: null,
       nextAction: null,
       completedAt: null,
       startedAt: null,
@@ -1056,7 +1039,6 @@ describe('Sign-in', () => {
         layouts: [],
         associations: [],
         attachments: [],
-        itemTypes: [],
     itemFormPresentation: 'centered',
     duplicates: [],
         filings: [],

@@ -469,7 +469,6 @@ describe('Capture', () => {
       expect([delivered.status, again.status]).toEqual([200, 200]);
       const items = await itemsIn();
       expect(items).toHaveLength(1);
-      expect(items[0]).toMatchObject({ typeId: null });
     });
   });
 

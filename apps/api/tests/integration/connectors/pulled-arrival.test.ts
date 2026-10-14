@@ -6,7 +6,6 @@ import { handleQueue } from '../../../src/jobs/index.js';
 import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
 import {
   ACCOUNT_NAME,
-  TASK_TYPE_ID,
   WORKSPACE_ID,
   alsoWorkspaces,
   asUser,
@@ -104,7 +103,6 @@ interface Arrived {
   sourceId: string | null;
   title: string;
   description: string | null;
-  typeId: string | null;
 }
 
 async function arrived(): Promise<Arrived[]> {
@@ -112,12 +110,6 @@ async function arrived(): Promise<Arrived[]> {
   return ((await res.json()) as { items: (Arrived & { source: string })[] }).items.filter(
     (item) => item.source === FAKE,
   );
-}
-
-async function noteTypeId(): Promise<string> {
-  const res = await asUser('http://cockpit.test/v1/item-types');
-  const types = ((await res.json()) as { itemTypes: { id: string; name: string }[] }).itemTypes;
-  return types.find((type) => type.name === 'Note')!.id;
 }
 
 beforeEach(async () => {
@@ -153,7 +145,7 @@ describe('Connector management', () => {
 
       await connectedAndChecked();
 
-      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'The subject line', typeId: null }]);
+      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'The subject line' }]);
     });
 
     it('files an Item titled from its message where the connector emits no title', async () => {
@@ -162,7 +154,7 @@ describe('Connector management', () => {
 
       await connectedAndChecked();
 
-      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'What page a says', typeId: null }]);
+      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'What page a says' }]);
     });
 
     it('files an Item without repeating a title that is all the source said as its description', async () => {
@@ -171,29 +163,7 @@ describe('Connector management', () => {
 
       await connectedAndChecked();
 
-      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'Only a title', description: null, typeId: null }]);
-    });
-
-    it('files an Item where the account has no Types at all, rather than failing the check', async () => {
-      for (const typeId of [TASK_TYPE_ID, await noteTypeId()]) {
-        const deleted = await asUser('http://cockpit.test/v1/commands/delete_item_type', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            commandId: crypto.randomUUID(),
-            issuedAt: new Date().toISOString(),
-            workspaceId: WORKSPACE_ID,
-            typeId,
-          }),
-        });
-        expect(deleted.status).toBe(200);
-      }
-      fake.emit = [aPage('a', 'The subject line')];
-      env.TEST_CONNECTORS = [fakeConnector()];
-
-      await connectedAndChecked();
-
-      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'The subject line', typeId: null }]);
+      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'Only a title', description: null }]);
     });
   });
 });

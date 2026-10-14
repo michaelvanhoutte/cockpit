@@ -25,7 +25,7 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
     manifest: {
       ...OUTLOOK_IDENTITY,
       cardText:
-        'Sign in with your Microsoft 365 work or school account. Messages you flag, or categorise Cockpit, become tasks, and the flag or category follows the task. Your organisation may have to approve Cockpit first.',
+        'Sign in with your Microsoft 365 work or school account. Messages you flag, or categorise Cockpit, arrive as items, and the flag or category follows the item. Your organisation may have to approve Cockpit first.',
       supportsPush: false,
       pulled: true,
       mirrorsOpenState: true,

@@ -298,7 +298,7 @@ describe('Connector management', () => {
           id: 'gmail',
           displayName: 'Gmail',
           cardText:
-            'Sign in with Google. Conversations you label Cockpit, or star, become tasks, and the label or star follows the task.',
+            'Sign in with Google. Conversations you label Cockpit, or star, arrive as items, and the label or star follows the item.',
           asksFirst: true,
           choice: {
             question: 'Bring in conversations',
@@ -313,7 +313,7 @@ describe('Connector management', () => {
           id: 'outlook',
           displayName: 'Outlook',
           cardText:
-            'Sign in with your Microsoft 365 work or school account. Messages you flag, or categorise Cockpit, become tasks, and the flag or category follows the task. Your organisation may have to approve Cockpit first.',
+            'Sign in with your Microsoft 365 work or school account. Messages you flag, or categorise Cockpit, arrive as items, and the flag or category follows the item. Your organisation may have to approve Cockpit first.',
           asksFirst: true,
           choice: {
             question: 'Bring in messages',

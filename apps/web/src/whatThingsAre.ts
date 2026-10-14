@@ -49,9 +49,9 @@ export const WRITE_HERE = 'Write here…';
  * What a panel is made of, asked when it is made because it is settled then and
  * never after (`panelKindSchema`).
  *
- * **Items, not actions.** A panel holds Items of whatever Type - a Task, a
- * Note, anything else somebody names - and *Action* stopped being one of the
- * product's words with "Call the two standard types Task and Note" (issue 194).
+ * **Items, not actions.** A panel holds Items, whatever they are, and *Action* stopped
+ * being one of the product's words with "Call the two standard types Task and
+ * Note" (issue 194).
  */
 export const WHAT_A_PANEL_HOLDS = [
   { kind: 'items' as const, label: 'Items', says: 'Holds whatever you file into it.' },

@@ -82,7 +82,6 @@ vi.mock('../../../src/components/InboxPanel', () => ({
 vi.mock('../../../src/api/queries', () => ({
   // The types window the shell now draws over the workspace reads them
   // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
-  itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
   // The shell draws the account's management windows over the workspace
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.

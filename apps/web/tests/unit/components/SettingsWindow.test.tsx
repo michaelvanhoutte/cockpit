@@ -7,10 +7,8 @@ import SettingsWindow, { type SettingsKey } from '../../../src/components/Settin
 
 /**
  * F1: what Settings draws and how it switches. The content of each section is
- * the old window's own, and keeps its own tests (ManageTypes.test.tsx,
- * ManageConnections.test.tsx, ManageConnectedApps.test.tsx); that a person can
- * reach them is the browser walks in tests/e2e/item-types.test.ts and
- * connections.test.ts.
+ * the old window's own, and keeps its own tests (ManageConnections.test.tsx, ManageConnectedApps.test.tsx); that a person can
+ * reach them is the browser walks in tests/e2e/connections.test.ts.
  */
 const held = vi.hoisted(() => ({
   /** Whether the code of the MCP section has not arrived yet; the first case holds it. */
@@ -36,7 +34,6 @@ vi.mock('../../../src/api/queries', () => ({
   useConnectClaudeCode: () => ({ mutate: () => undefined, isPending: false, error: null, data: undefined, reset: () => undefined }),
   useTestClaudeCodeConnection: () => ({ mutate: () => undefined, isPending: false }),
   refusalFrom: () => null,
-  itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () =>
@@ -100,8 +97,8 @@ describe('Across the app', () => {
   describe('Settings stays open while you switch section, even one whose content is still arriving', () => {
     it('keeps the window and waits on the section that has not arrived', async () => {
       const user = userEvent.setup();
-      open('types');
-      await screen.findByRole('heading', { name: 'Types' });
+      open('connections');
+      await screen.findByRole('heading', { name: 'Connections' });
 
       await user.click(entry('MCP'));
 
@@ -109,17 +106,17 @@ describe('Across the app', () => {
       // beside it still works, and the section says it is waiting.
       expect(screen.getByRole('dialog', { name: 'Settings' })).toBeVisible();
       expect(await screen.findByText('Loading…')).toBeVisible();
-      await user.click(entry('Types'));
-      expect(await screen.findByRole('heading', { name: 'Types' })).toBeVisible();
+      await user.click(entry('Connections'));
+      expect(await screen.findByRole('heading', { name: 'Connections' })).toBeVisible();
 
       held.mcpCodeHeld = false;
       held.releaseMcpCode();
     });
 
-    it.each(['Connections', 'Agent settings', 'MCP', 'Types'])('stays open on %s', async (name) => {
+    it.each(['Connections', 'Agent settings', 'MCP'])('stays open on %s', async (name) => {
       const user = userEvent.setup();
-      open('types');
-      await screen.findByRole('heading', { name: 'Types' });
+      open('connections');
+      await screen.findByRole('heading', { name: 'Connections' });
 
       await user.click(entry(name));
 
@@ -132,8 +129,8 @@ describe('Across the app', () => {
     it('ignores Escape until the answer is in', async () => {
       held.pending = true;
       const user = userEvent.setup();
-      open('types');
-      await screen.findByRole('heading', { name: 'Types' });
+      open('connections');
+      await screen.findByRole('heading', { name: 'Connections' });
 
       await user.keyboard('{Escape}');
 
@@ -143,9 +140,9 @@ describe('Across the app', () => {
   });
 
   describe('each section of Settings is headed by the name of its entry', () => {
-    it.each(['Types', 'Connections', 'Agent settings', 'MCP', 'Appearance'])('heads %s with its own name', async (name) => {
+    it.each(['Connections', 'Agent settings', 'MCP', 'Appearance'])('heads %s with its own name', async (name) => {
       const user = userEvent.setup();
-      open('types');
+      open('connections');
       await user.click(entry(name));
 
       const headings = await screen.findAllByRole('heading', { name });
@@ -155,14 +152,25 @@ describe('Across the app', () => {
 
   describe('Settings opens on the section asked for, with only that one selected and focus on it', () => {
     it.each([
-      { situation: 'from the profile menu', on: 'types' as const, name: 'Types' },
+      { situation: 'from the profile menu', on: 'connections' as const, name: 'Connections' },
       { situation: 'from the dock', on: 'agents' as const, name: 'Agent settings' },
-      { situation: 'on return from Microsoft', on: 'connections' as const, name: 'Connections' },
+      { situation: 'to a section that no longer exists', on: 'types' as SettingsKey, name: 'Connections' },
     ])('$situation selects and focuses $name and no other', async ({ on, name }) => {
       open(on);
 
       await waitFor(() => expect(entry(name)).toHaveFocus());
       expect(selected()).toEqual([name]);
+    });
+
+    it('lists the sections without Types', () => {
+      open('connections');
+
+      expect(within(screen.getByRole('navigation', { name: 'Settings' })).getAllByRole('button').map((button) => button.textContent).filter((name) => name !== 'Close')).toEqual([
+        'Connections',
+        'Agent settings',
+        'MCP',
+        'Appearance',
+      ]);
     });
   });
 

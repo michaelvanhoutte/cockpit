@@ -16,7 +16,6 @@ import {
   type HiddenAgent,
   type Item,
   type ItemFormPresentation,
-  type ItemType,
   type Layout,
   type LayoutRow,
   type Panel,
@@ -55,7 +54,6 @@ import {
   itemDuplicates,
   itemMeanings,
   items,
-  itemTypes,
   layoutRows,
   layouts,
   panelItems,
@@ -643,7 +641,6 @@ const itemColumns = {
   proposedPanelId: items.proposedPanelId,
   proposedPanelReason: items.proposedPanelReason,
   sourceResolvedAt: items.sourceResolvedAt,
-  typeId: items.typeId,
   nextAction: items.nextAction,
   completedAt: items.completedAt,
   startedAt: items.startedAt,
@@ -1669,57 +1666,9 @@ export function isItemFiled(db: AccountDb, tenantId: string, itemId: string): bo
   );
 }
 
-/**
- * Every live type of the account, in the order they were put in ("Capture a
- * thought or an action, and see which it is", issue 155).
- *
- * `position` first and `createdAt` to break a tie, so the order is total even
- * where nothing has set a position - which is every account until "Manage the
- * types, and put them in the order you want" (issue 156) lands.
- */
-export function listItemTypes(db: AccountDb, tenantId: string): ItemType[] {
-  return db
-    .select({
-      id: itemTypes.id,
-      tenantId: itemTypes.tenantId,
-      name: itemTypes.name,
-      color: itemTypes.color,
-      position: itemTypes.position,
-      createdAt: itemTypes.createdAt,
-    })
-    .from(itemTypes)
-    .where(and(eq(itemTypes.tenantId, tenantId), isNull(itemTypes.deletedAt)))
-    .orderBy(itemTypes.position, itemTypes.createdAt)
-    .all();
-}
-
-/**
- * The highest position any of this account's types holds, or null when it has
- * none - so a new one can go after every type there is.
- *
- * **Deleted types count**, which is why this reads the table rather than the
- * live list: every read filters them out anyway, and a position that came back
- * would put a new type in front of a survivor whose own position is higher than
- * the number of types still live. The workspace list is computed the same way
- * for the same reason.
- */
-export function lastItemTypePosition(db: AccountDb, tenantId: string): number | null {
-  const row = db
-    .select({ highest: max(itemTypes.position) })
-    .from(itemTypes)
-    .where(eq(itemTypes.tenantId, tenantId))
-    .get();
-  return row?.highest ?? null;
-}
-
-/** One live type, or null - what a capture naming a type is checked against. */
-export function getItemType(db: AccountDb, tenantId: string, typeId: string): ItemType | null {
-  return listItemTypes(db, tenantId).find((type) => type.id === typeId) ?? null;
-}
-
 // --- Agents, and what the dock draws (issue 570) ------------------------------
 
-/** Every live Agent of the account, in dock order - the same "position first, createdAt breaks a tie" `listItemTypes` reads by. */
+/** Every live Agent of the account, in dock order: position first, createdAt breaks a tie. */
 export function listAgents(db: AccountDb, tenantId: string): Agent[] {
   return db
     .select({
@@ -1745,7 +1694,7 @@ export function getAgent(db: AccountDb, tenantId: string, agentId: string): Agen
   return listAgents(db, tenantId).find((agent) => agent.id === agentId) ?? null;
 }
 
-/** The highest position any of this account's Agents holds, or null - deleted Agents count, the same reason `lastItemTypePosition` counts them. */
+/** The highest position any of this account's Agents holds, or null - deleted Agents count, the same reason the workspace list does. */
 export function lastAgentPosition(db: AccountDb, tenantId: string): number | null {
   const row = db
     .select({ highest: max(agents.position) })

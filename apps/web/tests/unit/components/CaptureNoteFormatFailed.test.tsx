@@ -21,7 +21,6 @@ vi.mock('../../../src/description/RichDescription', () => {
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: vi.fn(), isPending: false }),
   workspacesQuery: { queryKey: ['workspaces'], queryFn: () => Promise.resolve({ workspaces: [] }) },
-  itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => new Promise(() => {}) },
   snapshotQuery: (id: string) => ({ queryKey: ['snapshot', id], queryFn: () => new Promise(() => {}) }),
 }));
 

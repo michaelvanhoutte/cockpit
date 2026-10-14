@@ -192,7 +192,6 @@ function anItem(id: string, title: string): Item {
     proposedPanelId: null,
     proposedPanelReason: null,
     sourceResolvedAt: null,
-    typeId: null,
     nextAction: null,
     completedAt: null,
     startedAt: null,

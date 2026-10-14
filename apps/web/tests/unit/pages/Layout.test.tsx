@@ -106,9 +106,6 @@ vi.mock('../../../src/api/queries', () => ({
   useChangeUser: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
   useSetAccess: () => ({ mutate: () => undefined, isPending: false, error: null }),
   useDeleteUser: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
-  // The types window the shell now draws over the workspace reads them
-  // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
-  itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
   // The shell draws the account's management windows over the workspace
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.
@@ -202,7 +199,7 @@ describe('Across the app', () => {
       </QueryClientProvider>,
     );
 
-  describe('Settings holds the account’s types, Teams connection, agent connection and MCP apps, and none stays on the workspace’s menu', () => {
+  describe('Settings holds the account’s Teams connection, agent connection and MCP apps, and none stays on the workspace’s menu', () => {
     afterEach(() => vi.unstubAllGlobals());
 
     it.each([
@@ -218,7 +215,7 @@ describe('Across the app', () => {
       expect(await screen.findByRole('menuitem', { name: 'Settings…' })).toBeVisible();
     });
 
-    it('opens on Appearance alone on a phone-width screen, and on Types with Appearance after MCP at a desk', async () => {
+    it('opens on Appearance alone on a phone-width screen, and on Connections with Appearance after MCP at a desk', async () => {
       const user = userEvent.setup();
       const sections = async (desk: boolean) => {
         onADesk(desk);
@@ -237,8 +234,8 @@ describe('Across the app', () => {
 
       expect(await sections(false)).toEqual({ listed: ['Appearance'], current: 'Appearance' });
       expect(await sections(true)).toEqual({
-        listed: ['Types', 'Connections', 'Agent settings', 'MCP', 'Appearance'],
-        current: 'Types',
+        listed: ['Connections', 'Agent settings', 'MCP', 'Appearance'],
+        current: 'Connections',
       });
     });
 
@@ -257,7 +254,7 @@ describe('Across the app', () => {
       ]);
     });
 
-    it.each(['Manage types', 'MCP connections', 'Manage connections…'])(
+    it.each(['MCP connections', 'Manage connections…'])(
       'leaves %s off the open workspace’s “…”',
       async (entry) => {
         onADesk(true);
@@ -282,7 +279,7 @@ describe('Across the app', () => {
       await user.click(await screen.findByRole('menuitem', { name: 'Settings…' }));
 
       const settings = await screen.findByRole('dialog', { name: 'Settings' });
-      expect(within(settings).getByRole('button', { name: 'Types' })).toHaveFocus();
+      expect(within(settings).getByRole('button', { name: 'Connections' })).toHaveFocus();
       // Behind it, tab and all: queried through the DOM, because an open modal
       // hides everything behind it from assistive technology.
       expect(
@@ -400,7 +397,6 @@ describe('Across the app', () => {
 
       expect(await screen.findByText('Signed in as Michael')).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
-      expect(screen.queryByRole('menuitem', { name: 'Manage types' })).toBeNull();
     });
 
     it('ends the profile with the credit, below a divider under Sign out, opening Conselit in a new tab', async () => {

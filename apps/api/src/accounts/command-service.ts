@@ -19,7 +19,6 @@ import {
   decisionHistory,
   hiddenDashboardAgents,
   items,
-  itemTypes,
   layoutRows,
   layouts,
   panelItems,
@@ -38,7 +37,6 @@ import {
   getAttachment,
   getDashboard,
   getItem,
-  getItemType,
   getLayout,
   getPanel,
   getSourceAccount,
@@ -52,9 +50,7 @@ import {
   listHiddenAgents,
   openAgentRunOn,
   openRunsWithSessions,
-  lastItemTypePosition,
   listFilingsOnPanel,
-  listItemTypes,
   listLayoutIds,
   listLayoutRows,
   layoutOfDashboard,
@@ -111,11 +107,6 @@ import {
   workspaceFromCommand,
   workspaceNamed,
 } from '../domain/workspaces.js';
-import {
-  itemTypeFromCommand,
-  itemTypeNamed,
-  ordersTypesExactly,
-} from '../domain/item-types.js';
 import { agentFromCommand, agentNamed, decideAgentStart } from '../domain/agents.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
 import {
@@ -129,7 +120,6 @@ import {
   applySetStarted,
   applySetDueDate,
   applySetNextAction,
-  applySetItemType,
   applySetPriority,
   applySetTitle,
   asStored,
@@ -138,33 +128,6 @@ import {
   decideWorkspace,
 } from '../domain/items.js';
 
-export class ItemTypeNotFoundError extends Error {
-  constructor(typeId: string) {
-    super(`item type ${typeId} not found`);
-    this.name = 'ItemTypeNotFoundError';
-  }
-}
-
-/**
- * Its own kind rather than the workspace one, for the reason the dashboard one
- * is: the message is what a person reads, and it has to name the thing that is
- * actually in the way.
- */
-export class ItemTypeNameTakenError extends Error {
-  constructor(name: string) {
-    super(`a type called ${name} already exists`);
-    this.name = 'ItemTypeNameTakenError';
-  }
-}
-
-/** The same collision `WorkspaceOrderStaleError` names, one list along. */
-export class ItemTypeOrderStaleError extends Error {
-  constructor() {
-    super('the types changed while they were being put in order');
-    this.name = 'ItemTypeOrderStaleError';
-  }
-}
-
 export class AgentNotFoundError extends Error {
   constructor(agentId: string) {
     super(`agent ${agentId} not found`);
@@ -172,7 +135,7 @@ export class AgentNotFoundError extends Error {
   }
 }
 
-/** The same collision `ItemTypeNameTakenError` names, for the dock's own list. */
+/** An Agent's name is taken, in words the dock can show. */
 export class AgentNameTakenError extends Error {
   constructor(name: string) {
     super(`an agent called ${name} already exists`);
@@ -1579,108 +1542,10 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
-    case 'create_item_type': {
-      const cmd = payload as CommandPayload<'create_item_type'>;
-      const already = listItemTypes(db, tenantId);
-      // A name another type has is refused, exactly as a workspace's is. It
-      // used to reuse the existing type in silence, which was right while the
-      // only way to make one was naming it at capture - the gesture was "this
-      // is a thought", and it meant the same whether or not the type existed a
-      // moment ago. Making one is now a deliberate box in the window they are
-      // managed in ("Make a type where types are managed, not while capturing",
-      // issue 203), where a silent reuse is a button that appears to do
-      // nothing.
-      const alreadyCalledThat = itemTypeNamed(already, cmd.name);
-      if (alreadyCalledThat) throw new ItemTypeNameTakenError(alreadyCalledThat.name);
-      db.transaction((tx) => {
-        tx.insert(itemTypes)
-          .values({
-            ...itemTypeFromCommand(cmd, tenantId, already, lastItemTypePosition(db, tenantId)),
-            foldedName: foldName(cmd.name),
-            deletedAt: null,
-          })
-          // Bare, and unlike `create_workspace`'s, which names its primary key.
-          // Either conflict this can hit proves the request has already been
-          // granted: on the id, the same create replayed after its command row
-          // was lost; on the folded name, another tab that won the race past
-          // the check above. Both leave exactly one type going by that name, so
-          // answering "done" is true - which is the thing the workspaces' bare
-          // call could not promise.
-          .onConflictDoNothing()
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'rename_item_type': {
-      const cmd = payload as CommandPayload<'rename_item_type'>;
-      const live = listItemTypes(db, tenantId);
-      const type = live.find((candidate) => candidate.id === cmd.typeId);
-      if (!type) throw new ItemTypeNotFoundError(cmd.typeId);
-      // Its own name back is a rename that changes nothing, not a collision.
-      const taken = itemTypeNamed(live, cmd.name);
-      if (taken && taken.id !== cmd.typeId) throw new ItemTypeNameTakenError(cmd.name);
-      db.transaction((tx) => {
-        tx.update(itemTypes)
-          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
-          .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, cmd.typeId)))
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'set_item_type_color': {
-      const cmd = payload as CommandPayload<'set_item_type_color'>;
-      if (!getItemType(db, tenantId, cmd.typeId)) throw new ItemTypeNotFoundError(cmd.typeId);
-      db.transaction((tx) => {
-        tx.update(itemTypes)
-          .set({ color: cmd.color })
-          .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, cmd.typeId)))
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'delete_item_type': {
-      const cmd = payload as CommandPayload<'delete_item_type'>;
-      if (!getItemType(db, tenantId, cmd.typeId)) throw new ItemTypeNotFoundError(cmd.typeId);
-      db.transaction((tx) => {
-        // Tombstoned, never erased, and the items that named it are left
-        // alone: the row stays, so the foreign key stays satisfied, and an
-        // item pointing at a type no longer in the live list simply has none.
-        // That is what makes deleting a type a tidy-up rather than a change to
-        // everything it labelled.
-        tx.update(itemTypes)
-          .set({ deletedAt: cmd.issuedAt })
-          .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, cmd.typeId)))
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'reorder_item_types': {
-      const cmd = payload as CommandPayload<'reorder_item_types'>;
-      const live = listItemTypes(db, tenantId);
-      if (!live.some((type) => type.id === cmd.typeId)) {
-        throw new ItemTypeNotFoundError(cmd.typeId);
-      }
-      if (!ordersTypesExactly(live, cmd.typeIds)) throw new ItemTypeOrderStaleError();
-      db.transaction((tx) => {
-        cmd.typeIds.forEach((typeId, position) => {
-          tx.update(itemTypes)
-            .set({ position })
-            .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, typeId)))
-            .run();
-        });
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
     case 'create_agent': {
       const cmd = payload as CommandPayload<'create_agent'>;
       const already = listAgents(db, tenantId);
-      // A name another agent has is refused, the same rule `create_item_type`
-      // enforces and for the same reason: the dock is the one place an
+      // A name another agent has is refused, the dock is the one place an
       // agent's name is typed, so a collision here is the only one there is.
       const alreadyCalledThat = agentNamed(already, cmd.name);
       if (alreadyCalledThat) throw new AgentNameTakenError(alreadyCalledThat.name);
@@ -1702,7 +1567,7 @@ export function runCommand<N extends CommandName>(
       const live = listAgents(db, tenantId);
       const agent = live.find((candidate) => candidate.id === cmd.agentId);
       if (!agent) throw new AgentNotFoundError(cmd.agentId);
-      // Its own name back is not a collision, the same carve-out `rename_item_type` makes.
+      // Its own name back is not a collision.
       const taken = agentNamed(live, cmd.name);
       if (taken && taken.id !== cmd.agentId) throw new AgentNameTakenError(cmd.name);
       db.transaction((tx) => {
@@ -1725,8 +1590,7 @@ export function runCommand<N extends CommandName>(
       const cmd = payload as CommandPayload<'delete_agent'>;
       if (!getAgent(db, tenantId, cmd.agentId)) throw new AgentNotFoundError(cmd.agentId);
       db.transaction((tx) => {
-        // Tombstoned, never erased - the same reason `delete_item_type`
-        // leaves its row behind: `hiddenDashboardAgents` points at this id
+        // Tombstoned, never erased: `hiddenDashboardAgents` points at this id
         // under RESTRICT, and a row that stays is what keeps that key
         // satisfied without a second statement to clean up after this one.
         tx.update(agents)
@@ -2515,20 +2379,11 @@ export function runCommand<N extends CommandName>(
         | CommandPayload<'set_dismissed'>
         | CommandPayload<'set_next_action'>
         | CommandPayload<'set_priority'>
-        | CommandPayload<'set_item_type'>
         | CommandPayload<'set_due_date'>
         | CommandPayload<'set_title'>
         | CommandPayload<'set_description'>;
       const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
-      // A type of this account, checked here rather than left to the foreign
-      // key for the reason a capture's is: a constraint would surface a
-      // caller's mistake as a 500, and another account's type is a 404 like
-      // any other missing thing.
-      if (name === 'set_item_type') {
-        const typeId = (cmd as CommandPayload<'set_item_type'>).typeId;
-        if (!getItemType(db, tenantId, typeId)) throw new ItemTypeNotFoundError(typeId);
-      }
       // Finishing with an item that belongs to no workspace, or dismissing one,
       // takes it out of *every* workspace's Inbox rather than one - so every
       // one of them has to be told, not the one the envelope happens to name.
@@ -2547,9 +2402,7 @@ export function runCommand<N extends CommandName>(
                   ? applySetDescription(existing, cmd as CommandPayload<'set_description'>)
                   : name === 'set_priority'
                     ? applySetPriority(existing, cmd as CommandPayload<'set_priority'>)
-                    : name === 'set_item_type'
-                      ? applySetItemType(existing, cmd as CommandPayload<'set_item_type'>)
-                      : applySetDueDate(existing, cmd as CommandPayload<'set_due_date'>);
+                    : applySetDueDate(existing, cmd as CommandPayload<'set_due_date'>);
 
       if (updated === null) {
         // Stale by last-write-wins: log the command, change nothing.

@@ -5,7 +5,6 @@ import {
   attachmentAddress,
   claudeCodeOutcomeSchema,
   startAgentOutcomeSchema,
-  itemTypeListSchema,
   registeredUserListSchema,
   usageSchema,
   rewriteHistoryResponseSchema,
@@ -27,7 +26,6 @@ import {
   type ClientCommandName,
   type CommandPayload,
   type CommandResult,
-  type ItemTypeList,
   type RegisteredUserList,
   type Usage,
   type RewriteHistoryResponse,
@@ -75,13 +73,6 @@ export async function fetchWorkspaces(): Promise<WorkspaceList> {
   const res = await api.v1.workspaces.$get();
   if (!res.ok) throw refusal('workspaces', res.status);
   return workspaceListSchema.parse(await res.json());
-}
-
-/** The account's live types, for the page that manages them. */
-export async function fetchItemTypes(): Promise<ItemTypeList> {
-  const res = await api.v1['item-types'].$get();
-  if (!res.ok) throw refusal('types', res.status);
-  return itemTypeListSchema.parse(await res.json());
 }
 
 /** Who Cockpit believes you are - and, when it refuses, that it believes you are nobody. */
@@ -404,16 +395,6 @@ const commandSenders = {
     api.v1.commands.add_item_to_panel.$post({ json: p }, o),
   remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>, o?: ClientRequestOptions) =>
     api.v1.commands.remove_item_from_panel.$post({ json: p }, o),
-  create_item_type: (p: CommandPayload<'create_item_type'>, o?: ClientRequestOptions) =>
-    api.v1.commands.create_item_type.$post({ json: p }, o),
-  rename_item_type: (p: CommandPayload<'rename_item_type'>, o?: ClientRequestOptions) =>
-    api.v1.commands.rename_item_type.$post({ json: p }, o),
-  set_item_type_color: (p: CommandPayload<'set_item_type_color'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_item_type_color.$post({ json: p }, o),
-  delete_item_type: (p: CommandPayload<'delete_item_type'>, o?: ClientRequestOptions) =>
-    api.v1.commands.delete_item_type.$post({ json: p }, o),
-  reorder_item_types: (p: CommandPayload<'reorder_item_types'>, o?: ClientRequestOptions) =>
-    api.v1.commands.reorder_item_types.$post({ json: p }, o),
   create_agent: (p: CommandPayload<'create_agent'>, o?: ClientRequestOptions) => api.v1.commands.create_agent.$post({ json: p }, o),
   update_agent: (p: CommandPayload<'update_agent'>, o?: ClientRequestOptions) => api.v1.commands.update_agent.$post({ json: p }, o),
   delete_agent: (p: CommandPayload<'delete_agent'>, o?: ClientRequestOptions) => api.v1.commands.delete_agent.$post({ json: p }, o),
@@ -431,8 +412,6 @@ const commandSenders = {
     api.v1.commands.set_next_action.$post({ json: p }, o),
   set_priority: (p: CommandPayload<'set_priority'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_priority.$post({ json: p }, o),
-  set_item_type: (p: CommandPayload<'set_item_type'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_item_type.$post({ json: p }, o),
   set_due_date: (p: CommandPayload<'set_due_date'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_due_date.$post({ json: p }, o),
   set_title: (p: CommandPayload<'set_title'>, o?: ClientRequestOptions) => api.v1.commands.set_title.$post({ json: p }, o),

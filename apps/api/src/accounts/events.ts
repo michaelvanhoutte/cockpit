@@ -58,7 +58,7 @@ export function collectInvalidations(
    *
    * A note nobody has said the Workspace of is drawn in every Workspace's
    * Inbox, so its reading is a change to all of them - which is what
-   * `ACCOUNT_WIDE` says, exactly as a change to a Type does.
+   * `ACCOUNT_WIDE` says.
    */
   for (const row of readingsSince(db, tenantId, since).all()) {
     sawChange(row.workspaceDecided ? row.workspaceId : ACCOUNT_WIDE, row.readAt);
