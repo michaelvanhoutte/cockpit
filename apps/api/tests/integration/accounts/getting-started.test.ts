@@ -16,7 +16,6 @@ import {
   inStoreAsItIs,
   seedRegister,
   startFromEmpty,
-  taskTypeIn,
 } from '../seed.js';
 
 /**
@@ -170,7 +169,6 @@ describe('Onboarding', () => {
           .map((item) => ({
             title: item.title,
             description: item.description,
-            type: item.typeId,
             done: item.completedAt,
             captured: item.capturedMessage,
             proposed: [item.textsProposedAt, item.readings, item.proposedPanelId],
@@ -181,7 +179,6 @@ describe('Onboarding', () => {
           .map((task) => ({
             title: task.title,
             description: task.description,
-            type: taskTypeIn(ACCOUNT_NAME),
             done: null,
             captured: null,
             proposed: [null, null, null],

@@ -42,7 +42,7 @@ test.describe('Appearance', () => {
         const settings = page.getByRole('dialog', { name: 'Settings' });
         await expect(settings).toBeVisible();
         // A phone holds Appearance alone; at a desk it is one section among the rest.
-        await expect(settings.getByRole('button', { name: 'Types', exact: true })).toHaveCount(isMobile ? 0 : 1);
+        await expect(settings.getByRole('button', { name: 'Connections', exact: true })).toHaveCount(isMobile ? 0 : 1);
         if (!isMobile) await press(settings.getByRole('button', { name: 'Appearance', exact: true }), isMobile);
         await press(settings.getByRole('radio', { name: choice }), isMobile);
         await press(settings.getByRole('button', { name: 'Close', exact: true }), isMobile);

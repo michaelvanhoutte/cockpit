@@ -31,7 +31,7 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
     manifest: {
       ...GMAIL_IDENTITY,
       cardText:
-        'Sign in with Google. Conversations you label Cockpit, or star, become tasks, and the label or star follows the task.',
+        'Sign in with Google. Conversations you label Cockpit, or star, arrive as items, and the label or star follows the item.',
       supportsPush: false,
       pulled: true,
       mirrorsOpenState: true,

@@ -16,13 +16,13 @@ import {
   associationKindSchema,
   GRID_COLUMNS,
   ITEM_FORM_PRESENTATIONS,
-  ITEM_TYPE_COLORS,
   MAX_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   NAME_MAX_LENGTH,
   PANEL_FORMATS,
   STORED_PANEL_KINDS,
   prioritySchema,
+  WORKSPACE_THEMES,
 } from '@cockpit/shared';
 import type {
   AgentEngine,
@@ -35,6 +35,12 @@ import type {
   Source,
   StoredPanelKind,
 } from '@cockpit/shared';
+
+/**
+ * The palette `item_types.color` is checked against. Kept here, not in the wire
+ * contract, because only the table needs it.
+ */
+const ITEM_TYPE_COLORS: readonly string[] = WORKSPACE_THEMES.map((theme) => theme.tint);
 
 /**
  * The values the three dead columns on `items` are allowed to hold.

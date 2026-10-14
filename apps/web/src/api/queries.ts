@@ -15,7 +15,6 @@ import {
   connectClaudeCode,
   deleteUser,
   fetchAccountHoldings,
-  fetchItemTypes,
   fetchMe,
   fetchRegisteredUsers,
   fetchUsage,
@@ -47,19 +46,6 @@ export const meQuery = queryOptions({
 export const workspacesQuery = queryOptions({
   queryKey: ['workspaces'],
   queryFn: fetchWorkspaces,
-  staleTime: 60_000,
-});
-
-/**
- * The account's types, for the page that manages them ("Manage the types, and
- * put them in the order you want", issue 156).
- *
- * Its own query rather than a slice of a snapshot, because that page is outside
- * any workspace - the same reason the workspace list has one.
- */
-export const itemTypesQuery = queryOptions({
-  queryKey: ['itemTypes'],
-  queryFn: fetchItemTypes,
   staleTime: 60_000,
 });
 
@@ -228,26 +214,10 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<ClientCommandName>([
 ]);
 
 /**
- * The changes after which the account's types are not what they were.
- *
- * Every one of them also changes every workspace's read model, because a type
- * is drawn on every row of every list - so these re-read the whole of
- * `['snapshot']` rather than the one workspace the envelope names, which for a
- * type change is not a workspace at all.
- */
-const CHANGES_THE_TYPES = new Set<ClientCommandName>([
-  'create_item_type',
-  'rename_item_type',
-  'set_item_type_color',
-  'delete_item_type',
-  'reorder_item_types',
-]);
-
-/**
  * The changes after which the dock is not what it was, account-wide: making,
  * editing or deleting an Agent. Every one of them
  * carries `ACCOUNT_WIDE` as its envelope's `workspaceId` - an id no snapshot
- * is ever cached under - so, like `CHANGES_THE_TYPES` above, these re-read
+ * is ever cached under - so these re-read
  * every workspace's own snapshot rather than one that id would never match.
  *
  * Hiding or showing an Agent on one Dashboard is not here: its envelope names
@@ -293,7 +263,6 @@ const NOT_DONE_UNTIL_READ_BACK = new Set<ClientCommandName>([
   'set_title',
   'set_description',
   'set_priority',
-  'set_item_type',
   'set_due_date',
   'set_done',
 ]);
@@ -396,8 +365,7 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
   if (args.name === 'disconnect_source_account' || args.name === 'set_connection_choice') {
-    // Its own query, outside any workspace snapshot - the same reason
-    // `itemTypesQuery` is. Waited for rather than
+    // Its own query, outside any workspace snapshot. Waited for rather than
     // dropped, so the row is gone from the list by the time the window stops
     // saying the disconnect is in flight ("Connect a Microsoft Teams source
     // account", issue 485) - or names its connector's choice as it was
@@ -417,21 +385,12 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     return;
   }
 
-  if (CHANGES_THE_TYPES.has(args.name)) {
-    return Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['itemTypes'] }),
-      // Every workspace, not the one the envelope names: types belong to the
-      // account and are drawn on every row of every list.
-      queryClient.invalidateQueries({ queryKey: ['snapshot'] }),
-    ]);
-  }
-
   if (CHANGES_ALL_AGENTS.has(args.name)) {
     return queryClient.invalidateQueries({ queryKey: ['snapshot'] });
   }
 
   if (args.name === 'set_item_form_presentation') {
-    // Every workspace, the same reason `CHANGES_THE_TYPES` above reads
+    // Every workspace, the same reason `CHANGES_ALL_AGENTS` above reads
     // `['snapshot']` unprefixed rather than by the envelope's own
     // `workspaceId` - which for this command is `ACCOUNT_WIDE`, an id no
     // snapshot is ever actually cached under (found in review: the generic

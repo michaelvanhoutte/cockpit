@@ -7,7 +7,6 @@ import type {
   Attachment,
   Filing,
   Item,
-  ItemType,
   Panel,
   PossibleDuplicate,
   RewriteHistoryEntry,
@@ -35,7 +34,6 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
 const held = vi.hoisted(() => ({
   items: [] as Item[],
   filings: [] as Filing[],
-  itemTypes: [] as ItemType[],
   panels: [] as Panel[],
   dashboards: [] as { id: string; name: string }[],
   duplicates: [] as PossibleDuplicate[],
@@ -161,7 +159,6 @@ vi.mock('../../../src/api/queries', () => ({
       workspaceId,
       held.items,
       held.filings,
-      held.itemTypes,
       held.panels,
       held.dashboards,
       held.duplicates,
@@ -173,7 +170,6 @@ vi.mock('../../../src/api/queries', () => ({
       return {
         items: held.items,
         filings: held.filings,
-        itemTypes: held.itemTypes,
         panels: held.panels,
         dashboards: held.dashboards,
         duplicates: held.duplicates,
@@ -207,7 +203,6 @@ function anItem(over: Partial<Item> = {}): Item {
     sourceResolvedAt: null,
     title: 'Part 11',
     description: null,
-    typeId: null,
     nextAction: null,
     completedAt: null,
     startedAt: null,
@@ -223,10 +218,6 @@ function anItem(over: Partial<Item> = {}): Item {
     updatedAt: '2026-08-12T10:00:00.000Z',
     ...over,
   };
-}
-
-function aType(id: string, name: string): ItemType {
-  return { id, tenantId: 'tenant', name, color: '#000000', position: 0, createdAt: '2026-08-01T00:00:00.000Z' };
 }
 
 function anAttachment(over: Partial<Attachment> = {}): Attachment {
@@ -309,7 +300,6 @@ beforeEach(() => {
   held.quietly = false;
   held.gate = undefined;
   held.filings = [];
-  held.itemTypes = [];
   held.agentRuns = [];
   held.panels = [];
   held.dashboards = [];
@@ -771,9 +761,8 @@ describe('Item editing', () => {
     const optionsOf = (box: HTMLElement) =>
       Array.from(box.querySelectorAll('option')).map((option) => option.textContent);
 
-    it('draws no Type field, and offers none of the account’s types', async () => {
-      held.itemTypes = [aType('task', 'Task'), aType('idea', 'Idea')];
-      await theForm(anItem({ typeId: 'idea' }));
+    it('draws no Type field', async () => {
+      await theForm(anItem());
 
       expect(screen.queryByLabelText('Type')).toBeNull();
       expect(screen.queryByRole('option', { name: 'Idea' })).toBeNull();
@@ -1171,9 +1160,8 @@ describe('Item editing', () => {
       });
     });
 
-    it('is Status, Priority, Due and + Attach, with no chip for a type, though the account has some', async () => {
+    it('is Status, Priority, Due and + Attach, with no chip for a type', async () => {
       await atWidth(390, async () => {
-        held.itemTypes = [aType('task', 'Task'), aType('idea', 'Idea')];
         await theForm(anItem({ startedAt: '2026-09-01T08:00:00.000Z' }));
 
         expect(await screen.findByRole('button', { name: 'In progress' })).toBeVisible();
@@ -2606,8 +2594,7 @@ describe('Item editing', () => {
 
     describe('the status is written as it is picked', () => {
       it('draws no Type field, with Status, Priority and Due date where they were', async () => {
-        held.itemTypes = [aType('task', 'Task'), aType('idea', 'Idea')];
-        await dockedForm(anItem({ typeId: 'task' }), true);
+        await dockedForm(anItem(), true);
 
         expect(screen.queryByLabelText('Type')).toBeNull();
         expect(screen.getByLabelText('Status')).toBeVisible();

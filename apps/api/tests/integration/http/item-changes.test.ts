@@ -3,14 +3,12 @@ import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
 import {
-  OTHER_ACCOUNT_NAME,
   TASK_TYPE_ID,
   WORKSPACE_ID,
   asUser,
   inTheStore,
   seedRegister,
   startFromEmpty,
-  taskTypeIn,
 } from '../seed.js';
 
 /**
@@ -102,18 +100,6 @@ describe('Offline', () => {
         }),
       },
       {
-        situation: 'saying what kind of thing something is',
-        name: 'create_item_type',
-        makesIt: true,
-        change: (targetId, requestId) => ({
-          commandId: requestId,
-          issuedAt: '2026-09-04T10:00:00.000Z',
-          workspaceId: WORKSPACE_ID,
-          typeId: targetId,
-          name: `Question ${requestId.slice(-4)}`,
-        }),
-      },
-      {
         situation: 'capturing a thought',
         name: 'capture_item',
         makesIt: true,
@@ -145,17 +131,6 @@ describe('Offline', () => {
           workspaceId: WORKSPACE_ID,
           itemId: targetId,
           started: true,
-        }),
-      },
-      {
-        situation: 'saying what kind of thing it is',
-        name: 'set_item_type',
-        change: (targetId, requestId) => ({
-          commandId: requestId,
-          issuedAt: '2026-08-12T11:00:00.000Z',
-          workspaceId: WORKSPACE_ID,
-          itemId: targetId,
-          typeId: TASK_TYPE_ID,
         }),
       },
       {
@@ -289,17 +264,6 @@ describe('Triage', () => {
           workspaceId: WORKSPACE_ID,
           itemId: goneItemId,
           started: true,
-        }),
-      },
-      {
-        situation: 'saying what kind of thing it is',
-        name: 'set_item_type',
-        change: (requestId) => ({
-          commandId: requestId,
-          issuedAt: '2026-08-12T10:00:00.000Z',
-          workspaceId: WORKSPACE_ID,
-          itemId: goneItemId,
-          typeId: TASK_TYPE_ID,
         }),
       },
       {
@@ -651,87 +615,6 @@ describe('Item editing', () => {
 });
 
 describe('Capture', () => {
-  /**
-   * The refusal and the race are both facts about a real store: whether a name
-   * is already taken is a query, and whether two of them can exist at once is
-   * what the unique index behind the check decides. The folding itself is
-   * proved without one in tests/unit/domain/item-types.test.ts.
-   */
-  describe('a type is refused a name another type has, and made under any other', () => {
-    const makeType = (name: string) => ({
-      commandId: nextId(),
-      issuedAt: '2026-09-04T10:00:00.000Z',
-      workspaceId: WORKSPACE_ID,
-      typeId: nextId(),
-      name,
-    });
-
-    it.each([
-      { situation: 'the exact name', named: 'Task' },
-      { situation: 'a different capitalisation', named: 'TASK' },
-      { situation: 'the name with blanks round it', named: '  task  ' },
-    ])('refuses $situation, and leaves the one type going by it', async ({ named }) => {
-      // Every account starts with Task and Note, so this names one it has.
-      expect((await postChange('create_item_type', makeType(named))).status).toBe(409);
-
-      expect(
-        await inTheStore((sql) =>
-          sql
-            .exec("SELECT name FROM item_types WHERE folded_name = 'task'")
-            .toArray(),
-        ),
-      ).toHaveLength(1);
-    });
-
-    it('makes a type nothing was going by', async () => {
-      const request = makeType('Question');
-
-      expect((await postChange('create_item_type', request)).status).toBe(200);
-
-      expect(await storedIn('item_types', 'id', request.typeId)).toHaveLength(1);
-    });
-
-    it('leaves one type when two tabs name the same new one at once', async () => {
-      // Two requests, two ids, one name, sent together: only the index behind
-      // the check decides this, which is why it is here and not at L1.
-      //
-      // Which of the two is *told* the name is taken is not fixed, and the
-      // statuses are asserted loosely for that reason: the second is refused
-      // where it read the list after the first had written, and let through
-      // where it did not, the index then swallowing its write. Both are the
-      // right answer - the account ends up with the type that was asked for.
-      const [first, second] = await Promise.all([
-        postChange('create_item_type', makeType('Question')),
-        postChange('create_item_type', makeType('Question')),
-      ]);
-
-      expect([first.status, second.status]).toContain(200);
-      expect([200, 409]).toContain(first.status);
-      expect([200, 409]).toContain(second.status);
-      expect(
-        await inTheStore((sql) =>
-          sql.exec("SELECT id FROM item_types WHERE folded_name = 'question'").toArray(),
-        ),
-      ).toHaveLength(1);
-    });
-
-    it('makes two types when two tabs name different ones at once', async () => {
-      const [first, second] = await Promise.all([
-        postChange('create_item_type', makeType('Question')),
-        postChange('create_item_type', makeType('Decision')),
-      ]);
-
-      expect([first.status, second.status]).toEqual([200, 200]);
-      expect(
-        await inTheStore((sql) =>
-          sql
-            .exec("SELECT id FROM item_types WHERE folded_name IN ('question', 'decision')")
-            .toArray(),
-        ),
-      ).toHaveLength(2);
-    });
-  });
-
   describe('a capture stores an Item with no Type, whether or not the account has any Types', () => {
     it.each([
       { situation: 'an account with its Types', deleteTypes: false },
@@ -768,67 +651,6 @@ describe('Capture', () => {
       expect(response.status).toBe(400);
       expect(await storedIn('items', 'id', itemId)).toHaveLength(0);
       expect(await storedIn('commands', 'command_id', commandId)).toHaveLength(0);
-    });
-  });
-});
-
-describe('Item editing', () => {
-  describe('an item’s type is changed to a type of this account, and never to none', () => {
-    const setType = (itemId: string, typeId: unknown, at = '2026-08-12T12:00:00.000Z') =>
-      postChange('set_item_type', {
-        commandId: nextId(),
-        issuedAt: at,
-        workspaceId: WORKSPACE_ID,
-        itemId,
-        typeId,
-      } as CommandPayload<'set_item_type'>);
-
-    it('changes the type the item is', async () => {
-      const itemId = await captureAnItem();
-      const [other] = await inTheStore((sql) =>
-        sql.exec<{ id: string }>("SELECT id FROM item_types WHERE folded_name != 'task'").toArray(),
-      );
-
-      const response = await setType(itemId, other!.id);
-
-      expect(response.status).toBe(200);
-      const [item] = await storedIn('items', 'id', itemId);
-      expect(item?.type_id).toBe(other!.id);
-    });
-
-    it.each([
-      { situation: 'a type nothing here has', typeId: () => '018f0000-0000-7000-8000-999999999999', answers: 404 },
-      { situation: 'a type of another account', typeId: () => taskTypeIn(OTHER_ACCOUNT_NAME), answers: 404 },
-      { situation: 'no type at all', typeId: () => null, answers: 400 },
-      { situation: 'an empty type', typeId: () => '', answers: 400 },
-    ])('refuses $situation and leaves the item as it was', async ({ typeId, answers }) => {
-      const itemId = await captureAnItem();
-      const [before] = await storedIn('items', 'id', itemId);
-
-      const response = await setType(itemId, typeId());
-
-      expect(response.status).toBe(answers);
-      expect(await storedIn('items', 'id', itemId)).toEqual([before]);
-    });
-
-    it('does nothing where the item changed elsewhere since the form opened', async () => {
-      const itemId = await captureAnItem();
-      const [other] = await inTheStore((sql) =>
-        sql.exec<{ id: string }>("SELECT id FROM item_types WHERE folded_name != 'task'").toArray(),
-      );
-      await postChange('set_title', {
-        commandId: nextId(),
-        issuedAt: '2026-08-12T13:00:00.000Z',
-        workspaceId: WORKSPACE_ID,
-        itemId,
-        title: 'Changed in another tab',
-      });
-
-      const response = await setType(itemId, other!.id, '2026-08-12T12:00:00.000Z');
-
-      expect(await response.json()).toEqual({ ok: true, applied: false });
-      const [item] = await storedIn('items', 'id', itemId);
-      expect(item?.type_id).toBeNull();
     });
   });
 });

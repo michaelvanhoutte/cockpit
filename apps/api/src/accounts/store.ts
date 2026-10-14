@@ -4,7 +4,6 @@ import type {
   CommandPayload,
   CommandResult,
   Item,
-  ItemType,
   Panel,
   ServerEvent,
   SourceAccount,
@@ -76,9 +75,6 @@ import {
   DashboardNotFoundError,
   DashboardOrderStaleError,
   ItemNotFoundError,
-  ItemTypeNameTakenError,
-  ItemTypeNotFoundError,
-  ItemTypeOrderStaleError,
   LastDashboardError,
   LayoutNotFoundError,
   PanelAlreadyOnDashboardError,
@@ -120,7 +116,6 @@ import {
   listAttachmentsInWorkspace,
   listDuplicatesInWorkspace,
   listHiddenAgents,
-  listItemTypes,
   listDashboards,
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
@@ -212,11 +207,6 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
   #transcriptions: number[] = [];
 
-  /** All live types of the account, in the order they were put in. */
-  itemTypes(accountName: string): Answer<ItemType[]> {
-    return this.#answer(accountName, (db) => listItemTypes(db, accountName));
-  }
-
   /** All workspaces of the account. */
   workspaces(accountName: string): Answer<Workspace[]> {
     return this.#answer(accountName, (db) => listWorkspaces(db, accountName));
@@ -242,7 +232,6 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         filings: listFilingsInWorkspace(db, accountName, workspaceId),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId),
-        itemTypes: listItemTypes(db, accountName),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
         agents: listAgents(db, accountName),
@@ -642,10 +631,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * sealed in each, which `sourceAccountsIn` (repo.ts) says why it never
    * carries.
    *
-   * Its own read rather than a slice of the Workspace's snapshot, the same
-   * reason `itemTypes` above is its own: the window that shows it is opened
-   * now and then, and every other device on the Workspace would otherwise
-   * carry this on every read of it.
+   * Its own read rather than a slice of the Workspace's snapshot, because the window that shows it is
+   * opened now and then, and every other device on the Workspace would
+   * otherwise carry this on every read of it.
    */
   sourceAccounts(accountName: string, workspaceId: string): Answer<SourceAccount[]> {
     return this.#answer(accountName, (db) => {
@@ -1403,7 +1391,6 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     } catch (error) {
       if (
         error instanceof ItemNotFoundError ||
-        error instanceof ItemTypeNotFoundError ||
         error instanceof AgentNotFoundError ||
         error instanceof AgentRunNotFoundError ||
         error instanceof WorkspaceNotFoundError ||
@@ -1433,11 +1420,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         error instanceof DashboardOrderStaleError ||
         // Same kind of collision one level down: a whole order sent against a
         // panel whose items have moved on.
-        error instanceof PanelOrderStaleError ||
-        error instanceof ItemTypeNameTakenError ||
-        // The same collision one list along: a whole order sent against a set
-        // of types that has moved on.
-        error instanceof ItemTypeOrderStaleError
+        error instanceof PanelOrderStaleError
       ) {
         return { status: 'conflict', what: error.message };
       }

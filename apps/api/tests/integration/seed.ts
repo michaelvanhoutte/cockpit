@@ -85,12 +85,9 @@ export async function withoutTheGuide(accountName: string = ACCOUNT_NAME): Promi
 
 /**
  * *Task*, one of the two types every account starts with, by the id the store
- * derives from the account's own name (src/accounts/changes.ts). Every capture
- * names a type, so every test that captures needs one, and this is the one that
- * is there without arranging anything.
- *
- * Per account rather than one constant, because a capture into somebody else's
- * account may not name a type of this one.
+ * derives from the account's own name (src/accounts/changes.ts). No capture
+ * names a type any more; it stays so a case can leave a Type row in a store
+ * (`no-types.test.ts`) or send a `typeId` to be refused.
  */
 export const taskTypeIn = (accountName: string) => `${accountName}-type-action`;
 export const TASK_TYPE_ID = taskTypeIn(ACCOUNT_NAME);

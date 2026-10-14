@@ -371,7 +371,7 @@ export async function deleteWorkspace(page: Page, name: string, isMobile: boolea
  */
 export async function openSettings(
   page: Page,
-  section: 'Types' | 'Connections' | 'Agent settings' | 'MCP',
+  section: 'Connections' | 'Agent settings' | 'MCP',
   isMobile: boolean,
 ): Promise<Locator> {
   await press(page.getByRole('button', { name: 'Profile' }), isMobile);

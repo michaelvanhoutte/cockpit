@@ -13,7 +13,6 @@ import {
   type SetDoneCommand,
   type SetDueDateCommand,
   type SetNextActionCommand,
-  type SetItemTypeCommand,
   type SetPriorityCommand,
   type SetStartedCommand,
   type SetTitleCommand,
@@ -114,8 +113,6 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     proposedPanelId: null,
     proposedPanelReason: null,
     sourceResolvedAt: null,
-    // A capture carries no Type; the column stays until its storage is dropped.
-    typeId: null,
     nextAction: cmd.nextAction ?? null,
     completedAt: null,
     startedAt: null,
@@ -311,11 +308,6 @@ export function applyProposedFields(
     },
     set,
   };
-}
-
-export function applySetItemType(item: Item, cmd: SetItemTypeCommand): Item | null {
-  if (isStale(item, cmd.issuedAt)) return null;
-  return { ...item, typeId: cmd.typeId, updatedAt: cmd.issuedAt };
 }
 
 /**

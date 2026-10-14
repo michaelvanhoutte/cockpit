@@ -1853,8 +1853,7 @@ export function PanelBoard({
  * Filter panel by panel, and name the Filters a panel's deletion affects",
  * issue 465).
  *
- * **Named rather than counted**, unlike `ManageTypes.tsx`'s own delete
- * question: a Filter is a handful at most, kept on a dashboard somebody
+ * **Named rather than counted**: a Filter is a handful at most, kept on a dashboard somebody
  * built, and "2 filters" gives nobody enough to decide whether deleting is
  * fine. **Which will be left showing nothing is said explicitly** - a Filter
  * still holding another live Panel goes on working, and one left with none is

@@ -308,8 +308,7 @@ function Tick({ on }: { on: boolean }) {
 
 /**
  * The menu a row carries, holding what can be done to that row ("Ask before
- * deleting in a dialog, from the row's own menu", issue 116) - a Type in the
- * window they are managed in, an Item in a list.
+ * deleting in a dialog, from the row's own menu", issue 116), on an Item in a list.
  *
  * One component rather than the same dozen lines in each: what they offer
  * differs, how a row offers it does not. A workspace, a dashboard and a panel

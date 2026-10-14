@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
-import { ITEM_TYPE_COLORS, MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, NAME_MAX_LENGTH } from '@cockpit/shared';
+import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, NAME_MAX_LENGTH, WORKSPACE_THEMES } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   DASHBOARD_ID,
@@ -9,6 +9,8 @@ import {
   seedRegister,
   startFromEmpty,
 } from '../seed.js';
+
+const ITEM_TYPE_COLORS = WORKSPACE_THEMES.map((theme) => theme.tint);
 
 /**
  * Integration level, and deliberately not through `SELF.fetch`. The rules below

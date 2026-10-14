@@ -378,8 +378,7 @@ export function AgentDock({
         />
       )}
       {beingDeleted && (
-        // Names no usage the way ManageTypes' own delete question does
-        // ("3 items across 2 workspaces will stop having a type"): a run
+        // Names no usage: a run
         // outlives its Agent, keeping its link and naming "a deleted agent"
         // ("Drop an agent on an item to start a Claude Code session on it",
         // issue 571), so deleting one takes nothing from any Item.

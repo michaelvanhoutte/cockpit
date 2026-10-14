@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, Filing, Item, ItemType, Panel, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { ItemList } from '../../../src/components/ItemList';
 import { UndoWhatJustHappened } from '../../../src/undo';
@@ -52,7 +52,6 @@ function anItem(id: string, title: string, over: Partial<Item> = {}): Item {
     workspaceDecided: true,
     source: 'internal',
     title,
-    typeId: null,
     completedAt: null,
     startedAt: null,
     priority: null,
@@ -76,7 +75,6 @@ const ANOTHER = anItem('11111111-1111-7111-8111-000000000005', 'Call the bank');
 
 const FALCON = aPanel('falcon', 'Project Falcon');
 const READING = aPanel('reading', 'To read');
-const TYPES = [{ id: 'task', name: 'Task' }] as unknown as ItemType[];
 
 interface World {
   items: Item[];
@@ -101,7 +99,6 @@ function snapshotOf(now: World): WorkspaceSnapshot {
     layouts: [],
     associations: [],
     attachments: [],
-    itemTypes: TYPES,
     itemFormPresentation: 'centered',
     duplicates: [],
     filings: now.filings,

@@ -3,7 +3,6 @@ import type {
   CommandPayload,
   CommandResult,
   Item,
-  ItemType,
   Panel,
   ServerEvent,
   SourceAccount,
@@ -258,8 +257,6 @@ export interface Account {
     model: string,
     readings: readonly { itemId: string; reading: number[] }[],
   ): Promise<{ remembered: string[] }>;
-  /** The account's live types, in the order they were put in. */
-  itemTypes(): Promise<ItemType[]>;
   /**
    * The source accounts one Workspace has connected, oldest first, and never
    * the credential sealed in each ("Connect a Microsoft Teams source
@@ -373,7 +370,6 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
 
   return {
     workspaces: async () => unwrap(await store.workspaces(accountName)),
-    itemTypes: async () => unwrap(await store.itemTypes(accountName)),
     snapshot: async (workspaceId) => unwrap(await store.snapshot(accountName, workspaceId)),
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),
     attachmentForDownload: async (attachmentId) =>

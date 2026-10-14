@@ -23,7 +23,6 @@ import {
   MAX_ATTACHMENT_SIZE,
   MAX_RECORDING_BYTES,
   TRANSCRIPTION_PATH,
-  itemTypeListSchema,
   registeredUserListSchema,
   usageSchema,
   rewriteHistoryResponseSchema,
@@ -676,17 +675,6 @@ const workspacesRoute = createRoute({
   },
 });
 
-const itemTypesRoute = createRoute({
-  method: 'get',
-  path: '/v1/item-types',
-  responses: {
-    200: {
-      description: 'All live types of the account',
-      content: { 'application/json': { schema: itemTypeListSchema } },
-    },
-  },
-});
-
 const snapshotRoute = createRoute({
   method: 'get',
   path: '/v1/workspaces/{workspaceId}/snapshot',
@@ -723,7 +711,7 @@ const rewriteHistoryForWorkspaceRoute = createRoute({
 /**
  * The source accounts one Workspace has connected ("Connect a Microsoft Teams
  * source account", issue 485) - its own route rather than a slice of the
- * Workspace snapshot, the same reason `itemTypesRoute` above has one: the
+ * Workspace snapshot: the
  * window that reads it is opened now and then, while a snapshot is read on
  * every navigation.
  */
@@ -1270,10 +1258,6 @@ const routes = app
     const account = await openAccount(c.env, c.get('visitor').accountName);
     return c.json({ workspaces: await account.workspaces() }, 200);
   })
-  .openapi(itemTypesRoute, async (c) => {
-    const account = await openAccount(c.env, c.get('visitor').accountName);
-    return c.json({ itemTypes: await account.itemTypes() }, 200);
-  })
   .openapi(snapshotRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -1767,21 +1751,6 @@ const routes = app
   .openapi(commandRoute('remove_item_from_panel'), async (c) =>
     c.json(await change(c, 'remove_item_from_panel', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('create_item_type'), async (c) =>
-    c.json(await change(c, 'create_item_type', c.req.valid('json')), 200),
-  )
-  .openapi(commandRoute('rename_item_type'), async (c) =>
-    c.json(await change(c, 'rename_item_type', c.req.valid('json')), 200),
-  )
-  .openapi(commandRoute('set_item_type_color'), async (c) =>
-    c.json(await change(c, 'set_item_type_color', c.req.valid('json')), 200),
-  )
-  .openapi(commandRoute('delete_item_type'), async (c) =>
-    c.json(await change(c, 'delete_item_type', c.req.valid('json')), 200),
-  )
-  .openapi(commandRoute('reorder_item_types'), async (c) =>
-    c.json(await change(c, 'reorder_item_types', c.req.valid('json')), 200),
-  )
   .openapi(
     commandRoute('create_agent', { conflict: 'An agent already has that name' }),
     async (c) => c.json(await change(c, 'create_agent', c.req.valid('json')), 200),
@@ -1808,7 +1777,6 @@ const routes = app
   .openapi(commandRoute('associate'), async (c) => c.json(await change(c, 'associate', c.req.valid('json')), 200))
   .openapi(commandRoute('set_next_action'), async (c) => c.json(await change(c, 'set_next_action', c.req.valid('json')), 200))
   .openapi(commandRoute('set_priority'), async (c) => c.json(await change(c, 'set_priority', c.req.valid('json')), 200))
-  .openapi(commandRoute('set_item_type'), async (c) => c.json(await change(c, 'set_item_type', c.req.valid('json')), 200))
   .openapi(commandRoute('set_due_date'), async (c) => c.json(await change(c, 'set_due_date', c.req.valid('json')), 200))
   .openapi(commandRoute('set_title'), async (c) =>
     c.json(await changeThatRewritesTheTexts(c, 'set_title', c.req.valid('json')), 200),

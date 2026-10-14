@@ -494,7 +494,7 @@ function TheShell() {
   const inboxColumnClassName = `min-w-70 shrink-0${resolvedInboxWidth === null ? ' w-1/5 max-w-105' : ''}`;
 
   /**
-   * Whether the account's list of types is open over the workspace, and the
+   * Whether a management window is open over the workspace, and the
    * control it was opened from - the workspace's "…", which has nothing to
    * return the focus to by itself.
    *
@@ -505,7 +505,7 @@ function TheShell() {
    */
   const [managing, setManaging] = useState<'settings' | 'platform' | null>(null);
   /** The section Settings opens on, and how a trip out to Microsoft ended where that is what opened it. */
-  const [settingsOn, setSettingsOn] = useState<SettingsKey>('types');
+  const [settingsOn, setSettingsOn] = useState<SettingsKey>('connections');
   const [connectOutcome, setConnectOutcome] = useState<ConnectOutcomeFor | undefined>(undefined);
   /** The profile control, which the focus returns to when Settings closes. */
   const profileControl = useRef<HTMLButtonElement>(null);
@@ -941,7 +941,7 @@ function TheShell() {
                   {me ? `Signed in as ${me.user.name}` : 'Signed in'}
                 </DropdownMenu.Label>
                 {/* On a phone it holds Appearance alone: the rest is for a desk, by decision (the room the Inbox column asks for). */}
-                <DropdownMenu.Item onSelect={() => openSettings(roomForTheInbox ? 'types' : 'appearance')} className={menuItemClass}>
+                <DropdownMenu.Item onSelect={() => openSettings(roomForTheInbox ? 'connections' : 'appearance')} className={menuItemClass}>
                   Settings…
                 </DropdownMenu.Item>
                 {/* An admin only, which is a courtesy: the server is what refuses everybody else (auth/admin.ts). */}
@@ -1221,7 +1221,7 @@ function TheShell() {
         </Suspense>
       )}
 
-      {/* Settings - the account's types, connections, agent settings and MCP
+      {/* Settings - the account's connections, agent settings and MCP
           apps - over the workspace rather than instead of it. Here rather than
           in a page, because there is no page: the shell is the one thing that
           is always drawn inside a workspace. Drawn only while open, so its code

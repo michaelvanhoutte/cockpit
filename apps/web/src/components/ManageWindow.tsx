@@ -13,22 +13,22 @@ export const InSettings = createContext<{ heading: string; hold: (held: boolean)
 
 /**
  * The window a list of named things is managed in: the dashboards of a
- * workspace, the workspaces of the account, and its types.
+ * workspace, and the workspaces of the account.
  *
  * **Over what you were doing, rather than instead of it.** Managing any of
  * these is a detour, so the screen behind stays where it was and closing puts
  * you back with nothing to reload ("Rename and delete a dashboard from a
  * dashboard settings page", issue 90, which is where the shape came from).
  *
- * **The workspaces and the types moved in here from pages of their own**, and
- * the pages are why this component exists. A page has to be reached without a
+ * **The workspaces moved in here from a page of their own**, and
+ * the page is why this component exists. A page has to be reached without a
  * workspace, and the app shell has no state for that: the header lost the
  * workspace's colour, its Capture… control and the selected tab, so leaving a
  * workspace turned the chrome into something that read as a different app. The
  * shell is now only ever drawn inside a workspace, which is the one state it
  * has, and the account-level lists are drawn over it.
  *
- * The three used to write this dialog out one at a time. What a window holds
+ * Each used to write this dialog out on its own. What a window holds
  * differs; what a window *is* does not.
  */
 export function ManageWindow({

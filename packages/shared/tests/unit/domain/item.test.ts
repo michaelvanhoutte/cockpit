@@ -355,7 +355,6 @@ describe('Capture', () => {
       proposedPanelId: null,
       proposedPanelReason: null,
       sourceResolvedAt: null,
-      typeId: null,
       nextAction: null,
       completedAt: null,
       startedAt: null,
@@ -373,12 +372,6 @@ describe('Capture', () => {
     });
 
     it.each([
-      // The two every account starts with have ids derived from the account's
-      // own, so an item captured as one of them carries a type id that is not
-      // a uuid and never was.
-      { situation: 'a type the account started with', over: { typeId: 'tenant-default-type-thought' } },
-      { situation: 'a type made by using it', over: { typeId: '018f0000-0000-7000-8000-000000000002' } },
-      { situation: 'no type at all', over: { typeId: null } },
       // Capture took an uncapped title until the cap existed, so a title over
       // it can be sitting in a store right now. The whole snapshot is parsed at
       // once, so refusing that one item would blank the workspace rather than
@@ -419,7 +412,6 @@ describe('Connector management', () => {
       readings: null,
       proposedPanelId: null,
       proposedPanelReason: null,
-      typeId: null,
       nextAction: null,
       completedAt: null,
       startedAt: null,

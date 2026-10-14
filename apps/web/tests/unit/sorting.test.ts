@@ -19,7 +19,6 @@ function anItem(
     title?: string;
     dueDate?: string | null;
     priority?: Priority | null;
-    typeId?: string | null;
     createdAt?: string;
   } = {},
 ): Item {
@@ -42,7 +41,6 @@ function anItem(
     proposedPanelId: null,
     proposedPanelReason: null,
     sourceResolvedAt: null,
-    typeId: holding.typeId ?? null,
     nextAction: null,
     completedAt: null,
     startedAt: null,

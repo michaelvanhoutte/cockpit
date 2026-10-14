@@ -5,11 +5,11 @@ import { foldName } from './names.js';
 
 /**
  * Making and finding an Agent ("Keep your agents in a dock, and choose which
- * each dashboard shows", issue 570). Pure, like `item-types.ts` beside this:
- * whether the name is taken is decided from the Agents handed in.
+ * each dashboard shows", issue 570). Pure, like every other handler
+ * here: whether the name is taken is decided from the Agents handed in.
  */
 
-/** The one of `taken` already going by this name, or undefined - folded exactly as an Item Type's is. */
+/** The one of `taken` already going by this name, or undefined - folded like every other name in the app. */
 export function agentNamed(taken: readonly Agent[], name: string): Agent | undefined {
   const wanted = foldName(name);
   return taken.find((agent) => foldName(agent.name) === wanted);
@@ -17,7 +17,7 @@ export function agentNamed(taken: readonly Agent[], name: string): Agent | undef
 
 /**
  * A new Agent, after every Agent there has ever been - the same "highest
- * position, not how many are live" reasoning `itemTypeFromCommand` carries,
+ * position, not how many are live" reasoning every ordered list here uses,
  * so a new tile joins the end of the dock rather than the front.
  */
 export function agentFromCommand(

@@ -132,7 +132,7 @@ function rowDetail(account: SourceAccount, names: SourceNames): string {
  * each offering Connect except Claude Code once one is already held, a
  * workspace being allowed only one (rule 6).
  *
- * **Workspace-scoped, unlike `ManageTypes` beside it.** A connection belongs
+ * **Workspace-scoped.** A connection belongs
  * to the Workspace that made it and no other Workspace ever sees it, which is
  * why it is opened from the Workspace's own tab rather than from the header's
  * menu, and why every read and every change here names a Workspace.
@@ -221,7 +221,7 @@ export default function ManageConnections({
   const claudeCodeOpenedFrom = useRef<HTMLElement | null>(null);
   /**
    * The window itself, which the focus goes back to once a disconnect has
-   * taken the row's menu with the row - the reason `ManageTypes` keeps one.
+   * taken the row's menu with the row.
    */
   const list = useRef<HTMLDivElement>(null);
   const command = useCommand();
@@ -252,8 +252,8 @@ export default function ManageConnections({
   );
   /**
    * Saying "nothing connected" is a claim about what this Workspace holds, so
-   * it needs an answer to have arrived - the same lie `ManageTypes` records,
-   * where `?? []` made a failed read look like an empty account.
+   * it needs an answer to have arrived: `?? []` would make a failed read look
+   * like an empty workspace.
    */
   const answered = data !== undefined;
   const listFailed = Boolean(error) && !answered;

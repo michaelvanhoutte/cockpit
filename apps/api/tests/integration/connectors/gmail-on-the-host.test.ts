@@ -139,12 +139,11 @@ async function gmailRow(): Promise<ConnectionRow | undefined> {
   return ((await res.json()) as { sourceAccounts: ConnectionRow[] }).sourceAccounts.find((row) => row.connectorId === 'gmail');
 }
 
-async function gmailItems(): Promise<{ title: string; typeId: string; sourceId: string | null }[]> {
+async function gmailItems(): Promise<{ title: string; sourceId: string | null }[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
   expect(res.status).toBe(200);
   const snapshot = (await res.json()) as {
-    items: { title: string; typeId: string; sourceId: string | null; source: string }[];
-    itemTypes?: { id: string; name: string }[];
+    items: { title: string; sourceId: string | null; source: string }[];
   };
   return snapshot.items.filter((item) => item.source === 'gmail');
 }

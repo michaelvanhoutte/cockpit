@@ -51,7 +51,6 @@ function anItem(
   holding: {
     dueDate?: string | null;
     priority?: Priority | null;
-    typeId?: string | null;
     completedAt?: string | null;
     startedAt?: string | null;
     createdAt?: string;
@@ -77,7 +76,6 @@ function anItem(
     proposedPanelId: null,
     proposedPanelReason: null,
     sourceResolvedAt: null,
-    typeId: holding.typeId ?? null,
     nextAction: null,
     completedAt: holding.completedAt ?? null,
     startedAt: holding.startedAt ?? null,

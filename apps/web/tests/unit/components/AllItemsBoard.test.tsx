@@ -48,7 +48,6 @@ function anItem(id: string, fields: Partial<Item> = {}): Item {
   return {
     id,
     title: id,
-    typeId: null,
     priority: null,
     dueDate: null,
     startedAt: null,

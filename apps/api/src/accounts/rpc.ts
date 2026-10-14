@@ -4,7 +4,6 @@ import type {
   CommandPayload,
   CommandResult,
   Item,
-  ItemType,
   Panel,
   ServerEvent,
   SourceAccount,
@@ -43,7 +42,6 @@ import type { PulledRunBegun } from './pulled.js';
  */
 export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   workspaces(accountName: string): Awaitable<Answer<Workspace[]>>;
-  itemTypes(accountName: string): Awaitable<Answer<ItemType[]>>;
   snapshot(accountName: string, workspaceId: string): Awaitable<Answer<AccountSnapshot>>;
   /**
    * One Item by its id, or null where the account holds no such Item.

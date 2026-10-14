@@ -40,7 +40,6 @@ function anItem(overrides: Partial<Item> = {}): Item {
     proposedPanelId: null,
     proposedPanelReason: null,
     sourceResolvedAt: null,
-    typeId: null,
     nextAction: null,
     completedAt: null,
     startedAt: null,
