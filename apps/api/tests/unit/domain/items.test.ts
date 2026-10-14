@@ -572,12 +572,16 @@ describe('Capture', () => {
       { situation: 'the note states none', item: () => anItem(), states: undefined, expected: null },
     ])('when $situation', ({ item, states, expected }) => {
       const before = item();
-      const read = applyProposedFields(before, {
-        ...request,
-        issuedAt: LATEST,
-        itemId: before.id,
-        ...(states === undefined ? {} : { priority: states }),
-      });
+      const read = applyProposedFields(
+        before,
+        {
+          ...request,
+          issuedAt: LATEST,
+          itemId: before.id,
+          ...(states === undefined ? {} : { priority: states }),
+        },
+        false,
+      );
 
       expect(read?.set.priority ?? null).toBe(expected);
       if (read) {
@@ -622,11 +626,56 @@ describe('Capture', () => {
       { situation: 'you chose only the priority', item: () => prioritised(anItem(), LATER, 'low'), expected: '2026-08-14' },
     ])('when $situation', ({ item, expected }) => {
       const before = item();
-      const read = applyProposedFields(before, { ...request, issuedAt: LATEST, itemId: before.id, dueDate: '2026-08-14' });
+      const read = applyProposedFields(before, { ...request, issuedAt: LATEST, itemId: before.id, dueDate: '2026-08-14' }, false);
 
       expect(read?.set.dueDate ?? null).toBe(expected);
       if (read) {
         expect(read.item).toMatchObject({ dueDate: expected, dueDateSetAt: LATEST, dueDateChosenAt: null });
+        expect(read.item.updatedAt).toBe(before.updatedAt);
+      }
+    });
+  });
+});
+/**
+ * "Settle an Any workspace capture in the workspace you name" (issue 1078): the
+ * decision for the Workspace, which is filing's first-answer-wins rule - the
+ * Workspace being live is the store's answer, and the write against the real
+ * store is the integration tier's (tests/integration/http/note-cleanup.test.ts).
+ */
+describe('Capture', () => {
+  describe('a workspace the note names settles an item captured to Any workspace, and only that', () => {
+    it.each([
+      {
+        situation: 'captured to Any workspace and still in none',
+        item: () => anItem({ workspaceDecided: false }),
+        live: true,
+        expected: 'ws-home',
+      },
+      { situation: 'captured inside a workspace', item: () => anItem(), live: true, expected: null },
+      {
+        situation: 'filed in a workspace before the reading landed',
+        item: () => anItem({ workspaceDecided: true, workspaceId: 'ws-work' }),
+        live: true,
+        expected: null,
+      },
+      {
+        situation: 'the workspace named is gone by the time it is written',
+        item: () => anItem({ workspaceDecided: false }),
+        live: false,
+        expected: null,
+      },
+    ])('when $situation', ({ item, live, expected }) => {
+      const before = item();
+      const read = applyProposedFields(
+        before,
+        { ...request, issuedAt: LATEST, itemId: before.id, settleInWorkspaceId: 'ws-home' },
+        live,
+      );
+
+      expect(read?.set.workspaceId ?? null).toBe(expected);
+      if (read) {
+        expect(read.item).toMatchObject({ workspaceId: expected, workspaceDecided: true });
+        // A reading is not a change somebody made, as for every other field.
         expect(read.item.updatedAt).toBe(before.updatedAt);
       }
     });

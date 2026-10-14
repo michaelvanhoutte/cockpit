@@ -13,6 +13,8 @@ import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import type { NoteTexts, PanelRead, RoutingCandidate } from '../ai/index.js';
 import { aStatedFieldIsOpen, type FieldsSet } from '../domain/items.js';
 import { captureDay, type CaptureDay } from '../domain/capture-day.js';
+import { workspaceNamed } from '../domain/workspaces.js';
+import type { Workspace } from '@cockpit/shared';
 import {
   asFarAsItReads,
   canReadMeaning,
@@ -509,7 +511,12 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // priority, due date and workspace you say when you capture", issue 1073,
   // its Technical design).
   const day = await captureDayOf(account, item);
-  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null)) {
+  // The Workspaces a note not yet in one may name - the account's live ones,
+  // read fresh, and none for a note that is in one already ("Settle an Any
+  // workspace capture in the workspace you name", issue 1078).
+  const liveWorkspaces = item.workspaceDecided ? null : await account.workspaces();
+  const workspaceNames = liveWorkspaces === null ? null : liveWorkspaces.map((workspace) => workspace.name);
+  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null, (workspaceNames?.length ?? 0) > 0)) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
@@ -557,6 +564,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       promptCorrections,
       promptStood,
       day,
+      workspaceNames,
       { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
     );
   } catch (error) {
@@ -625,7 +633,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // 1076).
   let fieldsSet: FieldsSet;
   try {
-    fieldsSet = await applyStatedFields(account, item, read.proposal, day);
+    fieldsSet = await applyStatedFields(account, item, read.proposal, day, liveWorkspaces);
   } catch (error) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
@@ -635,6 +643,8 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     );
     throw error;
   }
+  // The Workspace the store settled the Item in, by name, for the history.
+  const settledIn = liveWorkspaces?.find((workspace) => workspace.id === fieldsSet.workspaceId) ?? null;
   const textsOutcome = {
     titleAfter: written.applied ? read.proposal.title : null,
     descriptionAfter: written.applied ? read.proposal.message : null,
@@ -643,6 +653,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       : 'nothing was written: the texts are already edited',
     prioritySet: fieldsSet.priority ?? null,
     dueDateSet: fieldsSet.dueDate ?? null,
+    workspaceSet: settledIn?.name ?? null,
   };
   const fieldChanged = Object.keys(fieldsSet).length > 0;
   // Recorded the moment the texts settle, with the Panel as the item had it,
@@ -677,7 +688,39 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // the item actually carries rather than one the store refused because the
   // item was filed in the meantime ("Rename Rewrite history to Smart
   // refinements, and show each field's change", issue 614).
-  const routed = await applyProposedPanelIfAny(account, item, read.proposal.panel, item.proposedPanelId);
+  //
+  // **Where the Item moved, the Panel read above was chosen among another
+  // Workspace's Panels**, so it is not used, and a proposal the Item already
+  // carries is withdrawn with it: the Panel is asked for again among the new
+  // Workspace's own, which is a second call, made only on a capture that named
+  // a Workspace other than the one the Item sat in ("Settle an Any workspace
+  // capture in the workspace you name", issue 1078).
+  //
+  // **A second call that fails proposes no Panel rather than failing the
+  // attempt**: the Item has already moved, and a retry would find it decided
+  // and never record the move, so the row keeps what the texts and fields did.
+  let proposedPanel = read.proposal.panel;
+  const itemNow = { id: item.id, workspaceId: fieldsSet.workspaceId ?? item.workspaceId };
+  if (itemNow.workspaceId !== item.workspaceId) {
+    try {
+      proposedPanel = await panelInTheNewWorkspace(
+        account,
+        ai,
+        itemNow.workspaceId,
+        {
+          id: item.id,
+          capturedMessage: item.capturedMessage,
+          title: written.applied ? read.proposal.title : item.title,
+          description: written.applied ? read.proposal.message : item.description,
+        },
+        { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
+      );
+    } catch (error) {
+      say(job.itemId, `no panel was asked for in the new workspace: ${error instanceof Error ? error.message : String(error)}`);
+      proposedPanel = null;
+    }
+  }
+  const routed = await applyProposedPanelIfAny(account, itemNow, proposedPanel, item.proposedPanelId);
   if (routed === 'the item went while it was being read') {
     say(job.itemId, `nothing was routed: ${routed}`);
   }
@@ -686,10 +729,32 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     account.recordRewriteOutcome(attemptId, {
       ...textsOutcome,
       status: written.applied || fieldChanged || panelChanged ? 'rewritten' : 'left-as-is',
-      proposedPanelId: panelItCarries(routed, read.proposal.panel, item.proposedPanelId),
-      proposedPanelReason: routed === 'routed' ? (read.proposal.panel?.reason ?? null) : null,
+      proposedPanelId: panelItCarries(routed, proposedPanel, item.proposedPanelId),
+      proposedPanelReason: routed === 'routed' ? (proposedPanel?.reason ?? null) : null,
     }),
   );
+}
+
+/**
+ * The Panel a note belongs on among the Panels of the Workspace it was just
+ * settled in, or none - asked with the same call a settled filing's refresh
+ * uses (`choosePanel`), and not asked at all where the Workspace has no Panel
+ * that takes items. An answer the model gave that cannot be used reads as none:
+ * the proposal the Item carried was about another Workspace, and is withdrawn
+ * all the same.
+ */
+async function panelInTheNewWorkspace(
+  account: Account,
+  ai: NonNullable<ReturnType<typeof aiFor>>,
+  workspaceId: string,
+  item: { id: string; capturedMessage: string; title: string; description: string | null },
+  callFor: Parameters<typeof ai.choosePanel>[4],
+): Promise<RoutingCandidate | null> {
+  const panels = await panelsOrEmpty(account, workspaceId);
+  if (panels.length === 0) return null;
+  const { history, recentlyCaptured } = await account.routingContext(workspaceId, item.id);
+  const read = await ai.choosePanel(item, panels, history, recentlyCaptured, callFor);
+  return 'panel' in read ? read.panel : null;
 }
 
 /**
@@ -726,10 +791,16 @@ async function applyStatedFields(
   item: { id: string; workspaceId: string },
   proposal: NoteTexts,
   day: CaptureDay | null,
+  offered: readonly Workspace[] | null,
 ): Promise<FieldsSet> {
   // A date is taken only where the call was told the day it counts from.
   const dueDate = day === null ? null : proposal.dueDate;
-  if (proposal.priority === null && dueDate === null) return {};
+  // A Workspace only from the names this call offered, matched ignoring case;
+  // any other name is ignored and nothing is created ("Settle an Any workspace
+  // capture in the workspace you name", issue 1078).
+  const workspace =
+    offered === null || proposal.workspace === null ? undefined : workspaceNamed(offered, proposal.workspace);
+  if (proposal.priority === null && dueDate === null && workspace === undefined) return {};
   try {
     const written = await account.applyChange('propose_item_fields', {
       commandId: crypto.randomUUID(),
@@ -738,6 +809,7 @@ async function applyStatedFields(
       itemId: item.id,
       ...(proposal.priority === null ? {} : { priority: proposal.priority }),
       ...(dueDate === null ? {} : { dueDate }),
+      ...(workspace === undefined ? {} : { settleInWorkspaceId: workspace.id }),
     });
     return written.fieldsSet ?? {};
   } catch (error) {

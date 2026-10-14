@@ -1133,7 +1133,7 @@ export function recordRewriteOutcome(
       // vanish from what Cockpit changed.
       status:
         outcome.status === 'left-as-is'
-          ? sql`CASE WHEN ${rewriteHistory.prioritySet} IS NOT NULL OR ${rewriteHistory.dueDateSet} IS NOT NULL THEN 'rewritten' ELSE 'left-as-is' END`
+          ? sql`CASE WHEN ${rewriteHistory.prioritySet} IS NOT NULL OR ${rewriteHistory.dueDateSet} IS NOT NULL OR ${rewriteHistory.workspaceSet} IS NOT NULL THEN 'rewritten' ELSE 'left-as-is' END`
           : outcome.status,
       message: outcome.message,
       titleAfter: outcome.titleAfter ?? null,
@@ -1149,6 +1149,9 @@ export function recordRewriteOutcome(
       // Kept the same way, for the same reason ("Read a due date you say when
       // you capture, on your own calendar", issue 1077).
       dueDateSet: sql`coalesce(${outcome.dueDateSet ?? null}, ${rewriteHistory.dueDateSet})`,
+      // And the Workspace it settled the item in ("Settle an Any workspace
+      // capture in the workspace you name", issue 1078).
+      workspaceSet: sql`coalesce(${outcome.workspaceSet ?? null}, ${rewriteHistory.workspaceSet})`,
     })
     .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.id, attemptId)))
     .run();
@@ -1179,6 +1182,7 @@ const rewriteHistoryColumns = {
   looksAt: rewriteHistory.looksAt,
   prioritySet: rewriteHistory.prioritySet,
   dueDateSet: rewriteHistory.dueDateSet,
+  workspaceSet: rewriteHistory.workspaceSet,
   beforeId: panelBefore.id,
   beforeName: panelBefore.name,
   beforeDeletedAt: panelBefore.deletedAt,
@@ -1217,6 +1221,7 @@ function asRewriteHistoryEntry(row: {
   looksAt: string | null;
   prioritySet: string | null;
   dueDateSet: string | null;
+  workspaceSet: string | null;
   beforeId: string | null;
   beforeName: string | null;
   beforeDeletedAt: string | null;
@@ -1259,6 +1264,7 @@ function asRewriteHistoryEntry(row: {
     // A value outside the set reads as none, as `looksAt` above does.
     prioritySet: prioritySchema.safeParse(row.prioritySet).data ?? null,
     dueDateSet: z.iso.date().safeParse(row.dueDateSet).data ?? null,
+    workspaceSet: row.workspaceSet,
   };
 }
 

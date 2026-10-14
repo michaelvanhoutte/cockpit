@@ -13,7 +13,7 @@ import { REWRITE_HISTORY_LIMIT, type RefinementScope, type RewriteHistoryEntry }
  * throws.
  */
 
-export type ChangedField = 'title' | 'description' | 'suggestedPanel' | 'priority' | 'dueDate';
+export type ChangedField = 'title' | 'description' | 'suggestedPanel' | 'priority' | 'dueDate' | 'workspace';
 
 /** Which fields a refinement looks at; a row from before that was recorded is read as having looked at all three. */
 export const LOOKS_AT: Record<RefinementScope, ChangedField[]> = {
@@ -35,6 +35,7 @@ export function fieldsLookedAt(entry: RewriteHistoryEntry): ChangedField[] {
     ...LOOKS_AT[entry.looksAt ?? 'texts-and-panel'],
     ...(entry.prioritySet === null ? [] : (['priority'] as const)),
     ...(entry.dueDateSet === null ? [] : (['dueDate'] as const)),
+    ...(entry.workspaceSet === null ? [] : (['workspace'] as const)),
   ];
 }
 
@@ -43,6 +44,7 @@ export function fieldChanged(entry: RewriteHistoryEntry, field: ChangedField): b
   // Only ever set onto an item that had none, so having set one is the change.
   if (field === 'priority') return entry.prioritySet !== null;
   if (field === 'dueDate') return entry.dueDateSet !== null;
+  if (field === 'workspace') return entry.workspaceSet !== null;
   if (field === 'suggestedPanel') {
     // A row from before this was recorded never recorded the panel.
     if (entry.looksAt === null) return false;

@@ -19,6 +19,7 @@ const FIELD_LABEL: Record<ChangedField, string> = {
   suggestedPanel: 'Suggested panel',
   priority: 'Priority',
   dueDate: 'Due date',
+  workspace: 'Workspace',
 };
 
 export const WHY: Record<RefinementScope, string> = {
@@ -51,6 +52,9 @@ function lineFor(entry: RewriteHistoryEntry, field: ChangedField): FieldLine {
   }
   if (field === 'dueDate') {
     return { field, kind: 'changed', before: 'None', after: dueDateLabel(entry.dueDateSet) ?? 'None' };
+  }
+  if (field === 'workspace') {
+    return { field, kind: 'changed', before: 'Any workspace', after: entry.workspaceSet ?? 'Any workspace' };
   }
   if (field === 'suggestedPanel') {
     if (entry.looksAt === null) return { field, kind: 'not-recorded' };

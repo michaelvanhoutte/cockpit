@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v13.js';
+import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v14.js';
 import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
@@ -219,6 +219,50 @@ describe('Capture', () => {
       expect(instructions).toContain('leave the due date out');
       // The day itself is never in the part every note shares.
       expect(withNone.system.instructions).toBe(instructions);
+    });
+  });
+
+  /**
+   * "Settle an Any workspace capture in the workspace you name" (issue 1078).
+   * Whether the model names the right one is the contract tier's; this holds
+   * that it is shown the account's own live names and no others, only for a
+   * note not yet in a workspace, and that it is told to keep each word it used
+   * out of the title.
+   */
+  describe('a workspace is asked for only from the names the account has, and only for a note in none', () => {
+    const ROUTING_NONE = { panels: [], history: [], recentlyCaptured: [] };
+    const offered = buildCleanUpANote(ROUTING_NONE, [], null, null, ['Hobbies', 'Day job']);
+    const inOne = buildCleanUpANote(ROUTING_NONE, [], null, null, null);
+    const noneExist = buildCleanUpANote(ROUTING_NONE, [], null, null, []);
+
+    it('lists exactly the names it was handed, after the rules every note shares', () => {
+      expect(offered.system.stable).toContain('Workspaces:\n- Hobbies\n- Day job');
+      expect(offered.system.stable).not.toContain('Archive');
+      expect(offered.system.instructions).not.toContain('Hobbies');
+      // The rules are the same whatever the account has.
+      expect(offered.system.instructions).toBe(inOne.system.instructions);
+    });
+
+    it.each([
+      { situation: 'the note is in no workspace and the account has two', prompt: offered, asked: true, listed: true },
+      { situation: 'the note is already in a workspace', prompt: inOne, asked: false, listed: false },
+      { situation: 'the account has no workspace to name', prompt: noneExist, asked: false, listed: true },
+    ])('when $situation', ({ prompt, asked, listed }) => {
+      const schema = prompt.schema as { properties: Record<string, unknown>; required: string[] };
+
+      expect('workspace' in schema.properties).toBe(asked);
+      expect(schema.required).not.toContain('workspace');
+      expect(prompt.system.stable.includes('Workspaces:')).toBe(listed);
+    });
+
+    it('takes every word it used - priority, date and workspace - out of the title, and keeps them in the message', () => {
+      const { instructions } = offered.system;
+      const leave = 'leave the words you read it from out of the title; the message keeps them';
+
+      for (const field of ['priority', 'due date', 'workspace']) {
+        const sentence = instructions.split('\n').find((line) => line.includes(`Once you have read a ${field}`));
+        expect(sentence, `the rule for the ${field}`).toContain(leave);
+      }
     });
   });
 

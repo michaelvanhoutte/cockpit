@@ -62,6 +62,8 @@ export const rewriteHistoryEntrySchema = z.object({
   prioritySet: prioritySchema.nullable(),
   /** The due date the refinement set from what the note said; null where it set none ("Read a due date you say when you capture, on your own calendar", issue 1077). Like the priority, only ever set onto an item that had none. */
   dueDateSet: z.iso.date().nullable(),
+  /** The name of the Workspace the refinement settled the item in, from what the note said; null where it settled none ("Settle an Any workspace capture in the workspace you name", issue 1078). The name as it was then, so a later rename never rewrites what happened. */
+  workspaceSet: z.string().nullable(),
 });
 export type RewriteHistoryEntry = z.infer<typeof rewriteHistoryEntrySchema>;
 

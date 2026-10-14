@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
 import { callThrough, inRealTime, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
 import { providerCallsIn } from '../gateway/record.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v13.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v14.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v2.js';
 import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
 import type { CaptureDay } from '../domain/capture-day.js';
@@ -16,7 +16,7 @@ export type { ItemToPlace } from './prompts/choose-a-panel.v2.js';
  * The prompt files the two calls are built from, as a record names them -
  * changed with the import above them when a prompt gets a new version.
  */
-const CLEAN_UP_A_NOTE = 'clean-up-a-note.v13';
+const CLEAN_UP_A_NOTE = 'clean-up-a-note.v14';
 const CHOOSE_A_PANEL = 'choose-a-panel.v2';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
@@ -93,6 +93,11 @@ export interface AiService {
    * date unasked for ("Read a due date you say when you capture, on your own
    * calendar", issue 1077).
    *
+   * `workspaces` is the names of the account's live Workspaces where the note
+   * is not in one yet, and null where it is - the only names the model is
+   * shown, and none at all for a note that cannot move ("Settle an Any
+   * workspace capture in the workspace you name", issue 1078).
+   *
    * `callFor` names whom the call is for in its record, never in the prompt.
    */
   cleanUpNote(
@@ -103,6 +108,7 @@ export interface AiService {
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
     day: CaptureDay | null,
+    workspaces: readonly string[] | null,
     callFor: CallFor,
   ): Promise<ProposalRead>;
 
@@ -231,9 +237,10 @@ export class ClaudeAiService implements AiService {
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
     day: CaptureDay | null,
+    workspaces: readonly string[] | null,
     callFor: CallFor,
   ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote({ panels, history, recentlyCaptured }, corrections, stood, day);
+    const prompt = buildCleanUpANote({ panels, history, recentlyCaptured }, corrections, stood, day, workspaces);
     const answer = await this.#ask(prompt, capturedMessage, { ...callFor, operation: 'clean-up-a-note', promptVersion: CLEAN_UP_A_NOTE });
     return 'refused' in answer ? { discarded: answer.refused } : readProposal(answer.text, panels.map((panel) => panel.id));
   }

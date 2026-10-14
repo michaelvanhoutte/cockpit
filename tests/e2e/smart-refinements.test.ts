@@ -80,6 +80,7 @@ test.describe('Capture', () => {
                 suggestedPanelAfter: null,
                 prioritySet: null,
                 dueDateSet: null,
+                workspaceSet: null,
               },
             ],
           },

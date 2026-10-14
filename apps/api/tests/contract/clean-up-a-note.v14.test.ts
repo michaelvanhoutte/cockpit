@@ -5,7 +5,7 @@ import { ClaudeAiService, type CallFor, type ProposalRead } from '../../src/ai/i
 /** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
 const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v13.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v14.js';
 import type { CaptureDay } from '../../src/domain/capture-day.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
@@ -59,7 +59,7 @@ function tallied(name: string): ClaudeAiService {
     spent.output += usage.output_tokens;
   });
 }
-const reading = tallied('clean-up-a-note.v13 on capture');
+const reading = tallied('clean-up-a-note.v14 on capture');
 
 const NO_STOOD: WhatStood | null = null;
 
@@ -77,7 +77,7 @@ const WAYS = [
   {
     situation: 'read on capture',
     ask: (note: string, corrections: readonly TextCorrectionEntry[]) =>
-      reading.cleanUpNote(note, [], [], [], corrections, NO_STOOD, A_DAY, A_CONTRACT_RUN),
+      reading.cleanUpNote(note, [], [], [], corrections, NO_STOOD, A_DAY, null, A_CONTRACT_RUN),
   },
 ];
 
@@ -157,7 +157,7 @@ async function read(
   corrections: readonly TextCorrectionEntry[] = [],
   stood: WhatStood | null = NO_STOOD,
 ) {
-  const answer = await reading.cleanUpNote(note, panels, history, recentlyCaptured, corrections, stood, A_DAY, A_CONTRACT_RUN);
+  const answer = await reading.cleanUpNote(note, panels, history, recentlyCaptured, corrections, stood, A_DAY, null, A_CONTRACT_RUN);
   // Said out loud, because a discarded answer is the one failure whose reason
   // is otherwise only in the logs of a scheduled run nobody was watching.
   if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
@@ -271,7 +271,7 @@ describe('Capture', () => {
         expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
         // The cases in this file are only evidence about the version they ran
         // against, so the version is said out loud once.
-        expect(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], NO_STOOD, A_DAY).version).toBe('v13');
+        expect(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], NO_STOOD, A_DAY).version).toBe('v14');
       });
 
       it('does not pad a note that is already shorter than the target', async () => {
@@ -592,7 +592,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v13.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v14.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -751,8 +751,8 @@ describe('Capture', () => {
         usages.push(usage);
       });
 
-      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', [], [], [], [], NO_STOOD, A_DAY, A_CONTRACT_RUN))).toBe(true);
-      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', [], [], [], [], NO_STOOD, A_DAY, A_CONTRACT_RUN))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', [], [], [], [], NO_STOOD, A_DAY, null, A_CONTRACT_RUN))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', [], [], [], [], NO_STOOD, A_DAY, null, A_CONTRACT_RUN))).toBe(true);
 
       expect(usages[1]!.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
     });
@@ -772,8 +772,8 @@ describe('Capture', () => {
       });
       const history = fiftyFilings(TWO_PANELS);
 
-      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', TWO_PANELS, history, ['still waiting'], [], NO_STOOD, A_DAY, A_CONTRACT_RUN))).toBe(true);
-      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', TWO_PANELS, history, ['and another'], [], NO_STOOD, A_DAY, A_CONTRACT_RUN))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', TWO_PANELS, history, ['still waiting'], [], NO_STOOD, A_DAY, null, A_CONTRACT_RUN))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', TWO_PANELS, history, ['and another'], [], NO_STOOD, A_DAY, null, A_CONTRACT_RUN))).toBe(true);
 
       const first = usages[0]!;
       const second = usages[1]!;
@@ -794,6 +794,36 @@ describe('Capture', () => {
   describe('an account with a full decision history still gets a usable proposal', () => {
     it('answers with a proposal when fifty past filings ride along with the note', async () => {
       await read('factuur van de leverancier klopt niet, nakijken', TWO_PANELS, fiftyFilings(TWO_PANELS));
+    });
+  });
+
+  /**
+   * "Settle an Any workspace capture in the workspace you name" (issue 1078):
+   * the behaviour the prompt was written to get is a workspace named only where
+   * the note says it, from the list given, and kept out of the title.
+   */
+  describe('a note not yet in a workspace names the workspace it says it is for, and only that', () => {
+    const NAMES = ['Home', 'Work'] as const;
+    const ask = async (note: string, workspaces: readonly string[] | null) => {
+      const answer = await reading.cleanUpNote(note, [], [], [], [], NO_STOOD, A_DAY, workspaces, A_CONTRACT_RUN);
+      if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
+      return answer.proposal;
+    };
+
+    it('names Home for a note that says it is for Home, and leaves the word out of the title', async () => {
+      const proposal = await ask('call bob tomorrow, high priority, for home', NAMES);
+      expect(proposal.workspace?.toLowerCase()).toBe('home');
+      expect(proposal.title).not.toMatch(/home/i);
+    });
+
+    it('names none for a note that says nothing about where it belongs, even where it is about the house', async () => {
+      const proposal = await ask('fix the leaking tap in the kitchen', NAMES);
+      expect(proposal.workspace).toBeNull();
+    });
+
+    it('names none where no list was given', async () => {
+      const proposal = await ask('call bob tomorrow, for home', null);
+      expect(proposal.workspace).toBeNull();
     });
   });
 });

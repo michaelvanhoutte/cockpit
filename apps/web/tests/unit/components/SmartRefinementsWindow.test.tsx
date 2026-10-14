@@ -49,6 +49,7 @@ function aRefinement(overrides: Partial<RewriteHistoryEntry> = {}): RewriteHisto
     suggestedPanelAfter: null,
     prioritySet: null,
     dueDateSet: null,
+    workspaceSet: null,
     ...overrides,
   };
 }
@@ -259,6 +260,26 @@ describe('What Cockpit changed', () => {
       }
     });
   });
+
+  /** "Settle an Any workspace capture in the workspace you name" (issue 1078). */
+  describe('a refinement lists the workspace it settled the item in, and no workspace where it settled none', () => {
+    it.each([
+      { situation: 'it settled it in Home', workspaceSet: 'Home', settled: 'Home' },
+      { situation: 'it settled none', workspaceSet: null, settled: null },
+    ])('$situation', async ({ workspaceSet, settled }) => {
+      const dialog = await openWith([aRefinement({ titleAfter: 'Call Bob', workspaceSet })]);
+
+      const lines = await openTheRow(dialog);
+      const line = lines.find((candidate) => candidate.field === 'Workspace');
+      if (settled === null) {
+        expect(line).toBeUndefined();
+      } else {
+        expect(within(line!.says).getByRole('deletion')).toHaveTextContent('Any workspace');
+        expect(within(line!.says).getByRole('insertion')).toHaveTextContent(settled);
+      }
+    });
+  });
+
   describe('a row recorded before this shipped shows what it has and says what it lacks', () => {
     it('gives no reason why, its title change as recorded, and the suggested panel as not recorded', async () => {
       const dialog = await openWith([

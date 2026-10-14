@@ -1761,7 +1761,14 @@ export function runCommand<N extends CommandName>(
       // Decided here, against the Item as it stands, for the reason
       // `propose_item_texts` gives: a priority the person set while the model
       // was reading is already here, and one set after this waits for it.
-      const proposed = applyProposedFields(existing, cmd);
+      const proposed = applyProposedFields(
+        existing,
+        cmd,
+        // Live at the moment of writing, whatever it was when the model was
+        // shown its name ("Settle an Any workspace capture in the workspace you
+        // name", issue 1078).
+        cmd.settleInWorkspaceId !== undefined && !!getWorkspace(db, tenantId, cmd.settleInWorkspaceId),
+      );
       if (proposed === null) {
         // Logged all the same, so a redelivery is a replay.
         db.insert(commands).values(commandRow).run();
