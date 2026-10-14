@@ -50,6 +50,8 @@ export interface NoteTexts {
   priority: Priority | null;
   /** The day the note named as due, `YYYY-MM-DD`, or null where it named none ("Read a due date you say when you capture, on your own calendar", issue 1077). */
   dueDate: string | null;
+  /** The Workspace name the note said it was for, as the model wrote it, or null where it named none ("Settle an Any workspace capture in the workspace you name", issue 1078). Whether it is one of the account's is the job's to decide. */
+  workspace: string | null;
 }
 
 /**
@@ -193,7 +195,14 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
       ? (z.iso.date().safeParse((parsed as Record<string, unknown>).dueDate).data ?? null)
       : null;
 
-  return { proposal: { ...read.data, readings, panel, priority, dueDate } };
+  // And a Workspace: a name is any non-empty text here - which Workspace it
+  // is, if any, is decided against the account's own (issue 1078).
+  const workspace =
+    typeof parsed === 'object' && parsed !== null
+      ? (z.string().trim().min(1).safeParse((parsed as Record<string, unknown>).workspace).data ?? null)
+      : null;
+
+  return { proposal: { ...read.data, readings, panel, priority, dueDate, workspace } };
 }
 
 /**

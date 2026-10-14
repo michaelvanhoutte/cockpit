@@ -260,19 +260,26 @@ export function dueDateIsOpen(item: Pick<Item, 'dueDate' | 'dueDateChosenAt'>): 
  * Whether any field a reading of the note can set is still open to it - what
  * decides a reading is worth asking for once the texts are settled. The due
  * date counts only where the day the note was captured on is known, since
- * without one no due date is asked for.
+ * without one no due date is asked for, and the Workspace only where the Item
+ * belongs to none yet and the account has a Workspace to name ("Settle an Any
+ * workspace capture in the workspace you name", issue 1078).
  */
 export function aStatedFieldIsOpen(
-  item: Pick<Item, 'priority' | 'prioritySetAt' | 'dueDate' | 'dueDateChosenAt'>,
+  item: Pick<Item, 'priority' | 'prioritySetAt' | 'dueDate' | 'dueDateChosenAt' | 'workspaceDecided'>,
   dayKnown: boolean,
+  workspacesOffered: boolean,
 ): boolean {
-  return priorityIsOpen(item) || (dayKnown && dueDateIsOpen(item));
+  return (
+    priorityIsOpen(item) || (dayKnown && dueDateIsOpen(item)) || (workspacesOffered && !item.workspaceDecided)
+  );
 }
 
 /** What a reading of the note set on an Item, field by field; a field it left alone is absent. */
 export interface FieldsSet {
   priority?: Priority | undefined;
   dueDate?: string | undefined;
+  /** The Workspace the Item was settled in. */
+  workspaceId?: string | undefined;
 }
 
 /**
@@ -285,12 +292,19 @@ export interface FieldsSet {
  * protects every Item from before the marker existed without a backfill, and
  * makes a second delivery of the same reading change nothing.
  *
+ * **The Workspace is settled by filing's own rule** (`decideWorkspace`): only
+ * an Item that belongs to none yet, so a capture made inside a Workspace stays
+ * there and an Item the person filed first is not moved. `workspaceIsLive` is
+ * the store's answer, at write time, to whether the Workspace named is still
+ * there.
+ *
  * **`updatedAt` is left where it is**, for the reason `applyProposedTexts`
  * gives: a person's offline edit with an earlier clock must still apply.
  */
 export function applyProposedFields(
   item: Item,
   cmd: ProposeItemFieldsCommand,
+  workspaceIsLive: boolean,
 ): { item: Item; set: FieldsSet } | null {
   const set: FieldsSet = {};
   if (cmd.priority !== undefined && priorityIsOpen(item)) {
@@ -299,10 +313,16 @@ export function applyProposedFields(
   if (cmd.dueDate !== undefined && dueDateIsOpen(item)) {
     set.dueDate = cmd.dueDate;
   }
+  const settled =
+    cmd.settleInWorkspaceId !== undefined && workspaceIsLive
+      ? decideWorkspace(item, cmd.settleInWorkspaceId, cmd.issuedAt)
+      : null;
+  if (settled !== null) set.workspaceId = settled.workspaceId;
   if (Object.keys(set).length === 0) return null;
   return {
     item: {
       ...item,
+      ...(settled === null ? {} : { workspaceId: settled.workspaceId, workspaceDecided: true }),
       priority: set.priority ?? item.priority,
       // The ramp a due date colours along starts when it is given, as
       // `applySetDueDate` says - here, the moment the reading landed. The

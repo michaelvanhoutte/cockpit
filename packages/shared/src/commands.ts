@@ -740,14 +740,22 @@ export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
  * you capture", issue 1076). Each field is absent where the note stated none,
  * and each is applied or refused on its own: one the person set, or one that
  * already holds a value, is left as it is. Priority and the due date ("Read a
- * due date you say when you capture, on your own calendar", issue 1077); the
- * Workspace a note names joins them as a field of its own.
+ * due date you say when you capture, on your own calendar", issue 1077); and
+ * the Workspace a note names, for an Item captured to Any workspace ("Settle
+ * an Any workspace capture in the workspace you name", issue 1078).
  */
 export const proposeItemFieldsSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   priority: prioritySchema.optional(),
   /** A calendar day, never a time ("Read a due date you say when you capture, on your own calendar", issue 1077). */
   dueDate: z.iso.date().optional(),
+  /**
+   * The Workspace the note named, settled the way filing settles one: only for
+   * an Item that belongs to none yet, and refused where the Workspace is gone
+   * by the time this is written (issue 1078). The envelope's `workspaceId` is
+   * still the Workspace the Item is in, which is not a decision.
+   */
+  settleInWorkspaceId: z.uuid().optional(),
 });
 export type ProposeItemFieldsCommand = z.infer<typeof proposeItemFieldsSchema>;
 
@@ -987,6 +995,8 @@ export const commandResultSchema = z.object({
   applied: z.boolean(),
   settledRouting: z.boolean().optional(),
   recordedCorrection: z.boolean().optional(),
-  fieldsSet: z.object({ priority: prioritySchema.optional(), dueDate: z.iso.date().optional() }).optional(),
+  fieldsSet: z
+    .object({ priority: prioritySchema.optional(), dueDate: z.iso.date().optional(), workspaceId: z.uuid().optional() })
+    .optional(),
 });
 export type CommandResult = z.infer<typeof commandResultSchema>;

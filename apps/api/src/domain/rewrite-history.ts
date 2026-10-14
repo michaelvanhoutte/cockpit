@@ -39,6 +39,8 @@ export interface RewriteOutcome {
   prioritySet?: Priority | null;
   /** The due date this attempt set from what the note said, kept the same way. */
   dueDateSet?: string | null;
+  /** The name of the Workspace this attempt settled the item in from what the note said, kept the same way (issue 1078). */
+  workspaceSet?: string | null;
 }
 
 /** One row as a rewrite-history table reads it back, joined to the Panels it names, if any. */
@@ -58,4 +60,5 @@ export interface RewriteHistoryEntryRow {
   suggestedPanelAfter: SuggestedPanel | null;
   prioritySet: Priority | null;
   dueDateSet: string | null;
+  workspaceSet: string | null;
 }

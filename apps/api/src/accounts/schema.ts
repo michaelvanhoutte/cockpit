@@ -1603,6 +1603,13 @@ export const rewriteHistory = sqliteTable(
      * issue 1077) - only ever onto an item that had none, as `priority_set` is.
      */
     dueDateSet: text('due_date_set'),
+    /**
+     * The name of the Workspace the attempt settled the item in from what the
+     * note said, NULL where it settled none ("Settle an Any workspace capture
+     * in the workspace you name", issue 1078) - the name as it was then, not a
+     * reference, so a rename or a delete never rewrites what happened.
+     */
+    workspaceSet: text('workspace_set'),
   },
   (t) => [
     // Read per workspace, most recent first - the account-wide table opened

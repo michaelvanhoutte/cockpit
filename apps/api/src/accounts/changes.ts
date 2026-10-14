@@ -159,6 +159,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_CAPTURED_TIME_ZONE,
     ITEM_DUE_DATE_CHOSEN_AT,
     REWRITE_HISTORY_DUE_DATE_SET,
+    REWRITE_HISTORY_WORKSPACE_SET,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -493,6 +494,29 @@ const REWRITE_HISTORY_DUE_DATE_SET: Change = {
   name: '0074-rewrite-history-due-date-set',
   statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `due_date_set` text' }],
 };
+
+/**
+ * The name of the Workspace a refinement settled an Item in from what the note
+ * said ("Settle an Any workspace capture in the workspace you name", issue
+ * 1078) - one nullable column on the history row, beside `due_date_set`.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** the change is recorded only once applied, so the
+ *   next open applies it again from the start - there is one statement.
+ * - **The second time it runs:** it does not re-run once recorded, and SQLite
+ *   refuses a column that already exists rather than adding it twice.
+ * - **Rows that predate it:** every history row reads NULL, which is true:
+ *   nothing settled a Workspace before. Nothing is backfilled.
+ * - **Rolled back after it has run:** an older release never names the column.
+ */
+const REWRITE_HISTORY_WORKSPACE_SET: Change = {
+  name: '0075-rewrite-history-workspace-set',
+  statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `workspace_set` text' }],
+};
+
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
 export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect it to carry on.';
 

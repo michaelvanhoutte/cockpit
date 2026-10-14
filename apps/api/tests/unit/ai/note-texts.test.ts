@@ -66,6 +66,7 @@ describe('Capture', () => {
           panel: null,
           priority: null,
           dueDate: null,
+          workspace: null,
         },
       });
     });
@@ -125,6 +126,7 @@ describe('Capture', () => {
           panel: null,
           priority: null,
           dueDate: null,
+          workspace: null,
         },
       });
     });
@@ -188,6 +190,7 @@ describe('Capture', () => {
           panel: null,
           priority: null,
           dueDate: null,
+          workspace: null,
         },
       });
     });
@@ -272,6 +275,7 @@ describe('Capture', () => {
           panel: null,
           priority: null,
           dueDate: null,
+          workspace: null,
         },
       });
     });
@@ -310,6 +314,21 @@ describe('Capture', () => {
       const read = readProposal(JSON.stringify({ ...JSON.parse(usable), ...(dueDate === undefined ? {} : { dueDate }) }), []);
 
       expect('proposal' in read && read.proposal.dueDate).toBe(expected);
+      expect('proposal' in read && read.proposal.title).toBe('Ask Novy about the Part 11 audit trail');
+    });
+  });
+
+  /** "Settle an Any workspace capture in the workspace you name" (issue 1078): read on its own, as a name, whose being one of the account's is the job's to decide. */
+  describe('a workspace the note names is read as a name, and never costs the note its texts', () => {
+    it.each([
+      { situation: 'the answer named one', workspace: ' Home ', expected: 'Home' },
+      { situation: 'the answer named none', workspace: undefined, expected: null },
+      { situation: 'the answer named an empty one', workspace: '  ', expected: null },
+      { situation: 'the answer named something that is not a name', workspace: 7, expected: null },
+    ])('when $situation', ({ workspace, expected }) => {
+      const read = readProposal(JSON.stringify({ ...JSON.parse(usable), ...(workspace === undefined ? {} : { workspace }) }), []);
+
+      expect('proposal' in read && read.proposal.workspace).toBe(expected);
       expect('proposal' in read && read.proposal.title).toBe('Ask Novy about the Part 11 audit trail');
     });
   });
