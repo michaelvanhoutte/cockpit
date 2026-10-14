@@ -753,9 +753,10 @@ export const proposeItemFieldsSchema = commandEnvelopeSchema.extend({
    * The Workspace the note named, settled the way filing settles one: only for
    * an Item that belongs to none yet, and refused where the Workspace is gone
    * by the time this is written (issue 1078). The envelope's `workspaceId` is
-   * still the Workspace the Item is in, which is not a decision.
+   * still the Workspace the Item is in, which is not a decision. Not a uuid:
+   * every account's first Workspace is `ws-1`.
    */
-  settleInWorkspaceId: z.uuid().optional(),
+  settleInWorkspaceId: z.string().min(1).optional(),
 });
 export type ProposeItemFieldsCommand = z.infer<typeof proposeItemFieldsSchema>;
 
@@ -996,7 +997,7 @@ export const commandResultSchema = z.object({
   settledRouting: z.boolean().optional(),
   recordedCorrection: z.boolean().optional(),
   fieldsSet: z
-    .object({ priority: prioritySchema.optional(), dueDate: z.iso.date().optional(), workspaceId: z.uuid().optional() })
+    .object({ priority: prioritySchema.optional(), dueDate: z.iso.date().optional(), workspaceId: z.string().min(1).optional() })
     .optional(),
 });
 export type CommandResult = z.infer<typeof commandResultSchema>;

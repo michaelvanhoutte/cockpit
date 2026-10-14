@@ -39,7 +39,7 @@ export interface RewriteOutcome {
   prioritySet?: Priority | null;
   /** The due date this attempt set from what the note said, kept the same way. */
   dueDateSet?: string | null;
-  /** The name of the Workspace this attempt settled the item in from what the note said, kept the same way (issue 1078). */
+  /** The name of the Workspace this attempt settled the item in from what the note said, kept the same way ("Settle an Any workspace capture in the workspace you name", issue 1078). */
   workspaceSet?: string | null;
 }
 

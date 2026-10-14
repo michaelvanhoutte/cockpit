@@ -693,11 +693,15 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // Workspace's Panels**, so it is not used, and a proposal the Item already
   // carries is withdrawn with it: the Panel is asked for again among the new
   // Workspace's own, which is a second call, made only on a capture that named
-  // a Workspace ("Settle an Any workspace capture in the workspace you name",
-  // issue 1078).
+  // a Workspace other than the one the Item sat in ("Settle an Any workspace
+  // capture in the workspace you name", issue 1078).
+  //
+  // **A second call that fails proposes no Panel rather than failing the
+  // attempt**: the Item has already moved, and a retry would find it decided
+  // and never record the move, so the row keeps what the texts and fields did.
   let proposedPanel = read.proposal.panel;
   const itemNow = { id: item.id, workspaceId: fieldsSet.workspaceId ?? item.workspaceId };
-  if (fieldsSet.workspaceId !== undefined) {
+  if (itemNow.workspaceId !== item.workspaceId) {
     try {
       proposedPanel = await panelInTheNewWorkspace(
         account,
@@ -712,13 +716,8 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
         { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
       );
     } catch (error) {
-      await recordHistory(() =>
-        account.recordRewriteOutcome(attemptId, {
-          status: 'failed',
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      throw error;
+      say(job.itemId, `no panel was asked for in the new workspace: ${error instanceof Error ? error.message : String(error)}`);
+      proposedPanel = null;
     }
   }
   const routed = await applyProposedPanelIfAny(account, itemNow, proposedPanel, item.proposedPanelId);
@@ -797,7 +796,8 @@ async function applyStatedFields(
   // A date is taken only where the call was told the day it counts from.
   const dueDate = day === null ? null : proposal.dueDate;
   // A Workspace only from the names this call offered, matched ignoring case;
-  // any other name is ignored and nothing is created (issue 1078).
+  // any other name is ignored and nothing is created ("Settle an Any workspace
+  // capture in the workspace you name", issue 1078).
   const workspace =
     offered === null || proposal.workspace === null ? undefined : workspaceNamed(offered, proposal.workspace);
   if (proposal.priority === null && dueDate === null && workspace === undefined) return {};

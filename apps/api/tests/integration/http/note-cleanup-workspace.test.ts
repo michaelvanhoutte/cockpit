@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations } from 'cloudflare:test';
-import { ACCOUNT_WIDE, type CommandName, type CommandPayload } from '@cockpit/shared';
+import { ACCOUNT_WIDE, FIRST_WORKSPACE_NAME, type CommandName, type CommandPayload } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   DASHBOARD_ID,
@@ -277,6 +277,36 @@ describe('Capture', () => {
       });
 
       expect(asked).toHaveLength(1);
+    });
+
+    it('makes one call only, and keeps the panel it proposed, where the note names the workspace the item already sits in', async () => {
+      theModelNames(FIRST_WORKSPACE_NAME, { panelId: PERSONAL_PANEL, reason: 'never asked' });
+
+      const itemId = await captureANote({ workspaceDecided: false });
+      await untilTheChangeIsRecorded(itemId);
+      await vi.waitFor(async () => expect((await routingOf(itemId))?.proposed_panel_id).toBe(workPanel), {
+        timeout: 15_000,
+        interval: 50,
+      });
+
+      expect(await workspaceOf(itemId)).toMatchObject({ workspaceId: WORKSPACE_ID, decided: true });
+      expect(asked).toHaveLength(1);
+    });
+
+    it('proposes no panel, and still records the move, where the second call fails', async () => {
+      theModelIs({
+        by: ({ system }) => {
+          if (!isACleanUp({ system })) throw new Error('the model could not be reached');
+          return { ...A_READING, workspace: 'Personal', panel: { panelId: workPanel, reason: 'a compliance question' } };
+        },
+      });
+
+      const itemId = await captureANote({ workspaceDecided: false });
+      await untilTheChangeIsRecorded(itemId);
+
+      expect(await workspaceOf(itemId)).toMatchObject({ workspaceId: 'ws-personal', decided: true });
+      expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
+      expect((await historyOf(itemId))[0]).toMatchObject({ status: 'rewritten', workspaceSet: 'Personal' });
     });
   });
 

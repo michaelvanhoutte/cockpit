@@ -1152,7 +1152,8 @@ export function recordRewriteOutcome(
       // Kept the same way, for the same reason ("Read a due date you say when
       // you capture, on your own calendar", issue 1077).
       dueDateSet: sql`coalesce(${outcome.dueDateSet ?? null}, ${rewriteHistory.dueDateSet})`,
-      // And the Workspace it settled the item in (issue 1078).
+      // And the Workspace it settled the item in ("Settle an Any workspace
+      // capture in the workspace you name", issue 1078).
       workspaceSet: sql`coalesce(${outcome.workspaceSet ?? null}, ${rewriteHistory.workspaceSet})`,
     })
     .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.id, attemptId)))
