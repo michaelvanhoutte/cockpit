@@ -1545,7 +1545,7 @@ export function runCommand<N extends CommandName>(
     case 'create_agent': {
       const cmd = payload as CommandPayload<'create_agent'>;
       const already = listAgents(db, tenantId);
-      // A name another agent has is refused, the dock is the one place an
+      // A name another agent has is refused: the dock is the one place an
       // agent's name is typed, so a collision here is the only one there is.
       const alreadyCalledThat = agentNamed(already, cmd.name);
       if (alreadyCalledThat) throw new AgentNameTakenError(alreadyCalledThat.name);
