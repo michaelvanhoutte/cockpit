@@ -1134,7 +1134,7 @@ export function recordRewriteOutcome(
       // vanish from what Cockpit changed.
       status:
         outcome.status === 'left-as-is'
-          ? sql`CASE WHEN ${rewriteHistory.prioritySet} IS NOT NULL OR ${rewriteHistory.dueDateSet} IS NOT NULL OR ${rewriteHistory.workspaceSet} IS NOT NULL THEN 'rewritten' ELSE 'left-as-is' END`
+          ? sql`CASE WHEN ${rewriteHistory.prioritySet} IS NOT NULL OR ${rewriteHistory.dueDateSet} IS NOT NULL OR ${rewriteHistory.workspaceSet} IS NOT NULL OR ${rewriteHistory.panelsFiledOn} IS NOT NULL THEN 'rewritten' ELSE 'left-as-is' END`
           : outcome.status,
       message: outcome.message,
       titleAfter: outcome.titleAfter ?? null,
@@ -1153,6 +1153,9 @@ export function recordRewriteOutcome(
       // And the Workspace it settled the item in ("Settle an Any workspace
       // capture in the workspace you name", issue 1078).
       workspaceSet: sql`coalesce(${outcome.workspaceSet ?? null}, ${rewriteHistory.workspaceSet})`,
+      // And the Panels it filed the note on, by name ("List the panels a
+      // capture was filed on in What Cockpit changed", issue 1117).
+      panelsFiledOn: sql`coalesce(${outcome.panelsFiledOn?.length ? JSON.stringify(outcome.panelsFiledOn) : null}, ${rewriteHistory.panelsFiledOn})`,
     })
     .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.id, attemptId)))
     .run();
@@ -1184,6 +1187,7 @@ const rewriteHistoryColumns = {
   prioritySet: rewriteHistory.prioritySet,
   dueDateSet: rewriteHistory.dueDateSet,
   workspaceSet: rewriteHistory.workspaceSet,
+  panelsFiledOn: rewriteHistory.panelsFiledOn,
   beforeId: panelBefore.id,
   beforeName: panelBefore.name,
   beforeDeletedAt: panelBefore.deletedAt,
@@ -1209,6 +1213,16 @@ function suggestedPanel(
   return { id, name: live ? name : null, dashboardName: live ? dashboardName : null };
 }
 
+/** The names a `panels_filed_on` column holds; none where it is empty or is not a JSON list of names. */
+function namesIn(held: string | null): string[] {
+  if (held === null) return [];
+  try {
+    return z.string().array().safeParse(JSON.parse(held)).data ?? [];
+  } catch {
+    return [];
+  }
+}
+
 function asRewriteHistoryEntry(row: {
   id: string;
   itemId: string;
@@ -1223,6 +1237,7 @@ function asRewriteHistoryEntry(row: {
   prioritySet: string | null;
   dueDateSet: string | null;
   workspaceSet: string | null;
+  panelsFiledOn: string | null;
   beforeId: string | null;
   beforeName: string | null;
   beforeDeletedAt: string | null;
@@ -1266,6 +1281,8 @@ function asRewriteHistoryEntry(row: {
     prioritySet: prioritySchema.safeParse(row.prioritySet).data ?? null,
     dueDateSet: z.iso.date().safeParse(row.dueDateSet).data ?? null,
     workspaceSet: row.workspaceSet,
+    // Anything that is not a list of names reads as none, as `looksAt` above does.
+    panelsFiledOn: namesIn(row.panelsFiledOn),
   };
 }
 

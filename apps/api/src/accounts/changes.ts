@@ -161,6 +161,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     REWRITE_HISTORY_DUE_DATE_SET,
     REWRITE_HISTORY_WORKSPACE_SET,
     PROPOSED_PANEL_FIT,
+    REWRITE_HISTORY_PANELS_FILED_ON,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -542,6 +543,30 @@ const PROPOSED_PANEL_FIT: Change = {
     { sql: 'ALTER TABLE `items` ADD COLUMN `proposed_panel_fit` text' },
     { sql: 'ALTER TABLE `decision_history` ADD COLUMN `proposed_panel_fit` text' },
   ],
+};
+
+/**
+ * The names of the Panels a refinement filed a note on from what it said ("List
+ * the panels a capture was filed on in What Cockpit changed", issue 1117) - one
+ * nullable column on the history row, beside `workspace_set`, holding a JSON
+ * array of the names as they were then.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** the change is recorded only once applied, so the
+ *   next open applies it again from the start - there is one statement.
+ * - **The second time it runs:** it does not re-run once recorded, and SQLite
+ *   refuses a column that already exists rather than adding it twice.
+ * - **Rows that predate it:** every history row reads NULL, which reads as filed
+ *   on nothing, which is true: no refinement filed a note before. Nothing is
+ *   backfilled.
+ * - **Rolled back after it has run:** an older release never names the column.
+ */
+const REWRITE_HISTORY_PANELS_FILED_ON: Change = {
+  name: '0077-rewrite-history-panels-filed-on',
+  statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `panels_filed_on` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

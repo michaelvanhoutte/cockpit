@@ -13,7 +13,7 @@ import { REWRITE_HISTORY_LIMIT, type RefinementScope, type RewriteHistoryEntry }
  * throws.
  */
 
-export type ChangedField = 'title' | 'description' | 'suggestedPanel' | 'priority' | 'dueDate' | 'workspace';
+export type ChangedField = 'title' | 'description' | 'suggestedPanel' | 'priority' | 'dueDate' | 'workspace' | 'panels';
 
 /** Which fields a refinement looks at; a row from before that was recorded is read as having looked at all three. */
 export const LOOKS_AT: Record<RefinementScope, ChangedField[]> = {
@@ -28,7 +28,8 @@ export const LOOKS_AT: Record<RefinementScope, ChangedField[]> = {
  * capture", issue 1076) - shown only then, since every other attempt, and
  * every one recorded before it could, left the priority alone. The due date
  * likewise ("Read a due date you say when you capture, on your own calendar",
- * issue 1077).
+ * issue 1077). The workspace and the panels it filed the note on likewise
+ * (issues 1078 and 1117).
  */
 export function fieldsLookedAt(entry: RewriteHistoryEntry): ChangedField[] {
   return [
@@ -36,6 +37,7 @@ export function fieldsLookedAt(entry: RewriteHistoryEntry): ChangedField[] {
     ...(entry.prioritySet === null ? [] : (['priority'] as const)),
     ...(entry.dueDateSet === null ? [] : (['dueDate'] as const)),
     ...(entry.workspaceSet === null ? [] : (['workspace'] as const)),
+    ...(entry.panelsFiledOn.length === 0 ? [] : (['panels'] as const)),
   ];
 }
 
@@ -45,6 +47,7 @@ export function fieldChanged(entry: RewriteHistoryEntry, field: ChangedField): b
   if (field === 'priority') return entry.prioritySet !== null;
   if (field === 'dueDate') return entry.dueDateSet !== null;
   if (field === 'workspace') return entry.workspaceSet !== null;
+  if (field === 'panels') return entry.panelsFiledOn.length > 0;
   if (field === 'suggestedPanel') {
     // A row from before this was recorded never recorded the panel.
     if (entry.looksAt === null) return false;

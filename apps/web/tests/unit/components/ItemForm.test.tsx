@@ -2798,6 +2798,7 @@ describe('What Cockpit changed', () => {
       prioritySet: null,
       dueDateSet: null,
       workspaceSet: null,
+      panelsFiledOn: [],
       ...over,
     };
   }

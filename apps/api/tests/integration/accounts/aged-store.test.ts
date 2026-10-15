@@ -1843,6 +1843,46 @@ describe('What Cockpit changed', () => {
       expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ looksAt: null })]);
     });
   });
+
+  /**
+   * `0077-rewrite-history-panels-filed-on` ("List the panels a capture was
+   * filed on in What Cockpit changed", issue 1117) meets a row from before the
+   * column: it adds the column, rewrites no row, and the row reads as filed on
+   * nothing.
+   */
+  describe('a refinement recorded before it could file a note reads as filed on nothing', () => {
+    const PANELS_FILED_ON = '0077-rewrite-history-panels-filed-on';
+
+    it('adds the column, leaves the row as it was, and reads it with no panels', async () => {
+      const name = 'aged-store-before-panels-filed-on';
+      await agedTo(name, justBefore(PANELS_FILED_ON));
+      await fillWithWhatIsAlreadyThere(name);
+      const rowsIn = () => inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM rewrite_history ORDER BY id').toArray());
+      const before = await rowsIn();
+
+      const read = await storeNamed(name).rewriteHistoryForItem(name, 'it-before');
+
+      expect(read).toMatchObject({ status: 'ok' });
+      expect(read.status === 'ok' ? read.value : []).toEqual([
+        expect.objectContaining({ id: 'rh-before', titleAfter: 'Captured before the update', panelsFiledOn: [] }),
+      ]);
+      expect(await rowsIn()).toEqual(before.map((row) => ({ ...row, panels_filed_on: null })));
+    });
+
+    it('reads a value that is not a list of names as none', async () => {
+      const name = 'aged-store-unreadable-panels-filed-on';
+      await agedTo(name, justBefore(PANELS_FILED_ON));
+      await fillWithWhatIsAlreadyThere(name);
+      await storeNamed(name).rewriteHistoryForItem(name, 'it-before');
+      await inStoreAsItIs(name, (sql) => {
+        sql.exec("UPDATE rewrite_history SET panels_filed_on = 'Admin & money'");
+      });
+
+      const read = await storeNamed(name).rewriteHistoryForItem(name, 'it-before');
+
+      expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ panelsFiledOn: [] })]);
+    });
+  });
 });
 
 describe('Connector management', () => {

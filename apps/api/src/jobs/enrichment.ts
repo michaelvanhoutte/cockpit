@@ -658,6 +658,12 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     prioritySet: fieldsSet.priority ?? null,
     dueDateSet: fieldsSet.dueDate ?? null,
     workspaceSet: settledIn?.name ?? null,
+    // The Panels it filed on, by the names they had when filed (issue 1117).
+    panelsFiledOn: (fieldsSet.filedOnPanelIds ?? []).flatMap((id) => {
+      const panels = whereSaid?.tree.flatMap((w) => w.dashboards.flatMap((d) => d.panels)) ?? [];
+      const panel = panels.find((p) => p.id === id);
+      return panel ? [panel.name] : [];
+    }),
   };
   const fieldChanged = Object.keys(fieldsSet).length > 0;
   // Recorded the moment the texts settle, with the Panel as the item had it,
