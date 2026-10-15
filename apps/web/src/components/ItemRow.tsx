@@ -1278,10 +1278,13 @@ export function ItemRow({
             {routingProposal && onAcceptRouting && (
               <button
                 type="button"
-                className={`flex min-w-0 max-w-full items-baseline overflow-hidden rounded-full px-1.5 hover:bg-accent hover:text-on-accent ${
+                className={`flex min-w-0 max-w-full items-baseline overflow-hidden rounded-full px-1.5 text-accent-deep hover:bg-accent hover:text-on-accent ${
+                  // Fainter by losing the fill rather than the text's contrast,
+                  // and its dash gives way to a solid ring on keyboard focus,
+                  // which an author outline would otherwise hide.
                   closestMatch
-                    ? 'text-accent-deep/70 outline-1 -outline-offset-1 outline-dashed outline-accent/60'
-                    : 'bg-accent-tint text-accent-deep'
+                    ? 'outline-1 -outline-offset-1 outline-dashed outline-accent/60 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-solid focus-visible:outline-accent'
+                    : 'bg-accent-tint'
                 }`}
                 title={routingLabel}
                 aria-label={routingLabel}

@@ -927,7 +927,7 @@ describe('Item editing', () => {
       expect(chip).toHaveAttribute('title', hover);
       expect(chip).toHaveTextContent('→ Day to day ▸ Compliance questions');
       expect(chip.className.includes('outline-dashed')).toBe(dashed);
-      expect(chip.className.includes('text-accent-deep/70')).toBe(dashed);
+      expect(chip.className.includes('bg-accent-tint')).toBe(!dashed);
 
       await user.click(chip);
       expect(onAcceptRouting).toHaveBeenCalledOnce();

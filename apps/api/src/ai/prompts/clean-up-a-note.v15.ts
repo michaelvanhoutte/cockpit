@@ -209,12 +209,12 @@ Note: part 11 audit trail q for validation protocol, who signs off eod
 (the first example above, once more, now that one of the panels offered is called "Compliance questions")
 panel: Compliance questions, clear, because it's a compliance question - Part 11 and the validation protocol
 
-Note: check if the new starter's laptop is ordered
-(the panels offered are "Hiring", "Customer escalations" and "Team offsite", none of them made for equipment)
-panel: Hiring, closest, because it is about a new starter, though not about recruiting them`;
+Note: book a table for the board dinner after the agm
+(the panels offered are "Board meetings", "Marketing" and "Travel", none of them made for dinners)
+panel: Board meetings, closest, because the dinner is for the board, though it is not a meeting`;
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 13.
+ * What Cockpit asks Claude for when a note has been captured, version 15.
  * `v7` ("Learn how you write from the titles you correct", issue 394; "Show
  * what Cockpit is told, and say how you want it changed", issue 398; "Pin an
  * example of how you want a note written", issue 397) added `corrections`,

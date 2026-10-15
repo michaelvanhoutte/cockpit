@@ -42,8 +42,9 @@ export interface CallFor {
  * ("Clean up a captured note into a clear title and a fuller message", issue
  * 296), which also answers with the other ways the note could genuinely be
  * read ("Offer the other readings when a captured note says two things",
- * issue 297) and which Panel it belongs on, where one clearly fits ("Propose
- * where a captured note belongs, without filing it there", issue 298) - one
+ * issue 297) and the Panel it fits best, where one plausibly fits ("Propose
+ * the closest Panel at capture, and draw a less certain one dashed", issue
+ * 1107) - one
  * call on capture, since both halves are wanted then. The re-read of the rest
  * of an inbox after a filing wants only the Panel, so it asks for only that
  * (`choosePanel`; issue 583) rather than paying for both and throwing one

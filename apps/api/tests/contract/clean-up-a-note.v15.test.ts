@@ -618,18 +618,6 @@ describe('Capture', () => {
       expect(proposal.panel?.reason.toLowerCase()).not.toContain('model');
     });
 
-    /**
-     * Proposing nothing is the common, right answer for most notes ("Propose
-     * where a captured note belongs, without filing it there", issue 298) -
-     * checked here rather than assumed, because a schema field that exists
-     * invites filling it in, the exact failure "a note that is merely terse
-     * is not read as ambiguous" above already guards for `readings`.
-     */
-    it('proposes nothing for a note that fits none of the panels offered', async () => {
-      const proposal = await read('milk, eggs, bread - stop on the way home', panels);
-      expect(proposal.panel).toBeNull();
-    });
-
     it('never names a panel it was not offered', async () => {
       const proposal = await read(COMPLIANCE_NOTE, panels);
       if (proposal.panel) {
@@ -674,6 +662,8 @@ describe('Capture', () => {
       expect(proposal.panel).toMatchObject({ panelId: release!.id, fit: 'clear' });
     });
 
+    // Checked rather than assumed: a prompt that asks for the closest Panel
+    // invites naming one for everything.
     it('names none for a note that fits none of them', async () => {
       const proposal = await read('milk, eggs, bread - stop on the way home', panels);
 

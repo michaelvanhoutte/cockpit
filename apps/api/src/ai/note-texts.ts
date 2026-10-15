@@ -154,9 +154,9 @@ export type ProposalRead = { proposal: NoteTexts } | { discarded: string };
  * own `enum` should already have made impossible is checked again here rather
  * than assumed, exactly as `command-service.ts` checks a third time, freshly,
  * at the moment it would write. Anything that does not survive all of it - an
- * empty id, an id not offered, a reason left empty - reads as no proposal,
- * which is a real answer this call gives out loud on every note that does not
- * clearly belong anywhere.
+ * empty id, an id not offered, a reason or a fit left empty - reads as no
+ * proposal, which is a real answer this call gives out loud on every note that
+ * fits no Panel at all.
  */
 export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): ProposalRead {
   if (typeof raw !== 'string') return { discarded: 'the answer carried no text' };

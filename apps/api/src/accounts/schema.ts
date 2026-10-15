@@ -947,7 +947,7 @@ export const items = sqliteTable(
      * The Panel Cockpit proposes this Item belongs on, and why - offered
      * rather than filed ("Propose where a captured note belongs, without
      * filing it there", issue 298). Null where nothing was proposed, which is
-     * the common case and a real answer.
+     * a real answer.
      *
      * **No settled flag beside it, unlike `texts_settled_at` above.** A
      * routing settles by being filed, which is a row in `panel_items` and not
