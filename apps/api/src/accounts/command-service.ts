@@ -83,6 +83,7 @@ import {
 import {
   FILING_VALUES_PER_ROW,
   decideAddToPanel,
+  decideCaptureFiling,
   decideMoveToPanel,
   whyNothingIsFiledOn,
   type FilingDecided,
@@ -1472,7 +1473,17 @@ export function runCommand<N extends CommandName>(
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
-      const item = captureItem(cmd, tenantId);
+      // Panels the capture names, read before it is decided and not one of them
+      // a reason to refuse it (issue 1101): gone, of another Workspace or an
+      // Item already made by an earlier send of this capture all read as
+      // nothing to file on. A Panel is the Workspace's only where its dashboard is.
+      const named = getItem(db, tenantId, cmd.itemId) ? [] : [...new Set(cmd.panelIds ?? [])];
+      const targets = named.flatMap((id) => {
+        const panel = getPanel(db, tenantId, id);
+        if (!panel || !getDashboard(db, tenantId, cmd.workspaceId, panel.dashboardId)) return [];
+        return [{ id: panel.id, name: panel.name, kind: panel.kind, held: listFilingsOnPanel(db, tenantId, panel.id) }];
+      });
+      const { item, filings } = decideCaptureFiling(captureItem(cmd, tenantId), cmd, targets);
       // An item belonging to no workspace shows in every workspace's Inbox, so
       // every workspace's snapshot is now stale - not only the one it was
       // captured from ("Capture something before you know which workspace it
@@ -1484,6 +1495,7 @@ export function runCommand<N extends CommandName>(
         // `status` is the dead column being satisfied rather than used: it is
         // NOT NULL with a CHECK and nothing reads it (schema.ts).
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided);
         tx.insert(commands).values(commandRow).run();
       });
       break;

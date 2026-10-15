@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { plainWords, prioritySchema, uuidv7, type Priority, type Workspace } from '@cockpit/shared';
+import { plainWords, prioritySchema, uuidv7, type Priority, type Workspace, type WorkspaceSnapshot } from '@cockpit/shared';
+import { FileOnLine, type FiledOn } from './FileOnLine';
 import { CommandRefused, uploadAttachment } from '../api/client';
 import { workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
@@ -190,6 +191,13 @@ export function CaptureNote({
   const [priority, setPriority] = useState<Priority | null>(null);
   const [due, setDue] = useState<string | null>(null);
   /**
+   * The Panels *File on* has chosen ("File a note on Panels from Capture,
+   * skipping the Inbox", issue 1101). Empty is the Inbox. All of one Workspace,
+   * which the first one picked settles. Like the strip, empty again once a
+   * capture is kept, and put back with a refused one.
+   */
+  const [filed, setFiled] = useState<FiledOn[]>([]);
+  /**
    * What landed while this form was open. The outbox forgets a capture once it
    * has landed, so this is what keeps its row - with its time - until the form
    * closes; after a reload only what is still waiting or refused is listed.
@@ -328,6 +336,15 @@ export function CaptureNote({
       // Back with the note they were set for, unless something has been chosen since.
       if (entry.priority) setPriority((was) => was ?? entry.priority ?? null);
       if (entry.dueDate) setDue((was) => was ?? entry.dueDate!);
+      if (entry.panelIds && entry.panelIds.length > 0) {
+        const held = queryClient.getQueryData<WorkspaceSnapshot>(['snapshot', entry.workspaceId]);
+        const back = entry.panelIds.map((panelId) => ({
+          panelId,
+          name: held?.panels?.find((panel) => panel.id === panelId)?.name ?? 'A Panel',
+          workspaceId: entry.workspaceId,
+        }));
+        setFiled((was) => (was.length > 0 ? was : back));
+      }
     }
     const files = back.files.map(fileOf);
     setQueued((was) => [...was, ...files.map(toQueued)]);
@@ -446,6 +463,10 @@ export function CaptureNote({
     const queuedAtSubmit = queued;
     const priorityAtSubmit = priority;
     const dueAtSubmit = due;
+    const filedAtSubmit = filed;
+    // Only Panels of the Workspace it is captured against: a deleted
+    // Workspace's would be skipped by the server anyway.
+    const panelIds = filedAtSubmit.filter((one) => one.workspaceId === targetWorkspace).map((one) => one.panelId);
     const what = {
       message: trimmed,
       // The workspace chosen, or the one this was captured from - and the
@@ -454,12 +475,14 @@ export function CaptureNote({
       decided: belongsTo !== null,
       ...(priorityAtSubmit ? { priority: priorityAtSubmit } : {}),
       ...(dueAtSubmit ? { dueDate: dueAtSubmit } : {}),
+      ...(panelIds.length > 0 ? { panelIds } : {}),
     };
     // Empties the box of what was captured and nothing typed or dropped since.
     const emptied = () => {
       setMessage((was) => (was.trim() === trimmed ? '' : was));
       setPriority((was) => (was === priorityAtSubmit ? null : was));
       setDue((was) => (was === dueAtSubmit ? null : was));
+      setFiled((was) => (was === filedAtSubmit ? [] : was));
       setRefused(null);
       setQueued((was) => was.filter((file) => !queuedAtSubmit.includes(file)));
       setQueueError(null);
@@ -507,6 +530,7 @@ export function CaptureNote({
           setMessage(trimmed);
           setPriority((was) => was ?? priorityAtSubmit);
           setDue((was) => was ?? dueAtSubmit);
+          setFiled((was) => (was.length > 0 ? was : filedAtSubmit));
           setQueued((was) => [...queuedAtSubmit, ...was]);
           setRefused(why);
         },
@@ -762,17 +786,47 @@ export function CaptureNote({
         </p>
       )}
 
+      <FileOnLine
+        where={belongsTo}
+        workspaces={workspaces}
+        filed={filed}
+        disabled={busy}
+        onAdd={(option) => {
+          // The first Panel picked under Any workspace settles the Workspace,
+          // and the search narrows to it (issue 1101).
+          setWhere(option.workspaceId);
+          setFiled((was) =>
+            was.some((one) => one.panelId === option.panelId)
+              ? was
+              : [...was.filter((one) => one.workspaceId === option.workspaceId), { panelId: option.panelId, name: option.name, workspaceId: option.workspaceId }],
+          );
+        }}
+        onRemove={(panelId) => setFiled((was) => was.filter((one) => one.panelId !== panelId))}
+      />
+
       <Choice label="Where" optional>
         {/* First and selected to start with: the whole point of capturing
             here is not having to answer this yet. */}
-        <Chip name="Any workspace" chosen={belongsTo === null} onChoose={() => setWhere(null)} />
+        <Chip
+          name="Any workspace"
+          chosen={belongsTo === null}
+          onChoose={() => {
+            // Panels settle a Workspace, so none can stay once it is left open.
+            setFiled([]);
+            setWhere(null);
+          }}
+        />
         {workspaces.map((workspace: Workspace) => (
           <Chip
             key={workspace.id}
             name={workspace.name}
             dot={workspace.color}
             chosen={belongsTo === workspace.id}
-            onChoose={() => setWhere(workspace.id)}
+            onChoose={() => {
+              // Panels are of one Workspace: another's do not follow the choice.
+              setFiled((was) => was.filter((one) => one.workspaceId === workspace.id));
+              setWhere(workspace.id);
+            }}
           />
         ))}
         <span className="hidden text-xs text-ink-faint sm:inline">

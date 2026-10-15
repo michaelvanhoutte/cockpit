@@ -267,6 +267,57 @@ function decideFiling(
   };
 }
 
+/** A Panel a capture names, as loaded: live, on a Dashboard of the capture's Workspace, with what it holds. */
+export interface CaptureTarget extends FilingTarget {
+  held: readonly Filing[];
+}
+
+/**
+ * Filing a capture on the Panels it names ("File a note on Panels from Capture,
+ * skipping the Inbox", issue 1101): the Item itself, settled in the capture's
+ * Workspace where it files at all, and one filing per Panel, each at the top.
+ *
+ * **Never refuses.** A Panel that takes no Items is skipped, and with none left
+ * the capture is the Inbox's, unchanged. The decision-history entry is the first
+ * filing's alone, as for any Item leaving the Inbox, and records no proposal
+ * because a new Item has none.
+ */
+export function decideCaptureFiling(
+  item: Item,
+  cmd: { commandId: string; issuedAt: string; workspaceId: string },
+  targets: readonly CaptureTarget[],
+): { item: Item; filings: FilingDecided[] } {
+  const usable = targets.filter((target) => whyNothingIsFiledOn(target) === null);
+  if (usable.length === 0) return { item, filings: [] };
+  const filed: Item = item.workspaceDecided ? item : { ...item, workspaceDecided: true };
+  const filings = usable.map((target, index) => {
+    const decided = decideAddToPanel(
+      {
+        commandId: cmd.commandId,
+        issuedAt: cmd.issuedAt,
+        workspaceId: cmd.workspaceId,
+        itemId: item.id,
+        panelId: target.id,
+        order: [item.id, ...target.held.map((filing) => filing.itemId)],
+      },
+      {
+        item: filed,
+        workspaceExists: true,
+        panel: target,
+        held: target.held,
+        alreadyFiled: index > 0,
+        proposedPanelNeverPropose: false,
+        sources: [],
+      },
+    );
+    // Every refusal was ruled out above: the Item is decided, the Workspace is
+    // the capture's own and the order is the Panel's held plus this Item.
+    if (decided.refusal) throw new Error(`a capture's own filing was refused: ${decided.refusal}`);
+    return decided;
+  });
+  return { item: filed, filings };
+}
+
 /** Moving an Item onto a Panel, or off every one to the Inbox: it is taken off the Panels it was on. */
 export function decideMoveToPanel(
   cmd: MoveItemToPanelCommand,

@@ -86,6 +86,8 @@ export interface OutboxEntry {
   /** What the Capture form's strip chose ("Set a priority and a due date while capturing", issue 611); absent on an entry written without one, which is every entry from before it. */
   priority?: Priority;
   dueDate?: string;
+  /** The Panels *File on* chose ("File a note on Panels from Capture, skipping the Inbox", issue 1101); absent on an entry written without any, which is every entry from before it and is sent to the Inbox as it was. */
+  panelIds?: string[];
   /** The device's time zone when Capture was pressed ("Read a due date you say when you capture, on your own calendar", issue 1077); absent on an entry kept before it, which is sent without one. */
   timeZone?: string;
   files: WaitingFile[];
@@ -265,6 +267,7 @@ export function capturePayload(entry: OutboxEntry): CommandPayload<'capture_item
     ...(entry.decided ? {} : { workspaceDecided: false }),
     ...(entry.priority ? { priority: entry.priority } : {}),
     ...(entry.dueDate ? { dueDate: entry.dueDate } : {}),
+    ...(entry.panelIds && entry.panelIds.length > 0 ? { panelIds: entry.panelIds } : {}),
     // Kept from when Capture was pressed, not read now (issue 1077).
     ...(entry.timeZone ? { timeZone: entry.timeZone } : {}),
   } as unknown as CommandPayload<'capture_item'>;

@@ -231,6 +231,14 @@ describe('Offline', () => {
       expect(capturePayload(anEntry())).not.toHaveProperty('dueDate');
     });
 
+    it('carries the Panels it is filed on, and none for an entry kept before captures could name any', () => {
+      expect(capturePayload(anEntry({ panelIds: ['panel-1', 'panel-2'] }))).toMatchObject({
+        panelIds: ['panel-1', 'panel-2'],
+      });
+      expect(capturePayload(anEntry())).not.toHaveProperty('panelIds');
+      expect(capturePayload(anEntry({ panelIds: [] }))).not.toHaveProperty('panelIds');
+    });
+
     it('carries the time zone it was captured in, and none for an entry kept before captures carried one', () => {
       expect(capturePayload(anEntry({ timeZone: 'Europe/Brussels' }))).toMatchObject({ timeZone: 'Europe/Brussels' });
       expect(capturePayload(anEntry())).not.toHaveProperty('timeZone');

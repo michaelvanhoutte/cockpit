@@ -119,6 +119,8 @@ export interface NewCapture {
   decided: boolean;
   priority?: Priority;
   dueDate?: string;
+  /** The Panels *File on* chose; the capture is filed on them as it lands. */
+  panelIds?: readonly string[];
   files: { id: string; file: File }[];
 }
 
@@ -305,6 +307,7 @@ export class CaptureOutbox {
       message: capture.message,
       ...(capture.priority ? { priority: capture.priority } : {}),
       ...(capture.dueDate ? { dueDate: capture.dueDate } : {}),
+      ...(capture.panelIds && capture.panelIds.length > 0 ? { panelIds: [...capture.panelIds] } : {}),
       ...zoneNow(),
       files,
       landed: false,
