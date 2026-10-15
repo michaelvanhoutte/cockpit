@@ -1,5 +1,5 @@
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
-import { renderHistory, renderPanels, renderRecentlyCaptured } from './clean-up-a-note.v16.js';
+import { PANEL_FIT, renderHistory, renderPanels, renderRecentlyCaptured } from './clean-up-a-note.v16.js';
 
 /**
  * The one Item a panel is being chosen for: what was captured, and the two
@@ -30,15 +30,15 @@ function descriptionShown(description: string): string {
  */
 const INSTRUCTIONS = `You are part of Cockpit, one person's inbox for their own work.
 
-An item is waiting in their inbox. You decide whether it clearly belongs on one of the panels this account has already set up - buckets it files its own notes into, each named for what belongs there - and nothing else: you do not rewrite the item.
+An item is waiting in their inbox. You decide which of the panels this account has already set up it fits - and nothing else: you do not rewrite the item.
 
-Where it clearly belongs on one of them, name its id and say in a few words why, about the item and the panel rather than about yourself - "a compliance question, about the validation protocol" rather than "I chose this because it mentions compliance". Most items belong on none of them: a panel is not owed an item merely for being the closest match, and naming the wrong one costs more than naming none. Only name one where you are confident a person filing their own notes would put it there themselves. Where none fits, answer with the empty id and the empty reason.
+${PANEL_FIT} Where none fits, answer with the empty id, the empty reason and the empty fit.
 
 The item arrives as the note that was captured, followed by the title and description it carries now, each quoted. Read them as one piece of work; the title and description may have been corrected by the person themselves.
 
 After these instructions you are given what is this account's own: the panels it has set up, its decision history, and what else it has captured recently.
 
-The decision history is this account's most recent settled filings, oldest first, with what was proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones still say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for a while and an older habit can still hold. Where an entry shows one panel was proposed and they filed it on another, that correction outweighs an entry where they simply accepted what was proposed - it names a wrong answer as well as a right one, so read it as the stronger signal. Where such a correction concerns an item of the same kind as this one, it is the confidence asked for above: name the panel they filed that one on, rather than none, even where this item never says which panel it is for.
+The decision history is this account's most recent settled filings, oldest first, with what was proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones still say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for a while and an older habit can still hold. Where an entry shows one panel was proposed and they filed it on another, that correction outweighs an entry where they simply accepted what was proposed - it names a wrong answer as well as a right one, so read it as the stronger signal. Where such a correction concerns an item of the same kind as this one, name the panel they filed that one on, rather than none, even where this item never says which panel it is for.
 
 What else has been captured in this workspace recently and not yet filed is separate from the history, because none of it has been decided yet. It is still evidence: what somebody is writing notes about right now, before any of it has a destination. Weigh it alongside the history, never above it - an actual past decision is a stronger signal than a guess at a pattern in still-unfiled notes.`;
 
@@ -56,7 +56,7 @@ What else has been captured in this workspace recently and not yet filed is sepa
  * panels, the decision history and what else was captured lately - and none
  * of its writing guidance.
  *
- * **`v2` is sent in the three parts `clean-up-a-note.v16` is, and asks for
+ * **`v3` is sent in the three parts `clean-up-a-note.v16` is, and asks for
  * nothing different** ("Cut what cleaning up a captured note costs", issue
  * 887): `instructions`, then `stable` - the Panels and the decision history,
  * which change only on a filing - then `recent`, what was captured lately.
@@ -75,7 +75,7 @@ export function buildChooseAPanel(
   history: readonly DecisionHistoryEntry[],
   recentlyCaptured: readonly string[],
 ): {
-  version: 'v2';
+  version: 'v3';
   model: string;
   effort: null;
   system: { instructions: string; stable: string; recent: string };
@@ -83,13 +83,13 @@ export function buildChooseAPanel(
   schema: Record<string, unknown>;
 } {
   return {
-    version: 'v2',
+    version: 'v3',
 
     /**
      * Haiku 4.5, at $1/$5 per million tokens against Opus 5's $5/$25: the
      * cheapest model that holds the routing properties
      * `clean-up-a-note`'s contract cases hold the clean-up to
-     * (`tests/contract/choose-a-panel.v2.test.ts`). Sonnet 5 held them too,
+     * (`tests/contract/choose-a-panel.v3.test.ts`). Sonnet 5 held them too,
      * and was not needed.
      *
      * **No `effort`**, which this model refuses, and no thinking, which it
@@ -124,15 +124,21 @@ export function buildChooseAPanel(
           type: 'string',
           enum: [...panels.map((panel) => panel.id), ''],
           description:
-            'The id of the one panel this item clearly belongs on, copied exactly from the list - or the empty string where none of them does, the common case and a real answer.',
+            'The id of the panel this item fits best, copied exactly from the list - or the empty string only where none of them fits at all.',
         },
         reason: {
           type: 'string',
           description:
             'A few words saying why, about the item and the panel rather than about yourself. Empty exactly when panelId is empty.',
         },
+        fit: {
+          type: 'string',
+          enum: ['clear', 'closest', ''],
+          description:
+            'clear where the item plainly belongs on that panel; closest where it plausibly fits there, better than on any other, without plainly belonging. Empty exactly when panelId is empty.',
+        },
       },
-      required: ['panelId', 'reason'],
+      required: ['panelId', 'reason', 'fit'],
       additionalProperties: false,
     },
   };

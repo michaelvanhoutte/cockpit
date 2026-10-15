@@ -1550,7 +1550,7 @@ export function unfiledItemsInWorkspace(
 
 /**
  * One Item a settled filing's refresh reads again: the note and the two texts
- * it carries now are what the panel choice is read from (`choose-a-panel.v2`).
+ * it carries now are what the panel choice is read from (`choose-a-panel.v3`).
  */
 export interface UnfiledCandidate {
   id: string;

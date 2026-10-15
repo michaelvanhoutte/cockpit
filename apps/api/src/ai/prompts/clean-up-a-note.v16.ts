@@ -481,7 +481,7 @@ export interface RoutingInputs {
   recentlyCaptured: readonly string[];
 }
 
-/** Exported for `choose-a-panel.v2`, which lists the Panels in the same words. */
+/** Exported for `choose-a-panel.v3`, which lists the Panels in the same words. */
 export function renderPanels(panels: readonly { id: string; name: string }[]): string {
   const list =
     panels.length > 0 ? panels.map((panel) => `- ${panel.id}: ${panel.name}`).join('\n') : '(this account has no panels yet)';
@@ -489,7 +489,7 @@ export function renderPanels(panels: readonly { id: string; name: string }[]): s
 }
 
 /**
- * Unchanged since `v4`. Exported for `choose-a-panel.v2`, which reads the
+ * Unchanged since `v4`. Exported for `choose-a-panel.v3`, which reads the
  * same history in the same words.
  */
 export function renderHistory(history: readonly DecisionHistoryEntry[]): string {

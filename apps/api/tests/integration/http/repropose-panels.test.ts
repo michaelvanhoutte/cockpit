@@ -40,12 +40,12 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 const WS2 = 'ws-atlas';
 
 /** A reading naming a panel, everything else held fixed since only `panel` is ever read here. */
-const proposing = (panelId: string, reason = 'because'): typeof PROPOSES_NOTHING => ({
+const proposing = (panelId: string, reason = 'because', fit = 'clear'): typeof PROPOSES_NOTHING => ({
   language: 'English',
   title: 'A title',
   message: 'A message',
   readings: [] as unknown[],
-  panel: { panelId, reason, fit: 'clear' },
+  panel: { panelId, reason, fit },
 });
 /** A reading naming no panel - the common, welcome answer, and the default every note gets. */
 const PROPOSES_NOTHING = {
@@ -198,6 +198,19 @@ async function moveToInbox(itemId: string, workspaceId = WORKSPACE_ID): Promise<
     order: [],
   });
   expect(response.status).toBe(200);
+}
+
+async function fitOf(itemId: string): Promise<string | null> {
+  const rows = await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+    sql
+      .exec<{ proposed_panel_fit: string | null }>(
+        'SELECT proposed_panel_fit FROM items WHERE id = ? AND tenant_id = ?',
+        itemId,
+        ACCOUNT_NAME,
+      )
+      .toArray(),
+  );
+  return rows[0]?.proposed_panel_fit ?? null;
 }
 
 async function routingOf(itemId: string): Promise<string | null> {
@@ -648,6 +661,21 @@ describe('Triage', () => {
       expect(asked).not.toContain('a note with nowhere left to go');
     });
 
+    it('stores how sure a refreshed proposal is', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const elsewhere = await aPanel('Somewhere else');
+      answerFor = (note, system) =>
+        note === 'a note about validation' && system.includes('Somewhere else')
+          ? { says: proposing(compliance, 'a compliance question', 'closest') }
+          : { says: PROPOSES_NOTHING };
+      const waiting = await captureANote('a note about validation');
+      const settling = await captureANote('call jan about the invoice');
+
+      await moveOnto(settling, elsewhere);
+      await untilRouted(waiting, compliance);
+      expect(await fitOf(waiting)).toBe('closest');
+    });
+
     it('withdraws a stale proposal once a refresh concludes nothing fits any more', async () => {
       const compliance = await aPanel('Compliance questions');
       const elsewhere = await aPanel('Somewhere else');
@@ -661,8 +689,8 @@ describe('Triage', () => {
         sql.exec(
           `INSERT INTO items
              (id, tenant_id, workspace_id, source, captured_message, title, status, unseen,
-              proposed_panel_id, proposed_panel_reason, created_at, updated_at)
-           VALUES (?, ?, ?, 'internal', ?, 'Typed by hand', 'to_process', 0, ?, 'a compliance question', ?, ?)`,
+              proposed_panel_id, proposed_panel_reason, proposed_panel_fit, created_at, updated_at)
+           VALUES (?, ?, ?, 'internal', ?, 'Typed by hand', 'to_process', 0, ?, 'a compliance question', 'closest', ?, ?)`,
           waiting,
           ACCOUNT_NAME,
           WORKSPACE_ID,
@@ -680,6 +708,8 @@ describe('Triage', () => {
         timeout: 15_000,
         interval: 50,
       });
+      // The withdrawal takes the fit with it.
+      expect(await fitOf(waiting)).toBeNull();
     });
   });
 });

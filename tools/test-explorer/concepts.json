@@ -157,7 +157,7 @@
         "apps/api/src/domain/items.ts",
         "apps/api/src/domain/decision-history.ts",
         "apps/api/src/domain/panel-refresh.ts",
-        "apps/api/src/ai/prompts/choose-a-panel.v2.ts",
+        "apps/api/src/ai/prompts/choose-a-panel.v3.ts",
         "apps/api/src/domain/text-corrections.ts",
         "apps/api/src/accounts/command-service.ts",
         "apps/api/src/accounts/repo.ts",

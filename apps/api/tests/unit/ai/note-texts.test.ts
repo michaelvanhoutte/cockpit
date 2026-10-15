@@ -384,24 +384,33 @@ describe('Triage', () => {
 
     it.each([
       {
-        // Not asked how sure it is until the refresh's own prompt asks (issue 1107), so it says nothing.
-        situation: 'a panel that was offered, with a reason',
+        situation: 'a panel that was offered, with a reason, said to be clear',
+        raw: JSON.stringify({ panelId: 'panel-1', reason: 'a compliance question', fit: 'clear' }),
+        expected: { panel: { panelId: 'panel-1', reason: 'a compliance question', fit: 'clear' } },
+      },
+      {
+        situation: 'a panel that was offered, said to be the closest match',
+        raw: JSON.stringify({ panelId: 'panel-1', reason: 'a compliance question', fit: 'closest' }),
+        expected: { panel: { panelId: 'panel-1', reason: 'a compliance question', fit: 'closest' } },
+      },
+      {
+        situation: 'a panel named without saying how sure it is',
         raw: JSON.stringify({ panelId: 'panel-1', reason: 'a compliance question' }),
-        expected: { panel: { panelId: 'panel-1', reason: 'a compliance question', fit: null } },
+        expected: { panel: null },
       },
       {
         situation: 'the empty id - the model proposing nothing',
-        raw: JSON.stringify({ panelId: '', reason: '' }),
+        raw: JSON.stringify({ panelId: '', reason: '', fit: '' }),
         expected: { panel: null },
       },
       {
         situation: 'a panel never offered',
-        raw: JSON.stringify({ panelId: 'panel-9', reason: 'a reason' }),
+        raw: JSON.stringify({ panelId: 'panel-9', reason: 'a reason', fit: 'clear' }),
         expected: { panel: null },
       },
       {
         situation: 'a panel with no reason',
-        raw: JSON.stringify({ panelId: 'panel-1', reason: ' ' }),
+        raw: JSON.stringify({ panelId: 'panel-1', reason: ' ', fit: 'clear' }),
         expected: { panel: null },
       },
     ])('reads $situation', ({ raw, expected }) => {

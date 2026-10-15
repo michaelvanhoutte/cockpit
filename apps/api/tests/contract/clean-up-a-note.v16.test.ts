@@ -679,7 +679,7 @@ describe('Capture', () => {
    * before it names a panel. Kept on Sonnet for its cost ("Cut what cleaning
    * up a captured note costs", issue 887). The same property is held where it
    * moves an Item afterwards, by the refresh a filing triggers
-   * (`choose-a-panel.v2.test.ts`).
+   * (`choose-a-panel.v3.test.ts`).
    */
 
   describe.each(WAYS)('when a note is $situation', ({ ask }) => {

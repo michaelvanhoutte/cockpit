@@ -185,7 +185,7 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
 
   const panel =
     typeof parsed === 'object' && parsed !== null
-      ? readPanelCandidate((parsed as Record<string, unknown>).panel, offeredPanelIds, true)
+      ? readPanelCandidate((parsed as Record<string, unknown>).panel, offeredPanelIds)
       : null;
 
   // Read on its own like the panel: a priority outside the three is no
@@ -258,7 +258,7 @@ export function readPlace(raw: unknown): PlaceRead {
 export type PanelRead = { panel: RoutingCandidate | null } | { discarded: string };
 
 /**
- * Reads a panel-only answer (`choose-a-panel.v2`), by the same rules
+ * Reads a panel-only answer (`choose-a-panel.v3`), by the same rules
  * `readProposal` reads the `panel` riding on a full one.
  *
  * **An answer that is not a panel choice at all is discarded, not read as
@@ -280,7 +280,7 @@ export function readPanelChoice(raw: unknown, offeredPanelIds: readonly string[]
   if (!panelCandidateShape.safeParse(parsed).success) {
     return { discarded: 'the answer was not a panel choice' };
   }
-  return { panel: readPanelCandidate(parsed, offeredPanelIds, false) };
+  return { panel: readPanelCandidate(parsed, offeredPanelIds) };
 }
 
 /**
@@ -289,15 +289,12 @@ export function readPanelChoice(raw: unknown, offeredPanelIds: readonly string[]
  * empty all read as "no proposal" rather than as a reason to throw away the
  * title and message riding beside it.
  *
- * `askedFit` is whether the call asked how sure it is (issue 1107). Where it
- * did, a Panel named without a fit, or with one that is neither of the two,
- * is read as no proposal, as a missing reason is; where it did not, the fit is
- * null.
+ * A Panel named without a fit, or with one that is neither of the two, is read
+ * as no proposal, as a missing reason is (issue 1107).
  */
 function readPanelCandidate(
   raw: unknown,
   offeredPanelIds: readonly string[],
-  askedFit: boolean,
 ): RoutingCandidate | null {
   const read = panelCandidateShape.safeParse(raw);
   if (!read.success) return null;
@@ -306,7 +303,6 @@ function readPanelCandidate(
   const reason = read.data.reason.trim();
   if (panelId === '' || reason === '') return null;
   if (!offeredPanelIds.includes(panelId)) return null;
-  if (!askedFit) return { panelId, reason, fit: null };
 
   const fit = panelFitSchema.safeParse((raw as Record<string, unknown>).fit);
   return fit.success ? { panelId, reason, fit: fit.data } : null;

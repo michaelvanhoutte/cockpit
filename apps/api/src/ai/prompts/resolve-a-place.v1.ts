@@ -53,7 +53,7 @@ export function buildResolveAPlace(
     version: 'v1',
 
     /**
-     * Haiku 4.5, as `choose-a-panel.v2`: matching a few words to a short list
+     * Haiku 4.5, as `choose-a-panel.v3`: matching a few words to a short list
      * of names is a narrower task than writing a title. No `effort`, which this
      * model refuses.
      */

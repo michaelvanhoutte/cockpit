@@ -3,7 +3,7 @@ import type { Env } from '../env.js';
 import { callThrough, inRealTime, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
 import { providerCallsIn } from '../gateway/record.js';
 import { buildCleanUpANote } from './prompts/clean-up-a-note.v16.js';
-import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v2.js';
+import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v3.js';
 import { buildResolveAPlace } from './prompts/resolve-a-place.v1.js';
 import { readPanelChoice, readPlace, readProposal, type PanelRead, type PlaceRead, type ProposalRead } from './note-texts.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
@@ -12,14 +12,14 @@ import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 export type { NoteTexts, PanelRead, PlaceRead, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
-export type { ItemToPlace } from './prompts/choose-a-panel.v2.js';
+export type { ItemToPlace } from './prompts/choose-a-panel.v3.js';
 
 /**
  * The prompt file each call is built from, as a record names it -
  * changed with the import above them when a prompt gets a new version.
  */
 const CLEAN_UP_A_NOTE = 'clean-up-a-note.v16';
-const CHOOSE_A_PANEL = 'choose-a-panel.v2';
+const CHOOSE_A_PANEL = 'choose-a-panel.v3';
 const RESOLVE_A_PLACE = 'resolve-a-place.v1';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
@@ -125,7 +125,7 @@ export interface AiService {
   /**
    * Which of `panels` an Item belongs on, and nothing else - for a settled
    * filing's refresh of the rest of the inbox, which writes only the Panel
-   * (`choose-a-panel.v2`, issue 583). `history` and `recentlyCaptured` are
+   * (`choose-a-panel.v3`, issue 583). `history` and `recentlyCaptured` are
    * what `cleanUpNote` takes under the same names. Refuses and throws on
    * the same terms as `cleanUpNote`.
    */
@@ -274,7 +274,7 @@ export class ClaudeAiService implements AiService {
 
   /** One call through the gateway, constrained to the prompt's own schema: its text, or that the model declined. */
   async #ask(
-    // `effort` is null for a model that refuses the field (`choose-a-panel.v2`).
+    // `effort` is null for a model that refuses the field (`choose-a-panel.v3`).
     prompt: {
       model: string;
       effort: 'low' | null;

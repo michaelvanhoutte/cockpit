@@ -218,7 +218,7 @@ describe('Capture', () => {
     });
 
     it('skips a panel deleted while the note was read, and with none left leaves it in the Inbox with its proposal', async () => {
-      theModelReadsAPlace({ panels: ['Admin & money'] }, { choosing: { panelId: WEEK, reason: 'this week’s errands' } });
+      theModelReadsAPlace({ panels: ['Admin & money'] }, { choosing: { panelId: WEEK, reason: 'this week’s errands', fit: 'closest' } });
       const itemId = nextId();
       reading.during = duringThe(isAPlaceRead, () =>
         inTheStore((sql) => sql.exec(`UPDATE panels SET deleted_at = '2026-09-09T10:00:01.000Z' WHERE id = '${ADMIN}'`)),
@@ -231,6 +231,7 @@ describe('Capture', () => {
       expect(await workspaceOf(itemId)).toMatchObject({ workspaceId: PERSONAL, decided: true });
       expect(await itemsDrawnIn(PERSONAL)).toContain(itemId);
       expect((await routingOf(itemId))?.proposed_panel_id).toBe(WEEK);
+      expect(await fitOf(itemId)).toBe('closest');
     });
 
     it('files on a panel set to Never propose', async () => {
