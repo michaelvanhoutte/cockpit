@@ -973,6 +973,8 @@ async function applyProposedPanelIfAny(
       itemId: item.id,
       panelId: panel?.panelId ?? null,
       reason: panel?.reason ?? '',
+      // Only where the call said how sure it is (issue 1107); none reads as clear.
+      ...(panel?.fit ? { fit: panel.fit } : {}),
     });
     if (!written.applied) return 'the item was filed or the panel went while it was being read';
     return panel ? 'routed' : 'withdrawn';

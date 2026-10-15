@@ -155,7 +155,7 @@ describe('Capture', () => {
     /** The calls one capture makes: the clean-up, which names the first workspace's Panel, the read of the place, and the Panel choice. */
     const theModelNames = (workspace: string | undefined, choosing: unknown) =>
       theModelReadsAPlace(workspace === undefined ? null : { workspace }, {
-        cleanUp: { panel: { panelId: workPanel, reason: 'a compliance question' } },
+        cleanUp: { panel: { panelId: workPanel, reason: 'a compliance question', fit: 'clear' } },
         choosing,
       });
 
@@ -244,7 +244,7 @@ describe('Capture', () => {
         by: (call) => {
           if (isAPanelChoice(call)) throw new Error('the model could not be reached');
           if (isACleanUp(call)) {
-            return { ...A_READING, place: 'for personal', panel: { panelId: workPanel, reason: 'a compliance question' } };
+            return { ...A_READING, place: 'for personal', panel: { panelId: workPanel, reason: 'a compliance question', fit: 'clear' } };
           }
           return { workspace: 'Personal', dashboard: '', panels: [] };
         },

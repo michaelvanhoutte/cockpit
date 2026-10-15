@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { ACCOUNT_WIDE } from '@cockpit/shared';
-import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, inTheStore, storeNamed } from '../seed.js';
+import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, inStoreAsItIs, inTheStore, storeNamed } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import {
@@ -79,6 +79,14 @@ async function aDayToDayDashboard(): Promise<void> {
 async function changesFrom(since: string): Promise<string> {
   const answer = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, since);
   return (answer as { value: { cursor: string } }).value.cursor;
+}
+
+/** How sure the Panel an item carries was, read straight out of the store (issue 1107). */
+async function fitOf(itemId: string): Promise<string | null> {
+  const rows = await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+    sql.exec<{ proposed_panel_fit: string | null }>('SELECT proposed_panel_fit FROM items WHERE id = ? AND tenant_id = ?', itemId, ACCOUNT_NAME).toArray(),
+  );
+  return rows[0]?.proposed_panel_fit ?? null;
 }
 
 /** An item already filed at the top of a Panel of Personal, captured with no place named. */
@@ -235,26 +243,29 @@ describe('Capture', () => {
       expect(await panelsHolding(itemId)).toEqual([{ panelId: ADMIN, position: 0 }]);
     });
 
-    it('withdraws the panel proposed before it is filed', async () => {
+    it('withdraws the panel proposed before it is filed, however sure it was', async () => {
       const workPanel = await aPanel('Compliance questions');
-      theModelReadsAPlace(null, { cleanUp: { panel: { panelId: workPanel, reason: 'a compliance question' } } });
+      theModelReadsAPlace(null, { cleanUp: { panel: { panelId: workPanel, reason: 'a compliance question', fit: 'closest' } } });
       const itemId = await captureANote({ workspaceDecided: false });
       await vi.waitFor(async () => expect((await routingOf(itemId))?.proposed_panel_id).toBe(workPanel), {
         timeout: 15_000,
         interval: 50,
       });
+      expect(await fitOf(itemId)).toBe('closest');
 
       theModelReadsAPlace({ panels: ['Admin & money'] });
       await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
 
       expect(await panelsHolding(itemId)).toEqual([{ panelId: ADMIN, position: 0 }]);
       expect(await routingOf(itemId)).toEqual({ proposed_panel_id: null, proposed_panel_reason: null });
+      expect(await fitOf(itemId)).toBeNull();
+      expect(await decisionsOn(itemId)).toEqual([expect.objectContaining({ proposed_panel_id: null, proposed_panel_fit: null })]);
     });
   });
 
   describe('routing learns from a note filed where it said, as from your first filing', () => {
     it.each([
-      { situation: 'it is filed on one panel', place: { panels: ['Admin & money'] }, expected: [{ workspace_id: PERSONAL, chosen_panel_id: ADMIN, proposed_panel_id: null }] },
+      { situation: 'it is filed on one panel', place: { panels: ['Admin & money'] }, expected: [{ workspace_id: PERSONAL, chosen_panel_id: ADMIN, proposed_panel_id: null, proposed_panel_fit: null }] },
       { situation: 'nothing is filed', place: { panels: ['Groceries'] }, expected: [] },
     ])('records one decision, naming no proposal, where $situation', async ({ place, expected }) => {
       theModelReadsAPlace(place);

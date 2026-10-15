@@ -95,12 +95,13 @@ function move(itemId: string, panelId: string | null, order: string[] = panelId 
  * reasoning `alsoFileOn` in `panel-items.test.ts` gives for writing a filing
  * by row rather than through `add_item_to_panel`.
  */
-async function propose(itemId: string, panelId: string, reason: string): Promise<void> {
+async function propose(itemId: string, panelId: string, reason: string, fit: 'clear' | 'closest' | null = null): Promise<void> {
   await inTheStore((sql) =>
     sql.exec(
-      'UPDATE items SET proposed_panel_id = ?, proposed_panel_reason = ? WHERE id = ?',
+      'UPDATE items SET proposed_panel_id = ?, proposed_panel_reason = ?, proposed_panel_fit = ? WHERE id = ?',
       panelId,
       reason,
+      fit,
       itemId,
     ),
   );
@@ -113,10 +114,11 @@ async function historyFor(itemId: string) {
         item_id: string;
         proposed_panel_id: string | null;
         proposed_panel_reason: string | null;
+        proposed_panel_fit: string | null;
         chosen_panel_id: string;
         decided_at: string;
       }>(
-        'SELECT item_id, proposed_panel_id, proposed_panel_reason, chosen_panel_id, decided_at FROM decision_history WHERE item_id = ?',
+        'SELECT item_id, proposed_panel_id, proposed_panel_reason, proposed_panel_fit, chosen_panel_id, decided_at FROM decision_history WHERE item_id = ?',
         itemId,
       )
       .toArray(),
@@ -179,6 +181,33 @@ describe('Triage', () => {
         proposed_panel_reason: 'sounds like Falcon',
         chosen_panel_id: anna,
       });
+    });
+
+    /**
+     * "Propose the closest Panel at capture, and draw a less certain one
+     * dashed" (issue 1107): each filing records how sure the proposal it
+     * accepted or overrode was, so the hit rate of clear ones can be read.
+     */
+    it.each([
+      { situation: 'a clear proposal, accepted', fit: 'clear' as const, filedOnProposed: true },
+      { situation: 'a closest match, overridden', fit: 'closest' as const, filedOnProposed: false },
+      { situation: 'a proposal from before how sure it was said, accepted', fit: null, filedOnProposed: true },
+    ])('records how sure $situation was', async ({ fit, filedOnProposed }) => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const anna = await aPanel(today, 'Anna');
+      const itemId = await anItem('Reply to Bart');
+      await propose(itemId, falcon, 'sounds like Falcon', fit);
+
+      expect((await move(itemId, filedOnProposed ? falcon : anna)).status).toBe(200);
+
+      expect(await historyFor(itemId)).toEqual([
+        expect.objectContaining({
+          proposed_panel_id: falcon,
+          proposed_panel_fit: fit,
+          chosen_panel_id: filedOnProposed ? falcon : anna,
+        }),
+      ]);
     });
 
     it('records a filing even for an item with no captured note', async () => {

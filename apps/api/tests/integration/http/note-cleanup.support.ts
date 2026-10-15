@@ -28,7 +28,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v15.test.ts).
+ * (tests/contract/clean-up-a-note.v16.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -296,8 +296,8 @@ export async function panelsHolding(itemId: string): Promise<{ panelId: string; 
 export async function decisionsOn(itemId: string) {
   return inStoreAsItIs(ACCOUNT_NAME, (sql) =>
     sql
-      .exec<{ workspace_id: string; chosen_panel_id: string; proposed_panel_id: string | null }>(
-        'SELECT workspace_id, chosen_panel_id, proposed_panel_id FROM decision_history WHERE item_id = ? AND tenant_id = ?',
+      .exec<{ workspace_id: string; chosen_panel_id: string; proposed_panel_id: string | null; proposed_panel_fit: string | null }>(
+        'SELECT workspace_id, chosen_panel_id, proposed_panel_id, proposed_panel_fit FROM decision_history WHERE item_id = ? AND tenant_id = ?',
         itemId,
         ACCOUNT_NAME,
       )
@@ -321,6 +321,21 @@ export async function routingOf(itemId: string, accountName = ACCOUNT_NAME) {
       .toArray(),
   );
   return rows[0] ?? null;
+}
+
+/**
+ * The Panel an Item is proposed and how sure that is, as the Inbox reads them -
+ * through its Workspace's snapshot ("Propose the closest Panel at capture, and
+ * draw a less certain one dashed", issue 1107).
+ */
+export async function proposalShownFor(itemId: string, workspaceId = WORKSPACE_ID) {
+  const response = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
+  expect(response.status).toBe(200);
+  const held = (await response.json()) as {
+    items: { id: string; proposedPanelId: string | null; proposedPanelFit: string | null }[];
+  };
+  const item = held.items.find((one) => one.id === itemId);
+  return item && { proposedPanelId: item.proposedPanelId, proposedPanelFit: item.proposedPanelFit };
 }
 
 /** An item's priority and when the person last made it their own, read straight out of the store. */

@@ -199,7 +199,7 @@ export interface FilingDecided {
  */
 function proposalAsShown(item: Item, proposedPanelNeverPropose: boolean): Item {
   return item.proposedPanelId && proposedPanelNeverPropose
-    ? { ...item, proposedPanelId: null, proposedPanelReason: null }
+    ? { ...item, proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null }
     : item;
 }
 
@@ -324,7 +324,7 @@ export function decideFilingWhereSaid(
       }),
     })),
     decision: decisionHistoryEntryFor(
-      { ...item, proposedPanelId: null, proposedPanelReason: null },
+      { ...item, proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null },
       { ...cmd, workspaceId: item.workspaceId },
       first.id,
     ),

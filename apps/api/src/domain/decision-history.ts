@@ -1,4 +1,4 @@
-import type { Item } from '@cockpit/shared';
+import type { Item, PanelFit } from '@cockpit/shared';
 
 /**
  * Pure handlers for the append-only decision history ("Learn where notes
@@ -18,6 +18,8 @@ export interface DecisionHistoryRow {
   itemId: string;
   proposedPanelId: string | null;
   proposedPanelReason: string | null;
+  /** How sure that proposal was, null where it did not say - read as `clear` (issue 1107). */
+  proposedPanelFit: PanelFit | null;
   chosenPanelId: string;
   decidedAt: string;
 }
@@ -53,7 +55,7 @@ export interface DecisionHistoryEntry {
  * guard runs before this is ever called), so reusing it as this row's id
  * costs nothing and keeps every entry traceable to the command that made it.
  *
- * **Reads `item.proposedPanelId`/`proposedPanelReason` as they stand right
+ * **Reads `item.proposedPanelId`/`proposedPanelReason`/`proposedPanelFit` as they stand right
  * now, not as they were when first written** - exactly the value the accept
  * chip on this filing would have shown, or null where nothing was ever
  * proposed. `command-service.ts` clears both in the same transaction that
@@ -62,7 +64,7 @@ export interface DecisionHistoryEntry {
  * Item first, never by one that finds it back in the Inbox later.
  */
 export function decisionHistoryEntryFor(
-  item: Pick<Item, 'id' | 'tenantId' | 'proposedPanelId' | 'proposedPanelReason'>,
+  item: Pick<Item, 'id' | 'tenantId' | 'proposedPanelId' | 'proposedPanelReason' | 'proposedPanelFit'>,
   cmd: { commandId: string; workspaceId: string; issuedAt: string },
   chosenPanelId: string,
 ): DecisionHistoryRow {
@@ -73,6 +75,7 @@ export function decisionHistoryEntryFor(
     itemId: item.id,
     proposedPanelId: item.proposedPanelId,
     proposedPanelReason: item.proposedPanelReason,
+    proposedPanelFit: item.proposedPanelFit,
     chosenPanelId,
     decidedAt: cmd.issuedAt,
   };

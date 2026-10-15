@@ -200,6 +200,7 @@ function anItem(over: Partial<Item> = {}): Item {
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,
+    proposedPanelFit: null,
     sourceResolvedAt: null,
     title: 'Part 11',
     description: null,

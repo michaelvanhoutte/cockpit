@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v15.js';
+import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v16.js';
 import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
@@ -188,6 +188,31 @@ describe('Capture', () => {
 
       expect(schema.properties.priority?.enum).toEqual(['low', 'normal', 'high']);
       expect(schema.required).not.toContain('priority');
+    });
+  });
+
+  /**
+   * "Propose the closest Panel at capture, and draw a less certain one dashed"
+   * (issue 1107). Whether the model then names the closest Panel is the
+   * contract tier's; this holds that it is asked to, and how sure it is.
+   */
+  describe('every reading is told to name the closest panel, and how sure it is', () => {
+    const prompt = buildCleanUpANote({ panels: [{ id: 'panel-2', name: 'Legal questions' }], history: [], recentlyCaptured: [] }, [], null, null);
+
+    it('asks for the closest panel wherever one plausibly fits, and none only where none does', () => {
+      const { instructions } = prompt.system;
+
+      expect(instructions).toContain('Name the closest panel wherever one plausibly fits');
+      expect(instructions).toContain('Name none only for a note that fits none of the panels at all');
+      expect(instructions).not.toContain('a panel is not owed a note merely for being the closest match');
+    });
+
+    it('makes the answer say clear or closest beside every panel it names', () => {
+      const panel = (prompt.schema as { properties: { panel: { properties: Record<string, { enum?: string[] }>; required: string[] } } })
+        .properties.panel;
+
+      expect(panel.properties.fit?.enum).toEqual(['clear', 'closest', '']);
+      expect(panel.required).toContain('fit');
     });
   });
   /**

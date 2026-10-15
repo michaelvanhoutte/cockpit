@@ -160,6 +160,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_DUE_DATE_CHOSEN_AT,
     REWRITE_HISTORY_DUE_DATE_SET,
     REWRITE_HISTORY_WORKSPACE_SET,
+    PROPOSED_PANEL_FIT,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -515,6 +516,32 @@ const REWRITE_HISTORY_DUE_DATE_SET: Change = {
 const REWRITE_HISTORY_WORKSPACE_SET: Change = {
   name: '0075-rewrite-history-workspace-set',
   statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `workspace_set` text' }],
+};
+
+/**
+ * How sure a proposed Panel is, on the Item and on the decision-history entry
+ * a filing copies it into ("Propose the closest Panel at capture, and draw a
+ * less certain one dashed", issue 1107) - two nullable columns, one change, so
+ * they arrive together.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `ADD COLUMN`s, and no statement that writes to a row.
+ * - **If it stops halfway:** one change is one transaction, so a failure on the
+ *   second column takes the first back with it, and the next open applies both.
+ * - **The second time it runs:** it does not re-run once recorded.
+ * - **Rows that predate it:** NULL in both, which reads as `clear` - how every
+ *   earlier proposal was offered. Nothing is backfilled.
+ * - **Rolled back after it has run:** an older release never names either
+ *   column, and the chips draw as one kind again.
+ */
+const PROPOSED_PANEL_FIT: Change = {
+  name: '0076-proposed-panel-fit',
+  statements: [
+    { sql: 'ALTER TABLE `items` ADD COLUMN `proposed_panel_fit` text' },
+    { sql: 'ALTER TABLE `decision_history` ADD COLUMN `proposed_panel_fit` text' },
+  ],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

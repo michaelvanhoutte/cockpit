@@ -1,4 +1,4 @@
-import { itemDescriptionSchema, itemTitleSchema, prioritySchema, type Priority } from '@cockpit/shared';
+import { itemDescriptionSchema, itemTitleSchema, panelFitSchema, prioritySchema, type PanelFit, type Priority } from '@cockpit/shared';
 import { z } from 'zod';
 import type { PlaceNamed } from '../domain/spoken-path.js';
 
@@ -35,6 +35,12 @@ export interface ReadingCandidate {
 export interface RoutingCandidate {
   panelId: string;
   reason: string;
+  /**
+   * How sure the proposal is ("Propose the closest Panel at capture, and draw
+   * a less certain one dashed", issue 1107) - null where the call was not
+   * asked, which is stored as nothing and read as `clear`.
+   */
+  fit: PanelFit | null;
 }
 
 /** What comes back, once it is known to be usable. */
@@ -149,9 +155,9 @@ export type ProposalRead = { proposal: NoteTexts } | { discarded: string };
  * own `enum` should already have made impossible is checked again here rather
  * than assumed, exactly as `command-service.ts` checks a third time, freshly,
  * at the moment it would write. Anything that does not survive all of it - an
- * empty id, an id not offered, a reason left empty - reads as no proposal,
- * which is a real answer this call gives out loud on every note that does not
- * clearly belong anywhere.
+ * empty id, an id not offered, a reason or a fit left empty - reads as no
+ * proposal, which is a real answer this call gives out loud on every note that
+ * fits no Panel at all.
  */
 export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): ProposalRead {
   if (typeof raw !== 'string') return { discarded: 'the answer carried no text' };
@@ -179,7 +185,7 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
 
   const panel =
     typeof parsed === 'object' && parsed !== null
-      ? readPanelCandidate((parsed as Record<string, unknown>).panel, offeredPanelIds)
+      ? readPanelCandidate((parsed as Record<string, unknown>).panel, offeredPanelIds, true)
       : null;
 
   // Read on its own like the panel: a priority outside the three is no
@@ -274,7 +280,7 @@ export function readPanelChoice(raw: unknown, offeredPanelIds: readonly string[]
   if (!panelCandidateShape.safeParse(parsed).success) {
     return { discarded: 'the answer was not a panel choice' };
   }
-  return { panel: readPanelCandidate(parsed, offeredPanelIds) };
+  return { panel: readPanelCandidate(parsed, offeredPanelIds, false) };
 }
 
 /**
@@ -282,10 +288,16 @@ export function readPanelChoice(raw: unknown, offeredPanelIds: readonly string[]
  * call actually offered - the empty id, an id not offered, and a reason left
  * empty all read as "no proposal" rather than as a reason to throw away the
  * title and message riding beside it.
+ *
+ * `askedFit` is whether the call asked how sure it is (issue 1107). Where it
+ * did, a Panel named without a fit, or with one that is neither of the two,
+ * is read as no proposal, as a missing reason is; where it did not, the fit is
+ * null.
  */
 function readPanelCandidate(
   raw: unknown,
   offeredPanelIds: readonly string[],
+  askedFit: boolean,
 ): RoutingCandidate | null {
   const read = panelCandidateShape.safeParse(raw);
   if (!read.success) return null;
@@ -294,6 +306,8 @@ function readPanelCandidate(
   const reason = read.data.reason.trim();
   if (panelId === '' || reason === '') return null;
   if (!offeredPanelIds.includes(panelId)) return null;
+  if (!askedFit) return { panelId, reason, fit: null };
 
-  return { panelId, reason };
+  const fit = panelFitSchema.safeParse((raw as Record<string, unknown>).fit);
+  return fit.success ? { panelId, reason, fit: fit.data } : null;
 }

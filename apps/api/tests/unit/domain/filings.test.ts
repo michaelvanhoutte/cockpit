@@ -292,7 +292,7 @@ describe('Panels', () => {
 
 describe('Triage', () => {
   describe('a filing records what it settles exactly once', () => {
-    const proposed = anItem({ proposedPanelId: 'reading', proposedPanelReason: 'it is a book' });
+    const proposed = anItem({ proposedPanelId: 'reading', proposedPanelReason: 'it is a book', proposedPanelFit: 'closest' });
 
     it.each([
       { situation: 'an item’s first filing out of the Inbox', alreadyFiled: false, recorded: true },
@@ -308,6 +308,7 @@ describe('Triage', () => {
               itemId: 'b',
               proposedPanelId: 'reading',
               proposedPanelReason: 'it is a book',
+              proposedPanelFit: 'closest',
               chosenPanelId: 'falcon',
             })
           : null,
@@ -330,7 +331,7 @@ describe('Triage', () => {
       );
 
       expect(outcome.decision).toEqual(
-        expect.objectContaining({ proposedPanelId: null, proposedPanelReason: null, chosenPanelId: 'falcon' }),
+        expect.objectContaining({ proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null, chosenPanelId: 'falcon' }),
       );
     });
 

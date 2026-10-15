@@ -5,7 +5,7 @@ import { ClaudeAiService, type CallFor, type ProposalRead } from '../../src/ai/i
 /** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
 const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v15.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v16.js';
 import type { CaptureDay } from '../../src/domain/capture-day.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
@@ -59,7 +59,7 @@ function tallied(name: string): ClaudeAiService {
     spent.output += usage.output_tokens;
   });
 }
-const reading = tallied('clean-up-a-note.v15 on capture');
+const reading = tallied('clean-up-a-note.v16 on capture');
 
 const NO_STOOD: WhatStood | null = null;
 
@@ -271,7 +271,7 @@ describe('Capture', () => {
         expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
         // The cases in this file are only evidence about the version they ran
         // against, so the version is said out loud once.
-        expect(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], NO_STOOD, A_DAY).version).toBe('v15');
+        expect(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], NO_STOOD, A_DAY).version).toBe('v16');
       });
 
       it('does not pad a note that is already shorter than the target', async () => {
@@ -592,7 +592,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v15.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v16.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -618,23 +618,56 @@ describe('Capture', () => {
       expect(proposal.panel?.reason.toLowerCase()).not.toContain('model');
     });
 
-    /**
-     * Proposing nothing is the common, right answer for most notes ("Propose
-     * where a captured note belongs, without filing it there", issue 298) -
-     * checked here rather than assumed, because a schema field that exists
-     * invites filling it in, the exact failure "a note that is merely terse
-     * is not read as ambiguous" above already guards for `readings`.
-     */
-    it('proposes nothing for a note that fits none of the panels offered', async () => {
-      const proposal = await read('milk, eggs, bread - stop on the way home', panels);
-      expect(proposal.panel).toBeNull();
-    });
-
     it('never names a panel it was not offered', async () => {
       const proposal = await read(COMPLIANCE_NOTE, panels);
       if (proposal.panel) {
         expect(panels.map((panel) => panel.id)).toContain(proposal.panel.panelId);
       }
+    });
+  });
+
+  /**
+   * "Propose the closest Panel at capture, and draw a less certain one dashed"
+   * (issue 1107). `v14` answered "none fits" for notes the person then filed
+   * on a Panel - 47 of 76 in production. These are notes of that kind,
+   * written fresh rather than copied, against Panels none of them names: each
+   * plausibly fits one Panel and no other, so the closest is the one to name.
+   * The first three were measured getting no Panel from `v14`'s wording, and
+   * fit their Panel without being plainly made for it, so they say `closest`.
+   */
+  describe('a note that plausibly fits a panel is offered the closest one, and says how sure it is', () => {
+    const panels = [
+      { id: '018f0000-0000-7000-8000-000000000011', name: 'Suppliers' },
+      { id: '018f0000-0000-7000-8000-000000000012', name: 'Hiring' },
+      { id: '018f0000-0000-7000-8000-000000000013', name: 'Release planning' },
+      { id: '018f0000-0000-7000-8000-000000000014', name: 'Customer escalations' },
+    ];
+    const [suppliers, hiring, release, escalations] = panels;
+
+    it.each([
+      { situation: 'documentation for what a release adds', note: 'docs for the new api endpoints', expected: release!.id, fits: ['closest'] },
+      { situation: 'what a new starter is shown', note: 'onboarding checklist needs a bit on security training', expected: hiring!.id, fits: ['closest'] },
+      { situation: 'customers waiting on support', note: 'support backlog keeps growing, look at it', expected: escalations!.id, fits: ['closest'] },
+      { situation: 'a supplier’s prices', note: 'price list from bolt nv is outdated', expected: suppliers!.id, fits: ['clear', 'closest'] },
+    ])('names the closest panel for $situation', async ({ note, expected, fits }) => {
+      const proposal = await read(note, panels);
+
+      expect(proposal.panel?.panelId).toBe(expected);
+      expect(fits).toContain(proposal.panel?.fit);
+    });
+
+    it('names a panel the note names, as clear', async () => {
+      const proposal = await read('for release planning: move the freeze to thursday', panels);
+
+      expect(proposal.panel).toMatchObject({ panelId: release!.id, fit: 'clear' });
+    });
+
+    // Checked rather than assumed: a prompt that asks for the closest Panel
+    // invites naming one for everything.
+    it('names none for a note that fits none of them', async () => {
+      const proposal = await read('milk, eggs, bread - stop on the way home', panels);
+
+      expect(proposal.panel).toBeNull();
     });
   });
 

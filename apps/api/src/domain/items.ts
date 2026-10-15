@@ -112,6 +112,7 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     // belongs, without filing it there", issue 298).
     proposedPanelId: null,
     proposedPanelReason: null,
+    proposedPanelFit: null,
     sourceResolvedAt: null,
     nextAction: cmd.nextAction ?? null,
     completedAt: null,
@@ -446,12 +447,18 @@ export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): It
  * schema uses the empty string for "no Panel, no reason" the same way the AI
  * layer's own answer does; the column stores absence as `null`, the
  * convention every other cleared text column here follows.
+ *
+ * **A proposal that does not say how sure it is replaces the fit with
+ * nothing**, never keeps the one before it: the fit belongs to the Panel it
+ * was given with ("Propose the closest Panel at capture, and draw a less
+ * certain one dashed", issue 1107).
  */
 export function applyProposedPanel(item: Item, cmd: ProposeItemPanelCommand): Item {
   return {
     ...item,
     proposedPanelId: cmd.panelId,
     proposedPanelReason: cmd.panelId === null ? null : cmd.reason,
+    proposedPanelFit: cmd.panelId === null ? null : (cmd.fit ?? null),
   };
 }
 

@@ -455,8 +455,26 @@ describe('Capture', () => {
    * 298).
    */
   describe('a proposed panel is written exactly as it was proposed', () => {
-    const proposed = (item: Item, panelId: string, reason: string) =>
-      applyProposedPanel(item, { ...request, issuedAt: LATEST, itemId: item.id, panelId, reason });
+    const proposed = (item: Item, panelId: string | null, reason: string, fit?: 'clear' | 'closest') =>
+      applyProposedPanel(item, { ...request, issuedAt: LATEST, itemId: item.id, panelId, reason, ...(fit ? { fit } : {}) });
+
+    // "Propose the closest Panel at capture, and draw a less certain one dashed" (issue 1107).
+    it.each([
+      { situation: 'said to be the closest match', then: (item: Item) => proposed(item, 'panel-1', 'a reason', 'closest'), fit: 'closest' },
+      { situation: 'said to be clear', then: (item: Item) => proposed(item, 'panel-1', 'a reason', 'clear'), fit: 'clear' },
+      {
+        situation: 'replaced by one that does not say',
+        then: (item: Item) => proposed(proposed(item, 'panel-1', 'a reason', 'closest'), 'panel-2', 'another reason'),
+        fit: null,
+      },
+      {
+        situation: 'withdrawn',
+        then: (item: Item) => proposed(proposed(item, 'panel-1', 'a reason', 'closest'), null, ''),
+        fit: null,
+      },
+    ])('keeps how sure a proposal is when $situation', ({ then, fit }) => {
+      expect(then(anItem()).proposedPanelFit).toBe(fit);
+    });
 
     it('writes the panel and the reason, and touches nothing else', () => {
       const before = anItem();

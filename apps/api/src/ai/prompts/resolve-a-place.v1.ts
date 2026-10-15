@@ -4,7 +4,7 @@ import type { PlaceTreeWorkspace } from '../../domain/spoken-path.js';
 /**
  * Every word of the system prompt that is the same for every note and every
  * account, so it can be the first cached prefix (`index.ts`), as
- * `clean-up-a-note.v15`'s is.
+ * `clean-up-a-note.v16`'s is.
  */
 const INSTRUCTIONS = `You are part of Cockpit, one person's inbox for their own work.
 

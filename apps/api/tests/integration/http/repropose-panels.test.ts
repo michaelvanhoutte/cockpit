@@ -45,7 +45,7 @@ const proposing = (panelId: string, reason = 'because'): typeof PROPOSES_NOTHING
   title: 'A title',
   message: 'A message',
   readings: [] as unknown[],
-  panel: { panelId, reason },
+  panel: { panelId, reason, fit: 'clear' },
 });
 /** A reading naming no panel - the common, welcome answer, and the default every note gets. */
 const PROPOSES_NOTHING = {
@@ -53,7 +53,7 @@ const PROPOSES_NOTHING = {
   title: 'A title',
   message: 'A message',
   readings: [] as unknown[],
-  panel: { panelId: '', reason: '' },
+  panel: { panelId: '', reason: '', fit: '' },
 };
 
 type Answer = { says: typeof PROPOSES_NOTHING } | 'fails';

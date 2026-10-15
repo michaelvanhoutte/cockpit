@@ -164,6 +164,7 @@ function anItem(id: string, title: string): Item {
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,
+    proposedPanelFit: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,
@@ -603,6 +604,26 @@ describe('Panels', () => {
       await showList({ items: [proposed], panelId: 'p-falcon' });
 
       expect(screen.queryByText(/^→/)).toBeNull();
+    });
+
+    // "Propose the closest Panel at capture, and draw a less certain one dashed" (issue 1107).
+    it.each([
+      { situation: 'a closest match says so, and is taken the same', fit: 'closest', hover: 'Today ▸ Falcon - Closest match: a Falcon question' },
+      { situation: 'a clear one does not', fit: 'clear', hover: 'Today ▸ Falcon - a Falcon question' },
+      { situation: 'one from before it was said reads as clear', fit: null, hover: 'Today ▸ Falcon - a Falcon question' },
+      { situation: 'one restored from a copy kept before it reads as clear', fit: undefined, hover: 'Today ▸ Falcon - a Falcon question' },
+    ])('$situation', async ({ fit, hover }) => {
+      const user = await showList({ items: [{ ...proposed, proposedPanelFit: fit as Item['proposedPanelFit'] }] });
+
+      await user.click(screen.getByRole('button', { name: hover }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
+        }),
+        expect.anything(),
+      );
     });
   });
 
