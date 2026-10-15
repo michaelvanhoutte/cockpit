@@ -208,7 +208,7 @@ describe('Capture', () => {
             ? {
                 ...A_READING,
                 ...(workspace === undefined ? {} : { workspace }),
-                panel: { panelId: workPanel, reason: 'a compliance question' },
+                panel: { panelId: workPanel, reason: 'a compliance question', fit: 'clear' },
               }
             : choosing,
       });
@@ -297,7 +297,7 @@ describe('Capture', () => {
       theModelIs({
         by: ({ system }) => {
           if (!isACleanUp({ system })) throw new Error('the model could not be reached');
-          return { ...A_READING, workspace: 'Personal', panel: { panelId: workPanel, reason: 'a compliance question' } };
+          return { ...A_READING, workspace: 'Personal', panel: { panelId: workPanel, reason: 'a compliance question', fit: 'clear' } };
         },
       });
 

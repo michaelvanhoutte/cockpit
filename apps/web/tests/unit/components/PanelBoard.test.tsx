@@ -191,6 +191,7 @@ function anItem(id: string, title: string): Item {
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,
+    proposedPanelFit: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,

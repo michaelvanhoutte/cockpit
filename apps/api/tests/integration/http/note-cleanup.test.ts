@@ -36,6 +36,7 @@ import {
   readAgain,
   isACleanUp,
   routingOf,
+  proposalShownFor,
   priorityOf,
   historyOf,
   dueDateOf,
@@ -157,7 +158,7 @@ describe('Capture', () => {
   describe('a note is proposed a panel, without being filed on it', () => {
     it('writes the proposal and leaves the item in the Inbox', async () => {
       const compliance = await aPanel('Compliance questions');
-      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question', fit: 'clear' } } });
 
       const itemId = await captureANote();
       await untilTheNoteHasBeenRead(itemId);
@@ -170,6 +171,41 @@ describe('Capture', () => {
       );
       expect((await routingOf(itemId))?.proposed_panel_reason).toBe('a compliance question');
       expect(await isFiled(itemId)).toBe(false);
+    });
+
+    /**
+     * "Propose the closest Panel at capture, and draw a less certain one
+     * dashed" (issue 1107): how sure the proposal is, kept with it and read
+     * back the way the Inbox reads it.
+     */
+    it.each([
+      { situation: 'the closest match', fit: 'closest' },
+      { situation: 'clear', fit: 'clear' },
+    ])('keeps a proposal said to be $situation as that', async ({ fit }) => {
+      const compliance = await aPanel('Compliance questions');
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question', fit } } });
+
+      const itemId = await captureANote();
+
+      await vi.waitFor(
+        async () => {
+          expect(await proposalShownFor(itemId)).toEqual({ proposedPanelId: compliance, proposedPanelFit: fit });
+        },
+        { timeout: 15_000, interval: 50 },
+      );
+    });
+
+    it('proposes nothing where the model names a panel without saying how sure it is', async () => {
+      const compliance = await aPanel('Compliance questions');
+      // Read once naming nothing, then again by hand, so the read that names a
+      // panel is the one this waits for to have finished.
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
+
+      expect(await proposalShownFor(itemId)).toEqual({ proposedPanelId: null, proposedPanelFit: null });
     });
 
     it('proposes nothing where the model names no panel - the common, right answer', async () => {
@@ -192,7 +228,7 @@ describe('Capture', () => {
      */
     it('never proposes a panel it did not itself offer', async () => {
       const foreign = nextId();
-      theModelIs({ says: { ...A_READING, panel: { panelId: foreign, reason: 'not actually offered' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: foreign, reason: 'not actually offered', fit: 'clear' } } });
 
       const itemId = await captureANote();
       await untilTheNoteHasBeenRead(itemId);
@@ -215,7 +251,7 @@ describe('Capture', () => {
       const itemId = await captureANote();
       await untilTheNoteHasBeenRead(itemId);
       asked.length = 0;
-      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question', fit: 'clear' } } });
       reading.during = () => fileOnto(itemId, elsewhere);
 
       await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
@@ -232,7 +268,7 @@ describe('Capture', () => {
      */
     it('discards the proposal when the panel it named was deleted while the note was being read', async () => {
       const compliance = await aPanel('Compliance questions');
-      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question', fit: 'clear' } } });
       reading.during = () =>
         postChange('delete_panel', {
           commandId: nextId(),
@@ -254,7 +290,7 @@ describe('Capture', () => {
      */
     it('discards the proposal when the item’s own workspace was deleted while the note was being read', async () => {
       const compliance = await aPanel('Compliance questions');
-      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question', fit: 'clear' } } });
       reading.during = () =>
         postChange('delete_workspace', {
           commandId: nextId(),
@@ -286,7 +322,7 @@ describe('Capture', () => {
         issuedAt: '2026-09-09T10:00:01.000Z',
         workspaceId: WORKSPACE_ID,
       });
-      theModelIs({ says: { ...SOMETHING_ELSE, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      theModelIs({ says: { ...SOMETHING_ELSE, panel: { panelId: compliance, reason: 'a compliance question', fit: 'clear' } } });
 
       await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
 
@@ -334,7 +370,7 @@ describe('Capture', () => {
       // here, is the one whose write meets the flag.
       const itemId = await captureANote();
       await untilTheNoteHasBeenRead(itemId);
-      theModelIs({ says: { ...A_READING, panel: { panelId: nextUp, reason: 'next in line' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: nextUp, reason: 'next in line', fit: 'clear' } } });
       reading.during = () => neverPropose(nextUp, true);
 
       await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
@@ -379,7 +415,7 @@ describe('Capture', () => {
     it('records no proposal for a filing made while the panel it proposed was flagged', async () => {
       const compliance = await aPanel('Compliance questions');
       const nextUp = await aPanel('Next up');
-      theModelIs({ says: { ...A_READING, panel: { panelId: nextUp, reason: 'next in line' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: nextUp, reason: 'next in line', fit: 'clear' } } });
       const first = await captureANote({ message: 'sign-off needed, who owns it' });
       await untilTheNoteHasBeenRead(first);
       // The Panel is written after the texts, so it is waited for rather than read at once.
@@ -403,7 +439,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v14.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v15.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {
@@ -419,7 +455,7 @@ describe('Capture', () => {
 
     it('names an earlier note and where it was filed, once one has been', async () => {
       const compliance = await aPanel('Compliance questions');
-      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question', fit: 'clear' } } });
       const first = await captureANote({ message: 'part 11 audit trail question' });
       await untilTheNoteHasBeenRead(first);
       await moveOnto(first, compliance);
@@ -437,7 +473,7 @@ describe('Capture', () => {
     it('names both the wrong and the right panel, once a proposal has been overridden', async () => {
       const compliance = await aPanel('Compliance questions');
       const laurens = await aPanel('Laurens');
-      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question', fit: 'clear' } } });
       const first = await captureANote({ message: 'sign-off needed, who owns it' });
       await untilTheNoteHasBeenRead(first);
       await moveOnto(first, laurens);
@@ -463,7 +499,7 @@ describe('Capture', () => {
       const secondDashboard = await aDashboard();
       const proposed = await aPanelOn(firstDashboard, 'Notes');
       const chosen = await aPanelOn(secondDashboard, 'Notes');
-      theModelIs({ says: { ...A_READING, panel: { panelId: proposed, reason: 'looked like notes' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: proposed, reason: 'looked like notes', fit: 'clear' } } });
       const first = await captureANote({ message: 'sign-off needed, who owns it' });
       await untilTheNoteHasBeenRead(first);
       await moveOnto(first, chosen);

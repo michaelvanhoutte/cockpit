@@ -66,6 +66,17 @@ export const STATED_DUE_DATE = `Where the note names the day something is due - 
 export const STATED_WORKSPACE = `Where a list of workspaces is given further down and the note itself says which one it is for - "for Home", "voor werk", "in the Work workspace" - give that workspace, written exactly as the list spells it. Read a workspace only from words that say it. Never read one from what the work is about, and where the note names none, names one that is not on the list, or where no list is given, leave the workspace out. Once you have read a workspace, leave the words you read it from out of the title; the message keeps them.`;
 
 /**
+ * When a note is given a Panel, and how sure the answer says it is ("Propose
+ * the closest Panel at capture, and draw a less certain one dashed", issue
+ * 1107): the closest Panel wherever one plausibly fits, none only for a note
+ * that fits none, and `clear` or `closest` beside it. `v14` held back - "a
+ * panel is not owed a note merely for being the closest match" - and was
+ * measured answering none for notes the person then filed on a Panel. Its own
+ * constant for the reason `STATED_PRIORITY` is.
+ */
+export const PANEL_FIT = `The panels are buckets this account files its own notes into, each named for what belongs there. Where this note fits one of them, name its id, say in a few words why - about the note and the panel rather than about yourself, "a compliance question, about the validation protocol" rather than "I chose this because it mentions compliance" - and say how sure you are. Clear is for a note that plainly belongs on that panel, where a person filing their own notes would put it there without a second thought. Closest is for a note that plausibly fits that panel, better than any other offered, though it was not plainly made for it. Name the closest panel wherever one plausibly fits: the person has to file the note somewhere, and a near miss they can correct helps them more than nothing. Name none only for a note that fits none of the panels at all - a shopping list against panels for work, or a note about something no panel is about.`;
+
+/**
  * Every word of the system prompt that is the same for every note and every
  * account - the rules and the worked examples - and nothing else.
  *
@@ -122,9 +133,9 @@ ${STATED_WORKSPACE}
 
 Further down, after the examples, you are given what is this account's own: the workspaces the note may be for, where it is not yet in one, the panels it has already set up, its decision history, and what else has been captured recently.
 
-The panels are buckets this account files its own notes into, each named for what belongs there. Where this note clearly belongs on one of them, name its id and say in a few words why, about the note and the panel rather than about yourself - "a compliance question, about the validation protocol" rather than "I chose this because it mentions compliance". Most notes belong on none of them: a panel is not owed a note merely for being the closest match, and naming the wrong one costs more than naming none. Only name one where you are confident a person filing their own notes would put it there themselves.
+${PANEL_FIT}
 
-The decision history is this account's most recent settled filings, oldest first, with what you proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones still say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for a while and an older habit can still hold. Where an entry shows you proposed one panel and they filed it on another, that correction outweighs an entry where they simply accepted what you proposed - it names a wrong answer as well as a right one, so read it as the stronger signal. Where such a correction concerns a note of the same kind as this one, it is the confidence the paragraph above asks for: name the panel they filed that one on, rather than none, even where this note never says which panel it is for.
+The decision history is this account's most recent settled filings, oldest first, with what you proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones still say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for a while and an older habit can still hold. Where an entry shows you proposed one panel and they filed it on another, that correction outweighs an entry where they simply accepted what you proposed - it names a wrong answer as well as a right one, so read it as the stronger signal. Where such a correction concerns a note of the same kind as this one, name the panel they filed that one on, rather than none or the one you proposed then, even where this note never says which panel it is for.
 
 What else has been captured in this workspace recently and not yet filed is separate from the history, because none of it has been decided yet. It is still evidence: what somebody is writing notes about right now, before any of it has a destination. Weigh it alongside the history, never above it - an actual past decision is a stronger signal than a guess at a pattern in still-unfiled notes.
 
@@ -135,28 +146,28 @@ language: English
 title: Clarify who signs off the Part 11 audit trail
 message: Find out who signs off on the Part 11 audit trail for the validation protocol, and have it clear by end of day.
 readings: []
-panel: (none of the panels offered clearly fit)
+panel: (none of the panels offered fits)
 
 Note: bellen novy ivm afspraak volgende week, niet voor 10u
 language: Dutch
 title: Novy bellen over de afspraak van volgende week
 message: Novy bellen in verband met de afspraak van volgende week. Niet voor 10 uur bellen.
 readings: []
-panel: (none of the panels offered clearly fit)
+panel: (none of the panels offered fits)
 
 Note: check of de deploy erdoor is + mail naar Anna re invoice
 language: English and Dutch
 title: Deploy nakijken en Anna mailen over de factuur
 message: Nakijken of de deploy erdoor is en daarna Anna mailen over de factuur.
 readings: []
-panel: (none of the panels offered clearly fit)
+panel: (none of the panels offered fits)
 
 Note: standup is too long, half the room has nothing to say
 language: English
 title: Record that standup runs too long
 message: Record that standup is too long and that half the room has nothing to say.
 readings: []
-panel: (none of the panels offered clearly fit)
+panel: (none of the panels offered fits)
 
 Note: call bob re contract renewal, urgent
 language: English
@@ -164,7 +175,7 @@ title: Call Bob about the contract renewal
 message: Call Bob about the contract renewal. Urgent.
 readings: []
 priority: high
-panel: (none of the panels offered clearly fit)
+panel: (none of the panels offered fits)
 
 Note: send anna the q3 numbers friday
 (captured on Tuesday 2026-10-13)
@@ -173,7 +184,7 @@ title: Send Anna the Q3 numbers
 message: Send Anna the Q3 numbers on Friday.
 readings: []
 dueDate: 2026-10-16
-panel: (none of the panels offered clearly fit)
+panel: (none of the panels offered fits)
 
 Note: renew the car insurance, for home
 (the workspaces offered include "Home")
@@ -182,7 +193,7 @@ title: Renew the car insurance
 message: Renew the car insurance, for Home.
 readings: []
 workspace: Home
-panel: (none of the panels offered clearly fit)
+panel: (none of the panels offered fits)
 
 Note: call jan
 language: English
@@ -192,14 +203,18 @@ readings:
 - title: Call in January
   message:
   meaning: "'jan' is short for the month January"
-panel: (none of the panels offered clearly fit)
+panel: (none of the panels offered fits)
 
 Note: part 11 audit trail q for validation protocol, who signs off eod
 (the first example above, once more, now that one of the panels offered is called "Compliance questions")
-panel: Compliance questions, because it's a compliance question - Part 11 and the validation protocol`;
+panel: Compliance questions, clear, because it's a compliance question - Part 11 and the validation protocol
+
+Note: book a table for the board dinner after the agm
+(the panels offered are "Board meetings", "Marketing" and "Travel", none of them made for dinners)
+panel: Board meetings, closest, because the dinner is for the board, though it is not a meeting`;
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 13.
+ * What Cockpit asks Claude for when a note has been captured, version 15.
  * `v7` ("Learn how you write from the titles you correct", issue 394; "Show
  * what Cockpit is told, and say how you want it changed", issue 398; "Pin an
  * example of how you want a note written", issue 397) added `corrections`,
@@ -270,6 +285,12 @@ panel: Compliance questions, because it's a compliance question - Part 11 and th
  * not yet in a Workspace (`workspaces` is `null` otherwise), so a capture made
  * inside one is never asked, and a model is only ever shown names that are
  * this account's.
+ *
+ * **`v15` proposes the closest Panel, and says how sure it is** ("Propose the
+ * closest Panel at capture, and draw a less certain one dashed", issue 1107):
+ * `PANEL_FIT` in place of `v14`'s holding back, a `fit` of `clear` or
+ * `closest` beside the Panel in the schema, empty exactly when the Panel is,
+ * and a worked example of each.
  */
 export function buildCleanUpANote(
   routing: RoutingInputs,
@@ -278,7 +299,7 @@ export function buildCleanUpANote(
   day: CaptureDay | null,
   workspaces: readonly string[] | null = null,
 ): {
-  version: 'v14';
+  version: 'v15';
   model: string;
   effort: 'low';
   system: { instructions: string; stable: string; recent: string };
@@ -317,11 +338,11 @@ export function buildCleanUpANote(
   ].join('\n\n');
 
   return {
-    version: 'v14',
+    version: 'v15',
 
     /**
      * Sonnet 5.5, on the 20-capture comparison above, and held to the same
-     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v14.test.ts`).
+     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v15.test.ts`).
      * Haiku 5.5 was compared too and gave three titles of another note and
      * three rejected answers, so this is the cheapest model that held the
      * comparison, not the cheapest there is.
@@ -391,21 +412,27 @@ export function buildCleanUpANote(
         panel: {
           type: 'object',
           description:
-            'Which of the panels listed above this note belongs on, or that none of them genuinely fits - the common case, and a real answer.',
+            'Which of the panels listed above this note fits best, and how sure that is - or that none of them fits at all.',
           properties: {
             panelId: {
               type: 'string',
               enum: [...routing.panels.map((panel) => panel.id), ''],
               description:
-                'The id of the one panel this note clearly belongs on, copied exactly from the list above - or the empty string where none of them does.',
+                'The id of the panel this note fits best, copied exactly from the list above - or the empty string only where none of them fits at all.',
             },
             reason: {
               type: 'string',
               description:
                 'A few words saying why, about the note and the panel rather than about yourself. Empty exactly when panelId is empty.',
             },
+            fit: {
+              type: 'string',
+              enum: ['clear', 'closest', ''],
+              description:
+                'clear where the note plainly belongs on that panel; closest where it plausibly fits there, better than on any other, without plainly belonging. Empty exactly when panelId is empty.',
+            },
           },
-          required: ['panelId', 'reason'],
+          required: ['panelId', 'reason', 'fit'],
           additionalProperties: false,
         },
         // Optional, unlike every field above: most notes say nothing about

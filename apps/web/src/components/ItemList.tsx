@@ -8,6 +8,7 @@ import {
   workspaceIsDecided,
   type Agent,
   type Item,
+  type PanelFit,
 } from '@cockpit/shared';
 import {
   snapshotQuery,
@@ -417,12 +418,19 @@ export function ItemList({
    */
   const routingProposalFor = (
     item: Item,
-  ): { dashboardName: string; panelName: string; reason: string } | undefined => {
+  ): { dashboardName: string; panelName: string; reason: string; fit: PanelFit } | undefined => {
     if (!item.proposedPanelId) return undefined;
     const panel = data?.panels.find((p) => p.id === item.proposedPanelId && !p.neverPropose);
     const dashboard = data?.dashboards.find((d) => d.id === panel?.dashboardId);
     return panel && dashboard
-      ? { dashboardName: dashboard.name, panelName: panel.name, reason: item.proposedPanelReason ?? '' }
+      ? {
+          dashboardName: dashboard.name,
+          panelName: panel.name,
+          reason: item.proposedPanelReason ?? '',
+          // Anything but closest reads as clear: a proposal from before fits
+          // were said, and an Item restored from a copy kept before it (issue 1107).
+          fit: item.proposedPanelFit === 'closest' ? 'closest' : 'clear',
+        }
       : undefined;
   };
 

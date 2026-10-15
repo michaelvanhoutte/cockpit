@@ -480,7 +480,7 @@ describe('What Cockpit changed', () => {
     it('a refresh after you file another item looks at the panel alone, from the panel the item had', async () => {
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
       const panelId = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`);
-      theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits', fit: 'clear' } } });
       const itemId = await captureANote();
       await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('rewritten'), {
         timeout: 15_000,
@@ -526,7 +526,7 @@ describe('What Cockpit changed', () => {
     it('goes from none to the panel proposed', async () => {
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
       const panelId = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`);
-      theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits', fit: 'clear' } } });
       const itemId = await captureANote();
 
       // Waited on whole rather than on the status alone: the row reads
@@ -552,7 +552,7 @@ describe('What Cockpit changed', () => {
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
       const proposed = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`);
       const filedOn = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`, 'Somewhere else');
-      theModelIs({ says: { ...A_READING, panel: { panelId: proposed, reason: 'it fits' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId: proposed, reason: 'it fits', fit: 'clear' } } });
       holdTheModel();
       const itemId = await captureANote();
       await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('pending'), {
@@ -603,7 +603,7 @@ describe('What Cockpit changed', () => {
     /** An item whose second attempt started from the panel its first proposed, so the row holds both. */
     async function aRefinedItem(panelId: string): Promise<string> {
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
-      theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits' } } });
+      theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits', fit: 'clear' } } });
       const itemId = await captureANote();
       await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('rewritten'), {
         timeout: 15_000,

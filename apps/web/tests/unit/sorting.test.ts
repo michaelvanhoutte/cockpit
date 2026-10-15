@@ -40,6 +40,7 @@ function anItem(
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,
+    proposedPanelFit: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,

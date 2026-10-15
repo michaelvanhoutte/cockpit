@@ -760,7 +760,7 @@ function writeFiling(
   // so an Item that returns to the Inbox and is filed again cannot have its
   // original proposal misattributed to a decision it was never shown for.
   tx.update(items)
-    .set({ proposedPanelId: null, proposedPanelReason: null })
+    .set({ proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null })
     .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
     .run();
 }

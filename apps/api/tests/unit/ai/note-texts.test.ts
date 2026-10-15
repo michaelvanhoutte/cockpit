@@ -214,23 +214,40 @@ describe('Capture', () => {
         panel,
       });
 
-    it('keeps a panel proposal whose id was genuinely offered', () => {
+    // "Propose the closest Panel at capture, and draw a less certain one dashed" (issue 1107).
+    it.each([
+      { situation: 'clear', fit: 'clear' },
+      { situation: 'the closest match', fit: 'closest' },
+    ])('keeps a panel proposal whose id was genuinely offered, said to be $situation', ({ fit }) => {
       const read = readProposal(
-        answer({ panelId: 'panel-1', reason: "it's a compliance question" }),
+        answer({ panelId: 'panel-1', reason: "it's a compliance question", fit }),
         ['panel-1', 'panel-2'],
       );
 
       expect('proposal' in read && read.proposal.panel).toEqual({
         panelId: 'panel-1',
         reason: "it's a compliance question",
+        fit,
       });
+    });
+
+    // As a missing reason is, below: a proposal that will not say how sure it is is not one (issue 1107).
+    it.each([
+      { situation: 'without saying how sure it is', fit: undefined },
+      { situation: 'saying it is sure of nothing', fit: '' },
+      { situation: 'with a sureness Cockpit does not draw', fit: 'likely' },
+    ])('reads a named panel $situation as no proposal, leaving the texts untouched', ({ fit }) => {
+      const read = readProposal(answer({ panelId: 'panel-1', reason: 'a reason', ...(fit === undefined ? {} : { fit }) }), ['panel-1']);
+
+      expect('proposal' in read && read.proposal.panel).toBeNull();
+      expect('proposal' in read && read.proposal.title).toBe('Part 11 audit trail question');
     });
 
     it.each([
       { situation: 'the empty string - the model proposing nothing', panelId: '' },
       { situation: 'an id never offered on this call', panelId: 'panel-9' },
     ])('reads $situation as no proposal, leaving the texts untouched', ({ panelId }) => {
-      const read = readProposal(answer({ panelId, reason: 'a reason' }), ['panel-1', 'panel-2']);
+      const read = readProposal(answer({ panelId, reason: 'a reason', fit: 'clear' }), ['panel-1', 'panel-2']);
 
       expect('proposal' in read && read.proposal.panel).toBeNull();
       expect('proposal' in read && read.proposal.title).toBe('Part 11 audit trail question');
@@ -245,7 +262,7 @@ describe('Capture', () => {
      * actually enforced.
      */
     it('reads a named panel with no reason as no proposal', () => {
-      const read = readProposal(answer({ panelId: 'panel-1', reason: '' }), ['panel-1']);
+      const read = readProposal(answer({ panelId: 'panel-1', reason: '', fit: 'clear' }), ['panel-1']);
 
       expect('proposal' in read && read.proposal.panel).toBeNull();
     });
@@ -346,9 +363,10 @@ describe('Triage', () => {
 
     it.each([
       {
+        // Not asked how sure it is until the refresh's own prompt asks (issue 1107), so it says nothing.
         situation: 'a panel that was offered, with a reason',
         raw: JSON.stringify({ panelId: 'panel-1', reason: 'a compliance question' }),
-        expected: { panel: { panelId: 'panel-1', reason: 'a compliance question' } },
+        expected: { panel: { panelId: 'panel-1', reason: 'a compliance question', fit: null } },
       },
       {
         situation: 'the empty id - the model proposing nothing',

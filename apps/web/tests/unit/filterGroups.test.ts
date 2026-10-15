@@ -30,6 +30,7 @@ function anItem(id: string): Item {
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,
+    proposedPanelFit: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,

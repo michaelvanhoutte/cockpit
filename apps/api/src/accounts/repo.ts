@@ -640,6 +640,7 @@ const itemColumns = {
   readings: items.readings,
   proposedPanelId: items.proposedPanelId,
   proposedPanelReason: items.proposedPanelReason,
+  proposedPanelFit: items.proposedPanelFit,
   sourceResolvedAt: items.sourceResolvedAt,
   nextAction: items.nextAction,
   completedAt: items.completedAt,

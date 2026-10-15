@@ -31,6 +31,7 @@ import type {
   ItemFormPresentation,
   ItemReading,
   PanelFormat,
+  PanelFit,
   Priority,
   Source,
   StoredPanelKind,
@@ -946,7 +947,7 @@ export const items = sqliteTable(
      * The Panel Cockpit proposes this Item belongs on, and why - offered
      * rather than filed ("Propose where a captured note belongs, without
      * filing it there", issue 298). Null where nothing was proposed, which is
-     * the common case and a real answer.
+     * a real answer.
      *
      * **No settled flag beside it, unlike `texts_settled_at` above.** A
      * routing settles by being filed, which is a row in `panel_items` and not
@@ -961,6 +962,14 @@ export const items = sqliteTable(
      */
     proposedPanelId: text('proposed_panel_id').references(() => panels.id, { onDelete: 'restrict' }),
     proposedPanelReason: text('proposed_panel_reason'),
+    /**
+     * How sure the proposal above is, `clear` or `closest` ("Propose the
+     * closest Panel at capture, and draw a less certain one dashed", issue
+     * 1107). NULL where nothing said - every proposal from before it, and a
+     * re-proposal not asked - which reads as `clear`. No CHECK, for the reason
+     * `proposed_panel_id` has none.
+     */
+    proposedPanelFit: text('proposed_panel_fit').$type<PanelFit>(),
     /**
      * What kind of thing it is ("Capture a thought or an action, and see which
      * it is", issue 155). Nullable, which is what let it be added at all:
@@ -1193,6 +1202,13 @@ export const decisionHistory = sqliteTable(
       .references(() => items.id, { onDelete: 'restrict' }),
     proposedPanelId: text('proposed_panel_id').references(() => panels.id, { onDelete: 'restrict' }),
     proposedPanelReason: text('proposed_panel_reason'),
+    /**
+     * How sure the proposal this filing accepted or overrode was, copied from
+     * the Item's `proposed_panel_fit` with the two columns above - so the hit
+     * rate of `clear` proposals can be read on its own (issue 1107). NULL on
+     * every entry from before it, and wherever the Item's own was.
+     */
+    proposedPanelFit: text('proposed_panel_fit').$type<PanelFit>(),
     chosenPanelId: text('chosen_panel_id')
       .notNull()
       .references(() => panels.id, { onDelete: 'restrict' }),

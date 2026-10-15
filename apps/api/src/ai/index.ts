@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
 import { callThrough, inRealTime, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
 import { providerCallsIn } from '../gateway/record.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v14.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v15.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v2.js';
 import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
 import type { CaptureDay } from '../domain/capture-day.js';
@@ -16,7 +16,7 @@ export type { ItemToPlace } from './prompts/choose-a-panel.v2.js';
  * The prompt files the two calls are built from, as a record names them -
  * changed with the import above them when a prompt gets a new version.
  */
-const CLEAN_UP_A_NOTE = 'clean-up-a-note.v14';
+const CLEAN_UP_A_NOTE = 'clean-up-a-note.v15';
 const CHOOSE_A_PANEL = 'choose-a-panel.v2';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
@@ -42,8 +42,9 @@ export interface CallFor {
  * ("Clean up a captured note into a clear title and a fuller message", issue
  * 296), which also answers with the other ways the note could genuinely be
  * read ("Offer the other readings when a captured note says two things",
- * issue 297) and which Panel it belongs on, where one clearly fits ("Propose
- * where a captured note belongs, without filing it there", issue 298) - one
+ * issue 297) and the Panel it fits best, where one plausibly fits ("Propose
+ * the closest Panel at capture, and draw a less certain one dashed", issue
+ * 1107) - one
  * call on capture, since both halves are wanted then. The re-read of the rest
  * of an inbox after a filing wants only the Panel, so it asks for only that
  * (`choosePanel`; issue 583) rather than paying for both and throwing one

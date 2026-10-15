@@ -38,6 +38,15 @@ export type Source = z.infer<typeof sourceSchema>;
 export const prioritySchema = z.enum(['low', 'normal', 'high']);
 export type Priority = z.infer<typeof prioritySchema>;
 
+/**
+ * How sure a proposed Panel is ("Propose the closest Panel at capture, and
+ * draw a less certain one dashed", issue 1107): `clear` where the note plainly
+ * belongs there, `closest` where it only fits there better than anywhere else.
+ * Two values rather than a number, because the screen draws two kinds of chip.
+ */
+export const panelFitSchema = z.enum(['clear', 'closest']);
+export type PanelFit = z.infer<typeof panelFitSchema>;
+
 /** How long a title may be. A product number, not a storage one (architecture.md §4.4, "packages/shared: schema and command rationale"). */
 export const TITLE_LENGTH = 200;
 
@@ -148,6 +157,8 @@ export const itemSchema = z.object({
   proposedPanelId: z.uuid().nullable(),
   /** Why, beside the Panel above — in words meant for the row's own hover text. Null exactly when `proposedPanelId` is. */
   proposedPanelReason: z.string().nullable(),
+  /** How sure Cockpit is of the Panel above ("Propose the closest Panel at capture, and draw a less certain one dashed", issue 1107). Null where nothing said, which reads as `clear`: every proposal from before it, and every re-proposal until it says too. */
+  proposedPanelFit: panelFitSchema.nullable(),
   /** The current, always-editable next-action label (functional-definition.md §6.1). */
   nextAction: z.string().nullable(),
   /** When this was finished with — a time rather than a flag ("An item is either yours to deal with or finished with", issue 154; architecture.md §4.4). App-owned: a re-sync never clears it. */
