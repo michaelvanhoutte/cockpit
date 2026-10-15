@@ -140,6 +140,7 @@ import {
 } from './repo.js';
 import { couldStillBeActedOn, pairOf, saidAgainBy } from '../domain/duplicates.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
   correctionStillVisible,
@@ -447,6 +448,34 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         (panel) => panelTakesItems(panel) && !panel.neverPropose,
       );
     });
+  }
+
+  /**
+   * The names of the places a capture may reach - every live Workspace, or
+   * only `workspaceId` where it is given - with each one's live Dashboards and
+   * their live Panels, of every kind and Never propose or not ("File a capture
+   * on the panels you name, read from the spoken path", issue 1116). What a
+   * place the note names is read against. Empty where `workspaceId` has gone.
+   */
+  placeTree(accountName: string, workspaceId: string | null): Answer<PlaceTreeWorkspace[]> {
+    return this.#answer(accountName, (db) =>
+      listWorkspaces(db, accountName)
+        .filter((workspace) => workspaceId === null || workspace.id === workspaceId)
+        .map((workspace) => {
+          const panels = listPanelsInWorkspace(db, accountName, workspace.id);
+          return {
+            id: workspace.id,
+            name: workspace.name,
+            dashboards: listDashboards(db, accountName, workspace.id).map((dashboard) => ({
+              id: dashboard.id,
+              name: dashboard.name,
+              panels: panels
+                .filter((panel) => panel.dashboardId === dashboard.id)
+                .map((panel) => ({ id: panel.id, name: panel.name, kind: panel.kind })),
+            })),
+          };
+        }),
+    );
   }
 
   /**

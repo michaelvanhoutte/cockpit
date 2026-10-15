@@ -258,8 +258,9 @@ export function dueDateIsOpen(item: Pick<Item, 'dueDate' | 'dueDateChosenAt'>): 
  * decides a reading is worth asking for once the texts are settled. The due
  * date counts only where the day the note was captured on is known, since
  * without one no due date is asked for, and the Workspace only where the Item
- * belongs to none yet and the account has a Workspace to name ("Settle an Any
- * workspace capture in the workspace you name", issue 1078).
+ * belongs to none yet and a place may be read ("Settle an Any workspace capture
+ * in the workspace you name", issue 1078; read from the spoken path since
+ * issue 1116).
  */
 export function aStatedFieldIsOpen(
   item: Pick<Item, 'priority' | 'prioritySetAt' | 'dueDate' | 'dueDateChosenAt' | 'workspaceDecided'>,
@@ -277,6 +278,8 @@ export interface FieldsSet {
   dueDate?: string | undefined;
   /** The Workspace the Item was settled in. */
   workspaceId?: string | undefined;
+  /** The Panels the Item was filed on, where the note named them ("File a capture on the panels you name, read from the spoken path", issue 1116). */
+  filedOnPanelIds?: string[] | undefined;
 }
 
 /**

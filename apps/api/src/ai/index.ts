@@ -2,22 +2,25 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
 import { callThrough, inRealTime, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
 import { providerCallsIn } from '../gateway/record.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v14.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v15.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v2.js';
-import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
+import { buildResolveAPlace } from './prompts/resolve-a-place.v1.js';
+import { readPanelChoice, readPlace, readProposal, type PanelRead, type PlaceRead, type ProposalRead } from './note-texts.js';
+import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { CaptureDay } from '../domain/capture-day.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
-export type { NoteTexts, PanelRead, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
+export type { NoteTexts, PanelRead, PlaceRead, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
 export type { ItemToPlace } from './prompts/choose-a-panel.v2.js';
 
 /**
  * The prompt files the two calls are built from, as a record names them -
  * changed with the import above them when a prompt gets a new version.
  */
-const CLEAN_UP_A_NOTE = 'clean-up-a-note.v14';
+const CLEAN_UP_A_NOTE = 'clean-up-a-note.v15';
 const CHOOSE_A_PANEL = 'choose-a-panel.v2';
+const RESOLVE_A_PLACE = 'resolve-a-place.v1';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
 export interface CallFor {
@@ -93,10 +96,9 @@ export interface AiService {
    * date unasked for ("Read a due date you say when you capture, on your own
    * calendar", issue 1077).
    *
-   * `workspaces` is the names of the account's live Workspaces where the note
-   * is not in one yet, and null where it is - the only names the model is
-   * shown, and none at all for a note that cannot move ("Settle an Any
-   * workspace capture in the workspace you name", issue 1078).
+   * No Workspace name is shown: the answer's `place` is the words the note
+   * said about where it goes, which `resolvePlace` reads ("File a capture on
+   * the panels you name, read from the spoken path", issue 1116).
    *
    * `callFor` names whom the call is for in its record, never in the prompt.
    */
@@ -108,9 +110,16 @@ export interface AiService {
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
     day: CaptureDay | null,
-    workspaces: readonly string[] | null,
     callFor: CallFor,
   ): Promise<ProposalRead>;
+
+  /**
+   * Which names of `tree` a note's place words mean - the Workspaces the
+   * capture may reach, their Dashboards and Panels, by name only (issue
+   * 1116). Asked only where there are words. Refuses and throws on the same
+   * terms as `cleanUpNote`.
+   */
+  resolvePlace(words: string, tree: readonly PlaceTreeWorkspace[], callFor: CallFor): Promise<PlaceRead>;
 
   /**
    * Which of `panels` an Item belongs on, and nothing else - for a settled
@@ -237,10 +246,9 @@ export class ClaudeAiService implements AiService {
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
     day: CaptureDay | null,
-    workspaces: readonly string[] | null,
     callFor: CallFor,
   ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote({ panels, history, recentlyCaptured }, corrections, stood, day, workspaces);
+    const prompt = buildCleanUpANote({ panels, history, recentlyCaptured }, corrections, stood, day);
     const answer = await this.#ask(prompt, capturedMessage, { ...callFor, operation: 'clean-up-a-note', promptVersion: CLEAN_UP_A_NOTE });
     return 'refused' in answer ? { discarded: answer.refused } : readProposal(answer.text, panels.map((panel) => panel.id));
   }
@@ -255,6 +263,12 @@ export class ClaudeAiService implements AiService {
     const prompt = buildChooseAPanel(item, panels, history, recentlyCaptured);
     const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'choose-a-panel', promptVersion: CHOOSE_A_PANEL });
     return 'refused' in answer ? { discarded: answer.refused } : readPanelChoice(answer.text, panels.map((panel) => panel.id));
+  }
+
+  async resolvePlace(words: string, tree: readonly PlaceTreeWorkspace[], callFor: CallFor): Promise<PlaceRead> {
+    const prompt = buildResolveAPlace(words, tree);
+    const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'resolve-a-place', promptVersion: RESOLVE_A_PLACE });
+    return 'refused' in answer ? { discarded: answer.refused } : readPlace(answer.text);
   }
 
   /** One call through the gateway, constrained to the prompt's own schema: its text, or that the model declined. */

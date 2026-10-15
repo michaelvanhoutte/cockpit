@@ -26,6 +26,7 @@ import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import type { UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 import type { RefreshAsk } from './debounce.js';
@@ -132,6 +133,13 @@ export interface Account {
    * else.
    */
   panelsThatTakeItems(workspaceId: string): Promise<Panel[]>;
+  /**
+   * The names of the places a capture may reach - every live Workspace where
+   * `workspaceId` is null, its own otherwise - with their live Dashboards and
+   * Panels ("File a capture on the panels you name, read from the spoken
+   * path", issue 1116). Read by the enrichment job and by nothing else.
+   */
+  placeTree(workspaceId: string | null): Promise<PlaceTreeWorkspace[]>;
   /**
    * What a routing proposal reads beside the note itself, in one round trip
    * ("Learn where notes belong from where you actually file them", issue
@@ -378,6 +386,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.attachmentExists(accountName, attachmentId)),
     panelsThatTakeItems: async (workspaceId) =>
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
+    placeTree: async (workspaceId) => unwrap(await store.placeTree(accountName, workspaceId)),
     routingContext: async (workspaceId, excludeItemId) =>
       unwrap(await store.routingContext(accountName, workspaceId, excludeItemId)),
     textLearningContext: async () => unwrap(await store.textLearningContext(accountName)),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readPanelChoice, readProposal } from '../../../src/ai/note-texts.js';
+import { readPanelChoice, readPlace, readProposal } from '../../../src/ai/note-texts.js';
 
 /**
  * L1: reading an answer back is a pure decision over a string, so every way an
@@ -66,7 +66,7 @@ describe('Capture', () => {
           panel: null,
           priority: null,
           dueDate: null,
-          workspace: null,
+          place: null,
         },
       });
     });
@@ -126,7 +126,7 @@ describe('Capture', () => {
           panel: null,
           priority: null,
           dueDate: null,
-          workspace: null,
+          place: null,
         },
       });
     });
@@ -190,7 +190,7 @@ describe('Capture', () => {
           panel: null,
           priority: null,
           dueDate: null,
-          workspace: null,
+          place: null,
         },
       });
     });
@@ -275,7 +275,7 @@ describe('Capture', () => {
           panel: null,
           priority: null,
           dueDate: null,
-          workspace: null,
+          place: null,
         },
       });
     });
@@ -318,18 +318,39 @@ describe('Capture', () => {
     });
   });
 
-  /** "Settle an Any workspace capture in the workspace you name" (issue 1078): read on its own, as a name, whose being one of the account's is the job's to decide. */
-  describe('a workspace the note names is read as a name, and never costs the note its texts', () => {
+  /** "File a capture on the panels you name, read from the spoken path" (issue 1116): the place words are read on their own, as words, whose meaning is a second call's. */
+  describe('the words saying where a note goes are read as words, and never cost the note its texts', () => {
     it.each([
-      { situation: 'the answer named one', workspace: ' Home ', expected: 'Home' },
-      { situation: 'the answer named none', workspace: undefined, expected: null },
-      { situation: 'the answer named an empty one', workspace: '  ', expected: null },
-      { situation: 'the answer named something that is not a name', workspace: 7, expected: null },
-    ])('when $situation', ({ workspace, expected }) => {
-      const read = readProposal(JSON.stringify({ ...JSON.parse(usable), ...(workspace === undefined ? {} : { workspace }) }), []);
+      { situation: 'the answer gave some', place: ' Day to day, admin and money ', expected: 'Day to day, admin and money' },
+      { situation: 'the answer gave none', place: undefined, expected: null },
+      { situation: 'the answer gave empty words', place: '  ', expected: null },
+      { situation: 'the answer gave something that is not words', place: 7, expected: null },
+    ])('when $situation', ({ place, expected }) => {
+      const read = readProposal(JSON.stringify({ ...JSON.parse(usable), ...(place === undefined ? {} : { place }) }), []);
 
-      expect('proposal' in read && read.proposal.workspace).toBe(expected);
+      expect('proposal' in read && read.proposal.place).toBe(expected);
       expect('proposal' in read && read.proposal.title).toBe('Ask Novy about the Part 11 audit trail');
+    });
+  });
+
+  /** The names a note's place words mean, read back from the second call (issue 1116): anything that is not an answer files nothing. */
+  describe('the places a note names are read back as names, and an answer that is not one files nothing', () => {
+    it.each([
+      {
+        situation: 'a workspace, a dashboard and two panels',
+        raw: JSON.stringify({ workspace: 'Home', dashboard: ' Day to day ', panels: ['Admin & money', 'This week'] }),
+        expected: { named: { workspace: 'Home', dashboard: 'Day to day', panels: ['Admin & money', 'This week'] } },
+      },
+      {
+        situation: 'empty names, which name nothing',
+        raw: JSON.stringify({ workspace: '', dashboard: '', panels: ['', ' '] }),
+        expected: { named: { workspace: null, dashboard: null, panels: [] } },
+      },
+      { situation: 'prose', raw: 'Admin & money', expected: { discarded: 'the answer was not JSON' } },
+      { situation: 'JSON that is not a place', raw: '{"panel":"Admin & money"}', expected: { discarded: 'the answer was not a place' } },
+      { situation: 'no text at all', raw: undefined, expected: { discarded: 'the answer carried no text' } },
+    ])('reads $situation', ({ raw, expected }) => {
+      expect(readPlace(raw)).toEqual(expected);
     });
   });
 });

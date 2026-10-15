@@ -267,6 +267,70 @@ function decideFiling(
   };
 }
 
+/** A Panel a note named, as loaded when the filing is written: null where it has gone or is not in the Item's Workspace. */
+export interface NamedPanel extends FilingTarget {
+  /** What it holds now, in order. */
+  held: readonly Filing[];
+}
+
+/** What filing a note on the Panels it named writes: each Panel's whole order, and the one decision it settles. */
+export interface FiledWhereSaid {
+  panels: { panelId: string; rows: FilingRow[] }[];
+  decision: DecisionHistoryRow;
+}
+
+/**
+ * Filing a captured note on the Panels it named, as the person's own filing
+ * ("File a capture on the panels you name, read from the spoken path", issue
+ * 1116) - or null where nothing is filed. Never reads: `named` and
+ * `alreadyFiled` say what the store holds when this is written.
+ *
+ * **First answer wins.** An Item already on a Panel, dismissed, finished with,
+ * or in no Workspace yet is left alone, whatever the note said.
+ *
+ * **At the top of each Panel**, the rest of its order kept below. A Panel set
+ * to Never propose is filed on all the same: that setting stops Cockpit
+ * suggesting it, not the person choosing it. A Filter or a Panel of text never
+ * is, and with no Panel left nothing is filed.
+ *
+ * **One decision, with no proposal**: the routing settles once, on the first
+ * Panel named, as a person's first filing does, and whatever was proposed is
+ * withdrawn rather than recorded as overridden - the note said where it goes,
+ * so no proposal was weighed.
+ */
+export function decideFilingWhereSaid(
+  item: Item,
+  cmd: { commandId: string; issuedAt: string },
+  named: readonly (NamedPanel | null)[],
+  alreadyFiled: boolean,
+): FiledWhereSaid | null {
+  if (alreadyFiled || item.deletedAt !== null || item.completedAt !== null || !item.workspaceDecided) return null;
+  const seen = new Set<string>();
+  const panels = named.filter((panel): panel is NamedPanel => {
+    if (panel === null || !panelTakesItems(panel) || seen.has(panel.id)) return false;
+    seen.add(panel.id);
+    return true;
+  });
+  const first = panels[0];
+  if (!first) return null;
+  return {
+    panels: panels.map((panel) => ({
+      panelId: panel.id,
+      rows: filingRows(item.tenantId, {
+        itemId: item.id,
+        panelId: panel.id,
+        order: [item.id, ...panel.held.map((filing) => filing.itemId).filter((id) => id !== item.id)],
+        issuedAt: cmd.issuedAt,
+      }),
+    })),
+    decision: decisionHistoryEntryFor(
+      { ...item, proposedPanelId: null, proposedPanelReason: null },
+      { ...cmd, workspaceId: item.workspaceId },
+      first.id,
+    ),
+  };
+}
+
 /** Moving an Item onto a Panel, or off every one to the Inbox: it is taken off the Panels it was on. */
 export function decideMoveToPanel(
   cmd: MoveItemToPanelCommand,
