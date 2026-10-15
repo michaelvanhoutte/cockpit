@@ -26,7 +26,7 @@ describe('Harness Monitor', () => {
 
       expect(html).toMatch(/<button type="submit" name="group" value="day" aria-pressed="true">Over time<\/button>/);
       expect(html).toContain('aria-label="Cost by day"');
-      expect(html).toContain('<th scope="col" class="first">Day</th>');
+      expect(html).toContain('<th scope="col" class="first">Day ▾</th>');
       expect(costRows(html).map((r) => [r.label, r.total])).toEqual([
         ['2026-10-02', '$1.00'],
         ['2026-10-01', '$5.00'],

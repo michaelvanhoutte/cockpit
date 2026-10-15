@@ -30,7 +30,7 @@ const sessions = () =>
   ]);
 
 /** Each row as label, total, then the seven categories. */
-const rows = async (group: string) => costRows(await thePage(`?period=all&group=${group}`)).map((r) => [r.label, r.total, ...r.categories]);
+const rows = async (group: string, sort = 'total') => costRows(await thePage(`?period=all&group=${group}&sort=${sort}`)).map((r) => [r.label, r.total, ...r.categories]);
 
 describe('Harness Monitor', () => {
   describe("each group's total is the sum of its requests", () => {
@@ -87,7 +87,7 @@ describe('Harness Monitor', () => {
         spend('d3', 5, { time: '2026-10-03T01:30:00+02:00', branch: 'b/11' }),
       ]);
 
-      expect((await rows('day')).map((r) => [r[0], r[1]])).toEqual([
+      expect((await rows('day', 'default')).map((r) => [r[0], r[1]])).toEqual([
         ['2026-10-03', '$1.00'],
         ['2026-10-02', '$6.00'],
         ['2026-10-01', '$13.75'],

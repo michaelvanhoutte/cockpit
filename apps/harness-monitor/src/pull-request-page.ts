@@ -79,7 +79,7 @@ function filters(page: PullRequestPage): string {
     .map(([v, t]) => `<option value="${esc(v)}"${v === (q.model ?? '') ? ' selected' : ''}>${esc(t)}</option>`)
     .join('');
   const whos = WHOS.map((w) => `<option value="${w}"${w === q.who ? ' selected' : ''}>${WHO_LABELS[w]}</option>`).join('');
-  const csv = `/export.csv?pr=${page.number}${queryString(q, { engineer: null, group: DEFAULT_GROUP, split: 'phase', page: 1 }).replace('?', '&')}`;
+  const csv = `/export.csv?pr=${page.number}${queryString(q, { engineer: null, group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 }).replace('?', '&')}`;
   return `<form class="filters" method="get" action="/pr/${page.number}">
 <div class="field"><label for="period">Period</label><select id="period" name="period" onchange="this.form.submit()">${periods}</select></div>
 <div class="field"><label for="category">Category</label><select id="category" name="category" onchange="this.form.submit()">${cats}</select></div>
