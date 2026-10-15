@@ -18,13 +18,11 @@ export default function FileOnSearch({
   workspaces,
   chosen,
   onPick,
-  describedBy,
 }: {
   where: string | null;
   workspaces: readonly Workspace[];
   chosen: readonly string[];
   onPick: (option: FileOnOption) => void;
-  describedBy?: string | undefined;
 }) {
   const [typed, setTyped] = useState('');
   const reads = useQueries({
@@ -54,7 +52,8 @@ export default function FileOnSearch({
           // Never the form's: Enter here adds a Panel, it does not capture.
           if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
             event.preventDefault();
-            const top = matches[0];
+            // Nothing typed is not a choice: the first of the list is no match.
+            const top = typed.trim() === '' ? undefined : matches[0];
             if (top) pick(top);
           } else if (event.key === 'Escape' && typed !== '') {
             event.stopPropagation();
@@ -63,7 +62,6 @@ export default function FileOnSearch({
         }}
         placeholder="Find a Panel…"
         aria-label="Find a Panel to file on"
-        aria-describedby={describedBy}
         autoComplete="off"
         className="min-h-9 w-full rounded-md border border-shade/10 bg-field px-3 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none sm:min-h-0 sm:py-1 sm:text-[13px]"
       />

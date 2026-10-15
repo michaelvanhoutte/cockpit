@@ -1280,6 +1280,17 @@ describe('Capture', () => {
       expect(everythingAsked()).toEqual([]);
     });
 
+    it('adds nothing on Enter with nothing typed', async () => {
+      const user = await thePage();
+      await user.click(chip('Work'));
+      const search = await searching(user);
+      await waitFor(() => expect(offered().length).toBeGreaterThan(0));
+
+      await user.type(search, '{Enter}');
+
+      expect(screen.queryByRole('button', { name: /Do not file on/ })).toBeNull();
+    });
+
     it('says which Workspace is left out when it has not been read and there is no connection', async () => {
       const user = await thePage();
       held.snapshots = { 'ws-work': WORK_SNAPSHOT };
