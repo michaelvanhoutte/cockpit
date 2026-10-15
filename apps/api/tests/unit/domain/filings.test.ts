@@ -373,10 +373,16 @@ describe('Capture', () => {
     });
 
     it('records the one routing it settles with no proposal, whatever was proposed', () => {
-      const item = anItem({ proposedPanelId: 'heron', proposedPanelReason: 'looked like one' });
+      const item = anItem({ proposedPanelId: 'heron', proposedPanelReason: 'looked like one', proposedPanelFit: 'closest' });
 
       expect(decideFilingWhereSaid(item, SAID, [named(), null], false)?.decision).toEqual(
-        expect.objectContaining({ workspaceId: 'ws-work', chosenPanelId: 'falcon', proposedPanelId: null, proposedPanelReason: null }),
+        expect.objectContaining({
+          workspaceId: 'ws-work',
+          chosenPanelId: 'falcon',
+          proposedPanelId: null,
+          proposedPanelReason: null,
+          proposedPanelFit: null,
+        }),
       );
     });
   });
