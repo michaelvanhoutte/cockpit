@@ -28,7 +28,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v15.test.ts).
+ * (tests/contract/clean-up-a-note.v16.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -87,7 +87,7 @@ export const asked: { system: string; note: string; blocks: { text: string; cach
  * is the only way to reach the window an edit can land in: a person typing
  * while the model is reading.
  */
-export const reading: { during: (() => Promise<unknown>) | null } = { during: null };
+export const reading: { during: ((call: { system: string }) => Promise<unknown>) | null } = { during: null };
 
 /**
  * Puts a model on the network, and refuses every other address - so a case that
@@ -110,7 +110,7 @@ export function theModelIs(answering: Answering): void {
     const system = sent.system.map((block) => block.text).join('\n\n');
     asked.push({ system, note: sent.messages[0]!.content, blocks: sent.system, model: sent.model });
 
-    if (reading.during) await reading.during();
+    if (reading.during) await reading.during({ system });
 
     if (answering === 'fails') throw new Error('the model could not be reached');
     return Response.json({
@@ -230,6 +230,80 @@ export async function readAgain(): Promise<void> {
 
 /** Whether a call is a note being cleaned up, by the worked examples only that prompt carries. */
 export const isACleanUp = (call: { system: string }) => call.system.includes('Examples.');
+
+/** Whether a call is the read of which places a note's words mean, by the list of names only that prompt carries. */
+export const isAPlaceRead = (call: { system: string }) => call.system.includes('Places:');
+
+/** Whether a call is a Panel being chosen for an item, which is every call that is neither of the two above. */
+export const isAPanelChoice = (call: { system: string }) => !isACleanUp(call) && !isAPlaceRead(call);
+
+/** What `reading.during` runs: `meanwhile`, during the first call of the kind `which` picks out, and during no other. */
+export function duringThe(
+  which: (call: { system: string }) => boolean,
+  meanwhile: () => Promise<unknown>,
+): (call: { system: string }) => Promise<unknown> {
+  let ran = false;
+  return async (call) => {
+    if (ran || !which(call)) return;
+    ran = true;
+    await meanwhile();
+  };
+}
+
+/** The names the read of a note's place words answers with; each left out names nothing. */
+export interface PlaceAnswer {
+  workspace?: string;
+  dashboard?: string;
+  panels?: string[];
+}
+
+/**
+ * The calls one capture naming a place makes ("File a capture on the panels
+ * you name, read from the spoken path", issue 1116): the clean-up, which gives
+ * the words, and the read of which names they mean - or, with `place` null, a
+ * clean-up giving no words. `cleanUp` rides on the first, and `choosing`
+ * answers a Panel choice for the workspace the item moved to.
+ */
+export function theModelReadsAPlace(
+  place: PlaceAnswer | 'fails' | null,
+  { cleanUp = {}, choosing = null }: { cleanUp?: object; choosing?: unknown } = {},
+): void {
+  theModelIs({
+    by: (call) => {
+      if (isACleanUp(call)) return { ...A_READING, ...cleanUp, ...(place === null ? {} : { place: 'the words saying where' }) };
+      if (!isAPlaceRead(call)) return choosing;
+      if (place === 'fails') throw new Error('the model could not be reached');
+      return { workspace: place?.workspace ?? '', dashboard: place?.dashboard ?? '', panels: place?.panels ?? [] };
+    },
+  });
+}
+
+/** The Panels an item is filed on, each with its place there, read straight out of the store. */
+export async function panelsHolding(itemId: string): Promise<{ panelId: string; position: number }[]> {
+  const rows = await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+    sql
+      .exec<{ panel_id: string; position: number }>(
+        'SELECT panel_id, position FROM panel_items WHERE item_id = ? AND tenant_id = ? ORDER BY panel_id',
+        itemId,
+        ACCOUNT_NAME,
+      )
+      .toArray(),
+  );
+  return rows.map((row) => ({ panelId: row.panel_id, position: row.position }));
+}
+
+/** The settled routings recorded for an item, read straight out of the store. */
+export async function decisionsOn(itemId: string) {
+  return inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+    sql
+      .exec<{ workspace_id: string; chosen_panel_id: string; proposed_panel_id: string | null; proposed_panel_fit: string | null }>(
+        'SELECT workspace_id, chosen_panel_id, proposed_panel_id, proposed_panel_fit FROM decision_history WHERE item_id = ? AND tenant_id = ?',
+        itemId,
+        ACCOUNT_NAME,
+      )
+      .toArray(),
+  );
+}
 
 /**
  * The routing Cockpit proposed for an item, read straight out of the store -

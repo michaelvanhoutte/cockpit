@@ -1,5 +1,6 @@
 import { itemDescriptionSchema, itemTitleSchema, panelFitSchema, prioritySchema, type PanelFit, type Priority } from '@cockpit/shared';
 import { z } from 'zod';
+import type { PlaceNamed } from '../domain/spoken-path.js';
 
 /**
  * The texts Cockpit proposes for a captured note, and the reading of an
@@ -56,8 +57,8 @@ export interface NoteTexts {
   priority: Priority | null;
   /** The day the note named as due, `YYYY-MM-DD`, or null where it named none ("Read a due date you say when you capture, on your own calendar", issue 1077). */
   dueDate: string | null;
-  /** The Workspace name the note said it was for, as the model wrote it, or null where it named none ("Settle an Any workspace capture in the workspace you name", issue 1078). Whether it is one of the account's is the job's to decide. */
-  workspace: string | null;
+  /** The words in which the note said where it goes, as it said them, or null where it said none ("File a capture on the panels you name, read from the spoken path", issue 1116). Which places they mean is a second call's to read. */
+  place: string | null;
 }
 
 /**
@@ -201,14 +202,53 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
       ? (z.iso.date().safeParse((parsed as Record<string, unknown>).dueDate).data ?? null)
       : null;
 
-  // And a Workspace: a name is any non-empty text here - which Workspace it
-  // is, if any, is decided against the account's own (issue 1078).
-  const workspace =
+  // And the place words: any non-empty text here - which places they mean,
+  // if any, is read by a second call and decided against the account's own
+  // (issue 1116).
+  const place =
     typeof parsed === 'object' && parsed !== null
-      ? (z.string().trim().min(1).safeParse((parsed as Record<string, unknown>).workspace).data ?? null)
+      ? (z.string().trim().min(1).safeParse((parsed as Record<string, unknown>).place).data ?? null)
       : null;
 
-  return { proposal: { ...read.data, readings, panel, priority, dueDate, workspace } };
+  return { proposal: { ...read.data, readings, panel, priority, dueDate, place } };
+}
+
+/** The names a note's place words mean, or why nothing usable came back. */
+export type PlaceRead = { named: PlaceNamed } | { discarded: string };
+
+const placeAnswerSchema = z.object({
+  workspace: z.string(),
+  dashboard: z.string(),
+  panels: z.array(z.string()),
+});
+
+/**
+ * Reads a place answer (`resolve-a-place.v1`): empty names read as none, and
+ * an answer that is not one at all is discarded, which files nothing. Whether
+ * a name is one of the account's, and where it points, is
+ * `resolveSpokenPath`'s to decide, so nothing here checks a name against a
+ * list.
+ */
+export function readPlace(raw: unknown): PlaceRead {
+  if (typeof raw !== 'string') return { discarded: 'the answer carried no text' };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { discarded: 'the answer was not JSON' };
+  }
+
+  const read = placeAnswerSchema.safeParse(parsed);
+  if (!read.success) return { discarded: 'the answer was not a place' };
+  const named = (name: string) => (name.trim() === '' ? null : name.trim());
+  return {
+    named: {
+      workspace: named(read.data.workspace),
+      dashboard: named(read.data.dashboard),
+      panels: read.data.panels.map((panel) => panel.trim()).filter((panel) => panel !== ''),
+    },
+  };
 }
 
 /**

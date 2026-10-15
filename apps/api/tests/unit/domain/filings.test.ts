@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AddItemToPanelCommand, Filing, Item, MoveItemToPanelCommand } from '@cockpit/shared';
 import {
   decideAddToPanel,
+  decideFilingWhereSaid,
   decideMoveToPanel,
   filingRows,
   orderIsNotOfThePanel,
@@ -341,6 +342,48 @@ describe('Triage', () => {
       const outcome = decided(decideMoveToPanel(moving('b', 'falcon', ['b']), facts({ item })));
 
       expect(outcome.workspaceSettled?.workspaceId ?? null).toBe(settled ? 'ws-work' : null);
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * "File a capture on the panels you name, read from the spoken path" (issue
+   * 1116). Pure over the Item and the Panels as loaded; what the store reads
+   * and writes around it - a Panel gone, Never propose, two Panels, the
+   * proposal withdrawn - is apps/api/tests/integration/http/note-cleanup-path.test.ts.
+   */
+  describe('a note is filed where it said, at the top, only if nobody has dealt with it first', () => {
+    const SAID = { commandId: '018f0000-0000-7000-8000-000000000009', issuedAt: AT };
+    const named = (kind: 'items' | 'text' | 'filter' = 'items') => ({ ...FALCON, kind, held: held('falcon', ['a', 'c']) });
+
+    it.each([
+      { situation: 'a note waiting in the Inbox', item: anItem(), panel: named(), filed: true },
+      { situation: 'a note you dismissed first', item: anItem({ deletedAt: AT }), panel: named(), filed: false },
+      { situation: 'a note you finished with first', item: anItem({ completedAt: AT }), panel: named(), filed: false },
+      { situation: 'a note in no workspace yet', item: anItem({ workspaceDecided: false }), panel: named(), filed: false },
+      { situation: 'a Panel of text', item: anItem(), panel: named('text'), filed: false },
+      { situation: 'a Filter', item: anItem(), panel: named('filter'), filed: false },
+    ])('for $situation', ({ item, panel, filed }) => {
+      const outcome = decideFilingWhereSaid(item, SAID, [panel], false);
+
+      expect(outcome === null ? null : outcome.panels[0]!.rows.map((row) => row.itemId)).toEqual(
+        filed ? ['b', 'a', 'c'] : null,
+      );
+    });
+
+    it('records the one routing it settles with no proposal, whatever was proposed', () => {
+      const item = anItem({ proposedPanelId: 'heron', proposedPanelReason: 'looked like one', proposedPanelFit: 'closest' });
+
+      expect(decideFilingWhereSaid(item, SAID, [named(), null], false)?.decision).toEqual(
+        expect.objectContaining({
+          workspaceId: 'ws-work',
+          chosenPanelId: 'falcon',
+          proposedPanelId: null,
+          proposedPanelReason: null,
+          proposedPanelFit: null,
+        }),
+      );
     });
   });
 });

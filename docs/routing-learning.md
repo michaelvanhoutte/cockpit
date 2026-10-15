@@ -69,6 +69,8 @@ Consequences:
 
 **Moment 4** is the only binding moment and the only source of learning. Accepting and overriding both settle the routing and both append to the history, and an override is the stronger signal because it records the rejected answer alongside the correct one.
 
+**A note that names its panels is filed by moment 2 as moment 4** ("File a capture on the panels you name, read from the spoken path", issue 1116). "Renew the car insurance, Day to day, Admin and money" is my own decision, said instead of clicked, so the clean-up job files it where it points as my filing: one history entry naming the first panel it lands on and no proposal, any proposal withdrawn, and the workspace's refresh queued as after a first filing. Only a note nobody has filed, dismissed or finished is filed this way. A misheard filing I correct with Move to… is not a first filing, so the history keeps the wrong entry.
+
 **Moment 5 is gone, and so is the sentence I wrote.** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392). It was built to keep the model's input bounded and to make what the system learned visible and editable; what shipped was a paragraph rewritten nightly, shown read-only, and fed into nothing, beside a correction that was already the highest-ranked input in the prompt. The correction sentence outlived it for a while and is gone too: Cockpit learns purely from what you do, with nothing you write by hand. Having Cockpit account for itself on demand rather than nightly is `text-learning.md`'s "What Cockpit says about itself".
 
 ## 7. Moment 3 in slow motion

@@ -83,11 +83,14 @@ import {
 import {
   FILING_VALUES_PER_ROW,
   decideAddToPanel,
+  decideFilingWhereSaid,
   decideMoveToPanel,
   whyNothingIsFiledOn,
+  type FiledWhereSaid,
   type FilingDecided,
   type FilingFacts,
   type FilingRefusal,
+  type NamedPanel,
 } from '../domain/filings.js';
 import {
   LAYOUT_ROW_VALUES_PER_ROW,
@@ -759,6 +762,39 @@ function writeFiling(
   // The proposal is spent the moment it is read into that entry - cleared here
   // so an Item that returns to the Inbox and is filed again cannot have its
   // original proposal misattributed to a decision it was never shown for.
+  tx.update(items)
+    .set({ proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null })
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
+    .run();
+}
+
+/**
+ * A Panel a captured note named, as it stands now: null where it has gone, or
+ * where it, its Dashboard or the Workspace is not live in the Workspace the
+ * Item is in. Never propose is not read: the note chose it (issue 1116).
+ */
+function panelNamedFor(db: AccountDb, tenantId: string, workspaceId: string, panelId: string): NamedPanel | null {
+  if (!getWorkspace(db, tenantId, workspaceId)) return null;
+  const panel = getPanel(db, tenantId, panelId);
+  if (!panel || !getDashboard(db, tenantId, workspaceId, panel.dashboardId)) return null;
+  return { id: panel.id, name: panel.name, kind: panel.kind, held: listFilingsOnPanel(db, tenantId, panel.id) };
+}
+
+/**
+ * Writes a captured note's filing on the Panels it named, inside the
+ * transaction of the change that settles it: each Panel's order whole, the one
+ * decision, and the proposal withdrawn - as `writeFiling` does for a person's.
+ */
+function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: string, filed: FiledWhereSaid): void {
+  for (const panel of filed.panels) {
+    tx.delete(panelItems)
+      .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.panelId)))
+      .run();
+    for (const batch of inBatchesOf(panel.rows, FILING_VALUES_PER_ROW)) {
+      tx.insert(panelItems).values(batch).run();
+    }
+  }
+  tx.insert(decisionHistory).values(filed.decision).onConflictDoNothing().run();
   tx.update(items)
     .set({ proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null })
     .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
@@ -1769,19 +1805,39 @@ export function runCommand<N extends CommandName>(
         // name", issue 1078).
         cmd.settleInWorkspaceId !== undefined && !!getWorkspace(db, tenantId, cmd.settleInWorkspaceId),
       );
-      if (proposed === null) {
+      // The Panels the note named, filed on in the same act as the Workspace
+      // it settles, each checked as it stands now ("File a capture on the
+      // panels you name, read from the spoken path", issue 1116).
+      const settledItem = proposed?.item ?? existing;
+      const filed =
+        cmd.fileOnPanelIds === undefined || cmd.fileOnPanelIds.length === 0
+          ? null
+          : decideFilingWhereSaid(
+              settledItem,
+              cmd,
+              cmd.fileOnPanelIds.map((panelId) => panelNamedFor(db, tenantId, settledItem.workspaceId, panelId)),
+              isItemFiled(db, tenantId, cmd.itemId),
+            );
+      if (proposed === null && filed === null) {
         // Logged all the same, so a redelivery is a replay.
         db.insert(commands).values(commandRow).run();
         applied = false;
       } else {
         db.transaction((tx) => {
-          tx.update(items)
-            .set(asStored(proposed.item))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          if (proposed !== null) {
+            tx.update(items)
+              .set(asStored(proposed.item))
+              .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+              .run();
+          }
+          if (filed !== null) writeFilingWhereSaid(tx, tenantId, cmd.itemId, filed);
           tx.insert(commands).values(commandRow).run();
         });
-        fieldsSet = proposed.set;
+        fieldsSet = {
+          ...(proposed?.set ?? {}),
+          ...(filed === null ? {} : { filedOnPanelIds: filed.panels.map((panel) => panel.panelId) }),
+        };
+        if (filed !== null) settledRouting = true;
       }
       break;
     }
