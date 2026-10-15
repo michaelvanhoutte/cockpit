@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildChooseAPanel, DESCRIPTION_SHOWN } from '../../../../src/ai/prompts/choose-a-panel.v2.js';
+import { buildChooseAPanel, DESCRIPTION_SHOWN } from '../../../../src/ai/prompts/choose-a-panel.v3.js';
 import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 
 /**
  * L1: what a refresh's panel-only question carries is a pure function of the
  * Item and the Panels handed to it. Whether the model answers it well is the
- * contract tier's (`tests/contract/choose-a-panel.v2.test.ts`); that the job
+ * contract tier's (`tests/contract/choose-a-panel.v3.test.ts`); that the job
  * hands it the Item as it now stands is the integration tier's
  * (`repropose-panels.test.ts`).
  */
@@ -26,7 +26,7 @@ const A_DECISION: DecisionHistoryEntry = {
   decidedAt: '2026-09-01T09:00:00.000Z',
 };
 
-const AN_ITEM = { capturedMessage: 'a note', title: 'A title', description: null };
+const AN_ITEM = { capturedMessage: 'renew the passport', title: 'A title', description: null };
 describe('Triage', () => {
   describe('a refresh asks where an item belongs, and can only be answered with a panel it offered', () => {
     it('offers exactly the given panels, and none at all, as the only answers', () => {
@@ -39,7 +39,7 @@ describe('Triage', () => {
 
       expect(schema).toMatchObject({
         properties: { panelId: { enum: ['panel-1', 'panel-2', ''] } },
-        required: ['panelId', 'reason'],
+        required: ['panelId', 'reason', 'fit'],
       });
     });
 
@@ -94,7 +94,7 @@ describe('Triage', () => {
 
       expect(other.system).toEqual(base.system);
       expect(other.message).not.toBe(base.message);
-      expect(base.system.instructions).not.toContain('a note');
+      expect(base.system.instructions).not.toContain(AN_ITEM.capturedMessage);
     });
 
     it('a refresh after more notes were captured differs only in the recent notes', () => {

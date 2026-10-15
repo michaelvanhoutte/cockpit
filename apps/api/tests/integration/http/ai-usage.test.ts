@@ -270,7 +270,7 @@ describe('AI usage', () => {
       for (const record of found) {
         expect(record).toMatchObject({
           operation: 'choose-a-panel',
-          prompt_version: 'choose-a-panel.v2',
+          prompt_version: 'choose-a-panel.v3',
           triggered_by: 'panel-settled',
           user_id: USER_ID,
           model: 'claude-haiku-4-5',
