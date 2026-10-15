@@ -219,7 +219,7 @@ describe('Capture', () => {
     });
 
     it('proposes a panel of the new workspace in place of the one among the old workspace’s, with one more call', async () => {
-      theModelNames('Personal', { panelId: PERSONAL_PANEL, reason: 'an errand' });
+      theModelNames('Personal', { panelId: PERSONAL_PANEL, reason: 'an errand', fit: 'clear' });
 
       const itemId = await captureANote({ workspaceDecided: false });
       await untilTheChangeIsRecorded(itemId);
@@ -246,7 +246,7 @@ describe('Capture', () => {
         interval: 50,
       });
 
-      theModelNames('Personal', { panelId: '', reason: '' });
+      theModelNames('Personal', { panelId: '', reason: '', fit: '' });
       await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
 
       expect(await workspaceOf(itemId)).toMatchObject({ workspaceId: 'ws-personal', decided: true });
@@ -256,7 +256,7 @@ describe('Capture', () => {
     it('proposes nothing, and asks for no second call, where the new workspace has no panel that takes items', async () => {
       // Its one panel is made a text panel, which takes no items.
       await inTheStore((sql) => sql.exec("UPDATE panels SET kind = 'text' WHERE id = ?", PERSONAL_PANEL));
-      theModelNames('Personal', { panelId: PERSONAL_PANEL, reason: 'would be refused' });
+      theModelNames('Personal', { panelId: PERSONAL_PANEL, reason: 'would be refused', fit: 'clear' });
 
       const itemId = await captureANote({ workspaceDecided: false });
       await untilTheChangeIsRecorded(itemId);
@@ -267,7 +267,7 @@ describe('Capture', () => {
     });
 
     it('makes one call only, and keeps the panel it proposed, where the note names no workspace', async () => {
-      theModelNames(undefined, { panelId: PERSONAL_PANEL, reason: 'never asked' });
+      theModelNames(undefined, { panelId: PERSONAL_PANEL, reason: 'never asked', fit: 'clear' });
 
       const itemId = await captureANote({ workspaceDecided: false });
       await untilTheChangeIsRecorded(itemId);
@@ -280,7 +280,7 @@ describe('Capture', () => {
     });
 
     it('makes one call only, and keeps the panel it proposed, where the note names the workspace the item already sits in', async () => {
-      theModelNames(FIRST_WORKSPACE_NAME, { panelId: PERSONAL_PANEL, reason: 'never asked' });
+      theModelNames(FIRST_WORKSPACE_NAME, { panelId: PERSONAL_PANEL, reason: 'never asked', fit: 'clear' });
 
       const itemId = await captureANote({ workspaceDecided: false });
       await untilTheChangeIsRecorded(itemId);
