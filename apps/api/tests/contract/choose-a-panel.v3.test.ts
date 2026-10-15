@@ -3,7 +3,7 @@ import { ClaudeAiService, type CallFor, type ItemToPlace } from '../../src/ai/in
 
 /** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
 const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
-import { buildChooseAPanel } from '../../src/ai/prompts/choose-a-panel.v2.js';
+import { buildChooseAPanel } from '../../src/ai/prompts/choose-a-panel.v3.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 
 /**
@@ -36,7 +36,7 @@ const choosing = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || 
   spent.input += usage.input_tokens;
   spent.output += usage.output_tokens;
 });
-afterAll(() => console.log(`choose-a-panel.v2: ${JSON.stringify(spent)}`));
+afterAll(() => console.log(`choose-a-panel.v3: ${JSON.stringify(spent)}`));
 
 /**
  * An Item as a refresh finds it: the note, and the two texts capture proposed
@@ -63,7 +63,7 @@ describe('Triage', () => {
   it('has a key to ask with', () => {
     expect(key, 'set ANTHROPIC_API_KEY, or put it in apps/api/.dev.vars').not.toBe('');
     // The cases below are only evidence about the version and model they ran against.
-    expect(buildChooseAPanel(anItem('a note'), [], [], [])).toMatchObject({ version: 'v2', model: 'claude-haiku-4-5' });
+    expect(buildChooseAPanel(anItem('a note'), [], [], [])).toMatchObject({ version: 'v3', model: 'claude-haiku-4-5' });
   });
 
   describe('a refresh offers an item the panel it clearly belongs on, and only where one does', () => {
@@ -100,6 +100,39 @@ describe('Triage', () => {
     it('never names a panel it was not offered', async () => {
       const panel = await choose(COMPLIANCE_ITEM, panels);
       if (panel) expect(panels.map((offered) => offered.id)).toContain(panel.panelId);
+    });
+  });
+
+  /**
+   * "Re-propose the closest Panel too, with how sure it is" (issue 1108): the
+   * cases of `clean-up-a-note.v15.test.ts`'s "a note that plausibly fits a
+   * panel is offered the closest one", on this prompt - notes the person
+   * would file on a Panel without any of them naming it, which the previous
+   * wording answered with none. Each plausibly fits one Panel and no other.
+   */
+  describe('a refresh offers the closest panel where one plausibly fits, and says how sure it is', () => {
+    const panels = [
+      { id: '018f0000-0000-7000-8000-000000000011', name: 'Suppliers' },
+      { id: '018f0000-0000-7000-8000-000000000012', name: 'Hiring' },
+      { id: '018f0000-0000-7000-8000-000000000013', name: 'Release planning' },
+      { id: '018f0000-0000-7000-8000-000000000014', name: 'Customer escalations' },
+    ];
+    const [suppliers, hiring, release, escalations] = panels;
+
+    it.each([
+      { situation: 'documentation for what a release adds', note: 'docs for the new api endpoints', expected: release!.id, fits: ['closest', 'clear'] },
+      { situation: 'what a new starter is shown', note: 'onboarding checklist needs a bit on security training', expected: hiring!.id, fits: ['closest', 'clear'] },
+      { situation: 'customers waiting on support', note: 'support backlog keeps growing, look at it', expected: escalations!.id, fits: ['closest', 'clear'] },
+      { situation: 'a supplier’s prices', note: 'price list from bolt nv is outdated', expected: suppliers!.id, fits: ['clear', 'closest'] },
+    ])('names the closest panel for $situation', async ({ note, expected, fits }) => {
+      const panel = await choose(anItem(note), panels);
+
+      expect(panel?.panelId).toBe(expected);
+      expect(fits).toContain(panel?.fit);
+    });
+
+    it('names none for a note that fits none of them', async () => {
+      expect(await choose(anItem('milk, eggs, bread - stop on the way home'), panels)).toBeNull();
     });
   });
 
