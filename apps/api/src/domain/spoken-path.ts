@@ -1,4 +1,4 @@
-import { panelTakesItems, type PanelKind } from '@cockpit/shared';
+import { PANELS_A_NOTE_FILES_ON, panelTakesItems, type PanelKind } from '@cockpit/shared';
 import { foldName } from './names.js';
 
 /**
@@ -66,7 +66,9 @@ export function resolveSpokenPath(tree: readonly PlaceTreeWorkspace[], named: Pl
     if (answering.length === 1) filed.push(answering[0]!);
   }
   const filedIn = new Set(filed.map((panel) => panel.workspaceId));
-  const panelIds = filedIn.size === 1 ? filed.map((panel) => panel.id) : [];
+  // The first ones said, up to what the filing command takes, so an answer
+  // naming more never fails the reading it rides on.
+  const panelIds = filedIn.size === 1 ? filed.slice(0, PANELS_A_NOTE_FILES_ON).map((panel) => panel.id) : [];
 
   const dashboardIn = new Set(dashboardNamed.map((dashboard) => dashboard.workspaceId));
   const workspaceId =

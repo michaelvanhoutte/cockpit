@@ -510,7 +510,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // priority, due date and workspace you say when you capture", issue 1073,
   // its Technical design).
   const day = await captureDayOf(account, item);
-  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null, true)) {
+  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null)) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
@@ -689,7 +689,10 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // (issue 1116).
   const filedOn = fieldsSet.filedOnPanelIds ?? [];
   if (filedOn.length > 0) {
-    const filedIn = fieldsSet.workspaceId ?? item.workspaceId;
+    // Where the Panels are, which the store filed on only because the Item is
+    // there now - not `item.workspaceId`, read before the person may have
+    // settled it there themselves. Never null once Panels are filed on.
+    const filedIn = whereSaid?.workspaceId ?? item.workspaceId;
     say(job.itemId, `filed on ${filedOn.length} panel(s) the note named`);
     await enqueueRepropose(env, job.accountName, filedIn);
     await recordHistory(() =>

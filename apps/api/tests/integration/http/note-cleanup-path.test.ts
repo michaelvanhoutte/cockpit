@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { ACCOUNT_WIDE } from '@cockpit/shared';
-import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, asUser, inTheStore, storeNamed } from '../seed.js';
+import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, inTheStore, storeNamed } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import {
@@ -27,6 +27,8 @@ import {
   decisionsOn,
   aModelThatReads,
   batchOf,
+  duringThe,
+  postChange,
 } from './note-cleanup.support.js';
 
 aModelThatReads();
@@ -71,19 +73,6 @@ async function aDayToDayDashboard(): Promise<void> {
       );
     }
   });
-}
-
-/** Runs `meanwhile` during the first call of the kind `which` picks out, and during no other. */
-function duringThe(
-  which: (call: { system: string }) => boolean,
-  meanwhile: () => Promise<unknown>,
-): (call: { system: string }) => Promise<unknown> {
-  let ran = false;
-  return async (call) => {
-    if (ran || !which(call)) return;
-    ran = true;
-    await meanwhile();
-  };
 }
 
 /** Where a tab's next read of what changed starts, once everything already there is older. */
@@ -281,6 +270,27 @@ describe('Capture', () => {
       const itemId = await captureANote({ workspaceDecided: false });
       await untilTheChangeIsRecorded(itemId);
 
+      expect(refreshesAskedFor).toEqual([expect.objectContaining({ kind: 're-propose-panels', workspaceId: PERSONAL })]);
+    });
+
+    it('asks it of the workspace the note was filed in, where you settled it there while the note was read', async () => {
+      theModelReadsAPlace({ panels: ['Admin & money'] });
+      const itemId = nextId();
+      reading.during = duringThe(isAPlaceRead, () =>
+        postChange('move_item_to_panel', {
+          commandId: nextId(),
+          issuedAt: '2026-09-09T10:00:01.000Z',
+          workspaceId: PERSONAL,
+          itemId,
+          panelId: null,
+          order: [],
+        }),
+      );
+
+      await captureANote({ itemId, workspaceDecided: false });
+      await untilTheChangeIsRecorded(itemId);
+
+      expect(await panelsHolding(itemId)).toEqual([{ panelId: ADMIN, position: 0 }]);
       expect(refreshesAskedFor).toEqual([expect.objectContaining({ kind: 're-propose-panels', workspaceId: PERSONAL })]);
     });
   });

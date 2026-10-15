@@ -15,7 +15,7 @@ export type { NoteTexts, PanelRead, PlaceRead, ProposalRead, ReadingCandidate, R
 export type { ItemToPlace } from './prompts/choose-a-panel.v2.js';
 
 /**
- * The prompt files the two calls are built from, as a record names them -
+ * The prompt file each call is built from, as a record names it -
  * changed with the import above them when a prompt gets a new version.
  */
 const CLEAN_UP_A_NOTE = 'clean-up-a-note.v15';

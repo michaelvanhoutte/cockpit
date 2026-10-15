@@ -24,19 +24,10 @@ import {
   moveOnto,
   aModelThatReads,
   batchOf,
+  duringThe,
 } from './note-cleanup.support.js';
 
 aModelThatReads();
-
-/** Runs `meanwhile` during the first call alone, however many calls the capture makes. */
-function once(meanwhile: () => Promise<unknown>): () => Promise<unknown> {
-  let ran = false;
-  return async () => {
-    if (ran) return;
-    ran = true;
-    await meanwhile();
-  };
-}
 
 describe('Capture', () => {
   /**
@@ -110,7 +101,7 @@ describe('Capture', () => {
     ])('leaves an item where it belongs when $situation', async ({ capturedWith, names, meanwhile, expected }) => {
       theModelReadsAPlace(names === undefined ? null : { workspace: names });
       const itemId = nextId();
-      if (meanwhile) reading.during = once(() => meanwhile(itemId));
+      if (meanwhile) reading.during = duringThe(isACleanUp, () => meanwhile(itemId));
 
       await captureANote({ itemId, ...capturedWith });
       await untilTheChangeIsRecorded(itemId);

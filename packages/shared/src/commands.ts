@@ -686,6 +686,9 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
   });
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
+/** The most Panels one note is filed on; the job sends no more, so a long answer never fails the whole reading (issue 1116). */
+export const PANELS_A_NOTE_FILES_ON = 20;
+
 /**
  * propose_item_fields — the fields a captured note stated, read by the
  * enrichment job rather than sent by a client ("Read a priority you say when
@@ -716,7 +719,7 @@ export const proposeItemFieldsSchema = commandEnvelopeSchema.extend({
    * nobody has filed, dismissed or finished with, and only on a Panel that is
    * live, takes items and is in the Item's Workspace when this is written.
    */
-  fileOnPanelIds: z.array(z.string().min(1)).max(20).optional(),
+  fileOnPanelIds: z.array(z.string().min(1)).max(PANELS_A_NOTE_FILES_ON).optional(),
 });
 export type ProposeItemFieldsCommand = z.infer<typeof proposeItemFieldsSchema>;
 

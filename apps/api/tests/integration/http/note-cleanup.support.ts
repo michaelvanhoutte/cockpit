@@ -237,6 +237,19 @@ export const isAPlaceRead = (call: { system: string }) => call.system.includes('
 /** Whether a call is a Panel being chosen for an item, which is every call that is neither of the two above. */
 export const isAPanelChoice = (call: { system: string }) => !isACleanUp(call) && !isAPlaceRead(call);
 
+/** What `reading.during` runs: `meanwhile`, during the first call of the kind `which` picks out, and during no other. */
+export function duringThe(
+  which: (call: { system: string }) => boolean,
+  meanwhile: () => Promise<unknown>,
+): (call: { system: string }) => Promise<unknown> {
+  let ran = false;
+  return async (call) => {
+    if (ran || !which(call)) return;
+    ran = true;
+    await meanwhile();
+  };
+}
+
 /** The names the read of a note's place words answers with; each left out names nothing. */
 export interface PlaceAnswer {
   workspace?: string;

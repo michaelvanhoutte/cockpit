@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PANELS_A_NOTE_FILES_ON } from '@cockpit/shared';
 import { resolveSpokenPath, type PlaceNamed, type PlaceTreeWorkspace } from '../../../src/domain/spoken-path.js';
 
 /**
@@ -62,6 +63,17 @@ describe('Capture', () => {
       { situation: 'nothing named', named: said({}), expected: { workspaceId: null, panelIds: [] } },
     ])('for $situation', ({ named, expected }) => {
       expect(resolveSpokenPath(TREE, named)).toEqual(expected);
+    });
+
+    it('files on no more panels than one filing takes, the first ones said', () => {
+      const names = Array.from({ length: PANELS_A_NOTE_FILES_ON + 1 }, (_, n) => `List ${n}`);
+      const many: PlaceTreeWorkspace[] = [
+        { id: 'home', name: 'Home', dashboards: [{ id: 'board', name: 'Board', panels: names.map((name, n) => panel(`p${n}`, name)) }] },
+      ];
+
+      expect(resolveSpokenPath(many, said({ panels: names })).panelIds).toEqual(
+        names.slice(0, PANELS_A_NOTE_FILES_ON).map((_, n) => `p${n}`),
+      );
     });
 
     it('matches only within the one workspace a capture made inside it may reach', () => {
