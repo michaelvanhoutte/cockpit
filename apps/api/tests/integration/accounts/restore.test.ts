@@ -486,9 +486,10 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // None: `0053-one-layout-per-dashboard` takes `screen_size_id` off
-    // `layouts` rather than adding a column, and this backup holds no Layout;
-    // the guest's demonstration adds rows only, and only to the guest.
+    // `0076-proposed-panel-fit` adds how sure a proposal is to both; the
+    // guest's demonstration adds rows only, and only to the guest.
+    items: ['proposed_panel_fit'],
+    decision_history: ['proposed_panel_fit'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

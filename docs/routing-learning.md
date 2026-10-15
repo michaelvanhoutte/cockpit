@@ -36,7 +36,9 @@ The last row is the one deliberate exception, and it exists so a stale proposal 
 
 **Proposed vs settled.** *Proposed*: the system put it there and I have not looked. *Settled*: I decided it, by accepting the proposal or choosing something else. This distinction carries the whole design.
 
-**Decision history.** An append-only record of every settled routing — the note text, what was proposed, what I chose, and how. It grows by one entry every time I settle something, and it is the only place learning lives: no training step, no separate feedback action.
+**How sure a proposal is.** *Clear* where the note plainly belongs on the Panel, *closest* where it only fits there better than anywhere else. The system proposes the closest Panel whenever one plausibly fits and none only for a note that fits nothing, because a near miss costs one correction and "none" costs a search. A proposal that says neither reads as *clear*. Capture says which today; a re-proposal does not yet ("Re-propose the closest Panel too, with how sure it is", issue 1108).
+
+**Decision history.** An append-only record of every settled routing — the note text, what was proposed and how sure it was, what I chose, and how. It grows by one entry every time I settle something, and it is the only place learning lives: no training step, no separate feedback action.
 
 ## 5. The rule
 

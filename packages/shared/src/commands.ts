@@ -12,6 +12,7 @@ import {
   itemDescriptionSchema,
   itemReadingSchema,
   itemTitleSchema,
+  panelFitSchema,
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
@@ -673,16 +674,26 @@ export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
  * proposed no longer fits, which is a replacement with nothing rather than
  * with something else. `reason` is empty exactly when `panelId` is, the same
  * idiom the AI layer's own schema uses for "none".
+ *
+ * `fit` says how sure the proposal is ("Propose the closest Panel at capture,
+ * and draw a less certain one dashed", issue 1107), and is absent where the
+ * call that proposed it was not asked - which is stored as nothing and read as
+ * `clear` - and always absent on a withdrawal.
  */
 export const proposeItemPanelSchema = commandEnvelopeSchema
   .extend({
     itemId: z.uuid(),
     panelId: z.uuid().nullable(),
     reason: z.string().trim(),
+    fit: panelFitSchema.optional(),
   })
   .refine((cmd) => (cmd.panelId === null ? cmd.reason === '' : cmd.reason.length > 0), {
     message: 'a reason is required when naming a Panel, and empty when withdrawing the proposal',
     path: ['reason'],
+  })
+  .refine((cmd) => cmd.panelId !== null || cmd.fit === undefined, {
+    message: 'a withdrawn proposal says nothing about how sure it is',
+    path: ['fit'],
   });
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 

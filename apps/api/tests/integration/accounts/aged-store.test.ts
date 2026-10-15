@@ -73,6 +73,7 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
     priority_set_at: _prioritySetAt,
     captured_time_zone: _capturedTimeZone,
     due_date_chosen_at: _dueDateChosenAt,
+    proposed_panel_fit: _proposedPanelFit,
     ...rest
   } = row;
   return rest;
@@ -2849,6 +2850,102 @@ describe('Panels', () => {
         ...migrated,
         'pn-filter-all': JSON.stringify({ groupBy: 'none', rows: [[DUE_WEEK, PRIORITY_HIGH]] }),
       });
+    });
+  });
+});
+const PROPOSED_PANEL_FIT = '0076-proposed-panel-fit';
+
+/** Every row of the two tables the change adds to, read whole. */
+const proposalsAndFilings = (name: string) =>
+  inStoreAsItIs(name, (sql) => ({
+    items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+    filings: sql.exec('SELECT * FROM decision_history ORDER BY id').toArray(),
+  }));
+
+/** Whether each of the two tables holds the column. */
+const fitColumnsIn = (name: string) =>
+  inStoreAsItIs(name, (sql) => ({
+    items: columnsOf(sql, 'items').includes('proposed_panel_fit'),
+    filings: columnsOf(sql, 'decision_history').includes('proposed_panel_fit'),
+  }));
+
+/** A store from just before the change, holding an Item proposed a Panel before it could say how sure. */
+async function storeWithAnOldProposal(name: string): Promise<void> {
+  await agedTo(name, justBefore(PROPOSED_PANEL_FIT));
+  await fillWithWhatIsAlreadyThere(name);
+  await inStoreAsItIs(name, (sql) =>
+    sql.exec("UPDATE items SET proposed_panel_id = 'pn-before', proposed_panel_reason = 'because' WHERE id = 'it-done-before'"),
+  );
+}
+
+/**
+ * "Propose the closest Panel at capture, and draw a less certain one dashed"
+ * (issue 1107): an Item's proposal and a filing's history entry each gain how
+ * sure the proposal was, and everything stored before reads as clear.
+ */
+describe('Triage', () => {
+  describe('every proposal and filing an account already had reads as clear once a proposal can say how sure it is', () => {
+    it('adds both, leaves every row as it was and saying nothing, and reads the old proposal as saying nothing', async () => {
+      const name = 'aged-store-proposed-panel-fit';
+      await storeWithAnOldProposal(name);
+      const before = await proposalsAndFilings(name);
+      expect(before.filings).toHaveLength(1);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(await fitColumnsIn(name)).toEqual({ items: true, filings: true });
+      const after = await proposalsAndFilings(name);
+      expect(after.items.map((row) => row.proposed_panel_fit)).toEqual(before.items.map(() => null));
+      expect(after.filings.map((row) => row.proposed_panel_fit)).toEqual([null]);
+      expect({ items: after.items.map(withoutLaterColumns), filings: after.filings.map(({ proposed_panel_fit: _fit, ...row }) => row) }).toEqual({
+        items: before.items.map(withoutLaterColumns),
+        filings: before.filings,
+      });
+      // And read the way the Inbox reads it, where nothing said draws as clear.
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(
+        snapshot.status === 'ok'
+          ? snapshot.value.items
+              .filter((item) => item.id === 'it-done-before')
+              .map(({ proposedPanelId, proposedPanelFit }) => ({ proposedPanelId, proposedPanelFit }))
+          : 'unread',
+      ).toEqual([{ proposedPanelId: 'pn-before', proposedPanelFit: null }]);
+    });
+
+    it('applies nothing again when opened a second time', async () => {
+      const name = 'aged-store-proposed-panel-fit-twice';
+      await storeWithAnOldProposal(name);
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const once = { rows: await proposalsAndFilings(name), schema: await schemaIn(name) };
+
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect({ rows: await proposalsAndFilings(name), schema: await schemaIn(name) }).toEqual(once);
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', PROPOSED_PANEL_FIT).toArray(),
+        ),
+      ).toEqual([{ n: 1 }]);
+    });
+
+    it('adds neither when the second cannot be added, fails the request, and adds both on the next open', async () => {
+      // A column of the same name already on the history entry is the one way
+      // to make the second statement fail from outside, after the first ran.
+      const name = 'aged-store-proposed-panel-fit-fails-partway';
+      await storeWithAnOldProposal(name);
+      await inStoreAsItIs(name, (sql) => sql.exec('ALTER TABLE `decision_history` ADD COLUMN `proposed_panel_fit` text'));
+
+      const failed = await storeNamed(name).workspaces(name);
+
+      expect(failed).toMatchObject({ status: 'not-up-to-date' });
+      expect(JSON.stringify(failed)).toContain(PROPOSED_PANEL_FIT);
+      expect((await fitColumnsIn(name)).items).toBe(false);
+
+      await inStoreAsItIs(name, (sql) => sql.exec('ALTER TABLE `decision_history` DROP COLUMN `proposed_panel_fit`'));
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await fitColumnsIn(name)).toEqual({ items: true, filings: true });
     });
   });
 });

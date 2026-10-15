@@ -4,6 +4,7 @@ import { panelFilterAsStored, panelFilterFrom, type FilterCondition } from '../.
 import {
   captureItemSchema,
   moveItemToPanelSchema,
+  proposeItemPanelSchema,
   proposeItemTextsSchema,
   setDuplicateSettledSchema,
   setPanelFilterSchema,
@@ -143,6 +144,34 @@ describe('Capture', () => {
       },
     ])('is $situation accepted: $accepted', ({ over, accepted }) => {
       expect(proposeItemTextsSchema.safeParse(proposal(over)).success).toBe(accepted);
+    });
+  });
+
+  /**
+   * The second lock again, for how sure a proposed Panel is ("Propose the
+   * closest Panel at capture, and draw a less certain one dashed", issue
+   * 1107): the answer's reader already refuses a fit outside the two.
+   */
+  describe('a proposed panel says how sure it is only as clear or closest, and a withdrawn one says nothing', () => {
+    const proposal = (over: Record<string, unknown>) => ({
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: 'ws-work',
+      itemId: uuidv7(),
+      panelId: uuidv7(),
+      reason: 'a compliance question',
+      ...over,
+    });
+
+    it.each([
+      { situation: 'a panel said to be clear', over: { fit: 'clear' }, accepted: true },
+      { situation: 'a panel said to be the closest match', over: { fit: 'closest' }, accepted: true },
+      { situation: 'a panel that does not say', over: {}, accepted: true },
+      { situation: 'a panel said to be likely', over: { fit: 'likely' }, accepted: false },
+      { situation: 'a withdrawal', over: { panelId: null, reason: '' }, accepted: true },
+      { situation: 'a withdrawal said to be the closest match', over: { panelId: null, reason: '', fit: 'closest' }, accepted: false },
+    ])('is $situation accepted: $accepted', ({ over, accepted }) => {
+      expect(proposeItemPanelSchema.safeParse(proposal(over)).success).toBe(accepted);
     });
   });
 });

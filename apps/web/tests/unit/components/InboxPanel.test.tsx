@@ -110,6 +110,7 @@ function anItem(title: string, completedAt: string | null = null): Item {
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,
+    proposedPanelFit: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt,

@@ -949,6 +949,7 @@ describe('Item editing', () => {
       readings: null,
       proposedPanelId: null,
       proposedPanelReason: null,
+      proposedPanelFit: null,
       sourceResolvedAt: null,
       title: 'Part 11',
       description: null,

@@ -1,4 +1,4 @@
-import { itemDescriptionSchema, itemTitleSchema, prioritySchema, type Priority } from '@cockpit/shared';
+import { itemDescriptionSchema, itemTitleSchema, panelFitSchema, prioritySchema, type PanelFit, type Priority } from '@cockpit/shared';
 import { z } from 'zod';
 
 /**
@@ -34,6 +34,12 @@ export interface ReadingCandidate {
 export interface RoutingCandidate {
   panelId: string;
   reason: string;
+  /**
+   * How sure the proposal is ("Propose the closest Panel at capture, and draw
+   * a less certain one dashed", issue 1107) - null where the call was not
+   * asked, which is stored as nothing and read as `clear`.
+   */
+  fit: PanelFit | null;
 }
 
 /** What comes back, once it is known to be usable. */
@@ -178,7 +184,7 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
 
   const panel =
     typeof parsed === 'object' && parsed !== null
-      ? readPanelCandidate((parsed as Record<string, unknown>).panel, offeredPanelIds)
+      ? readPanelCandidate((parsed as Record<string, unknown>).panel, offeredPanelIds, true)
       : null;
 
   // Read on its own like the panel: a priority outside the three is no
@@ -234,7 +240,7 @@ export function readPanelChoice(raw: unknown, offeredPanelIds: readonly string[]
   if (!panelCandidateShape.safeParse(parsed).success) {
     return { discarded: 'the answer was not a panel choice' };
   }
-  return { panel: readPanelCandidate(parsed, offeredPanelIds) };
+  return { panel: readPanelCandidate(parsed, offeredPanelIds, false) };
 }
 
 /**
@@ -242,10 +248,16 @@ export function readPanelChoice(raw: unknown, offeredPanelIds: readonly string[]
  * call actually offered - the empty id, an id not offered, and a reason left
  * empty all read as "no proposal" rather than as a reason to throw away the
  * title and message riding beside it.
+ *
+ * `askedFit` is whether the call asked how sure it is (issue 1107). Where it
+ * did, a Panel named without a fit, or with one that is neither of the two,
+ * is read as no proposal, as a missing reason is; where it did not, the fit is
+ * null.
  */
 function readPanelCandidate(
   raw: unknown,
   offeredPanelIds: readonly string[],
+  askedFit: boolean,
 ): RoutingCandidate | null {
   const read = panelCandidateShape.safeParse(raw);
   if (!read.success) return null;
@@ -254,6 +266,8 @@ function readPanelCandidate(
   const reason = read.data.reason.trim();
   if (panelId === '' || reason === '') return null;
   if (!offeredPanelIds.includes(panelId)) return null;
+  if (!askedFit) return { panelId, reason, fit: null };
 
-  return { panelId, reason };
+  const fit = panelFitSchema.safeParse((raw as Record<string, unknown>).fit);
+  return fit.success ? { panelId, reason, fit: fit.data } : null;
 }

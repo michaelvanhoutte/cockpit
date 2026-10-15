@@ -39,6 +39,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,
+    proposedPanelFit: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,
@@ -897,6 +898,39 @@ describe('Item editing', () => {
 
       expect(onAcceptRouting).toHaveBeenCalledOnce();
       expect(onOpen).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * "Propose the closest Panel at capture, and draw a less certain one dashed"
+   * (issue 1107). Dashed and fainter is a look jsdom cannot see, so it is held
+   * by the chip's classes; the words and the click are what a person gets.
+   */
+  describe('a closest-match proposal is drawn dashed and fainter, says so on hover, and is taken like any other', () => {
+    const place = { dashboardName: 'Day to day', panelName: 'Compliance questions', reason: 'a compliance question' };
+
+    it.each([
+      {
+        situation: 'a closest match',
+        fit: 'closest' as const,
+        hover: 'Day to day ▸ Compliance questions - Closest match: a compliance question',
+        dashed: true,
+      },
+      { situation: 'a clear one', fit: 'clear' as const, hover: 'Day to day ▸ Compliance questions - a compliance question', dashed: false },
+      { situation: 'one that says nothing', fit: undefined, hover: 'Day to day ▸ Compliance questions - a compliance question', dashed: false },
+    ])('$situation', async ({ fit, hover, dashed }) => {
+      const user = userEvent.setup();
+      const onAcceptRouting = vi.fn();
+      aRow({ routingProposal: { ...place, ...(fit ? { fit } : {}) }, onAcceptRouting });
+
+      const chip = screen.getByRole('button', { name: hover });
+      expect(chip).toHaveAttribute('title', hover);
+      expect(chip).toHaveTextContent('→ Day to day ▸ Compliance questions');
+      expect(chip.className.includes('outline-dashed')).toBe(dashed);
+      expect(chip.className.includes('text-accent-deep/70')).toBe(dashed);
+
+      await user.click(chip);
+      expect(onAcceptRouting).toHaveBeenCalledOnce();
     });
   });
 

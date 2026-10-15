@@ -12,6 +12,7 @@ import {
   workspaceIsDecided,
   type AgentRun,
   type Item,
+  type PanelFit,
   type Priority,
   type Agent,
 } from '@cockpit/shared';
@@ -156,8 +157,13 @@ export function ItemRow({
    * Absent once this row is not in the Inbox, whichever of the two reasons
    * that is - nothing was proposed, or the Item has since been filed and so
    * left the Inbox this chip only ever draws in.
+   *
+   * `fit` is how sure it is ("Propose the closest Panel at capture, and draw a
+   * less certain one dashed", issue 1107): a `closest` one is drawn dashed and
+   * fainter and says so on hover, and is taken exactly as a `clear` one. Absent
+   * reads as `clear`.
    */
-  routingProposal?: { dashboardName: string; panelName: string; reason: string } | undefined;
+  routingProposal?: { dashboardName: string; panelName: string; reason: string; fit?: PanelFit } | undefined;
   /**
    * Taking the proposal above - the same filing the picker's own "Move to"
    * makes, by being the same call (`ItemList`'s `move`), so accepting a chip
@@ -457,9 +463,11 @@ export function ItemRow({
    */
   const priorityMark = item.priority ? PRIORITY_MARKS[item.priority] : undefined;
   const dueDateText = dueDateLabel(item.dueDate);
-  // The chip's hover and accessible name: the full "Dashboard ▸ Panel", then the reason.
+  // The chip's hover and accessible name: the full "Dashboard ▸ Panel", then the reason - said as the closest match where it is one.
+  const closestMatch = routingProposal?.fit === 'closest';
+  const routingReason = routingProposal?.reason ? (closestMatch ? `Closest match: ${routingProposal.reason}` : routingProposal.reason) : '';
   const routingLabel = routingProposal
-    ? `${panelPlace(routingProposal.dashboardName, routingProposal.panelName)}${routingProposal.reason ? ` - ${routingProposal.reason}` : ''}`
+    ? `${panelPlace(routingProposal.dashboardName, routingProposal.panelName)}${routingReason ? ` - ${routingReason}` : ''}`
     : undefined;
   /**
    * The pill this row wears for how near its due date is - `Date.now()` the
@@ -1270,7 +1278,11 @@ export function ItemRow({
             {routingProposal && onAcceptRouting && (
               <button
                 type="button"
-                className="flex min-w-0 max-w-full items-baseline overflow-hidden rounded-full bg-accent-tint px-1.5 text-accent-deep hover:bg-accent hover:text-on-accent"
+                className={`flex min-w-0 max-w-full items-baseline overflow-hidden rounded-full px-1.5 hover:bg-accent hover:text-on-accent ${
+                  closestMatch
+                    ? 'text-accent-deep/70 outline-1 -outline-offset-1 outline-dashed outline-accent/60'
+                    : 'bg-accent-tint text-accent-deep'
+                }`}
                 title={routingLabel}
                 aria-label={routingLabel}
                 onClick={(event) => {

@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
 import { callThrough, inRealTime, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
 import { providerCallsIn } from '../gateway/record.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v14.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v15.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v2.js';
 import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
 import type { CaptureDay } from '../domain/capture-day.js';
@@ -16,7 +16,7 @@ export type { ItemToPlace } from './prompts/choose-a-panel.v2.js';
  * The prompt files the two calls are built from, as a record names them -
  * changed with the import above them when a prompt gets a new version.
  */
-const CLEAN_UP_A_NOTE = 'clean-up-a-note.v14';
+const CLEAN_UP_A_NOTE = 'clean-up-a-note.v15';
 const CHOOSE_A_PANEL = 'choose-a-panel.v2';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
