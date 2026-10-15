@@ -247,7 +247,7 @@ export const spend = (requestId: string, dollars: number, over: Record<string, u
 
 /** The names over the split's columns, left to right. */
 export function splitColumns(html: string): string[] {
-  const found = /<th scope="col" class="split-head">Split<\/th>(.*?)<th scope="col" class="num">Total/s.exec(html);
+  const found = /<th scope="col" class="split-head">Split<\/th>(.*?)<th scope="col" class="num">(?:<a[^>]*>)?Total/s.exec(html);
   if (!found) return [];
   return [...found[1]!.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((m) => m[1]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))));
 }

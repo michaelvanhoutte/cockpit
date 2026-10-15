@@ -25,7 +25,7 @@ describe('Harness Monitor', () => {
       ]);
 
       const figures = async (period: string) => {
-        const html = await thePage(`?period=${period}`);
+        const html = await thePage(`?period=${period}&sort=total`);
         return { heading: whereItWent(html).heading, table: costRows(html).map((r) => r.label) };
       };
 
@@ -70,7 +70,7 @@ describe('Harness Monitor', () => {
         spend('c', 3, { branch: 'b/2', category: 'after-push' }),
       ]);
 
-      const html = await thePage('?period=all&category=after-push');
+      const html = await thePage('?period=all&category=after-push&sort=total');
 
       expect(costRows(html).map((r) => [r.label, r.total, ...r.categories])).toEqual([
         ['b/2', '$3.00', '—', '—', '—', '—', '—', '$3.00', '—'],

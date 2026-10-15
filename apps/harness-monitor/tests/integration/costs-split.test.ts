@@ -67,7 +67,7 @@ describe('Harness Monitor', () => {
         pullRequest({ number: 3, title: 'Closed', headRefName: 'b/closed', state: 'CLOSED', mergedAt: null }),
       );
 
-      const byPullRequest = await split('split=outcome');
+      const byPullRequest = await split('split=outcome&sort=total');
       const byDay = await split('split=outcome&group=day');
 
       expect(byPullRequest.columns).toEqual(['Merged', 'Open', 'Closed', 'No PR', 'On main']);
@@ -139,7 +139,7 @@ describe('Harness Monitor', () => {
         pullRequest({ number: 11, title: 'Second', headRefName: 'b/11' }),
       );
 
-      const rows = costRows(await thePage('?period=all&group=pr'));
+      const rows = costRows(await thePage('?period=all&group=pr&sort=total'));
 
       expect(rows.map((r) => [r.label, r.widths])).toEqual([
         ['No branch', []],
@@ -163,7 +163,7 @@ describe('Harness Monitor', () => {
       await send([spend('solo', 2, { branch: 'b/solo', category: 'building' }), spend('a', 1, { branch: 'b/10', category: 'building' })]);
       await linked(pullRequest({ number: 10, title: 'Named', headRefName: 'b/10' }));
 
-      const rows = costRows(await thePage('?period=all&group=pr'));
+      const rows = costRows(await thePage('?period=all&group=pr&sort=total'));
 
       expect(rows.map((r) => [r.label, r.widths])).toEqual([
         ['b/solo', [100]],

@@ -28,21 +28,21 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
 describe('Harness Monitor', () => {
   describe('the costs page is asked for by its address', () => {
     it.each([
-      { situation: 'nothing', query: '', expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', page: 1 } },
+      { situation: 'nothing', query: '', expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 } },
       {
         situation: 'every filter',
         query: 'period=all&engineer=alice&category=ci-reviews&model=claude-opus-5&who=subagents&group=pr&split=outcome&page=3',
-        expected: { period: 'all', engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'pr', split: 'outcome', page: 3 },
+        expected: { period: 'all', engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'pr', split: 'outcome', sort: 'default', page: 3 },
       },
       {
         situation: 'values it does not know',
         query: 'period=forever&category=lunch&group=colour&split=colour&model=%20not%20a%20model&who=everyone&page=-2',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', page: 1 },
+        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
       {
         situation: 'names every object inherits',
         query: 'period=toString&category=constructor&group=__proto__&split=constructor&who=toString',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', page: 1 },
+        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
     ])('$situation is read as the filters it names, or the default', ({ query, expected }) => {
       expect(parseQuery(new URLSearchParams(query))).toEqual(expected);
@@ -95,11 +95,12 @@ describe('Harness Monitor', () => {
       expect(groups[0]!.bySeries['after-push']).toBe(3_000_000);
     });
 
-    it('groups come biggest first, and equal totals are in name order', () => {
+    it('sorted by total, groups come biggest first, and equal totals are in name order', () => {
       const groups = groupRows(
         [row({ prNumber: 2, title: 'B', branch: 'b/2', costMicros: 1 }), row({ prNumber: 3, title: 'A', branch: 'b/3', costMicros: 1 }), row({ costMicros: 9 })],
         'pr',
         null,
+        'total',
       );
 
       expect(groups.map((g) => g.label)).toEqual(['#1 T', '#2 B', '#3 A']);
@@ -388,6 +389,130 @@ describe('Harness Monitor', () => {
 
     it('a series is named as the page names it', () => {
       expect(topChanges('phase', { building: 3_000_000 }, {})[0]!.label).toBe('Building');
+    });
+  });
+
+  describe('each grouping opens in its own order, and the Total header sorts it by total', () => {
+    const merged = (n: number, at: string, over: Partial<TotalRow> = {}) =>
+      row({ prNumber: n, title: `P${n}`, branch: `b/${n}`, state: 'MERGED', mergedAt: at, openedAt: '2026-09-01T00:00:00Z', ...over });
+    const open = (n: number, at: string, over: Partial<TotalRow> = {}) =>
+      row({ prNumber: n, title: `P${n}`, branch: `b/${n}`, state: 'OPEN', mergedAt: null, openedAt: at, ...over });
+    const branch = (name: string, lastAt: number, over: Partial<TotalRow> = {}) =>
+      row({ prNumber: null, title: null, state: null, mergedAt: null, branch: name, lastAt, ...over });
+    const labels = (rows: TotalRow[], group: Parameters<typeof groupRows>[1], sort: 'default' | 'total' = 'default') => groupRows(rows, group, null, sort).map((g) => g.label);
+
+    describe('by pull request, the newest comes first', () => {
+      it.each([
+        { situation: 'an open pull request comes before one merged today', rows: [merged(1, '2026-10-10T00:00:00Z'), open(2, '2026-10-01T00:00:00Z')], expected: ['#2 P2', '#1 P1'] },
+        { situation: 'two open ones are newest opened first', rows: [open(1, '2026-10-01T00:00:00Z'), open(2, '2026-10-05T00:00:00Z')], expected: ['#2 P2', '#1 P1'] },
+        { situation: 'two merged ones are latest merge first, whatever each cost', rows: [merged(1, '2026-10-01T00:00:00Z', { costMicros: 9 }), merged(2, '2026-10-05T00:00:00Z')], expected: ['#2 P2', '#1 P1'] },
+        {
+          situation: 'one closed unmerged sits among the merged by the day it opened',
+          rows: [merged(1, '2026-10-01T00:00:00Z'), merged(2, '2026-10-09T00:00:00Z'), row({ prNumber: 3, title: 'P3', branch: 'b/3', state: 'CLOSED', mergedAt: null, openedAt: '2026-10-05T00:00:00Z' })],
+          expected: ['#2 P2', '#3 P3', '#1 P1'],
+        },
+        { situation: 'a branch no pull request names is below every pull request, however dear', rows: [branch('b/x', 99, { costMicros: 99 }), merged(1, '2026-10-01T00:00:00Z')], expected: ['#1 P1', 'b/x'] },
+        { situation: 'two such branches are newest activity first', rows: [branch('b/old', 1), branch('b/new', 2)], expected: ['b/new', 'b/old'] },
+        { situation: 'No branch is last, below the branches', rows: [branch('', 99, { costMicros: 99 }), branch('b/x', 1)], expected: ['b/x', 'No branch'] },
+      ])('$situation', ({ rows, expected }) => {
+        expect(labels(rows, 'pr')).toEqual(expected);
+      });
+    });
+
+    describe('by issue, an issue ranks by its newest pull request', () => {
+      const onIssue = (issue: number, pr: TotalRow): TotalRow => ({ ...pr, issue, issueTitle: null });
+
+      it.each([
+        {
+          situation: 'an issue whose older pull request is dearer, its newer the most recent of all, comes first',
+          rows: [onIssue(1, merged(1, '2026-10-01T00:00:00Z', { costMicros: 9 })), onIssue(2, merged(2, '2026-10-02T00:00:00Z')), onIssue(1, merged(3, '2026-10-08T00:00:00Z'))],
+          expected: ['#1', '#2'],
+        },
+        {
+          situation: 'an issue with an open pull request comes before one with only merged ones',
+          rows: [onIssue(1, merged(1, '2026-10-09T00:00:00Z')), onIssue(2, open(2, '2026-10-01T00:00:00Z'))],
+          expected: ['#2', '#1'],
+        },
+        {
+          situation: 'No issue and Unattributed come last, in that order, however dear',
+          rows: [branch('b/x', 1, { costMicros: 99 }), merged(3, '2026-10-01T00:00:00Z', { costMicros: 50, issue: null }), onIssue(1, merged(1, '2026-10-01T00:00:00Z'))],
+          expected: ['#1', 'No issue', 'Unattributed'],
+        },
+      ])('$situation', ({ rows, expected }) => {
+        expect(labels(rows, 'issue')).toEqual(expected);
+      });
+    });
+
+    it('by category the phases come in pipeline order, Unphased first, and an unspent one is not listed', () => {
+      const phase = (category: string, costMicros: number) => row({ category, costMicros });
+
+      expect(labels([phase('ci-reviews', 9), phase('building', 2), phase('scoping-planning', 1), phase('unphased', 3)], 'category')).toEqual([
+        'Unphased',
+        'Scoping & planning',
+        'Building',
+        'CI reviews',
+      ]);
+    });
+
+    describe('sorted by total, each grouping orders dearest first, ties by name', () => {
+      it.each([
+        {
+          situation: 'by pull request, with the catch-alls placed by their total',
+          group: 'pr' as const,
+          rows: [open(1, '2026-10-09T00:00:00Z'), merged(2, '2026-10-01T00:00:00Z', { costMicros: 5_000_000 }), branch('', 1, { costMicros: 9_000_000 }), branch('b/x', 1, { costMicros: 2_000_000 })],
+          expected: ['No branch', '#2 P2', 'b/x', '#1 P1'],
+        },
+        {
+          situation: 'by day',
+          group: 'day' as const,
+          rows: [row({ day: '2026-10-03', costMicros: 1 }), row({ day: '2026-10-01', costMicros: 9 }), row({ day: '2026-10-02', costMicros: 5 })],
+          expected: ['2026-10-01', '2026-10-02', '2026-10-03'],
+        },
+        {
+          situation: 'by issue',
+          group: 'issue' as const,
+          rows: [{ ...merged(1, '2026-10-09T00:00:00Z'), issue: 1 }, { ...merged(2, '2026-10-01T00:00:00Z', { costMicros: 7_000_000 }), issue: 2 }],
+          expected: ['#2', '#1'],
+        },
+        {
+          situation: 'by category',
+          group: 'category' as const,
+          rows: [row({ category: 'scoping-planning', costMicros: 1 }), row({ category: 'ci-reviews', costMicros: 9 })],
+          expected: ['CI reviews', 'Scoping & planning'],
+        },
+      ])('$situation', ({ group, rows, expected }) => {
+        expect(labels(rows, group, 'total')).toEqual(expected);
+      });
+    });
+
+    it('by engineer the order is by total whatever is asked', () => {
+      const rows = [row({ engineer: 'alice', costMicros: 1 }), row({ prNumber: 2, engineer: 'bob', costMicros: 5 })];
+
+      expect(labels(rows, 'engineer')).toEqual(['bob', 'alice']);
+      expect(labels(rows, 'engineer', 'total')).toEqual(['bob', 'alice']);
+    });
+
+    describe('the order is carried by the address', () => {
+      it('sorted by total is a different address from the default, so the edge cache keeps them apart', () => {
+        expect(queryString(parseQuery(new URLSearchParams('group=pr')))).toBe('?group=pr');
+        expect(queryString(parseQuery(new URLSearchParams('group=pr&sort=total')))).toBe('?group=pr&sort=total');
+      });
+
+      it.each([
+        { situation: 'a value it does not know', query: 'group=pr&sort=bogus', expected: '?group=pr' },
+        { situation: 'the default spelled out', query: 'group=pr&sort=default', expected: '?group=pr' },
+        { situation: 'by engineer, which cannot be switched', query: 'group=engineer&sort=total', expected: '?group=engineer' },
+      ])('$situation is the default order', ({ query, expected }) => {
+        expect(queryString(parseQuery(new URLSearchParams(query)))).toBe(expected);
+      });
+
+      it('paging keeps the order, and a new grouping starts in its own', () => {
+        const byTotal = parseQuery(new URLSearchParams('group=pr&sort=total'));
+
+        expect(queryString(byTotal, { page: 2 })).toBe('?group=pr&sort=total&page=2');
+        expect(queryString(byTotal, { sort: 'default' })).toBe('?group=pr');
+        expect(queryString(byTotal, { group: 'engineer' })).toBe('?group=engineer');
+      });
     });
   });
 });

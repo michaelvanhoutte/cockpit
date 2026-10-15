@@ -12,6 +12,10 @@ export const GROUPS = ['day', 'pr', 'issue', 'engineer', 'category'] as const;
 export type Group = (typeof GROUPS)[number];
 export const DEFAULT_GROUP: Group = 'day';
 
+/** How the table is ordered: the grouping's own natural order, or dearest first. Engineers are always by total. */
+export const SORTS = ['default', 'total'] as const;
+export type Sort = (typeof SORTS)[number];
+
 /** What the dollars are split by: the "where it went" bar, each row's split bar and the $ columns. */
 export const SPLITS = ['phase', 'model', 'where', 'outcome'] as const;
 export type Split = (typeof SPLITS)[number];
@@ -36,6 +40,8 @@ export interface CostQuery {
   who: Who;
   group: Group;
   split: Split;
+  /** 'default' for an engineer grouping, whose order cannot be switched. */
+  sort: Sort;
   /** 1-based. */
   page: number;
 }
@@ -48,6 +54,7 @@ export function parseQuery(params: URLSearchParams): CostQuery {
   const who = params.get('who') as Who;
   const model = params.get('model') ?? '';
   const page = Number(params.get('page'));
+  const group_ = (GROUPS as readonly string[]).includes(group) ? group : DEFAULT_GROUP;
   return {
     // Own keys only: `in` would accept `toString` and the page would throw.
     period: period !== null && Object.hasOwn(PERIODS, period) ? period : '30d',
@@ -55,8 +62,9 @@ export function parseQuery(params: URLSearchParams): CostQuery {
     category: (CATEGORIES as readonly string[]).includes(category) ? category : null,
     model: MODEL_ID.test(model) ? model : null,
     who: (WHOS as readonly string[]).includes(who) ? who : 'all',
-    group: (GROUPS as readonly string[]).includes(group) ? group : DEFAULT_GROUP,
+    group: group_,
     split: (SPLITS as readonly string[]).includes(split) ? split : 'phase',
+    sort: params.get('sort') === 'total' && group_ !== 'engineer' ? 'total' : 'default',
     page: Number.isInteger(page) && page >= 1 ? page : 1,
   };
 }
@@ -72,6 +80,8 @@ export function queryString(q: CostQuery, over: Partial<CostQuery> = {}): string
   if (all.who !== 'all') params.set('who', all.who);
   if (all.group !== DEFAULT_GROUP) params.set('group', all.group);
   if (all.split !== 'phase') params.set('split', all.split);
+  // An engineer grouping is always by total, so it never carries a sort; a new grouping starts in its own order.
+  if (all.sort === 'total' && all.group !== 'engineer') params.set('sort', 'total');
   if (all.page > 1) params.set('page', String(all.page));
   const text = params.toString();
   return text === '' ? '' : `?${text}`;
@@ -254,15 +264,35 @@ export function openFor(openedAt: string, closedAt: string): string {
 const mergedOf = (row: TotalRow) =>
   row.prNumber === null ? null : row.mergedAt !== null ? row.mergedAt.slice(0, 10) : (row.state ?? '').toLowerCase();
 
+const ms = (iso: string | null) => (iso === null ? 0 : Date.parse(iso) || 0);
+
+/** Where a row's pull request stands in the default order: open first, then merged or closed, then a branch no pull request names. */
+interface Recency {
+  tier: 0 | 1 | 2;
+  /** Opened for an open pull request, merged (or opened, if closed unmerged) for the rest, last activity for a branch. */
+  at: number;
+}
+function recencyOf(row: TotalRow): Recency {
+  if (row.prNumber === null) return { tier: 2, at: row.lastAt };
+  if (row.state === 'OPEN') return { tier: 0, at: ms(row.openedAt) };
+  return { tier: 1, at: ms(row.mergedAt ?? row.openedAt) };
+}
+const newer = (a: Recency, b: Recency) => a.tier - b.tier || b.at - a.at;
+
 /**
- * Sums rows into groups, biggest total first. A session newer than the last
+ * Sums rows into groups. The default order is each grouping's own: pull
+ * requests newest first (open ones, then merged by merge date, then branches
+ * no pull request names), issues by their newest pull request, categories in
+ * pipeline order, days newest first, with catch-alls last. `total` is dearest
+ * first, and engineers are always by total. A session newer than the last
  * time linking caught up is "linking…" (its pull request may not have been
  * seen yet); otherwise a branch no pull request names is "unattributed".
  */
-export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: number | null): CostGroup[] {
+export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: number | null, sort: Sort = 'default'): CostGroup[] {
   const linking = (row: TotalRow) => (row.branch !== '' && (lastLinkSuccessAt === null || row.lastAt > lastLinkSuccessAt) ? 'linking…' : 'unattributed');
   const groups = new Map<string, CostGroup>();
   const prs = new Map<string, Set<number>>();
+  const recency = new Map<string, Recency>();
   for (const row of rows) {
     const place = placeOf(row, group, linking);
     let g = groups.get(place.key);
@@ -277,10 +307,25 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     // Two pull requests on one issue may have been read apart, one before the title was.
     if (group === 'issue' && row.issue !== null && row.issueTitle && g.label === issueLabel(row.issue, null)) g.label = issueLabel(row.issue, row.issueTitle);
     if (row.prNumber !== null) prs.get(place.key)!.add(row.prNumber);
+    const r = recencyOf(row);
+    const best = recency.get(place.key);
+    if (!best || newer(r, best) < 0) recency.set(place.key, r);
   }
   for (const [key, g] of groups) g.pullRequests = prs.get(key)!.size;
-  // Over time lists the newest day first; every other grouping, the dearest.
-  return [...groups.values()].sort((a, b) => (group === 'day' ? b.key.localeCompare(a.key) : b.totalMicros - a.totalMicros || a.label.localeCompare(b.label)));
+  const byTotal = (a: CostGroup, b: CostGroup) => b.totalMicros - a.totalMicros || a.label.localeCompare(b.label);
+  const list = [...groups.values()];
+  if (group === 'engineer' || sort === 'total') return list.sort(group === 'day' ? (a, b) => b.totalMicros - a.totalMicros || b.key.localeCompare(a.key) : byTotal);
+  const order = (a: CostGroup, b: CostGroup) => {
+    switch (group) {
+      case 'day':
+        return b.key.localeCompare(a.key);
+      case 'category':
+        return CATEGORIES.indexOf(a.key as Category) - CATEGORIES.indexOf(b.key as Category);
+      default:
+        return newer(recency.get(a.key)!, recency.get(b.key)!) || a.label.localeCompare(b.label);
+    }
+  };
+  return list.sort((a, b) => Number(a.catchAll) - Number(b.catchAll) || (a.catchAll ? a.key.localeCompare(b.key) : order(a, b)));
 }
 
 /** One line of the per-day chart: a series' dollars on every day of the range. */
@@ -623,7 +668,7 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     ...reads,
   ]);
   const lastLinkSuccessAt = (state!.results[0] as { lastSuccessAt: number | null } | undefined)?.lastSuccessAt ?? null;
-  const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, lastLinkSuccessAt);
+  const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, lastLinkSuccessAt, query.sort);
   const bySeries = bag();
   for (const g of groups) for (const [key, micros] of Object.entries(g.bySeries)) bySeries[key] = (bySeries[key] ?? 0) + micros;
   return {

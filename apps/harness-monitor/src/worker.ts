@@ -106,7 +106,7 @@ async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, ra
   const number = prNumber(raw);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(`${url.origin}/pr/${raw}${queryString(query, { engineer: null, group: DEFAULT_GROUP, split: 'phase', page: 1 })}`);
+  const key = new Request(`${url.origin}/pr/${raw}${queryString(query, { engineer: null, group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 })}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 

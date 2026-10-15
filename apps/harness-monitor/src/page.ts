@@ -70,6 +70,8 @@ export const WHO_LABELS: Record<Who, string> = { all: 'All', main: 'Main session
 const GROUP_LABELS: Record<Group, string> = { pr: 'Pull request', issue: 'Issue', engineer: 'Engineer', category: 'Category', day: 'Day' };
 /** What the grouping's tab reads; the table's own first column keeps GROUP_LABELS. */
 const TAB_LABELS: Record<Group, string> = { ...GROUP_LABELS, day: 'Over time' };
+/** What the footer calls each grouping's own order. */
+const SORTED_BY: Record<Group, string> = { pr: 'newest first', issue: 'newest first', engineer: 'total', category: 'pipeline order', day: 'day, newest first' };
 const UNITS: Record<Group, [string, string]> = {
   pr: ['pull request', 'pull requests'],
   issue: ['issue', 'issues'],
@@ -149,10 +151,11 @@ ${select('model', 'Model', modelOptions, query.model ?? '')}
 ${select('who', 'Requests', WHOS.map((w): [string, string] => [w, WHO_LABELS[w]]), query.who)}
 <div class="field"><span id="splitby">Split by</span><div class="segmented" role="group" aria-labelledby="splitby">${splitButtons}</div></div>
 <input type="hidden" name="split" value="${query.split}">
-<div class="field"><span id="groupby">Group by</span><div class="segmented" role="group" aria-labelledby="groupby">${buttons}</div></div>
+<div class="field"><span id="groupby">Group by</span><div class="segmented" role="group" aria-labelledby="groupby"${query.sort === 'total' ? ` onclick="if(event.target.name==='group')event.target.form.elements.sort.disabled=true"` : ''}>${buttons}</div></div>
 <input type="hidden" name="group" value="${query.group}">
+${query.sort === 'total' ? '<input type="hidden" name="sort" value="total">' : ''}
 <noscript><button type="submit">Apply</button></noscript>
-<a class="button" href="/export.csv${queryString(query, { group: DEFAULT_GROUP, split: 'phase', page: 1 })}" download>Export CSV</a>
+<a class="button" href="/export.csv${queryString(query, { group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 })}" download>Export CSV</a>
 </form>`;
 }
 
@@ -365,7 +368,7 @@ function firstCell(g: CostGroup, query: CostQuery, repository: string | null): s
   const label = repository === null ? text : g.prNumber !== null ? github(repository, `pull/${g.prNumber}`, text) : g.issue !== null && query.group === 'issue' ? github(repository, `issues/${g.issue}`, text) : text;
   if (g.sub === null) return `<td class="first">${label}</td>`;
   const issue = repository !== null && g.prNumber !== null && g.issue !== null ? github(repository, `issues/${g.issue}`, esc(g.sub)) : esc(g.sub);
-  const sessions = g.prNumber === null ? '' : ` · <a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: DEFAULT_GROUP, page: 1 })}">Sessions</a>`;
+  const sessions = g.prNumber === null ? '' : ` · <a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: DEFAULT_GROUP, sort: 'default', page: 1 })}">Sessions</a>`;
   return `<td class="first">${label}<div class="muted small">${issue}${sessions}</div></td>`;
 }
 
@@ -406,13 +409,20 @@ function table(page: CostsPage, repository: string | null): string {
   const pager = [pageNo > 1 ? link(pageNo - 1, 'Previous') : '', start + PAGE_SIZE < groups.length ? link(pageNo + 1, `Next ${PAGE_SIZE}`) : '']
     .filter(Boolean)
     .join(' · ');
+  // Engineers are always by total, so neither header there is a link; elsewhere the inactive sort's header is.
+  const switchable = query.group !== 'engineer';
+  const byTotal = query.sort === 'total' || !switchable;
+  const firstHead = switchable && byTotal ? `<a href="/${queryString(query, { sort: 'default', page: 1 })}">${GROUP_LABELS[query.group]}</a>` : GROUP_LABELS[query.group];
+  const totalHead = switchable && !byTotal ? `<a href="/${queryString(query, { sort: 'total', page: 1 })}">Total</a>` : 'Total';
+  const marks = (on: boolean) => (on ? ' ▾' : '');
+  const sortedBy = byTotal ? 'total' : SORTED_BY[query.group];
   return `<section class="card table-card" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">
 <div class="scroll"><table class="costs">
-<thead><tr><th scope="col" class="first">${GROUP_LABELS[query.group]}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">Total${query.group === 'day' ? '' : ' ▾'}</th></tr></thead>
+<thead><tr><th scope="col" class="first">${firstHead}${marks(!byTotal)}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">${totalHead}${marks(byTotal)}</th></tr></thead>
 <tbody>
 ${shown.map((g) => row(g, query.group, max, query, page.series, page.models, repository)).join('\n')}
 </tbody></table></div>
-<div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by ${query.group === 'day' ? 'day, newest first' : 'total'}</span><span>${pager}</span></div>
+<div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by ${sortedBy}</span><span>${pager}</span></div>
 </section>`;
 }
 
