@@ -521,6 +521,41 @@ describe('Connector management', () => {
       ).toBeInTheDocument();
     });
 
+    /** "File Gmail conversations on the Panel named after their label", issue 1148. */
+    it('says label for Gmail, from the connector’s own noun, in the box, the line under it and the row', async () => {
+      const GMAIL_CARD = {
+          id: 'gmail',
+          displayName: 'Gmail',
+          cardText: 'Conversations you label Cockpit arrive as items.',
+          asksFirst: true,
+          choice: { question: 'Bring in conversations', options: [{ value: 'label', label: 'Labelled Cockpit' }] },
+          names: { noun: 'label', example: 'a conversation labelled' },
+      };
+      held.registry = [GMAIL_CARD];
+      held.sourceAccounts = [
+        {
+          ...MAIL,
+          id: 'account-gmail',
+          connectorId: 'gmail',
+          displayName: 'Ada’s Gmail',
+          follows: 'label',
+          followsLabel: 'Labelled Cockpit',
+          filesByName: true,
+        },
+      ];
+      showWindow();
+
+      expect(await screen.findByText(/^Gmail · Labelled Cockpit · files by label · last checked /)).toBeInTheDocument();
+      const changing = await change('Ada’s Gmail');
+
+      expect(within(changing).getByRole('checkbox', { name: 'File it on the panel named after its label' })).toBeChecked();
+      expect(
+        within(changing).getByText(
+          'So a conversation labelled Customer Atlas lands on the Customer Atlas panel instead of the Inbox. A label that matches no panel, or panels on two dashboards, leaves it in the Inbox.',
+        ),
+      ).toBeInTheDocument();
+    });
+
     it('offers none on a connector that reports no names', async () => {
       held.sourceAccounts = [PAGES];
       showWindow();

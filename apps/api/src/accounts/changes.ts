@@ -166,6 +166,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     FILES_BY_NAME,
     CONNECTION_HISTORY_DID,
     AGENT_RUNS_SENT_TO_CLAUDE,
+    AGENT_RUNS_NOTE,
     CONNECTION_HISTORY_STATUS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -735,6 +736,24 @@ const AGENT_RUNS_SENT_TO_CLAUDE: Change = {
 };
 
 /**
+ * What Claude said with its last report on a sent Run ("Follow on the row what
+ * Claude reports back", issue 1160): one nullable column on `agent_runs`.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ADD COLUMN`.
+ * - **Stopped halfway, or run twice:** a single statement in one transaction;
+ *   SQLite refuses a column that already exists.
+ * - **Existing rows:** take null, which reads as no note.
+ * - **Rolled back after it has run:** an older release names the columns it
+ *   reads and ignores this one.
+ * - **A backup restored from before it:** the recorded changes are replayed,
+ *   so it applies the next time the account is opened.
+ */
+const AGENT_RUNS_NOTE: Change = {
+  name: '0081-agent-runs-note',
+  statements: [{ sql: 'ALTER TABLE `agent_runs` ADD COLUMN `note` text' }],
+};
+
+/**
  * The source's HTTP status on a failed check ("Show the source's HTTP status
  * on a connection's failed check", issue 1142) - one nullable column on
  * `connection_history`; `schema.ts` says what it holds.
@@ -757,7 +776,7 @@ const AGENT_RUNS_SENT_TO_CLAUDE: Change = {
  *   changes, so this one applies the next time the account is opened.
  */
 const CONNECTION_HISTORY_STATUS: Change = {
-  name: '0081-connection-history-status',
+  name: '0082-connection-history-status',
   statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `status` integer' }],
 };
 

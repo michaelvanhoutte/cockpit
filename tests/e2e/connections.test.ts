@@ -280,4 +280,34 @@ test.describe('Connector management', () => {
       await deleteWorkspace(page, workspace, isMobile);
     });
   });
+
+  test.describe('a Gmail connection can file what it brings in on the Panel named after its label', () => {
+    test('asks it on Connect, unticked, and the row says it files by label', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'a phone has no Connections, only Appearance');
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('Files by label');
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+
+      // The same tick box Outlook's Connect asks, worded from Gmail's manifest
+      // ("File Gmail conversations on the Panel named after their label", issue 1148).
+      // The stand-in mailbox carries no label but Cockpit, so what lands on a
+      // Panel is held below (apps/api/tests/integration/connectors/pulled-names.test.ts).
+      const window = await openSettings(page, 'Connections', isMobile);
+      await press(window.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      const gmailAsked = page.getByRole('dialog', { name: 'Connect Gmail' });
+      const filesByLabel = gmailAsked.getByRole('checkbox', { name: 'File it on the panel named after its label' });
+      await expect(filesByLabel).not.toBeChecked();
+      await press(filesByLabel, isMobile);
+      await press(gmailAsked.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+      await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(/^Gmail · Labelled Cockpit · files by label/)).toBeVisible();
+
+      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await closeSettings(page, isMobile);
+      await deleteWorkspace(page, workspace, isMobile);
+    });
+  });
 });

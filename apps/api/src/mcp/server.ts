@@ -6,10 +6,11 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { textsFromCapture, uuidv7 } from '@cockpit/shared';
-import { NotFoundInAccountError, openAccount, type Account } from '../accounts/index.js';
+import { ACCOUNT_WIDE, textsFromCapture, uuidv7 } from '@cockpit/shared';
+import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
+import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
@@ -25,7 +26,7 @@ import { MCP_PATH } from '../auth/mcp-paths.js';
  * the account as it is now: a workspace renamed a moment ago is listed by its
  * new name on the next `tools/list`, with nothing to invalidate.
  *
- * One tool, `create_item`, and no resources or prompts: the server declares
+ * Two tools, `create_item` and `report_run` (issue 1160), and no resources or prompts: the server declares
  * the tools capability alone, so a client never asks for the others.
  */
 
@@ -77,16 +78,21 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     try {
-      return { tools: [createItemTool(await account.workspaces())] };
+      return { tools: [createItemTool(await account.workspaces()), reportRunTool()] };
     } catch (error) {
       logged(error);
       throw new McpError(ErrorCode.InternalError, SOMETHING_BROKE);
     }
   });
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-    if (params.name !== CREATE_ITEM) return toolError(`There is no tool called ${params.name}.`);
+    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN) {
+      return toolError(`There is no tool called ${params.name}.`);
+    }
     try {
-      const said = await capture(env, ctx, account, holder.accountName, app, params.arguments);
+      const said =
+        params.name === REPORT_RUN
+          ? await reportRun(account, app, params.arguments)
+          : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
       logged(error);
@@ -182,6 +188,44 @@ async function capture(
   const link = new URL(`/w/${encodeURIComponent(read.workspaceId)}`, env.APP_ORIGIN);
   link.searchParams.set('item', itemId);
   return { reply: `Captured "${title}" in ${where}. Open it: ${link.href}` };
+}
+
+/**
+ * One `report_run` call (issue 1160): admitted at the rate capture is, read,
+ * and written through `report_claude_run`, which finds the Run and refuses one
+ * that is unknown, another account's (this account's store cannot see it) or
+ * ended, in the same words for each.
+ */
+async function reportRun(
+  account: Account,
+  app: { grantId: string },
+  args: unknown,
+): Promise<{ reply: string } | { refusal: string }> {
+  if ((await account.appCaptureArrived(app.grantId, new Date().toISOString())) === 'too-many') {
+    return { refusal: 'Too many calls in the last minute. Wait a minute and try again.' };
+  }
+  const read = readReport(args);
+  if (!read.ok) return { refusal: read.refusal };
+  try {
+    await account.applyChange('report_claude_run', {
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      // Replaced by the Run's own Workspace where it is written.
+      workspaceId: ACCOUNT_WIDE,
+      runId: read.runId,
+      stage: read.stage,
+      ...(read.sessionUrl ? { sessionUrl: read.sessionUrl } : {}),
+      ...(read.resultUrl ? { resultUrl: read.resultUrl } : {}),
+      ...(read.note ? { note: read.note } : {}),
+    });
+  } catch (error) {
+    if (error instanceof NotFoundInAccountError) {
+      return { refusal: 'There is no open run with that id. It may have ended, or the id may be wrong; check the prompt.' };
+    }
+    if (error instanceof RefusedByAccountError) return { refusal: error.message };
+    throw error;
+  }
+  return { reply: 'Reported. Cockpit now shows this on the item.' };
 }
 
 /**
