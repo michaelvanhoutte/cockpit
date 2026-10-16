@@ -110,9 +110,29 @@ test.describe('Capture', () => {
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
 
+      // A note captured twice says so above the Captured line, once the server
+      // has paired them, with Undo still beside the line; the next capture clears it
+      // ("Warn at Capture when the note just captured repeats another", issue 1115).
+      // Words nothing else on this shared account says, so the pair is this walk's own
+      // (the stack reads words rather than meaning: `EMBEDDINGS_STAND_IN`, scripts/e2e-stack.mjs).
+      const words = `Renew the ${crypto.randomUUID()} support contract for the ${crypto.randomUUID()} line`;
+      await captureBox(page).fill(uniqueTitle(words));
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      const repeated = uniqueTitle(words);
+      await captureBox(page).fill(repeated);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(capturedLine(page, repeated)).toBeVisible();
+      const warning = page.getByRole('status').filter({ hasText: /^Looks like “/ });
+      await expect(warning).toBeVisible({ timeout: 20_000 });
+      await expect(warning.getByRole('button', { name: 'Open it' })).toBeVisible();
+      await expect(capturedLine(page, repeated).getByRole('button', { name: 'Undo' })).toBeVisible();
+      await captureBox(page).fill(uniqueTitle('Shopping list'));
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(warning).toHaveCount(0);
+
       // The same box, spoken into: the mic sits in the strip under the note,
       // reachable on this screen. Tapped, it records with a running timer;
-      // tapped again, the recording is transcribed and the words land at the
+      // tapped repeated, the recording is transcribed and the words land at the
       // end of what was typed, to be captured like anything typed. Only a
       // browser records, and only a browser proves it reaches an Item.
       const mic = page.getByRole('button', { name: 'Dictate' });

@@ -82,3 +82,19 @@ export function itemsThatMayBeDuplicates(
   }
   return flagged;
 }
+
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['day', 86_400_000],
+  ['hour', 3_600_000],
+  ['minute', 60_000],
+];
+
+/** When a note was captured, in the words a warning has room for: *3 days ago*, *2 hours ago*, *just now*. */
+export function whenCaptured(createdAt: string, now: number): string {
+  const elapsed = now - Date.parse(createdAt);
+  const format = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+  for (const [unit, length] of UNITS) {
+    if (elapsed >= length) return format.format(-Math.floor(elapsed / length), unit);
+  }
+  return 'just now';
+}
