@@ -170,6 +170,13 @@ describe('Capture', () => {
       expect(JSON.parse(side().dataset.state!)).toEqual({ captureFrom: 'ws-work' });
     });
 
+    it('carries the Panel a + opened it for over the switch', async () => {
+      const on = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' };
+      opened('/capture/car', { captureFrom: 'ws-work', captureOn: on });
+
+      expect(JSON.parse(writeSide().dataset.state!)).toEqual({ captureFrom: 'ws-work', captureOn: on });
+    });
+
     it('carries no workspace over the switch where it was opened outside one', async () => {
       opened('/capture');
 

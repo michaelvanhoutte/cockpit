@@ -58,8 +58,8 @@ export function CapturePage() {
     select: (state) => (state.location.state as CaptureState).captureOn ?? null,
   });
   const inCar = useRouterState({ select: (state) => state.location.pathname === '/capture/car' });
-  // Carried over the switch, so Where still starts on the workspace you came from.
-  const carried = captureStateFor(startsIn ?? undefined);
+  // Carried over the switch, so Where and File on still start as you came to them.
+  const carried = captureStateFor(startsIn ?? undefined, startsOn ?? undefined);
 
   return (
     /* The sheet's own hollow, the same one a panel's list sits in ("Cockpit

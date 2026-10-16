@@ -1365,13 +1365,6 @@ describe('Capture', () => {
     });
   });
 
-  /**
-   * "File a note on Panels from Capture, skipping the Inbox" (issue 1101). The
-   * search is over snapshots the page already holds, so each rule here is what
-   * is offered and what is then sent; that a filed capture really lands on its
-   * Panel is the walk in tests/e2e/capture.test.ts, and the filing itself is
-   * apps/api/tests/integration/http/capture-on-panels.test.ts.
-   */
   describe('a Panel’s + opens Capture holding that Panel', () => {
     const FALCON = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' };
 
@@ -1393,6 +1386,13 @@ describe('Capture', () => {
     });
   });
 
+  /**
+   * "File a note on Panels from Capture, skipping the Inbox" (issue 1101). The
+   * search is over snapshots the page already holds, so each rule here is what
+   * is offered and what is then sent; that a filed capture really lands on its
+   * Panel is the walk in tests/e2e/capture.test.ts, and the filing itself is
+   * apps/api/tests/integration/http/capture-on-panels.test.ts.
+   */
   describe('File on searches the right Panels and files the note on those chosen', () => {
     /** Opens the line's search, which is fetched on first focus, and answers it. */
     async function searching(user: Awaited<ReturnType<typeof thePage>>) {
