@@ -24,6 +24,13 @@ export interface LineAsHeld {
 export const MESSAGE_MOST_BYTES = 2048;
 
 /**
+ * The most lines *History…* reads, newest first. Nothing prunes the history,
+ * and a source whose failures never repeat word for word writes a line every
+ * check, so the read is capped rather than growing with the connection's age.
+ */
+export const HISTORY_MOST_LINES = 500;
+
+/**
  * A failure's message as its line keeps it: at most 2 KB, cut on a character
  * rather than through one, and marked where it was cut; none where the source
  * said nothing.

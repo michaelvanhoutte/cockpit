@@ -4,7 +4,12 @@ import type { AccountDb } from './client.js';
 import { SourceAccountNotFoundError } from './command-service.js';
 import { getSourceAccount } from './repo.js';
 import { connectionHistory } from './schema.js';
-import { whatACheckWrites, type CheckOutcome, type CheckReason } from '../domain/connection-history.js';
+import {
+  HISTORY_MOST_LINES,
+  whatACheckWrites,
+  type CheckOutcome,
+  type CheckReason,
+} from '../domain/connection-history.js';
 
 /**
  * A connection's history in the account's store ("See when a pulled
@@ -63,8 +68,9 @@ export function recordCheck(
 }
 
 /**
- * One connection's history, newest line first - refused as not found unless
- * the connection is this Workspace's and still connected.
+ * One connection's history, newest line first and at most
+ * `HISTORY_MOST_LINES` of it - refused as not found unless the connection is
+ * this Workspace's and still connected.
  */
 export function connectionHistoryOf(
   db: AccountDb,
@@ -88,5 +94,6 @@ export function connectionHistoryOf(
     .from(connectionHistory)
     .where(and(eq(connectionHistory.tenantId, accountName), eq(connectionHistory.sourceAccountId, sourceAccountId)))
     .orderBy(desc(connectionHistory.lastAt), desc(connectionHistory.firstAt))
+    .limit(HISTORY_MOST_LINES)
     .all();
 }

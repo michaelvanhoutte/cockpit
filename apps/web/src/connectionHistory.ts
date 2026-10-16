@@ -19,7 +19,9 @@ export interface HistoryLineShown {
 }
 
 export interface HistoryDay {
-  /** *Today*, *Yesterday*, or the day's date. */
+  /** The local calendar day, unique among the days. */
+  key: string;
+  /** *Today*, *Yesterday*, or the day's date - with its year where it is not this one. */
   heading: string;
   lines: HistoryLineShown[];
 }
@@ -37,7 +39,12 @@ function headingFor(at: Date, now: Date): string {
   yesterday.setDate(now.getDate() - 1);
   if (dayOf(at) === dayOf(now)) return 'Today';
   if (dayOf(at) === dayOf(yesterday)) return 'Yesterday';
-  return at.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  return at.toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    ...(at.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  });
 }
 
 /** One line in words. */
@@ -71,7 +78,7 @@ export function historyDays(lines: readonly ConnectionHistoryLine[], now: Date):
     const at = new Date(line.lastAt);
     if (dayOf(at) !== key) {
       key = dayOf(at);
-      days.push({ heading: headingFor(at, now), lines: [] });
+      days.push({ key, heading: headingFor(at, now), lines: [] });
     }
     days[days.length - 1]!.lines.push(lineShown(line));
   }

@@ -3,6 +3,7 @@ import { applyD1Migrations, env, runDurableObjectAlarm } from 'cloudflare:test';
 import type { Connector, ConnectorHost, SyncAnswer } from '@cockpit/connector-sdk';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue } from '../../../src/jobs/index.js';
+import { HISTORY_MOST_LINES } from '../../../src/domain/connection-history.js';
 import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
 import {
   ACCOUNT_NAME,
@@ -294,6 +295,32 @@ describe('Connector management', () => {
       }
 
       expect((await historyOf(id, askedIn)).status).toBe(404);
+    });
+  });
+
+  describe('a connection’s history read carries its newest lines, up to a fixed most', () => {
+    it('answers only the newest lines of a history longer than the read carries', async () => {
+      const id = await connect();
+      // One line more than the read carries, a minute apart, each its own.
+      await inTheStore((sql) =>
+        sql.exec(
+          `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+           INSERT INTO connection_history (id, tenant_id, source_account_id, outcome, reason, message, message_cut, count, first_at, last_at)
+           SELECT 'line-' || i, ?, ?, 'failed', 'scheduled', 'failure ' || i, 0, 1,
+                  strftime('%Y-%m-%dT%H:%M:%fZ', '2026-10-01T00:00:00.000Z', '+' || i || ' minutes'),
+                  strftime('%Y-%m-%dT%H:%M:%fZ', '2026-10-01T00:00:00.000Z', '+' || i || ' minutes')
+           FROM n`,
+          HISTORY_MOST_LINES,
+          ACCOUNT_NAME,
+          id,
+        ),
+      );
+
+      const { lines } = await historyOf(id);
+
+      expect(lines).toHaveLength(HISTORY_MOST_LINES);
+      expect(lines[0]!.message).toBe(`failure ${HISTORY_MOST_LINES}`);
+      expect(lines.at(-1)!.message).toBe('failure 1');
     });
   });
 });

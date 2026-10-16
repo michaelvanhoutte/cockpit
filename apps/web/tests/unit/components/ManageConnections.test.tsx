@@ -864,6 +864,22 @@ describe('Connector management', () => {
       expect(within(within(history).getByRole('region', { name: 'Yesterday' })).getByText('Worked')).toBeInTheDocument();
     });
 
+    it('names the year of a day from another year, and keeps the same date a year apart as two days', async () => {
+      const lastYear = new Date(2025, 9, 5, 9, 0).toISOString();
+      const yearBefore = new Date(2024, 9, 5, 9, 0).toISOString();
+      held.history = [
+        line({ firstAt: lastYear, lastAt: lastYear }),
+        line({ outcome: 'failed', message: 'unavailable', firstAt: yearBefore, lastAt: yearBefore }),
+      ];
+      showWindow();
+      const history = await openHistory();
+
+      const headings = within(history).getAllByRole('heading', { level: 4 }).map((h) => h.textContent!);
+      expect(headings).toHaveLength(2);
+      expect(headings[0]).toContain('2025');
+      expect(headings[1]).toContain('2024');
+    });
+
     it.each([
       {
         situation: 'a single check that worked, with why it ran',
@@ -931,6 +947,20 @@ describe('Connector management', () => {
       await userEvent.click(retry);
 
       expect(await within(history).findByText('Worked')).toBeInTheDocument();
+      expect(held.historyAskedFor).toEqual(['account-anna', 'account-anna']);
+    });
+
+    it('reads it again on opening it again, never drawing the read before', async () => {
+      held.history = [line({})];
+      showWindow();
+      expect(await within(await openHistory()).findByText('Worked')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: '‹ Connections' }));
+
+      held.history = 'fails';
+      const again = await openHistory();
+
+      expect(await within(again).findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+      expect(within(again).queryByText('Worked')).toBeNull();
       expect(held.historyAskedFor).toEqual(['account-anna', 'account-anna']);
     });
   });

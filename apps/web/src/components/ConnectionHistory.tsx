@@ -33,7 +33,10 @@ export function ConnectionHistory({
   const { data, error, refetch } = useQuery({
     queryKey: ['connectionHistory', workspaceId, account.id],
     queryFn: () => fetchHistory(workspaceId, account.id),
+    // Dropped as the view closes, so opening it again never draws the last
+    // read while the new one is under way, or over a new one that failed.
     staleTime: 0,
+    gcTime: 0,
   });
   const back = useRef<HTMLButtonElement>(null);
   // Opened from a menu that has gone with the list, so the focus starts on the way back.
@@ -57,7 +60,7 @@ export function ConnectionHistory({
         {data && data.lines.length === 0 && <p className="py-2 text-sm text-ink-faint">No checks yet.</p>}
         {data &&
           historyDays(data.lines, new Date()).map((day) => (
-            <section key={day.heading} aria-label={day.heading} className="mt-3 first:mt-0">
+            <section key={day.key} aria-label={day.heading} className="mt-3 first:mt-0">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">{day.heading}</h4>
               <ul className="mt-1">
                 {day.lines.map((line) => (

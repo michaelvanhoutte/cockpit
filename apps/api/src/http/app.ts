@@ -148,7 +148,7 @@ import {
   signInAsGuest,
   signInWithGoogle,
 } from '../auth/register.js';
-import { connectors, getConnector, sourceNames } from '../connectors/registry.js';
+import { connectors, getConnector, pulledConnectorIds, sourceNames } from '../connectors/registry.js';
 import { pushHostFor } from '../connectors/push-host.js';
 import { connectionsFor, forgetConnection, rememberConnection } from '../connectors/directory.js';
 import {
@@ -1300,13 +1300,14 @@ const routes = app
     // connections, the same reasoning the attachment download route records.
     // A described source's choice is stored as its value, and said in its
     // connector's words here, where the registry is known (issue 942).
+    // A pulled connection's checks are what its history holds (issue 1140).
+    const pulled = pulledConnectorIds(c.env);
     return c.json(
       {
         sourceAccounts: (await account.sourceAccounts(workspaceId)).map((held) => {
           const options = choiceOptionsOf(c.env, held.connectorId);
           const label = options?.find((option) => option.value === held.follows)?.label;
-          // A pulled connection's checks are what its history holds (issue 1140).
-          const keepsHistory = getConnector(c.env, held.connectorId)?.manifest.pulled === true;
+          const keepsHistory = pulled.includes(held.connectorId);
           return {
             ...held,
             ...(label === undefined ? {} : { followsLabel: label }),
