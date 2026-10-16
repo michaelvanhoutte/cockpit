@@ -31,6 +31,7 @@ export function FileOnLine({
   disabled,
   onAdd,
   onRemove,
+  inTheItemForm = false,
 }: {
   /** The Workspace chosen, or null for *Any workspace*. */
   where: string | null;
@@ -41,17 +42,30 @@ export function FileOnLine({
   disabled: boolean;
   onAdd: (option: FileOnOption) => void;
   onRemove: (panelId: string) => void;
+  /** Drawn as the Item form's *On panels* field, under its description, in place of Capture's line (issue 1106). */
+  inTheItemForm?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
+  const label = inTheItemForm ? 'On panels' : 'File on';
   return (
-    <div className="order-4 mt-3 flex flex-col gap-1.5 sm:order-none sm:flex-row sm:flex-wrap sm:items-start sm:gap-2">
+    <div
+      className={
+        inTheItemForm
+          ? 'flex flex-col gap-1'
+          : 'order-4 mt-3 flex flex-col gap-1.5 sm:order-none sm:flex-row sm:flex-wrap sm:items-start sm:gap-2'
+      }
+    >
       <span
         aria-hidden="true"
-        className="text-[11px] font-semibold tracking-[0.11em] text-ink-faint uppercase sm:w-[74px] sm:shrink-0 sm:pt-1 sm:text-xs"
+        className={
+          inTheItemForm
+            ? 'text-xs font-semibold uppercase tracking-wide text-ink-faint'
+            : 'text-[11px] font-semibold tracking-[0.11em] text-ink-faint uppercase sm:w-[74px] sm:shrink-0 sm:pt-1 sm:text-xs'
+        }
       >
-        File on
+        {label}
       </span>
-      <div role="group" aria-label="File on" className="flex min-w-0 flex-wrap items-start gap-1.5 sm:flex-1">
+      <div role="group" aria-label={label} className="flex min-w-0 flex-wrap items-start gap-1.5 sm:flex-1">
         {filed.map((one) => (
           <span
             key={one.panelId}
@@ -62,8 +76,8 @@ export function FileOnLine({
               type="button"
               disabled={disabled}
               onClick={() => onRemove(one.panelId)}
-              aria-label={`Do not file on ${one.name}`}
-              title="Do not file on this Panel"
+              aria-label={inTheItemForm ? `Remove from ${one.name}` : `Do not file on ${one.name}`}
+              title={inTheItemForm ? 'Remove from this Panel' : 'Do not file on this Panel'}
               className="flex size-6 items-center justify-center rounded-full text-ink-soft hover:bg-accent-soft/40 disabled:opacity-50"
             >
               ✕

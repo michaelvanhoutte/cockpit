@@ -27,14 +27,14 @@ import {
   type Priority,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
-import { snapshotQuery, useSendCommand } from '../api/queries';
+import { snapshotQuery, useSendCommand, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
+import { useItemPanels } from '../useItemPanels';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
 import { filingsThatFile } from '../filing';
-import { dayOf, shownOn } from '../filters';
 import {
   FIELDS,
   FIELD_NAMES,
@@ -67,6 +67,9 @@ import { useCockpitChanges } from '../useCockpitChanges';
 
 /** The tab's list and its before-and-after, loaded the first time the tab is opened; only the note's check is in the form's own code (issue 690). */
 const WhatCockpitChangedList = lazy(() => import('./WhatCockpitChangedList'));
+
+/** The *On panels* field, loaded behind the form like the editor, so the initial bundle does not carry it (issue 1106). */
+const FileOnLine = lazy(() => import('./FileOnLine').then((loaded) => ({ default: loaded.FileOnLine })));
 
 /** The phone page's chips, loaded only where the form is a page (issue 787). */
 const ItemFormChips = lazy(() => import('./ItemFormChips'));
@@ -301,6 +304,8 @@ function TheForm({
   const [filesOpen, setFilesOpen] = useState(false);
   /** The phone page's chips chunk never arrived: the rest of the form stays, and says so. */
   const [chipsFailed, setChipsFailed] = useState(false);
+  /** The *On panels* field's chunk never arrived: the rest of the form stays, and says so. */
+  const [onPanelsFailed, setOnPanelsFailed] = useState(false);
   /**
    * What is actually drawn - the account's own choice, unless the screen is
    * a page (`onAPage`), which is never docked: "out of scope" has to mean
@@ -340,7 +345,10 @@ function TheForm({
           presentation: next,
         },
       });
-      if (dockedHere) void commitFields(FIELDS);
+      if (dockedHere) {
+        void commitFields(FIELDS);
+        void onPanels.save();
+      }
     } catch (failure) {
       setFixedPresentation(was);
       setRefusal(failure instanceof Error ? failure.message : 'That could not be saved');
@@ -831,6 +839,9 @@ function TheForm({
   const setDraft =(now: Draft) => changeEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const { data: workspaceList } = useQuery(workspacesQuery);
+  /** The *On panels* field: written at once docked, held for Save otherwise (issue 1106). */
+  const onPanels = useItemPanels({ item, workspaceId, data, docked });
   /**
    * Bumped every time a reading is chosen, and handed to `DescriptionBox` as
    * its `resetKey` below - the editor owns its document once it is made and
@@ -877,19 +888,6 @@ function TheForm({
       changeEditing(() => ({ was: from, now: { ...from } }));
     }
   }, [item, editing]);
-
-  /** Worked out only while Details is showing: it walks every filter against every item, which nothing else on the form needs on a keystroke. */
-  const shownOnNames =
-    tab === 'details' && item
-      ? shownOn(
-          item,
-          data?.items ?? [],
-          data?.filings ?? [],
-          data?.panels ?? [],
-          data?.dashboards ?? [],
-          dayOf(new Date()),
-        )
-      : [];
 
   /**
    * Over the cap in a box that is actually being sent, not in one that merely
@@ -1003,6 +1001,8 @@ function TheForm({
         if (value === undefined) continue;
         if (!(await landed(field, value))) return;
       }
+      // After the fields, so a refusal here leaves them saved; the hook says which Panel failed.
+      if ((await onPanels.save()) !== null) return;
       onClose();
     } catch (failure) {
       // The form stays open and says why, so nothing typed is lost to a
@@ -1733,7 +1733,7 @@ function TheForm({
                       className={
                         onAPage
                           ? 'grid flex-1 grid-cols-1 grid-rows-[auto_minmax(16rem,1fr)_auto] gap-4'
-                          : 'grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)]'
+                          : 'grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)_auto]'
                       }
                     >
                       <div className={`flex flex-col gap-3${onAPage ? '' : ' @lg:col-span-2 @lg:col-start-1 @lg:row-start-1'}`}>
@@ -1818,6 +1818,35 @@ function TheForm({
                           editable={!saving}
                           onAPage={onAPage}
                         />
+                      </div>
+
+                      {/* The Panels it is filed on, each with ✕, and the search that adds more - Capture's *File on* in the Item's own Workspace (issue 1106). Docked a change is written at once with Undo; otherwise it waits for Save. */}
+                      <div className={onAPage ? undefined : '@lg:col-start-2 @lg:row-start-3'}>
+                        {onPanelsFailed ? (
+                          <p role="alert" className="text-sm text-over-ink">
+                            The Panels could not load. Reload Cockpit to try again.
+                          </p>
+                        ) : (
+                          <WhateverTheQuestionDoes onFailure={() => setOnPanelsFailed(true)}>
+                            <Suspense fallback={<div className="h-14" aria-hidden="true" />}>
+                              <FileOnLine
+                                inTheItemForm
+                                where={workspaceId}
+                                from={workspaceId}
+                                workspaces={workspaceList?.workspaces ?? []}
+                                filed={onPanels.shown.map((one) => ({ ...one, workspaceId }))}
+                                disabled={saving}
+                                onAdd={(option) => onPanels.add({ panelId: option.panelId, name: option.name })}
+                                onRemove={onPanels.remove}
+                              />
+                            </Suspense>
+                          </WhateverTheQuestionDoes>
+                        )}
+                        {onPanels.refusal && (
+                          <p role="alert" className="pt-1 text-sm text-over-ink">
+                            {onPanels.refusal}
+                          </p>
+                        )}
                       </div>
 
                       {/* A screenshot, a scan or a clip the note is really about
@@ -1965,24 +1994,6 @@ function TheForm({
                         </dt>
                         <dd className="mt-1 text-ink-soft">
                           {new Date(item.updatedAt).toLocaleString()}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                          Shown on
-                        </dt>
-                        {/* A record, not a control: where an item is shown is
-                            decided by filing it and by the filters, not here. */}
-                        <dd className="mt-1 text-ink-soft">
-                          {shownOnNames === null ? (
-                            'Not shown on any panel while it is done.'
-                          ) : (
-                            <ul className="flex flex-col gap-0.5">
-                              {shownOnNames.map((name) => (
-                                <li key={name}>{name}</li>
-                              ))}
-                            </ul>
-                          )}
                         </dd>
                       </div>
                     </dl>

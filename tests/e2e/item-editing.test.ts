@@ -344,13 +344,13 @@ test.describe('Item editing', () => {
       await expect(itemRow(page, marked).getByLabel('High priority')).toHaveCount(0);
       await expect(itemRow(page, marked).getByText('Due Sep 30, 2099')).toHaveCount(0);
 
-      // Its details from the same form ("Change an item's status from its form,
-      // and see where it is shown", issue 528): the Inbox is where Details says
-      // it is shown, and finishing it takes it off the list.
+      // Its details from the same form: they no longer say where it is shown
+      // (its Panels are the *On panels* field, issue 1106), and finishing it
+      // takes it off the list.
       await openItem(page, marked, isMobile);
       await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
-      await expect(form(page).getByText('Shown on')).toBeVisible();
-      await expect(form(page).getByText('Inbox', { exact: true })).toBeVisible();
+      await expect(form(page).getByText('Last changed')).toBeVisible();
+      await expect(form(page).getByText('Shown on')).toHaveCount(0);
       await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
       await setFormStatus(page, 'done', isMobile);
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
@@ -1285,6 +1285,23 @@ test.describe('Item editing', () => {
         await undone;
         await expect(titleBox(page)).toHaveValue(captured);
         await expect(itemRow(page, renamed)).toBeVisible();
+
+        // Its Panels are listed and changed in the form itself ("List and
+        // change an Item's Panels in its form", issue 1106): one picked in the
+        // docked form is filed at once and shows the row on that Panel, and the
+        // ✕ on its last Panel puts it back in the Inbox. Only a browser proves
+        // the row is really drawn on the Panel beside the dock.
+        await press(form(page).getByRole('textbox', { name: 'Find a Panel to file on' }), isMobile);
+        await page.getByRole('searchbox', { name: 'Find a Panel to file on' }).fill('Panel 1');
+        await press(
+          form(page).getByRole('list', { name: 'Panels to file on' }).getByRole('button', { name: /^Panel 1/ }),
+          isMobile,
+        );
+        await expect(form(page).getByRole('group', { name: 'On panels' }).getByText('Panel 1')).toBeVisible();
+        await expect(page.getByRole('region', { name: 'Panel 1' }).getByText(captured)).toBeVisible();
+        await expect(inbox(page).getByText(captured)).toHaveCount(0);
+        await press(form(page).getByRole('button', { name: 'Remove from Panel 1' }), isMobile);
+        await expect(inbox(page).getByText(captured)).toBeVisible();
 
         // Closing keeps a box still holding the cursor.
         const closing = answeredTo('set_description');
