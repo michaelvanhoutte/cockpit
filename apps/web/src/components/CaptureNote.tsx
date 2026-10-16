@@ -1,15 +1,17 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { plainWords, uuidv7, type Priority, type Workspace, type WorkspaceSnapshot } from '@cockpit/shared';
+import { itemLabel, plainWords, uuidv7, type Priority, type Workspace, type WorkspaceSnapshot } from '@cockpit/shared';
 import { FileOnLine, type FiledOn } from './FileOnLine';
 import { CommandRefused, uploadAttachment } from '../api/client';
-import { useSendCommand, workspacesQuery } from '../api/queries';
+import { snapshotQuery, useSendCommand, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
 import { stateOf, whatGoesBack, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
-import { useDockedItem } from '../itemForm';
+import { useDockedItem, useOpenItem } from '../itemForm';
+import { possibleDuplicatesOf, whenCaptured } from '../duplicates';
+import { filingsThatFile } from '../filing';
 import type { Arrived } from '../shares';
 import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
 import { DueChips, LIT_BUTTON, PriorityFlags, QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
@@ -212,6 +214,26 @@ export function CaptureNote({
   const queryClient = useQueryClient();
   const outbox = useOutbox();
   const waiting = useWaitingCaptures();
+  const openItem = useOpenItem();
+  /**
+   * The note the capture just made may repeat another ("Warn at Capture when
+   * the note just captured repeats another", issue 1115): read from the
+   * snapshot the pairs arrive in, for as long as the Captured line stands. A
+   * capture still in the outbox is not an Item yet, so nothing is said of it.
+   */
+  const { data: afterCapture } = useQuery({
+    ...snapshotQuery(last?.workspaceId ?? ''),
+    enabled: last !== null && !waiting.some((entry) => entry.id === last.id),
+  });
+  const repeats =
+    last && afterCapture
+      ? possibleDuplicatesOf(
+          last.id,
+          afterCapture.items ?? [],
+          filingsThatFile(afterCapture.filings ?? [], afterCapture.panels ?? []),
+          afterCapture.duplicates ?? [],
+        )[0]
+      : undefined;
 
   /**
    * With a form docked open, it moves to what was just captured once that has
@@ -898,19 +920,35 @@ export function CaptureNote({
           Capture
         </button>
         {last ? (
-          <p role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
-            <span className="min-w-0 truncate">
-              Captured “{plainWords(last.message)}” → {last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}
-            </span>
-            <button
-              type="button"
-              disabled={undoing}
-              onClick={() => void undo()}
-              className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-            >
-              Undo
-            </button>
-          </p>
+          <div className="flex min-w-0 max-w-full flex-col gap-1">
+            {repeats && (
+              <p role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
+                <span className="min-w-0 break-words">
+                  Looks like “{itemLabel(repeats)}” ({whenCaptured(repeats.createdAt, Date.now())})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openItem(repeats.id)}
+                  className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+                >
+                  Open it
+                </button>
+              </p>
+            )}
+            <p role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
+              <span className="min-w-0 truncate">
+                Captured “{plainWords(last.message)}” → {last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}
+              </span>
+              <button
+                type="button"
+                disabled={undoing}
+                onClick={() => void undo()}
+                className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+              >
+                Undo
+              </button>
+            </p>
+          </div>
         ) : (
           <span className="hidden text-[13px] text-ink-faint sm:inline">
             {SHORTCUT} · the box empties and the cursor stays put

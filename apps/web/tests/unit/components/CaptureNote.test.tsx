@@ -67,6 +67,8 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
  */
 const held = vi.hoisted(() => ({
   mutate: vi.fn(),
+  /** Opens an Item's form, which the shell answers by changing the address. */
+  open: vi.fn(),
   /** The workspaces the account holds, which another tab can delete one of. */
   workspaces: [] as unknown[],
   /** The snapshot each workspace answers with; one left out is a workspace never read, which fails as offline does. */
@@ -80,6 +82,11 @@ const held = vi.hoisted(() => ({
    */
   pending: false,
   settle: () => {},
+}));
+
+vi.mock('../../../src/itemForm', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/itemForm')>()),
+  useOpenItem: () => held.open,
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -888,6 +895,88 @@ describe('Capture', () => {
         await user.click(undoButton());
         await waitFor(() => expect(box()).toHaveValue('Ask Ada about the backup window'));
       });
+    });
+  });
+
+  /**
+   * "Warn at Capture when the note just captured repeats another" (issue 1115):
+   * the pairs arrive in the snapshot, and Capture reads them for the Item it
+   * just made. Detection is the server's job, so a pair is put in the snapshot
+   * after the capture, as it arrives in life.
+   */
+  describe('a note that repeats another says so above the Captured line, while Undo is still offered', () => {
+    const THREE_DAYS = 3 * 24 * 3_600_000;
+    const anOther = (id: string, title: string) => ({
+      id,
+      title,
+      nextAction: null,
+      completedAt: null,
+      createdAt: new Date(Date.now() - THREE_DAYS).toISOString(),
+    });
+    /** The snapshot the capture's Workspace answers with from now on, and the page told to read it again. */
+    async function pairArrives(user: Awaited<ReturnType<typeof thePage>>, pairs: (id: string) => unknown[], items: unknown[] = []) {
+      const id = (vi.mocked(sendCommand).mock.calls.find(([name]) => name === 'capture_item')![1] as { itemId: string }).itemId;
+      held.snapshots['ws-home'] = {
+        ...HOME_SNAPSHOT,
+        items: [anOther('item-bob', 'Call Bob about the invoice'), anOther(id, 'Call Bob re the invoice'), ...items],
+        filings: [],
+        duplicates: pairs(id),
+      };
+      await user.client.invalidateQueries({ queryKey: ['snapshot'] });
+    }
+    const captureOne = async (user: Awaited<ReturnType<typeof thePage>>, note = 'Call Bob re the invoice') => {
+      await user.type(box(), note);
+      await user.click(chip('Capture'));
+      await screen.findByRole('button', { name: 'Undo' });
+    };
+
+    it('names the other note and when, with Open it, above the Captured line', async () => {
+      const user = await thePage();
+      await captureOne(user);
+
+      await pairArrives(user, (id) => [{ itemId: id, otherItemId: 'item-bob' }]);
+
+      const warning = await screen.findByText(/^Looks like “Call Bob about the invoice” \(3 days ago\)/);
+      expect(warning.compareDocumentPosition(captureLine()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(undoButton()).toBeVisible();
+      await user.click(screen.getByRole('button', { name: 'Open it' }));
+      expect(held.open).toHaveBeenCalledWith('item-bob');
+    });
+
+    it('says nothing of a pair that names an earlier capture', async () => {
+      const user = await thePage();
+      await captureOne(user);
+
+      await pairArrives(user, () => [{ itemId: 'item-bob', otherItemId: 'item-earlier' }], [anOther('item-earlier', 'Earlier')]);
+      await settled();
+
+      expect(screen.queryByText(/^Looks like/)).toBeNull();
+    });
+
+    it('is gone once the next capture is made', async () => {
+      const user = await thePage();
+      await captureOne(user);
+      await pairArrives(user, (id) => [{ itemId: id, otherItemId: 'item-bob' }]);
+      await screen.findByText(/^Looks like/);
+
+      await user.type(box(), 'Something else entirely');
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(screen.getAllByText(/^Captured “/)).toHaveLength(1));
+      await settled();
+      expect(screen.queryByText(/^Looks like/)).toBeNull();
+    });
+
+    it('says nothing of a capture still waiting to send', async () => {
+      vi.mocked(sendCommand).mockRejectedValue(new TypeError('Failed to fetch'));
+      const user = await thePage();
+      await captureOne(user);
+
+      await pairArrives(user, (id) => [{ itemId: id, otherItemId: 'item-bob' }]);
+      await settled();
+
+      expect(screen.getByText('1 waiting to send')).toBeVisible();
+      expect(screen.queryByText(/^Looks like/)).toBeNull();
     });
   });
 

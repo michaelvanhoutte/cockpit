@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Filing, Item, PossibleDuplicate } from '@cockpit/shared';
-import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../../src/duplicates';
+import { itemsThatMayBeDuplicates, possibleDuplicatesOf, whenCaptured } from '../../src/duplicates';
 
 /**
  * F1: a drawing rule over the snapshot, so no database is needed to ask it.
@@ -145,6 +145,18 @@ describe('Triage', () => {
     it('marks both again once both are back in the Inbox', () => {
       expect(itemsThatMayBeDuplicates(ITEMS, [], PAIRED).has(ONE.id)).toBe(true);
       expect(itemsThatMayBeDuplicates(ITEMS, [], PAIRED).has(THE_OTHER.id)).toBe(true);
+    });
+  });
+
+  describe('when a note was captured, in the words a warning has room for', () => {
+    const now = Date.parse('2026-08-20T12:00:00.000Z');
+    it.each([
+      { ago: 30_000, says: 'just now' },
+      { ago: 5 * 60_000, says: '5 minutes ago' },
+      { ago: 2 * 3_600_000, says: '2 hours ago' },
+      { ago: 3 * 86_400_000, says: '3 days ago' },
+    ])('says $says', ({ ago, says }) => {
+      expect(whenCaptured(new Date(now - ago).toISOString(), now)).toBe(says);
     });
   });
 });
