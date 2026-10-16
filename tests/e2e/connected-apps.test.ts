@@ -11,9 +11,6 @@ import {
   uniqueTitle,
   closeSettings,
   openSettings,
-  capture,
-  itemRow,
-  openFirstWorkspace,
 } from './support/app';
 
 /**
@@ -91,7 +88,7 @@ async function connectClaude(page: Page, context: BrowserContext, isMobile: bool
 
 test.describe('MCP connections', () => {
   test.describe('an app somebody allows captures into their Inbox, and the item says which app it was', () => {
-    test('connects Claude through sign-in and the consent page, and its capture shows in the Inbox as from Claude', async ({
+    test('connects Claude through sign-in and the consent page, its capture shows in the Inbox as from Claude, and the row follows what Claude reports on it', async ({
       page,
       context,
       isMobile,
@@ -118,8 +115,52 @@ test.describe('MCP connections', () => {
       await expect(row).toBeVisible();
       await expect(row.getByText(/Claude/)).toBeVisible();
 
-      // The window is in Settings, which a phone does not have.
+      // A phone has no Send to Claude entry, and its Settings has no window.
       if (isMobile) return;
+
+      // The same app reports on a Run sent from that row ("Follow on the row
+      // what Claude reports back", issue 1160), the test standing in for Claude.
+      // The stages, refusals and links' rules are proved in
+      // apps/api/tests/integration/http/connected-apps.test.ts and the chip's
+      // wording in apps/web/tests/unit/agentRunChip.test.ts; what only a browser
+      // shows is the row changing without a reload and the arrow opening the result.
+      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Send to Claude…' }), isMobile);
+      const review = page.getByRole('dialog', { name: `Send “${said}” to Claude` });
+      // The prompt names the Run, as it does for Claude.
+      const runId = /report back to Cockpit through its connection, naming this run: (\S+)/.exec(
+        await review.getByLabel('Prompt').inputValue(),
+      )![1]!;
+      await press(review.getByRole('button', { name: /Open in Cowork/ }), isMobile);
+      await expect(row.getByText('Sent to Cowork')).toBeVisible();
+
+      const report = async (args: Record<string, string>) => {
+        const answer = await page.request.post('/mcp', {
+          headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
+          data: {
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'tools/call',
+            params: { name: 'report_run', arguments: { run: runId, ...args } },
+          },
+        });
+        expect(answer.status()).toBe(200);
+        const reported = (await answer.json()) as { result: { isError?: boolean } };
+        expect(reported.result.isError ?? false).toBe(false);
+      };
+
+      await report({ stage: 'on_it', session_url: 'https://claude.ai/code/session_01WALK' });
+      await expect(row.getByRole('link', { name: 'Cowork is on it ↗' })).toHaveAttribute(
+        'href',
+        'https://claude.ai/code/session_01WALK',
+      );
+
+      await report({ stage: 'ready', result_url: 'https://example.com/the-draft', note: 'Two drafts, A and B' });
+      const ready = row.getByRole('link', { name: 'Ready ↗' });
+      await expect(ready).toHaveAttribute('href', 'https://example.com/the-draft');
+      await expect(ready).toHaveAttribute('rel', 'noopener noreferrer');
+      await expect(ready).toHaveAttribute('title', 'Opens example.com - Two drafts, A and B');
+
       const window = await openSettings(page, 'MCP', isMobile);
       await expect(window.getByText(new URL(page.url()).origin + '/mcp')).toBeVisible();
       const listed = window.getByRole('listitem').filter({ hasText: 'Claude' });
@@ -138,68 +179,6 @@ test.describe('MCP connections', () => {
       expect(refused.status()).toBe(401);
       await closeSettings(page, isMobile);
       await expect(row).toBeVisible();
-    });
-  });
-
-  test.describe('a Run sent to Claude follows what Claude reports back, live', () => {
-    // F3, one walk: the report is sent through /mcp by the test, standing in for
-    // Claude ("Follow on the row what Claude reports back", issue 1160). The
-    // stages, the refusals and the links' rules are proved in
-    // apps/api/tests/integration/http/connected-apps.test.ts and the chip's
-    // wording in apps/web/tests/unit/agentRunChip.test.ts; what only a browser
-    // shows is the row changing without a reload and the arrow opening the result.
-    test('moves the chip from Sent to on it to Ready, whose arrow opens what Claude made', async ({
-      page,
-      context,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'A phone has no Send to Claude entry.');
-      const { token } = await connectClaude(page, context, isMobile);
-
-      await openFirstWorkspace(page, isMobile);
-      const title = uniqueTitle('Draft the reply to the landlord');
-      await capture(page, title, isMobile);
-      await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Send to Claude…' }), isMobile);
-      const review = page.getByRole('dialog', { name: `Send “${title}” to Claude` });
-      // The prompt names the Run, as it does for Claude.
-      const runId = /report back to Cockpit through its connection, naming this run: (\S+)/.exec(
-        await review.getByLabel('Prompt').inputValue(),
-      )![1]!;
-      await press(review.getByRole('button', { name: /Open in Cowork/ }), isMobile);
-      await expect(itemRow(page, title).getByText('Sent to Cowork')).toBeVisible();
-
-      const report = async (args: Record<string, string>) => {
-        const answer = await page.request.post('/mcp', {
-          headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
-          data: {
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'tools/call',
-            params: { name: 'report_run', arguments: { run: runId, ...args } },
-          },
-        });
-        expect(answer.status()).toBe(200);
-        const { result } = (await answer.json()) as { result: { isError?: boolean } };
-        expect(result.isError ?? false).toBe(false);
-      };
-
-      await report({ stage: 'on_it', session_url: 'https://claude.ai/code/session_01WALK' });
-      const row = itemRow(page, title);
-      await expect(row.getByRole('link', { name: 'Cowork is on it ↗' })).toHaveAttribute(
-        'href',
-        'https://claude.ai/code/session_01WALK',
-      );
-
-      await report({ stage: 'ready', result_url: 'https://example.com/the-draft', note: 'Two drafts, A and B' });
-      const ready = row.getByRole('link', { name: 'Ready ↗' });
-      await expect(ready).toHaveAttribute('href', 'https://example.com/the-draft');
-      await expect(ready).toHaveAttribute('rel', 'noopener noreferrer');
-      await expect(ready).toHaveAttribute('title', 'Opens example.com - Two drafts, A and B');
-
-      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: /^Dismiss/ }), isMobile);
-      await expect(row).toHaveCount(0);
     });
   });
 });
