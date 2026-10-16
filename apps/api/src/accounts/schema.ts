@@ -1721,6 +1721,14 @@ export const connectorAccounts = sqliteTable(
      * values exist is the connector's to say.
      */
     choice: text('choice'),
+    /**
+     * Whether the connection files what it brings in on the Panel named after
+     * its label or category ("File Outlook mail on the Panel named after its
+     * category", issue 1146). Off for every connection made before it
+     * (`0078-files-by-name`, changes.ts) and until a person ticks the box; read
+     * by the check, never by the connector.
+     */
+    filesByName: integer('files_by_name', { mode: 'boolean' }).notNull().default(false),
   },
   (t) => [
     // What the window reads: one Workspace's accounts, oldest first.
@@ -1738,6 +1746,7 @@ export const connectorAccounts = sqliteTable(
     ),
     check('connector_accounts_connected_at_is_timestamp', isTimestamp('connected_at')),
     check('connector_accounts_updated_at_is_timestamp', isTimestamp('updated_at')),
+    check('connector_accounts_files_by_name_is_a_flag', sql`files_by_name IN (0, 1)`),
   ],
 );
 
@@ -1985,12 +1994,22 @@ export const pulledLinks = sqliteTable(
      * a link made before this existed or without one, which no listing closes.
      */
     choice: text('choice'),
+    /**
+     * The names the source last reported for the Item, as a JSON array of
+     * strings ("File Outlook mail on the Panel named after its category",
+     * issue 1146): only a name not among them files the Item. Null where none
+     * was ever reported - every link made before this existed - which the
+     * next report sets without filing anything. Recorded whether or not the
+     * connection files by name.
+     */
+    names: text('names'),
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.connectorId, t.externalAccountKey, t.sourceId] }),
     uniqueIndex('pulled_links_one_per_item').on(t.itemId),
     check('pulled_links_linked_at_is_timestamp', isTimestamp('linked_at')),
     check('pulled_links_open_wanted_is_flag', sql.raw('open_wanted IS NULL OR open_wanted IN (0, 1)')),
+    check('pulled_links_names_is_json', sql.raw('names IS NULL OR json_valid(names)')),
   ],
 );
 

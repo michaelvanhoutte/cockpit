@@ -13,7 +13,7 @@ import { refusalFrom, snapshotQuery, useCommand, useConnectClaudeCode, useTestCl
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { ConnectEngine } from './engines';
-import { ChangeConnectionChoice, ConnectWithChoice, type ConnectorChoice } from './ConnectionChoice';
+import { ChangeConnectionChoice, ConnectWithChoice, type ConnectorChoice, type ConnectorNames } from './ConnectionChoice';
 import { ConnectionHistory } from './ConnectionHistory';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
@@ -111,13 +111,15 @@ const GUEST_SENTENCE = 'Sign in with Google to connect your own';
 
 /**
  * What a connected row says under its name: the source, the choice it made
- * where its connector asks one, in the connector's own words (issue 942), and
- * when it last worked - for a connection that made a choice, when it was last
- * checked (issue 725).
+ * where its connector asks one, in the connector's own words (issue 942),
+ * whether it files by name (issue 1146), and when it last worked - for a
+ * connection that made a choice, when it was last checked (issue 725).
  */
-function rowDetail(account: SourceAccount, names: SourceNames): string {
+function rowDetail(account: SourceAccount, names: SourceNames, noun?: string): string {
   const source = sourceNamed(names, account.connectorId);
-  const what = account.follows ? `${source} · ${account.followsLabel ?? account.follows}` : source;
+  const followed = account.follows ? `${source} · ${account.followsLabel ?? account.follows}` : source;
+  // Said while the connection files by name, in its connector's noun (issue 1146).
+  const what = account.filesByName && noun ? `${followed} · files by ${noun}` : followed;
   if (!account.lastTestedAt) return what;
   return `${what} · ${account.follows ? 'last checked' : 'last worked'} ${new Date(account.lastTestedAt).toLocaleString()}`;
 }
@@ -305,6 +307,9 @@ export default function ManageConnections({
   /** What a connected row's connector asks, where it asks anything - and so whether the row offers *Change…*. */
   const choiceOf = (connectorId: string): ConnectorChoice | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.choice;
+  /** How a connected row's connector speaks of names, where it reports any - which also offers *Change…* (issue 1146). */
+  const namesOf = (connectorId: string): ConnectorNames | undefined =>
+    registry.data?.connectors.find((connector) => connector.id === connectorId)?.names;
   /**
    * Signs a failing row in again through its connector: the question first
    * where it asks one, starting at the row's own answer, and the same trip as
@@ -370,7 +375,7 @@ export default function ManageConnections({
                   <div className="flex items-center gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm">{account.displayName}</p>
-                      <p className="text-sm text-ink-faint">{rowDetail(account, names)}</p>
+                      <p className="text-sm text-ink-faint">{rowDetail(account, names, namesOf(account.connectorId)?.noun)}</p>
                       {/* Why Claude last refused to start a session through it,
                           until one starts again ("Drop an agent on an item to
                           start a Claude Code session on it", issue 571). */}
@@ -437,7 +442,7 @@ export default function ManageConnections({
                           : []),
                         // The connector's own choice, changed without signing in
                         // again (issue 942).
-                        ...(account.connectorId !== CLAUDE_CODE && choiceOf(account.connectorId)
+                        ...(account.connectorId !== CLAUDE_CODE && (choiceOf(account.connectorId) || namesOf(account.connectorId))
                           ? [
                               {
                                 label: 'Change…',
@@ -565,6 +570,7 @@ export default function ManageConnections({
       <ChangeConnectionChoice
         account={changingChoice}
         choice={changingChoice ? (choiceOf(changingChoice.connectorId) ?? null) : null}
+        names={changingChoice ? (namesOf(changingChoice.connectorId) ?? null) : null}
         workspaceId={workspaceId}
         returnFocusTo={choiceOpenedFrom.current}
         onClose={() => setChangingChoice(null)}

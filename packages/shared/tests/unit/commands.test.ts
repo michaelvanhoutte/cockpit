@@ -245,6 +245,37 @@ describe('Panels', () => {
     });
   });
 
+  describe('an Agent running condition is saved and read back like any other', () => {
+    const save = (rows: unknown[][]) =>
+      setPanelFilterSchema.safeParse({
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId: 'ws-work',
+        panelId: uuidv7(),
+        rows,
+      });
+    const agent: FilterCondition = { field: 'agent' };
+
+    it.each([
+      { situation: 'alone', rows: [[agent]] },
+      {
+        situation: 'beside a Panel is not condition in its row, keeping the exclusion',
+        rows: [[agent, { field: 'panel', values: ['panel-q3'], exclude: true }]],
+      },
+      { situation: 'in two rows', rows: [[agent], [{ field: 'status' }, agent]] },
+    ])('reads back $situation as it was saved', ({ rows }) => {
+      const saved = save(rows);
+      expect(saved.success).toBe(true);
+      if (!saved.success) return;
+
+      expect(panelFilterFrom(panelFilterAsStored(saved.data.rows, saved.data.groupBy))?.rows).toEqual(rows);
+    });
+
+    it('refuses it twice in one row, as a duplicate field is refused', () => {
+      expect(save([[agent, agent]]).success).toBe(false);
+    });
+  });
+
   describe('a save naming Type is refused, since neither a Filter nor a Sort goes by Type any more', () => {
     const envelope = {
       commandId: uuidv7(),

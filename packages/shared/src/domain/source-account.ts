@@ -51,6 +51,12 @@ export const sourceAccountSchema = z.object({
   /** What the row says it follows, in the connector's own words; absent from a release before it, which then reads as `follows` itself. */
   followsLabel: z.string().optional(),
   /**
+   * Whether the connection files what it brings in on the Panel named after
+   * its label or category (issue 1146). Defaulted, so an answer from before
+   * this field reads as off.
+   */
+  filesByName: z.boolean().default(false),
+  /**
    * Whether the connection keeps a history its row's *History…* opens - a
    * connection Cockpit pulls from, today (issue 1140). Absent reads as none.
    */
@@ -87,6 +93,13 @@ export const registeredConnectorSchema = z.object({
       options: z.object({ value: z.string(), label: z.string() }).array().min(1),
     })
     .optional(),
+  /**
+   * What the source calls the names a person gives an Item there (*label*,
+   * *category*), and how it speaks of an Item carrying one (*a message with
+   * the category*), for a connector that reports them (issue 1146): what makes
+   * *Change…* offer filing by name, in those words. Absent for one that does not.
+   */
+  names: z.object({ noun: z.string(), example: z.string() }).optional(),
   /**
    * What the window says when this connector refuses a grant, by the code the
    * redirect back names: the connector's own sentences, listed here because

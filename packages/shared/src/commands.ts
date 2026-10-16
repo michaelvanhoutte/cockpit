@@ -806,6 +806,20 @@ export const setConnectionChoiceSchema = commandEnvelopeSchema.extend({
 export type SetConnectionChoiceCommand = z.infer<typeof setConnectionChoiceSchema>;
 
 /**
+ * set_connection_files_by_name - whether a connection files what it brings in
+ * on the Panel named after its label or category, skipping the Inbox ("File
+ * Outlook mail on the Panel named after its category", issue 1146). Offered
+ * by the route only for a connector that reports names; naming another
+ * Workspace's connection is refused. Switching it on files nothing already in:
+ * only a name new since then does.
+ */
+export const setConnectionFilesByNameSchema = commandEnvelopeSchema.extend({
+  sourceAccountId: z.string().min(1),
+  filesByName: z.boolean(),
+});
+export type SetConnectionFilesByNameCommand = z.infer<typeof setConnectionFilesByNameSchema>;
+
+/**
  * mark_source_account_tested - a connection proven to still work without
  * changing what it holds ("Connect a workspace to Claude Code", issue 569,
  * "Test again"). Written by the test route once Claude has actually accepted
@@ -899,6 +913,7 @@ export const commandSchemas = {
   connect_source_account: connectSourceAccountSchema,
   disconnect_source_account: disconnectSourceAccountSchema,
   set_connection_choice: setConnectionChoiceSchema,
+  set_connection_files_by_name: setConnectionFilesByNameSchema,
   mark_source_account_tested: markSourceAccountTestedSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
 } as const;

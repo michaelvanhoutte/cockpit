@@ -49,6 +49,7 @@ import {
   confirmPulledOpenStates,
   endPulledRun,
   filePulledItem,
+  reportPulledNames,
   pulledSealedCredential,
   pulledState,
   pulledOpenStatesWaiting,
@@ -58,7 +59,14 @@ import {
   schedulePulledChecks,
   type PulledRunBegun,
 } from './pulled.js';
-import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type {
+  CompleteListing,
+  EmittedItem,
+  NamesReport,
+  OpenStateWanted,
+  SourceItem,
+  SourceStateChange,
+} from '@cockpit/connector-sdk';
 import {
   deleteAllRows,
   dropAccountTables,
@@ -988,6 +996,18 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   ): Answer<EmittedItem | 'disconnected'> {
     return this.#answer(accountName, (db) =>
       filePulledItem(db, accountName, sourceAccountId, runId, item, ids, new Date().toISOString()),
+    );
+  }
+
+  /** Records the names a pulled connector reported for an Item it filed, filing it by the new ones (issue 1146). */
+  reportPulledNames(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    report: NamesReport,
+  ): Answer<'recorded' | 'unknown' | 'disconnected'> {
+    return this.#answer(accountName, (db) =>
+      reportPulledNames(db, accountName, sourceAccountId, runId, report, new Date().toISOString()),
     );
   }
 

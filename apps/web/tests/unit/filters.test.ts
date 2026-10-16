@@ -129,15 +129,18 @@ function shown(
     dashboards = [...new Set(panels.map((panel) => panel.dashboardId))].map((id) => ({ id })),
     on = TODAY,
     match = 'all',
+    withRun = [],
   }: {
     panels?: readonly Panel[];
     /** The Workspace's live Dashboards; the ones the Panels sit on unless a case says a Dashboard has gone. */
     dashboards?: readonly { id: string }[];
     on?: string;
     match?: FilterMatch;
+    /** The ids of the Items with an open run. */
+    withRun?: readonly string[];
   } = {},
 ): string[] {
-  return shownByRows(items, filings, rowsOf(conditions, match), { panels, dashboards, on });
+  return shownByRows(items, filings, rowsOf(conditions, match), { panels, dashboards, on, withRun });
 }
 
 /** A Filter of these conditions, saved as the question's All / Any choice saves it. */
@@ -154,13 +157,15 @@ function shownByRows(
     panels = [FALCON, GATHERS],
     dashboards = [...new Set(panels.map((panel) => panel.dashboardId))].map((id) => ({ id })),
     on = TODAY,
+    withRun = [],
   }: {
     panels?: readonly Panel[];
     dashboards?: readonly { id: string }[];
     on?: string;
+    withRun?: readonly string[];
   } = {},
 ): string[] {
-  return itemsMatchingFilter(items, filings, panels, dashboards, { rows, groupBy: 'none' }, on).map(
+  return itemsMatchingFilter(items, filings, panels, dashboards, { rows, groupBy: 'none' }, new Set(withRun), on).map(
     (item) => item.id,
   );
 }
@@ -542,6 +547,62 @@ describe('Panels', () => {
       expect(
         shown([item], [filed('falcon', item.id)], [{ field: 'status' }]),
       ).toEqual(drawn ? [item.id] : []);
+    });
+  });
+
+  describe('an Agent running condition keeps exactly the items with an open run, whatever its state', () => {
+    const agent: FilterCondition = { field: 'agent' };
+    const item = anItem('a');
+    const other = anItem('b');
+
+    it.each([
+      // The snapshot carries open runs of every state, a deleted Agent's included, and the condition reads only whose Item they are on.
+      { situation: 'only the item with a run is drawn', withRun: ['a'], drawn: ['a'] },
+      { situation: 'only the other item is drawn when it holds the run', withRun: ['b'], drawn: ['b'] },
+      { situation: 'nothing is drawn with no run anywhere', withRun: [], drawn: [] },
+    ])('$situation', ({ withRun, drawn }) => {
+      expect(shown([item, other], [filed('falcon', 'a'), filed('falcon', 'b')], [agent], { withRun })).toEqual(drawn);
+    });
+
+    it('is met by an item meeting either condition of its row', () => {
+      const dueToday = anItem('d', { dueDate: TODAY });
+      expect(
+        shownByRows(
+          [item, other, dueToday],
+          [filed('falcon', 'a'), filed('falcon', 'b'), filed('falcon', 'd')],
+          [[due('today', false), agent]],
+          { withRun: ['a'] },
+        ).sort(),
+      ).toEqual(['a', 'd']);
+    });
+
+    it('must be met as well as Status when it is a row of its own', () => {
+      const working = anItem('w', { startedAt: '2026-09-04T10:00:00.000Z' });
+      const idle = anItem('i');
+      const runningNotStarted = anItem('r');
+      expect(
+        shownByRows(
+          [working, idle, runningNotStarted],
+          [filed('falcon', 'w'), filed('falcon', 'i'), filed('falcon', 'r')],
+          [[agent], [{ field: 'status' }]],
+          { withRun: ['w', 'r'] },
+        ),
+      ).toEqual(['w']);
+    });
+
+    it('is read back as Agent running, alone and beside another condition', () => {
+      expect(saysWhatItShows([[agent]])).toBe('Agent running');
+      expect(saysWhatItShows([[due('today', false), agent], [{ field: 'status' }]])).toBe(
+        '(Due today or Agent running) and Status is In progress',
+      );
+    });
+
+    it('is part of a Panel-and-Filter listing of the item it gathers', () => {
+      const filter: Panel = { ...aPanel('running', 'filter'), filter: asFilter([agent]) };
+      const panels = [aPanel('today'), filter];
+      const byItem = panelAndFilterIdsByItem([item, other], [filed('today', 'a'), filed('today', 'b')], panels, [{ id: 'd' }], new Set(['a']), TODAY);
+      expect([...(byItem.get('a') ?? [])].sort()).toEqual(['running', 'today']);
+      expect([...(byItem.get('b') ?? [])]).toEqual(['today']);
     });
   });
 
@@ -1092,7 +1153,7 @@ describe('Panels', () => {
     ): string[] {
       return alsoShownOn(
         itemId,
-        panelAndFilterIdsByItem(items, filings, panelsInWorkspace, [{ id: 'today' }], TODAY),
+        panelAndFilterIdsByItem(items, filings, panelsInWorkspace, [{ id: 'today' }], new Set(), TODAY),
         panelsInWorkspace,
         drawnPanelId,
       );

@@ -2,6 +2,7 @@ import type {
   CompleteListing,
   ConnectorHost,
   EmittedItem,
+  NamesReport,
   SourceItem,
   SourceStateChange,
 } from '@cockpit/connector-sdk';
@@ -22,6 +23,7 @@ export class FakeHost implements ConnectorHost {
   readonly filed = new Map<string, SourceItem>();
   readonly changes: SourceStateChange[] = [];
   readonly listings: CompleteListing[] = [];
+  readonly namesReported: NamesReport[] = [];
   readonly credentialsSaved: Record<string, string>[] = [];
   readonly logged: { level: string; message: string; data?: unknown }[] = [];
 
@@ -68,6 +70,10 @@ export class FakeHost implements ConnectorHost {
 
   async reportCompleteListing(listing: CompleteListing): Promise<void> {
     this.listings.push(listing);
+  }
+
+  async reportNames(report: NamesReport): Promise<void> {
+    this.namesReported.push({ sourceId: report.sourceId, names: [...report.names] });
   }
 
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {

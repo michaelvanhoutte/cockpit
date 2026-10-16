@@ -113,6 +113,7 @@ const ADA: SourceAccount = {
   connectedAt: '2026-09-18T09:00:00.000Z',
   lastTestedAt: null,
   failingBecause: null,
+  filesByName: false,
 };
 
 const MICHAEL: SourceAccount = {
@@ -122,6 +123,7 @@ const MICHAEL: SourceAccount = {
   connectedAt: '2026-09-18T09:05:00.000Z',
   lastTestedAt: null,
   failingBecause: null,
+  filesByName: false,
 };
 
 const CLAUDE: SourceAccount = {
@@ -131,6 +133,7 @@ const CLAUDE: SourceAccount = {
   connectedAt: '2026-09-18T09:10:00.000Z',
   lastTestedAt: '2026-09-18T09:10:00.000Z',
   failingBecause: null,
+  filesByName: false,
 };
 
 let sent: ReturnType<typeof vi.fn>;
@@ -162,6 +165,10 @@ function showWindow(
   // ones it never touches.
   vi.mocked(useCommand).mockReturnValue({
     mutate: sent,
+    mutateAsync: (args: unknown) => {
+      (sent as (sent: unknown) => void)(args);
+      return Promise.resolve();
+    },
     reset: vi.fn(),
     isPending: false,
     error: null,
@@ -457,6 +464,107 @@ describe('Connector management', () => {
 
       expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
       expect(screen.queryByRole('menuitem', { name: 'Change…' })).toBeNull();
+    });
+  });
+
+  /** "File Outlook mail on the Panel named after its category", issue 1146. */
+  describe('the tick box appears for a connector that reports names, and says what it saves', () => {
+    const MAIL_CARD = {
+      id: 'outlook',
+      displayName: 'Outlook',
+      cardText: 'Messages you flag arrive as items.',
+      asksFirst: true,
+      choice: { question: 'Bring in messages', options: [{ value: 'flag', label: 'Flagged' }] },
+      names: { noun: 'category', example: 'a message with the category' },
+    };
+    const PAGES_CARD = {
+      id: 'notion',
+      displayName: 'Notion',
+      cardText: 'Pages arrive as items.',
+      asksFirst: true,
+      choice: { question: 'Bring in', options: [{ value: 'starred', label: 'Starred pages' }] },
+    };
+    const MAIL: SourceAccount = {
+      ...ADA,
+      id: 'account-mail',
+      connectorId: 'outlook',
+      displayName: 'Ada’s mail',
+      lastTestedAt: '2026-10-16T09:00:00.000Z',
+      follows: 'flag',
+      followsLabel: 'Flagged',
+    };
+    const PAGES: SourceAccount = { ...ADA, id: 'account-pages', connectorId: 'notion', displayName: 'Ada’s pages', follows: 'starred' };
+    const TICK_BOX = 'File it on the panel named after its category';
+
+    beforeEach(() => {
+      held.registry = [MAIL_CARD, PAGES_CARD];
+      held.sourceNames = { ...held.sourceNames, outlook: 'Outlook', notion: 'Notion' };
+    });
+
+    async function change(displayName: string): Promise<HTMLElement> {
+      await userEvent.click(await screen.findByRole('button', { name: `Actions for ${displayName}` }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Change…' }));
+      return screen.findByRole('dialog', { name: `Change ${displayName}` });
+    }
+
+    it('offers it in the connector’s own noun, with the line saying what it does, on a connector that reports names', async () => {
+      held.sourceAccounts = [MAIL];
+      showWindow();
+
+      const changing = await change('Ada’s mail');
+
+      expect(within(changing).getByRole('checkbox', { name: TICK_BOX })).not.toBeChecked();
+      expect(
+        within(changing).getByText(
+          'So a message with the category Customer Atlas lands on the Customer Atlas panel instead of the Inbox. A category that matches no panel, or panels on two dashboards, leaves it in the Inbox.',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('offers none on a connector that reports no names', async () => {
+      held.sourceAccounts = [PAGES];
+      showWindow();
+
+      const changing = await change('Ada’s pages');
+
+      expect(within(changing).queryByRole('checkbox')).toBeNull();
+    });
+
+    it.each([
+      { situation: 'opened while on, Save with nothing changed sends nothing', on: true, tick: false, sends: null },
+      { situation: 'opened while off, Save with nothing changed sends nothing', on: false, tick: false, sends: null },
+      { situation: 'ticked and saved, it sends the switch on for this workspace and this row', on: false, tick: true, sends: true },
+      { situation: 'unticked and saved, it sends the switch off', on: true, tick: true, sends: false },
+    ])('$situation', async ({ on, tick, sends }) => {
+      held.sourceAccounts = [{ ...MAIL, filesByName: on }];
+      showWindow();
+
+      const changing = await change('Ada’s mail');
+      const box = within(changing).getByRole('checkbox', { name: TICK_BOX });
+      expect((box as HTMLInputElement).checked).toBe(on);
+      if (tick) await userEvent.click(box);
+      await userEvent.click(within(changing).getByRole('button', { name: 'Save' }));
+
+      if (sends === null) expect(sent).not.toHaveBeenCalled();
+      else {
+        expect(sent).toHaveBeenCalledTimes(1);
+        expect(sent.mock.calls[0]![0]).toMatchObject({
+          name: 'set_connection_files_by_name',
+          payload: { workspaceId: 'ws-work', sourceAccountId: 'account-mail', filesByName: sends },
+        });
+      }
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change Ada’s mail' })).toBeNull());
+    });
+
+    it.each([
+      { situation: 'a row filing by name says so, in the connector’s noun', on: true, says: /^Outlook · Flagged · files by category · last checked / },
+      { situation: 'a row not filing by name says nothing of it', on: false, says: /^Outlook · Flagged · last checked / },
+    ])('$situation', async ({ on, says }) => {
+      held.sourceAccounts = [{ ...MAIL, filesByName: on }];
+
+      showWindow();
+
+      expect(await screen.findByText(says)).toBeInTheDocument();
     });
   });
 
@@ -790,6 +898,7 @@ describe('Connector management', () => {
     displayName: 'anna@example.com',
     connectedAt: '2026-10-01T09:00:00.000Z',
     lastTestedAt: '2026-10-16T12:20:00.000Z',
+    filesByName: false,
     failingBecause: null,
     keepsHistory: true,
   };

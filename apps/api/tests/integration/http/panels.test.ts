@@ -950,6 +950,8 @@ describe('Panels', () => {
         rows: [[DUE_TODAY, { field: 'dueDate', window: 'week', orOverdue: false }]],
         stored: false,
       },
+      { situation: 'Agent running beside another condition', rows: [[DUE_TODAY, { field: 'agent' }]], stored: true },
+      { situation: 'Agent running twice in one row', rows: [[{ field: 'agent' }, { field: 'agent' }]], stored: false },
       { situation: 'an empty row', rows: [[DUE_TODAY], []], stored: false },
       {
         // The column is read and shipped on every snapshot of the workspace,

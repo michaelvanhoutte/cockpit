@@ -1,4 +1,12 @@
-import type { CompleteListing, Connector, ConnectorHost, EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type {
+  CompleteListing,
+  Connector,
+  ConnectorHost,
+  EmittedItem,
+  NamesReport,
+  SourceItem,
+  SourceStateChange,
+} from '@cockpit/connector-sdk';
 import type { Env } from '../env.js';
 import {
   AccountNotInRegisterError,
@@ -69,7 +77,9 @@ export async function checkPulledConnection(
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
     }
-    const host = pulledHost(env, begun, run, did, (itemId) => filed(job.accountName, itemId, begun.connectorId));
+    const host = pulledHost(env, begun, run, did, connector.manifest.names !== undefined, (itemId) =>
+      filed(job.accountName, itemId, begun.connectorId),
+    );
     // Before the source is read, so a change a person made that it has not
     // heard yet is pushed first and wins over what the read finds. A push that
     // fails does not stop the read - what waits still wins over it - but is
@@ -143,6 +153,7 @@ function pulledHost(
   begun: PulledRunStarted,
   run: PulledRun,
   did: CheckDid,
+  reportsNames: boolean,
   filed: (itemId: string) => Promise<void>,
 ): ConnectorHost {
   const { connectorId } = begun;
@@ -207,8 +218,10 @@ function pulledHost(
       // name one Item.
       const named = JSON.stringify([begun.workspaceId, connectorId, begun.externalAccountKey, sourceId]);
       const itemId = await derivedUuid(`pulled-item:${named}`);
+      // Names only from a connector that declares it reports them (issue 1146).
+      const { names, ...rest } = item;
       const answer = await run.fileItem(
-        { ...item, sourceId },
+        { ...rest, sourceId, ...(reportsNames && names ? { names: [...names] } : {}) },
         { itemId, commandId: await derivedUuid(`pulled-capture:${named}`) },
       );
       // Disconnected meanwhile: nothing was filed, and nothing is asked of
@@ -227,6 +240,16 @@ function pulledHost(
     async reportCompleteListing(listing: CompleteListing): Promise<void> {
       const closed = await run.closeItemsNotListed(listing);
       if (closed !== 'disconnected') did.closed.push(...closed);
+    },
+
+    /**
+     * An Item's names as the source holds them now, recorded on its link and
+     * filed by in the store (issue 1146). Taken only from a connector that
+     * declares it reports names, whatever another sends.
+     */
+    async reportNames(report: NamesReport): Promise<void> {
+      if (!reportsNames) return;
+      await run.reportNames({ sourceId: report.sourceId, names: [...report.names] });
     },
 
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

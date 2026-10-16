@@ -49,7 +49,9 @@ Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stay
 
 **Dismissing a Gmail Item takes its conversation's `Cockpit` label off, and nothing more** — no archive, no delete (`docs/product/workspaces.md`); one that came in by star has its star taken off instead, and one that came in under the mark its connection no longer follows changes nothing in Gmail. **Dismissing an Outlook Item completes the flag of its message, or takes its `Cockpit` category off, and nothing more** (`docs/product/workspaces.md`). **Open question for every other source:** does "delete" mean delete only here, or also archive or delete at the source? See "One-way vs two-way sync" in `docs/functional-definition.md` — the single biggest behavioral decision.
 
-## How an Item reaches a box — must it pass through the Inbox first? (undecided)
+## How an Item reaches a box — must it pass through the Inbox first? (settled for mail)
+
+**For Outlook mail, by the source's own name.** A connection set to file by category puts a message it follows straight on the Panel its category names, skipping the Inbox, and carries no "unseen" mark: categorising it was deliberate, the active capture below. Anything matching no Panel lands in the Inbox as before. The rules are under Connections in `docs/product/workspaces.md`. Other sources are still open, as below.
 
 The reframing that makes this tractable: **"in the Inbox" and "shown in a box" are two independent states, not two ends of one pipeline.** Associations are many-to-many and being finished with an Item is separate (see "Item + Association model" in `docs/product/items.md`), so an Item can be in either, both or neither, and "passes through the inbox first" is a per-source default rather than an architecture.
 
@@ -59,7 +61,7 @@ The reframing that makes this tractable: **"in the Inbox" and "shown in a box" a
 
 **Inside Model B, passive vs active capture:** being tagged or @mentioned is *passive* — route it **and** flag as unseen; deliberately saving a message is *active*, a strong intentional signal that should skip the Inbox entirely.
 
-**Recommended lean (a hybrid).** Inbox by default for anything with no matching rule, plus per-source/per-channel routing rules so obvious and actively-saved items land directly in a box, optionally marked "unseen". Decision still open, and moot until a connector exists to route from.
+**Recommended lean (a hybrid).** Inbox by default for anything with no matching rule, plus per-source/per-channel routing rules so obvious and actively-saved items land directly in a box, optionally marked "unseen". Still open for every source but mail.
 
 ## Swipe-right — settled
 

@@ -114,12 +114,31 @@ export function messagePage(
   answer: unknown,
   mark: Mark,
   deletedItems: string,
-): { messageIds: string[]; nextLink: string | null } {
+): { messageIds: string[]; categories: Record<string, string[]>; nextLink: string | null } {
   const { value, '@odata.nextLink': nextLink } = (answer ?? {}) as Record<string, unknown>;
-  const messageIds = (Array.isArray(value) ? (value as GraphMessage[]) : [])
-    .filter((one) => typeof one?.id === 'string' && one.id && one.parentFolderId !== deletedItems && isMarked(one, mark))
-    .map((one) => one.id as string);
-  return { messageIds, nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null };
+  const marked = (Array.isArray(value) ? (value as GraphMessage[]) : []).filter(
+    (one) => typeof one?.id === 'string' && one.id && one.parentFolderId !== deletedItems && isMarked(one, mark),
+  );
+  return {
+    messageIds: marked.map((one) => one.id as string),
+    categories: Object.fromEntries(marked.map((one) => [one.id as string, categoryNames(one.categories)])),
+    nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null,
+  };
+}
+
+/** Every category name a message carries, as Graph lists them. */
+function categoryNames(categories: unknown): string[] {
+  return Array.isArray(categories) ? categories.filter((one): one is string => typeof one === 'string') : [];
+}
+
+/**
+ * What a message's categories report as its Item's names: all of them, but
+ * Cockpit left out where the connection follows that category, since it is
+ * the mark rather than a name (issue 1146).
+ */
+export function namesOf(categories: readonly string[], mark: Mark): string[] {
+  if (mark === 'flag') return [...categories];
+  return categories.filter((one) => one.toLowerCase() !== COCKPIT_CATEGORY.toLowerCase());
 }
 
 /** What a message brings in as its Item. */
@@ -134,6 +153,8 @@ export interface OutlookMessage {
   /** Where Outlook on the web shows the message. */
   readonly link: string;
   readonly receivedAt: string | null;
+  /** Every category it carries, the mark among them where it is one. */
+  readonly categories: string[];
 }
 
 /**
@@ -159,6 +180,7 @@ export function messageFrom(answer: unknown, mark: Mark, deletedItems: string): 
         ? message.webLink
         : `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(message.id)}`,
     receivedAt: Number.isFinite(received) ? new Date(received).toISOString() : null,
+    categories: categoryNames(message.categories),
   };
 }
 
