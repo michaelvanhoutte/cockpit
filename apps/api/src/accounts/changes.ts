@@ -164,6 +164,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     REWRITE_HISTORY_PANELS_FILED_ON,
     CONNECTION_HISTORY,
     FILES_BY_NAME,
+    CONNECTION_HISTORY_DID,
     AGENT_RUNS_SENT_TO_CLAUDE,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -671,6 +672,32 @@ const FILES_BY_NAME: Change = {
 };
 
 /**
+ * What each check of a connection did ("Say what each check of a connection
+ * brought in, closed and sent back", issue 1141) - one nullable column on
+ * `connection_history`; `schema.ts` says what it holds.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, no statement that reads or writes a row.
+ * - **If it stops halfway:** one change is one transaction, so the column is
+ *   added or it is not, and the next open applies it.
+ * - **The second time it runs:** it does not re-run once recorded.
+ * - **Rows that predate it:** every line reads `did` NULL, which is a check
+ *   that did nothing - what none of them recorded. Nothing is backfilled.
+ * - **What is in each environment:** staging and production keep every line
+ *   whole, each now reading NULL.
+ * - **Rolled back after it has run:** an older release never names the column;
+ *   its lines record what they did before, and the column stays.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTION_HISTORY_DID: Change = {
+  name: '0079-connection-history-did',
+  statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `did` text' }],
+};
+
+/**
  * What a Run sent to Cowork or Claude Code carries ("Send an item to Cowork or
  * Claude Code with its prompt reviewed first", issue 1159): where it was sent,
  * the folder, how far it has got and what it made - four columns on
@@ -695,7 +722,7 @@ const FILES_BY_NAME: Change = {
  *   changes, so this one applies the next time the account is opened.
  */
 const AGENT_RUNS_SENT_TO_CLAUDE: Change = {
-  name: '0079-agent-runs-sent-to-claude',
+  name: '0080-agent-runs-sent-to-claude',
   statements: [
     {
       sql: 'ALTER TABLE `agent_runs` ADD COLUMN `destination` text CONSTRAINT "agent_runs_destination_is_known" CHECK(destination IS NULL OR destination IN (\'cowork\', \'code\'))',

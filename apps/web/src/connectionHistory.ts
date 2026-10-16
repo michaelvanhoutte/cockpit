@@ -14,9 +14,38 @@ export interface HistoryLineShown {
   /** *Worked* or *Failed*, in words, with the count where it folds several. */
   says: string;
   failed: boolean;
-  /** Why a single check ran, and a failure's message - null where there is neither. */
+  /** Why a single check ran, what it did in counts, and a failure's message - null where there is none. */
   detail: string | null;
+  /** What the check did, kind by kind, each Item named - empty where it did nothing (issue 1141). */
+  did: DidList[];
 }
+
+/** One kind of what a check did: *New:*, with the Items it names. */
+export interface DidList {
+  label: string;
+  items: DidItem[];
+  /** How many more the count says than the Items listed - the line keeps the first few. */
+  more: number;
+}
+
+/** An Item named by its title now; `id` null where nothing opens it - a dismissed Item, which the Item form does not open, or one not held. */
+export interface DidItem {
+  key: string;
+  id: string | null;
+  text: string;
+}
+
+/** The kinds of what a check did, in the order a line says them. */
+const KINDS = [
+  { kind: 'broughtIn', summary: 'Brought in', label: 'New' },
+  { kind: 'closed', summary: 'Closed', label: 'Closed' },
+  { kind: 'sentBack', summary: 'Sent back', label: 'Sent back' },
+  { kind: 'refused', summary: 'Refused', label: 'Refused' },
+] as const;
+
+export const GONE = 'an Item no longer in Cockpit';
+
+const DISMISSED = ' (dismissed)';
 
 export interface HistoryDay {
   /** The local calendar day, unique among the days. */
@@ -60,13 +89,28 @@ export function lineShown(line: ConnectionHistoryLine): HistoryLineShown {
       ? `Checked ${line.count} times, nothing new`
       : 'Worked';
   // A folded line's checks ran for more than one reason, so it says none.
-  const parts = [folded ? null : (REASONS[line.reason] ?? null), message].filter((part) => part !== null);
+  const summary = KINDS.filter(({ kind }) => line.did[kind].count > 0)
+    .map(({ kind, summary }) => `${summary} ${line.did[kind].count}`)
+    .join(', ');
+  const did = KINDS.filter(({ kind }) => line.did[kind].count > 0).map(({ kind, label }) => ({
+    label,
+    more: line.did[kind].count - line.did[kind].items.length,
+    items: line.did[kind].items.map((item) => ({
+      key: item.id,
+      id: item.title === null || item.dismissed ? null : item.id,
+      text: item.title === null ? GONE : item.dismissed ? `${item.title}${DISMISSED}` : item.title,
+    })),
+  }));
+  const parts = [folded ? null : (REASONS[line.reason] ?? null), summary || null, message].filter(
+    (part) => part !== null,
+  );
   return {
     id: line.id,
     when: folded ? `${time(line.firstAt)}–${time(line.lastAt)}` : time(line.lastAt),
     says,
     failed,
     detail: parts.length > 0 ? parts.join(' · ') : null,
+    did,
   };
 }
 

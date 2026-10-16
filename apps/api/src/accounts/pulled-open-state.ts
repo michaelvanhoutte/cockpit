@@ -158,15 +158,16 @@ export function openStatesWaiting(
  * Clears what the source confirmed holding or the connector gave up on - each only where it is still
  * what was handed over, so a change made while the connector pushed is kept
  * waiting. One statement per link, so no statement's parameters grow with how
- * many were waiting.
+ * many were waiting. Answers the Item of each link it cleared.
  */
 export function confirmOpenStates(
   db: AccountDb,
   tenantId: string,
   connection: { workspaceId: string; connectorId: string; externalAccountKey: string },
   confirmed: readonly OpenStateWanted[],
-): void {
-  db.transaction((tx) => {
+): { sourceId: string; itemId: string }[] {
+  return db.transaction((tx) => {
+    const cleared: { sourceId: string; itemId: string }[] = [];
     for (const { sourceId, open } of confirmed) {
       tx.update(pulledLinks)
         .set({ openWanted: null })
@@ -180,7 +181,10 @@ export function confirmOpenStates(
             eq(pulledLinks.openWanted, open),
           ),
         )
-        .run();
+        .returning({ itemId: pulledLinks.itemId })
+        .all()
+        .forEach((row) => cleared.push({ sourceId, itemId: row.itemId }));
     }
+    return cleared;
   });
 }

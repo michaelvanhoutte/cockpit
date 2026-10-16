@@ -1947,6 +1947,14 @@ export const connectionHistory = sqliteTable(
     count: integer('count').notNull(),
     firstAt: text('first_at').notNull(),
     lastAt: text('last_at').notNull(),
+    /**
+     * What the check did (issue 1141) as JSON - `{ broughtIn, closed, sentBack,
+     * refused }`, each `{ count, ids }` with the first Items' ids (`keptDid`,
+     * domain/connection-history.ts) - or NULL where it did nothing: every line
+     * from before it, and every quiet one. A line that did anything is never
+     * folded. Items are named by their title on read, never stored by title.
+     */
+    did: text('did'),
   },
   (t) => [
     index('connection_history_newest').on(t.tenantId, t.sourceAccountId, t.lastAt),
