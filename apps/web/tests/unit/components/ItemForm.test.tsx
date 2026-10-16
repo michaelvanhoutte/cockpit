@@ -1070,6 +1070,22 @@ describe('Item editing', () => {
       });
     });
 
+    it('lets a Panel the Dock switch could not file be taken off again', async () => {
+      filedOn();
+      const user = await theForm();
+      held.send.mockImplementation(((change: { name: string }) =>
+        change.name === 'add_item_to_panel'
+          ? Promise.reject(new Error('That Panel is gone.'))
+          : Promise.resolve({ ok: true as const, applied: true })) as never);
+
+      await pick(user, 'atl', /Atlas/);
+      await user.click(screen.getByRole('button', { name: 'Dock' }));
+      expect(await screen.findByText(/not filed on “Atlas”/)).toBeVisible();
+
+      await user.click(onPanels().getByRole('button', { name: 'Remove from Atlas' }));
+      expect(onPanels().queryByText('Atlas')).toBeNull();
+    });
+
     describe('in the modal, a change waits for Save like every other field', () => {
       it('writes nothing for a Panel added and then Cancel', async () => {
         filedOn();

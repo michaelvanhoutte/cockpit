@@ -119,7 +119,7 @@ export function useItemPanels({
   };
 
   const inTurnDo = (work: () => Promise<void>) => {
-    inTurn.current = inTurn.current.then(work);
+    inTurn.current = inTurn.current.then(work).catch(() => undefined);
   };
 
   return {
@@ -129,13 +129,15 @@ export function useItemPanels({
     pending: hasPanelEdits(edits),
     refusal,
     add: (one: PanelOn) => {
-      if (docked) inTurnDo(() => writeAdd(one));
+      // A removal still held (a refused one, from before the form was docked) is just put back.
+      if (docked && !editsRef.current.removed.includes(one.panelId)) inTurnDo(() => writeAdd(one));
       else change((was) => afterAdding(was, heldRef.current, one));
     },
     remove: (panelId: string) => {
       const one = shown.find((there) => there.panelId === panelId);
       if (!one) return;
-      if (docked) inTurnDo(() => writeRemove(one));
+      // An addition still held (one the Dock switch could not send) was never filed: dropping it is all there is to write.
+      if (docked && !editsRef.current.added.some((there) => there.panelId === panelId)) inTurnDo(() => writeRemove(one));
       else change((was) => afterRemoving(was, heldRef.current, panelId));
     },
     /**
