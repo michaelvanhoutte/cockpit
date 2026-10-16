@@ -380,6 +380,14 @@ export interface ConnectAttempt extends Attempt {
    * before it is stored. Absent for a source that asks nothing.
    */
   readonly choice?: string;
+  /**
+   * The answer to whether the connection files by the names its source gives
+   * mail, for a connector that reports names ("Ask on Connect whether a mail
+   * connection files by label or category", issue 1147). Carried like the
+   * choice, and checked on the way back in: anything but a yes or no is no
+   * answer. Absent for a source that reports no names.
+   */
+  readonly filesByName?: boolean;
 }
 
 function attemptCookieName(url: string): string {
@@ -454,10 +462,12 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId, accountName, connectorId, choice } = held.also;
+  const { workspaceId, accountName, connectorId, choice, filesByName } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   if (typeof connectorId !== 'string' || !connectorId) return null;
+  // Absent is no answer; anything but a yes or no is no attempt at all (issue 1147).
+  if (filesByName !== undefined && typeof filesByName !== 'boolean') return null;
   return {
     state: held.state,
     nonce: held.nonce,
@@ -466,6 +476,8 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
     accountName,
     connectorId,
     ...(typeof choice === 'string' && choice ? { choice } : {}),
+    // Kept only as a yes or no; whether the connector wants one is the callback's to say.
+    ...(typeof filesByName === 'boolean' ? { filesByName } : {}),
   };
 }
 

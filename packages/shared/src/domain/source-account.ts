@@ -79,7 +79,7 @@ export const registeredConnectorSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   cardText: z.string(),
-  /** Whether connecting asks the person something before it leaves for the source: true where `choice` is present. */
+  /** Whether connecting asks the person something before it leaves for the source: true where `choice` or `names` is present. */
   asksFirst: z.boolean(),
   /**
    * The one choice the connection makes, asked before the sign-in and

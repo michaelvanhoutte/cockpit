@@ -13,7 +13,7 @@ import { refusalFrom, snapshotQuery, useCommand, useConnectClaudeCode, useTestCl
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { ConnectEngine } from './engines';
-import { ChangeConnectionChoice, ConnectWithChoice, type ConnectorChoice, type ConnectorNames } from './ConnectionChoice';
+import { ChangeConnectionChoice, ConnectWithChoice, type ConnectAnswer, type ConnectorChoice, type ConnectorNames } from './ConnectionChoice';
 import { ConnectionHistory } from './ConnectionHistory';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
@@ -74,11 +74,16 @@ const sourceAccountsQuery = (workspaceId: string) =>
  * It comes back to `/w/<workspaceId>?connections=connected|refused`, which is
  * what reopens this window over the Workspace it was started from.
  */
-function connectPath(workspaceId: string, connectorId: string, choice?: string): string {
+function connectPath(workspaceId: string, connectorId: string, answer: ConnectAnswer = {}): string {
   const path = `/v1/workspaces/${encodeURIComponent(workspaceId)}/connections/${encodeURIComponent(connectorId)}/connect`;
-  // The answer to the connector's one question, which the Worker carries
-  // through the source in the attempt it keeps (issue 942).
-  return choice === undefined ? path : `${path}?choice=${encodeURIComponent(choice)}`;
+  // The answers to the connector's one question and to whether it files by
+  // name, which the Worker carries through the source in the attempt it keeps
+  // (issues 942, 1147).
+  const asked = new URLSearchParams();
+  if (answer.choice !== undefined) asked.set('choice', answer.choice);
+  if (answer.filesByName !== undefined) asked.set('filesByName', String(answer.filesByName));
+  const query = asked.toString();
+  return query ? `${path}?${query}` : path;
 }
 
 /**
@@ -104,6 +109,8 @@ interface Card {
   text: string;
   /** What its connector asks before Connect leaves, where it asks anything (issue 942). */
   choice?: ConnectorChoice | undefined;
+  /** How its connector speaks of names, where it reports any: Connect asks whether to file by them too (issue 1147). */
+  names?: ConnectorNames | undefined;
 }
 
 /** What the guest is told in place of every way to connect. */
@@ -215,7 +222,7 @@ export default function ManageConnections({
    * The card whose connector's question is being asked before Connect leaves
    * (issue 942) - and the option to start at, where a row is being reconnected.
    */
-  const [asking, setAsking] = useState<(Card & { choice: ConnectorChoice; startAt?: string | undefined }) | null>(null);
+  const [asking, setAsking] = useState<(Card & { startAt?: string | undefined; startFilesByName?: boolean | undefined }) | null>(null);
   const askingOpenedFrom = useRef<HTMLElement | null>(null);
   /** The row whose choice is being changed with *Change…* (issue 942). */
   const [changingChoice, setChangingChoice] = useState<SourceAccount | null>(null);
@@ -240,6 +247,7 @@ export default function ManageConnections({
       name: connector.displayName,
       text: connector.cardText,
       choice: connector.choice,
+      names: connector.names,
     }));
   /** The connector's own sentence for why it refused, where the listing holds one for the code. */
   const refusalGiven = because
@@ -301,8 +309,8 @@ export default function ManageConnections({
    * with this window open over it - a whole-page navigation like signing in,
    * rather than a popup nothing else in this app uses.
    */
-  const connectRegistered = (connectorId: string, choice?: string) => {
-    window.location.assign(connectPath(workspaceId, connectorId, choice));
+  const connectRegistered = (connectorId: string, answer?: ConnectAnswer) => {
+    window.location.assign(connectPath(workspaceId, connectorId, answer));
   };
   /** What a connected row's connector asks, where it asks anything - and so whether the row offers *Change…*. */
   const choiceOf = (connectorId: string): ConnectorChoice | undefined =>
@@ -319,9 +327,9 @@ export default function ManageConnections({
   const reconnect = (account: SourceAccount, openedFrom: HTMLElement | null) => {
     const card = registered.find((one) => one.id === account.connectorId);
     if (!card) return;
-    if (card.choice) {
+    if (card.choice || card.names) {
       askingOpenedFrom.current = openedFrom;
-      setAsking({ ...card, choice: card.choice, startAt: account.follows });
+      setAsking({ ...card, startAt: account.follows, startFilesByName: account.filesByName });
     } else connectRegistered(card.id);
   };
 
@@ -534,9 +542,9 @@ export default function ManageConnections({
                     aria-label={`Connect ${card.name}`}
                     onClick={(event) => {
                       if (card.id === CLAUDE_CODE) openClaudeCodeForm(event.currentTarget);
-                      else if (card.choice) {
+                      else if (card.choice || card.names) {
                         askingOpenedFrom.current = event.currentTarget;
-                        setAsking({ ...card, choice: card.choice });
+                        setAsking({ ...card });
                       } else connectRegistered(card.id);
                     }}
                     disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending}
@@ -561,8 +569,18 @@ export default function ManageConnections({
       />
 
       <ConnectWithChoice
-        connector={asking ? { displayName: asking.name, choice: asking.choice, startAt: asking.startAt } : null}
-        onConnect={(value) => asking && connectRegistered(asking.id, value)}
+        connector={
+          asking
+            ? {
+                displayName: asking.name,
+                choice: asking.choice,
+                names: asking.names,
+                startAt: asking.startAt,
+                startFilesByName: asking.startFilesByName,
+              }
+            : null
+        }
+        onConnect={(answer) => asking && connectRegistered(asking.id, answer)}
         onClose={() => setAsking(null)}
         returnFocusTo={askingOpenedFrom.current}
       />
