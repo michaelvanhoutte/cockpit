@@ -81,6 +81,7 @@ test.describe('Capture', () => {
                 prioritySet: null,
                 dueDateSet: null,
                 workspaceSet: null,
+                panelsFiledOn: [],
               },
             ],
           },
