@@ -172,7 +172,8 @@ export async function setFormStatus(
 ): Promise<void> {
   const form = page.getByRole('dialog');
   if (!isMobile) {
-    await form.getByLabel('Status').selectOption(status);
+    await form.getByTitle('Status').click();
+    await page.getByRole('menuitemradio', { name: { to_do: 'To do', in_progress: 'In progress', done: 'Done' }[status], exact: true }).click();
     return;
   }
   const name = { to_do: 'To do', in_progress: 'In progress', done: 'Done' }[status];
@@ -184,7 +185,7 @@ export async function setFormStatus(
 /** An open Item form's due date (`YYYY-MM-DD`), through the box at a desk and the Due chip's date picker on a phone. */
 export async function setFormDueDate(page: Page, day: string, isMobile: boolean): Promise<void> {
   if (!isMobile) {
-    await page.getByRole('dialog').getByLabel('Due date').fill(day);
+    await page.getByRole('dialog').getByLabel('Due date', { exact: true }).fill(day);
     return;
   }
   await press(page.getByRole('dialog').getByRole('button', { name: /^Due/ }), isMobile);

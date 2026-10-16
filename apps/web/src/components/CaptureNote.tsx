@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { plainWords, prioritySchema, uuidv7, type Priority, type Workspace, type WorkspaceSnapshot } from '@cockpit/shared';
+import { plainWords, uuidv7, type Priority, type Workspace, type WorkspaceSnapshot } from '@cockpit/shared';
 import { FileOnLine, type FiledOn } from './FileOnLine';
 import { CommandRefused, uploadAttachment } from '../api/client';
 import { workspacesQuery } from '../api/queries';
@@ -12,9 +12,7 @@ import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
 import type { Arrived } from '../shares';
 import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
-import { dueDateLabel, shortDueDateLabel } from '../dueDate';
-import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
-import { PRIORITY_LABELS } from '../priority';
+import { DueChips, LIT_BUTTON, PriorityFlags, QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
 import { appendPhrase } from '../dictation';
 import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
 import { transcriptionOfferedQuery } from '../api/transcription';
@@ -927,18 +925,6 @@ export function pasteKeyFor(userAgent: string): string {
 
 const PASTE_KEY = isAMac() ? '⌘V' : 'Ctrl V';
 
-/** The flag's colour at each level, the same as an Inbox row's flag (`ItemRow.tsx`). */
-const FLAG_COLOURS: Record<Priority, { lit: string; unlit: string }> = {
-  low: { lit: 'border-priority-low bg-priority-low text-white', unlit: 'text-priority-low' },
-  normal: { lit: 'border-priority-normal bg-priority-normal text-white', unlit: 'text-priority-normal' },
-  high: { lit: 'border-priority-high bg-priority-high text-white', unlit: 'text-priority-high' },
-};
-
-const STRIP_BUTTON =
-  'inline-flex min-h-9 shrink-0 items-center justify-center rounded-md border px-2 text-sm disabled:opacity-50 sm:min-h-0 sm:py-0.5 sm:text-xs';
-const QUIET_BUTTON =
-  'border-shade/10 bg-field text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink';
-const LIT_BUTTON = 'border-accent bg-accent-tint font-medium text-accent-deep';
 /** The mic while listening: filled, where a lit chip is only tinted, so it cannot be mistaken for a choice made. */
 const LIT_BUTTON_SOLID = 'border-accent bg-accent text-on-accent';
 
@@ -973,122 +959,14 @@ function PriorityAndDue({
   /** False once the editor has failed to load, which asking again would not mend. */
   canFormat: boolean;
 }) {
-  const picker = useRef<HTMLInputElement>(null);
-  const today = new Date();
-  const custom =
-    due !== null && !DUE_DATE_SHORTCUTS.some((s) => s.dueDate(today) === due) ? due : null;
-
-  const openPicker = () => {
-    const input = picker.current;
-    if (!input) return;
-    try {
-      input.showPicker();
-    } catch {
-      // No picker to show: the input itself is the way in.
-      input.focus();
-      input.click();
-    }
-  };
-
   return (
     <>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 pb-2">
-      <div role="group" aria-label="Priority" className="flex items-center gap-1.5">
-        {prioritySchema.options.map((level) => {
-          const lit = priority === level;
-          return (
-            <button
-              key={level}
-              type="button"
-              disabled={disabled}
-              aria-pressed={lit}
-              aria-label={`${PRIORITY_LABELS[level]} priority`}
-              title={`${PRIORITY_LABELS[level]} priority`}
-              onClick={() => onPriority(lit ? null : level)}
-              className={`${STRIP_BUTTON} w-9 sm:w-7 ${
-                lit ? FLAG_COLOURS[level].lit : `border-shade/10 bg-field ${FLAG_COLOURS[level].unlit}`
-              }`}
-            >
-              <span aria-hidden="true">⚑</span>
-            </button>
-          );
-        })}
-      </div>
+      <PriorityFlags priority={priority} onPriority={onPriority} disabled={disabled} />
 
       {/* On a phone the date shortcuts are the strip's top row and the flags,
           Aa and the mic the bottom one; at a desk it is one row, flags first. */}
-      <div
-        role="group"
-        aria-label="Due"
-        className="order-first flex w-full flex-wrap items-center gap-1 sm:order-none sm:w-auto"
-      >
-        <span
-          aria-hidden="true"
-          className="hidden text-xs font-semibold tracking-[0.11em] text-ink-faint uppercase sm:inline"
-        >
-          Due
-        </span>
-        {DUE_DATE_SHORTCUTS.map(({ label, dueDate }) => {
-          const lit = due === dueDate(today);
-          return (
-            <button
-              key={label}
-              type="button"
-              disabled={disabled}
-              aria-pressed={lit}
-              onClick={() => onDue(lit ? null : dueDate(new Date()))}
-              className={`${STRIP_BUTTON} ${lit ? LIT_BUTTON : QUIET_BUTTON}`}
-            >
-              {label}
-            </button>
-          );
-        })}
-        <span className="relative inline-flex items-center gap-1">
-          <button
-            type="button"
-            disabled={disabled}
-            title="Pick a date"
-            aria-label={custom ? `Due ${dueDateLabel(custom)}` : 'Pick a due date'}
-            onClick={openPicker}
-            className={`${STRIP_BUTTON} gap-1 ${custom ? LIT_BUTTON : QUIET_BUTTON}`}
-          >
-            <span aria-hidden="true" className={custom ? 'hidden sm:inline' : undefined}>
-              📅
-            </span>
-            {custom && <span className="hidden sm:inline">{dueDateLabel(custom)}</span>}
-            {custom && <span className="sm:hidden">{shortDueDateLabel(custom, today)}</span>}
-          </button>
-          {custom && (
-            <button
-              type="button"
-              disabled={disabled}
-              title="Clear the due date"
-              aria-label="Clear the due date"
-              onClick={() => onDue(null)}
-              className={`${STRIP_BUTTON} ${QUIET_BUTTON}`}
-            >
-              ✕
-            </button>
-          )}
-          {/* Where the native picker is drawn from, which is why it sits over
-              the button rather than nowhere: the popup opens beside the input
-              it belongs to. Out of the tab order and the accessibility tree -
-              the button is how it is reached. */}
-          <input
-            ref={picker}
-            type="date"
-            tabIndex={-1}
-            aria-hidden="true"
-            aria-label="Due date"
-            value={due ?? ''}
-            onChange={(e) => {
-              const picked = e.target.value;
-              onDue(picked || null);
-            }}
-            className="pointer-events-none absolute inset-0 w-full opacity-0"
-          />
-        </span>
-      </div>
+      <DueChips due={due} onDue={onDue} disabled={disabled} className="order-first w-full sm:order-none sm:w-auto" />
 
       {/* Flattened (`contents`), so that the mic's status below can wrap onto
           a row of its own on a phone and sit beside the mic at a desk. */}
