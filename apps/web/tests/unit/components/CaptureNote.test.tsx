@@ -86,6 +86,10 @@ const held = vi.hoisted(() => ({
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: held.mutate, isPending: held.pending }),
+  /** What a Panel made from File on is sent with: the client, as the real one sends through it. */
+  useSendCommand: () => (args: { name: string; payload: unknown }) => sendCommand(args.name as never, args.payload as never),
+  refusalFrom: ({ error }: { error: unknown }) =>
+    error instanceof CommandRefused ? error.message : error ? 'That did not reach the server. Try again.' : null,
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
@@ -1354,6 +1358,97 @@ describe('Capture', () => {
       const sent = capturedCalls();
       expect(sent.map((call) => call.payload.panelIds)).toEqual([['p-falcon'], ['p-falcon']]);
       expect(sent[1]!.payload.commandId).toBe(sent[0]!.payload.commandId);
+    });
+
+    describe('+ New panel makes a Panel that does not exist yet, and files the note on it', () => {
+      const typeInto = async (user: Awaited<ReturnType<typeof thePage>>, text: string) => {
+        const search = await searching(user);
+        await user.type(search, text);
+        return search;
+      };
+      const madePanels = () =>
+        vi
+          .mocked(sendCommand)
+          .mock.calls.filter(([name]) => name === 'add_panel')
+          .map(([, payload]) => payload as Record<string, unknown>);
+
+      it.each([
+        {
+          situation: 'a plain name',
+          typed: 'Invoices',
+          choose: 'Work',
+          made: { workspaceId: 'ws-work', dashboardId: 'd-today', name: 'Invoices' },
+        },
+        {
+          situation: 'Dashboard ▸ Name',
+          typed: 'Later ▸ Invoices',
+          choose: 'Work',
+          made: { workspaceId: 'ws-work', dashboardId: 'd-later', name: 'Invoices' },
+        },
+        {
+          situation: 'Workspace ▸ Dashboard ▸ Name under Any workspace',
+          typed: 'Home ▸ House ▸ Invoices',
+          choose: 'Any workspace',
+          made: { workspaceId: 'ws-home', dashboardId: 'd-house', name: 'Invoices' },
+        },
+      ])('makes a Panel from $situation, adds it as a chip and files the capture on it', async ({ typed, choose, made }) => {
+        const user = await thePage();
+        await user.click(chip(choose));
+        await typeInto(user, typed);
+
+        await user.click(await screen.findByRole('button', { name: /^\+ New panel “Invoices”/ }));
+
+        expect(await screen.findByRole('button', { name: 'Do not file on Invoices' })).toBeVisible();
+        expect(madePanels()).toEqual([expect.objectContaining({ ...made, kind: 'items' })]);
+        // The Workspace it was made in is where the capture now goes.
+        expect(chip(made.workspaceId === 'ws-home' ? 'Home' : 'Work')).toHaveAttribute('aria-pressed', 'true');
+        await user.type(box(), 'Send the invoice');
+        await user.click(chip('Capture'));
+        const { payload } = await captured();
+        expect(payload.panelIds).toEqual([madePanels()[0]!.panelId]);
+      });
+
+      it('asks for the whole path, and makes nothing, where a plain name has no Dashboard to go on', async () => {
+        const user = await thePage();
+        await typeInto(user, 'Invoices');
+
+        const option = await screen.findByRole('button', { name: /^\+ New panel: / });
+
+        expect(option).toBeDisabled();
+        expect(option).toHaveTextContent('Say where: Workspace ▸ Dashboard ▸ Name.');
+        expect(madePanels()).toEqual([]);
+      });
+
+      it('says the name is refused under the field, keeps what was typed and adds no chip', async () => {
+        vi.mocked(sendCommand).mockRejectedValueOnce(new CommandRefused(409, 'A panel called Invoices is already on Today'));
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await typeInto(user, 'Invoices');
+
+        await user.click(await screen.findByRole('button', { name: /^\+ New panel “Invoices”/ }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('A panel called Invoices is already on Today');
+        expect(search).toHaveValue('Invoices');
+        expect(screen.queryByRole('button', { name: /^Do not file on/ })).toBeNull();
+      });
+
+      it('is shown unavailable, and says it needs a connection, while offline', async () => {
+        const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+        try {
+          const user = await thePage();
+          await user.click(chip('Work'));
+          await typeInto(user, 'Invoices');
+
+          const option = await screen.findByRole('button', { name: /^\+ New panel “Invoices”/ });
+
+          expect(option).toBeDisabled();
+          expect(option).toHaveTextContent('Needs a connection to make a Panel.');
+          await user.click(option);
+          expect(madePanels()).toEqual([]);
+        } finally {
+          online.mockRestore();
+        }
+      });
     });
 
     it('returns the Panels to the box with a refused capture it puts back', async () => {

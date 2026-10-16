@@ -786,6 +786,7 @@ export function CaptureNote({
 
       <FileOnLine
         where={belongsTo}
+        from={from ?? null}
         workspaces={workspaces}
         filed={filed}
         disabled={busy}
