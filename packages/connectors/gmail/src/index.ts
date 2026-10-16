@@ -44,6 +44,9 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
           { value: 'star', label: 'Starred (flagged in Outlook)' },
         ],
       },
+      // A conversation's labels, but Gmail's own and the one followed, are its
+      // Item's names (issue 1148).
+      names: { noun: 'label', example: 'a conversation labelled' },
       auth: gmailSignIn(config.issuer),
     },
 

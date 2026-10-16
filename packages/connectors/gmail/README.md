@@ -52,6 +52,23 @@ out of the core", issue 944).
   that is still waiting for Gmail. A complete listing therefore costs a read per
   marked conversation, and runs on connecting, on a lapsed position and when
   the choice changes: not on a schedule.
+- **A conversation's user labels are its Item's names** (`names` in the
+  manifest; "File Gmail conversations on the Panel named after their label",
+  issue 1148): the labels of type `user` in `labels.list`, on any
+  message, resolved from the list the label choice reads anyway for the mark.
+  Gmail's own labels (`type` `system`, including `CATEGORY_*`) and the followed
+  `Cockpit` label are left out; by star `Cockpit` is a label like any other.
+  They go with the item when emitted, and are reported again (`reportNames`)
+  for a conversation whose history shows a label other than the mark and
+  Gmail's own added or taken off. That read is `format=minimal`, one call per
+  conversation, spent from the run's budget (so at most about 40 reports a run,
+  and no separate cap as Outlook has: every report here follows a Gmail call).
+  By label the list costs nothing; by star it is one extra `labels` call, the
+  first time a run has names to say. **A rename leaves no history**, so a
+  renamed label is reported by its new name when the conversation's labels next
+  change or it is read in full; and **the history is read by the mark**, so a
+  label put on a message that lacks it, such as a reply, is seen then too. No
+  names are kept in the state: the host reports nothing twice.
 - **A run has a call budget** (`CALLS_PER_RUN`, 40, measured on the generic host
   against the free plan's 50 calls out per invocation; issue 944). The
   refresh of an access token is spent from it too, and so are the pushes of

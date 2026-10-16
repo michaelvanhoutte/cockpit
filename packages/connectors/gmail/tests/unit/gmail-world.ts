@@ -6,6 +6,7 @@ import {
   historyAnswer,
   historyRecord,
   labelsAnswer,
+  message,
   modifyAnswer,
   plainThread,
   profileAnswer,
@@ -32,7 +33,7 @@ export const ADDRESS = 'anna@example.com';
 
 interface Thread {
   id: string;
-  messages: ReturnType<typeof plainThread>['messages'];
+  messages: ReturnType<typeof message>[];
 }
 
 export class GmailWorld {
@@ -43,6 +44,8 @@ export class GmailWorld {
   #oldestKept = 0;
 
   hasLabel = true;
+  /** The labels somebody made besides Cockpit, by name; the id is derived from the name. */
+  readonly #userLabels = new Map<string, string>();
   /** Conversations Gmail answers per list page; the real ceiling is far above what a case needs. */
   historyPageSize = 1000;
   /** What each next call to a path prefix answers instead, once each: `[status, body]`. */
@@ -82,7 +85,10 @@ export class GmailWorld {
     if (bearer !== `Bearer ${this.acceptedToken}`) return json({ error: { code: 401 } }, 401);
 
     const path = url.pathname.replace('/gmail/v1/users/me/', '');
-    if (path === 'labels') return json(labelsAnswer({ cockpit: this.hasLabel }));
+    if (path === 'labels') {
+      const userLabels = [...this.#userLabels].map(([id, name]) => ({ id, name }));
+      return json(labelsAnswer({ cockpit: this.hasLabel, userLabels }));
+    }
     if (path === 'profile') return json({ ...profileAnswer(String(this.#historyId)), emailAddress: ADDRESS });
     if (path === 'threads') return this.#list(url);
     if (path === 'history') return this.#history(url);
@@ -99,7 +105,7 @@ export class GmailWorld {
   /** A conversation arriving, carrying the marks it is given. */
   arrives(id: string, subject: string, text = `The text of ${id}.`, marks: readonly ('label' | 'star')[] = ['label']): void {
     const thread = plainThread(id, subject, text, { labelled: marks.includes('label'), starred: marks.includes('star') });
-    this.#threads.unshift({ id, messages: thread.messages });
+    this.#threads.unshift({ id, messages: [...thread.messages] });
     const message = thread.messages[0]!;
     this.#record({ added: message.id, threadId: id, labelIds: message.labelIds });
   }
@@ -110,6 +116,54 @@ export class GmailWorld {
 
   unmark(threadId: string, mark: 'label' | 'star'): void {
     this.#change(threadId, mark, false);
+  }
+
+  /** A person's label put on a message of a conversation (its first, unless said), as Gmail records it. */
+  label(threadId: string, name: string, onMessage = 0): void {
+    this.#moveLabel(threadId, name, onMessage, true);
+  }
+
+  unlabel(threadId: string, name: string, onMessage = 0): void {
+    this.#moveLabel(threadId, name, onMessage, false);
+  }
+
+  /** A label renamed: Gmail keeps its id and records nothing in the history. */
+  rename(from: string, to: string): void {
+    for (const [id, name] of this.#userLabels) if (name === from) this.#userLabels.set(id, to);
+  }
+
+  /** A reply in a conversation, carrying the labels given by name and not the mark. */
+  replies(threadId: string, labels: readonly string[] = []): void {
+    const thread = this.#thread(threadId);
+    const reply = message(threadId, { id: `${threadId}-r${thread.messages.length}`, sentAt: '2026-10-02T08:30:00Z', plain: 'A reply.', labelled: false });
+    reply.labelIds = [...reply.labelIds, ...labels.map((name) => this.#idOfLabel(name))];
+    thread.messages.push(reply);
+    this.#record({ added: reply.id, threadId, labelIds: reply.labelIds });
+  }
+
+  #idOfLabel(name: string): string {
+    if (name === 'Cockpit') return COCKPIT_LABEL_ID;
+    if (name === name.toUpperCase()) return name; // Gmail's own: INBOX, UNREAD, CATEGORY_PROMOTIONS
+    for (const [id, called] of this.#userLabels) if (called === name) return id;
+    const id = `Label_${100 + this.#userLabels.size}`;
+    this.#userLabels.set(id, name);
+    return id;
+  }
+
+  #moveLabel(threadId: string, name: string, onMessage: number, on: boolean): void {
+    const id = this.#idOfLabel(name);
+    const message = this.#thread(threadId).messages[onMessage]!;
+    message.labelIds = on ? [...new Set([...message.labelIds, id])] : message.labelIds.filter((one) => one !== id);
+    this.#record(
+      on
+        ? { labelled: message.id, threadId, with: [id], labelIds: message.labelIds }
+        : { unlabelled: message.id, threadId, with: [id], labelIds: message.labelIds },
+    );
+  }
+
+  /** A label somebody made that no message carries yet. */
+  hasUserLabel(name: string): void {
+    this.#idOfLabel(name);
   }
 
   bin(threadId: string): void {

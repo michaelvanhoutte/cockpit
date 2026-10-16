@@ -33,7 +33,11 @@ export function bodyData(text: string): string {
 }
 
 /** `users.labels.list`: the system labels every mailbox has, and Cockpit where it was made. */
-export function labelsAnswer({ cockpit = true, named = 'Cockpit' }: { cockpit?: boolean; named?: string } = {}) {
+export function labelsAnswer({
+  cockpit = true,
+  named = 'Cockpit',
+  userLabels = [],
+}: { cockpit?: boolean; named?: string; userLabels?: readonly { id: string; name: string }[] } = {}) {
   return {
     labels: [
       { id: 'CHAT', name: 'CHAT', messageListVisibility: 'hide', labelListVisibility: 'labelHide', type: 'system' },
@@ -42,6 +46,15 @@ export function labelsAnswer({ cockpit = true, named = 'Cockpit' }: { cockpit?: 
       { id: 'IMPORTANT', name: 'IMPORTANT', messageListVisibility: 'hide', labelListVisibility: 'labelHide', type: 'system' },
       { id: 'TRASH', name: 'TRASH', messageListVisibility: 'hide', labelListVisibility: 'labelHide', type: 'system' },
       { id: 'UNREAD', name: 'UNREAD', type: 'system' },
+      { id: 'STARRED', name: 'STARRED', type: 'system' },
+      { id: 'CATEGORY_PROMOTIONS', name: 'CATEGORY_PROMOTIONS', type: 'system' },
+      ...userLabels.map(({ id, name }) => ({
+        id,
+        name,
+        messageListVisibility: 'show',
+        labelListVisibility: 'labelShow',
+        type: 'user',
+      })),
       ...(cockpit
         ? [
             {

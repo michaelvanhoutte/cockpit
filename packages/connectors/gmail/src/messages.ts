@@ -51,6 +51,61 @@ export function cockpitLabelIn(answer: unknown): string | null {
   return null;
 }
 
+/**
+ * Gmail's own labels, which are never an Item's names: a label whose id is one
+ * of these, or starts `CATEGORY_` (the inbox tabs), is Gmail's and not the
+ * person's.
+ */
+const SYSTEM_LABELS: readonly string[] = [
+  'INBOX',
+  'UNREAD',
+  'IMPORTANT',
+  'STARRED',
+  'SENT',
+  'DRAFT',
+  'SPAM',
+  'TRASH',
+  'CHAT',
+];
+
+function isSystemLabel(id: unknown): boolean {
+  return typeof id === 'string' && (SYSTEM_LABELS.includes(id) || id.startsWith('CATEGORY_'));
+}
+
+/**
+ * The names of the labels the person made, by id, from Gmail's list of labels:
+ * what a label id on a message is resolved to. Gmail's own labels (`type`
+ * `system`) are not in it.
+ */
+export function userLabelsIn(answer: unknown): Map<string, string> {
+  const labels = (answer as { labels?: unknown } | null)?.labels;
+  const named = new Map<string, string>();
+  for (const label of Array.isArray(labels) ? (labels as unknown[]) : []) {
+    const { id, name, type } = (label ?? {}) as Record<string, unknown>;
+    if (type === 'user' && typeof id === 'string' && typeof name === 'string' && name && !isSystemLabel(id)) {
+      named.set(id, name);
+    }
+  }
+  return named;
+}
+
+/**
+ * A conversation's names as `threads.get` answers it, whole: the user labels on
+ * any of its messages, in the order first met, the mark the connection follows
+ * left out. A label id the list does not hold (deleted since) names nothing.
+ */
+export function namesOf(answer: unknown, userLabels: ReadonlyMap<string, string>, markId: string): string[] {
+  const { messages } = (answer ?? {}) as { messages?: unknown };
+  const names: string[] = [];
+  for (const message of Array.isArray(messages) ? (messages as GmailMessage[]) : []) {
+    for (const id of Array.isArray(message?.labelIds) ? (message.labelIds as unknown[]) : []) {
+      const name = typeof id === 'string' && id !== markId ? userLabels.get(id) : undefined;
+      if (name !== undefined && !names.includes(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
 /** One page of Gmail's marked conversations: their ids, and where the next page starts. */
 export function conversationPage(answer: unknown): { threadIds: string[]; nextPageToken: string | null } {
   const { threads, nextPageToken } = (answer ?? {}) as Record<string, unknown>;
@@ -73,6 +128,12 @@ export interface HistoryPage {
    * the mark belongs to each message and the page sees some.
    */
   readonly changed: string[];
+  /**
+   * Every conversation on this page that had a label other than the mark and
+   * Gmail's own added or taken off a message, so its names may have changed:
+   * reported again once the conversation is read.
+   */
+  readonly relabelled: string[];
   readonly nextPageToken: string | null;
   /** The mailbox's position as of this answer: where the next read starts from once every page is done. */
   readonly historyId: string | null;
@@ -101,6 +162,9 @@ export function historyPage(answer: unknown, markId: string): HistoryPage {
   const { history, nextPageToken, historyId } = (answer ?? {}) as Record<string, unknown>;
   const gained = new Set<string>();
   const changed = new Set<string>();
+  const relabelled = new Set<string>();
+  const namesMoved = (labels: unknown) =>
+    Array.isArray(labels) && labels.some((label) => label !== markId && !isSystemLabel(label));
   const carries = (labels: unknown) => Array.isArray(labels) && labels.includes(markId);
   const movesAway = (labels: unknown) =>
     Array.isArray(labels) && labels.some((label) => label === markId || AWAY.includes(label as string));
@@ -121,11 +185,13 @@ export function historyPage(answer: unknown, markId: string): HistoryPage {
       const threadId = threadOf(added);
       if (threadId && carries(added.labelIds)) gained.add(threadId);
       if (threadId && movesAway(added.labelIds)) changed.add(threadId);
+      if (threadId && namesMoved(added.labelIds)) relabelled.add(threadId);
     }
     for (const removed of entries('labelsRemoved')) {
       const threadId = threadOf(removed);
       if (threadId && carries(removed.labelIds)) gained.delete(threadId);
       if (threadId && movesAway(removed.labelIds)) changed.add(threadId);
+      if (threadId && namesMoved(removed.labelIds)) relabelled.add(threadId);
     }
     for (const deleted of entries('messagesDeleted')) {
       const threadId = threadOf(deleted);
@@ -135,6 +201,7 @@ export function historyPage(answer: unknown, markId: string): HistoryPage {
   return {
     gained: [...gained],
     changed: [...changed],
+    relabelled: [...relabelled],
     nextPageToken: typeof nextPageToken === 'string' && nextPageToken ? nextPageToken : null,
     historyId: typeof historyId === 'string' || typeof historyId === 'number' ? String(historyId) : null,
   };
