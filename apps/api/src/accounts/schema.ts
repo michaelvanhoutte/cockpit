@@ -1823,7 +1823,7 @@ export const agentRuns = sqliteTable(
     uniqueIndex('agent_runs_one_open_per_item').on(t.itemId).where(sql`${t.endedAt} IS NULL`),
     index('agent_runs_tenant_workspace_open').on(t.tenantId, t.workspaceId, t.endedAt),
     check('agent_runs_status_is_known', oneOf('status', AGENT_RUN_STATUSES)),
-    check('agent_runs_destination_is_known', sql.raw(`destination IS NULL OR destination IN (${CLAUDE_DESTINATIONS.map((v) => `'${v}'`).join(', ')})`)),
+    check('agent_runs_destination_is_known', oneOf('destination', CLAUDE_DESTINATIONS)),
     check('agent_runs_started_at_is_timestamp', isTimestamp('started_at')),
     check('agent_runs_settled_at_is_timestamp', isTimestamp('settled_at')),
     check('agent_runs_ended_at_is_timestamp', isTimestamp('ended_at')),

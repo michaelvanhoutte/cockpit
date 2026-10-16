@@ -160,6 +160,36 @@ describe('Agents', () => {
       expect(await allRuns(itemId)).toHaveLength(1);
     });
 
+    it('takes a retry under a new command id, after a lost answer, as the Run already made', async () => {
+      const itemId = await anItem('Chase the invoice');
+      const runId = nextId();
+
+      await send(itemId, { runId });
+      const retry = await send(itemId, { runId });
+
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toMatchObject({ applied: false });
+      expect(await allRuns(itemId)).toHaveLength(1);
+    });
+
+    it('shows the Run in another workspace’s Inbox while the item belongs to no workspace', async () => {
+      const itemId = nextId();
+      expect(
+        (
+          await postChange('capture_item', {
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            message: 'Not yet anywhere',
+            workspaceDecided: false,
+          })
+        ).status,
+      ).toBe(200);
+
+      expect((await send(itemId)).status).toBe(200);
+
+      expect(await runsOn(itemId, ATLAS)).toEqual([expect.objectContaining({ itemId, destination: 'cowork' })]);
+    });
+
     it('is sent from the Inbox as it is from a dashboard', async () => {
       // Captured and never filed: it is in the Inbox.
       const itemId = await anItem('Unfiled thought');

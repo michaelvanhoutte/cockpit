@@ -18,25 +18,25 @@ export const CLAUDE_DESTINATION_NAMES: Record<ClaudeDestination, string> = {
   code: 'Code',
 };
 
-/** Where a Run stands. Only `sent` exists until Claude reports back, which adds the rest. */
-export const claudeStageSchema = z.string().min(1).max(40);
-
 /** A folder path, as typed: any length a path takes. Empty means none chosen. */
 export const claudeFolderSchema = z.string().trim().max(1000);
 
-/** The prompt, as long as the window lets it be. */
-export const claudePromptSchema = z.string().trim().min(1).max(100_000);
+/** Text with each lone surrogate made U+FFFD, which `encodeURIComponent` would otherwise throw on. */
+function wellFormed(text: string): string {
+  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�');
+}
 
 /**
  * The address that opens Claude on this destination with exactly this prompt
  * and folder. Both are percent-encoded, so quotes, line breaks, `&`, `#` and
- * non-Latin text come back identical when decoded; an empty folder leaves
+ * non-Latin text come back identical when decoded (a lone surrogate, which
+ * cannot be encoded, becomes U+FFFD); an empty folder leaves
  * `folder` out, so Claude asks for one.
  */
 export function claudeLinkFor(destination: ClaudeDestination, prompt: string, folder: string): string {
-  const base = `claude://${destination}/new?q=${encodeURIComponent(prompt)}`;
+  const base = `claude://${destination}/new?q=${encodeURIComponent(wellFormed(prompt))}`;
   const chosen = folder.trim();
-  return chosen === '' ? base : `${base}&folder=${encodeURIComponent(chosen)}`;
+  return chosen === '' ? base : `${base}&folder=${encodeURIComponent(wellFormed(chosen))}`;
 }
 
 /**

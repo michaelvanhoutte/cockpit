@@ -19,7 +19,7 @@ describe('Agents', () => {
     };
 
     it.each<{ situation: string; destination: ClaudeDestination; prompt: string; folder: string; opens: string }>([
-      { situation: 'Cowork', destination: 'cowork', prompt: 'Do it', folder: 'C:\GitHub\Cockpit', opens: 'cowork' },
+      { situation: 'Cowork', destination: 'cowork', prompt: 'Do it', folder: 'C:\\GitHub\\Cockpit', opens: 'cowork' },
       { situation: 'Code', destination: 'code', prompt: 'Do it', folder: '/home/me/app', opens: 'code' },
     ])('$situation opens its own address with both, encoded', ({ destination, prompt, folder, opens }) => {
       const link = claudeLinkFor(destination, prompt, folder);
@@ -36,9 +36,15 @@ describe('Agents', () => {
       { situation: 'a plus and a percent', prompt: '1+1 is 100% sure' },
       { situation: 'non-Latin text', prompt: 'Schrijf een e-mail naar Zoë · 你好 · مرحبا' },
     ])('a prompt with $situation comes back identical when decoded', ({ prompt }) => {
-      const link = claudeLinkFor('cowork', prompt, 'C:\Mijn Map\Zoë&Co #1');
+      const link = claudeLinkFor('cowork', prompt, 'C:\\Mijn Map\\Zoë&Co #1');
 
-      expect(decoded(link)).toMatchObject({ q: prompt, folder: 'C:\Mijn Map\Zoë&Co #1' });
+      expect(decoded(link)).toMatchObject({ q: prompt, folder: 'C:\\Mijn Map\\Zoë&Co #1' });
+    });
+
+    it('opens, instead of throwing, for a prompt holding half of an emoji', () => {
+      const link = claudeLinkFor('cowork', 'half an emoji \uD83D', '');
+
+      expect(decoded(link).q).toBe('half an emoji \uFFFD');
     });
 
     it.each([

@@ -1788,7 +1788,7 @@ const routes = app
     return c.json(await account.applyChange('set_connection_files_by_name', cmd), 200);
   })
   .openapi(
-    commandRoute('send_item_to_claude', { conflict: 'This item cannot be sent to Claude now, in words' }),
+    commandRoute('send_item_to_claude', { conflict: 'The item is done, dismissed, or Claude is already on it' }),
     async (c) => c.json(await change(c, 'send_item_to_claude', c.req.valid('json')), 200),
   )
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))

@@ -1864,7 +1864,17 @@ export function listOpenAgentRuns(db: AccountDb, tenantId: string, workspaceId: 
     .where(
       and(
         eq(agentRuns.tenantId, tenantId),
-        eq(agentRuns.workspaceId, workspaceId),
+        // Or an Item sent to Claude that is drawn here: one sent from an Inbox
+        // before it belongs to a Workspace is in every Inbox, and one filed
+        // since belongs to where it was filed (issue 1159). An Agent's run is
+        // listed only where it was started, as it always was.
+        or(
+          eq(agentRuns.workspaceId, workspaceId),
+          and(
+            isNotNull(agentRuns.destination),
+            or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+          ),
+        ),
         isNull(agentRuns.endedAt),
       ),
     )

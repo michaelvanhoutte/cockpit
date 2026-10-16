@@ -2354,7 +2354,18 @@ export function runCommand<N extends CommandName>(
       ) {
         throw new ItemNotFoundError(cmd.itemId);
       }
+      // An Item that belongs to no Workspace is drawn in every Inbox, so every
+      // tab is told its Run is there.
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
       const open = openAgentRunOn(db, tenantId, cmd.itemId);
+      // The same send again under a new command id - the window keeps one run
+      // id, so a retry after a lost answer lands here - is the Run already
+      // made, not a second one for Claude to be refused on.
+      if (open?.id === cmd.runId) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
       const decided = decideClaudeSend({ item, openRun: open });
       switch (decided.refusal) {
         case null:
