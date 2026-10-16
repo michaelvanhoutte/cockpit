@@ -147,9 +147,7 @@ describe('Triage', () => {
       expect(itemsThatMayBeDuplicates(ITEMS, [], PAIRED).has(THE_OTHER.id)).toBe(true);
     });
   });
-});
 
-describe('Triage', () => {
   describe('when a note was captured, in the words a warning has room for', () => {
     const now = Date.parse('2026-08-20T12:00:00.000Z');
     it.each([

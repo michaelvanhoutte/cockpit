@@ -132,7 +132,7 @@ test.describe('Capture', () => {
 
       // The same box, spoken into: the mic sits in the strip under the note,
       // reachable on this screen. Tapped, it records with a running timer;
-      // tapped repeated, the recording is transcribed and the words land at the
+      // tapped again, the recording is transcribed and the words land at the
       // end of what was typed, to be captured like anything typed. Only a
       // browser records, and only a browser proves it reaches an Item.
       const mic = page.getByRole('button', { name: 'Dictate' });
