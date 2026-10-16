@@ -664,6 +664,9 @@ export function ItemRow({
    */
   const menuEntries = (M: MenuPrimitive) => {
     const flexItemClass = menuItemSplitClass;
+    // The key that does the same from the keyboard, where there is one: an
+    // Inbox row at a desk (issue 1111), as C, G and F are shown.
+    const keyed = (key: string) => (inInbox && roomBesideTheMenu ? { 'data-key': key } : {});
     const subTriggerClass = `${flexItemClass} data-[state=open]:bg-accent-tint`;
     // The menu is grouped by kind, a divider only between groups that have
     // something to offer on this row ("Group the item row's menu by kind, and
@@ -674,6 +677,7 @@ export function ItemRow({
         onOpen && (
           <M.Item
             key="open"
+            {...keyed('O')}
             className={menuItemClass}
             onSelect={() => {
               // The form takes the focus itself, like the pickers below.
@@ -713,6 +717,7 @@ export function ItemRow({
         onMoveTo && (
           <M.Item
             key="move-to"
+            {...keyed('M')}
             className={menuItemClass}
             onSelect={() => {
               opening.current = true;
@@ -807,6 +812,7 @@ export function ItemRow({
                   role="menuitemradio"
                   aria-checked={ticked}
                   className={flexItemClass}
+                  {...(name === 'Done' ? keyed('D') : {})}
                   onSelect={() => {
                     if (!ticked) choose();
                   }}
@@ -829,7 +835,12 @@ export function ItemRow({
       ],
       // Dismiss.
       [
-        <M.Item key="dismiss" className={destructiveItemClass} onSelect={dismiss}>
+        <M.Item
+          key="dismiss"
+          {...keyed('X')}
+          className={destructiveItemClass}
+          onSelect={dismiss}
+        >
           Dismiss
         </M.Item>,
       ],
@@ -977,7 +988,30 @@ export function ItemRow({
       // keeps its own Enter, and the menu's entries reach here from a portal.
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
-        if (event.key === 'Enter') {
+        setStartRefusal(null);
+        // At a desk, an Inbox row takes a key for each thing triage does, and
+        // Enter files in place of opening ("Act on the focused Inbox row with
+        // one key, and move on", issue 1111). Not while a selection is held,
+        // which suspends every single-row action (issue 438).
+        if (inInbox && roomBesideTheMenu && !selecting?.revealed && /^(Enter|[dmox])$/i.test(event.key)) {
+          // Fetched on the first such key: which of them it is, what each does,
+          // and where the focus goes once the row has left the list.
+          const row = event.currentTarget;
+          const press = event.nativeEvent;
+          const show = dock.show;
+          import('../inboxTriage').then(
+            (follow) =>
+              follow.triage(
+                press,
+                row,
+                { accept: onAcceptRouting, move: onMoveTo, done: markDone, dismiss, open: onOpen },
+                show,
+                () => setStartRefusal('No Panel was proposed. M moves it.'),
+              ),
+            () => undefined,
+          );
+          return;
+        }        if (event.key === 'Enter') {
           event.preventDefault();
           // A double-click's first click ends a held selection; Enter has no click.
           if (selecting?.revealed) selecting.onEndSelection();
@@ -1289,7 +1323,7 @@ export function ItemRow({
                     ? 'outline-1 -outline-offset-1 outline-dashed outline-accent/60 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-solid focus-visible:outline-accent'
                     : 'bg-accent-tint'
                 }`}
-                title={routingLabel}
+                title={inInbox && roomBesideTheMenu ? `${routingLabel}\nEnter files it here` : routingLabel}
                 aria-label={routingLabel}
                 onClick={(event) => {
                   event.stopPropagation();

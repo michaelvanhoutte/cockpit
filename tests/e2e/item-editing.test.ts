@@ -1338,6 +1338,30 @@ test.describe('Item editing', () => {
         await press(form(page).getByRole('button', { name: 'Remove from Panel 1' }), isMobile);
         await expect(inbox(page).getByText(captured)).toBeVisible();
 
+        // One key acts on the focused row and the focus moves on ("Act on the
+        // focused Inbox row with one key, and move on", issue 1111): nothing
+        // here has a proposal to take (no model is reached in this tier), so
+        // Enter says so; M then a Panel files the row there, the keyboard and
+        // the dock land on the row left behind, and Z brings it back to both.
+        const filing = inbox(page).locator('li[data-item-row]').filter({ hasText: captured });
+        await filing.focus();
+        await page.keyboard.press('Enter');
+        await expect(inbox(page).getByRole('alert')).toContainText('No Panel was proposed');
+        await expect(filing).toBeVisible();
+        const filed = answeredTo('move_item_to_panel');
+        await page.keyboard.press('m');
+        await page.getByRole('dialog', { name: /^Move / }).getByRole('button', { name: 'Panel 1', exact: true }).click();
+        await filed;
+        await expect(filing).toHaveCount(0);
+        await expect(page.getByRole('region', { name: 'Panel 1' }).getByText(captured)).toBeVisible();
+        await expect(inbox(page).locator('li[data-item-row]:focus')).toHaveCount(1);
+        await expect(titleBox(page)).not.toHaveValue(captured);
+        const back = answeredTo('move_item_to_panel');
+        await page.keyboard.press('z');
+        await back;
+        await expect(filing).toBeFocused();
+        await expect(titleBox(page)).toHaveValue(captured);
+
         // Closing keeps a box still holding the cursor.
         const closing = answeredTo('set_description');
         await theEditorIsThere(page);
