@@ -86,6 +86,7 @@ export function ItemRow({
   onMoveHere,
   routingProposal,
   onAcceptRouting,
+  onAcceptSelection,
   mayBeADuplicate,
   onSettleNotADuplicate,
   selecting,
@@ -199,6 +200,12 @@ export function ItemRow({
    * swipe ("Pick a row by ctrl/shift-click instead of aiming for a checkbox,
    * and suspend single-row actions while a selection is held", issue 438).
    */
+  /**
+   * Enter on this row while a selection is held: files each picked Item on its
+   * own proposed Panel ("Accept the proposals of a selection with Enter",
+   * issue 1112). Given to an Inbox row only.
+   */
+  onAcceptSelection?: (() => void) | undefined;
   selecting?: {
     picked: boolean;
     revealed: boolean;
@@ -1012,6 +1019,11 @@ export function ItemRow({
               ),
             () => undefined,
           );
+          return;
+        }
+        if (inInbox && roomBesideTheMenu && !chord && selecting?.revealed && event.key === 'Enter' && onAcceptSelection) {
+          event.preventDefault();
+          onAcceptSelection();
           return;
         }
         if (event.key === 'Enter') {

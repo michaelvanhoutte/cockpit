@@ -7,6 +7,7 @@ import { RowMenu } from './Menu';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { INBOX_KEY } from '../inboxCollapsed';
 import { inboxStep } from '../inboxKeys';
+import { endSelection, inboxScope } from '../selection';
 import { useDockedItem } from '../itemForm';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { rowOf, useLanding, useLandingStep } from '../landOnItem';
@@ -262,6 +263,14 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
         const to = rows[rows.indexOf(from as HTMLElement) + step];
         if (!to) return;
         to.focus();
+        // Shift extends the selection to the row reached; a plain step ends it
+        // ("Accept the proposals of a selection with Enter", issue 1112).
+        const scope = inboxScope(workspaceId);
+        if (event.shiftKey) {
+          const ids = rows.map((row) => row.dataset.itemId!);
+          const [fromId, toId] = [(from as HTMLElement).dataset.itemId!, to.dataset.itemId!];
+          void import('../inboxTriage').then((follow) => follow.extendSelection(scope, ids, fromId, toId));
+        } else endSelection(scope);
         // Followed where a form is docked open, and opened docked where none
         // is, for this opening only (`ItemForm.tsx`): a centered window would
         // take the keys it was moved for, and the account's own choice is

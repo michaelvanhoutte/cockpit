@@ -1,4 +1,9 @@
+import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
+import { CommandRefused } from './api/client';
+import type { CommandArgs } from './api/queries';
 import { plainKey, type Press } from './inboxKeys';
+import { updateSelection, type Selection } from './selection';
+import type { Undoable } from './undo';
 
 /**
  * What a key press does to the focused row ("Act on the focused Inbox row with
@@ -120,4 +125,124 @@ function focusRow(list: Element, itemId: string, show: ShowItem): boolean {
   row.focus();
   show(itemId, { keepFocus: true });
   return true;
+}
+
+/**
+ * The selection once the focus has moved from `from` to `to` with Shift held
+ * ("Accept the proposals of a selection with Enter", issue 1112): the rows from
+ * where the selection began to the row reached, and no others taken away.
+ *
+ * **Moving back towards where it began shrinks it**, so Shift+J twice and
+ * Shift+K once leaves two rows; the anchor is the row a shift-click reaches
+ * back to (`Selection.reachingFrom`), or `from` where `from` is not picked.
+ */
+export function afterExtending(ids: readonly string[], selection: Selection, from: string, to: string): Selection {
+  const anchor = selection.picked.has(from) && selection.reachingFrom && ids.includes(selection.reachingFrom) ? selection.reachingFrom : from;
+  const span = (end: string) => {
+    const [a, b] = [ids.indexOf(anchor), ids.indexOf(end)];
+    return ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+  };
+  const picked = new Set(selection.picked);
+  for (const id of span(from)) picked.delete(id);
+  for (const id of span(to)) picked.add(id);
+  return { picked, reachingFrom: anchor };
+}
+
+/** Shift+J / K reached `to` from `from`: the Inbox's selection grows or shrinks to it. */
+export function extendSelection(scope: string, ids: readonly string[], from: string, to: string): void {
+  updateSelection(scope, (was) => afterExtending(ids, was, from, to));
+}
+
+/** What `acceptSelection` is handed by the list that holds the selection. */
+export interface AcceptingSelection {
+  picked: readonly Item[];
+  /** The Panel an Item's drawn proposal names, or undefined where it has none. */
+  panelFor: (item: Item) => string | undefined;
+  filings: readonly { itemId: string; panelId: string; position: number }[];
+  workspaceId: string;
+  scope: string;
+  send: (command: CommandArgs) => Promise<unknown>;
+  whereItIs: (item: Item) => { panelId: string; order: string[] }[];
+  nameOf: (panelId: string | null) => string;
+  putSeveralBack: (moved: readonly Item[], wasOn: ReadonlyMap<string, { panelId: string; order: string[] }[]>) => Promise<void>;
+  offerToUndo: (change: Undoable) => void;
+}
+
+let accepting = false;
+
+/**
+ * Enter with a selection held: files each picked Item on its own proposed
+ * Panel, one filing each as a single acceptance sends it. Those without a
+ * proposal stay picked and where they are, and the undo bar says what happened
+ * - how many moved, how many had none, which was refused - with one Undo for
+ * the Items that moved.
+ *
+ * **A refusal stops only its own Item.** The Items are on different Panels, so
+ * one refused leaves the rest to go; the order each carries is built from the
+ * Items already filed onto that Panel, never from one that was refused.
+ */
+export async function acceptSelection(d: AcceptingSelection): Promise<void> {
+  if (accepting) return;
+  const chosen = d.picked.filter((item) => d.panelFor(item));
+  const none = d.picked.length - chosen.length;
+  if (d.picked.length === 0) return;
+  if (chosen.length === 0) {
+    d.offerToUndo({ what: `${d.picked.length === 2 ? 'Neither' : 'None'} of the ${d.picked.length} selected had a proposed Panel` });
+    return;
+  }
+  accepting = true;
+  const wasOn = new Map(chosen.map((item) => [item.id, d.whereItIs(item)] as const));
+  const sentTo = new Map<string, string[]>();
+  const moved: Item[] = [];
+  const refused: { item: Item; why: string }[] = [];
+  try {
+    for (const item of chosen) {
+      const panelId = d.panelFor(item)!;
+      const filed = sentTo.get(panelId) ?? [];
+      const held = d.filings.filter((f) => f.panelId === panelId).sort((a, b) => a.position - b.position).map((f) => f.itemId);
+      try {
+        await d.send({
+          name: 'move_item_to_panel',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId: d.workspaceId,
+            itemId: item.id,
+            panelId,
+            order: [...filed, item.id, ...held.filter((id) => id !== item.id && !filed.includes(id))],
+          },
+        });
+        sentTo.set(panelId, [...filed, item.id]);
+        moved.push(item);
+      } catch (error) {
+        refused.push({ item, why: error instanceof CommandRefused ? error.message : 'It could not be moved.' });
+      }
+    }
+  } finally {
+    accepting = false;
+  }
+  const filed = new Set(moved.map((item) => item.id));
+  if (filed.size > 0) {
+    updateSelection(d.scope, (was) => ({ picked: new Set([...was.picked].filter((id) => !filed.has(id))), reachingFrom: null }));
+  }
+  const panels = new Set(moved.map((item) => d.panelFor(item)));
+  const [only] = moved.length === 1 ? moved : [];
+  const where = panels.size === 1 ? d.nameOf([...panels][0]!) : 'their proposed Panels';
+  // What is said of the Items that did not move, whole at the bar's end.
+  const rest = [
+    none > 0 && `${none} had no proposal`,
+    refused.length > 0 &&
+      `“${itemLabel(refused[0]!.item)}”${refused.length > 1 ? ` and ${refused.length - 1} more were` : ' was'} refused: ${refused[0]!.why}`,
+  ].filter(Boolean);
+  // A single Item keeps its title, which the bar shortens, never what follows it.
+  const split = only && { title: `“${itemLabel(only)}”`, rest: [` moved to ${where}`, ...rest].join(', ') };
+  const what = split ? split.title + split.rest : [moved.length > 0 && `${moved.length} items moved to ${where}`, ...rest].filter(Boolean).join(', ');
+  // Withheld where one of them belonged to no Workspace: moving it decided
+  // which, and that cannot be put back (`fileSeveral`).
+  const decides = moved.some((item) => !workspaceIsDecided(item));
+  d.offerToUndo({
+    what,
+    ...(split ? { split } : {}),
+    ...(moved.length === 0 || decides ? {} : { undo: () => d.putSeveralBack(moved, wasOn) }),
+  });
 }

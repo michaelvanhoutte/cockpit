@@ -16,8 +16,8 @@ export type Press = Pick<
  * left to the keys that extend a selection with it, a chord is the browser's or
  * the system's, and a field, a menu and a window keep their own keys.
  */
-export function plainKey(event: Press, doc: Document): string | null {
-  if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return null;
+export function plainKey(event: Press, doc: Document, withShift = false): string | null {
+  if (event.ctrlKey || event.altKey || event.metaKey || (event.shiftKey && !withShift)) return null;
   if (event.defaultPrevented || event.repeat || event.isComposing) return null;
   return isTypedInto(event.target) || coveredByAWindow(doc)
     ? null
@@ -28,7 +28,9 @@ export function plainKey(event: Press, doc: Document): string | null {
 
 /** Which way a key press moves the focus: 1 for the next row, -1 for the previous, null for neither. */
 export function inboxStep(event: Press, doc: Document = document): 1 | -1 | null {
-  return STEPS[plainKey(event, doc) ?? ''] ?? null;
+  // Shift too: it extends the selection as the focus moves ("Accept the
+  // proposals of a selection with Enter", issue 1112).
+  return STEPS[plainKey(event, doc, true) ?? ''] ?? null;
 }
 
 /**

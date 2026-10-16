@@ -498,6 +498,7 @@ export function useFilingSeveral({
     },
     /** The questions, drawn wherever the hook is used. */
     pickers,
+    putSeveralBack,
     whereItIs,
     nameOf,
     addPanelFor,
