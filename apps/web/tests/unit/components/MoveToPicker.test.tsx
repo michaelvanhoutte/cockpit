@@ -265,6 +265,58 @@ describe('Panels', () => {
     });
   });
 
+  describe('opened for an Item with a proposal, the picker starts at the proposed Panel', () => {
+    const headings = (dialog: HTMLElement) =>
+      within(dialog).getAllByRole('heading', { level: 3 }).map((h) => h.textContent ?? '');
+
+    it('puts the proposed Panel’s Dashboard first, in place of the one being looked at, and marks the Panel', () => {
+      const { dialog } = show({ proposedPanelId: 'p-papers' });
+
+      expect(headings(dialog)[0]).toMatch(/^Research/);
+      expect(within(dialog).getByRole('button', { name: /^Papers/ })).toHaveAttribute('aria-current', 'true');
+      expect(within(dialog).getByRole('button', { name: /^Falcon/ })).not.toHaveAttribute('aria-current');
+    });
+
+    it('goes down to the Panel after the proposed one, and files there on Enter', async () => {
+      const { user, picked, dialog } = show({ proposedPanelId: 'p-reading' });
+
+      await user.click(search(dialog));
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      expect(picked).toEqual([{ panel: 'p-papers' }]);
+    });
+
+    it('goes to the top match, not past the proposed Panel, once a search has narrowed the list', async () => {
+      const { user, picked, dialog } = show({ proposedPanelId: 'p-reading' });
+
+      await user.type(search(dialog), 'a');
+      await user.keyboard('{ArrowDown}');
+      const first = within(dialog).getAllByRole('button').find((b) => b.hasAttribute('data-target'))!;
+      expect(first).toHaveFocus();
+      expect(picked).toEqual([]);
+    });
+
+    it('keeps the proposed Panel’s accessible name its own', () => {
+      const { dialog } = show({ proposedPanelId: 'p-papers' });
+
+      expect(within(dialog).getByRole('button', { name: 'Papers' })).toHaveAttribute('aria-current', 'true');
+    });
+
+    it.each([
+      { situation: 'no proposal', props: {} },
+      { situation: 'a proposal for a Panel that is not offered', props: { proposedPanelId: 'p-gone' } },
+      { situation: 'a proposal for a Panel the Item is already on', props: { proposedPanelId: 'p-papers', alreadyOn: ['p-papers'] } },
+    ])('opens as it always did with $situation', async ({ props }) => {
+      const { user, picked, dialog } = show(props);
+
+      expect(headings(dialog)[0]).toMatch(/^Today/);
+      expect(within(dialog).queryByText('proposed')).toBeNull();
+      await user.click(search(dialog));
+      await user.keyboard('{ArrowDown}{Enter}');
+      expect(picked).toEqual([{ inboxOf: 'ws' }]);
+    });
+  });
+
   describe('a dashboard is a heading, and the one you are on says so', () => {
     it('marks only the open dashboard as this dashboard', () => {
       const { dialog } = show();

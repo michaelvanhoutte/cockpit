@@ -443,12 +443,13 @@ export function ItemList({
    */
   const routingProposalFor = (
     item: Item,
-  ): { dashboardName: string; panelName: string; reason: string; fit: PanelFit } | undefined => {
+  ): { panelId: string; dashboardName: string; panelName: string; reason: string; fit: PanelFit } | undefined => {
     if (!item.proposedPanelId) return undefined;
     const panel = data?.panels.find((p) => p.id === item.proposedPanelId && !p.neverPropose);
     const dashboard = data?.dashboards.find((d) => d.id === panel?.dashboardId);
     return panel && dashboard
       ? {
+          panelId: panel.id,
           dashboardName: dashboard.name,
           panelName: panel.name,
           reason: item.proposedPanelReason ?? '',
@@ -1104,6 +1105,12 @@ export function ItemList({
             ? { alreadyOn: whereItIs(moving).map((at) => at.panelId) }
             : {})}
           openDashboardId={openDashboardId}
+          // Move to… from an Inbox row with a proposal opens on the proposed
+          // Panel's Dashboard with that Panel marked (issue 1113). Read as the
+          // chip is, so a stale or Never-propose proposal opens as any other.
+          {...(panelId === null && routingProposalFor(moving)
+            ? { proposedPanelId: routingProposalFor(moving)!.panelId }
+            : {})}
           recent={recentPanelsIn(browserStore(), workspaceId)}
           open
           onPick={(target) =>

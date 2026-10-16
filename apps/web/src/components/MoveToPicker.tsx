@@ -58,6 +58,7 @@ function MoveToPicker({
   workspaceId,
   inboxesOf,
   openDashboardId,
+  proposedPanelId,
   recent,
   open,
   onPick,
@@ -127,6 +128,13 @@ function MoveToPicker({
   inboxesOf?: readonly Workspace[];
   /** The dashboard being looked at, or null on a screen that is not one. */
   openDashboardId: string | null;
+  /**
+   * The Panel Cockpit proposed for the Item ("Open Move to… on the proposed
+   * Panel's Dashboard", issue 1113): its Dashboard comes first, in place of the
+   * one being looked at, and it is marked, so ↓ from the search lands on the
+   * Panel after it. Ignored where it is not offered.
+   */
+  proposedPanelId?: string;
   /** Panel ids, most recently filed into first. */
   recent: readonly string[];
   open: boolean;
@@ -210,7 +218,8 @@ function MoveToPicker({
   /** Where a panel can be made from here: not on a dashboard filtered in this browser, where + Panel is locked. */
   const canAddTo = (dashboard: Dashboard) =>
     onAddPanel !== undefined && !filteredDashboardIds?.has(dashboard.id);
-  const groups = dashboardsInOrder(dashboards, openDashboardId)
+  const proposed = offerable.find((panel) => panel.id === proposedPanelId);
+  const groups = dashboardsInOrder(dashboards, proposed ? proposed.dashboardId : openDashboardId)
     .map((dashboard) => ({
       dashboard,
       hasNone: !takesItems.some((panel) => panel.dashboardId === dashboard.id),
@@ -313,7 +322,14 @@ function MoveToPicker({
                 targets()[0]?.click();
               } else if (event.key === 'ArrowDown') {
                 event.preventDefault();
-                targets()[0]?.focus();
+                const all = targets();
+                // From the proposed Panel on, which is where the Item most likely
+                // goes - but not once a search has narrowed the list, where ↓ is the top match.
+                const at =
+                  needle === ''
+                    ? all.findIndex((target) => target.dataset.proposed !== undefined)
+                    : -1;
+                (all[at + 1] ?? all[0])?.focus();
               }
             }}
             placeholder="Find a panel or dashboard…"
@@ -460,6 +476,7 @@ function MoveToPicker({
                       key={panel.id}
                       label={panel.name}
                       indent
+                      proposed={panel.id === proposed?.id}
                       busy={busy}
                       onPick={() => onPick({ panel: panel.id })}
                     />
@@ -584,9 +601,12 @@ function Target({
   label,
   hint,
   indent = false,
+  proposed = false,
   busy,
   onPick,
 }: {
+  /** That Cockpit proposed this Panel for the Item. */
+  proposed?: boolean;
   label: string;
   /** Under a dashboard's heading rather than beside it. */
   indent?: boolean;
@@ -599,11 +619,18 @@ function Target({
     <button
       type="button"
       data-target
+      {...(proposed ? { 'data-proposed': '', 'aria-current': 'true' as const } : {})}
       disabled={busy}
       onClick={onPick}
-      className={`flex w-full items-baseline gap-2 rounded py-1.5 pr-2 text-left text-sm text-ink hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:text-accent-deep focus-visible:outline-none disabled:opacity-50 ${indent ? 'pl-7' : 'pl-2'}`}
+      className={`flex w-full items-baseline gap-2 rounded py-1.5 pr-2 text-left text-sm text-ink hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:text-accent-deep focus-visible:outline-none disabled:opacity-50 ${indent ? 'pl-7' : 'pl-2'} ${proposed ? 'bg-accent-tint' : ''}`}
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
+      {/* Out of the accessible name, which aria-current speaks for, so a name match on the Panel still finds it. */}
+      {proposed && (
+        <span aria-hidden="true" className="shrink-0 text-xs text-ink-faint">
+          proposed
+        </span>
+      )}
       {hint && <span className="shrink-0 text-xs text-ink-faint">{hint}</span>}
     </button>
   );
