@@ -163,6 +163,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PROPOSED_PANEL_FIT,
     REWRITE_HISTORY_PANELS_FILED_ON,
     CONNECTION_HISTORY,
+    FILES_BY_NAME,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -627,6 +628,44 @@ const CONNECTION_HISTORY: Change = {
       sql: 'CREATE INDEX IF NOT EXISTS `connection_history_newest` ON `connection_history` (`tenant_id`,`source_account_id`,`last_at`)',
     },
     { sql: 'ALTER TABLE `pulled_connections` ADD COLUMN `check_reason` text' },
+  ],
+};
+
+/**
+ * Filing mail on the Panel named after its label or category ("File Outlook
+ * mail on the Panel named after its category", issue 1146): the switch on the
+ * connection, and the names last reported on each link; `schema.ts` says what
+ * each carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `ADD COLUMN`s, and no statement that writes to a row.
+ * - **If it stops halfway:** one change is one transaction, so a failure on the
+ *   second column takes the first back with it. Were one column ever there
+ *   without the other, the switch reads as off and a link with no names as no
+ *   baseline, so nothing files.
+ * - **The second time it runs:** it does not re-run once recorded, and SQLite
+ *   refuses a column that already exists rather than adding it twice.
+ * - **Rows that predate it:** every connection reads off and every link reads
+ *   as having no names recorded; its next report records them and files
+ *   nothing. Nothing is backfilled.
+ * - **What is in each environment:** real connections in staging and
+ *   production, all off until a person ticks the box.
+ * - **Rolled back after it has run:** an older release names neither column;
+ *   a switch left on is honoured again when the newer release serves.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const FILES_BY_NAME: Change = {
+  name: '0078-files-by-name',
+  statements: [
+    {
+      sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `files_by_name` integer DEFAULT 0 NOT NULL CONSTRAINT "connector_accounts_files_by_name_is_a_flag" CHECK(files_by_name IN (0, 1))',
+    },
+    {
+      sql: 'ALTER TABLE `pulled_links` ADD COLUMN `names` text CONSTRAINT "pulled_links_names_is_json" CHECK(names IS NULL OR json_valid(names))',
+    },
   ],
 };
 

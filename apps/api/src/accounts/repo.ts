@@ -2353,6 +2353,7 @@ export function sourceAccountsIn(
       lastTestedAt: connectorAccounts.lastTestedAt,
       failingBecause: connectionFailures.reason,
       choice: connectorAccounts.choice,
+      filesByName: connectorAccounts.filesByName,
     })
     .from(connectorAccounts)
     .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
@@ -2445,6 +2446,7 @@ export function getSourceAccount(
       connectorId: string;
       externalAccountKey: string | null;
       choice: string | null;
+      filesByName: boolean;
     }
   | undefined {
   return db
@@ -2454,6 +2456,7 @@ export function getSourceAccount(
       connectorId: connectorAccounts.connectorId,
       externalAccountKey: connectorAccounts.externalAccountKey,
       choice: connectorAccounts.choice,
+      filesByName: connectorAccounts.filesByName,
     })
     .from(connectorAccounts)
     .where(

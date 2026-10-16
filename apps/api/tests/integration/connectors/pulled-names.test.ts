@@ -1,0 +1,422 @@
+import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
+import { applyD1Migrations, env, runDurableObjectAlarm } from 'cloudflare:test';
+import type { Connector, ConnectorHost, SourceItem } from '@cockpit/connector-sdk';
+import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
+import { handleQueue } from '../../../src/jobs/index.js';
+import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
+import {
+  ACCOUNT_NAME,
+  DASHBOARD_ID,
+  WORKSPACE_ID,
+  alsoWorkspaces,
+  asUser,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+  storeNamed,
+} from '../seed.js';
+
+/**
+ * Integration level, through the account's real store, its real alarm, the
+ * Worker's real queue consumer and the app's own routes: what a connection set
+ * to file by name does with the names its connector reports ("File Outlook mail
+ * on the Panel named after its category", issue 1146). Which Panel a name
+ * matches is filing-by-name.test.ts's (L1); here, that the switch, the names
+ * recorded on each link and the filing are stored, and stored together.
+ *
+ * **Against a fake pulled connector that reports names**, registered in place
+ * of the registry's list, whose next check does what a case scripts: Outlook's
+ * own reading of categories is its package's to prove.
+ */
+
+const FAKE = 'fake-names';
+const PLAIN = 'fake-plain';
+
+const fake = {
+  /** What the next check does; consumed once. */
+  next: null as ((host: ConnectorHost) => Promise<void>) | null,
+};
+
+function pulledConnector(id: string, names: boolean): Connector {
+  return {
+    manifest: {
+      id,
+      displayName: 'A pulled source',
+      cardText: 'A source Cockpit pulls from.',
+      supportsPush: false,
+      pulled: true,
+      ...(names ? { names: { noun: 'category', example: 'a message with the category' } } : {}),
+      auth: { kind: 'none' },
+    },
+    async sync(host) {
+      const script = fake.next;
+      fake.next = null;
+      await script?.(host);
+    },
+  };
+}
+
+let held: EnrichmentJob[] = [];
+let realQueue: typeof env.ENRICHMENT;
+
+async function deliver(body: EnrichmentJob): Promise<void> {
+  await handleQueue(
+    {
+      queue: 'cockpit-enrichment',
+      messages: [
+        { id: crypto.randomUUID(), timestamp: new Date(), body, attempts: 1, ack: () => {}, retry: () => {} },
+      ],
+      ackAll: () => {},
+      retryAll: () => {},
+    } as unknown as Parameters<typeof handleQueue>[0],
+    env,
+  );
+}
+
+async function theQueuedCheck(): Promise<EnrichmentJob> {
+  for (let waited = 0; waited < 10_000; waited += 25) {
+    const at = held.findIndex((job) => job.kind === 'check-a-pulled-connection');
+    if (at >= 0) return held.splice(at, 1)[0]!;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('no check was ever queued');
+}
+
+/** Connects the account at the source and runs the check connecting queues, which brings in nothing. */
+async function connect(connectorId = FAKE): Promise<string> {
+  const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
+  const sealed = await seal('a-credential', key!);
+  const sourceAccountId = crypto.randomUUID();
+  const answer = await storeNamed(ACCOUNT_NAME).applyChange(ACCOUNT_NAME, 'connect_source_account', {
+    commandId: crypto.randomUUID(),
+    issuedAt: new Date().toISOString(),
+    workspaceId: WORKSPACE_ID,
+    sourceAccountId,
+    connectorId,
+    externalAccountKey: `somebody-at-${connectorId}`,
+    displayName: 'somebody at the source',
+    ...sealed,
+  });
+  expect(answer.status).toBe('ok');
+  await deliver(await theQueuedCheck());
+  return sourceAccountId;
+}
+
+/** The alarm firing and the check it queues delivered, doing what `script` says. */
+async function nextCheck(script: (host: ConnectorHost) => Promise<void>): Promise<void> {
+  fake.next = script;
+  await inTheStore((sql) => sql.exec(`UPDATE pulled_connections SET due_at = '2000-01-01T00:00:00.000Z'`));
+  await runDurableObjectAlarm(storeNamed(ACCOUNT_NAME));
+  await deliver(await theQueuedCheck());
+}
+
+/** A message arriving, carrying these names - or, with none given, a connector saying nothing of its names. */
+const arrives = (sourceId: string, names?: string[]) => (host: ConnectorHost) =>
+  host
+    .emitItem({
+      sourceId,
+      sourceLink: null,
+      sender: null,
+      sourceTimestamp: null,
+      title: `Message ${sourceId}`,
+      capturedMessage: `What message ${sourceId} says`,
+      ...(names ? { names } : {}),
+    } satisfies SourceItem)
+    .then(() => {});
+
+/** The names of a message already in, as the source holds them now. */
+const nowNamed = (sourceId: string, names: string[]) => (host: ConnectorHost) => host.reportNames({ sourceId, names });
+
+async function send(name: string, body: Record<string, unknown>): Promise<Response> {
+  return asUser(`http://cockpit.test/v1/commands/${name}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ commandId: crypto.randomUUID(), issuedAt: new Date().toISOString(), ...body }),
+  });
+}
+
+async function filesByName(sourceAccountId: string, on: boolean): Promise<Response> {
+  return send('set_connection_files_by_name', { workspaceId: WORKSPACE_ID, sourceAccountId, filesByName: on });
+}
+
+async function addPanel(name: string, where = { workspaceId: WORKSPACE_ID, dashboardId: DASHBOARD_ID }): Promise<string> {
+  const panelId = crypto.randomUUID();
+  const res = await send('add_panel', { ...where, panelId, name });
+  expect(res.status).toBe(200);
+  return panelId;
+}
+
+async function snapshot(): Promise<{
+  items: { id: string; sourceId: string | null }[];
+  filings: { panelId: string; itemId: string }[];
+}> {
+  const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+  expect(res.status).toBe(200);
+  return res.json();
+}
+
+/** The Item a message became, or undefined where none was made. */
+async function itemOf(sourceId: string): Promise<string | undefined> {
+  return (await snapshot()).items.find((item) => item.sourceId === sourceId)?.id;
+}
+
+/** The Panels the Item a message became is on - none being the Inbox. */
+async function panelsOf(sourceId: string): Promise<string[]> {
+  const read = await snapshot();
+  const itemId = read.items.find((item) => item.sourceId === sourceId)?.id;
+  expect(itemId, `no Item for ${sourceId}`).toBeDefined();
+  return read.filings
+    .filter((filing) => filing.itemId === itemId)
+    .map((filing) => filing.panelId)
+    .sort();
+}
+
+async function namesRecordedFor(sourceId: string): Promise<unknown> {
+  const [row] = await inTheStore((sql) =>
+    sql.exec<{ names: string | null }>('SELECT names FROM pulled_links WHERE source_id = ?', sourceId).toArray(),
+  );
+  return row?.names == null ? null : JSON.parse(row.names);
+}
+
+async function takeOff(sourceId: string, panelId: string): Promise<void> {
+  const res = await send('remove_item_from_panel', { workspaceId: WORKSPACE_ID, itemId: await itemOf(sourceId), panelId });
+  expect(res.status).toBe(200);
+}
+
+beforeEach(async () => {
+  await applyD1Migrations(env.DB, inject('migrations'));
+  await startFromEmpty();
+  await seedRegister();
+  held = [];
+  realQueue = env.ENRICHMENT;
+  env.ENRICHMENT = {
+    send: async (body: EnrichmentJob) => {
+      held.push(body);
+    },
+    sendBatch: async () => {
+      throw new Error('nothing here sends a batch');
+    },
+  } as unknown as typeof env.ENRICHMENT;
+  fake.next = null;
+  env.TEST_CONNECTORS = [pulledConnector(FAKE, true), pulledConnector(PLAIN, false)];
+});
+
+afterEach(async () => {
+  env.ENRICHMENT = realQueue;
+  delete env.TEST_CONNECTORS;
+  await inTheStore((sql) => sql.exec('DROP TRIGGER IF EXISTS filing_fails'));
+});
+
+describe('Connector management', () => {
+  describe('names are acted on only while the connection’s switch is on', () => {
+    it.each([
+      {
+        situation: 'off, a message arriving with Customer Atlas stays in the Inbox, its names recorded',
+        onBeforeArrival: false,
+        steps: [arrives('m-1', ['Customer Atlas'])],
+        onAtlas: false,
+      },
+      {
+        situation: 'on, the same message lands on Customer Atlas and not in the Inbox',
+        onBeforeArrival: true,
+        steps: [arrives('m-1', ['Customer Atlas'])],
+        onAtlas: true,
+      },
+      {
+        situation: 'switched on while an Item already in carries Customer Atlas, nothing is filed at the next check',
+        onBeforeArrival: false,
+        steps: [arrives('m-1', ['Customer Atlas']), 'switch on', nowNamed('m-1', ['Customer Atlas'])],
+        onAtlas: false,
+      },
+      {
+        situation: 'switched on, then Customer Atlas added, it is filed at the next check',
+        onBeforeArrival: false,
+        steps: [arrives('m-1', []), 'switch on', nowNamed('m-1', ['Customer Atlas'])],
+        onAtlas: true,
+      },
+    ] as const)('$situation', async ({ onBeforeArrival, steps, onAtlas }) => {
+      const atlas = await addPanel('Customer Atlas');
+      const connection = await connect();
+      if (onBeforeArrival) expect((await filesByName(connection, true)).status).toBe(200);
+
+      for (const step of steps) {
+        if (step === 'switch on') expect((await filesByName(connection, true)).status).toBe(200);
+        else await nextCheck(step);
+      }
+
+      expect(await panelsOf('m-1')).toEqual(onAtlas ? [atlas] : []);
+      expect(await namesRecordedFor('m-1')).toEqual(['Customer Atlas']);
+    });
+
+    it.each([
+      { situation: 'a connection whose source reports names is switched on', connectorId: FAKE, takes: true },
+      { situation: 'a connection whose source reports none is refused and stays off', connectorId: PLAIN, takes: false },
+    ])('$situation', async ({ connectorId, takes }) => {
+      const connection = await connect(connectorId);
+
+      const res = await filesByName(connection, true);
+
+      expect(res.status === 200).toBe(takes);
+      const rows = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections`);
+      const row = ((await rows.json()) as { sourceAccounts: { id: string; filesByName: boolean }[] }).sourceAccounts.find(
+        (one) => one.id === connection,
+      );
+      expect(row?.filesByName).toBe(takes);
+    });
+  });
+
+  describe('only a name new since the last report files the Item', () => {
+    it.each([
+      {
+        situation: 'added later while the Item is in the Inbox: filed, leaving the Inbox',
+        arrivesWith: [],
+        then: async () => [nowNamed('m-1', ['Customer Atlas'])],
+        on: ['atlas'],
+      },
+      {
+        situation: 'added later while it is on Admin: also on Customer Atlas, still on Admin',
+        arrivesWith: ['Admin'],
+        then: async () => [nowNamed('m-1', ['Admin', 'Customer Atlas'])],
+        on: ['admin', 'atlas'],
+      },
+      {
+        situation: 'the person takes it off Customer Atlas while the category stays: not filed again',
+        arrivesWith: ['Customer Atlas'],
+        then: async (panels: Record<string, string>) => {
+          await takeOff('m-1', panels.atlas!);
+          return [nowNamed('m-1', ['Customer Atlas', 'Unrelated'])];
+        },
+        on: [],
+      },
+      {
+        situation: 'the category comes off: it stays filed',
+        arrivesWith: ['Customer Atlas'],
+        then: async () => [nowNamed('m-1', [])],
+        on: ['atlas'],
+      },
+      {
+        situation: 'the category comes off, then goes back on: filed again',
+        arrivesWith: ['Customer Atlas'],
+        then: async (panels: Record<string, string>) => {
+          await takeOff('m-1', panels.atlas!);
+          return [nowNamed('m-1', []), nowNamed('m-1', ['Customer Atlas'])];
+        },
+        on: ['atlas'],
+      },
+      {
+        situation: 'the same names reported twice: filed once',
+        arrivesWith: [],
+        then: async () => [nowNamed('m-1', ['Customer Atlas']), nowNamed('m-1', ['Customer Atlas'])],
+        on: ['atlas'],
+      },
+    ])('$situation', async ({ arrivesWith, then, on }) => {
+      const panels: Record<string, string> = { atlas: await addPanel('Customer Atlas'), admin: await addPanel('Admin') };
+      const connection = await connect();
+      await filesByName(connection, true);
+      await nextCheck(arrives('m-1', arrivesWith));
+
+      for (const check of await then(panels)) await nextCheck(check);
+
+      expect(await panelsOf('m-1')).toEqual(on.map((key) => panels[key]!).sort());
+      const filedAgain = await inTheStore((sql) =>
+        sql
+          .exec<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE name = 'add_item_to_panel'")
+          .toArray(),
+      );
+      // Filing by name is the one thing here that adds an Item to a Panel after it arrives.
+      expect(filedAgain[0]!.n).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe('an Item from before this shipped gets a baseline from its first report and files nothing then', () => {
+    it('records the first report without filing, and files on a name added after it', async () => {
+      const atlas = await addPanel('Customer Atlas');
+      const admin = await addPanel('Admin');
+      const connection = await connect();
+      await filesByName(connection, true);
+      // Brought in saying nothing of its names, as every Item from before was.
+      await nextCheck(arrives('m-1'));
+      expect(await namesRecordedFor('m-1')).toBeNull();
+
+      await nextCheck(nowNamed('m-1', ['Customer Atlas']));
+      expect(await panelsOf('m-1')).toEqual([]);
+      expect(await namesRecordedFor('m-1')).toEqual(['Customer Atlas']);
+
+      await nextCheck(nowNamed('m-1', ['Customer Atlas', 'Admin']));
+      expect(await panelsOf('m-1')).toEqual([admin]);
+      expect(atlas).not.toBe(admin);
+    });
+  });
+
+  describe('filing by name teaches nothing and ignores Never propose', () => {
+    it.each([
+      { situation: 'filed by category on arrival', neverPropose: false, later: false },
+      { situation: 'filed by a category added later', neverPropose: false, later: true },
+      { situation: 'filed on a Panel set to Never propose', neverPropose: true, later: false },
+    ])('$situation', async ({ neverPropose, later }) => {
+      const atlas = await addPanel('Customer Atlas');
+      if (neverPropose) {
+        expect((await send('set_panel_never_propose', { workspaceId: WORKSPACE_ID, panelId: atlas, neverPropose: true })).status).toBe(200);
+      }
+      const connection = await connect();
+      await filesByName(connection, true);
+
+      await nextCheck(arrives('m-1', later ? [] : ['Customer Atlas']));
+      if (later) await nextCheck(nowNamed('m-1', ['Customer Atlas']));
+
+      expect(await panelsOf('m-1')).toEqual([atlas]);
+      const decisions = await inTheStore((sql) => sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM decision_history').toArray());
+      expect(decisions[0]!.n).toBe(0);
+    });
+  });
+
+  describe('creating and filing an Item happen together or not at all', () => {
+    it('makes no Item when filing it fails, and makes and files it once at the next check', async () => {
+      const atlas = await addPanel('Customer Atlas');
+      const connection = await connect();
+      await filesByName(connection, true);
+      // A write to a Panel that fails after the Item's own row went in.
+      await inTheStore((sql) =>
+        sql.exec("CREATE TRIGGER filing_fails BEFORE INSERT ON panel_items BEGIN SELECT RAISE(ABORT, 'the filing failed'); END"),
+      );
+
+      await nextCheck(arrives('m-1', ['Customer Atlas']));
+      expect(await itemOf('m-1')).toBeUndefined();
+      await inTheStore((sql) => sql.exec('DROP TRIGGER filing_fails'));
+
+      await nextCheck(arrives('m-1', ['Customer Atlas']));
+      expect(await panelsOf('m-1')).toEqual([atlas]);
+      expect((await snapshot()).items.filter((item) => item.sourceId === 'm-1')).toHaveLength(1);
+    });
+  });
+
+  describe('names count only from a connector that declares it reports them', () => {
+    it('records and files nothing by the names a connector declaring none sends', async () => {
+      await addPanel('Customer Atlas');
+      const connection = await connect(PLAIN);
+      // On as no route allows for such a connection, so only the host's own guard stands.
+      await inTheStore((sql) => sql.exec('UPDATE connector_accounts SET files_by_name = 1 WHERE id = ?', connection));
+
+      await nextCheck(arrives('m-1', ['Customer Atlas']));
+      await nextCheck(nowNamed('m-1', ['Customer Atlas', 'Admin']));
+
+      expect({ panels: await panelsOf('m-1'), names: await namesRecordedFor('m-1') }).toEqual({ panels: [], names: null });
+    });
+  });
+
+  describe('a Workspace never files onto another’s Panel', () => {
+    it('leaves a message whose category names only another Workspace’s Panel in the Inbox', async () => {
+      await alsoWorkspaces();
+      await addPanel('Customer Atlas', { workspaceId: 'ws-atlas', dashboardId: 'ws-atlas-dashboard-1' });
+      const connection = await connect();
+      await filesByName(connection, true);
+
+      await nextCheck(arrives('m-1', ['Customer Atlas']));
+
+      // On no Panel of any Workspace: a snapshot of this one would not show the other's.
+      const itemId = await itemOf('m-1');
+      const filed = await inTheStore((sql) => sql.exec('SELECT panel_id FROM panel_items WHERE item_id = ?', itemId).toArray());
+      expect(filed).toEqual([]);
+    });
+  });
+});

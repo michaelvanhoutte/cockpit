@@ -1,11 +1,26 @@
 import { and, asc, eq, inArray, isNull, lte, min } from 'drizzle-orm';
-import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type {
+  CompleteListing,
+  EmittedItem,
+  NamesReport,
+  OpenStateWanted,
+  SourceItem,
+  SourceStateChange,
+} from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
 import { runCommand } from './command-service.js';
+import { getItem, listDashboards, listFilingsOnPanel, listPanels } from './repo.js';
 import { connectionFailures, connectorAccounts, items, pulledConnections, pulledLinks } from './schema.js';
 import { confirmOpenStates, openStatesWaiting } from './pulled-open-state.js';
 import { applySourceStateChange } from './source-state.js';
+import {
+  namesNewSince,
+  namesToRecord,
+  panelsNamedBy,
+  recordedNames,
+  type NamedTarget,
+} from '../domain/filing-by-name.js';
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
 import { keptMessage } from '../domain/connection-history.js';
 import { recordCheck } from './connection-history.js';
@@ -256,43 +271,158 @@ export function filePulledItem(
 ): EmittedItem | 'disconnected' {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return 'disconnected';
-  if (linkOf(db, accountName, holds, item.sourceId)) return 'already-known';
-  const message = item.capturedMessage ?? item.title;
-  if (!message) throw new Error('a pulled item carries neither a message nor a title');
-  runCommand(db, accountName, 'capture_item', {
-    commandId: ids.commandId,
-    issuedAt: at,
-    workspaceId: holds.workspaceId,
-    itemId: ids.itemId,
-    message,
-    // The source's title, or the one cut from its message - also where the
-    // title is all the source said, which would otherwise be repeated as the
-    // description.
-    ...(item.title && item.title !== message ? { title: item.title } : {}),
-    capturedFrom: {
-      // The connection's own connector, whatever the connector said: a
-      // connector never chooses where its Items say they came from.
-      source: holds.connectorId,
-      sourceId: item.sourceId,
-      ...(item.sourceLink ? { sourceLink: item.sourceLink } : {}),
-      ...(item.sender ? { sender: item.sender } : {}),
-      ...(item.sourceTimestamp ? { sourceTimestamp: item.sourceTimestamp } : {}),
-    },
+  // One transaction for the Item, its filings and its link, so a check that
+  // fails partway leaves no Item and the next one makes and files it once
+  // (issue 1146).
+  return db.transaction((): EmittedItem => {
+    const link = linkOf(db, accountName, holds, item.sourceId);
+    if (link) {
+      // An Item emitted again still says what its names are now.
+      if (item.names) recordNames(db, accountName, holds, link, item.names, at);
+      return 'already-known';
+    }
+    const message = item.capturedMessage ?? item.title;
+    if (!message) throw new Error('a pulled item carries neither a message nor a title');
+    const names = item.names ? namesToRecord(item.names) : null;
+    // Every name is new on an Item just made, so each names its Panel - while
+    // the connection files by name, and recorded either way.
+    const panelIds =
+      names && names.length > 0 && holds.filesByName
+        ? panelsNamedBy(names, panelsOf(db, accountName, holds.workspaceId))
+        : [];
+    runCommand(
+      db,
+      accountName,
+      'capture_item',
+      {
+        commandId: ids.commandId,
+        issuedAt: at,
+        workspaceId: holds.workspaceId,
+        itemId: ids.itemId,
+        message,
+        // The source's title, or the one cut from its message - also where the
+        // title is all the source said, which would otherwise be repeated as the
+        // description.
+        ...(item.title && item.title !== message ? { title: item.title } : {}),
+        ...(panelIds.length > 0 ? { panelIds } : {}),
+        capturedFrom: {
+          // The connection's own connector, whatever the connector said: a
+          // connector never chooses where its Items say they came from.
+          source: holds.connectorId,
+          sourceId: item.sourceId,
+          ...(item.sourceLink ? { sourceLink: item.sourceLink } : {}),
+          ...(item.sender ? { sender: item.sender } : {}),
+          ...(item.sourceTimestamp ? { sourceTimestamp: item.sourceTimestamp } : {}),
+        },
+      },
+      // Filed by the source's names, so nothing is learned from it.
+      { fromTheSource: true },
+    );
+    db.insert(pulledLinks)
+      .values({
+        tenantId: accountName,
+        workspaceId: holds.workspaceId,
+        connectorId: holds.connectorId,
+        externalAccountKey: holds.externalAccountKey,
+        sourceId: item.sourceId,
+        itemId: ids.itemId,
+        linkedAt: at,
+        choice: item.choice ?? null,
+        names: names ? JSON.stringify(names) : null,
+      })
+      .onConflictDoNothing()
+      .run();
+    return 'filed';
   });
-  db.insert(pulledLinks)
-    .values({
-      tenantId: accountName,
-      workspaceId: holds.workspaceId,
-      connectorId: holds.connectorId,
-      externalAccountKey: holds.externalAccountKey,
-      sourceId: item.sourceId,
-      itemId: ids.itemId,
-      linkedAt: at,
-      choice: item.choice ?? null,
-    })
-    .onConflictDoNothing()
+}
+
+/**
+ * Records the names a pulled connector reported for an Item it filed, and
+ * files the Item on the Panel each name new since the last report names
+ * ("File Outlook mail on the Panel named after its category", issue 1146).
+ * A source id this connection never filed changes nothing.
+ */
+export function reportPulledNames(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+  report: NamesReport,
+  at: string,
+): 'recorded' | 'unknown' | 'disconnected' {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return 'disconnected';
+  return db.transaction(() => {
+    const link = linkOf(db, accountName, holds, report.sourceId);
+    if (!link) return 'unknown';
+    recordNames(db, accountName, holds, link, report.names, at);
+    return 'recorded';
+  });
+}
+
+/**
+ * The link's names replaced by those reported, and - where the connection
+ * files by name and a baseline was recorded - the Item added to each Panel a
+ * new name names that it is not on already. Adding, never moving: where it is
+ * filed already stays. Inside the caller's transaction.
+ */
+function recordNames(
+  db: AccountDb,
+  accountName: string,
+  holds: { workspaceId: string; filesByName: boolean },
+  link: { itemId: string; names: string | null; workspaceId: string; connectorId: string; externalAccountKey: string; sourceId: string },
+  reported: readonly string[],
+  at: string,
+): void {
+  const names = namesToRecord(reported);
+  const fresh = namesNewSince(recordedNames(link.names), names);
+  db.update(pulledLinks)
+    .set({ names: JSON.stringify(names) })
+    .where(
+      and(
+        eq(pulledLinks.tenantId, accountName),
+        eq(pulledLinks.workspaceId, link.workspaceId),
+        eq(pulledLinks.connectorId, link.connectorId),
+        eq(pulledLinks.externalAccountKey, link.externalAccountKey),
+        eq(pulledLinks.sourceId, link.sourceId),
+      ),
+    )
     .run();
-  return 'filed';
+  if (!holds.filesByName || fresh.length === 0) return;
+  const item = getItem(db, accountName, link.itemId);
+  // An Item moved to another Workspace is filed only by a person there.
+  if (!item || item.workspaceId !== holds.workspaceId) return;
+  for (const panelId of panelsNamedBy(fresh, panelsOf(db, accountName, holds.workspaceId))) {
+    const held = listFilingsOnPanel(db, accountName, panelId);
+    if (held.some((filing) => filing.itemId === link.itemId)) continue;
+    runCommand(
+      db,
+      accountName,
+      'add_item_to_panel',
+      {
+        commandId: crypto.randomUUID(),
+        issuedAt: at,
+        workspaceId: holds.workspaceId,
+        itemId: link.itemId,
+        panelId,
+        // At the top, as a capture files it.
+        order: [link.itemId, ...held.map((filing) => filing.itemId)],
+      },
+      { fromTheSource: true },
+    );
+  }
+}
+
+/** Every live Panel of the Workspace, with the Dashboard it is on - what names are matched against. */
+function panelsOf(db: AccountDb, accountName: string, workspaceId: string): NamedTarget[] {
+  return listDashboards(db, accountName, workspaceId).flatMap((dashboard) =>
+    listPanels(db, accountName, dashboard.id).map((panel) => ({
+      id: panel.id,
+      name: panel.name,
+      kind: panel.kind,
+      dashboardId: dashboard.id,
+    })),
+  );
 }
 
 /**
@@ -465,6 +595,7 @@ function connectionOf(db: AccountDb, accountName: string, sourceAccountId: strin
       sealedCredential: connectorAccounts.encryptedCredential,
       credentialNonce: connectorAccounts.credentialNonce,
       choice: connectorAccounts.choice,
+      filesByName: connectorAccounts.filesByName,
     })
     .from(connectorAccounts)
     .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, sourceAccountId)))
@@ -478,7 +609,15 @@ function linkOf(
   sourceId: string,
 ) {
   return db
-    .select({ itemId: pulledLinks.itemId, openWanted: pulledLinks.openWanted })
+    .select({
+      itemId: pulledLinks.itemId,
+      openWanted: pulledLinks.openWanted,
+      names: pulledLinks.names,
+      workspaceId: pulledLinks.workspaceId,
+      connectorId: pulledLinks.connectorId,
+      externalAccountKey: pulledLinks.externalAccountKey,
+      sourceId: pulledLinks.sourceId,
+    })
     .from(pulledLinks)
     .where(
       and(

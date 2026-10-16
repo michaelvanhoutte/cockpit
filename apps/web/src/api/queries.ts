@@ -364,7 +364,11 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
 }
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
-  if (args.name === 'disconnect_source_account' || args.name === 'set_connection_choice') {
+  if (
+    args.name === 'disconnect_source_account' ||
+    args.name === 'set_connection_choice' ||
+    args.name === 'set_connection_files_by_name'
+  ) {
     // Its own query, outside any workspace snapshot. Waited for rather than
     // dropped, so the row is gone from the list by the time the window stops
     // saying the disconnect is in flight ("Connect a Microsoft Teams source

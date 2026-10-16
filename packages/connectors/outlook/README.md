@@ -52,6 +52,16 @@ flag or category off in Outlook when its task is done in Cockpit", issue 1047).
   by Microsoft holding the mailbox back keeps what it emitted: `seen` then holds
   the listing minus the messages it did not get to, which are read first next
   run, and none twice.
+- **A message's categories are its Item's names** (`names` in the manifest),
+  `Cockpit` left out while the connection follows the category, since it is the
+  mark. They go with the message when it is emitted, and a message already in
+  is reported again (`reportNames`) whenever the categories its listing row
+  carries differ from those last reported, which `names` in the state keeps per
+  id: the listing already selects `categories`, so this costs no Graph call. A
+  message kept from before has none kept and is reported at its next listing.
+  Each report is a round trip to the host, so a run makes at most
+  `NAMES_REPORTED_PER_RUN` and leaves the rest to the next, which it asks for
+  soon.
 - **A changed choice starts the diff over.** `seen` is kept with the choice it
   was made under; a run whose choice differs lists under the new mark, reads
   everything carrying it and keeps the new choice.

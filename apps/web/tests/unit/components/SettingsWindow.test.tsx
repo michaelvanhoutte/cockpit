@@ -77,6 +77,7 @@ const account = (id: string, connectorId: string, displayName: string): SourceAc
   connectedAt: '2026-09-18T09:00:00.000Z',
   lastTestedAt: null,
   failingBecause: null,
+  filesByName: false,
 });
 
 function open(

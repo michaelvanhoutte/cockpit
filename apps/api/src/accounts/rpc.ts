@@ -19,7 +19,14 @@ import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 import type { RefreshAsk } from './debounce.js';
-import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type {
+  CompleteListing,
+  EmittedItem,
+  NamesReport,
+  OpenStateWanted,
+  SourceItem,
+  SourceStateChange,
+} from '@cockpit/connector-sdk';
 import type { PulledRunBegun } from './pulled.js';
 
 /**
@@ -424,6 +431,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     item: SourceItem & { sourceId: string },
     ids: { itemId: string; commandId: string },
   ): Awaitable<Answer<EmittedItem | 'disconnected'>>;
+  reportPulledNames(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    report: NamesReport,
+  ): Awaitable<Answer<'recorded' | 'unknown' | 'disconnected'>>;
   applyPulledSourceChange(
     accountName: string,
     sourceAccountId: string,

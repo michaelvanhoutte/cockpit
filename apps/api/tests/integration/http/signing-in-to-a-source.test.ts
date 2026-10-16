@@ -322,6 +322,7 @@ describe('Connector management', () => {
               { value: 'category', label: 'Category Cockpit' },
             ],
           },
+          names: { noun: 'category', example: 'a message with the category' },
           refusals: OUTLOOK_REFUSALS,
         },
         {

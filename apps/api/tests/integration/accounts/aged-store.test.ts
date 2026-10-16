@@ -1907,7 +1907,8 @@ describe('Connector management', () => {
 
       expect(read).toEqual({ status: 'ok', value: [] });
       expect(await rowsIn()).toEqual({
-        connections: before.connections,
+        // With `files_by_name` off, which `0078-files-by-name` adds on the same open.
+        connections: before.connections.map((row) => ({ ...row, files_by_name: 0 })),
         checks: before.checks.map((row) => ({ ...row, check_reason: null })),
       });
     });
@@ -1984,10 +1985,11 @@ const GMAIL_RECONNECT = '0066-gmail-connections-reconnect';
  */
 const connectorRowsIn = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
+    // Without `files_by_name`, which `0078-files-by-name` adds on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
-      .map(({ follows: _follows, ...row }) => row),
+      .map(({ follows: _follows, files_by_name: _filesByName, ...row }) => row),
     failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
@@ -2077,13 +2079,18 @@ const schemaIn = (name: string) =>
 /** The rows the drop must leave alone: connections, Items and the generic host's own. */
 const keptBesideGmail = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
+    // Without `files_by_name`, which `0078-files-by-name` adds on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
-      .map(({ follows: _follows, ...row }) => row),
+      .map(({ follows: _follows, files_by_name: _filesByName, ...row }) => row),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
-    links: sql.exec('SELECT * FROM pulled_links ORDER BY source_id').toArray(),
+    // Without `names`, which `0078-files-by-name` adds on the same open.
+    links: sql
+      .exec('SELECT * FROM pulled_links ORDER BY source_id')
+      .toArray()
+      .map(({ names: _names, ...row }) => row),
     // Without the column `0078-connection-history` adds on the same open.
     checkpoints: sql
       .exec('SELECT * FROM pulled_connections ORDER BY source_account_id')
@@ -3017,6 +3024,44 @@ describe('Triage', () => {
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
       expect(await fitColumnsIn(name)).toEqual({ items: true, filings: true });
+    });
+  });
+});
+
+/**
+ * `0078-files-by-name` ("File Outlook mail on the Panel named after its
+ * category", issue 1146) meets connections and a link from before it: every
+ * connection reads as not filing by name and every link as having no names
+ * recorded, so nothing already in is filed.
+ */
+describe('Connector management', () => {
+  describe('the migration leaves every existing connection off and every existing link without a baseline', () => {
+    const FILES_BY_NAME = '0078-files-by-name';
+    const filingRowsIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => ({
+        switches: sql.exec('SELECT id, files_by_name FROM connector_accounts ORDER BY id').toArray(),
+        names: sql.exec('SELECT source_id, names FROM pulled_links ORDER BY source_id').toArray(),
+      }));
+
+    it('reads every existing connection as off, every existing link with no names, and changes nothing opened again', async () => {
+      const name = 'aged-store-before-files-by-name';
+      await agedTo(name, justBefore(FILES_BY_NAME));
+      await fillWithWhatIsAlreadyThere(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const read = await storeNamed(name).sourceAccounts(name, 'ws-before');
+      const once = await filingRowsIn(name);
+
+      expect(read.status === 'ok' ? read.value.length : 0).toBeGreaterThan(0);
+      expect(read.status === 'ok' ? read.value.map((one) => one.filesByName) : []).toEqual(
+        read.status === 'ok' ? read.value.map(() => false) : [],
+      );
+      expect(once.names.length).toBeGreaterThan(0);
+      expect(once.names.map((link) => link.names)).toEqual(once.names.map(() => null));
+
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await filingRowsIn(name)).toEqual(once);
     });
   });
 });
