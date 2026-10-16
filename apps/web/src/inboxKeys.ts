@@ -16,8 +16,8 @@ export type Press = Pick<
  * left to the keys that extend a selection with it, a chord is the browser's or
  * the system's, and a field, a menu and a window keep their own keys.
  */
-export function plainKey(event: Press, doc: Document): string | null {
-  if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return null;
+export function plainKey(event: Press, doc: Document, withShift = false): string | null {
+  if (event.ctrlKey || event.altKey || event.metaKey || (event.shiftKey && !withShift)) return null;
   if (event.defaultPrevented || event.repeat || event.isComposing) return null;
   return isTypedInto(event.target) || coveredByAWindow(doc)
     ? null
@@ -28,7 +28,9 @@ export function plainKey(event: Press, doc: Document): string | null {
 
 /** Which way a key press moves the focus: 1 for the next row, -1 for the previous, null for neither. */
 export function inboxStep(event: Press, doc: Document = document): 1 | -1 | null {
-  return STEPS[plainKey(event, doc) ?? ''] ?? null;
+  // Shift too: it extends the selection as the focus moves ("Accept the
+  // proposals of a selection with Enter", issue 1112).
+  return STEPS[plainKey(event, doc, true) ?? ''] ?? null;
 }
 
 /**
@@ -43,3 +45,27 @@ function coveredByAWindow(root: ParentNode): boolean {
 }
 
 const STEPS: Record<string, 1 | -1> = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
+
+let extension: Promise<void> | null = null;
+
+/**
+ * Runs `work` - the fetch of the code that extends the selection and its
+ * result - and holds it as the extension in flight until it settles, so a key
+ * pressed meanwhile can wait for it (`selectionBeingExtended`). Chained, so the
+ * extensions apply in the order they were pressed.
+ */
+export function extendingSelection(work: () => Promise<unknown>): void {
+  const settled: Promise<void> = (extension ?? Promise.resolve())
+    .then(work)
+    .then(
+      () => undefined,
+      () => undefined,
+    )
+    .finally(() => {
+      if (extension === settled) extension = null;
+    });
+  extension = settled;
+}
+
+/** The extension still being fetched or applied, or null once none is. */
+export const selectionBeingExtended = (): Promise<void> | null => extension;

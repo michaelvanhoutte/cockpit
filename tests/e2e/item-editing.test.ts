@@ -1362,8 +1362,25 @@ test.describe('Item editing', () => {
         await expect(filing).toBeFocused();
         await expect(titleBox(page)).toHaveValue(captured);
 
+        // Shift+J extends the selection from the focused row and Enter files
+        // each picked Item on its own proposal ("Accept the proposals of a
+        // selection with Enter", issue 1112). Nothing here has a proposal (no
+        // model is reached in this tier), so the bar says that and nothing
+        // moves; which Panel each lands on is the unit suite's
+        // (InboxTriageKeys.test.tsx). A plain J then ends the selection.
+        const before = await rows.count();
+        await rows.nth(0).focus();
+        await page.keyboard.press('Shift+J');
+        await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('status')).toContainText('had a proposed Panel');
+        await expect(rows).toHaveCount(before);
+        await rows.nth(1).focus();
+        await page.keyboard.press('j');
+        await expect(page.getByText('2 selected', { exact: true })).toHaveCount(0);
+
         // Closing keeps a box still holding the cursor.
-        const closing = answeredTo('set_description');
+        const closing =answeredTo('set_description');
         await theEditorIsThere(page);
         await descriptionBox(page).fill('Written, cursor still there');
         await press(form(page).getByRole('button', { name: 'Close' }), isMobile);

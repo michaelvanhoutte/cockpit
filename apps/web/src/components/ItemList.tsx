@@ -248,6 +248,31 @@ export function ItemList({
   const { whereItIs, showOnItsPanel, nameOf, addPanelFor, filteredDashboardIds } = filingSeveral;
 
   /**
+   * Enter with a selection held in the Inbox: each picked Item to its own
+   * proposed Panel ("Accept the proposals of a selection with Enter", issue
+   * 1112). Fetched on the first press, so none of it is in the initial bundle.
+   */
+  const acceptSelection = () => {
+    if (filingSeveral.filing) return;
+    void import('../inboxTriage').then((follow) =>
+      follow.acceptSelection({
+        picked,
+        // The same reading the chip is drawn from, so a proposal that is not
+        // drawn is not taken.
+        panelFor: (item) => (routingProposalFor(item) ? item.proposedPanelId! : undefined),
+        filings: data?.filings ?? [],
+        workspaceId,
+        scope,
+        send,
+        whereItIs,
+        nameOf,
+        putSeveralBack: filingSeveral.putSeveralBack,
+        offerToUndo,
+      }),
+    );
+  };
+
+  /**
    * Puts an item back on every panel it was on, in the order each was in.
    *
    * **The first is a move and the rest are adds**, which is what makes this one
@@ -872,6 +897,7 @@ export function ItemList({
             // nothing left here for one to be a proposal *for*.
             routingProposal: routingProposalFor(item),
             onAcceptRouting: acceptRoutingFor(item),
+            onAcceptSelection: acceptSelection,
           })}
     />
   );

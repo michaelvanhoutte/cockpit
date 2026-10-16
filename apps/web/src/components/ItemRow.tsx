@@ -31,6 +31,7 @@ import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
+import { selectionBeingExtended } from '../inboxKeys';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 import {
   ContextMenuContent,
@@ -86,6 +87,7 @@ export function ItemRow({
   onMoveHere,
   routingProposal,
   onAcceptRouting,
+  onAcceptSelection,
   mayBeADuplicate,
   onSettleNotADuplicate,
   selecting,
@@ -190,6 +192,12 @@ export function ItemRow({
    * settle.
    */
   onSettleNotADuplicate?: (() => void) | undefined;
+  /**
+   * Enter on this row while a selection is held: files each picked Item on its
+   * own proposed Panel ("Accept the proposals of a selection with Enter",
+   * issue 1112). Given to an Inbox row only.
+   */
+  onAcceptSelection?: (() => void) | undefined;
   /**
    * Picking this row out to be acted on with others ("Select several items, and
    * file them all in one go", issue 169), and whether it is picked.
@@ -995,6 +1003,21 @@ export function ItemRow({
         // which suspends every single-row action (issue 438).
         // A chord is not a triage key: Ctrl+Enter still opens, as it did.
         const chord = event.ctrlKey || event.altKey || event.metaKey || event.shiftKey;
+        // A Shift+J / K still fetching the code that extends the selection has
+        // not made one yet: the key waits for it and is pressed again, so it
+        // acts on the selection and not on this row alone.
+        const extending = selectionBeingExtended();
+        if (extending && inInbox && roomBesideTheMenu && !chord && /^(Enter|[dmox])$/i.test(event.key)) {
+          event.preventDefault();
+          const row = event.currentTarget;
+          const key = event.key;
+          void extending.then(() =>
+            setTimeout(() => {
+              if (row.isConnected) row.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+            }, 0),
+          );
+          return;
+        }
         if (inInbox && roomBesideTheMenu && !chord && !selecting?.revealed && /^(Enter|[dmox])$/i.test(event.key)) {
           // Fetched on the first such key: which of them it is, what each does,
           // and where the focus goes once the row has left the list.
@@ -1012,6 +1035,11 @@ export function ItemRow({
               ),
             () => undefined,
           );
+          return;
+        }
+        if (inInbox && roomBesideTheMenu && !chord && selecting?.revealed && event.key === 'Enter' && onAcceptSelection) {
+          event.preventDefault();
+          onAcceptSelection();
           return;
         }
         if (event.key === 'Enter') {

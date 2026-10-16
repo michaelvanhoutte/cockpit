@@ -1,10 +1,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider, type QueryClient as Client } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { InboxPanel } from '../../../src/components/InboxPanel';
 import { OpensItemForms } from '../../../src/itemForm';
+import { CommandRefused } from '../../../src/api/client';
 import { UndoWhatJustHappened } from '../../../src/undo';
 
 /**
@@ -136,6 +137,8 @@ function anItem(title: string, proposedPanelId: string | null = null): Item {
 const TODAY: Dashboard = { id: 'd-today', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Today' };
 const FALCON: Panel = { id: 'p-falcon', tenantId: 'tenant', dashboardId: TODAY.id, name: 'Falcon', kind: 'items', format: 'plain', body: '', readOnly: false, neverPropose: false, filter: null, sort: null };
 
+const HARBOR: Panel = { ...FALCON, id: 'p-harbor', name: 'Harbor' };
+
 const rowOfTitle = (title: string) => screen.getByText(title).closest<HTMLElement>('[data-item-row]')!;
 const idOf = (title: string) => rowOfTitle(title).getAttribute('data-item-id')!;
 const sent = () => held.sent as Sent[];
@@ -164,7 +167,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
   held.filings = [];
   held.dashboards = [TODAY];
-  held.panels = [FALCON];
+  held.panels = [FALCON, HARBOR];
   held.sent = [];
   held.apply = play;
   gone.clear();
@@ -329,6 +332,166 @@ describe('Triage', () => {
       await showInbox([anItem('First', FALCON.id)]);
 
       expect(screen.getByRole('button', { name: /Falcon/ })).toHaveAttribute('title', expect.stringContaining('Enter'));
+    });
+  });
+});
+
+describe('Selection', () => {
+  const selectedCount = () => screen.queryByText(/^\d+ selected$/)?.textContent ?? null;
+
+  describe('Shift with J and K extends the selection from the focused row', () => {
+    it('grows by a row with each Shift+J, shrinks with Shift+K, and ends with a plain J', async () => {
+      const user = await showInbox([anItem('A'), anItem('B'), anItem('C'), anItem('D')]);
+      act(() => rowOfTitle('A').focus());
+
+      await user.keyboard('{Shift>}J{/Shift}');
+      await user.keyboard('{Shift>}J{/Shift}');
+      expect(selectedCount()).toBe('3 selected');
+      expect(rowOfTitle('C')).toHaveFocus();
+
+      await user.keyboard('{Shift>}K{/Shift}');
+      expect(selectedCount()).toBe('2 selected');
+      expect(rowOfTitle('B')).toHaveFocus();
+
+      await user.keyboard('j');
+      expect(selectedCount()).toBeNull();
+      expect(rowOfTitle('C')).toHaveFocus();
+    });
+
+    it('extends with Shift+ArrowDown the same way', async () => {
+      const user = await showInbox([anItem('A'), anItem('B')]);
+      act(() => rowOfTitle('A').focus());
+
+      await user.keyboard('{Shift>}{ArrowDown}{/Shift}');
+
+      expect(selectedCount()).toBe('2 selected');
+    });
+  });
+
+  describe('Enter files each selected Item on its own proposed Panel', () => {
+    const select = async (user: Awaited<ReturnType<typeof showInbox>>, from: string, rows: number) => {
+      act(() => rowOfTitle(from).focus());
+      for (let at = 1; at < rows; at++) await user.keyboard('{Shift>}J{/Shift}');
+    };
+    const moves = () => sent().filter((command) => command.name === 'move_item_to_panel');
+
+    it('files the selection, not the focused row alone, when Enter comes before the selection has been extended', async () => {
+      await showInbox([anItem('A', FALCON.id), anItem('B', HARBOR.id), anItem('C')]);
+      act(() => rowOfTitle('A').focus());
+
+      // All within one task: none of the extensions has been applied when Enter is pressed.
+      act(() => {
+        for (const key of ['J', 'J']) fireEvent.keyDown(document.activeElement!, { key, shiftKey: true });
+        fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+      });
+
+      await waitFor(() => expect(moves()).toHaveLength(2));
+      expect(screen.queryByText('No Panel was proposed. M moves it.')).toBeNull();
+      expect(await screen.findByRole('status')).toHaveTextContent('2 items moved to their proposed Panels, 1 had no proposal');
+    });
+
+    it('sends one filing per Item, each to its own proposal', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', HARBOR.id), anItem('C', FALCON.id)]);
+      await select(user, 'A', 3);
+      const [a, b, c] = ['A', 'B', 'C'].map(idOf);
+
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(moves()).toHaveLength(3));
+      expect(moves().map((m) => [m.payload.itemId, m.payload.panelId])).toEqual([
+        [a, FALCON.id],
+        [b, HARBOR.id],
+        [c, FALCON.id],
+      ]);
+      expect(await screen.findByRole('status')).toHaveTextContent('3 items moved');
+    });
+
+    it('leaves an Item with no proposal where it is, and the bar says how many had none', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B'), anItem('C', HARBOR.id)]);
+      await select(user, 'A', 3);
+
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(moves()).toHaveLength(2));
+      expect(screen.getByText('B')).toBeInTheDocument();
+      expect(await screen.findByRole('status')).toHaveTextContent('2 items moved to their proposed Panels, 1 had no proposal');
+      expect(selectedCount()).toBe('1 selected');
+    });
+
+    it('keeps the title of the one moved Item, and says how many had none after it', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B'), anItem('C')]);
+      await select(user, 'A', 3);
+
+      await user.keyboard('{Enter}');
+
+      expect(await screen.findByRole('status')).toHaveTextContent('“A” moved to Falcon, 2 had no proposal');
+    });
+
+    it('moves nothing and names the refusal when the only filing is refused', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B')]);
+      await select(user, 'A', 2);
+      held.apply = () => {
+        throw new CommandRefused(404, 'That Panel no longer exists.');
+      };
+
+      await user.keyboard('{Enter}');
+
+      const bar = await screen.findByRole('status');
+      expect(bar).toHaveTextContent('1 had no proposal, “A” was refused: That Panel no longer exists.');
+      expect(within(bar).queryByRole('button', { name: 'Undo' })).toBeNull();
+    });
+
+    it('moves nothing when none has a proposal, and says so', async () => {
+      const user = await showInbox([anItem('A'), anItem('B')]);
+      await select(user, 'A', 2);
+
+      await user.keyboard('{Enter}');
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Neither of the 2 selected had a proposed Panel');
+      expect(sent()).toHaveLength(0);
+      expect(selectedCount()).toBe('2 selected');
+    });
+
+    it('is taken back whole by Undo on the bar', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', HARBOR.id)]);
+      await select(user, 'A', 2);
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(moves()).toHaveLength(2));
+
+      await user.click(await screen.findByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(moves()).toHaveLength(4));
+      expect(moves().slice(2).map((m) => [m.payload.itemId, m.payload.panelId])).toEqual([
+        [idOf('A'), null],
+        [idOf('B'), null],
+      ]);
+    });
+
+    it('keeps the others filed and names the one refused when a filing is refused partway', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', HARBOR.id), anItem('C', FALCON.id)]);
+      await select(user, 'A', 3);
+      const refused = idOf('B');
+      const was = held.apply;
+      held.apply = (command) => {
+        if ((command as Sent).payload.itemId === refused) throw new CommandRefused(404, 'That Panel no longer exists.');
+        was(command);
+      };
+
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(moves()).toHaveLength(3));
+      expect(await screen.findByRole('status')).toHaveTextContent('2 items moved to Falcon');
+      expect(screen.getByRole('status')).toHaveTextContent('“B” was refused: That Panel no longer exists.');
+      expect(screen.getByText('B')).toBeInTheDocument();
+    });
+
+    it('leaves Enter on a single row with no selection filing just that row', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', FALCON.id)]);
+      act(() => rowOfTitle('A').focus());
+
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(moves()).toHaveLength(1));
     });
   });
 });
