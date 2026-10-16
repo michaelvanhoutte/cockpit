@@ -88,6 +88,7 @@ export function ItemRow({
   routingProposal,
   onAcceptRouting,
   onAcceptSelection,
+  inProposalGroup = false,
   mayBeADuplicate,
   duplicateOf,
   onSettleNotADuplicate,
@@ -201,6 +202,12 @@ export function ItemRow({
    * issue 1112). Given to an Inbox row only.
    */
   onAcceptSelection?: (() => void) | undefined;
+  /**
+   * Drawn under a proposal group's header, which already names the Panel: the
+   * chip says only `File`, still dashed when closest ("Group the Inbox's rows
+   * under a header per proposed Panel", issue 1166).
+   */
+  inProposalGroup?: boolean;
   /**
    * Picking this row out to be acted on with others ("Select several items, and
    * file them all in one go", issue 169), and whether it is picked.
@@ -1367,8 +1374,14 @@ export function ItemRow({
                   onAcceptRouting();
                 }}
               >
-                <span className="shrink-0">→ {routingProposal.dashboardName} ▸&nbsp;</span>
-                <span className="truncate">{routingProposal.panelName}</span>
+                {inProposalGroup ? (
+                  <span className="shrink-0">File</span>
+                ) : (
+                  <>
+                    <span className="shrink-0">→ {routingProposal.dashboardName} ▸&nbsp;</span>
+                    <span className="truncate">{routingProposal.panelName}</span>
+                  </>
+                )}
               </button>
             )}
           </span>

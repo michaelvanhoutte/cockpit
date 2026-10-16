@@ -93,7 +93,14 @@ export function ItemList({
   /** What the list says when it holds nothing. */
   emptyMessage,
   fillsTheRestOfItsColumn = false,
+  groupByProposal = false,
 }: {
+  /**
+   * Draws the rows under a header per Panel proposed for two or more of them
+   * ("Group the Inbox's rows under a header per proposed Panel", issue 1166).
+   * The Inbox's alone: it is the only list whose rows are proposals.
+   */
+  groupByProposal?: boolean;
   workspaceId: string;
   items: readonly Item[];
   /** The dashboard being looked at, which the picker offers first. Null in the Inbox. */
@@ -836,9 +843,10 @@ export function ItemList({
    * which the row has no need to say it is also in ("Group a Filter panel's items
    * by the Dashboard or Panel they are filed on", issue 805).
    */
-  const rowFor = (item: Item, alsoNotIn: string | null = null) => (
+  const rowFor = (item: Item, alsoNotIn: string | null = null, inProposalGroup = false) => (
     <ItemRow
       item={item}
+      inProposalGroup={inProposalGroup}
       sourceNames={data?.sourceNames}
       workspaceId={workspaceId}
       inInbox={panelId === null}
@@ -917,6 +925,43 @@ export function ItemList({
     />
   );
 
+  /**
+   * The Panels proposed for two or more of the rows, in the order of the
+   * Dashboards and then of their Panels (the order the picker lists them in),
+   * whatever their counts, and every other row after them in the list's own
+   * order. A view over what is already read: a proposal that reads as none
+   * (`routingProposalFor`) joins no group.
+   */
+  const proposalGroups = groupByProposal && panelId === null ? groupedByProposal() : null;
+  function groupedByProposal() {
+    const held = new Map<string, Item[]>();
+    for (const item of items) {
+      const proposal = routingProposalFor(item);
+      if (proposal) held.set(proposal.panelId, [...(held.get(proposal.panelId) ?? []), item]);
+    }
+    const dashboards = data?.dashboards ?? [];
+    const panels = data?.panels ?? [];
+    const place = (id: string) => {
+      const panel = panels.find((p) => p.id === id)!;
+      return [dashboards.findIndex((d) => d.id === panel.dashboardId), panels.indexOf(panel)] as const;
+    };
+    const groups = [...held]
+      .filter(([, rows]) => rows.length >= 2)
+      .sort(([a], [b]) => place(a)[0] - place(b)[0] || place(a)[1] - place(b)[1])
+      .map(([id, rows]) => {
+        const proposal = routingProposalFor(rows[0]!)!;
+        return {
+          panelId: id,
+          dashboardName: proposal.dashboardName,
+          panelName: proposal.panelName,
+          items: rows,
+          closest: rows.filter((row) => routingProposalFor(row)?.fit === 'closest').length,
+        };
+      });
+    const grouped = new Set(groups.flatMap((group) => group.items.map((item) => item.id)));
+    return groups.length === 0 ? null : { groups, rest: items.filter((item) => !grouped.has(item.id)) };
+  }
+
   return (
     <>
       {/* A refusal from a gesture that opened nothing: a drop, or a step move.
@@ -983,6 +1028,42 @@ export function ItemList({
               </ul>
             )}
           </>
+        ) : proposalGroups ? (
+          <ul ref={rows}>
+            {proposalGroups.groups.map((group) => (
+              <li key={group.panelId}>
+                {/* Sticks like a Filter panel's heading. The name is cut and
+                    the count never: it is what the header is for. */}
+                <h4 className="sticky top-0 z-[1] border-b border-shade/10 bg-surface px-4 pb-1 pt-2.5 text-xs text-ink-faint">
+                  <button
+                    type="button"
+                    className="flex w-full min-w-0 items-baseline text-left hover:text-ink"
+                    title="Select this group"
+                    onClick={() =>
+                      setSelection({ picked: new Set(group.items.map((item) => item.id)), reachingFrom: null })
+                    }
+                  >
+                    <span className="min-w-0 truncate">
+                      <span className="text-accent-deep">→ {group.dashboardName} ▸ </span>
+                      <span className="font-semibold text-accent-deep">{group.panelName}</span>
+                    </span>
+                    <span className="shrink-0 whitespace-pre tabular-nums">
+                      {` · ${group.items.length}`}
+                      {group.closest > 0 && ` (${group.closest} closest)`}
+                    </span>
+                  </button>
+                </h4>
+                <ul>
+                  {group.items.map((item) => (
+                    <Fragment key={item.id}>{rowFor(item, null, true)}</Fragment>
+                  ))}
+                </ul>
+              </li>
+            ))}
+            {proposalGroups.rest.map((item) => (
+              <Fragment key={item.id}>{rowFor(item)}</Fragment>
+            ))}
+          </ul>
         ) : groups && groups.length > 0 ? (
           // Rows that land under no heading still draw, flat, rather than
           // leaving a well empty under a count saying there are some.

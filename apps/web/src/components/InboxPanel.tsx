@@ -286,6 +286,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
         openDashboardId={null}
         emptyMessage="Nothing to deal with."
         fillsTheRestOfItsColumn
+        groupByProposal
       />
     </div>
   );

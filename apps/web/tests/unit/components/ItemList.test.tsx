@@ -262,7 +262,9 @@ async function showList({
   gathered = false,
   sorted = false,
   groups = undefined as FilterGroup[] | undefined,
+  groupByProposal = false,
 }: {
+  groupByProposal?: boolean;
   items?: Item[];
   openDashboardId?: string | null;
   panelId?: string | null;
@@ -283,6 +285,7 @@ async function showList({
           gathered={gathered}
           sorted={sorted}
           groups={groups}
+          groupByProposal={groupByProposal}
           emptyMessage="Nothing to deal with."
         />
       </UndoWhatJustHappened>
@@ -3016,6 +3019,176 @@ describe('Panels', () => {
         ),
       );
       expect(screen.queryByRole('status')).toBeNull();
+    });
+  });
+});
+
+/** "Group the Inbox's rows under a header per proposed Panel" (issue 1166). */
+describe('Triage', () => {
+  let made = 0;
+  const proposedFor = (title: string, panelId: string | null, fit: 'clear' | 'closest' = 'clear'): Item => ({
+    ...anItem(`22222222-2222-7222-8222-${String(made++).padStart(12, '0')}`, title),
+    proposedPanelId: panelId,
+    proposedPanelReason: 'a reason',
+    proposedPanelFit: panelId ? fit : null,
+  });
+  const showInbox = (items: Item[]) => showList({ items, groupByProposal: true });
+  const headers = () => screen.queryAllByRole('heading', { level: 4 }).map((heading) => heading.textContent);
+  const titlesInOrder = () =>
+    [...document.querySelectorAll('li[data-item-row]')].map((row) => row.textContent!.replace(/^\W+/, '').slice(0, 3));
+
+  describe('the Inbox groups its rows under a header for each Panel proposed for two or more of them', () => {
+    it.each([
+      {
+        situation: 'two Items proposed for one Panel are one group of two',
+        items: [proposedFor('Aaa', 'p-falcon'), proposedFor('Bbb', 'p-falcon')],
+        headers: ['→ Today ▸ Falcon · 2'],
+      },
+      {
+        situation: 'a Panel proposed for one Item alone gets no header',
+        items: [proposedFor('Aaa', 'p-falcon'), proposedFor('Bbb', 'p-anna')],
+        headers: [],
+      },
+      {
+        situation: 'a clear and a closest proposal for one Panel share a group that counts the closest',
+        items: [proposedFor('Aaa', 'p-falcon'), proposedFor('Bbb', 'p-falcon', 'closest')],
+        headers: ['→ Today ▸ Falcon · 2 (1 closest)'],
+      },
+      {
+        situation: 'an Item with no proposal joins no group',
+        items: [proposedFor('Aaa', 'p-falcon'), proposedFor('Bbb', null), proposedFor('Ccc', 'p-falcon')],
+        headers: ['→ Today ▸ Falcon · 2'],
+      },
+      {
+        situation: 'a Panel deleted since is no group',
+        items: [proposedFor('Aaa', 'p-gone'), proposedFor('Bbb', 'p-gone')],
+        headers: [],
+      },
+    ])('$situation', async ({ items, headers: expected }) => {
+      await showInbox(items);
+
+      expect(headers()).toEqual(expected);
+    });
+
+    it('makes no group of a Panel set to Never propose', async () => {
+      held.panels = held.panels.map((panel) => (panel.id === 'p-falcon' ? { ...panel, neverPropose: true } : panel));
+      await showInbox([proposedFor('Aaa', 'p-falcon'), proposedFor('Bbb', 'p-falcon')]);
+
+      expect(headers()).toEqual([]);
+      expect(screen.queryByText(/^→/)).toBeNull();
+    });
+
+    it('draws every other row after the groups, in the Inbox order', async () => {
+      await showInbox([
+        proposedFor('Aaa', 'p-anna'),
+        proposedFor('Bbb', null),
+        proposedFor('Ccc', 'p-falcon'),
+        proposedFor('Ddd', 'p-anna'),
+        proposedFor('Eee', 'p-reading'),
+      ]);
+
+      expect(titlesInOrder()).toEqual(['Aaa', 'Ddd', 'Bbb', 'Ccc', 'Eee']);
+    });
+
+    it('keeps the Inbox order where every Item is proposed for a different Panel', async () => {
+      await showInbox([proposedFor('Aaa', 'p-reading'), proposedFor('Bbb', 'p-falcon'), proposedFor('Ccc', 'p-anna')]);
+
+      expect(headers()).toEqual([]);
+      expect(titlesInOrder()).toEqual(['Aaa', 'Bbb', 'Ccc']);
+    });
+
+    it('says there is nothing to deal with when the Inbox is empty', async () => {
+      await showInbox([]);
+
+      expect(screen.getByText('Nothing to deal with.')).toBeVisible();
+    });
+  });
+
+  describe('the groups follow the order of the Dashboards and then of their Panels, whatever their counts', () => {
+    const pair = (panel: string, prefix: string) => [proposedFor(`${prefix}1`, panel), proposedFor(`${prefix}2`, panel)];
+
+    it.each([
+      {
+        situation: 'groups on two Dashboards, the first Dashboard first',
+        dashboards: [TODAY, RESEARCH],
+        items: [...pair('p-reading', 'Read'), ...pair('p-falcon', 'Fal')],
+        order: ['Today ▸ Falcon', 'Research ▸ To read'],
+      },
+      {
+        situation: 'the same groups when the Dashboards are the other way round',
+        dashboards: [RESEARCH, TODAY],
+        items: [...pair('p-falcon', 'Fal'), ...pair('p-reading', 'Read')],
+        order: ['Research ▸ To read', 'Today ▸ Falcon'],
+      },
+      {
+        situation: 'two groups on one Dashboard in the order its Panels are arranged',
+        dashboards: [TODAY, RESEARCH],
+        items: [...pair('p-anna', 'Ann'), ...pair('p-falcon', 'Fal')],
+        order: ['Today ▸ Falcon', 'Today ▸ Anna'],
+      },
+      {
+        situation: 'a second group that is larger than the first',
+        dashboards: [TODAY, RESEARCH],
+        items: [...pair('p-falcon', 'Fal'), ...pair('p-anna', 'Ann'), proposedFor('Ann3', 'p-anna')],
+        order: ['Today ▸ Falcon', 'Today ▸ Anna'],
+      },
+    ])('$situation', async ({ dashboards, items, order }) => {
+      held.dashboards = dashboards;
+      await showInbox(items);
+
+      expect(headers().map((text) => text!.replace(/^→ /, '').replace(/ · .*$/, ''))).toEqual(order);
+    });
+  });
+
+  describe('a click on the name of a group selects exactly the rows of that group', () => {
+    it.each([
+      { situation: 'with nothing selected', before: [] as string[] },
+      { situation: 'replacing the rows of another group that were selected', before: ['Ann1'] },
+    ])('$situation', async ({ before }) => {
+      const items = [
+        proposedFor('Fal1', 'p-falcon'),
+        proposedFor('Fal2', 'p-falcon'),
+        proposedFor('Ann1', 'p-anna'),
+        proposedFor('Ann2', 'p-anna'),
+      ];
+      const user = await showInbox(items);
+      const item = (title: string) => items.find((one) => one.title === title)!;
+      for (const title of before) await tick(user, item(title));
+
+      await user.click(screen.getByRole('button', { name: /^→ Today ▸s?Falcon/ }));
+
+      expect(screen.getByText('2 selected')).toBeVisible();
+      for (const title of ['Fal1', 'Fal2']) expect(isPicked(item(title))).toBe(true);
+      for (const title of ['Ann1', 'Ann2']) expect(isPicked(item(title))).toBe(false);
+    });
+  });
+
+  describe('inside a group the chip of a row reads File, and outside it names the Dashboard and Panel', () => {
+    it('reads File, filled when clear and dashed when closest, and files that row on the Panel of the group', async () => {
+      const clear = proposedFor('Fal1', 'p-falcon');
+      const user = await showInbox([clear, proposedFor('Fal2', 'p-falcon', 'closest')]);
+
+      const [first, second] = screen.getAllByRole('button', { name: /^Today ▸ Falcon/ });
+      expect(first).toHaveTextContent(/^File$/);
+      expect(second).toHaveTextContent(/^File$/);
+      expect(first!.className).toContain('bg-accent-tint');
+      expect(second!.className).toContain('outline-dashed');
+
+      await user.click(first!);
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({ itemId: clear.id, panelId: 'p-falcon' }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('keeps the full chip on a row after the groups', async () => {
+      await showInbox([proposedFor('Fal1', 'p-falcon'), proposedFor('Fal2', 'p-falcon'), proposedFor('Ann1', 'p-anna')]);
+
+      expect(screen.getByRole('button', { name: /^Today ▸ Anna/ })).toHaveTextContent('→ Today ▸ Anna');
     });
   });
 });
