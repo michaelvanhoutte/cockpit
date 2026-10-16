@@ -227,6 +227,7 @@ async function reportRun(
   }
   return { reply: 'Reported. Cockpit now shows this on the item.' };
 }
+
 /**
  * What an app is told when something on Cockpit's side broke: never the
  * error's own message, which can name an account, a table or a cause nobody

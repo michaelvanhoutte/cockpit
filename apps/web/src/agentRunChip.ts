@@ -29,6 +29,14 @@ function openable(link: string | null | undefined): string | null {
   return link?.startsWith('https://') ? link : null;
 }
 
+/**
+ * The session a run's menu entry opens. A sent Run's chip may open what Claude
+ * made instead once it is ready, so the session is read from the Run itself.
+ */
+export function sessionHrefFor(run: AgentRun, chip: RunChip): string | null {
+  return run.destination ? openable(run.sessionUrl) : chip.href;
+}
+
 export function runChipFor(run: AgentRun, now: number): RunChip {
   // An Item sent to Cowork or Claude Code from its row ("Send an item to Cowork
   // or Claude Code with its prompt reviewed first", issue 1159): it was

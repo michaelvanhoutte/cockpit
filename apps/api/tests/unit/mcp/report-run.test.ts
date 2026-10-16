@@ -40,7 +40,7 @@ describe('Agents', () => {
       { situation: 'a result link that is plain http', args: { run: RUN, stage: 'ready', result_url: 'http://example.com/x' }, names: 'https' },
       { situation: 'a link over 2,048 characters', args: { run: RUN, stage: 'ready', result_url: 'https://example.com/' + 'a'.repeat(2_048) }, names: '2,048' },
       { situation: 'a note over 1,000 characters', args: { run: RUN, stage: 'ready', note: 'n'.repeat(1_001) }, names: '1,000' },
-    ])('refuses , saying what would do', ({ args, names }) => {
+    ])('refuses $situation, saying what would do', ({ args, names }) => {
       const read = readReport(args);
 
       expect(read).toMatchObject({ ok: false, refusal: expect.stringContaining(names) });

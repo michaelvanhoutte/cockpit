@@ -113,7 +113,7 @@ describe('Agents', () => {
       { situation: 'a host that only ends the same way', link: 'https://notclaude.ai/x', kept: false },
       { situation: 'credentials in front of claude.ai', link: 'https://claude.ai@evil.example/x', kept: false },
       { situation: 'plain http', link: 'http://claude.ai/code/1', kept: false },
-    ])('session link: situation', ({ link, kept }) => {
+    ])('session link: $situation', ({ link, kept }) => {
       expect(claudeSessionLink(link) !== null).toBe(kept);
     });
 
@@ -125,7 +125,7 @@ describe('Agents', () => {
       { situation: 'text that is no address', link: 'a draft in the folder', kept: false },
       { situation: 'an address over 2,048 characters', link: 'https://example.com/' + 'a'.repeat(2_048), kept: false },
       { situation: 'an address of exactly 2,048 characters', link: 'https://example.com/' + 'a'.repeat(2_028), kept: true },
-    ])('result link: situation', ({ link, kept }) => {
+    ])('result link: $situation', ({ link, kept }) => {
       expect(claudeResultLink(link) !== null).toBe(kept);
     });
   });

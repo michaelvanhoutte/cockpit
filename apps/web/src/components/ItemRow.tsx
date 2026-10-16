@@ -19,7 +19,7 @@ import {
 import { CommandRefused } from '../api/client';
 import { useCommand, useSendCommand } from '../api/queries';
 import { AGENT_BEING_DRAGGED, landAgent, useAgentInTheAir } from '../agentInTheAir';
-import { runChipFor } from '../agentRunChip';
+import { runChipFor, sessionHrefFor } from '../agentRunChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -333,6 +333,7 @@ export function ItemRow({
     return () => clearTimeout(timer);
   }, [run?.status, run?.startedAt]);
   const chip = run ? runChipFor(run, Date.now()) : null;
+  const sessionHref = run && chip ? sessionHrefFor(run, chip) : null;
   /** Whether this row takes an Agent right now: on a dashboard, with nothing already running on it. */
   const takesAnAgent = agentsHere !== undefined && !runBlocksAStart(run);
   const lifted = useAgentInTheAir();
@@ -792,9 +793,9 @@ export function ItemRow({
             Send to Claude…
           </M.Item>
         ),
-        chip?.href && (
+        sessionHref && (
           <M.Item key="session" asChild className={menuItemClass}>
-            <a href={chip.href} target="_blank" rel="noopener noreferrer">
+            <a href={sessionHref} target="_blank" rel="noopener noreferrer">
               Open the Claude session ↗
             </a>
           </M.Item>
@@ -1332,7 +1333,11 @@ export function ItemRow({
                 <span
                   title={chip.hint ?? undefined}
                   className={`shrink-0 rounded-full px-1.5 ${
-                    chip.trouble ? 'bg-over/15 text-over-deep-ink' : 'bg-accent-tint text-accent-deep'
+                    chip.trouble
+                      ? 'bg-over/15 text-over-deep-ink'
+                      : chip.waiting
+                        ? 'bg-due-soft text-due-ink'
+                        : 'bg-accent-tint text-accent-deep'
                   }`}
                 >
                   {chip.agent ? `${chip.agent} · ` : ''}{chip.text}

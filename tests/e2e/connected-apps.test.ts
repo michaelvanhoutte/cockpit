@@ -201,4 +201,5 @@ test.describe('MCP connections', () => {
       await press(page.getByRole('menuitem', { name: /^Dismiss/ }), isMobile);
       await expect(row).toHaveCount(0);
     });
-  });});
+  });
+});

@@ -2445,7 +2445,7 @@ export function runCommand<N extends CommandName>(
       }
       db.transaction((tx) => {
         tx.update(agentRuns)
-          .set({ stage: cmd.stage, sessionUrl: sessionUrl ?? null, resultUrl, note, settledAt: cmd.issuedAt })
+          .set({ stage: cmd.stage, sessionUrl: sessionUrl ?? null, resultUrl, note })
           .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, cmd.runId)))
           .run();
         tx.insert(commands).values(commandRow).run();

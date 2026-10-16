@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { STARTING_GIVES_UP_AFTER_MS, type AgentRun } from '@cockpit/shared';
-import { runChipFor } from '../../src/agentRunChip';
+import { runChipFor, sessionHrefFor } from '../../src/agentRunChip';
 
 /**
  * F1: what a row's chip says about each run, with the clock handed in ("Drop
@@ -124,7 +124,7 @@ describe('Agents', () => {
           hint: 'Which account?',
           waiting: true,
         },
-      ])('', ({ run, text, href, hint, waiting }) => {
+      ])('shows $situation', ({ run, text, href, hint, waiting }) => {
         const chip = sent(run as Partial<AgentRun>);
         expect({ text: chip.text, href: chip.href, hint: chip.hint, waiting: chip.waiting, trouble: chip.trouble }).toEqual({
           text,
@@ -139,6 +139,22 @@ describe('Agents', () => {
         const chip = sent({ stage: 'ready', resultUrl: 'javascript:alert(1)', sessionUrl: 'http://claude.ai/x' });
 
         expect([chip.href, chip.text]).toEqual([null, 'Ready']);
+      });
+
+      it('opens the session from the menu even when the chip opens what Claude made', () => {
+        const run = aRun({
+          agentId: '',
+          agentName: null,
+          destination: 'cowork',
+          stage: 'ready',
+          sessionUrl: 'https://claude.ai/code/session_01',
+          resultUrl: 'https://example.com/draft',
+        });
+
+        expect([runChipFor(run, NOW).href, sessionHrefFor(run, runChipFor(run, NOW))]).toEqual([
+          'https://example.com/draft',
+          'https://claude.ai/code/session_01',
+        ]);
       });
 
       it('goes on saying Sent to Cowork until Claude reports', () => {
