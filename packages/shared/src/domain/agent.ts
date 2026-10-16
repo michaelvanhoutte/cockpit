@@ -164,17 +164,7 @@ export function agentMessageFor(
   },
   prompt?: string,
 ): string {
-  const readable = (item.attachments ?? []).filter(
-    (attachment): attachment is AttachmentForAgent & { link: string } =>
-      attachment.link !== undefined && isReadableByClaude(attachment.contentType),
-  );
-  const links = new Map(readable.map((attachment) => [attachmentAddress(attachment.id), attachment.link]));
-  // Only the app's own relative address, where it starts a word or a link
-  // target - never the tail of some other absolute URL.
-  const description = (item.description ?? '').replace(
-    /(^|[\s(<[])(\/v1\/attachments\/[^\s)>\]]+)/g,
-    (whole, before: string, address: string) => (links.has(address) ? before + links.get(address) : whole),
-  );
+  const { description, section } = attachmentsForClaude(item.description, item.attachments ?? []);
   const body = agent.message
     .replace(PLACEHOLDER, (placeholder) => {
       switch (placeholder) {
@@ -189,9 +179,32 @@ export function agentMessageFor(
       }
     })
     .trim();
-  return [agentPreambleFor(agent.name, item.title), body, attachmentsSection(item.attachments ?? [], readable)]
-    .filter(Boolean)
-    .join('\n\n');
+  return [agentPreambleFor(agent.name, item.title), body, section].filter(Boolean).join('\n\n');
+}
+
+/**
+ * What an Item's words and files become for a Claude session, which cannot
+ * sign in to the app: the description with an inline file's signed-in address
+ * swapped for its link, and the section listing every file ("Send an item's
+ * attachments along when an agent starts", issue 573). Shared by an Agent's
+ * message and by the prompt sent to Cowork or Claude Code.
+ */
+export function attachmentsForClaude(
+  rawDescription: string | null,
+  attachments: readonly AttachmentForAgent[],
+): { description: string; section: string } {
+  const readable = attachments.filter(
+    (attachment): attachment is AttachmentForAgent & { link: string } =>
+      attachment.link !== undefined && isReadableByClaude(attachment.contentType),
+  );
+  const links = new Map(readable.map((attachment) => [attachmentAddress(attachment.id), attachment.link]));
+  // Only the app's own relative address, where it starts a word or a link
+  // target - never the tail of some other absolute URL.
+  const description = (rawDescription ?? '').replace(
+    /(^|[\s(<[])(\/v1\/attachments\/[^\s)>\]]+)/g,
+    (whole, before: string, address: string) => (links.has(address) ? before + links.get(address) : whole),
+  );
+  return { description, section: attachmentsSection(attachments, readable) };
 }
 
 function attachmentsSection(

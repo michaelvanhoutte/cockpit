@@ -164,6 +164,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     REWRITE_HISTORY_PANELS_FILED_ON,
     CONNECTION_HISTORY,
     FILES_BY_NAME,
+    AGENT_RUNS_SENT_TO_CLAUDE,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -666,6 +667,42 @@ const FILES_BY_NAME: Change = {
     {
       sql: 'ALTER TABLE `pulled_links` ADD COLUMN `names` text CONSTRAINT "pulled_links_names_is_json" CHECK(names IS NULL OR json_valid(names))',
     },
+  ],
+};
+
+/**
+ * What a Run sent to Cowork or Claude Code carries ("Send an item to Cowork or
+ * Claude Code with its prompt reviewed first", issue 1159): where it was sent,
+ * the folder, how far it has got and what it made - four columns on
+ * `agent_runs`, which is not rebuilt. `schema.ts` says what each carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): four `ADD COLUMN`s, and no statement that writes to a row.
+ * - **If it stops halfway:** one change is one transaction, so a failure on a
+ *   later column takes the earlier ones back with it.
+ * - **The second time it runs:** it does not re-run once recorded, and SQLite
+ *   refuses a column that already exists rather than adding it twice.
+ * - **Rows that already break the new rule:** none. Every existing run takes
+ *   null in all four, which reads as an Agent's run, as it was.
+ * - **What is in each environment:** real runs in staging and production keep
+ *   their rows whole; nothing is rewritten.
+ * - **Rolled back after it has run:** an older release names the columns it
+ *   reads and ignores these, so a sent Run reads as an Agent's run that is
+ *   working on a deleted agent until the release goes forward again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const AGENT_RUNS_SENT_TO_CLAUDE: Change = {
+  name: '0079-agent-runs-sent-to-claude',
+  statements: [
+    {
+      sql: 'ALTER TABLE `agent_runs` ADD COLUMN `destination` text CONSTRAINT "agent_runs_destination_is_known" CHECK(destination IS NULL OR destination IN (\'cowork\', \'code\'))',
+    },
+    { sql: 'ALTER TABLE `agent_runs` ADD COLUMN `folder` text' },
+    { sql: 'ALTER TABLE `agent_runs` ADD COLUMN `stage` text' },
+    { sql: 'ALTER TABLE `agent_runs` ADD COLUMN `result_url` text' },
   ],
 };
 

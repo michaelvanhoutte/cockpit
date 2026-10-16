@@ -1810,6 +1810,10 @@ const runColumns = {
   reason: agentRuns.reason,
   startedAt: agentRuns.startedAt,
   waiting: agentRunActivity.waiting,
+  destination: agentRuns.destination,
+  folder: agentRuns.folder,
+  stage: agentRuns.stage,
+  resultUrl: agentRuns.resultUrl,
 };
 
 /**
@@ -1827,6 +1831,10 @@ function runFrom(row: {
   reason: string | null;
   startedAt: string;
   waiting: boolean | null;
+  destination: AgentRun['destination'];
+  folder: string | null;
+  stage: string | null;
+  resultUrl: string | null;
 }): AgentRun {
   const { agentDeletedAt, agentName, ...run } = row;
   return {

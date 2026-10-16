@@ -14,6 +14,7 @@ import {
   AGENT_ENGINES,
   AGENT_RUN_STATUSES,
   associationKindSchema,
+  CLAUDE_DESTINATIONS,
   GRID_COLUMNS,
   ITEM_FORM_PRESENTATIONS,
   MAX_ROW_HEIGHT,
@@ -27,6 +28,7 @@ import {
 import type {
   AgentEngine,
   AgentRunStatus,
+  ClaudeDestination,
   AssociationKind,
   ItemFormPresentation,
   ItemReading,
@@ -1783,6 +1785,13 @@ export const connectionFailures = sqliteTable(
  * after the other, so the command's own check already decides between them,
  * and the index is what makes a write that skipped it fail rather than land.
  *
+ * **A run made by *Send to Claude…* (issue 1159)** names no Agent: its
+ * `agent_id` is the empty string (the column is NOT NULL and a SQLite column's
+ * constraints cannot be widened), its status is `working`, and `destination`,
+ * `folder`, `stage` and `result_url` say the rest. `stage` has no CHECK: the
+ * product keeps extending what Claude can report, and a CHECK could only be
+ * widened by rebuilding this table.
+ *
  * **`agent_id` has no foreign key**: an Agent is tombstoned rather than erased, so the name a run shows is
  * read from `agents` where it is still live and is "a deleted agent" where it
  * is not.
@@ -1805,11 +1814,16 @@ export const agentRuns = sqliteTable(
     startedAt: text('started_at').notNull(),
     settledAt: text('settled_at'),
     endedAt: text('ended_at'),
+    destination: text('destination').$type<ClaudeDestination>(),
+    folder: text('folder'),
+    stage: text('stage'),
+    resultUrl: text('result_url'),
   },
   (t) => [
     uniqueIndex('agent_runs_one_open_per_item').on(t.itemId).where(sql`${t.endedAt} IS NULL`),
     index('agent_runs_tenant_workspace_open').on(t.tenantId, t.workspaceId, t.endedAt),
     check('agent_runs_status_is_known', oneOf('status', AGENT_RUN_STATUSES)),
+    check('agent_runs_destination_is_known', sql.raw(`destination IS NULL OR destination IN (${CLAUDE_DESTINATIONS.map((v) => `'${v}'`).join(', ')})`)),
     check('agent_runs_started_at_is_timestamp', isTimestamp('started_at')),
     check('agent_runs_settled_at_is_timestamp', isTimestamp('settled_at')),
     check('agent_runs_ended_at_is_timestamp', isTimestamp('ended_at')),

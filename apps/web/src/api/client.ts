@@ -406,6 +406,8 @@ const commandSenders = {
     api.v1.commands.show_agent_on_dashboard.$post({ json: p }, o),
   set_done: (p: CommandPayload<'set_done'>, o?: ClientRequestOptions) => api.v1.commands.set_done.$post({ json: p }, o),
   set_started: (p: CommandPayload<'set_started'>, o?: ClientRequestOptions) => api.v1.commands.set_started.$post({ json: p }, o),
+  send_item_to_claude: (p: CommandPayload<'send_item_to_claude'>, o?: ClientRequestOptions) =>
+    api.v1.commands.send_item_to_claude.$post({ json: p }, o),
   finish_agent_run: (p: CommandPayload<'finish_agent_run'>, o?: ClientRequestOptions) =>
     api.v1.commands.finish_agent_run.$post({ json: p }, o),
   set_dismissed: (p: CommandPayload<'set_dismissed'>, o?: ClientRequestOptions) => api.v1.commands.set_dismissed.$post({ json: p }, o),

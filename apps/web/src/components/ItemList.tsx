@@ -58,6 +58,8 @@ import { useFilingSeveral } from './useFilingSeveral';
 
 /** Move or add, asked of a drop between panels - fetched only once a drop asks it, for the same reason. */
 const MoveOrAddQuestion = lazy(() => import('./MoveOrAddQuestion'));
+// Out of the initial bundle, as the other windows opened from a row are.
+const SendToClaudeWindow = lazy(() => import('./SendToClaudeWindow'));
 
 /**
  * A list of items, in the Inbox or on a panel, and the one way to move one out
@@ -217,6 +219,8 @@ export function ItemList({
   const [moving, setMoving] = useState<Item | null>(null);
   /** The item being added to a second panel from its menu, if any. */
   const [adding, setAdding] = useState<Item | null>(null);
+  /** The Item whose "Send to Claude…" window is open (issue 1159). */
+  const [sendingToClaude, setSendingToClaude] = useState<Item | null>(null);
   const openedFrom = useRef<HTMLElement | null>(null);
 
   /**
@@ -861,6 +865,11 @@ export function ItemList({
             },
           })}
       onOpen={() => openItem(item.id)}
+      openRun={runsByItem.get(item.id)}
+      onSendToClaude={(from: HTMLElement | null) => {
+        openedFrom.current = from;
+        setSendingToClaude(item);
+      }}
       // The one you are looking at, which is the same move the
       // picker makes with this workspace's Inbox chosen - the row
       // decides whether to offer it at all.
@@ -1062,6 +1071,18 @@ export function ItemList({
             />
           </Suspense>
         </WhateverTheQuestionDoes>
+      )}
+
+      {sendingToClaude && (
+        <Suspense fallback={null}>
+          <SendToClaudeWindow
+            item={sendingToClaude}
+            workspaceId={workspaceId}
+            attachments={(data?.attachments ?? []).filter((one) => one.itemId === sendingToClaude.id)}
+            onClose={() => setSendingToClaude(null)}
+            returnFocusTo={openedFrom.current}
+          />
+        </Suspense>
       )}
 
       {adding && (
