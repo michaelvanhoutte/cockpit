@@ -427,12 +427,15 @@ function TheForm({
    * left every list. The other note stays.
    */
   const dismissAsDuplicate = async () => {
+    // Dismissing ends the Item's open run; the undo names it, as the row's does.
+    const endedRunId = data?.agentRuns?.find((run) => run.itemId === itemId)?.id;
     const endedFor = (dismissed: boolean) => ({
       commandId: uuidv7(),
       issuedAt: new Date().toISOString(),
       workspaceId,
       itemId,
       dismissed,
+      ...(!dismissed && endedRunId && { reopensRunId: endedRunId }),
     });
     try {
       await send({ name: 'set_dismissed', payload: endedFor(true) });
