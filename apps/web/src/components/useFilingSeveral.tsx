@@ -504,6 +504,11 @@ export function useFilingSeveral({
     addPanelFor,
     showOnItsPanel,
     filteredDashboardIds,
+    /** Opens Also show on… for Items filed some other way than this hook, from the undo bar. */
+    alsoShowSeveral: (items: Item[]) => {
+      setAddingRefusal(null);
+      setAddingSeveral(items);
+    },
   };
 }
 
