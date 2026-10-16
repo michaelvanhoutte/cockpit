@@ -25,19 +25,42 @@ export interface RunChip {
   waiting: boolean;
 }
 
+function openable(link: string | null | undefined): string | null {
+  return link?.startsWith('https://') ? link : null;
+}
+
 export function runChipFor(run: AgentRun, now: number): RunChip {
   // An Item sent to Cowork or Claude Code from its row ("Send an item to Cowork
   // or Claude Code with its prompt reviewed first", issue 1159): it was
   // opened in Claude's desktop app, and nothing yet says more than that.
   if (run.destination) {
-    return {
-      agent: '',
-      text: `Sent to ${CLAUDE_DESTINATION_NAMES[run.destination]}`,
-      href: null,
-      hint: 'Opened in Claude. Press send there.',
-      trouble: false,
-      waiting: false,
-    };
+    const name = CLAUDE_DESTINATION_NAMES[run.destination];
+    // What Claude has reported since ("Follow on the row what Claude reports
+    // back", issue 1160). A link is drawn only if it is an `https` address,
+    // however it came to be stored.
+    const session = openable(run.sessionUrl);
+    const base = { agent: '', trouble: false, waiting: false };
+    switch (run.stage) {
+      case 'on_it':
+        return { ...base, text: `${name} is on it${session ? ' ↗' : ''}`, href: session, hint: session ? 'Open the session' : null };
+      case 'ready':
+        const opens = openable(run.resultUrl) ?? session;
+        return {
+          ...base,
+          text: `Ready${opens ? ' ↗' : ''}`,
+          href: opens,
+          hint: run.note ?? null,
+        };
+      case 'needs_you':
+        return {
+          ...base,
+          text: `Needs you${session ? ' ↗' : ''}`,
+          href: session,
+          hint: run.note ?? null,
+          waiting: true,
+        };
+    }
+    return { ...base, text: `Sent to ${name}`, href: null, hint: 'Opened in Claude. Press send there.' };
   }
   const agent = run.agentName ?? 'a deleted agent';
   // A simulated run's session is a demo address, which opens Cockpit's own page

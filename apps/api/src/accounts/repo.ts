@@ -1814,6 +1814,7 @@ const runColumns = {
   folder: agentRuns.folder,
   stage: agentRuns.stage,
   resultUrl: agentRuns.resultUrl,
+  note: agentRuns.note,
 };
 
 /**
@@ -1835,6 +1836,7 @@ function runFrom(row: {
   folder: string | null;
   stage: string | null;
   resultUrl: string | null;
+  note: string | null;
 }): AgentRun {
   const { agentDeletedAt, agentName, ...run } = row;
   return {

@@ -1818,6 +1818,7 @@ export const agentRuns = sqliteTable(
     folder: text('folder'),
     stage: text('stage'),
     resultUrl: text('result_url'),
+    note: text('note'),
   },
   (t) => [
     uniqueIndex('agent_runs_one_open_per_item').on(t.itemId).where(sql`${t.endedAt} IS NULL`),

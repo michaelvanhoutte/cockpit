@@ -166,6 +166,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     FILES_BY_NAME,
     CONNECTION_HISTORY_DID,
     AGENT_RUNS_SENT_TO_CLAUDE,
+    AGENT_RUNS_NOTE,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -731,6 +732,24 @@ const AGENT_RUNS_SENT_TO_CLAUDE: Change = {
     { sql: 'ALTER TABLE `agent_runs` ADD COLUMN `stage` text' },
     { sql: 'ALTER TABLE `agent_runs` ADD COLUMN `result_url` text' },
   ],
+};
+
+/**
+ * What Claude said with its last report on a sent Run ("Follow on the row what
+ * Claude reports back", issue 1160): one nullable column on `agent_runs`.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ADD COLUMN`.
+ * - **Stopped halfway, or run twice:** a single statement in one transaction;
+ *   SQLite refuses a column that already exists.
+ * - **Existing rows:** take null, which reads as no note.
+ * - **Rolled back after it has run:** an older release names the columns it
+ *   reads and ignores this one.
+ * - **A backup restored from before it:** the recorded changes are replayed,
+ *   so it applies the next time the account is opened.
+ */
+const AGENT_RUNS_NOTE: Change = {
+  name: '0081-agent-runs-note',
+  statements: [{ sql: 'ALTER TABLE `agent_runs` ADD COLUMN `note` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

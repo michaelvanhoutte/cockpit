@@ -76,6 +76,75 @@ describe('Agents', () => {
       });
     });
 
+    describe('an item sent to Claude follows what Claude reports', () => {
+      const sent = (overrides: Partial<AgentRun>) =>
+        runChipFor(
+          aRun({ agentId: '', agentName: null, sessionUrl: null, destination: 'cowork', stage: 'sent', ...overrides }),
+          NOW,
+        );
+
+      it.each([
+        {
+          situation: 'on it, with its session',
+          run: { stage: 'on_it', sessionUrl: 'https://claude.ai/code/session_01' },
+          text: 'Cowork is on it ↗',
+          href: 'https://claude.ai/code/session_01',
+          hint: 'Open the session',
+          waiting: false,
+        },
+        {
+          situation: 'on it, before it gave a session',
+          run: { stage: 'on_it' },
+          text: 'Cowork is on it',
+          href: null,
+          hint: null,
+          waiting: false,
+        },
+        {
+          situation: 'ready, with what it made and a note',
+          run: { stage: 'ready', sessionUrl: 'https://claude.ai/code/session_01', resultUrl: 'https://example.com/draft', note: 'Two drafts, A and B' },
+          text: 'Ready ↗',
+          href: 'https://example.com/draft',
+          hint: 'Two drafts, A and B',
+          waiting: false,
+        },
+        {
+          situation: 'ready, with only its session',
+          run: { stage: 'ready', sessionUrl: 'https://claude.ai/code/session_01' },
+          text: 'Ready ↗',
+          href: 'https://claude.ai/code/session_01',
+          hint: null,
+          waiting: false,
+        },
+        {
+          situation: 'needing you, with its question',
+          run: { stage: 'needs_you', sessionUrl: 'https://claude.ai/code/session_01', note: 'Which account?' },
+          text: 'Needs you ↗',
+          href: 'https://claude.ai/code/session_01',
+          hint: 'Which account?',
+          waiting: true,
+        },
+      ])('', ({ run, text, href, hint, waiting }) => {
+        const chip = sent(run as Partial<AgentRun>);
+        expect({ text: chip.text, href: chip.href, hint: chip.hint, waiting: chip.waiting, trouble: chip.trouble }).toEqual({
+          text,
+          href,
+          hint,
+          waiting,
+          trouble: false,
+        });
+      });
+
+      it('never draws a link that is not https, whatever was stored', () => {
+        const chip = sent({ stage: 'ready', resultUrl: 'javascript:alert(1)', sessionUrl: 'http://claude.ai/x' });
+
+        expect([chip.href, chip.text]).toEqual([null, 'Ready']);
+      });
+
+      it('goes on saying Sent to Cowork until Claude reports', () => {
+        expect(sent({}).text).toBe('Sent to Cowork');
+      });
+    });
     it.each([
       { situation: 'an agent still there', agentName: 'Scope it', names: 'Scope it' },
       { situation: 'a deleted agent', agentName: null, names: 'a deleted agent' },
@@ -84,3 +153,4 @@ describe('Agents', () => {
     });
   });
 });
+

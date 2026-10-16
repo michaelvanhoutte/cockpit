@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { claudeLinkFor, plainPromptFor, type ClaudeDestination } from '../../../src/index.js';
+import { claudeLinkFor, claudeResultLink, claudeSessionLink, plainPromptFor, type ClaudeDestination } from '../../../src/index.js';
 
 /**
  * L1: building the address Claude's desktop app opens at, and assembling the
@@ -101,6 +101,32 @@ describe('Agents', () => {
 
       expect(text).toContain('![the receipt](https://cockpit.test/a/1)');
       expect(text).not.toContain('/v1/attachments/att-1');
+    });
+  });
+
+  describe('a link Claude reports is kept only where it is safe to open', () => {
+    it.each([
+      { situation: 'a session on claude.ai', link: 'https://claude.ai/code/session_01', kept: true },
+      { situation: 'a session on a subdomain of claude.ai', link: 'https://app.claude.ai/chat/1', kept: true },
+      { situation: 'a session on another site', link: 'https://example.com/code/session_01', kept: false },
+      { situation: 'a look-alike host', link: 'https://claude.ai.evil.example/x', kept: false },
+      { situation: 'a host that only ends the same way', link: 'https://notclaude.ai/x', kept: false },
+      { situation: 'credentials in front of claude.ai', link: 'https://claude.ai@evil.example/x', kept: false },
+      { situation: 'plain http', link: 'http://claude.ai/code/1', kept: false },
+    ])('session link: situation', ({ link, kept }) => {
+      expect(claudeSessionLink(link) !== null).toBe(kept);
+    });
+
+    it.each([
+      { situation: 'an https address', link: 'https://docs.example.com/draft', kept: true },
+      { situation: 'a file address', link: 'file:///C:/Users/me/secret.txt', kept: false },
+      { situation: 'a javascript address', link: 'javascript:alert(1)', kept: false },
+      { situation: 'plain http', link: 'http://example.com/draft', kept: false },
+      { situation: 'text that is no address', link: 'a draft in the folder', kept: false },
+      { situation: 'an address over 2,048 characters', link: 'https://example.com/' + 'a'.repeat(2_048), kept: false },
+      { situation: 'an address of exactly 2,048 characters', link: 'https://example.com/' + 'a'.repeat(2_028), kept: true },
+    ])('result link: situation', ({ link, kept }) => {
+      expect(claudeResultLink(link) !== null).toBe(kept);
     });
   });
 });
