@@ -52,6 +52,7 @@ import {
   useSettleQuietOpening,
 } from '../itemForm';
 import { capturingApp, openableAtSource, sourceNamed } from '../itemSource';
+import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
@@ -1300,6 +1301,8 @@ function TheForm({
         )}
         <Dialog.Content
           ref={setContentEl}
+          // Marks the one window that leaves the list its keys (`inboxKeys.ts`).
+          data-docked-form={docked ? '' : undefined}
           aria-describedby={undefined}
           onOpenAutoFocus={(event) => {
             // A switch that keeps the keyboard where it is (`show`, `keepFocus`).
@@ -1347,6 +1350,18 @@ function TheForm({
             // (found in review). The drag effect's listener still cancels
             // the drag itself once this stops it from also closing the form.
             if (draggingDock) event.preventDefault();
+            // Escape in a field of a form docked beside the Inbox hands the
+            // keyboard back to this Item's row and keeps the form open, with
+            // what was typed (the field's blur writes it): J and K type in a
+            // field and move the focus on a row (issue 1110). A second Escape,
+            // from the row, closes the form as it always has.
+            const row = docked
+              ? document.querySelector<HTMLElement>('[data-inbox] [data-item-id="' + itemId + '"]')
+              : null;
+            if (row && isTypedInto(event.target)) {
+              event.preventDefault();
+              row.focus();
+            }
           }}
           // An explicit size rather than one that grows and shrinks with what
           // is inside it - the editor's async-loading placeholder is a fixed

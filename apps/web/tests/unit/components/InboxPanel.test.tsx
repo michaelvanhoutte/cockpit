@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Filing, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { InboxHeading, InboxPanel } from '../../../src/components/InboxPanel';
+import { DockedItemContext, type DockedItem } from '../../../src/itemForm';
 import { askToLand, forgetLanding } from '../../../src/landOnItem';
 
 /**
@@ -25,7 +26,11 @@ import { askToLand, forgetLanding } from '../../../src/landOnItem';
  * a person actually sees; that the shell puts them in the two places is in
  * tests/unit/pages/Layout.test.tsx.
  */
-const held = vi.hoisted(() => ({ items: [] as Item[], filings: [] as Filing[] }));
+const held = vi.hoisted(() => ({
+  items: [] as Item[],
+  filings: [] as Filing[],
+  presentation: 'centered' as 'centered' | 'docked',
+}));
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
@@ -51,7 +56,7 @@ vi.mock('../../../src/api/queries', () => ({
         layouts: [],
         associations: [],
         attachments: [],
-    itemFormPresentation: 'centered',
+    itemFormPresentation: held.presentation,
     duplicates: [],
         filings: held.filings,
         agents: [],
@@ -129,13 +134,19 @@ function anItem(title: string, completedAt: string | null = null): Item {
 }
 
 /** The workspace as a person sees it, holding exactly these items. */
-async function showWorkspace(items: Item[], filings: Filing[] = []) {
+async function showWorkspace(
+  items: Item[],
+  filings: Filing[] = [],
+  dock: DockedItem = { openId: null, show: () => {} },
+) {
   held.items = items;
   held.filings = filings;
   const { container } = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <InboxHeading workspaceId="ws-work" />
-      <InboxPanel workspaceId="ws-work" />
+      <DockedItemContext.Provider value={dock}>
+        <InboxHeading workspaceId="ws-work" />
+        <InboxPanel workspaceId="ws-work" />
+      </DockedItemContext.Provider>
     </QueryClientProvider>,
   );
   // The heading is up before the snapshot, on no data at all: the panel is
@@ -243,6 +254,147 @@ describe('Dashboards', () => {
       expect(row).toHaveFocus();
       expect(row).toHaveAttribute('data-shown');
       act(() => forgetLanding());
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('J and K, and the arrows, move the focus through the Inbox, the docked form following', () => {
+    const atADesk = (desk: boolean) =>
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: desk, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    const rowOfTitle = (title: string) => screen.getByText(title).closest<HTMLElement>('[data-item-row]')!;
+    const idOf = (title: string) => rowOfTitle(title).getAttribute('data-item-id')!;
+
+    beforeEach(() => {
+      atADesk(true);
+      held.presentation = 'centered';
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      held.presentation = 'centered';
+    });
+
+    it.each([
+      { situation: 'J', key: 'j', from: 'Second', to: 'Third' },
+      { situation: 'the down arrow', key: '{ArrowDown}', from: 'Second', to: 'Third' },
+      { situation: 'K', key: 'k', from: 'Second', to: 'First' },
+      { situation: 'the up arrow', key: '{ArrowUp}', from: 'Second', to: 'First' },
+      { situation: 'J on the last row', key: 'j', from: 'Third', to: 'Third' },
+      { situation: 'K on the first row', key: 'k', from: 'First', to: 'First' },
+    ])('$situation moves the focus from $from to $to', async ({ key, from, to }) => {
+      const user = userEvent.setup();
+      await showWorkspace([anItem('First'), anItem('Second'), anItem('Third')]);
+      act(() => rowOfTitle(from).focus());
+
+      await user.keyboard(key);
+
+      expect(rowOfTitle(to)).toHaveFocus();
+    });
+
+    it('does nothing in an empty Inbox', async () => {
+      const user = userEvent.setup();
+      await showWorkspace([]);
+
+      await user.keyboard('j');
+
+      expect(document.body).toHaveFocus();
+    });
+
+    it('shows the focused Item in a form docked open, keeping the keyboard on the row', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      await showWorkspace([anItem('First'), anItem('Second')], [], { openId: 'anything', show });
+      act(() => rowOfTitle('First').focus());
+
+      await user.keyboard('j');
+
+      expect(show).toHaveBeenCalledExactlyOnceWith(idOf('Second'), { keepFocus: true });
+      expect(rowOfTitle('Second')).toHaveFocus();
+    });
+
+    it('opens the form where the account docks it and none is open', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      held.presentation = 'docked';
+      await showWorkspace([anItem('First'), anItem('Second')], [], { openId: null, show });
+      act(() => rowOfTitle('First').focus());
+
+      await user.keyboard('j');
+
+      expect(show).toHaveBeenCalledExactlyOnceWith(idOf('Second'), { keepFocus: true });
+    });
+
+    it('opens nothing where the account centers its form', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      await showWorkspace([anItem('First'), anItem('Second')], [], { openId: null, show });
+      act(() => rowOfTitle('First').focus());
+
+      await user.keyboard('j');
+
+      expect(rowOfTitle('Second')).toHaveFocus();
+      expect(show).not.toHaveBeenCalled();
+    });
+
+    it('leaves J to the keyboard in a field', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      await showWorkspace([anItem('First'), anItem('Second')], [], { openId: 'x', show });
+      const field = document.createElement('input');
+      rowOfTitle('First').append(field);
+      act(() => field.focus());
+
+      await user.keyboard('j');
+
+      expect(field).toHaveValue('j');
+      expect(show).not.toHaveBeenCalled();
+    });
+
+    it('does nothing while a menu is open', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      await showWorkspace([anItem('First'), anItem('Second')], [], { openId: 'x', show });
+      act(() => rowOfTitle('First').focus());
+      const menu = document.createElement('div');
+      menu.setAttribute('role', 'menu');
+      document.body.append(menu);
+
+      await user.keyboard('j');
+
+      expect(show).not.toHaveBeenCalled();
+      menu.remove();
+    });
+
+    it.each([
+      { situation: 'the Item form docked beside the list', mark: 'data-docked-form', moves: true },
+      { situation: 'a window', mark: 'data-other', moves: false },
+    ])('with $situation open, the focus moves: $moves', async ({ mark, moves }) => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      await showWorkspace([anItem('First'), anItem('Second')], [], { openId: 'x', show });
+      act(() => rowOfTitle('First').focus());
+      const window = document.createElement('div');
+      window.setAttribute('role', 'dialog');
+      window.setAttribute(mark, '');
+      document.body.append(window);
+
+      await user.keyboard('j');
+
+      expect(show).toHaveBeenCalledTimes(moves ? 1 : 0);
+      window.remove();
+    });
+
+    it('adds no keys on a phone', async () => {
+      atADesk(false);
+      const user = userEvent.setup();
+      const show = vi.fn();
+      await showWorkspace([anItem('First'), anItem('Second')], [], { openId: 'x', show });
+      act(() => rowOfTitle('First').focus());
+
+      await user.keyboard('j');
+
+      expect(rowOfTitle('First')).toHaveFocus();
+      expect(show).not.toHaveBeenCalled();
     });
   });
 });

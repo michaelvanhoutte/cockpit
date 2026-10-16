@@ -6,6 +6,9 @@ import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { INBOX_KEY } from '../inboxCollapsed';
+import { inboxStep, neighbourOf } from '../inboxKeys';
+import { useDockedItem } from '../itemForm';
+import { useRoomForTheInbox } from '../roomForTheInbox';
 import { rowOf, useLanding, useLandingStep } from '../landOnItem';
 import { restedLongEnough } from '../switchWhileDragging';
 
@@ -192,6 +195,8 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   const landing = useLanding();
   const box = useRef<HTMLDivElement>(null);
   const stepLanding = useLandingStep();
+  const dock = useDockedItem();
+  const room = useRoomForTheInbox();
   useEffect(() => {
     if (!landing || landing.place.kind !== 'inbox') return;
     return stepLanding(landing, rowOf(box.current, landing.itemId));
@@ -228,7 +233,38 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
     // At least as tall as the column it is drawn in, so the list takes what the
     // form above it leaves: as tall as the whole column, it overflowed by the
     // form's own height and always scrolled.
-    <div ref={box} className="flex min-h-full flex-col">
+    <div
+      ref={box}
+      className="flex min-h-full flex-col"
+      // What a form docked from the Inbox returns the keyboard to on Escape
+      // (`ItemForm.tsx`), found by this mark rather than by an id.
+      data-inbox=""
+      // J and K, ↓ and ↑ move the focus a row at a time, and the docked form
+      // follows it ("Move through the Inbox with J and K, the docked form
+      // following", issue 1110). Only at a desk, only while the keyboard is
+      // on a row: `inboxStep` leaves a field, a menu and a window their keys,
+      // and a portal-drawn menu entry reaches here through the React tree
+      // without being inside the column in the DOM.
+      onKeyDown={(event) => {
+        const target = event.target;
+        if (!room || !(target instanceof HTMLElement) || !event.currentTarget.contains(target)) return;
+        const step = inboxStep(event.nativeEvent);
+        const from = step === null ? undefined : target.closest<HTMLElement>('[data-item-row]')?.dataset.itemId;
+        if (step === null || !from) return;
+        event.preventDefault();
+        const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('li[data-item-row]')];
+        const ids = rows.map((row) => row.dataset.itemId ?? '');
+        const to = neighbourOf(ids, from, step);
+        if (to === null) return;
+        rows[ids.indexOf(to)]?.focus();
+        // Followed where a form is docked open, and opened where the account
+        // docks it and none is: with the form centered, a move opens nothing,
+        // since a window over the list would take the keys it was moved for.
+        if (dock.openId !== null || data.itemFormPresentation === 'docked') {
+          dock.show(to, { keepFocus: true });
+        }
+      }}
+    >
       <ItemList
         workspaceId={workspaceId}
         items={inbox}
