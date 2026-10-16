@@ -19,7 +19,6 @@ import {
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
-  prioritySchema,
   uuidv7,
   type Attachment,
   type Item,
@@ -30,10 +29,10 @@ import {
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
+import { ItemFormLine } from './ItemFormLine';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
-import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
 import { filingsThatFile } from '../filing';
 import { dayOf, shownOn } from '../filters';
 import {
@@ -63,7 +62,6 @@ import {
 } from '../itemFormDockedWidth';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { ROOM_FOR_THE_INBOX_PX } from '../roomForTheInbox';
-import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { useCockpitChanges } from '../useCockpitChanges';
 
@@ -82,15 +80,6 @@ const TAB_NAMES: Record<(typeof TABS)[number], string> = {
   details: 'Details',
   changes: 'What Cockpit changed',
 };
-
-/**
- * How long a typed due date sits still before it is committed, docked. A date
- * input announces every date the keystrokes so far happen to spell - typing a
- * year passes through 0002, 0020, 0202 - so committing on each change would
- * send, and offer an undo for, dates nobody meant. A picked date or a
- * shortcut is not typed and commits at once.
- */
-export const DUE_DATE_SETTLES_MS = 600;
 
 const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want to keep and reopen it.';
 
@@ -1163,18 +1152,6 @@ function TheForm({
   };
 
   /**
-   * The due date's own clock, docked: a typed date is committed once it has
-   * sat still (`DUE_DATE_SETTLES_MS`), or when the field is left, whichever is
-   * first.
-   */
-  const dueDateSettles = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const settleDueDate = () => {
-    if (dueDateSettles.current) clearTimeout(dueDateSettles.current);
-    dueDateSettles.current = null;
-    return commitFields(['dueDate']);
-  };
-
-  /**
    * Closing a docked form keeps what is in it, by whatever route it closes: the
    * close button, Escape, the back button, another item opening in its place.
    * None of those blur a box that still holds the cursor, so this is what
@@ -1223,7 +1200,6 @@ function TheForm({
   commitNow.current = commitFields;
   useEffect(
     () => () => {
-      if (dueDateSettles.current) clearTimeout(dueDateSettles.current);
       if (dockedNow.current) void commitNow.current(FIELDS);
     },
     [],
@@ -1760,129 +1736,27 @@ function TheForm({
                           : 'grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)]'
                       }
                     >
-                      <div className={`flex flex-col gap-3${onAPage ? '' : ' @lg:col-start-1 @lg:row-start-1'}`}>
+                      <div className={`flex flex-col gap-3${onAPage ? '' : ' @lg:col-span-2 @lg:col-start-1 @lg:row-start-1'}`}>
                       {!onAPage && (
-                      <>
-                      {/* Status above the rest of the short fields, in the first of two equal columns so it sits over Priority (issue 528). */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <label className="block min-w-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                          Status
-                          <select
-                            disabled={saving}
-                            value={draft.status}
-                            onChange={(e) => {
-                              setDraft({ ...draft, status: e.target.value as ItemStatus });
-                              if (docked) void commitFields(['status']);
-                            }}
-                            className="mt-1 w-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-                          >
-                            <option value="to_do">To do</option>
-                            <option value="in_progress">In progress</option>
-                            <option value="done">Done</option>
-                          </select>
-                        </label>
-                      </div>
-                      {/* Priority and due date share a row (issue 480), in the same two equal columns as Status above so each sits under its neighbour at every width. */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="min-w-0">
-                          <p
-                            id={`${formId}-priority`}
-                            className="text-xs font-semibold uppercase tracking-wide text-ink-faint"
-                          >
-                            Priority
-                          </p>
-                          {/* Three flags drawn as an Inbox row draws them: one
-                            press lights a level and fades the others, pressing
-                            the lit one clears it, so there is no "None". The
-                            level is named by each flag's title, not drawn. */}
-                          <div
-                            role="group"
-                            aria-labelledby={`${formId}-priority`}
-                            className="mt-1 flex h-[38px] items-center gap-2"
-                          >
-                            {prioritySchema.options.map((value) => {
-                              const lit = draft.priority === value;
-                              const name = `${PRIORITY_LABELS[value]} priority`;
-                              return (
-                                <button
-                                  key={value}
-                                  type="button"
-                                  disabled={saving}
-                                  aria-pressed={lit}
-                                  aria-label={name}
-                                  title={name}
-                                  onClick={() => {
-                                    setDraft({ ...draft, priority: lit ? null : value });
-                                    if (docked) void commitFields(['priority']);
-                                  }}
-                                  className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs leading-none text-white outline-none focus-visible:ring-2 focus-visible:ring-accent-soft/60 disabled:cursor-default ${PRIORITY_FLAG_COLOURS[value]} ${
-                                    lit ? '' : 'opacity-30 hover:opacity-60'
-                                  }`}
-                                >
-                                  <span aria-hidden="true">⚑</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        <div className="min-w-0">
-                          <label className="block text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                            Due date
-                            <input
-                              type="date"
-                              disabled={saving}
-                              value={draft.dueDate ?? ''}
-                              onChange={(e) => {
-                                setDraft({
-                                  ...draft,
-                                  dueDate: e.target.value || null,
-                                });
-                                if (!docked) return;
-                                if (dueDateSettles.current) clearTimeout(dueDateSettles.current);
-                                // Empty settles like any other value: a native date
-                                // input also reports '' while one segment of a
-                                // complete date is being retyped, which is not a
-                                // clear.
-                                dueDateSettles.current = setTimeout(
-                                  () => void settleDueDate(),
-                                  DUE_DATE_SETTLES_MS,
-                                );
-                              }}
-                              onBlur={() => {
-                                if (docked) void settleDueDate();
-                              }}
-                              className="mt-1 w-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-                            />
-                          </label>
-                          {/* One-click alongside typing one directly (issue
-                            480): today, tomorrow and seven days out, each
-                            measured from the moment the button is pressed
-                            and each overriding
-                            whatever the field already holds, the same as
-                            typing over it would. */}
-                          <div className="mt-1.5 flex gap-1">
-                            {DUE_DATE_SHORTCUTS.map(({ label, dueDate }) => (
-                              <button
-                                key={label}
-                                type="button"
-                                disabled={saving}
-                                onClick={() => {
-                                  setDraft({
-                                    ...draft,
-                                    dueDate: dueDate(new Date()),
-                                  });
-                                  if (docked) void settleDueDate();
-                                }}
-                                className="rounded-md border border-shade/10 px-2 py-0.5 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      </>
+                        // One line at a desk, docked and modal: a choice is written at once docked, held until Save otherwise (issue 1102).
+                        <ItemFormLine
+                          status={draft.status}
+                          priority={draft.priority}
+                          dueDate={draft.dueDate}
+                          disabled={saving}
+                          onStatus={(status) => {
+                            setDraft({ ...draft, status });
+                            if (docked) void commitFields(['status']);
+                          }}
+                          onPriority={(priority) => {
+                            setDraft({ ...draft, priority });
+                            if (docked) void commitFields(['priority']);
+                          }}
+                          onDueDate={(dueDate) => {
+                            setDraft({ ...draft, dueDate });
+                            if (docked) void commitFields(['dueDate']);
+                          }}
+                        />
                       )}
                       {onAPage && chipsFailed && (
                         <p role="alert" className="text-sm text-over-ink">
@@ -1917,7 +1791,7 @@ function TheForm({
                         to fit only what it holds (issue 480). */}
                       <div
                         ref={descriptionCell}
-                        className={`flex min-h-0 flex-col${onAPage ? '' : ' @lg:col-start-2 @lg:row-span-2 @lg:row-start-1'}`}
+                        className={`flex min-h-0 flex-col${onAPage ? '' : ' @lg:col-start-2 @lg:row-start-2'}`}
                         // Left for something outside the description - the Source
                         // toggle and the editor trade the cursor between them
                         // without leaving it.

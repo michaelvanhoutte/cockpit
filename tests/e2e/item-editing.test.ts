@@ -37,7 +37,7 @@ const descriptionBox = (page: Page) => form(page).getByRole('textbox', { name: '
 const priorityGroup = (page: Page) => form(page).getByRole('group', { name: 'Priority' });
 const priorityFlag = (page: Page, level: string) =>
   form(page).getByRole('button', { name: `${level} priority` });
-const dueDateBox = (page: Page) => form(page).getByLabel('Due date');
+const dueDateBox = (page: Page) => form(page).getByLabel('Due date', { exact: true });
 /** On a phone's page the short fields are one row of chips: Status, Priority, Due, + Attach. */
 const chips = (page: Page) => form(page).getByRole('group', { name: 'Fields' }).getByRole('button');
 
@@ -332,7 +332,7 @@ test.describe('Item editing', () => {
         await press(chips(page).nth(2), isMobile);
         await press(page.getByRole('button', { name: 'Clear' }), isMobile);
       } else {
-        await dueDateBox(page).fill('');
+        await form(page).getByRole('button', { name: 'Clear the due date' }).click();
       }
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
@@ -910,32 +910,30 @@ test.describe('Item editing', () => {
       // 56rem, on a window wide enough that nothing clamps it.
       expect(Math.round((await form(page).boundingBox())!.width)).toBe(896);
 
-      // Status sits over Priority, and Due date in the second of two equal
-      // columns beside it, with the due date's shortcuts on one line under it.
-      const left = async (locator: Locator) => Math.round((await locator.boundingBox())!.x);
-      expect(await left(priorityGroup(page)), 'Priority under Status').toBe(await left(form(page).getByLabel('Status')));
-      expect(await left(dueDateBox(page)), 'Due date beside Priority, in the second column').toBeGreaterThan(
-        await left(priorityGroup(page)),
-      );
-      const shortcutTops = await Promise.all(
-        ['Today', 'Tmrw', '+7d'].map(async (name) =>
-          Math.round((await form(page).getByRole('button', { name, exact: true }).boundingBox())!.y),
-        ),
-      );
-      expect(new Set(shortcutTops).size, 'the due date shortcuts on one line').toBe(1);
+      // Status, the three flags and the Due chips are one line (issue 1102).
+      const centre = async (locator: Locator) => {
+        const box = (await locator.boundingBox())!;
+        return box.y + box.height / 2;
+      };
+      const line = [
+        form(page).getByTitle('Status'),
+        priorityFlag(page, 'High'),
+        form(page).getByRole('button', { name: 'Today', exact: true }),
+        form(page).getByRole('button', { name: 'Tmrw', exact: true }),
+        form(page).getByRole('button', { name: '+7d', exact: true }),
+      ];
+      const centres = await Promise.all(line.map(centre));
+      expect(Math.max(...centres) - Math.min(...centres), 'status, flags and due chips on one line').toBeLessThan(4);
 
-      // Status, the first of the short fields, and the description's own toolbar
-      // sit on the same row when there is room for two columns - both near the
-      // top of their own
-      // column - and one column drops below the other's whole height once
-      // there is not. The toolbar, not the description box itself: the box
-      // sits below its own toolbar, which is otherwise close enough to
-      // the first field's own row to read as "the same row" even stacked.
+      // The attachments and the description's own toolbar sit on the same row
+      // when there is room for two columns, and one drops below the other's
+      // whole height once there is not. The toolbar, not the description box
+      // itself: the box sits below its own toolbar.
       const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
       const sideBySide = async () => {
-        const firstField = (await form(page).getByLabel('Status').boundingBox())!;
+        const files = (await form(page).getByText('Attachments', { exact: true }).boundingBox())!;
         const description = (await toolbar.boundingBox())!;
-        return Math.abs(firstField.y - description.y) < 40;
+        return Math.abs(files.y - description.y) < 40;
       };
       expect(await sideBySide(), 'two columns at the dialog’s own default width').toBe(true);
 

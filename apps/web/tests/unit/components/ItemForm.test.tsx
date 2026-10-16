@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
@@ -13,7 +13,7 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
-import { DUE_DATE_SETTLES_MS, ItemForm, whatChanged } from '../../../src/components/ItemForm';
+import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
 import { DEADLINE_PILLS, dueDateLabel } from '../../../src/dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../../../src/dueDateShortcuts';
@@ -314,6 +314,13 @@ beforeEach(() => {
   vi.mocked(uploadAttachment).mockClear();
   vi.mocked(uploadAttachment).mockResolvedValue({ ok: true as const, applied: true });
 });
+
+/** The desk form's Status chip, and the pick of one from its menu. */
+const statusChip = () => screen.getByTitle('Status');
+const pickStatus = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+  await user.click(statusChip());
+  await user.click(await screen.findByRole('menuitemradio', { name }));
+};
 
 describe('Item editing', () => {
   describe('saving asks only for what changed', () => {
@@ -757,11 +764,68 @@ describe('Item editing', () => {
     });
   });
 
-  describe('the form names no type, though the account has some, and changes the status the way it changes priority', () => {
-    const statusBox = () => screen.getByLabelText('Status');
-    const optionsOf = (box: HTMLElement) =>
-      Array.from(box.querySelectorAll('option')).map((option) => option.textContent);
+  describe('status, priority and due date are one line at a desk', () => {
+    const theLine = () => screen.getByRole('group', { name: 'Fields' });
 
+    it.each([
+      { situation: 'docked', presentation: 'docked' as const },
+      { situation: 'modal', presentation: 'centered' as const },
+    ])('has the Status chip, three flags and the Due chips on one line, $situation', async ({ presentation }) => {
+      held.itemFormPresentation = presentation;
+      await theForm();
+
+      const line = within(theLine());
+      expect(line.getByTitle('Status')).toBeVisible();
+      expect(line.getAllByRole('button', { name: /priority$/ })).toHaveLength(3);
+      expect(line.getAllByRole('button', { name: /^(Today|Tmrw|\+7d|Pick a due date)$/ })).toHaveLength(4);
+      // The labelled columns are gone.
+      expect(screen.queryByText('Priority')).toBeNull();
+      expect(screen.queryByLabelText('Status')).toBeNull();
+    });
+
+    it('clears the priority when the lit flag is pressed again', async () => {
+      const user = await theForm(anItem({ priority: 'high' }));
+
+      await user.click(priorityFlag('High'));
+
+      expect(priorityFlag('High')).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('shows a day that is none of the three on the date button, with a way to clear it', async () => {
+      const user = await theForm(anItem({ dueDate: '2031-03-04' }));
+
+      expect(screen.getByRole('button', { name: /^Due / })).toBeVisible();
+      await user.click(screen.getByRole('button', { name: 'Clear the due date' }));
+
+      expect(screen.queryByRole('button', { name: 'Clear the due date' })).toBeNull();
+    });
+
+    it('writes nothing in the modal when a change on the line is cancelled', async () => {
+      const user = await theForm();
+
+      await user.click(priorityFlag('High'));
+      await user.click(screen.getByRole('button', { name: 'Today' }));
+      await pickStatus(user, 'Done');
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(held.send).not.toHaveBeenCalled();
+      expect(held.close).toHaveBeenCalled();
+    });
+
+    it('sends the line’s changes on Save with the other changed fields, in the modal', async () => {
+      const user = await theForm();
+
+      await user.type(titleBox(), ' now');
+      await user.click(priorityFlag('High'));
+      await user.click(screen.getByRole('button', { name: 'Today' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_priority', 'set_due_date']);
+    });
+  });
+
+  describe('the form names no type, though the account has some, and changes the status the way it changes priority', () => {
     it('draws no Type field', async () => {
       await theForm(anItem());
 
@@ -772,20 +836,25 @@ describe('Item editing', () => {
 
     describe('the status', () => {
       it.each([
-        { situation: 'a to do item', over: {}, shown: 'to_do' },
-        { situation: 'an item in progress', over: { startedAt: '2026-09-01T08:00:00.000Z' }, shown: 'in_progress' },
-        { situation: 'a finished item', over: { completedAt: '2026-09-01T08:00:00.000Z' }, shown: 'done' },
-      ])('selects the one $situation is, among To do, In progress and Done in that order', async ({ over, shown }) => {
+        { situation: 'a to do item', over: {}, shown: 'To do' },
+        { situation: 'an item in progress', over: { startedAt: '2026-09-01T08:00:00.000Z' }, shown: 'In progress' },
+        { situation: 'a finished item', over: { completedAt: '2026-09-01T08:00:00.000Z' }, shown: 'Done' },
+      ])('shows the one $situation is, among To do, In progress and Done in that order', async ({ over, shown }) => {
         await theForm(anItem(over));
 
-        expect(statusBox()).toHaveValue(shown);
-        expect(optionsOf(statusBox())).toEqual(['To do', 'In progress', 'Done']);
+        expect(statusChip()).toHaveTextContent(shown);
+        await userEvent.setup().click(statusChip());
+        expect((await screen.findAllByRole('menuitemradio')).map((option) => option.textContent?.replace('✓', ''))).toEqual([
+          'To do',
+          'In progress',
+          'Done',
+        ]);
       });
 
       it('sends a finish, alone, on Save', async () => {
         const user = await theForm();
 
-        await user.selectOptions(statusBox(), 'Done');
+        await pickStatus(user, 'Done');
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
         await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
@@ -796,7 +865,7 @@ describe('Item editing', () => {
       it('sends a start, alone, for In progress, and nothing until Save', async () => {
         const user = await theForm();
 
-        await user.selectOptions(statusBox(), 'In progress');
+        await pickStatus(user, 'In progress');
         expect(held.send).not.toHaveBeenCalled();
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -808,7 +877,7 @@ describe('Item editing', () => {
       it('reopens, then starts, a finished item that never was, set to In progress', async () => {
         const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
 
-        await user.selectOptions(statusBox(), 'In progress');
+        await pickStatus(user, 'In progress');
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
         await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
@@ -820,7 +889,7 @@ describe('Item editing', () => {
       it('sends the way back for a finished item set to To do', async () => {
         const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
 
-        await user.selectOptions(statusBox(), 'To do');
+        await pickStatus(user, 'To do');
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
         await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
@@ -1177,8 +1246,8 @@ describe('Item editing', () => {
       await atWidth(768, async () => {
         await theForm();
 
-        expect(screen.getByLabelText('Status')).toBeVisible();
-        expect(screen.getByLabelText('Due date')).toBeVisible();
+        expect(statusChip()).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Today' })).toBeVisible();
         expect(screen.getByRole('button', { name: 'High priority' })).toBeVisible();
         expect(screen.queryByRole('button', { name: '+ Attach' })).toBeNull();
       });
@@ -2315,72 +2384,35 @@ describe('Item editing', () => {
         expected: 'set_due_date',
       },
       {
-        situation: 'the due date, cleared and then left',
-        item: anItem({ dueDate: '2026-09-30' }),
-        finish: async (user: ReturnType<typeof userEvent.setup>) => {
-          // Focused first: the title has autofocus, so without this the click
-          // below lands on the box that already holds the cursor and blurs
-          // nothing.
-          await user.click(dueDateBox());
-          fireEvent.change(dueDateBox(), { target: { value: '' } });
-          await user.click(titleBox());
+        situation: 'the due date, the moment a day is picked',
+        item: anItem(),
+        finish: async () => {
+          fireEvent.change(dueDateBox(), { target: { value: '2026-10-01' } });
         },
         expected: 'set_due_date',
+      },
+      {
+        situation: 'the due date, the moment ✕ clears it',
+        item: anItem({ dueDate: '2026-09-30' }),
+        finish: async (user: ReturnType<typeof userEvent.setup>) =>
+          user.click(screen.getByRole('button', { name: 'Clear the due date' })),
+        expected: 'set_due_date',
+      },
+      {
+        situation: 'the status, the moment one is picked',
+        item: anItem(),
+        finish: async (user: ReturnType<typeof userEvent.setup>) => {
+          await pickStatus(user, 'In progress');
+        },
+        expected: 'set_started',
       },
     ])('writes $situation, and only that field', async ({ item, finish, expected }) => {
       const user = await dockedForm(item);
 
       await finish(user);
 
-      // Inside the due date's own settle time, so a write that only arrives
-      // because a timer ran out is not taken for one made on leaving.
-      await waitFor(() => expect(sent().map((change) => change.name)).toEqual([expected]), {
-        timeout: DUE_DATE_SETTLES_MS - 150,
-      });
+      await waitFor(() => expect(sent().map((change) => change.name)).toEqual([expected]));
       expect(held.close).not.toHaveBeenCalled();
-    });
-
-    it('waits for a typed due date to sit still, but writes it at once on leaving the field', async () => {
-      const user = await dockedForm();
-
-      // A date input announces every date the keystrokes so far spell -
-      // typing a year passes through 0002, 0020, 0202 - so a write per change
-      // would send dates nobody meant.
-      await user.click(dueDateBox());
-      fireEvent.change(dueDateBox(), { target: { value: '2026-10-01' } });
-      expect(held.send).not.toHaveBeenCalled();
-
-      await user.click(titleBox());
-
-      await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_due_date']), {
-        timeout: DUE_DATE_SETTLES_MS - 150,
-      });
-      expect(sent()[0]).toMatchObject({ payload: { dueDate: '2026-10-01' } });
-    });
-
-    // A date input reports '' while one segment of a complete date is being
-    // retyped, which is a step towards a date and not a clear.
-    it('does not write a clear for a segment being retyped, only the date it ends as', async () => {
-      await dockedForm(anItem({ dueDate: '2026-09-30' }));
-
-      fireEvent.change(dueDateBox(), { target: { value: '' } });
-      fireEvent.change(dueDateBox(), { target: { value: '2026-10-30' } });
-
-      await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_due_date']), {
-        timeout: 3000,
-      });
-      expect(sent()[0]).toMatchObject({ payload: { dueDate: '2026-10-30' } });
-    });
-
-    it('writes a typed due date once it has sat still, without leaving the field', async () => {
-      await dockedForm();
-
-      fireEvent.change(dueDateBox(), { target: { value: '2026-10-01' } });
-      expect(held.send).not.toHaveBeenCalled();
-
-      await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_due_date']), {
-        timeout: 3000,
-      });
     });
 
     it('sends nothing for a field left as it was, and never resends one already written', async () => {
@@ -2598,15 +2630,15 @@ describe('Item editing', () => {
         await dockedForm(anItem(), true);
 
         expect(screen.queryByLabelText('Type')).toBeNull();
-        expect(screen.getByLabelText('Status')).toBeVisible();
-        expect(screen.getByLabelText('Due date')).toBeVisible();
+        expect(statusChip()).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Today' })).toBeVisible();
         expect(priorityFlag('High')).toBeVisible();
       });
 
       it('writes a status at once, and undoes it', async () => {
         const user = await dockedForm(anItem(), true);
 
-        await user.selectOptions(screen.getByLabelText('Status'), 'Done');
+        await pickStatus(user, 'Done');
 
         await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_done']));
         const undo = await screen.findByText('Undo');
@@ -2614,7 +2646,7 @@ describe('Item editing', () => {
         fireEvent.click(undo);
 
         await waitFor(() => expect(sent()[0]).toMatchObject({ name: 'set_done', payload: { done: false } }));
-        await waitFor(() => expect(screen.getByLabelText('Status')).toHaveValue('to_do'));
+        await waitFor(() => expect(statusChip()).toHaveTextContent('To do'));
       });
 
       it('undoes Done naming the run it ended, and names none where the item had no run', async () => {
@@ -2624,7 +2656,7 @@ describe('Item editing', () => {
           held.send.mockClear();
           const user = await dockedForm(anItem(), true);
 
-          await user.selectOptions(screen.getByLabelText('Status'), 'Done');
+          await pickStatus(user, 'Done');
           await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_done']));
           const undo = await screen.findByText('Undo');
           held.send.mockClear();
@@ -2639,7 +2671,7 @@ describe('Item editing', () => {
       it('starts an item at once, and undoes it to To do', async () => {
         const user = await dockedForm(anItem(), true);
 
-        await user.selectOptions(screen.getByLabelText('Status'), 'In progress');
+        await pickStatus(user, 'In progress');
 
         await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_started']));
         expect(sent()[0]).toMatchObject({ payload: { started: true } });
@@ -2649,13 +2681,13 @@ describe('Item editing', () => {
 
         await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_started']));
         expect(sent()[0]).toMatchObject({ payload: { started: false } });
-        await waitFor(() => expect(screen.getByLabelText('Status')).toHaveValue('to_do'));
+        await waitFor(() => expect(statusChip()).toHaveTextContent('To do'));
       });
 
       it('undoes finishing an item in progress back to In progress, leaving its start time alone', async () => {
         const user = await dockedForm(anItem({ startedAt: '2026-09-01T08:00:00.000Z' }), true);
 
-        await user.selectOptions(screen.getByLabelText('Status'), 'Done');
+        await pickStatus(user, 'Done');
         await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_done']));
         const undo = await screen.findByText('Undo');
         held.send.mockClear();
@@ -2663,7 +2695,7 @@ describe('Item editing', () => {
 
         await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_done']));
         expect(sent()[0]).toMatchObject({ payload: { done: false } });
-        await waitFor(() => expect(screen.getByLabelText('Status')).toHaveValue('in_progress'));
+        await waitFor(() => expect(statusChip()).toHaveTextContent('In progress'));
       });
 
       it('says the status change failed, and shows the status the item holds, when the second of two is refused', async () => {
@@ -2672,13 +2704,13 @@ describe('Item editing', () => {
           .mockResolvedValueOnce({ ok: true as const, applied: true })
           .mockRejectedValueOnce(new Error('Too many requests'));
 
-        await user.selectOptions(screen.getByLabelText('Status'), 'In progress');
+        await pickStatus(user, 'In progress');
 
         await waitFor(() =>
           expect(screen.getByRole('alert')).toHaveTextContent(/The status change failed.*Too many requests/),
         );
         expect(sent().map((change) => change.name)).toEqual(['set_done', 'set_started']);
-        expect(screen.getByLabelText('Status')).toHaveValue('to_do');
+        expect(statusChip()).toHaveTextContent('To do');
         expect(screen.queryByText('Undo')).toBeNull();
       });
     });
