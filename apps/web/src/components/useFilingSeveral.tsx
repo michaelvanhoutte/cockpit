@@ -15,7 +15,7 @@ import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import { updateSelection } from '../selection';
 import { askToShow } from '../showItem';
-import { useUndo } from '../undo';
+import { useUndo, type Undoable } from '../undo';
 import { FetchedPicker } from './FetchedPicker';
 
 /**
@@ -129,6 +129,19 @@ export function useFilingSeveral({
     browserStore(),
     (data?.dashboards ?? []).map((dashboard) => dashboard.id),
   );
+  /** Show and Also show on… for Items just filed on `panelId`, for the undo bar. */
+  const nextSteps = (moved: Item[], panelId: string): Pick<Undoable, 'show' | 'alsoShowOn'> => ({
+    show: () =>
+      void showOnItsPanel(
+        moved.map((item) => item.id),
+        panelId,
+      ),
+    alsoShowOn: () => {
+      setAddingRefusal(null);
+      setAddingSeveral(moved);
+    },
+  });
+
   /**
    * Makes a panel of items for the picker, with the command + Panel sends, and
    * answers its id for the filing that follows ("Add a panel from the Move to
@@ -270,19 +283,7 @@ export function useFilingSeveral({
         ? { split: { title: `“${itemLabel(moved[0]!)}”`, rest: ` moved to ${nameOf(target)}` } }
         : {}),
       ...(decides ? {} : { undo: () => putSeveralBack(moved, wasOn) }),
-      ...(target
-        ? {
-            show: () =>
-              void showOnItsPanel(
-                moved.map((item) => item.id),
-                target,
-              ),
-            alsoShowOn: () => {
-              setAddingRefusal(null);
-              setAddingSeveral(moved);
-            },
-          }
-        : {}),
+      ...(target ? nextSteps(moved, target) : {}),
     });
   };
 
@@ -504,11 +505,7 @@ export function useFilingSeveral({
     addPanelFor,
     showOnItsPanel,
     filteredDashboardIds,
-    /** Opens Also show on… for Items filed some other way than this hook, from the undo bar. */
-    alsoShowSeveral: (items: Item[]) => {
-      setAddingRefusal(null);
-      setAddingSeveral(items);
-    },
+    nextSteps,
   };
 }
 

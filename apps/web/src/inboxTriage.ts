@@ -84,9 +84,10 @@ let lastActedOn: string | null = null;
 /**
  * Waits for `row` to leave the list - filed, done or dismissed - and focuses the
  * row that was after it (the one before, for the last), the docked form
- * following. For a `group` of rows filed together, `row` is its last and the
- * focus goes to the row after the group, or the one before it. Gives up when the row stays: after a few seconds, or for Move to…
- * once its picker has closed without the row going.
+ * following. For a `group` of rows filed together, `row` is the one pressed and
+ * the focus goes to the row after the group, or the one before it. Gives up
+ * when the row stays: after a few seconds, or for Move to… once its picker has
+ * closed without the row going.
  */
 export function moveOnFrom(row: HTMLElement, asksFirst: boolean, show: ShowItem, group: readonly HTMLElement[] = [row]): void {
   const list = row.closest('[data-inbox]');

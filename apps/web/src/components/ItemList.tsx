@@ -295,10 +295,7 @@ export function ItemList({
         nameOf,
         putSeveralBack: filingSeveral.putSeveralBack,
         offerToUndo,
-        nextSteps: (moved, target) => ({
-          show: () => void showOnItsPanel(moved.map((item) => item.id), target),
-          alsoShowOn: () => filingSeveral.alsoShowSeveral(moved),
-        }),
+        nextSteps: filingSeveral.nextSteps,
       }),
     );
   };
