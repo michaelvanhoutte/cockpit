@@ -161,7 +161,9 @@ export function createStubGraph({ mailboxOfToken, json }) {
    * What a person does in Outlook, for a walk to do it from outside:
    * `POST /graph-stub/flag?email=&subject=&text=` flags a new message and
    * `/graph-stub/categorise?email=&subject=&text=` puts the category Cockpit on
-   * one; `GET /graph-stub/message?email=&id=` reads back what a message's flag
+   * one, each also carrying every `category=` given; `POST
+   * /graph-stub/tag?email=&id=&category=` adds a category to a message already
+   * there; `GET /graph-stub/message?email=&id=` reads back what a message's flag
    * and categories are now, and `/graph-stub/asked?email=` lists every call
    * the mailbox was asked, oldest first, so a walk can wait for a check.
    */
@@ -175,6 +177,14 @@ export function createStubGraph({ mailboxOfToken, json }) {
       return json(response, { id: held.id, flagStatus: held.flag.flagStatus, categories: held.categories });
     }
     if (request.method !== 'POST') return json(response, { error: 'POST only' }, 405);
+    const extra = url.searchParams.getAll('category');
+    if (action === 'tag') {
+      const held = mailbox.messages.find((one) => one.id === url.searchParams.get('id'));
+      if (!held) return json(response, { error: 'no such message' }, 404);
+      held.categories = [...held.categories, ...extra];
+      held.version = ++versions;
+      return json(response, { id: held.id, categories: held.categories });
+    }
     mailbox.counter += 1;
     const subject = url.searchParams.get('subject') ?? (action === 'flag' ? 'Flagged just now' : 'Categorised just now');
     const added = message(`AAkALgStubNew${mailbox.counter}`, {
@@ -182,7 +192,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
       from: { name: 'Anna Peeters', address: 'anna@example.com' },
       text: url.searchParams.get('text') ?? `${subject}, a moment ago.`,
       flagged: action === 'flag',
-      categories: action === 'categorise' ? ['Cockpit'] : [],
+      categories: [...(action === 'categorise' ? ['Cockpit'] : []), ...extra],
       at: new Date().toISOString(),
     });
     mailbox.messages.push(added);
@@ -196,7 +206,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
         void graph(url, request, response, origin);
         return true;
       }
-      const acting = /^\/graph-stub\/(flag|categorise|message|asked)$/.exec(url.pathname);
+      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked)$/.exec(url.pathname);
       if (acting) {
         act(acting[1], url, request, response);
         return true;

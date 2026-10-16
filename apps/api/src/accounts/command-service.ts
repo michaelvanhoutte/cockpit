@@ -727,6 +727,16 @@ function refusedOrFiling(decision: FilingRefusal | FilingDecided): FilingDecided
   }
 }
 
+/**
+ * A filing as a source made it: the same rows, and no decision recorded, since
+ * the source's name rather than a person's choice put it there and routing
+ * learns only from people ("File Outlook mail on the Panel named after its
+ * category", issue 1146).
+ */
+function asTheSourceFiles(decided: FilingDecided, fromTheSource: boolean): FilingDecided {
+  return fromTheSource ? { ...decided, decision: null } : decided;
+}
+
 /** Writes what a filing decided, inside the transaction of the change that made it. */
 function writeFiling(
   tx: InATransaction,
@@ -872,7 +882,8 @@ function runToReopen(
  *
  * **`fromTheSource`** marks a change a source reported rather than one a
  * person made (issue 728): what the source says is already so there, so it
- * asks nothing of the source in return.
+ * asks nothing of the source in return; and a filing it makes records no
+ * routing decision (issue 1146).
  *
  * **`mirroring`** is which pulled connectors mirror open state, the registry's
  * to say: a person's Done, Dismiss or their undo records the wanted state on
@@ -1531,7 +1542,7 @@ export function runCommand<N extends CommandName>(
         // `status` is the dead column being satisfied rather than used: it is
         // NOT NULL with a CHECK and nothing reads it (schema.ts).
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
-        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided);
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, asTheSourceFiles(decided, fromTheSource));
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1558,7 +1569,10 @@ export function runCommand<N extends CommandName>(
       // Reachable from every workspace while it belongs to none, and settled by
       // landing on a panel - exactly as a move, because putting an item on a
       // panel is putting it on a panel whichever of the two commands says so.
-      const decided = refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, [])));
+      const decided = asTheSourceFiles(
+        refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, []))),
+        fromTheSource,
+      );
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         writeFiling(tx, tenantId, cmd.itemId, decided);
@@ -2133,6 +2147,24 @@ export function runCommand<N extends CommandName>(
             connectorId: held.connectorId,
             externalAccountKey,
           });
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_connection_files_by_name': {
+      const cmd = payload as CommandPayload<'set_connection_files_by_name'>;
+      // Refused as `set_connection_choice` refuses; that the connector reports
+      // names at all is the route's to check (issue 1146). Nothing already in
+      // is filed: the names each link recorded are the baseline from here.
+      const held = getSourceAccount(db, tenantId, cmd.sourceAccountId);
+      if (!held || held.workspaceId !== cmd.workspaceId) throw new SourceAccountNotFoundError(cmd.sourceAccountId);
+      db.transaction((tx) => {
+        if (held.filesByName !== cmd.filesByName) {
+          tx.update(connectorAccounts)
+            .set({ filesByName: cmd.filesByName, updatedAt: cmd.issuedAt })
+            .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, cmd.sourceAccountId)))
+            .run();
         }
         tx.insert(commands).values(commandRow).run();
       });

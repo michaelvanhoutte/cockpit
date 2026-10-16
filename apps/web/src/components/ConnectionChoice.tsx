@@ -115,30 +115,77 @@ function Question({ connector, onConnect }: { connector: Asked; onConnect: (valu
   );
 }
 
+/** How a connector that reports names speaks of them (issue 1146). */
+export type ConnectorNames = NonNullable<RegisteredConnector['names']>;
+
+/** The name the example line files by: one a person might well have given a Panel. */
+const EXAMPLE_NAME = 'Customer Atlas';
+
+/**
+ * Whether the connection files what it brings in on the Panel named after its
+ * label or category, in the connector's own noun, with the one faint line
+ * saying what that does and when it does not (issue 1146).
+ */
+function FilesByName({
+  names,
+  checked,
+  onChange,
+}: {
+  names: ConnectorNames;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="pt-4">
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+          className="mt-0.5"
+          aria-describedby="files-by-name-example"
+        />
+        File it on the panel named after its {names.noun}
+      </label>
+      <p id="files-by-name-example" className="pl-6 pt-1 text-sm text-ink-faint">
+        So {names.example} {EXAMPLE_NAME} lands on the {EXAMPLE_NAME} panel instead of the Inbox. A {names.noun} that
+        matches no panel, or panels on two dashboards, leaves it in the Inbox.
+      </p>
+    </div>
+  );
+}
+
 /**
  * *Change…* on a connected row: the connector's own question again, starting at
- * the choice held now, and nothing to sign in to. **A form, not a question**:
- * nothing is sent until Save, Save with the choice unchanged sends nothing,
- * and Cancel, Escape and pressing outside close it without asking. Its row
- * names the new choice once the server has agreed to it.
+ * the choice held now, and - for a connector that reports names - whether it
+ * files by them, at the value held now; nothing to sign in to. **A form, not a
+ * question**: nothing is sent until Save, Save with nothing changed sends
+ * nothing, and Cancel, Escape and pressing outside close it without asking. Its
+ * row says what changed once the server has agreed to it.
  */
 export function ChangeConnectionChoice({
   account,
   choice,
+  names = null,
   workspaceId,
   onClose,
   returnFocusTo,
 }: {
   /** The row it was opened from; absent, the window is shut. */
   account: SourceAccount | null;
-  /** What its connector asks. */
+  /** What its connector asks, where it asks anything. */
   choice: ConnectorChoice | null;
+  /** How its connector speaks of names, where it reports any. */
+  names?: ConnectorNames | null;
   workspaceId: string;
   onClose: () => void;
   returnFocusTo?: HTMLElement | null;
 }) {
   return (
-    <Dialog.Root open={account !== null && choice !== null} onOpenChange={(nowOpen) => !nowOpen && onClose()}>
+    <Dialog.Root
+      open={account !== null && (choice !== null || names !== null)}
+      onOpenChange={(nowOpen) => !nowOpen && onClose()}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <Dialog.Content
@@ -149,8 +196,8 @@ export function ChangeConnectionChoice({
           }}
           className={DIALOG_CLASS}
         >
-          {account && choice && (
-            <Changing account={account} choice={choice} workspaceId={workspaceId} onClose={onClose} />
+          {account && (choice || names) && (
+            <Changing account={account} choice={choice} names={names} workspaceId={workspaceId} onClose={onClose} />
           )}
         </Dialog.Content>
       </Dialog.Portal>
@@ -161,40 +208,47 @@ export function ChangeConnectionChoice({
 function Changing({
   account,
   choice,
+  names,
   workspaceId,
   onClose,
 }: {
   account: SourceAccount;
-  choice: ConnectorChoice;
+  choice: ConnectorChoice | null;
+  names: ConnectorNames | null;
   workspaceId: string;
   onClose: () => void;
 }) {
   // A value no longer among the options reads as the first, which Save then sets.
-  const heldNow = choice.options.some((option) => option.value === account.follows)
-    ? account.follows!
-    : choice.options[0]!.value;
+  const heldNow = !choice
+    ? undefined
+    : choice.options.some((option) => option.value === account.follows)
+      ? account.follows!
+      : choice.options[0]!.value;
   const [value, setValue] = useState(heldNow);
+  const [filesByName, setFilesByName] = useState(account.filesByName);
   const command = useCommand();
   const refusal = refusalFrom(command);
 
-  const save = () => {
-    if (value === account.follows) {
-      onClose();
+  const save = async () => {
+    const envelope = { issuedAt: new Date().toISOString(), workspaceId, sourceAccountId: account.id };
+    try {
+      if (choice && value !== undefined && value !== account.follows) {
+        await command.mutateAsync({
+          name: 'set_connection_choice',
+          payload: { ...envelope, commandId: uuidv7(), choice: value },
+        });
+      }
+      if (names && filesByName !== account.filesByName) {
+        await command.mutateAsync({
+          name: 'set_connection_files_by_name',
+          payload: { ...envelope, commandId: uuidv7(), filesByName },
+        });
+      }
+    } catch {
+      // Said under the form (`refusal`), which stays open.
       return;
     }
-    command.mutate(
-      {
-        name: 'set_connection_choice',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          sourceAccountId: account.id,
-          choice: value,
-        },
-      },
-      { onSuccess: onClose },
-    );
+    onClose();
   };
 
   return (
@@ -202,7 +256,8 @@ function Changing({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Dialog.Title className="text-base font-semibold">Change {account.displayName}</Dialog.Title>
         <Dialog.Description className="sr-only">Choose again without signing in.</Dialog.Description>
-        <ChoiceQuestion choice={choice} value={value} onChange={setValue} />
+        {choice && value !== undefined && <ChoiceQuestion choice={choice} value={value} onChange={setValue} />}
+        {names && <FilesByName names={names} checked={filesByName} onChange={setFilesByName} />}
         {refusal && (
           <p role="alert" className="pt-3 text-sm text-over">
             {refusal}
@@ -218,7 +273,7 @@ function Changing({
         </Dialog.Close>
         <button
           type="button"
-          onClick={save}
+          onClick={() => void save()}
           disabled={command.isPending}
           className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
         >

@@ -26,6 +26,7 @@ describe('Capture', () => {
         capturedMessage: 'Please pay by Friday.',
         title: 'Chase the invoice',
         choice: 'flag',
+        names: [],
       });
     });
 

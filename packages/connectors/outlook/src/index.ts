@@ -39,6 +39,9 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
           { value: 'category', label: 'Category Cockpit' },
         ],
       },
+      // A message's categories, the followed Cockpit one left out, are its
+      // Item's names (issue 1146).
+      names: { noun: 'category', example: 'a message with the category' },
       auth: outlookSignIn(config.issuer),
     },
 

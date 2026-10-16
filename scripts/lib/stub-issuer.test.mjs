@@ -475,4 +475,14 @@ describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Gra
     const asked = await (await fetch(`${issuer.origin}/graph-stub/asked?email=graph-flagging%40example.com`)).json();
     assert.deepEqual(asked, [`GET ${flagged.split('?')[0]}`]);
   });
+
+  it('flags a new message with the categories a walk names, and adds one to it later', async () => {
+    const at = (path) => `${issuer.origin}/graph-stub/${path}`;
+    const { id } = await fetch(at('flag?email=graph-tagging%40example.com&category=Customer%20Atlas'), {
+      method: 'POST',
+    }).then((answer) => answer.json());
+    await fetch(at(`tag?email=graph-tagging%40example.com&id=${id}&category=Admin`), { method: 'POST' });
+    const read = await (await fetch(at(`message?email=graph-tagging%40example.com&id=${id}`))).json();
+    assert.deepEqual(read.categories, ['Customer Atlas', 'Admin']);
+  });
 });

@@ -1307,6 +1307,7 @@ const routes = app
             ...(manifest.choice
               ? { choice: { question: manifest.choice.question, options: manifest.choice.options.map((option) => ({ ...option })) } }
               : {}),
+            ...(manifest.names ? { names: { noun: manifest.names.noun, example: manifest.names.example } } : {}),
             refusals: signInOf(c.env, manifest.id)?.auth.refusals ?? {},
           })),
       },
@@ -1698,6 +1699,18 @@ const routes = app
       throw new RefusedByAccountError('that is not a choice this connection offers');
     }
     return c.json(await account.applyChange('set_connection_choice', cmd), 200);
+  })
+  .openapi(commandRoute('set_connection_files_by_name'), async (c) => {
+    const cmd = c.req.valid('json');
+    // Only a connection whose connector reports names can file by them, which
+    // only this layer can say, as for a choice (issue 1146).
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    const held = (await account.sourceAccounts(cmd.workspaceId)).find((one) => one.id === cmd.sourceAccountId);
+    if (!held) throw new NotFoundInAccountError(`source account ${cmd.sourceAccountId} not found`);
+    if (!getConnector(c.env, held.connectorId)?.manifest.names) {
+      throw new RefusedByAccountError('this connection does not file by name');
+    }
+    return c.json(await account.applyChange('set_connection_files_by_name', cmd), 200);
   })
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))

@@ -22,6 +22,16 @@ export interface ConnectorManifest {
    * is asked and Connect leaves for the source at once.
    */
   choice?: ConnectionChoice;
+  /**
+   * Whether the connector reports the names a person gave an Item at the
+   * source (`SourceItem.names`, `ConnectorHost.reportNames`), and how the
+   * Connections window speaks of them: `noun` is what the source calls one,
+   * for its tick box *File it on the panel named after its …*, and
+   * `example` how it speaks of an Item carrying one, before the name itself,
+   * for the line under it (*a message with the category*). Absent: the window
+   * offers no such box, and the host files nothing by name.
+   */
+  names?: { noun: string; example: string };
   /** Whether the source can push (webhooks) in addition to being pulled. */
   supportsPush: boolean;
   /**
@@ -159,7 +169,26 @@ export type SourceItem = Pick<
    * another choice cannot. Absent: no listing ever closes it.
    */
   choice?: string;
+  /**
+   * The names a person gave this Item at the source, whole, for a connector
+   * whose manifest declares `names`: the source's own spelling, the mark the
+   * connection follows left out. The host keeps them on the Item's link and,
+   * where the connection is set to, files the Item on the Panel each names.
+   * Absent: nothing is known of its names.
+   */
+  names?: readonly string[];
 };
+
+/**
+ * An Item's names as the source holds them now, reported whenever the set
+ * changes on an Item the connector already emitted (`ConnectorHost.reportNames`).
+ * Whole, never a difference: the host works out what is new since the last
+ * report, so reporting the same set twice changes nothing.
+ */
+export interface NamesReport {
+  sourceId: string;
+  names: readonly string[];
+}
 
 /**
  * Every source id one complete listing of the source saw, under the choice the
@@ -282,6 +311,14 @@ export interface ConnectorHost extends ConnectedAccountHost {
    * to reach the source (`OpenStateWanted`) are left as they are.
    */
   reportCompleteListing(listing: CompleteListing): Promise<void>;
+
+  /**
+   * Reports an Item's names after they changed at the source, for a connector
+   * whose manifest declares `names`. A source id the host never filed is
+   * ignored. The first report on an Item whose names were never recorded sets
+   * them and files nothing.
+   */
+  reportNames(report: NamesReport): Promise<void>;
 
   /** Rate-limit/backoff helper so connectors don't roll their own. */
   sleep(ms: number): Promise<void>;

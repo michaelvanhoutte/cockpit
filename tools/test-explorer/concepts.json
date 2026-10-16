@@ -378,6 +378,7 @@
       "sourcePatterns": [
         "apps/api/src/connectors/credential-crypto.ts",
         "apps/api/src/connectors/sign-in.ts",
+        "apps/api/src/domain/filing-by-name.ts",
         "packages/connectors/teams/src/sign-in.ts",
         "packages/connectors/gmail/src/sign-in.ts",
         "packages/connectors/gmail/src/credential.ts",

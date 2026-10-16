@@ -30,7 +30,14 @@ import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 import type { RefreshAsk } from './debounce.js';
-import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type {
+  CompleteListing,
+  EmittedItem,
+  NamesReport,
+  OpenStateWanted,
+  SourceItem,
+  SourceStateChange,
+} from '@cockpit/connector-sdk';
 import type { PulledRunBegun } from './pulled.js';
 
 export type { AccountSnapshot } from './answer.js';
@@ -345,6 +352,8 @@ export interface PulledRun {
     item: SourceItem & { sourceId: string },
     ids: { itemId: string; commandId: string },
   ): Promise<EmittedItem | 'disconnected'>;
+  /** Records an Item's names as the source reported them, filing it by the new ones (issue 1146). */
+  reportNames(report: NamesReport): Promise<'recorded' | 'unknown' | 'disconnected'>;
   applySourceChange(change: SourceStateChange): Promise<'changed' | 'unchanged' | 'disconnected'>;
   /** Closes the Items the connection filed under the listing's choice that it did not see (issue 938). */
   closeItemsNotListed(listing: CompleteListing): Promise<number | 'disconnected'>;
@@ -444,6 +453,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
         unwrap(await store.resealPulledCredential(accountName, sourceAccountId, runId, was, sealed)),
       fileItem: async (item, ids) =>
         unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids)),
+      reportNames: async (report) =>
+        unwrap(await store.reportPulledNames(accountName, sourceAccountId, runId, report)),
       applySourceChange: async (change) =>
         unwrap(await store.applyPulledSourceChange(accountName, sourceAccountId, runId, change)),
       closeItemsNotListed: async (listing) =>
