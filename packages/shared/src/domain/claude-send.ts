@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { attachmentsForClaude, type AttachmentForAgent } from './agent.js';
 
 /**
  * Sending an Item to Cowork or Claude Code with its prompt reviewed first
@@ -20,56 +19,3 @@ export const CLAUDE_DESTINATION_NAMES: Record<ClaudeDestination, string> = {
 
 /** A folder path, as typed: any length a path takes. Empty means none chosen. */
 export const claudeFolderSchema = z.string().trim().max(1000);
-
-/** Text with each lone surrogate made U+FFFD, which `encodeURIComponent` would otherwise throw on. */
-function wellFormed(text: string): string {
-  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�');
-}
-
-/**
- * The address that opens Claude on this destination with exactly this prompt
- * and folder. Both are percent-encoded, so quotes, line breaks, `&`, `#` and
- * non-Latin text come back identical when decoded (a lone surrogate, which
- * cannot be encoded, becomes U+FFFD); an empty folder leaves
- * `folder` out, so Claude asks for one.
- */
-export function claudeLinkFor(destination: ClaudeDestination, prompt: string, folder: string): string {
-  const base = `claude://${destination}/new?q=${encodeURIComponent(wellFormed(prompt))}`;
-  const chosen = folder.trim();
-  return chosen === '' ? base : `${base}&folder=${encodeURIComponent(wellFormed(chosen))}`;
-}
-
-/**
- * The longest address the window opens. Measured on Windows by launching
- * `claude://` addresses of growing length: one of 31,041 characters opened
- * and one of 33,041 failed to start, consistent with the 32,767-character command
- * line limit of the process the operating system starts for the link. The
- * margin keeps clear of it, and a prompt this long is far past what is
- * reviewed in a window. Other systems were not measured.
- */
-export const MAX_CLAUDE_LINK_LENGTH = 30_000;
-
-/**
- * Ends every prompt, whatever it says before: stop before anything that sends,
- * posts, buys or confirms, and report back to Cockpit naming this run.
- */
-export function claudeClosingFor(runId: string): string {
-  return [
-    'Stop before anything that sends, posts, buys or confirms, and ask me first.',
-    `When you are done, or need me, report back to Cockpit through its connection, naming this run: ${runId}`,
-  ].join(' ');
-}
-
-/**
- * The prompt a send starts as: the Item's words, a link to each of its files,
- * and the closing. No empty line is left where there is no description.
- */
-export function plainPromptFor(item: {
-  title: string;
-  description: string | null;
-  attachments: readonly AttachmentForAgent[];
-  runId: string;
-}): string {
-  const { description, section } = attachmentsForClaude(item.description, item.attachments);
-  return [item.title, description.trim(), section, claudeClosingFor(item.runId)].filter(Boolean).join('\n\n');
-}

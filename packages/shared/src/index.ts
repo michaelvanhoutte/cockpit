@@ -2,6 +2,7 @@ export * from './ids.js';
 export * from './domain/agent.js';
 export * from './domain/agent-run.js';
 export * from './domain/attachment.js';
+export * from './domain/claude-prompt.js';
 export * from './domain/claude-send.js';
 export * from './domain/demo-address.js';
 export * from './domain/duplicate.js';

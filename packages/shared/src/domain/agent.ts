@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { attachmentAddress, isReadableByClaude } from './attachment.js';
+import { attachmentsForClaude } from './claude-prompt.js';
 import { workspaceNameSchema } from './item.js';
 import { hexColorSchema, WORKSPACE_THEMES } from './workspace-themes.js';
 
@@ -180,44 +180,4 @@ export function agentMessageFor(
     })
     .trim();
   return [agentPreambleFor(agent.name, item.title), body, section].filter(Boolean).join('\n\n');
-}
-
-/**
- * What an Item's words and files become for a Claude session, which cannot
- * sign in to the app: the description with an inline file's signed-in address
- * swapped for its link, and the section listing every file ("Send an item's
- * attachments along when an agent starts", issue 573). Shared by an Agent's
- * message and by the prompt sent to Cowork or Claude Code.
- */
-export function attachmentsForClaude(
-  rawDescription: string | null,
-  attachments: readonly AttachmentForAgent[],
-): { description: string; section: string } {
-  const readable = attachments.filter(
-    (attachment): attachment is AttachmentForAgent & { link: string } =>
-      attachment.link !== undefined && isReadableByClaude(attachment.contentType),
-  );
-  const links = new Map(readable.map((attachment) => [attachmentAddress(attachment.id), attachment.link]));
-  // Only the app's own relative address, where it starts a word or a link
-  // target - never the tail of some other absolute URL.
-  const description = (rawDescription ?? '').replace(
-    /(^|[\s(<[])(\/v1\/attachments\/[^\s)>\]]+)/g,
-    (whole, before: string, address: string) => (links.has(address) ? before + links.get(address) : whole),
-  );
-  return { description, section: attachmentsSection(attachments, readable) };
-}
-
-function attachmentsSection(
-  attachments: readonly AttachmentForAgent[],
-  readable: readonly (AttachmentForAgent & { link: string })[],
-): string {
-  if (attachments.length === 0) return '';
-  const lines = attachments.map((attachment) => {
-    const link = readable.find((one) => one.id === attachment.id)?.link;
-    return link ? `- ${attachment.filename}: ${link}` : `- ${attachment.filename} - not readable by Claude`;
-  });
-  return [
-    'Attachments - download each link and read the file. A link works for an hour, without signing in.',
-    ...lines,
-  ].join('\n');
 }

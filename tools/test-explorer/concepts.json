@@ -404,6 +404,7 @@
         "packages/shared/src/domain/agent.ts",
         "packages/shared/src/domain/agent-run.ts",
         "packages/shared/src/domain/claude-send.ts",
+        "packages/shared/src/domain/claude-prompt.ts",
         "packages/shared/src/api/claude-links.ts",
         "apps/api/src/domain/claude-sends.ts",
         "apps/web/src/openClaude.ts",
