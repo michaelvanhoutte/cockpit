@@ -13,7 +13,7 @@ import { RowMenu } from './Menu';
  * this window alone asks for is worth its own weight rather than the initial
  * bundle's (`bundle:budget`).
  */
-const connectedAppsQuery = queryOptions({
+export const connectedAppsQuery = queryOptions({
   queryKey: ['connectedApps'],
   queryFn: async () => {
     const res = await api.v1['connected-apps'].$get();

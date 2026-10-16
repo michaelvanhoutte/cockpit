@@ -1,4 +1,4 @@
-import { STARTING_GIVES_UP_AFTER_MS, type AgentRun } from '@cockpit/shared';
+import { CLAUDE_DESTINATION_NAMES, STARTING_GIVES_UP_AFTER_MS, type AgentRun } from '@cockpit/shared';
 import { whereALinkOpens } from './itemSource';
 
 /**
@@ -12,7 +12,7 @@ import { whereALinkOpens } from './itemSource';
  * or may not have started a session, which is exactly what `unknown` says.
  */
 export interface RunChip {
-  /** Who started it: the Agent's name, or "a deleted agent". */
+  /** Who started it: the Agent's name, or "a deleted agent"; empty for an Item sent to Claude, whose chip needs no one named. */
   agent: string;
   text: string;
   /** The session to open, where there is one. */
@@ -26,6 +26,19 @@ export interface RunChip {
 }
 
 export function runChipFor(run: AgentRun, now: number): RunChip {
+  // An Item sent to Cowork or Claude Code from its row ("Send an item to Cowork
+  // or Claude Code with its prompt reviewed first", issue 1159): it was
+  // opened in Claude's desktop app, and nothing yet says more than that.
+  if (run.destination) {
+    return {
+      agent: '',
+      text: `Sent to ${CLAUDE_DESTINATION_NAMES[run.destination]}`,
+      href: null,
+      hint: 'Opened in Claude. Press send there.',
+      trouble: false,
+      waiting: false,
+    };
+  }
   const agent = run.agentName ?? 'a deleted agent';
   // A simulated run's session is a demo address, which opens Cockpit's own page
   // for it ("Show agents at work in the guest demo, with simulated runs", issue 774).

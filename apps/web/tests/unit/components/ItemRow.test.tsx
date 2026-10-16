@@ -2449,6 +2449,43 @@ describe('Agents', () => {
       expect(screen.queryByRole('menuitem', { name: /^Start / })).toBeNull();
     });
 
+    describe('Send to Claude…', () => {
+      const SENT = aRun({ agentId: '', agentName: null, sessionUrl: null, destination: 'cowork', stage: 'sent' });
+
+      it('is offered on a desk-width row, the Inbox’s included, and opens the window for this row', async () => {
+        const user = userEvent.setup();
+        onAScreen(A_DESK);
+        const onSendToClaude = vi.fn();
+        aRow({ extra: { onSendToClaude } });
+
+        await user.click(screen.getByLabelText('Item actions'));
+        await user.click(await screen.findByRole('menuitem', { name: 'Send to Claude…' }));
+
+        expect(onSendToClaude).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        { situation: 'a phone', width: A_PHONE, run: undefined },
+        { situation: 'a row Claude is already on', width: A_DESK, run: SENT },
+      ])('is not offered on $situation', async ({ width, run }) => {
+        const user = userEvent.setup();
+        onAScreen(width);
+        aRow({ extra: { onSendToClaude: vi.fn(), openRun: run } });
+
+        await user.click(screen.getByLabelText('Item actions'));
+        await screen.findAllByRole('menuitem');
+
+        expect(screen.queryByRole('menuitem', { name: 'Send to Claude…' })).toBeNull();
+      });
+
+      it('says Sent to Cowork on the row, with no Agent named, in the Inbox as anywhere', () => {
+        aRow({ extra: { openRun: SENT } });
+
+        expect(screen.getByText('Sent to Cowork')).toBeInTheDocument();
+        expect(screen.queryByText(/ · Sent to/)).toBeNull();
+      });
+    });
+
     it.each([
       { situation: 'the row’s ✓', run: aRun(), act: (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Mark done' })), name: 'set_done', turned: { done: false }, named: aRun().id },
       { situation: 'Status ▸ Done', run: aRun(), act: (user: ReturnType<typeof userEvent.setup>) => chooseStatus(user, 'Done'), name: 'set_done', turned: { done: false }, named: aRun().id },

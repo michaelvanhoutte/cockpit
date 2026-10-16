@@ -11,6 +11,8 @@ import {
   changeUserSchema,
   userDeletedSchema,
   agentMessageFor,
+  attachmentLinksRequestSchema,
+  attachmentLinksSchema,
   claudeCodeHooksSchema,
   claudeCodeOutcomeSchema,
   REMOTE_SESSION_HEADER,
@@ -786,6 +788,27 @@ const connectedAppsRoute = createRoute({
     200: {
       description: 'The apps this person allowed, oldest first',
       content: { 'application/json': { schema: connectedAppListSchema } },
+    },
+  },
+});
+
+/**
+ * The address each of these files opens at for a Claude session that cannot
+ * sign in ("Send an item to Cowork or Claude Code with its prompt reviewed
+ * first", issue 1159). Made for this account only, and checked when opened
+ * (`auth/attachment-link.ts`), so an id that is not this account's file
+ * yields an address that opens nothing.
+ */
+const attachmentLinksRoute = createRoute({
+  method: 'post',
+  path: '/v1/attachment-links',
+  request: {
+    body: { required: true, content: { 'application/json': { schema: attachmentLinksRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'One address per file, none where links cannot be made',
+      content: { 'application/json': { schema: attachmentLinksSchema } },
     },
   },
 });
@@ -1636,6 +1659,24 @@ const routes = app
     await settle({ status: 'link_lost' });
     return c.json({ alreadyStarted: false, status: 'link_lost' }, 200);
   })
+  .openapi(attachmentLinksRoute, async (c) => {
+    const { attachmentIds } = c.req.valid('json');
+    const key = await attachmentLinkKey(c.env.CONNECTOR_CREDENTIAL_KEY);
+    if (!key) return c.json({ links: {} }, 200);
+    const now = new Date();
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    const links: Record<string, string> = {};
+    for (const attachmentId of attachmentIds) {
+      // Only a file of this account on an Item that is not deleted gets an address.
+      if (!(await account.attachmentForDownload(attachmentId))) continue;
+      links[attachmentId] = new URL(
+        `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(key, { accountName, attachmentId }, now)}`,
+        c.env.APP_ORIGIN,
+      ).toString();
+    }
+    return c.json({ links }, 200);
+  })
   .openapi(rewriteHistoryForWorkspaceRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -1754,6 +1795,10 @@ const routes = app
     }
     return c.json(await account.applyChange('set_connection_files_by_name', cmd), 200);
   })
+  .openapi(
+    commandRoute('send_item_to_claude', { conflict: 'The item is done, dismissed, or Claude is already on it' }),
+    async (c) => c.json(await change(c, 'send_item_to_claude', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => {
