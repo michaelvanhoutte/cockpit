@@ -105,7 +105,7 @@ describe('Agents', () => {
           run: { stage: 'ready', sessionUrl: 'https://claude.ai/code/session_01', resultUrl: 'https://example.com/draft', note: 'Two drafts, A and B' },
           text: 'Ready ↗',
           href: 'https://example.com/draft',
-          hint: 'Two drafts, A and B',
+          hint: 'Opens example.com - Two drafts, A and B',
           waiting: false,
         },
         {
@@ -113,7 +113,7 @@ describe('Agents', () => {
           run: { stage: 'ready', sessionUrl: 'https://claude.ai/code/session_01' },
           text: 'Ready ↗',
           href: 'https://claude.ai/code/session_01',
-          hint: null,
+          hint: 'Opens claude.ai',
           waiting: false,
         },
         {
@@ -139,6 +139,16 @@ describe('Agents', () => {
         const chip = sent({ stage: 'ready', resultUrl: 'javascript:alert(1)', sessionUrl: 'http://claude.ai/x' });
 
         expect([chip.href, chip.text]).toEqual([null, 'Ready']);
+      });
+
+      it('names the real host a Ready link opens, whatever the note says', () => {
+        const chip = sent({
+          stage: 'ready',
+          resultUrl: 'https://claude.ai.evil.example/login',
+          note: 'Opens claude.ai',
+        });
+
+        expect(chip.hint).toBe('Opens claude.ai.evil.example - Opens claude.ai');
       });
 
       it('opens the session from the menu even when the chip opens what Claude made', () => {

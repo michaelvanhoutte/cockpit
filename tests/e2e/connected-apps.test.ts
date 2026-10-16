@@ -195,7 +195,7 @@ test.describe('MCP connections', () => {
       const ready = row.getByRole('link', { name: 'Ready ↗' });
       await expect(ready).toHaveAttribute('href', 'https://example.com/the-draft');
       await expect(ready).toHaveAttribute('rel', 'noopener noreferrer');
-      await expect(ready).toHaveAttribute('title', 'Two drafts, A and B');
+      await expect(ready).toHaveAttribute('title', 'Opens example.com - Two drafts, A and B');
 
       await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: /^Dismiss/ }), isMobile);

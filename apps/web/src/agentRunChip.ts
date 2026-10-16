@@ -25,6 +25,15 @@ export interface RunChip {
   waiting: boolean;
 }
 
+/** The host a link really opens, which a note cannot rename; empty for an address that does not parse. */
+function hostOf(link: string): string {
+  try {
+    return new URL(link).host;
+  } catch {
+    return '';
+  }
+}
+
 function openable(link: string | null | undefined): string | null {
   return link?.startsWith('https://') ? link : null;
 }
@@ -57,7 +66,7 @@ export function runChipFor(run: AgentRun, now: number): RunChip {
           ...base,
           text: `Ready${opens ? ' ↗' : ''}`,
           href: opens,
-          hint: run.note ?? null,
+          hint: opens ? `Opens ${hostOf(opens)}${run.note ? ` - ${run.note}` : ''}` : (run.note ?? null),
         };
       case 'needs_you':
         return {
