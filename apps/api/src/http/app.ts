@@ -1660,8 +1660,11 @@ const routes = app
     if (!key) return c.json({ links: {} }, 200);
     const now = new Date();
     const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
     const links: Record<string, string> = {};
     for (const attachmentId of attachmentIds) {
+      // Only a file of this account on an Item that is not deleted gets an address.
+      if (!(await account.attachmentForDownload(attachmentId))) continue;
       links[attachmentId] = new URL(
         `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(key, { accountName, attachmentId }, now)}`,
         c.env.APP_ORIGIN,

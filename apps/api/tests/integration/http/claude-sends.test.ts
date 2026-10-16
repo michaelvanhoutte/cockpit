@@ -311,17 +311,14 @@ describe('Agents', () => {
       expect(new Uint8Array(await opened.arrayBuffer())).toEqual(bytes);
     });
 
-    it('opens nothing for an id that is not this account’s file', async () => {
+    it('makes no address for an id that is not this account’s file', async () => {
       const res = await asUser('http://cockpit.test/v1/attachment-links', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ attachmentIds: [nextId()] }),
       });
-      const { links } = (await res.json()) as { links: Record<string, string> };
 
-      const opened = await SELF.fetch(Object.values(links)[0]!);
-
-      expect(opened.status).toBe(404);
+      expect({ status: res.status, body: await res.json() }).toEqual({ status: 200, body: { links: {} } });
     });
   });
 });
