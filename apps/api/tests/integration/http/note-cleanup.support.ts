@@ -356,7 +356,14 @@ export async function priorityOf(itemId: string) {
 export async function historyOf(
   itemId: string,
 ): Promise<
-  { id: string; status: string; prioritySet: string | null; dueDateSet: string | null; workspaceSet: string | null }[]
+  {
+    id: string;
+    status: string;
+    prioritySet: string | null;
+    dueDateSet: string | null;
+    workspaceSet: string | null;
+    panelsFiledOn: string[];
+  }[]
 > {
   const response = await asUser(`http://cockpit.test/v1/items/${itemId}/rewrite-history`);
   expect(response.status).toBe(200);
@@ -368,6 +375,7 @@ export async function historyOf(
         prioritySet: string | null;
         dueDateSet: string | null;
         workspaceSet: string | null;
+        panelsFiledOn: string[];
       }[];
     }
   ).entries;

@@ -1632,6 +1632,13 @@ export const rewriteHistory = sqliteTable(
      * reference, so a rename or a delete never rewrites what happened.
      */
     workspaceSet: text('workspace_set'),
+    /**
+     * The names of the Panels the attempt filed the note on from what it said,
+     * as a JSON array, NULL where it filed none ("List the panels a capture was
+     * filed on in What Cockpit changed", issue 1117) - the names as they were
+     * then, so a rename or a delete never rewrites what happened.
+     */
+    panelsFiledOn: text('panels_filed_on'),
   },
   (t) => [
     // Read per workspace, most recent first - the account-wide table opened

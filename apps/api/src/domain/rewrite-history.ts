@@ -41,6 +41,8 @@ export interface RewriteOutcome {
   dueDateSet?: string | null;
   /** The name of the Workspace this attempt settled the item in from what the note said, kept the same way ("Settle an Any workspace capture in the workspace you name", issue 1078). */
   workspaceSet?: string | null;
+  /** The names of the Panels this attempt filed the note on, kept the same way ("List the panels a capture was filed on in What Cockpit changed", issue 1117). */
+  panelsFiledOn?: string[] | null;
 }
 
 /** One row as a rewrite-history table reads it back, joined to the Panels it names, if any. */
@@ -61,4 +63,5 @@ export interface RewriteHistoryEntryRow {
   prioritySet: Priority | null;
   dueDateSet: string | null;
   workspaceSet: string | null;
+  panelsFiledOn: string[];
 }

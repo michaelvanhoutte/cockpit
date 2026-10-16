@@ -50,6 +50,7 @@ function aRefinement(overrides: Partial<RewriteHistoryEntry> = {}): RewriteHisto
     prioritySet: null,
     dueDateSet: null,
     workspaceSet: null,
+    panelsFiledOn: [],
     ...overrides,
   };
 }
@@ -276,6 +277,25 @@ describe('What Cockpit changed', () => {
       } else {
         expect(within(line!.says).getByRole('deletion')).toHaveTextContent('Any workspace');
         expect(within(line!.says).getByRole('insertion')).toHaveTextContent(settled);
+      }
+    });
+  });
+
+  /** "List the panels a capture was filed on in What Cockpit changed" (issue 1117). */
+  describe('a refinement lists the panels it filed the item on, and no panels where it filed none', () => {
+    it.each([
+      { situation: 'it filed it on two', panelsFiledOn: ['Admin & money', 'This week'], filed: 'Admin & money, This week' },
+      { situation: 'it filed none', panelsFiledOn: [] as string[], filed: null },
+    ])('$situation', async ({ panelsFiledOn, filed }) => {
+      const dialog = await openWith([aRefinement({ titleAfter: 'Call Bob', panelsFiledOn })]);
+
+      const lines = await openTheRow(dialog);
+      const line = lines.find((candidate) => candidate.field === 'Panels');
+      if (filed === null) {
+        expect(line).toBeUndefined();
+      } else {
+        expect(within(line!.says).getByRole('deletion')).toHaveTextContent('None');
+        expect(within(line!.says).getByRole('insertion')).toHaveTextContent(filed);
       }
     });
   });

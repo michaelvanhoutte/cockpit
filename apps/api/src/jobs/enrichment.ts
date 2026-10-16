@@ -649,6 +649,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   }
   // The Workspace the store settled the Item in, by name, for the history.
   const settledIn = whereSaid?.tree.find((workspace) => workspace.id === fieldsSet.workspaceId) ?? null;
+  const panelsAsNamed = whereSaid?.tree.flatMap((w) => w.dashboards.flatMap((d) => d.panels)) ?? [];
   const textsOutcome = {
     titleAfter: written.applied ? read.proposal.title : null,
     descriptionAfter: written.applied ? read.proposal.message : null,
@@ -658,6 +659,11 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     prioritySet: fieldsSet.priority ?? null,
     dueDateSet: fieldsSet.dueDate ?? null,
     workspaceSet: settledIn?.name ?? null,
+    // The Panels it filed on, by the names they had when filed (issue 1117).
+    panelsFiledOn: (fieldsSet.filedOnPanelIds ?? []).flatMap((id) => {
+      const panel = panelsAsNamed.find((p) => p.id === id);
+      return panel ? [panel.name] : [];
+    }),
   };
   const fieldChanged = Object.keys(fieldsSet).length > 0;
   // Recorded the moment the texts settle, with the Panel as the item had it,

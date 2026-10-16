@@ -20,6 +20,7 @@ const FIELD_LABEL: Record<ChangedField, string> = {
   priority: 'Priority',
   dueDate: 'Due date',
   workspace: 'Workspace',
+  panels: 'Panels',
 };
 
 export const WHY: Record<RefinementScope, string> = {
@@ -55,6 +56,10 @@ function lineFor(entry: RewriteHistoryEntry, field: ChangedField): FieldLine {
   }
   if (field === 'workspace') {
     return { field, kind: 'changed', before: 'Any workspace', after: entry.workspaceSet ?? 'Any workspace' };
+  }
+  if (field === 'panels') {
+    // Shown only where it filed the note, which it only does onto an item that was in none.
+    return { field, kind: 'changed', before: 'None', after: entry.panelsFiledOn.join(', ') };
   }
   if (field === 'suggestedPanel') {
     if (entry.looksAt === null) return { field, kind: 'not-recorded' };

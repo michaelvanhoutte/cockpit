@@ -307,6 +307,48 @@ describe('Capture', () => {
     });
   });
 
+  /** "List the panels a capture was filed on in What Cockpit changed" (issue 1117). */
+  describe('what Cockpit changed records the panels a note was filed on, by the names they had then', () => {
+    it('records both names, in the order they were filed', async () => {
+      theModelReadsAPlace({ panels: ['Admin & money', 'This week'] });
+      const itemId = await captureANote({ workspaceDecided: false });
+      await untilTheChangeIsRecorded(itemId);
+
+      expect((await historyOf(itemId))[0]?.panelsFiledOn).toEqual(['Admin & money', 'This week']);
+    });
+
+    it('still reads the old name once a panel is renamed', async () => {
+      theModelReadsAPlace({ panels: ['Admin & money'] });
+      const itemId = await captureANote({ workspaceDecided: false });
+      await untilTheChangeIsRecorded(itemId);
+
+      await inTheStore((sql) => sql.exec(`UPDATE panels SET name = 'Paperwork', folded_name = 'paperwork' WHERE id = '${ADMIN}'`));
+
+      expect((await historyOf(itemId))[0]?.panelsFiledOn).toEqual(['Admin & money']);
+    });
+
+    it('records none where it filed on none', async () => {
+      theModelReadsAPlace({ panels: ['Groceries'] });
+      const itemId = await captureANote({ workspaceDecided: false });
+      await untilTheChangeIsRecorded(itemId);
+
+      expect((await historyOf(itemId))[0]?.panelsFiledOn).toEqual([]);
+    });
+
+    it('keeps the panels an earlier delivery filed on when the whole reading is delivered again', async () => {
+      theModelReadsAPlace({ panels: ['Admin & money'] });
+      const itemId = await captureANote({ workspaceDecided: false });
+      await untilTheChangeIsRecorded(itemId);
+      const [first] = await historyOf(itemId);
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: first!.id }), env);
+
+      const history = await historyOf(itemId);
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({ status: 'rewritten', panelsFiledOn: ['Admin & money'] });
+    });
+  });
+
   describe('every open tab is told a note filed where it said has moved', () => {
     it('tells the tabs of every workspace, whichever they are showing', async () => {
       // A first reading names no place, so the item waits in every Inbox.

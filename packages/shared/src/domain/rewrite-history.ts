@@ -64,6 +64,8 @@ export const rewriteHistoryEntrySchema = z.object({
   dueDateSet: z.iso.date().nullable(),
   /** The name of the Workspace the refinement settled the item in, from what the note said; null where it settled none ("Settle an Any workspace capture in the workspace you name", issue 1078). The name as it was then, so a later rename never rewrites what happened. */
   workspaceSet: z.string().nullable(),
+  /** The names of the Panels the refinement filed the note on, from what it said; empty where it filed none ("List the panels a capture was filed on in What Cockpit changed", issue 1117). The names as they were then, so a later rename or delete never rewrites what happened. */
+  panelsFiledOn: z.string().array(),
 });
 export type RewriteHistoryEntry = z.infer<typeof rewriteHistoryEntrySchema>;
 

@@ -70,6 +70,7 @@ function anAttempt(overrides: Partial<RewriteHistoryEntry> = {}): RewriteHistory
     prioritySet: null,
     dueDateSet: null,
     workspaceSet: null,
+    panelsFiledOn: [],
     ...overrides,
   };
 }
