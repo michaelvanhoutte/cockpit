@@ -102,7 +102,7 @@ async function captureWithoutAWorkspace(
   // driven. Enter alone is a new line now, which is what a box of several lines
   // means.
   await press(page.getByRole('button', { name: 'Capture' }), isMobile);
-  await expect(itemRow(page, title)).toBeVisible();
+  await expect(capturedLine(page, title)).toBeVisible();
   await expectNoSidewaysScroll(page);
 }
 

@@ -802,7 +802,7 @@ export function itemRow(page: Page, title: string): Locator {
  */
 /** The line beside Capture's button saying what was just captured, with its Undo. */
 export const capturedLine = (page: Page, note: string) =>
-  page.getByRole('status').filter({ hasText: `Captured “${note}”` });
+  page.getByRole('status').filter({ hasText: `Captured “${note}` });
 
 export async function capture(page: Page, title: string, isMobile: boolean): Promise<void> {
   await openCapture(page, isMobile);
