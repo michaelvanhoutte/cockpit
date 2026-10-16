@@ -230,6 +230,21 @@ test.describe('Connector management', () => {
       await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
       await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
 
+      // Gmail files by label too (issue 1148): the same tick box on Connect,
+      // worded from the manifest, and the answer given is the row's. The stand-in
+      // mailbox carries no label but Cockpit, so what lands on a Panel is held
+      // at the levels below (apps/api/tests/integration/connectors/pulled-names.test.ts).
+      await press(page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      const filesByLabel = gmailAsked.getByRole('checkbox', { name: 'File it on the panel named after its label' });
+      await expect(filesByLabel).not.toBeChecked();
+      await press(filesByLabel, isMobile);
+      await press(gmailAsked.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+      await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(/^Gmail · Labelled Cockpit · files by label/)).toBeVisible();
+      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+
       // Outlook, a registered connector like the rest ("Connect Outlook from
       // Settings, wherever the Microsoft client is set", issue 1048): its
       // question, with what to know about the organisation before leaving, and
