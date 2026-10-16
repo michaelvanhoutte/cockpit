@@ -512,4 +512,57 @@ test.describe('Agents', () => {
       await deleteWorkspace(page, workspace, isMobile);
     });
   });
+
+  test.describe('an item is sent to Claude from its row, and the row says it went', () => {
+    // F3, because the menu entry, the window over the screen and the chip are
+    // drawn only in a real browser. The address, the prompt and the Run's rules
+    // are not re-proved here: they are claude-send.test.ts's and
+    // claude-sends.test.ts's. Opening Claude's desktop app is outside the
+    // browser, so the walk stops at the chip.
+    test('offers Send to Claude… at a desk, opens the window, sends the edited prompt, and shows Sent to Cowork; a phone has no entry', async ({
+      page,
+      isMobile,
+    }) => {
+      await openFirstWorkspace(page, isMobile);
+      // A phone's Inbox is a screen of its own, reached from this workspace.
+      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      const title = uniqueTitle('Pay the invoice');
+      await capture(page, title, isMobile);
+
+      await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+      if (isMobile) {
+        await expect(page.getByRole('menuitem', { name: 'Open', exact: true })).toBeVisible();
+        await expect(page.getByRole('menuitem', { name: 'Send to Claude…' })).toHaveCount(0);
+        await page.keyboard.press('Escape');
+        return;
+      }
+
+      await press(page.getByRole('menuitem', { name: 'Send to Claude…' }), isMobile);
+      const review = page.getByRole('dialog', { name: `Send “${title}” to Claude` });
+      await expect(review).toBeVisible();
+      const prompt = review.getByLabel('Prompt');
+      await expect(prompt).toHaveValue(new RegExp(`^${title}`));
+      await prompt.fill(`${title}\n\nWho do we pay first?`);
+      await review.getByLabel('Folder').fill('C:\\GitHub\\Cockpit');
+
+      // Open records the Run first; the `claude://` navigation after it has no app to open here.
+      const sent = page.waitForResponse(
+        (response) => response.request().method() === 'POST' && /\/v1\/commands\/send_item_to_claude$/.test(response.url()),
+      );
+      await press(review.getByRole('button', { name: /Open in Cowork/ }), isMobile);
+      expect((await sent).status()).toBe(200);
+
+      await expect(review).toHaveCount(0);
+      await expect(itemRow(page, title).getByText('Sent to Cowork')).toBeVisible();
+      // Claude is on it, so the row offers no second send.
+      await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+      await expect(page.getByRole('menuitem', { name: 'Send to Claude…' })).toHaveCount(0);
+      await page.keyboard.press('Escape');
+
+      // Dismiss ends the Run, as it ends any.
+      await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: /^Dismiss/ }), isMobile);
+      await expect(itemRow(page, title)).toHaveCount(0);
+    });
+  });
 });

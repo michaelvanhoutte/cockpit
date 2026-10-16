@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { claudeDestinationSchema } from './claude-send.js';
 
 /**
  * A run: one Agent started on one Item through its Workspace's Claude Code
@@ -42,6 +43,19 @@ export const agentRunSchema = z.object({
    * working.
    */
   waiting: z.boolean().default(false),
+  /**
+   * Where an Item was sent to Claude, for a Run made by *Send to Claude…*
+   * (issue 1159) rather than by an Agent - which names no Agent (its `agentId` is empty), and whose
+   * status is `working` for want of a better one the stored list accepts. Null
+   * for an Agent's run; absent in an answer from before this field, which reads the same.
+   */
+  destination: claudeDestinationSchema.nullable().optional(),
+  /** The folder it was sent to open in; null where none was chosen. */
+  folder: z.string().nullable().optional(),
+  /** Where a sent Run stands - `sent` until Claude reports back; null for an Agent's run. */
+  stage: z.string().nullable().optional(),
+  /** What the Run made, once Claude reports it. */
+  resultUrl: z.string().nullable().optional(),
 });
 export type AgentRun = z.infer<typeof agentRunSchema>;
 

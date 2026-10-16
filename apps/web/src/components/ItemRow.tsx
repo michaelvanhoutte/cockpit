@@ -94,6 +94,8 @@ export function ItemRow({
   selecting,
   alsoIn = EMPTY_ALSO_IN,
   agentsHere,
+  openRun,
+  onSendToClaude,
 }: {
   item: Item;
   /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
@@ -242,6 +244,19 @@ export function ItemRow({
     run: AgentRun | undefined;
     start: (agent: Agent, prompt?: string) => Promise<void>;
   };
+  /**
+   * This Item's open run wherever it is drawn, the Inbox's included, which
+   * `agentsHere` is not: an Item sent to Claude shows its chip there too
+   * ("Send an item to Cowork or Claude Code with its prompt reviewed first",
+   * issue 1159). `agentsHere.run` is the same run where both are given.
+   */
+  openRun?: AgentRun | undefined;
+  /**
+   * Opens the review window for sending this Item to Cowork or Claude Code.
+   * Absent where the list offers none; the row also leaves the entry off a
+   * phone, where `claude://` has no app to open.
+   */
+  onSendToClaude?: (from: HTMLElement | null) => void;
 }) {
   const command = useCommand();
   const send = useSendCommand();
@@ -303,7 +318,7 @@ export function ItemRow({
   const [sending, setSending] = useState(false);
   /** Why the last start from this row was refused, shown beside it until the next one. */
   const [startRefusal, setStartRefusal] = useState<string | null>(null);
-  const run = agentsHere?.run;
+  const run = agentsHere?.run ?? openRun;
   /**
    * Redrawn once a run still starting reaches the moment the row stops
    * believing it, rather than whenever something else happens to redraw the
@@ -764,6 +779,19 @@ export function ItemRow({
       // row - the way a keyboard starts one, since it has no drag. The
       // ellipsis says a box opens first; the tag says it is an agent.
       [
+        onSendToClaude && roomBesideTheMenu && !runBlocksAStart(run) && (
+          <M.Item
+            key="send-to-claude"
+            className={menuItemClass}
+            onSelect={() => {
+              // The window takes the focus itself, like the pickers.
+              opening.current = true;
+              onSendToClaude(trigger.current);
+            }}
+          >
+            Send to Claude…
+          </M.Item>
+        ),
         chip?.href && (
           <M.Item key="session" asChild className={menuItemClass}>
             <a href={chip.href} target="_blank" rel="noopener noreferrer">
@@ -1298,7 +1326,7 @@ export function ItemRow({
                     chip.waiting ? 'bg-due-soft text-due-ink' : 'bg-accent-tint text-accent-deep'
                   }`}
                 >
-                  {chip.agent} · {chip.text}
+                  {chip.agent ? `${chip.agent} · ` : ''}{chip.text}
                 </a>
               ) : (
                 <span
@@ -1307,7 +1335,7 @@ export function ItemRow({
                     chip.trouble ? 'bg-over/15 text-over-deep-ink' : 'bg-accent-tint text-accent-deep'
                   }`}
                 >
-                  {chip.agent} · {chip.text}
+                  {chip.agent ? `${chip.agent} · ` : ''}{chip.text}
                 </span>
               ))}
             <span className="truncate">
