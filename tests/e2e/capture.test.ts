@@ -3,6 +3,7 @@ import type { Locator } from '@playwright/test';
 import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE, TRANSCRIPTION_PATH } from '@cockpit/shared';
 import {
   captureBox,
+  capturedLine,
   closeCapture,
   expect,
   expectNoSidewaysScroll,
@@ -99,7 +100,15 @@ test.describe('Capture', () => {
       const thought = uniqueTitle('Buy milk');
       await captureBox(page).fill(thought);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(thought)).toBeVisible();
+      await expect(capturedLine(page, thought)).toBeVisible();
+
+      // Undo takes it back into the box, and nothing of it stays in the Inbox;
+      // captured again it is the one row there.
+      await press(capturedLine(page, thought).getByRole('button', { name: 'Undo' }), isMobile);
+      await expect(captureBox(page)).toHaveValue(thought);
+      await expect(capturedLine(page, thought)).toHaveCount(0);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(capturedLine(page, thought)).toBeVisible();
 
       // The same box, spoken into: the mic sits in the strip under the note,
       // reachable on this screen. Tapped, it records with a running timer;
@@ -146,10 +155,10 @@ test.describe('Capture', () => {
       await expect(mic).toHaveAttribute('aria-pressed', 'false');
       await expect(page.getByText('Transcribing…')).toHaveCount(0);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(typed)).toBeVisible();
+      await expect(capturedLine(page, typed)).toBeVisible();
       await closeCapture(page, isMobile);
 
-      await expect(itemRow(page, thought)).toBeVisible();
+      await expect(itemRow(page, thought)).toHaveCount(1);
       await expect(inbox(page).getByText(thought)).toBeVisible();
       await expect(itemRow(page, typed)).toBeVisible();
       await expectNoSidewaysScroll(page);
@@ -304,7 +313,7 @@ test.describe('Capture', () => {
           /\/v1\/items\/[^/]+\/attachments$/.test(new URL(response.url()).pathname),
       );
       await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(shared)).toBeVisible();
+      await expect(capturedLine(page, shared)).toBeVisible();
       expect((await uploaded).status()).toBe(201);
 
       // Claimed, so opening Capture again finds nothing of it.
@@ -337,7 +346,7 @@ test.describe('Capture', () => {
       const thought = uniqueTitle('Maybe split the pricing page');
       await captureBox(page).fill(thought);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(thought)).toBeVisible();
+      await expect(capturedLine(page, thought)).toBeVisible();
       await closeCapture(page, isMobile);
 
       await expect(itemRow(page, thought)).toBeVisible();
@@ -356,7 +365,7 @@ test.describe('Capture', () => {
       await captureBox(page).press('ControlOrMeta+a');
       await press(toolbar.getByRole('button', { name: 'bold' }), isMobile);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(bolded)).toBeVisible();
+      await expect(capturedLine(page, bolded)).toBeVisible();
       // Emptied, and still formatted for the next note.
       await expect(captureBox(page)).toHaveText('');
       await expect(page.getByRole('button', { name: 'Format the note' })).toHaveAttribute('aria-pressed', 'true');

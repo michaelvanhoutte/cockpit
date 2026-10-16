@@ -9,8 +9,6 @@ import { CommandRefused, sendCommand, uploadAttachment } from '../../../src/api/
 import {
   CaptureNote,
   NO_WORKSPACE,
-  RECORDING_NOT_TRANSCRIBED,
-  RECORDING_WAITING_FOR_WORDS,
   STILL_LISTED,
   pasteKeyFor,
 } from '../../../src/components/CaptureNote';
@@ -290,13 +288,9 @@ const everythingAsked = () => [
   ...vi.mocked(sendCommand).mock.calls.map(([name]) => name),
   ...held.mutate.mock.calls.map(([args]) => args.name),
 ];
-const justCaptured = () => screen.queryAllByRole('listitem');
-/** The row of Just captured holding this note. */
-const rowOf = (note: string) => {
-  const row = justCaptured().find((one) => within(one).queryByText(note));
-  if (!row) throw new Error(`no row for "${note}"`);
-  return within(row);
-};
+/** The line beside the Capture button, once something has been captured. */
+const captureLine = () => screen.getByText(/^Captured “/);
+const undoButton = () => screen.getByRole('button', { name: 'Undo' });
 
 const aPhoto = () => new File(['bytes'], 'photo.png', { type: 'image/png' });
 /** Matches that file by name, since two `File`s compare equal whatever they hold. */
@@ -466,7 +460,7 @@ describe('Capture', () => {
         situation: 'a server error',
         answer: () => Promise.reject(new CommandRefused(503, 'capture_item failed: 503')),
       },
-    ])('empties the box and reads Waiting to send when $situation', async ({ answer }) => {
+    ])('empties the box and reads 1 waiting to send when $situation', async ({ answer }) => {
       vi.mocked(sendCommand).mockImplementation(answer);
       const user = await thePage();
 
@@ -474,9 +468,7 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       await waitFor(() => expect(box()).toHaveValue(''));
-      await waitFor(() =>
-        expect(rowOf('Ask Ada about the backup window').getByText('Waiting to send')).toBeVisible(),
-      );
+      await waitFor(() => expect(screen.getByText('1 waiting to send')).toBeVisible());
       expect(screen.queryByRole('alert')).toBeNull();
     });
 
@@ -485,14 +477,14 @@ describe('Capture', () => {
       const user = await thePage();
       await user.type(box(), 'Ask Ada about the backup window');
       await user.click(chip('Capture'));
-      await screen.findByText('Waiting to send');
+      await screen.findByText('1 waiting to send');
 
       await reloaded(user);
 
-      expect(
-        await screen.findByText('Ask Ada about the backup window', {}, { timeout: 2_000 }),
-      ).toBeVisible();
-      expect(rowOf('Ask Ada about the backup window').getByText('Waiting to send')).toBeVisible();
+      expect(await screen.findByText('1 waiting to send', {}, { timeout: 2_000 })).toBeVisible();
+      // The line and its Undo belong to the window that captured, not to the capture.
+      expect(screen.queryByText(/^Captured “/)).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     });
 
     /**
@@ -505,13 +497,12 @@ describe('Capture', () => {
       const user = await thePage();
       await user.type(box(), 'Ask Ada about the backup window');
       await user.click(chip('Capture'));
-      await screen.findByText('Waiting to send');
+      await screen.findByText('1 waiting to send');
 
       await forgetEverything(user.client);
       await reloaded(user);
 
-      expect(await screen.findByText('Waiting to send', {}, { timeout: 2_000 })).toBeVisible();
-      expect(rowOf('Ask Ada about the backup window').getByText('Waiting to send')).toBeVisible();
+      expect(await screen.findByText('1 waiting to send', {}, { timeout: 2_000 })).toBeVisible();
     });
 
     it('takes a second capture at once while the first is still sending, and both wait', async () => {
@@ -525,7 +516,7 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       await waitFor(() => expect(box()).toHaveValue(''));
-      await waitFor(() => expect(screen.getAllByText('Waiting to send')).toHaveLength(2));
+      await waitFor(() => expect(screen.getByText('2 waiting to send')).toBeVisible());
     });
 
     /** Inferred: a private window, or storage refused, still captures - the old way. */
@@ -547,7 +538,7 @@ describe('Capture', () => {
       expect((await captured()).payload.message).toBe('Ask Ada about the backup window');
       await waitFor(() => expect(box()).toHaveValue(left));
       if (alert) expect(screen.getByRole('alert')).toHaveTextContent(alert);
-      else expect(await screen.findByText('now')).toBeVisible();
+      else expect(await screen.findByText(/^Captured “Ask Ada/)).toBeVisible();
     });
   });
 
@@ -559,7 +550,7 @@ describe('Capture', () => {
   describe('a waiting capture the server refuses says why and can be put back', () => {
     it.each([
       { situation: 'its workspace was deleted meanwhile', because: 'workspace ws-work not found' },
-    ])('reads Not sent with the reason when $situation, and Put back returns the note and its file', async ({ because }) => {
+    ])('reads 1 not sent with the reason when $situation, and Put back returns the note and its file', async ({ because }) => {
       vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(404, because));
       const user = await thePage();
       await user.click(chip('Work'));
@@ -568,20 +559,23 @@ describe('Capture', () => {
       await user.type(box(), 'Ask Ada about the backup window');
       await user.click(chip('Capture'));
 
-      expect(await screen.findByText(`Not sent: ${because}`)).toBeVisible();
+      expect(await screen.findByText('1 not sent')).toBeVisible();
+      expect(screen.getByText(because)).toBeVisible();
       expect(uploadAttachment).not.toHaveBeenCalled();
       // Chosen afresh before putting it back, so what comes back is visibly the capture's.
       await user.click(chip('Any workspace'));
-      await user.click(rowOf('Ask Ada about the backup window').getByRole('button', { name: 'Put back' }));
+      await user.click(screen.getByRole('button', { name: 'Put back' }));
 
       expect(box()).toHaveValue('Ask Ada about the backup window');
       expect(screen.getByText('photo.png')).toBeVisible();
       expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
-      await waitFor(() => expect(screen.queryByText('Just captured')).toBeNull());
+      await waitFor(() => expect(screen.queryByText('1 not sent')).toBeNull());
       expect(user.outbox.getShown()).toEqual([]);
+      // Back in the box already, so the line offers no second Undo of it.
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     });
 
-    it('lists a note spoken in the Car view as a recording waiting for its words, until it can be transcribed', async () => {
+    it('counts a note spoken in the Car view as waiting to send while its recording waits for its words', async () => {
       // The Worker cannot be reached, so its words stay to be had.
       vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')));
       const store = browserOutboxStore();
@@ -602,8 +596,7 @@ describe('Capture', () => {
 
       await thePage({ store });
 
-      const row = await screen.findByText(RECORDING_WAITING_FOR_WORDS);
-      expect(row.closest('li')).toHaveTextContent('Waiting to send');
+      expect(await screen.findByText('1 waiting to send')).toBeVisible();
       vi.unstubAllGlobals();
     });
 
@@ -626,7 +619,7 @@ describe('Capture', () => {
       const user = await thePage({ store });
       await user.type(box(), 'Half a thought');
 
-      await user.click(rowOf(RECORDING_NOT_TRANSCRIBED).getByRole('button', { name: 'Put back' }));
+      await user.click(await screen.findByRole('button', { name: 'Put back' }));
 
       expect(await screen.findByText('A recording of 0:03, not yet transcribed')).toBeVisible();
       expect(box()).toHaveValue('Half a thought');
@@ -648,7 +641,7 @@ describe('Capture', () => {
       expect(box()).toHaveValue('Ask Ada about the backup window');
       expect(await screen.findByRole('alert')).toHaveTextContent(STILL_LISTED);
       // Still listed, and with nothing left to press that would put it back twice.
-      expect(rowOf('Ask Ada about the backup window').getByText(/^Not sent:/)).toBeVisible();
+      expect(screen.getByText('1 not sent')).toBeVisible();
       expect(screen.queryByRole('button', { name: 'Put back' })).toBeNull();
     });
   });
@@ -683,74 +676,224 @@ describe('Capture', () => {
     });
   });
 
-  describe('what you have just captured is listed under the box, newest first', () => {
-    it('says nothing at all until something has been captured', async () => {
+  /**
+   * "Undo a capture back into the box, in place of the Just captured list"
+   * (issue 1104). The line and the draft Undo puts back are the form's own
+   * memory; where the capture is when Undo is pressed is the outbox's, held
+   * still here by the replaced API client.
+   */
+  describe('after Capture one line says what was captured and where, and Undo takes it back into the box', () => {
+    const dismissals = () =>
+      vi
+        .mocked(sendCommand)
+        .mock.calls.filter(([name]) => name === 'set_dismissed')
+        .map(([, payload]) => payload as { itemId: string; dismissed: boolean });
+    /** Opens File on and files the next note on this Panel of Work. */
+    async function filingOn(user: Awaited<ReturnType<typeof thePage>>, panel: RegExp) {
+      await user.click(chip('Work'));
+      await user.click(screen.getByRole('textbox', { name: 'Find a Panel to file on' }));
+      const list = await screen.findByRole('list', { name: 'Panels to file on' });
+      await user.click(await within(list).findByRole('button', { name: panel }));
+    }
+
+    it('says nothing until something has been captured', async () => {
       await thePage();
 
+      expect(screen.queryByText(/^Captured “/)).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
       expect(screen.queryByText('Just captured')).toBeNull();
     });
 
-    it('lists the note with where it went and how long ago', async () => {
+    it.each([
+      { situation: 'the Inbox', panel: null, goesTo: 'Inbox' },
+      { situation: 'a Panel, named', panel: /Falcon/, goesTo: 'Falcon' },
+    ])('names $situation, with Undo, and empties the box', async ({ panel, goesTo }) => {
       const user = await thePage();
+      if (panel) await filingOn(user, panel);
 
-      await user.click(chip('Work'));
       await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
 
-      const row = await waitFor(() => rowOf('Book the venue deposit'));
-      expect(row.getByText('Work')).toBeInTheDocument();
-      expect(await row.findByText('now')).toBeInTheDocument();
+      await waitFor(() => expect(box()).toHaveValue(''));
+      expect(captureLine()).toHaveTextContent(`Captured “Book the venue deposit” → ${goesTo}`);
+      expect(undoButton()).toBeVisible();
     });
 
-    it('says a note left for later belongs to no workspace yet', async () => {
+    it('names the second capture, and Undo takes back only it', async () => {
       const user = await thePage();
-
-      await user.type(box(), 'Where does this go');
-      await user.click(chip('Capture'));
-
-      expect(await waitFor(() => rowOf('Where does this go').getByText('Any workspace'))).toBeInTheDocument();
-    });
-
-    it('puts the note just captured above the one before it', async () => {
-      const user = await thePage();
-
       await user.type(box(), 'The first one');
       await user.click(chip('Capture'));
       await waitFor(() => expect(box()).toHaveValue(''));
       await user.type(box(), 'The second one');
       await user.click(chip('Capture'));
+      await waitFor(() => expect(captureLine()).toHaveTextContent('The second one'));
+      await waitFor(() => expect(capturedCalls()).toHaveLength(2));
 
-      await waitFor(() => expect(justCaptured()).toHaveLength(2));
-      const rows = justCaptured();
-      expect(within(rows[0]!).getByText('The second one')).toBeInTheDocument();
-      expect(within(rows[1]!).getByText('The first one')).toBeInTheDocument();
+      await user.click(undoButton());
+
+      await waitFor(() => expect(box()).toHaveValue('The second one'));
+      const firstItem = capturedCalls().find((call) => call.payload.message === 'The first one')!.payload.itemId;
+      expect(dismissals().map((one) => one.itemId)).not.toContain(firstItem);
+      expect(screen.queryByText(/^Captured “/)).toBeNull();
     });
 
-    it.each([
-      { situation: 'landed', answer: () => Promise.resolve({ ok: true as const, applied: true }), reads: 'now' },
-      { situation: 'waiting', answer: () => Promise.reject(new TypeError('Failed to fetch')), reads: 'Waiting to send' },
-    ])('says how a capture stands once it is $situation', async ({ answer, reads }) => {
-      vi.mocked(sendCommand).mockImplementation(answer);
+    it('has neither the line nor Undo once the window is opened again', async () => {
       const user = await thePage();
-
       await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
+      await screen.findByRole('button', { name: 'Undo' });
 
-      expect(await waitFor(() => rowOf('Book the venue deposit').getByText(reads))).toBeVisible();
+      await reloaded(user);
+
+      expect(screen.queryByText(/^Captured “/)).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     });
 
-    it.each([
-      { situation: 'landed', answer: () => Promise.resolve({ ok: true as const, applied: true }), reads: 'now' },
-      { situation: 'waiting', answer: () => Promise.reject(new TypeError('Failed to fetch')), reads: 'Waiting to send' },
-    ])('shows the words of a note written with bold once it is $situation', async ({ answer, reads }) => {
-      vi.mocked(sendCommand).mockImplementation(answer);
+    it('puts the note, priority, due date, files and Panels back in the box as captured', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 8, 30, 12) });
+      try {
+        const user = await thePage();
+        await filingOn(user, /Falcon/);
+        await user.click(chip('High priority'));
+        await user.click(chip('Tmrw'));
+        fireEvent.drop(box(), carrying(aPhoto()));
+        await screen.findByText('photo.png');
+        await user.type(box(), 'Send the invoice');
+        await user.click(chip('Capture'));
+        await waitFor(() => expect(box()).toHaveValue(''));
+        expect(screen.queryByText('photo.png')).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Do not file on Falcon' })).toBeNull();
+
+        await user.click(undoButton());
+
+        await waitFor(() => expect(box()).toHaveValue('Send the invoice'));
+        expect(chip('High priority')).toHaveAttribute('aria-pressed', 'true');
+        expect(chip('Tmrw')).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByText('photo.png')).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+        expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('puts Where back on Any workspace for a capture left there', async () => {
       const user = await thePage();
-
-      await user.type(box(), '**Ask Jan** about the audit');
+      await user.type(box(), 'Where does this go');
       await user.click(chip('Capture'));
+      await waitFor(() => expect(box()).toHaveValue(''));
+      await user.click(chip('Work'));
 
-      const row = await waitFor(() => rowOf('Ask Jan about the audit'));
-      expect(await waitFor(() => row.getByText(reads))).toBeVisible();
+      await user.click(undoButton());
+
+      await waitFor(() => expect(box()).toHaveValue('Where does this go'));
+      expect(chip('Any workspace')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    describe('takes the Item back wherever the capture is', () => {
+      it('deletes an entry still unsent, so that nothing is sent', async () => {
+        vi.mocked(sendCommand).mockRejectedValue(new TypeError('Failed to fetch'));
+        const user = await thePage();
+        await user.type(box(), 'Ask Ada about the backup window');
+        await user.click(chip('Capture'));
+        await screen.findByText('1 waiting to send');
+
+        await user.click(undoButton());
+
+        await waitFor(() => expect(box()).toHaveValue('Ask Ada about the backup window'));
+        expect(user.outbox.getShown()).toEqual([]);
+        expect(screen.queryByText('1 waiting to send')).toBeNull();
+        expect(dismissals()).toEqual([]);
+        vi.mocked(sendCommand).mockClear();
+        await act(async () => {
+          await user.outbox.send();
+        });
+        expect(everythingAsked()).toEqual([]);
+      });
+
+      it('waits for the answer to a capture being sent, then dismisses the Item', async () => {
+        let answer: () => void = () => {};
+        vi.mocked(sendCommand).mockImplementation((name) =>
+          name === 'capture_item'
+            ? new Promise((resolve) => {
+                answer = () => resolve({ ok: true as const, applied: true });
+              })
+            : Promise.resolve({ ok: true as const, applied: true }),
+        );
+        const user = await thePage();
+        await user.type(box(), 'Ask Ada about the backup window');
+        await user.click(chip('Capture'));
+        await captured();
+
+        await user.click(undoButton());
+        await settled();
+        // Nothing is dismissed, nor is the box filled, before the answer comes.
+        expect(dismissals()).toEqual([]);
+        expect(box()).toHaveValue('');
+        answer();
+
+        await waitFor(() => expect(dismissals()).toHaveLength(1));
+        expect(dismissals()[0]).toMatchObject({
+          itemId: (await captured()).payload.itemId,
+          dismissed: true,
+        });
+        await waitFor(() => expect(box()).toHaveValue('Ask Ada about the backup window'));
+      });
+
+      it('dismisses an Item that has landed', async () => {
+        const user = await thePage();
+        await user.type(box(), 'Ask Ada about the backup window');
+        await user.click(chip('Capture'));
+        const { payload } = await captured();
+        await waitFor(() => expect(user.outbox.getShown()).toEqual([]));
+
+        await user.click(undoButton());
+
+        await waitFor(() => expect(dismissals()).toHaveLength(1));
+        expect(dismissals()[0]).toMatchObject({ itemId: payload.itemId, dismissed: true });
+        await waitFor(() => expect(box()).toHaveValue('Ask Ada about the backup window'));
+      });
+
+      it('dismisses once however often Undo is pressed', async () => {
+        const user = await thePage();
+        await user.type(box(), 'Ask Ada about the backup window');
+        await user.click(chip('Capture'));
+        await captured();
+        await waitFor(() => expect(user.outbox.getShown()).toEqual([]));
+
+        const undo = undoButton();
+        await user.click(undo);
+        fireEvent.click(undo);
+        await settled();
+
+        expect(dismissals()).toHaveLength(1);
+        expect(box()).toHaveValue('Ask Ada about the backup window');
+      });
+
+      it('keeps the line and the box as they were where the Item cannot be dismissed, and can be pressed again', async () => {
+        const user = await thePage();
+        await user.type(box(), 'Ask Ada about the backup window');
+        await user.click(chip('Capture'));
+        await captured();
+        await waitFor(() => expect(user.outbox.getShown()).toEqual([]));
+        vi.mocked(sendCommand).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+        await user.click(undoButton());
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('That could not be undone. Try again.');
+        expect(box()).toHaveValue('');
+        await user.click(undoButton());
+        await waitFor(() => expect(box()).toHaveValue('Ask Ada about the backup window'));
+      });
+    });
+  });
+
+  describe('captures waiting or refused show as one line, only while there is one', () => {
+    it('shows no line with nothing waiting', async () => {
+      await thePage();
+
+      expect(screen.queryByText(/waiting to send/)).toBeNull();
+      expect(screen.queryByText(/not sent/)).toBeNull();
     });
 
     it('lists only what is waiting or refused after a reload, the landed ones dropping off', async () => {
@@ -767,13 +910,13 @@ describe('Capture', () => {
         await user.click(chip('Capture'));
         await waitFor(() => expect(box()).toHaveValue(''));
       }
-      await waitFor(() => expect(justCaptured()).toHaveLength(3));
+      await waitFor(() => expect(screen.getByText('1 not sent')).toBeVisible());
 
       await reloaded(user);
 
-      await waitFor(() => expect(justCaptured()).toHaveLength(2));
-      expect(rowOf('Waiting').getByText('Waiting to send')).toBeVisible();
-      expect(rowOf('Refused').getByText('Not sent: workspace ws-home not found')).toBeVisible();
+      expect(await screen.findByText('1 waiting to send')).toBeVisible();
+      expect(screen.getByText('1 not sent')).toBeVisible();
+      expect(screen.getByText('workspace ws-home not found')).toBeVisible();
       expect(screen.queryByText('Landed')).toBeNull();
     });
   });
@@ -850,17 +993,17 @@ describe('Capture', () => {
     it('always shows the drag hint and the Add button, even with nothing queued', async () => {
       await thePage();
 
-      expect(screen.getByText('Drag a file here, or')).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Add' })).toBeVisible();
+      expect(screen.getByText(/^or drop/)).toBeVisible();
+      expect(screen.getByRole('button', { name: '+ Add' })).toBeVisible();
     });
 
-    it('replaces the drag hint with the chip once something is queued', async () => {
+    it('keeps the hint beside the chip once something is queued', async () => {
       await thePage();
 
       fireEvent.drop(box(), carrying(aPhoto()));
 
       expect(await screen.findByText('photo.png')).toBeVisible();
-      expect(screen.queryByText('Drag a file here, or')).toBeNull();
+      expect(screen.getByText(/^or drop/)).toBeVisible();
     });
 
     it('queues a file chosen through the picker the same way a dropped one queues', async () => {
@@ -1003,7 +1146,8 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       await captured();
-      const notSent = await screen.findByText(/^Not sent:/);
+      await screen.findByText('1 not sent');
+      const notSent = screen.getByText(/one\.pdf/);
       expect(notSent).toHaveTextContent('"one.pdf" could not be attached.');
       expect(notSent).toHaveTextContent('"two.pdf" could not be attached.');
       expect(uploadAttachment).toHaveBeenCalledTimes(3);
@@ -1208,9 +1352,9 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       expect((await captured()).payload).toMatchObject({ priority: 'low', dueDate: '2026-10-01' });
-      await screen.findByText(/^Not sent:/);
+      await screen.findByText('1 not sent');
       expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'false');
-      await user.click(rowOf('Send the invoice').getByRole('button', { name: 'Put back' }));
+      await user.click(screen.getByRole('button', { name: 'Put back' }));
 
       expect(box()).toHaveValue('Send the invoice');
       expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'true');
@@ -1349,7 +1493,7 @@ describe('Capture', () => {
       await user.type(box(), 'Send the invoice');
       await user.click(chip('Capture'));
       await waitFor(() => expect(capturedCalls().length).toBe(1));
-      await screen.findByText('Waiting to send');
+      await screen.findByText('1 waiting to send');
 
       await act(async () => {
         await user.outbox.send();
@@ -1459,10 +1603,10 @@ describe('Capture', () => {
       await user.click(within(await screen.findByRole('list', { name: 'Panels to file on' })).getByRole('button', { name: /Falcon/ }));
       await user.type(box(), 'Send the invoice');
       await user.click(chip('Capture'));
-      await screen.findByText(/^Not sent:/);
+      await screen.findByText('1 not sent');
       expect(screen.queryByRole('button', { name: 'Do not file on Falcon' })).toBeNull();
 
-      await user.click(rowOf('Send the invoice').getByRole('button', { name: 'Put back' }));
+      await user.click(screen.getByRole('button', { name: 'Put back' }));
 
       expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
     });

@@ -791,6 +791,10 @@ export function itemRow(page: Page, title: string): Locator {
   return page.getByRole('listitem').filter({ hasText: title });
 }
 
+/** The line beside Capture's button saying what was just captured, with its Undo. */
+export const capturedLine = (page: Page, note: string) =>
+  page.getByRole('status').filter({ hasText: `Captured “${note}` });
+
 /**
  * Captures a thought through the header's Capture tab, into the workspace you
  * are in, and waits until it is in the Inbox. Used as arrangement by tests
@@ -806,7 +810,7 @@ export async function capture(page: Page, title: string, isMobile: boolean): Pro
   await captureBox(page).press('ControlOrMeta+Enter');
   // What the form says it just did, which is the only thing on screen that can
   // while the Inbox is behind a window or not drawn at all.
-  await expect(page.getByRole('region', { name: 'Just captured' }).getByText(title)).toBeVisible();
+  await expect(capturedLine(page, title)).toBeVisible();
   await closeCapture(page, isMobile);
   await expect(itemRow(page, title)).toBeVisible();
 }

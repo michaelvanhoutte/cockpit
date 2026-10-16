@@ -2,6 +2,7 @@ import {
   STARTING_WORKSPACE,
   capture,
   captureBox,
+  capturedLine,
   closeCapture,
   openCapture,
   expect,
@@ -101,7 +102,7 @@ async function captureWithoutAWorkspace(
   // driven. Enter alone is a new line now, which is what a box of several lines
   // means.
   await press(page.getByRole('button', { name: 'Capture' }), isMobile);
-  await expect(itemRow(page, title)).toBeVisible();
+  await expect(capturedLine(page, title)).toBeVisible();
   await expectNoSidewaysScroll(page);
 }
 
@@ -189,7 +190,7 @@ test.describe('Capture', () => {
       await box.fill(note);
       // The shortcut rather than the button, which is the other way in.
       await box.press('ControlOrMeta+Enter');
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(note)).toBeVisible();
+      await expect(capturedLine(page, note)).toBeVisible();
       await closeCapture(page, isMobile);
 
       await openTheInboxOf(page, ELSEWHERE, isMobile);
@@ -214,7 +215,7 @@ test.describe('Capture', () => {
       await expectNoSidewaysScroll(page);
       await captureBox(page).fill(filed);
       await captureBox(page).press('ControlOrMeta+Enter');
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(filed)).toBeVisible();
+      await expect(capturedLine(page, filed)).toBeVisible();
       await closeCapture(page, isMobile);
 
       await switchTo(page, ELSEWHERE, isMobile);
@@ -239,7 +240,7 @@ test.describe('Capture', () => {
       await expect(page.getByRole('button', { name: `Do not file on ${fresh}` })).toBeVisible();
       await captureBox(page).fill(onFresh);
       await captureBox(page).press('ControlOrMeta+Enter');
-      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(onFresh)).toBeVisible();
+      await expect(capturedLine(page, onFresh)).toBeVisible();
       await closeCapture(page, isMobile);
 
       await switchTo(page, ELSEWHERE, isMobile);

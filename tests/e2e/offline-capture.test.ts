@@ -1,5 +1,6 @@
 import {
   captureBox,
+  capturedLine,
   closeCapture,
   expect,
   itemRow,
@@ -35,7 +36,7 @@ const A_PNG = Buffer.from(
   'base64',
 );
 
-const justCaptured = (page: Page) => page.getByRole('region', { name: 'Just captured' });
+const waitingLine = (page: Page) => page.getByText('1 waiting to send');
 /** By its address rather than its role: at a desk the window open over it takes the header out of the accessibility tree. */
 const captureTab = (page: Page) => page.locator('header a[href="/capture"]').first();
 
@@ -83,15 +84,15 @@ test.describe('Offline', () => {
       await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
 
       await expect(captureBox(page)).toHaveValue('');
-      const row = justCaptured(page).getByRole('listitem').filter({ hasText: note });
-      await expect(row.getByText('Waiting to send')).toBeVisible();
+      await expect(waitingLine(page)).toBeVisible();
       await expect(captureTab(page)).toHaveText('Capture1');
 
       await page.unroute('**/v1/**');
       await page.context().setOffline(true);
       await page.context().setOffline(false);
 
-      await expect(row.getByText('now')).toBeVisible({ timeout: 15_000 });
+      await expect(waitingLine(page)).toHaveCount(0, { timeout: 15_000 });
+      await expect(capturedLine(page, note)).toBeVisible();
       await expect(captureTab(page)).toHaveText('Capture');
       await closeCapture(page, isMobile);
 
