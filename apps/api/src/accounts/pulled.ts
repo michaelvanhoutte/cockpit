@@ -284,7 +284,10 @@ export function filePulledItem(
     const names = item.names ? namesToRecord(item.names) : null;
     // Every name is new on an Item just made, so each names its Panel - while
     // the connection files by name, and recorded either way.
-    const panelIds = names && holds.filesByName ? panelsNamedBy(names, panelsOf(db, accountName, holds.workspaceId)) : [];
+    const panelIds =
+      names && names.length > 0 && holds.filesByName
+        ? panelsNamedBy(names, panelsOf(db, accountName, holds.workspaceId))
+        : [];
     runCommand(
       db,
       accountName,

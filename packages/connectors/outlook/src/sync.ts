@@ -36,6 +36,15 @@ import {
 /** How many messages Graph is asked for at a time: a listing reads only ids, so a page costs one call whatever its size. */
 const PAGE_SIZE = 100;
 
+/**
+ * How many messages already in one run reports the names of: each report is a
+ * round trip to the host, which counts against the 1,000 calls to Cloudflare's
+ * own services an invocation is allowed, and the first run after names were
+ * reported at all reports every message listed. The rest wait for the next run,
+ * which the run's answer brings forward.
+ */
+export const NAMES_REPORTED_PER_RUN = 400;
+
 /** The choice a connection that holds none follows: the flag, which is offered to start. */
 const DEFAULT_CHOICE: Mark = 'flag';
 
@@ -106,11 +115,17 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
   let moreToDo = false;
   // A message already in whose categories changed since the last report:
   // the listing reads them every run, so this costs no call (issue 1146).
+  let reports = 0;
   for (const messageId of listing.messageIds) {
     if (!known.has(messageId)) continue;
     const names = namesOf(listing.categories[messageId] ?? [], mark);
     const before = reported[messageId];
     if (before && sameNames(before, names)) continue;
+    if (reports === NAMES_REPORTED_PER_RUN) {
+      moreToDo = true;
+      break;
+    }
+    reports += 1;
     await host.reportNames({ sourceId: messageId, names });
     reported[messageId] = names;
   }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { NAMES_REPORTED_PER_RUN } from '../../src/sync.js';
 import { GraphWorld, signedInHost } from './outlook-world.js';
 
 /**
@@ -49,6 +50,25 @@ describe('Connector management', () => {
       await world.connector().sync(second);
 
       expect(second.namesReported).toEqual(reports);
+    });
+
+    it('reports at most its share of messages already in per run, and the rest at the next', async () => {
+      const world = new GraphWorld();
+      const ids = Array.from({ length: NAMES_REPORTED_PER_RUN + 1 }, (_, at) => `m-${at}`);
+      for (const id of ids) world.arrives(id, { flag: 'flagged', categories: ['Customer Atlas'] });
+      const first = signedInHost();
+      // Every message already in from before names were reported, so none has names kept.
+      first.state = { choice: 'flag', seen: ids };
+
+      const answer = await world.connector().sync(first);
+      const second = first.next();
+      await world.connector().sync(second);
+
+      expect({ answer, first: first.namesReported.length, second: second.namesReported.length }).toEqual({
+        answer: { moreToDo: true },
+        first: NAMES_REPORTED_PER_RUN,
+        second: 1,
+      });
     });
   });
 });

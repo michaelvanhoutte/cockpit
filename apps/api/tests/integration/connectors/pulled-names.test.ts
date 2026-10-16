@@ -390,6 +390,20 @@ describe('Connector management', () => {
     });
   });
 
+  describe('names count only from a connector that declares it reports them', () => {
+    it('records and files nothing by the names a connector declaring none sends', async () => {
+      await addPanel('Customer Atlas');
+      const connection = await connect(PLAIN);
+      // On as no route allows for such a connection, so only the host's own guard stands.
+      await inTheStore((sql) => sql.exec('UPDATE connector_accounts SET files_by_name = 1 WHERE id = ?', connection));
+
+      await nextCheck(arrives('m-1', ['Customer Atlas']));
+      await nextCheck(nowNamed('m-1', ['Customer Atlas', 'Admin']));
+
+      expect({ panels: await panelsOf('m-1'), names: await namesRecordedFor('m-1') }).toEqual({ panels: [], names: null });
+    });
+  });
+
   describe('a Workspace never files onto another’s Panel', () => {
     it('leaves a message whose category names only another Workspace’s Panel in the Inbox', async () => {
       await alsoWorkspaces();
