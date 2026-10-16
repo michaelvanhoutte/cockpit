@@ -776,6 +776,15 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
    * the stored one alone.
    */
   choice: z.string().min(1).max(200).optional(),
+  /**
+   * Whether the connection files what it brings in on the Panel named after
+   * its label or category, as the person answered it before the sign-in
+   * ("Ask on Connect whether a mail connection files by label or category",
+   * issue 1147). Written by the callback route only for a connector that
+   * reports names. Absent: a new connection starts off, and a reconnect leaves
+   * the stored one alone.
+   */
+  filesByName: z.boolean().optional(),
 });
 export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
 

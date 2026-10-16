@@ -1180,6 +1180,11 @@ async function readJsonBody(c: Context): Promise<unknown> {
 const LARGEST_BATCH = 100;
 const BATCH_BY_DEFAULT = 25;
 
+/** The answer a Connect carries to whether it files by name: exactly `true` or `false`, else none (issue 1147). */
+function filesByNameAnswered(asked: string | undefined): boolean | undefined {
+  return asked === 'true' ? true : asked === 'false' ? false : undefined;
+}
+
 /** The batch a call asked for, or that what it asked for is not one. */
 function batchSize(asked: string | undefined): number | 'not a batch size' {
   if (asked === undefined || asked === '') return BATCH_BY_DEFAULT;
@@ -1340,7 +1345,7 @@ const routes = app
             id: manifest.id,
             displayName: manifest.displayName,
             cardText: manifest.cardText,
-            asksFirst: manifest.choice !== undefined,
+            asksFirst: manifest.choice !== undefined || manifest.names !== undefined,
             ...(manifest.choice
               ? { choice: { question: manifest.choice.question, options: manifest.choice.options.map((option) => ({ ...option })) } }
               : {}),
@@ -2058,6 +2063,17 @@ const routes = app
     if (asked && !asked.options.some((option) => option.value === choice)) {
       return refuseConnection(c, workspaceId, 'the choice is not one the source offers');
     }
+    // Whether it files by the names the source gives mail, answered the same
+    // way for a connector that reports names: a yes or a no, or the Connect is
+    // refused and nothing is started (issue 1147). Not asked at all - a tab
+    // opened before Connect asked it - carries no answer, so a new connection
+    // starts off and a reconnect keeps what it holds. A source that reports
+    // none carries nothing.
+    const filesByNameAsked = c.req.query('filesByName');
+    const filesByName = filesByNameAnswered(filesByNameAsked);
+    if (sign.connector.manifest.names && filesByNameAsked !== undefined && filesByName === undefined) {
+      return refuseConnection(c, workspaceId, 'whether to file by name was not answered');
+    }
     try {
       // Theirs, and still there - asked before anybody is sent away, so a
       // Workspace deleted in another tab refuses here rather than after a
@@ -2079,6 +2095,7 @@ const routes = app
         accountName: c.get('visitor').accountName,
         connectorId: sign.connector.manifest.id,
         ...(asked && choice ? { choice } : {}),
+        ...(sign.connector.manifest.names && filesByName !== undefined ? { filesByName } : {}),
       };
       rememberConnectAttempt(c, attempt);
       // `client.clientId`, never the setting again: the two have to be
@@ -2138,6 +2155,11 @@ const routes = app
     if (asked && !asked.options.some((option) => option.value === attempt!.choice)) {
       return refuseConnection(c, attempt!.workspaceId, 'the choice is not one the source offers');
     }
+    // Whether it files by name rides along as asked: an attempt carrying
+    // anything but a yes or no is not read at all, and one carrying none - a
+    // tab opened before Connect asked it - leaves a new connection off and a
+    // reconnected one as it was (issue 1147).
+    const reportsNames = sign.connector.manifest.names !== undefined;
 
     try {
       const client = clientOf(c.env, sign.auth);
@@ -2173,6 +2195,7 @@ const routes = app
         displayName: account.displayName,
         ...sealed,
         ...(asked ? { choice: attempt!.choice! } : {}),
+        ...(reportsNames && attempt!.filesByName !== undefined ? { filesByName: attempt!.filesByName } : {}),
       });
       // **After the connection is stored, and only then.** The register's index
       // is what lets a saved message find this Workspace later ("Save a Teams

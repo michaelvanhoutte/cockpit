@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   MESSAGE_MOST_BYTES,
+  NAMED_MOST_ITEMS,
+  keptDid,
   keptMessage,
   whatACheckWrites,
   type CheckOutcome,
@@ -14,11 +16,18 @@ import {
  * tests/integration/connectors/connection-history.test.ts's.
  */
 
-const quiet: LineAsHeld = { outcome: 'worked', message: null, messageCut: false };
-const unavailable: LineAsHeld = { outcome: 'failed', message: 'unavailable', messageCut: false };
-const worked: CheckOutcome = { outcome: 'worked' };
-const failedAlike: CheckOutcome = { outcome: 'failed', message: 'unavailable', messageCut: false };
-const failedOtherwise: CheckOutcome = { outcome: 'failed', message: 'the sign-in was refused', messageCut: false };
+const quiet: LineAsHeld = { outcome: 'worked', message: null, messageCut: false, did: false };
+const broughtSomethingIn: LineAsHeld = { ...quiet, did: true };
+const unavailable: LineAsHeld = { outcome: 'failed', message: 'unavailable', messageCut: false, did: false };
+const worked: CheckOutcome = { outcome: 'worked', did: false };
+const workedAndDidSomething: CheckOutcome = { outcome: 'worked', did: true };
+const failedAlike: CheckOutcome = { outcome: 'failed', message: 'unavailable', messageCut: false, did: false };
+const failedOtherwise: CheckOutcome = {
+  outcome: 'failed',
+  message: 'the sign-in was refused',
+  messageCut: false,
+  did: false,
+};
 
 describe('Connector management', () => {
   describe('consecutive alike checks fold into one line of the history; anything else starts a new one', () => {
@@ -32,11 +41,50 @@ describe('Connector management', () => {
       {
         situation: 'a failure whose message was cut after one that was not',
         previous: unavailable,
-        ended: { outcome: 'failed', message: 'unavailable', messageCut: true } as CheckOutcome,
+        ended: { outcome: 'failed', message: 'unavailable', messageCut: true, did: false } as CheckOutcome,
+        writes: 'insert',
+      },
+      { situation: 'a check that did something after a quiet line', previous: quiet, ended: workedAndDidSomething, writes: 'insert' },
+      { situation: 'a quiet check after one that did something', previous: broughtSomethingIn, ended: worked, writes: 'insert' },
+      { situation: 'a second check that did something', previous: broughtSomethingIn, ended: workedAndDidSomething, writes: 'insert' },
+      {
+        situation: 'a failure alike the one before, having done something first',
+        previous: unavailable,
+        ended: { ...failedAlike, did: true },
+        writes: 'insert',
+      },
+      {
+        situation: 'a failure alike one that had done something',
+        previous: { ...unavailable, did: true },
+        ended: failedAlike,
         writes: 'insert',
       },
     ])('$situation: $writes', ({ previous, ended, writes }) => {
       expect(whatACheckWrites(previous, ended)).toBe(writes);
+    });
+  });
+
+  describe('a line keeps what its check did', () => {
+    const nothing = { broughtIn: [], closed: [], sentBack: [], refused: [] };
+
+    it('keeps nothing for a check that did nothing', () => {
+      expect(keptDid(nothing)).toBeNull();
+    });
+
+    it('counts each Item once and keeps its id', () => {
+      expect(keptDid({ ...nothing, broughtIn: ['a', 'b', 'a'], refused: ['c'] })).toEqual({
+        broughtIn: { count: 2, ids: ['a', 'b'] },
+        closed: { count: 0, ids: [] },
+        sentBack: { count: 0, ids: [] },
+        refused: { count: 1, ids: ['c'] },
+      });
+    });
+
+    it('keeps the exact count of a long list but only its first Items', () => {
+      const many = Array.from({ length: NAMED_MOST_ITEMS + 10 }, (_, i) => `item-${i}`);
+      const kept = keptDid({ ...nothing, closed: many })!;
+      expect(kept.closed.count).toBe(many.length);
+      expect(kept.closed.ids).toEqual(many.slice(0, NAMED_MOST_ITEMS));
     });
   });
 
