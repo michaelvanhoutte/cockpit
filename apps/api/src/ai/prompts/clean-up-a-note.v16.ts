@@ -56,14 +56,14 @@ export const STATED_PRIORITY = `Where the note itself says how important it is, 
 export const STATED_DUE_DATE = `Where the note names the day something is due - "tomorrow", "Friday", "the 24th", "on 3 March", or the same in Dutch ("morgen", "vrijdag", "de 24ste") - give that day as its due date, written YYYY-MM-DD, counted from the day the note was captured on, which you are told further down. A weekday means the first one after the day it was captured on; a day of the month means the next time that day comes. A due date is a day and never a time, so where the note gives a time as well ("tomorrow at 3"), give the day alone. Where the day is unclear ("end of the month", "soon", "next week", "binnenkort"), where the note names no day, or where you are not told the day it was captured on, leave the due date out. Once you have read a due date, leave the words you read it from out of the title; the message keeps them.`;
 
 /**
- * How a Workspace the note names is read ("Settle an Any workspace capture in
- * the workspace you name", issue 1078): only where the note says which of the
- * listed Workspaces it is for, never from what the work is about, written as
- * the list spells it, and taken out of the title once read. Its own constant
- * for the reason `STATED_PRIORITY` is. The list itself comes per account,
- * after the cached prefix, and only for a note not yet in a Workspace.
+ * How the place a note names is read ("File a capture on the panels you name,
+ * read from the spoken path", issue 1116): the words saying where it goes -
+ * a workspace, a dashboard, panels - lifted out as they were said, and taken
+ * out of the title. No name is shown here: which real place the words mean is
+ * a second call's, made only where there are words (`resolve-a-place.v1`). Its
+ * own constant for the reason `STATED_PRIORITY` is.
  */
-export const STATED_WORKSPACE = `Where a list of workspaces is given further down and the note itself says which one it is for - "for Home", "voor werk", "in the Work workspace" - give that workspace, written exactly as the list spells it. Read a workspace only from words that say it. Never read one from what the work is about, and where the note names none, names one that is not on the list, or where no list is given, leave the workspace out. Once you have read a workspace, leave the words you read it from out of the title; the message keeps them.`;
+export const STATED_PLACE = `Where the note itself says where it should go - a workspace, a dashboard or a list to put it on, such as "for Home", "on Admin and money", "Day to day, Admin and money", or the same in Dutch ("voor werk", "op de boodschappenlijst") - give those words as its place, exactly as the note says them. Read a place only from words that say where the note goes. Never read one from what the work is about, and where the note says nothing about where it goes, leave the place out. Once you have read a place, leave its words out of the title; the message keeps them.`;
 
 /**
  * When a note is given a Panel, and how sure the answer says it is ("Propose
@@ -129,9 +129,9 @@ ${STATED_PRIORITY}
 
 ${STATED_DUE_DATE}
 
-${STATED_WORKSPACE}
+${STATED_PLACE}
 
-Further down, after the examples, you are given what is this account's own: the workspaces the note may be for, where it is not yet in one, the panels it has already set up, its decision history, and what else has been captured recently.
+Further down, after the examples, you are given what is this account's own: the panels it has already set up, its decision history, and what else has been captured recently.
 
 ${PANEL_FIT}
 
@@ -186,13 +186,12 @@ readings: []
 dueDate: 2026-10-16
 panel: (none of the panels offered fits)
 
-Note: renew the car insurance, for home
-(the workspaces offered include "Home")
+Note: renew the car insurance, day to day, admin and money
 language: English
 title: Renew the car insurance
-message: Renew the car insurance, for Home.
+message: Renew the car insurance. Day to day, admin and money.
 readings: []
-workspace: Home
+place: day to day, admin and money
 panel: (none of the panels offered fits)
 
 Note: call jan
@@ -291,15 +290,22 @@ panel: Board meetings, closest, because the dinner is for the board, though it i
  * `PANEL_FIT` in place of `v14`'s holding back, a `fit` of `clear` or
  * `closest` beside the Panel in the schema, empty exactly when the Panel is,
  * and a worked example of each.
+ *
+ * **`v16` reads the place a note names, and shows no Workspace name** ("File
+ * a capture on the panels you name, read from the spoken path", issue 1116):
+ * `STATED_PLACE` replaces `STATED_WORKSPACE`, its worked example names a
+ * dashboard and a panel, and the schema's optional `workspace` becomes an
+ * optional `place` - the words as said, offered on every capture. The names
+ * those words mean are read by `resolve-a-place.v1`, only where there are
+ * words, so no Workspace's name rides on a capture that names no place.
  */
 export function buildCleanUpANote(
   routing: RoutingInputs,
   corrections: readonly TextCorrectionEntry[],
   stood: WhatStood | null,
   day: CaptureDay | null,
-  workspaces: readonly string[] | null = null,
 ): {
-  version: 'v15';
+  version: 'v16';
   model: string;
   effort: 'low';
   system: { instructions: string; stable: string; recent: string };
@@ -331,18 +337,17 @@ export function buildCleanUpANote(
   // them restarts the cache wherever they sit.
   const stable = [
     "Everything below is this account's own, read fresh for this note.",
-    ...(workspaces === null ? [] : [renderWorkspaces(workspaces)]),
     renderPanels(routing.panels),
     renderHistory(routing.history),
     ...(styleEvidence === '' ? [] : [styleEvidence]),
   ].join('\n\n');
 
   return {
-    version: 'v15',
+    version: 'v16',
 
     /**
      * Sonnet 5.5, on the 20-capture comparison above, and held to the same
-     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v15.test.ts`).
+     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v16.test.ts`).
      * Haiku 5.5 was compared too and gave three titles of another note and
      * three rejected answers, so this is the cheapest model that held the
      * comparison, not the cheapest there is.
@@ -455,18 +460,13 @@ export function buildCleanUpANote(
                   'The day the note itself names as when it is due, written YYYY-MM-DD and counted from the day it was captured on - left out wherever it names none or the day is unclear, and never a time.',
               },
             }),
-        // Offered only for a note not yet in a Workspace, and only where the
-        // account has one to name (issue 1078). Optional for the reason
-        // `priority` is.
-        ...(workspaces === null || workspaces.length === 0
-          ? {}
-          : {
-              workspace: {
-                type: 'string',
-                description:
-                  'The workspace, from the list above, that the note itself says it is for - written exactly as listed, and left out wherever the note names none.',
-              },
-            }),
+        // Offered on every note, since no name is shown: the words alone
+        // (issue 1116). Optional for the reason `priority` is.
+        place: {
+          type: 'string',
+          description:
+            'The words in which the note itself says where it should go - a workspace, a dashboard or a list to put it on - exactly as the note says them, and left out wherever it says nothing about where it goes.',
+        },
       },
       required: ['language', 'title', 'message', 'readings', 'panel'],
       additionalProperties: false,
@@ -479,12 +479,6 @@ export interface RoutingInputs {
   panels: readonly { id: string; name: string }[];
   history: readonly DecisionHistoryEntry[];
   recentlyCaptured: readonly string[];
-}
-
-/** The Workspaces a note not yet in one may be for, by name - never by id, which the model has no use for. */
-export function renderWorkspaces(workspaces: readonly string[]): string {
-  const list = workspaces.length > 0 ? workspaces.map((name) => `- ${name}`).join('\n') : '(this account has no workspaces)';
-  return `Workspaces:\n${list}`;
 }
 
 /** Exported for `choose-a-panel.v3`, which lists the Panels in the same words. */

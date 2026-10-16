@@ -1,66 +1,42 @@
-import { beforeEach, afterEach, describe, expect, inject, it, vi } from 'vitest';
-import { env, applyD1Migrations } from 'cloudflare:test';
-import { ACCOUNT_WIDE, FIRST_WORKSPACE_NAME, type CommandName, type CommandPayload } from '@cockpit/shared';
-import {
-  ACCOUNT_NAME,
-  DASHBOARD_ID,
-  OTHER_ACCOUNT_NAME,
-  OTHER_USER_ID,
-  TASK_TYPE_ID,
-  WORKSPACE_ID,
-  alsoWorkspaces,
-  asUser,
-  inStoreAsItIs,
-  inTheStore,
-  seedRegister,
-  signInAs,
-  startFromEmpty,
-  storeNamed,
-  taskTypeIn,
-} from '../seed.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { env } from 'cloudflare:test';
+import { ACCOUNT_WIDE, FIRST_WORKSPACE_NAME } from '@cockpit/shared';
+import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, asUser, inStoreAsItIs, inTheStore, storeNamed } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import {
-  NOTE,
   A_READING,
-  SOMETHING_ELSE,
-  AMBIGUOUS_NOTE,
-  type Answering,
   asked,
   reading,
   theModelIs,
+  theModelReadsAPlace,
   postChange,
   nextId,
   captureANote,
-  textsOf,
-  untilTheNoteHasBeenRead,
-  readAgain,
   isACleanUp,
+  isAPanelChoice,
   routingOf,
-  priorityOf,
   historyOf,
-  dueDateOf,
   workspaceOf,
   itemsDrawnIn,
   untilTheChangeIsRecorded,
   isFiled,
   aPanel,
-  aDashboard,
-  aPanelOn,
-  fileOnto,
   moveOnto,
-  neverPropose,
   aModelThatReads,
   batchOf,
+  duringThe,
 } from './note-cleanup.support.js';
 
 aModelThatReads();
 
 describe('Capture', () => {
   /**
-   * "Settle an Any workspace capture in the workspace you name" (issue 1078).
-   * The model is faked, so these prove what Cockpit does with the workspace it is
-   * handed back - against a real store, since settling is a command and the
-   * Inbox is a query over where an item belongs.
+   * "Settle an Any workspace capture in the workspace you name" (issue 1078),
+   * read since "File a capture on the panels you name, read from the spoken
+   * path" (issue 1116) from the names the place words mean. The model is
+   * faked, so these prove what Cockpit does with the workspace it is handed
+   * back - against a real store, since settling is a command and the Inbox is
+   * a query over where an item belongs.
    */
   describe('a workspace the note names settles an item captured to Any workspace, and only that', () => {
     beforeEach(async () => {
@@ -123,9 +99,9 @@ describe('Capture', () => {
         expected: { workspaceId: WORKSPACE_ID, decided: false },
       },
     ])('leaves an item where it belongs when $situation', async ({ capturedWith, names, meanwhile, expected }) => {
-      theModelIs({ says: { ...A_READING, ...(names === undefined ? {} : { workspace: names }) } });
+      theModelReadsAPlace(names === undefined ? null : { workspace: names });
       const itemId = nextId();
-      if (meanwhile) reading.during = () => meanwhile(itemId);
+      if (meanwhile) reading.during = duringThe(isACleanUp, () => meanwhile(itemId));
 
       await captureANote({ itemId, ...capturedWith });
       await untilTheChangeIsRecorded(itemId);
@@ -136,33 +112,8 @@ describe('Capture', () => {
       expect(held).toHaveLength(3);
     });
 
-    it('only ever shows the model the names of the workspaces the account has now', async () => {
-      await postChange('delete_workspace', {
-        commandId: nextId(),
-        issuedAt: '2026-09-09T10:00:00.500Z',
-        workspaceId: 'ws-atlas',
-      });
-      asked.length = 0;
-
-      await captureANote({ workspaceDecided: false });
-      await vi.waitFor(() => expect(asked.some(isACleanUp)).toBe(true), { timeout: 15_000, interval: 50 });
-
-      const system = asked.find(isACleanUp)!.system;
-      expect(system).toContain('Personal');
-      expect(system).not.toContain('Atlas Copco');
-    });
-
-    it('shows no workspace to the model for an item captured inside one', async () => {
-      asked.length = 0;
-
-      await captureANote();
-      await vi.waitFor(() => expect(asked.some(isACleanUp)).toBe(true), { timeout: 15_000, interval: 50 });
-
-      expect(asked.find(isACleanUp)!.system).not.toContain('Workspaces:');
-    });
-
     it('leaves the time it last changed where it was, so an edit of yours made offline still applies', async () => {
-      theModelIs({ says: { ...A_READING, workspace: 'Personal' } });
+      theModelReadsAPlace({ workspace: 'Personal' });
       const itemId = await captureANote({ workspaceDecided: false });
       await untilTheChangeIsRecorded(itemId);
 
@@ -174,6 +125,7 @@ describe('Capture', () => {
 
     it('moves the item out of every other workspace’s Inbox, and tells every open tab', async () => {
       // The first read names nothing, so the item waits in every Inbox.
+      theModelReadsAPlace(null);
       const itemId = await captureANote({ workspaceDecided: false });
       await untilTheChangeIsRecorded(itemId);
       for (const workspaceId of [WORKSPACE_ID, 'ws-atlas', 'ws-personal']) {
@@ -182,7 +134,7 @@ describe('Capture', () => {
       const tabsCopy = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
       const from = ((await tabsCopy.json()) as { upTo: string }).upTo;
 
-      theModelIs({ says: { ...A_READING, workspace: 'Personal' } });
+      theModelReadsAPlace({ workspace: 'Personal' });
       await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
 
       expect(await itemsDrawnIn('ws-personal')).toContain(itemId);
@@ -200,17 +152,11 @@ describe('Capture', () => {
   describe('the panel proposed follows the workspace the note settled the item in', () => {
     let workPanel: string;
     const PERSONAL_PANEL = 'ws-personal-panel-1';
-    /** The two calls one capture makes: the clean-up, which names the first workspace's Panel and a workspace, and the Panel choice. */
+    /** The calls one capture makes: the clean-up, which names the first workspace's Panel, the read of the place, and the Panel choice. */
     const theModelNames = (workspace: string | undefined, choosing: unknown) =>
-      theModelIs({
-        by: ({ system }) =>
-          isACleanUp({ system })
-            ? {
-                ...A_READING,
-                ...(workspace === undefined ? {} : { workspace }),
-                panel: { panelId: workPanel, reason: 'a compliance question', fit: 'clear' },
-              }
-            : choosing,
+      theModelReadsAPlace(workspace === undefined ? null : { workspace }, {
+        cleanUp: { panel: { panelId: workPanel, reason: 'a compliance question', fit: 'clear' } },
+        choosing,
       });
 
     beforeEach(async () => {
@@ -230,10 +176,10 @@ describe('Capture', () => {
       });
       expect((await routingOf(itemId))?.proposed_panel_reason).toBe('an errand');
       expect(asked.filter(isACleanUp)).toHaveLength(1);
-      expect(asked.filter((call) => !isACleanUp(call))).toHaveLength(1);
+      expect(asked.filter(isAPanelChoice)).toHaveLength(1);
       // It is offered the new workspace's panels only.
-      expect(asked.find((call) => !isACleanUp(call))!.system).toContain(PERSONAL_PANEL);
-      expect(asked.find((call) => !isACleanUp(call))!.system).not.toContain(workPanel);
+      expect(asked.find(isAPanelChoice)!.system).toContain(PERSONAL_PANEL);
+      expect(asked.find(isAPanelChoice)!.system).not.toContain(workPanel);
       expect(await isFiled(itemId)).toBe(false);
     });
 
@@ -253,7 +199,7 @@ describe('Capture', () => {
       expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
     });
 
-    it('proposes nothing, and asks for no second call, where the new workspace has no panel that takes items', async () => {
+    it('proposes nothing, and asks for no panel, where the new workspace has no panel that takes items', async () => {
       // Its one panel is made a text panel, which takes no items.
       await inTheStore((sql) => sql.exec("UPDATE panels SET kind = 'text' WHERE id = ?", PERSONAL_PANEL));
       theModelNames('Personal', { panelId: PERSONAL_PANEL, reason: 'would be refused', fit: 'clear' });
@@ -263,10 +209,10 @@ describe('Capture', () => {
 
       expect(await workspaceOf(itemId)).toMatchObject({ workspaceId: 'ws-personal', decided: true });
       expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
-      expect(asked.filter((call) => !isACleanUp(call))).toHaveLength(0);
+      expect(asked.filter(isAPanelChoice)).toHaveLength(0);
     });
 
-    it('makes one call only, and keeps the panel it proposed, where the note names no workspace', async () => {
+    it('makes one call only, and keeps the panel it proposed, where the note names no place', async () => {
       theModelNames(undefined, { panelId: PERSONAL_PANEL, reason: 'never asked', fit: 'clear' });
 
       const itemId = await captureANote({ workspaceDecided: false });
@@ -279,7 +225,7 @@ describe('Capture', () => {
       expect(asked).toHaveLength(1);
     });
 
-    it('makes one call only, and keeps the panel it proposed, where the note names the workspace the item already sits in', async () => {
+    it('asks for no panel, and keeps the panel it proposed, where the note names the workspace the item already sits in', async () => {
       theModelNames(FIRST_WORKSPACE_NAME, { panelId: PERSONAL_PANEL, reason: 'never asked', fit: 'clear' });
 
       const itemId = await captureANote({ workspaceDecided: false });
@@ -290,14 +236,17 @@ describe('Capture', () => {
       });
 
       expect(await workspaceOf(itemId)).toMatchObject({ workspaceId: WORKSPACE_ID, decided: true });
-      expect(asked).toHaveLength(1);
+      expect(asked.filter(isAPanelChoice)).toHaveLength(0);
     });
 
-    it('proposes no panel, and still records the move, where the second call fails', async () => {
+    it('proposes no panel, and still records the move, where the panel choice fails', async () => {
       theModelIs({
-        by: ({ system }) => {
-          if (!isACleanUp({ system })) throw new Error('the model could not be reached');
-          return { ...A_READING, workspace: 'Personal', panel: { panelId: workPanel, reason: 'a compliance question', fit: 'clear' } };
+        by: (call) => {
+          if (isAPanelChoice(call)) throw new Error('the model could not be reached');
+          if (isACleanUp(call)) {
+            return { ...A_READING, place: 'for personal', panel: { panelId: workPanel, reason: 'a compliance question', fit: 'clear' } };
+          }
+          return { workspace: 'Personal', dashboard: '', panels: [] };
         },
       });
 
@@ -316,7 +265,7 @@ describe('Capture', () => {
     });
 
     it('records the workspace by name, once however often the note is read', async () => {
-      theModelIs({ says: { ...A_READING, workspace: 'personal' } });
+      theModelReadsAPlace({ workspace: 'personal' });
       const itemId = await captureANote({ workspaceDecided: false });
       await untilTheChangeIsRecorded(itemId);
       const [first] = await historyOf(itemId);
@@ -329,6 +278,7 @@ describe('Capture', () => {
     });
 
     it('records none where it settled none', async () => {
+      theModelReadsAPlace(null);
       const itemId = await captureANote({ workspaceDecided: false });
       await untilTheChangeIsRecorded(itemId);
 

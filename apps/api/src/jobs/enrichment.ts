@@ -13,8 +13,7 @@ import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import type { NoteTexts, PanelRead, RoutingCandidate } from '../ai/index.js';
 import { aStatedFieldIsOpen, type FieldsSet } from '../domain/items.js';
 import { captureDay, type CaptureDay } from '../domain/capture-day.js';
-import { workspaceNamed } from '../domain/workspaces.js';
-import type { Workspace } from '@cockpit/shared';
+import { resolveSpokenPath, type PlaceResolved, type PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import {
   asFarAsItReads,
   canReadMeaning,
@@ -511,12 +510,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // priority, due date and workspace you say when you capture", issue 1073,
   // its Technical design).
   const day = await captureDayOf(account, item);
-  // The Workspaces a note not yet in one may name - the account's live ones,
-  // read fresh, and none for a note that is in one already ("Settle an Any
-  // workspace capture in the workspace you name", issue 1078).
-  const liveWorkspaces = item.workspaceDecided ? null : await account.workspaces();
-  const workspaceNames = liveWorkspaces === null ? null : liveWorkspaces.map((workspace) => workspace.name);
-  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null, (workspaceNames?.length ?? 0) > 0)) {
+  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null)) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
@@ -569,7 +563,6 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       promptCorrections,
       promptStood,
       day,
-      workspaceNames,
       { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
     );
   } catch (error) {
@@ -632,13 +625,24 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     );
     throw error;
   }
+  // Where the note said it goes, read by a second call only where it said
+  // anything, and settled by the server ("File a capture on the panels you
+  // name, read from the spoken path", issue 1116).
+  const whereSaid =
+    read.proposal.place === null
+      ? null
+      : await whereTheNoteSays(account, ai, item, read.proposal.place, {
+          accountName: job.accountName,
+          itemId: item.id,
+          triggeredBy: job.triggeredBy ?? null,
+        });
   // The fields the note stated, each set only where the person has not set it
   // and it holds nothing yet - decided by the store, independently of whether
   // the texts above landed ("Read a priority you say when you capture", issue
-  // 1076).
+  // 1076) - and the Panels it named, filed on in the same act.
   let fieldsSet: FieldsSet;
   try {
-    fieldsSet = await applyStatedFields(account, item, read.proposal, day, liveWorkspaces);
+    fieldsSet = await applyStatedFields(account, item, read.proposal, day, whereSaid);
   } catch (error) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
@@ -649,7 +653,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     throw error;
   }
   // The Workspace the store settled the Item in, by name, for the history.
-  const settledIn = liveWorkspaces?.find((workspace) => workspace.id === fieldsSet.workspaceId) ?? null;
+  const settledIn = whereSaid?.tree.find((workspace) => workspace.id === fieldsSet.workspaceId) ?? null;
   const textsOutcome = {
     titleAfter: written.applied ? read.proposal.title : null,
     descriptionAfter: written.applied ? read.proposal.message : null,
@@ -683,6 +687,29 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // an Item's texts - and only where the write actually landed, so a
   // redelivered job whose proposal the store refused costs no second reading.
   if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, job.itemId, job.triggeredBy);
+
+  // Filed where the note said, as the person's own filing: the routing has
+  // settled, so no Panel is proposed (the store withdrew any), and the rest of
+  // the Workspace's Inbox is re-proposed as after a person's first filing
+  // (issue 1116).
+  const filedOn = fieldsSet.filedOnPanelIds ?? [];
+  if (filedOn.length > 0) {
+    // Where the Panels are, which the store filed on only because the Item is
+    // there now - not `item.workspaceId`, read before the person may have
+    // settled it there themselves. Never null once Panels are filed on.
+    const filedIn = whereSaid?.workspaceId ?? item.workspaceId;
+    say(job.itemId, `filed on ${filedOn.length} panel(s) the note named`);
+    await enqueueRepropose(env, job.accountName, filedIn);
+    await recordHistory(() =>
+      account.recordRewriteOutcome(attemptId, {
+        ...textsOutcome,
+        status: 'rewritten',
+        proposedPanelId: null,
+        proposedPanelReason: null,
+      }),
+    );
+    return;
+  }
 
   // A second, independent write, factored out because a settled filing's own
   // re-proposal ("Re-propose the rest of the inbox the moment you file one",
@@ -796,16 +823,15 @@ async function applyStatedFields(
   item: { id: string; workspaceId: string },
   proposal: NoteTexts,
   day: CaptureDay | null,
-  offered: readonly Workspace[] | null,
+  whereSaid: PlaceResolved | null,
 ): Promise<FieldsSet> {
   // A date is taken only where the call was told the day it counts from.
   const dueDate = day === null ? null : proposal.dueDate;
-  // A Workspace only from the names this call offered, matched ignoring case;
-  // any other name is ignored and nothing is created ("Settle an Any workspace
-  // capture in the workspace you name", issue 1078).
-  const workspace =
-    offered === null || proposal.workspace === null ? undefined : workspaceNamed(offered, proposal.workspace);
-  if (proposal.priority === null && dueDate === null && workspace === undefined) return {};
+  // A place only where the server found the names pointing to one; any other
+  // name is ignored and nothing is created (issue 1116).
+  const workspaceId = whereSaid?.workspaceId ?? null;
+  const panelIds = whereSaid?.panelIds ?? [];
+  if (proposal.priority === null && dueDate === null && workspaceId === null && panelIds.length === 0) return {};
   try {
     const written = await account.applyChange('propose_item_fields', {
       commandId: crypto.randomUUID(),
@@ -814,12 +840,45 @@ async function applyStatedFields(
       itemId: item.id,
       ...(proposal.priority === null ? {} : { priority: proposal.priority }),
       ...(dueDate === null ? {} : { dueDate }),
-      ...(workspace === undefined ? {} : { settleInWorkspaceId: workspace.id }),
+      ...(workspaceId === null ? {} : { settleInWorkspaceId: workspaceId }),
+      ...(panelIds.length === 0 ? {} : { fileOnPanelIds: panelIds }),
     });
     return written.fieldsSet ?? {};
   } catch (error) {
     if (error instanceof NotFoundInAccountError) return {};
     throw error;
+  }
+}
+
+/**
+ * Where a note's place words point, among the Workspaces the capture may
+ * reach - every live one for a capture to *Any workspace*, its own otherwise -
+ * with the tree it was read against, for naming what settled ("File a capture
+ * on the panels you name, read from the spoken path", issue 1116).
+ *
+ * **A call that fails, or an answer that is not a place, settles nothing**
+ * rather than failing the attempt: the texts and fields beside it still land,
+ * and the note stays in the Inbox with its usual proposal.
+ */
+async function whereTheNoteSays(
+  account: Account,
+  ai: NonNullable<ReturnType<typeof aiFor>>,
+  item: { id: string; workspaceId: string; workspaceDecided: boolean },
+  words: string,
+  callFor: Parameters<typeof ai.resolvePlace>[2],
+): Promise<(PlaceResolved & { tree: PlaceTreeWorkspace[] }) | null> {
+  try {
+    const tree = await account.placeTree(item.workspaceDecided ? item.workspaceId : null);
+    if (tree.length === 0) return null;
+    const read = await ai.resolvePlace(words, tree, callFor);
+    if (!('named' in read)) {
+      say(item.id, `no place was read: ${read.discarded}`);
+      return null;
+    }
+    return { ...resolveSpokenPath(tree, read.named), tree };
+  } catch (error) {
+    say(item.id, `no place was read: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
   }
 }
 

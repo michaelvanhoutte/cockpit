@@ -14,6 +14,7 @@ import type { AccountBackup, ForeignRow } from './backup.js';
 import type { UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 import type { RefreshAsk } from './debounce.js';
@@ -77,6 +78,13 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * else: a browser already has the full snapshot, panels of text included.
    */
   panelsThatTakeItems(accountName: string, workspaceId: string): Awaitable<Answer<Panel[]>>;
+  /**
+   * The names of the places a capture may reach - every live Workspace, or
+   * the one given - with their Dashboards and Panels ("File a capture on the
+   * panels you name, read from the spoken path", issue 1116). Read by the
+   * enrichment job and by nothing else.
+   */
+  placeTree(accountName: string, workspaceId: string | null): Awaitable<Answer<PlaceTreeWorkspace[]>>;
   /**
    * What a routing proposal reads beside the note itself: the most recent 50
    * settled decisions for one workspace whose chosen panel still exists and

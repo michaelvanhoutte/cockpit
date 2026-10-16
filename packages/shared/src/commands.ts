@@ -706,6 +706,9 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
   });
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
+/** The most Panels one note is filed on; the job sends no more, so a long answer never fails the whole reading (issue 1116). */
+export const PANELS_A_NOTE_FILES_ON = 20;
+
 /**
  * propose_item_fields — the fields a captured note stated, read by the
  * enrichment job rather than sent by a client ("Read a priority you say when
@@ -729,6 +732,14 @@ export const proposeItemFieldsSchema = commandEnvelopeSchema.extend({
    * every account's first Workspace is `ws-1`.
    */
   settleInWorkspaceId: z.string().min(1).optional(),
+  /**
+   * The Panels the note named, filed on at the top of each as the person's own
+   * filing, in the same act as the Workspace above ("File a capture on the
+   * panels you name, read from the spoken path", issue 1116): only for an Item
+   * nobody has filed, dismissed or finished with, and only on a Panel that is
+   * live, takes items and is in the Item's Workspace when this is written.
+   */
+  fileOnPanelIds: z.array(z.string().min(1)).max(PANELS_A_NOTE_FILES_ON).optional(),
 });
 export type ProposeItemFieldsCommand = z.infer<typeof proposeItemFieldsSchema>;
 
@@ -952,7 +963,9 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * `fieldsSet` is present only for `propose_item_fields`, and only where it
  * applied: the fields it set, each refused or set on its own, read off the
  * same atomic call by the job that records what it changed ("Read a priority
- * you say when you capture", issue 1076).
+ * you say when you capture", issue 1076). Where it filed the Item on Panels
+ * the note named, `settledRouting` is `true` as for a person's first filing
+ * (issue 1116).
  *
  * All absent, not `false`, everywhere else - every other command answers
  * `applied` alone, exactly as before any of them existed.
@@ -963,7 +976,12 @@ export const commandResultSchema = z.object({
   settledRouting: z.boolean().optional(),
   recordedCorrection: z.boolean().optional(),
   fieldsSet: z
-    .object({ priority: prioritySchema.optional(), dueDate: z.iso.date().optional(), workspaceId: z.string().min(1).optional() })
+    .object({
+      priority: prioritySchema.optional(),
+      dueDate: z.iso.date().optional(),
+      workspaceId: z.string().min(1).optional(),
+      filedOnPanelIds: z.array(z.string().min(1)).optional(),
+    })
     .optional(),
 });
 export type CommandResult = z.infer<typeof commandResultSchema>;
