@@ -1,5 +1,5 @@
 import { configDefaults, defineConfig } from 'vitest/config';
-import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { cloudflareTest } from '@cloudflare/vitest-plugin';
 import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mjs';
 
 /**
@@ -94,7 +94,7 @@ export default defineConfig({
       // reached; `setupFiles` above is what takes it off `env` so that nothing
       // tries.
       remoteBindings: false,
-      // vitest-pool-workers' own module evaluator needs Node builtins inside
+      // The Workers Vitest plugin's own module evaluator needs Node builtins inside
       // the worker runtime; this is test-only and does not affect the
       // deployed Worker's compatibility flags in wrangler.jsonc.
       //

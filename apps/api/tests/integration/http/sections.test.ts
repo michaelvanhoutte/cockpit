@@ -11,9 +11,6 @@ import { WORKSPACE_ID, asUser, seedRegister, startFromEmpty } from '../seed.js';
  * of the real store. Its title's own rules are
  * packages/shared/tests/unit/domain/panel.test.ts; where the board draws it is
  * apps/web/tests/unit/panels/arrangement.test.ts.
- *
- * A file of its own rather than more cases in panels.test.ts, which is at the
- * size where the workers pool runs out of stack (`aged-store.test.ts` says why).
  */
 
 let seq = 0;

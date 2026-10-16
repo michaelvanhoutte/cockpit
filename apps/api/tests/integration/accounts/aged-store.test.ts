@@ -655,19 +655,10 @@ const points = updates
   .filter(({ applied }) => applied > 0);
 
 /**
- * **This file empties nothing, unlike every other suite here, and that is a
- * budget rather than a shortcut.** Every case works in a store of its own,
- * named after the point it is aged to, and none of them reads the register or
- * signs anybody in - so `startFromEmpty` would be clearing ten stores nothing
- * here touches, and the pool charges for that in a currency this file is short
- * of: the workers pool wraps the Durable Object's prototype in a fresh `Proxy`
- * on **every construction** (`createProxyPrototypeClass`,
- * @cloudflare/vitest-pool-workers), so a property read costs one stack frame
- * per construction the isolate has ever done. At ten a case across ninety-odd
- * cases, the last ones in the file were reading through a thousand of them and
- * fell over with `Maximum call stack size exceeded` - a failure that names
- * nothing about what it was doing, and that adding one change to the list was
- * enough to trigger ("Connect a Microsoft Teams source account", issue 485).
+ * **This file empties nothing, unlike every other suite here.** Every case
+ * works in a store of its own, named after the point it is aged to, and none
+ * of them reads the register or signs anybody in - so `startFromEmpty` would
+ * only clear ten stores nothing here touches.
  *
  * Aborting is still needed: an object that stays in memory believing itself up
  * to date would serve the next case over the tables it aged.
