@@ -39,6 +39,14 @@ const held = vi.hoisted(() => ({
   history: [] as unknown[] | 'fails',
   /** The connection each history read was for. */
   historyAskedFor: [] as string[],
+  /** The Items a press on a named Item asked to open (issue 1141). */
+  opened: [] as string[],
+}));
+
+vi.mock('../../../src/itemForm', () => ({
+  useOpenItem: () => (itemId: string) => {
+    held.opened.push(itemId);
+  },
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -206,6 +214,7 @@ beforeEach(() => {
   held.hooksAskedFor = [];
   held.history = [];
   held.historyAskedFor = [];
+  held.opened = [];
   held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail', 'claude-code': 'Claude Code' };
   vi.restoreAllMocks();
 });
@@ -1006,6 +1015,8 @@ describe('Connector management', () => {
   };
   /** A moment of the day, in this machine's own time, as the view reads it. */
   const at = (day: number, hour: number, minute: number) => new Date(2026, 9, day, hour, minute).toISOString();
+  const none = { count: 0, items: [] as { id: string; title: string | null; dismissed: boolean }[] };
+  const didNothing = { broughtIn: none, closed: none, sentBack: none, refused: none };
   const line = (over: Record<string, unknown>) => ({
     id: crypto.randomUUID(),
     outcome: 'worked',
@@ -1015,6 +1026,7 @@ describe('Connector management', () => {
     count: 1,
     firstAt: at(16, 9, 5),
     lastAt: at(16, 9, 5),
+    did: didNothing,
     ...over,
   });
 
@@ -1148,6 +1160,41 @@ describe('Connector management', () => {
       const row = shown.closest('li')!;
       expect(row.textContent).toBe(`${row.firstChild!.textContent}${says}${detail ?? ''}`);
       expect(row.firstChild!.textContent!.includes('–')).toBe(span === true);
+    });
+
+    it('lists what a check did, each Item named and opening its form, a dismissed one and one not held left unopenable', async () => {
+      held.history = [
+        line({
+          did: {
+            ...didNothing,
+            broughtIn: { count: 2, items: [{ id: 'item-1', title: 'Invoice 2026-118 from Acme', dismissed: false }, { id: 'item-2', title: 'Re: Q4 planning', dismissed: false }] },
+            sentBack: { count: 1, items: [{ id: 'item-3', title: 'Lunch on Thursday?', dismissed: true }] },
+            refused: { count: 1, items: [{ id: 'item-4', title: null, dismissed: false }] },
+          },
+        }),
+      ];
+      showWindow();
+      const history = await openHistory();
+
+      const row = within(history).getByText('Worked').closest('li')!;
+      expect(row.textContent).toContain('Worked · Scheduled · Brought in 2, Sent back 1, Refused 1');
+      expect(row.textContent).toContain('New: Invoice 2026-118 from Acme, Re: Q4 planning');
+      expect(row.textContent).toContain('Sent back: Lunch on Thursday? (dismissed)');
+      expect(row.textContent).toContain('Refused: an Item no longer in Cockpit');
+      await userEvent.click(within(row).getByRole('button', { name: 'Re: Q4 planning' }));
+      expect(held.opened).toEqual(['item-2']);
+      expect(within(row).queryByRole('button', { name: 'an Item no longer in Cockpit' })).toBeNull();
+      expect(within(row).queryByRole('button', { name: /Lunch on Thursday/ })).toBeNull();
+    });
+
+    it('says how many more a count holds than the Items the line names', async () => {
+      held.history = [
+        line({ did: { ...didNothing, closed: { count: 60, items: [{ id: 'item-1', title: 'One', dismissed: false }] } } }),
+      ];
+      showWindow();
+      const history = await openHistory();
+
+      expect(within(history).getByText('Worked').closest('li')!.textContent).toContain('Closed: One and 59 more');
     });
 
     it('says No checks yet where there are none', async () => {

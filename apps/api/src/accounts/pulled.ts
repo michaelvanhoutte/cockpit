@@ -22,7 +22,7 @@ import {
   type NamedTarget,
 } from '../domain/filing-by-name.js';
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
-import { keptMessage } from '../domain/connection-history.js';
+import { keptMessage, type CheckDid } from '../domain/connection-history.js';
 import { recordCheck } from './connection-history.js';
 
 /**
@@ -436,7 +436,7 @@ function panelsOf(db: AccountDb, accountName: string, workspaceId: string): Name
  *
  * Reads every open Item's link of the choice and compares in memory rather than binding
  * the listing into a statement, so a listing as long as the source has no
- * limit of parameters to meet. Answers how many it closed.
+ * limit of parameters to meet. Answers the ids of the Items it closed.
  */
 export function closePulledItemsNotListed(
   db: AccountDb,
@@ -445,7 +445,7 @@ export function closePulledItemsNotListed(
   runId: string,
   listing: CompleteListing,
   observedAt: string,
-): number | 'disconnected' {
+): string[] | 'disconnected' {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return 'disconnected';
   const seen = new Set(listing.sourceIds);
@@ -467,10 +467,10 @@ export function closePulledItemsNotListed(
       ),
     )
     .all();
-  let closed = 0;
+  const closed: string[] = [];
   for (const { sourceId, itemId } of candidates) {
     if (seen.has(sourceId)) continue;
-    if (applySourceStateChange(db, accountName, itemId, 'resolved', observedAt) === 'changed') closed += 1;
+    if (applySourceStateChange(db, accountName, itemId, 'resolved', observedAt) === 'changed') closed.push(itemId);
   }
   return closed;
 }
@@ -478,7 +478,9 @@ export function closePulledItemsNotListed(
 /**
  * Applies a source-state change to the Item this connection filed for that
  * source id; one it never filed, or a run that no longer holds its connection,
- * changes nothing. `removed` is not applied yet (`source-state.ts`).
+ * changes nothing. `removed` is not applied yet (`source-state.ts`). Answers
+ * the Item it changed, which a check's line names where the change closed it
+ * (issue 1141).
  */
 export function applyPulledSourceChange(
   db: AccountDb,
@@ -486,7 +488,7 @@ export function applyPulledSourceChange(
   sourceAccountId: string,
   runId: string,
   change: SourceStateChange,
-): 'changed' | 'unchanged' | 'disconnected' {
+): { changed: string } | 'unchanged' | 'disconnected' {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return 'disconnected';
   if (change.change === 'removed') return 'unchanged';
@@ -495,7 +497,9 @@ export function applyPulledSourceChange(
   // What a person changed and the source has not yet heard wins over what the
   // source says: the connector is handed it before the next read (issue 893).
   if (link.openWanted !== null) return 'unchanged';
-  return applySourceStateChange(db, accountName, link.itemId, change.change, change.observedAt);
+  return applySourceStateChange(db, accountName, link.itemId, change.change, change.observedAt) === 'changed'
+    ? { changed: link.itemId }
+    : 'unchanged';
 }
 
 /**
@@ -513,18 +517,21 @@ export function pulledOpenStatesWaiting(
   return holds ? openStatesWaiting(db, accountName, holds) : [];
 }
 
-/** Clears the open states the connector confirmed, while the run still holds its connection (issue 893). */
+/**
+ * Clears the open states the connector confirmed, while the run still holds its
+ * connection (issue 893), and answers the Item of each it cleared - not one a
+ * person changed again meanwhile, which stays waiting (issue 1141).
+ */
 export function confirmPulledOpenStates(
   db: AccountDb,
   accountName: string,
   sourceAccountId: string,
   runId: string,
   confirmed: readonly OpenStateWanted[],
-): 'confirmed' | 'not this run' {
+): { cleared: { sourceId: string; itemId: string }[] } | 'not this run' {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return 'not this run';
-  confirmOpenStates(db, accountName, holds, confirmed);
-  return 'confirmed';
+  return { cleared: confirmOpenStates(db, accountName, holds, confirmed) };
 }
 
 /**
@@ -533,7 +540,8 @@ export function confirmPulledOpenStates(
  * run's hint being ignored - and the connection's row says why it failed - or,
  * for a run that worked, when it was last checked and nothing about failing.
  * The check's line of the history is written in the same transaction, saying
- * why the check ran (issue 1140). A run that no longer holds its connection
+ * why the check ran (issue 1140) and what it did (issue 1141), a failed
+ * check's included. A run that no longer holds its connection
  * ends nothing and writes nothing, since another has it or it has gone.
  */
 export function endPulledRun(
@@ -544,6 +552,7 @@ export function endPulledRun(
   failing: string | null,
   now: Date,
   moreToDo = false,
+  did: CheckDid = { broughtIn: [], closed: [], sentBack: [], refused: [] },
 ): void {
   if (!runHolds(db, accountName, sourceAccountId, runId)) return;
   const at = now.toISOString();
@@ -569,6 +578,7 @@ export function endPulledRun(
       sourceAccountId,
       ran?.checkReason ?? 'scheduled',
       failing === null ? { outcome: 'worked' } : { outcome: 'failed', ...keptMessage(failing) },
+      did,
       at,
     );
     if (failing === null) {

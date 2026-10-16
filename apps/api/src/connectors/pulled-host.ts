@@ -18,6 +18,7 @@ import type { PulledRunStarted } from '../accounts/pulled.js';
 import { open, seal, sealingKey, type Sealed } from './credential-crypto.js';
 import { derivedUuid } from './push-host.js';
 import { getConnector } from './registry.js';
+import type { CheckDid } from '../domain/connection-history.js';
 
 /**
  * The generic host a connector Cockpit pulls from is run through ("Check a
@@ -70,18 +71,20 @@ export async function checkPulledConnection(
   const connector = getConnector(env, begun.connectorId);
   let failing: string | null = null;
   let moreToDo = false;
+  // What the connector's calls through the host did, for the check's line of the history (issue 1141).
+  const did: CheckDid = { broughtIn: [], closed: [], sentBack: [], refused: [] };
   try {
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
     }
-    const host = pulledHost(env, begun, run, connector.manifest.names !== undefined, (itemId) =>
+    const host = pulledHost(env, begun, run, did, connector.manifest.names !== undefined, (itemId) =>
       filed(job.accountName, itemId, begun.connectorId),
     );
     // Before the source is read, so a change a person made that it has not
     // heard yet is pushed first and wins over what the read finds. A push that
     // fails does not stop the read - what waits still wins over it - but is
     // the run's failure once the read is done.
-    const pushFailed = await mirrorWhatWasChanged(connector, begun.connectorId, host, run).then(
+    const pushFailed = await mirrorWhatWasChanged(connector, begun.connectorId, host, run, did).then(
       () => null,
       (error: unknown) => ({ error }),
     );
@@ -92,7 +95,7 @@ export async function checkPulledConnection(
     failing = error instanceof Error ? error.message : String(error);
     logged(begun.connectorId, 'error', `a check of connection ${job.sourceAccountId} failed`, failing);
   }
-  await run.end(failing, moreToDo);
+  await run.end(failing, moreToDo, did);
 }
 
 /**
@@ -105,7 +108,13 @@ export async function checkPulledConnection(
  * ignored, and an answer from a run that no longer holds its connection is
  * refused, every change staying waiting.
  */
-async function mirrorWhatWasChanged(connector: Connector, connectorId: string, host: ConnectorHost, run: PulledRun): Promise<void> {
+async function mirrorWhatWasChanged(
+  connector: Connector,
+  connectorId: string,
+  host: ConnectorHost,
+  run: PulledRun,
+  did: CheckDid,
+): Promise<void> {
   if (!connector.manifest.mirrorsOpenState || !connector.mirrorOpenState) return;
   const wanted = await run.openStatesWaiting();
   if (wanted.length === 0) return;
@@ -121,7 +130,13 @@ async function mirrorWhatWasChanged(connector: Connector, connectorId: string, h
   // A give-up clears exactly as a confirmation does; it is logged only where
   // it cleared, since a run that lost its connection cleared nothing.
   const cleared = await run.confirmOpenStates([...held, ...refused]);
-  if (cleared !== 'confirmed') return;
+  if (cleared === 'not this run') return;
+  // Counted as the store cleared them, so a change a person made again while
+  // the connector pushed, which stays waiting, is not counted as sent back.
+  const refusedIds = new Set(refused.map((one) => one.sourceId));
+  for (const { sourceId, itemId } of cleared.cleared) {
+    (refusedIds.has(sourceId) ? did.refused : did.sentBack).push(itemId);
+  }
   for (const one of refused) {
     logged(
       connectorId,
@@ -137,6 +152,7 @@ function pulledHost(
   env: Env,
   begun: PulledRunStarted,
   run: PulledRun,
+  did: CheckDid,
   reportsNames: boolean,
   filed: (itemId: string) => Promise<void>,
 ): ConnectorHost {
@@ -211,16 +227,19 @@ function pulledHost(
       // Disconnected meanwhile: nothing was filed, and nothing is asked of
       // the connector - the run ends with whatever it does next.
       if (answer !== 'filed') return 'already-known';
+      did.broughtIn.push(itemId);
       await filed(itemId);
       return 'filed';
     },
 
     async emitSourceStateChange(change: SourceStateChange): Promise<void> {
-      await run.applySourceChange(change);
+      const applied = await run.applySourceChange(change);
+      if (typeof applied === 'object' && change.change === 'resolved') did.closed.push(applied.changed);
     },
 
     async reportCompleteListing(listing: CompleteListing): Promise<void> {
-      await run.closeItemsNotListed(listing);
+      const closed = await run.closeItemsNotListed(listing);
+      if (closed !== 'disconnected') did.closed.push(...closed);
     },
 
     /**

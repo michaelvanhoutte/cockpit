@@ -41,6 +41,7 @@ import {
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import { connectionHistoryOf } from './connection-history.js';
+import type { CheckDid } from '../domain/connection-history.js';
 import {
   applyPulledSourceChange,
   closePulledItemsNotListed,
@@ -1016,7 +1017,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     sourceAccountId: string,
     runId: string,
     change: SourceStateChange,
-  ): Answer<'changed' | 'unchanged' | 'disconnected'> {
+  ): Answer<{ changed: string } | 'unchanged' | 'disconnected'> {
     return this.#answer(accountName, (db) =>
       applyPulledSourceChange(db, accountName, sourceAccountId, runId, change),
     );
@@ -1028,7 +1029,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     sourceAccountId: string,
     runId: string,
     listing: CompleteListing,
-  ): Answer<number | 'disconnected'> {
+  ): Answer<string[] | 'disconnected'> {
     return this.#answer(accountName, (db) =>
       closePulledItemsNotListed(db, accountName, sourceAccountId, runId, listing, new Date().toISOString()),
     );
@@ -1045,7 +1046,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     sourceAccountId: string,
     runId: string,
     confirmed: readonly OpenStateWanted[],
-  ): Answer<'confirmed' | 'not this run'> {
+  ): Answer<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'> {
     return this.#answer(accountName, (db) =>
       confirmPulledOpenStates(db, accountName, sourceAccountId, runId, confirmed),
     );
@@ -1061,9 +1062,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     runId: string,
     failing: string | null,
     moreToDo = false,
+    did?: CheckDid,
   ): Promise<Answer<null>> {
     const ended = this.#answer(accountName, (db) => {
-      endPulledRun(db, accountName, sourceAccountId, runId, failing, new Date(), moreToDo);
+      endPulledRun(db, accountName, sourceAccountId, runId, failing, new Date(), moreToDo, did);
       return null;
     });
     if (ended.status === 'ok') await this.#arm(accountName);

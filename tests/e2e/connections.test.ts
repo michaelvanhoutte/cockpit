@@ -173,13 +173,19 @@ test.describe('Connector management', () => {
 
       // Its history ("See when a pulled connection was checked, and why it
       // failed, from its row's History…", issue 1140): the checks it has had
-      // worked and brought nothing to say, under Today, and ‹ Connections goes
-      // back to the row. What each line says is held by ManageConnections.test.tsx.
+      // worked, under Today, one of them naming the two conversations it
+      // brought in and the one it sent back when Lunch was done (issue 1141),
+      // and ‹ Connections goes back to the row. What each line says is held by
+      // ManageConnections.test.tsx.
       await chooseRowAction(page, 'michael@example.com', 'History…', isMobile);
       const history = checked.getByRole('region', { name: 'History of michael@example.com' });
       await expect(
-        history.getByRole('region', { name: 'Today' }).getByText(/^(Worked|Checked \d+ times, nothing new)$/),
+        history.getByRole('region', { name: 'Today' }).getByText(/^(Worked|Checked \d+ times, nothing new)$/).first(),
       ).toBeVisible();
+      const today = history.getByRole('region', { name: 'Today' });
+      await expect(today.getByText(/New: .*Quarterly figures for the board/)).toBeVisible();
+      await expect(today.getByText(/New: .*Lunch on Thursday\?/)).toBeVisible();
+      await expect(today.getByText('Sent back: Lunch on Thursday?')).toBeVisible();
       await press(history.getByRole('button', { name: '‹ Connections' }), isMobile);
       await expect(checked.getByText(/^Gmail · Labelled Cockpit · last checked /)).toBeVisible();
 
