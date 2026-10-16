@@ -320,20 +320,37 @@ describe('Connector management', () => {
       expect(titles((await linesOf(id))[0]!.did.broughtIn)).toEqual(['Renamed since']);
     });
 
-    it('reads a title null once the Item is deleted, and leaves out one of another Workspace', async () => {
+    it('names a dismissed Item by its title, marked dismissed, and leaves out one of another Workspace', async () => {
       runsIn(bringsIn('a', 'b'));
       const id = await connect();
       await queuedCheckRuns();
-      const gone = await itemIdFor('a');
+      const dismissed = await itemIdFor('a');
       const elsewhere = await itemIdFor('b');
       await inTheStore((sql) => {
-        sql.exec('UPDATE items SET deleted_at = ? WHERE id = ?', new Date().toISOString(), gone);
+        sql.exec('UPDATE items SET deleted_at = ? WHERE id = ?', new Date().toISOString(), dismissed);
         sql.exec('UPDATE items SET workspace_id = ? WHERE id = ?', 'ws-atlas', elsewhere);
       });
 
       const [line] = (await linesOf(id)).slice(0, 1);
       expect(line!.did.broughtIn.count).toBe(2);
-      expect(line!.did.broughtIn.items).toEqual([{ id: gone, title: null }]);
+      expect(line!.did.broughtIn.items).toEqual([{ id: dismissed, title: expect.any(String), dismissed: true }]);
+    });
+
+    it('reads a title null for an id with no row, and a live Item as not dismissed', async () => {
+      runsIn(bringsIn('a', 'b'));
+      const id = await connect();
+      await queuedCheckRuns();
+      const missing = await itemIdFor('a');
+      const live = await itemIdFor('b');
+      await inTheStore((sql) => {
+        sql.exec('PRAGMA foreign_keys = OFF');
+        sql.exec('DELETE FROM items WHERE id = ?', missing);
+      });
+
+      const [line] = (await linesOf(id)).slice(0, 1);
+      const byId = new Map(line!.did.broughtIn.items.map((item) => [item.id, item]));
+      expect(byId.get(missing)).toEqual({ id: missing, title: null, dismissed: false });
+      expect(byId.get(live)).toEqual({ id: live, title: expect.any(String), dismissed: false });
     });
   });
 });

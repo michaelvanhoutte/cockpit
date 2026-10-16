@@ -89,8 +89,8 @@ export function recordCheck(
  * One connection's history, newest line first and at most
  * `HISTORY_MOST_LINES` of it - refused as not found unless the connection is
  * this Workspace's and still connected. Each Item a line names is named by its
- * title now: null once it is deleted, and left out where it is another
- * Workspace's (issue 1141).
+ * title now - dismissed or not - null only where no such Item is held, and left
+ * out where it is another Workspace's (issue 1141).
  */
 export function connectionHistoryOf(
   db: AccountDb,
@@ -127,27 +127,35 @@ export function connectionHistoryOf(
   return lines.map(({ did: _did, ...line }, index) => ({ ...line, did: shown(stored[index] ?? null, titles) }));
 }
 
+type ItemNamed = { title: string | null; dismissed: boolean };
+
 /** What a line did, with each Item named; nothing where it did nothing. */
-function shown(did: DidAsStored | null, titles: Map<string, string | null>): CheckDidShown {
+function shown(did: DidAsStored | null, titles: Map<string, ItemNamed>): CheckDidShown {
   const kind = (which: keyof CheckDid) => ({
     count: did?.[which].count ?? 0,
-    items: (did?.[which].ids ?? []).flatMap((id) => (titles.has(id) ? [{ id, title: titles.get(id) ?? null }] : [])),
+    items: (did?.[which].ids ?? []).flatMap((id) => {
+      const named = titles.get(id);
+      return named ? [{ id, ...named }] : [];
+    }),
   });
   return { broughtIn: kind('broughtIn'), closed: kind('closed'), sentBack: kind('sentBack'), refused: kind('refused') };
 }
 
 /**
- * Each Item of this Workspace by its title now - null once it is deleted (an Item row is only ever tombstoned). An id this Workspace does not hold is left out of the map altogether,
- * so a line cannot name another Workspace's Item.
+ * Each Item of this Workspace by its title now, and whether it is dismissed
+ * (`items.deletedAt`, the Dismissed tombstone - no Item is ever removed), which
+ * the Item form does not open. The title is null only for an id with no row. An
+ * id of another Workspace is left out of the map altogether, so a line cannot
+ * name another Workspace's Item.
  */
 function titlesOf(
   db: AccountDb,
   accountName: string,
   workspaceId: string,
   ids: readonly string[],
-): Map<string, string | null> {
+): Map<string, ItemNamed> {
   const wanted = [...new Set(ids)];
-  const named = new Map<string, string | null>();
+  const named = new Map<string, ItemNamed>();
   const found = new Map<string, { title: string; workspaceId: string; deletedAt: string | null }>();
   for (let from = 0; from < wanted.length; from += NAMED_AT_A_TIME) {
     const rows = db
@@ -159,8 +167,8 @@ function titlesOf(
   }
   for (const id of wanted) {
     const row = found.get(id);
-    if (!row) named.set(id, null);
-    else if (row.workspaceId === workspaceId) named.set(id, row.deletedAt === null ? row.title : null);
+    if (!row) named.set(id, { title: null, dismissed: false });
+    else if (row.workspaceId === workspaceId) named.set(id, { title: row.title, dismissed: row.deletedAt !== null });
   }
   return named;
 }

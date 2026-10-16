@@ -12,10 +12,12 @@ import { z } from 'zod';
  *   `messageCut` where it ran longer; null where it said nothing.
  * - `did` is what the check did ("Say what each check of a connection brought
  *   in, closed and sent back", issue 1141): per kind the exact `count` and the
- *   first Items by `id`, each named by its title now - `title` null once the
- *   Item is deleted. An Item of another Workspace is counted and not listed.
+ *   first Items by `id`, each named by its title now - `title` null only where
+ *   no such Item is held, and `dismissed` where it is dismissed, which the
+ *   Item form does not open. An Item of another Workspace is counted and not
+ *   listed.
  */
-export const itemDidSchema = z.object({ id: z.string(), title: z.string().nullable() });
+export const itemDidSchema = z.object({ id: z.string(), title: z.string().nullable(), dismissed: z.boolean() });
 export const didKindSchema = z.object({ count: z.number().int().min(0), items: itemDidSchema.array() });
 export const checkDidSchema = z.object({
   broughtIn: didKindSchema,

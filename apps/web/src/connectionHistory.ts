@@ -28,7 +28,7 @@ export interface DidList {
   more: number;
 }
 
-/** An Item named by its title now; `id` null where it is deleted, so nothing opens. */
+/** An Item named by its title now; `id` null where nothing opens it - a dismissed Item, which the Item form does not open, or one not held. */
 export interface DidItem {
   key: string;
   id: string | null;
@@ -44,6 +44,8 @@ const KINDS = [
 ] as const;
 
 export const GONE = 'an Item no longer in Cockpit';
+
+const DISMISSED = ' (dismissed)';
 
 export interface HistoryDay {
   /** The local calendar day, unique among the days. */
@@ -95,8 +97,8 @@ export function lineShown(line: ConnectionHistoryLine): HistoryLineShown {
     more: line.did[kind].count - line.did[kind].items.length,
     items: line.did[kind].items.map((item) => ({
       key: item.id,
-      id: item.title === null ? null : item.id,
-      text: item.title ?? GONE,
+      id: item.title === null || item.dismissed ? null : item.id,
+      text: item.title === null ? GONE : item.dismissed ? `${item.title}${DISMISSED}` : item.title,
     })),
   }));
   const parts = [folded ? null : (REASONS[line.reason] ?? null), summary || null, message].filter(
