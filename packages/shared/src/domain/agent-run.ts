@@ -56,6 +56,8 @@ export const agentRunSchema = z.object({
   stage: z.string().nullable().optional(),
   /** What the Run made, once Claude reports it. */
   resultUrl: z.string().nullable().optional(),
+  /** What Claude said with its last report: the answer, or the question it needs answered (issue 1160). */
+  note: z.string().nullable().optional(),
 });
 export type AgentRun = z.infer<typeof agentRunSchema>;
 

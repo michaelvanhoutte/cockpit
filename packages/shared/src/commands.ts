@@ -22,7 +22,14 @@ import {
   agentNameSchema,
   agentEngineSchema,
 } from './domain/agent.js';
-import { claudeDestinationSchema, claudeFolderSchema } from './domain/claude-send.js';
+import {
+  CLAUDE_REPORTED_STAGES,
+  REPORT_NOTE_LIMIT,
+  claudeDestinationSchema,
+  claudeFolderSchema,
+  claudeResultLink,
+  claudeSessionLink,
+} from './domain/claude-send.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import {
   filterConditionSchema,
@@ -544,6 +551,29 @@ export const sendItemToClaudeSchema = commandEnvelopeSchema.extend({
 export type SendItemToClaudeCommand = z.infer<typeof sendItemToClaudeSchema>;
 
 /**
+ * report_claude_run — Cowork or Claude Code saying how a Run it was sent
+ * stands ("Follow on the row what Claude reports back", issue 1160). Sent by
+ * the MCP tool alone, never posted as JSON: the Run's own Workspace is found
+ * from the Run, so `workspaceId` here is not read. Only the stage, the two
+ * links and the note change, and a link that is not safe to open is refused
+ * (`claudeSessionLink`, `claudeResultLink`).
+ */
+export const reportClaudeRunSchema = commandEnvelopeSchema.extend({
+  runId: z.uuid(),
+  stage: z.enum(CLAUDE_REPORTED_STAGES),
+  sessionUrl: z
+    .string()
+    .refine((value) => claudeSessionLink(value) !== null)
+    .optional(),
+  resultUrl: z
+    .string()
+    .refine((value) => claudeResultLink(value) !== null)
+    .optional(),
+  note: z.string().max(REPORT_NOTE_LIMIT).optional(),
+});
+export type ReportClaudeRunCommand = z.infer<typeof reportClaudeRunSchema>;
+
+/**
  * settle_agent_run — how Claude answered a run's start (issue 571). Sent by
  * the start route once Claude has answered or failed to, never by a client.
  *
@@ -921,6 +951,7 @@ export const commandSchemas = {
   set_started: setStartedSchema,
   begin_agent_run: beginAgentRunSchema,
   send_item_to_claude: sendItemToClaudeSchema,
+  report_claude_run: reportClaudeRunSchema,
   settle_agent_run: settleAgentRunSchema,
   finish_agent_run: finishAgentRunSchema,
   report_agent_run_activity: reportAgentRunActivitySchema,
@@ -969,6 +1000,8 @@ export type SelfSentCommandName =
   // (see `beginAgentRunSchema` above).
   | 'begin_agent_run'
   | 'settle_agent_run'
+  // Sent by the `report_run` MCP tool (see `reportClaudeRunSchema` above).
+  | 'report_claude_run'
   // Sent by the Claude Code hook route once the call's secret is checked (see
   // `reportAgentRunActivitySchema` above).
   | 'report_agent_run_activity';
