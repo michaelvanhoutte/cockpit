@@ -248,6 +248,12 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
       onKeyDown={(event) => {
         const target = event.target;
         if (!room || !(target instanceof HTMLElement) || !event.currentTarget.contains(target)) return;
+        // Z presses the undo bar's Undo, whichever row the keyboard is on.
+        if (/^z$/i.test(event.key)) {
+          const press = event.nativeEvent;
+          const show = dock.show;
+          void import('../inboxTriage').then((follow) => follow.undoAndFocus(press, show));
+        }
         const step = inboxStep(event.nativeEvent);
         const from = step === null ? null : target.closest('li[data-item-row]');
         if (step === null || !from) return;

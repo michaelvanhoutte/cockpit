@@ -451,3 +451,17 @@ html[data-app-dark] .milled {
 @utility graphite {
   background-image: linear-gradient(var(--color-graphite-top), var(--color-graphite-bottom));
 }
+
+/*
+ * The key that does what a menu entry does, at the entry's far end ("Act on the
+ * focused Inbox row with one key, and move on", issue 1111): named by the entry
+ * itself in `data-key`, and drawn here rather than as an element of its own, with empty alternative text
+ * so it stays out of the entry's accessible name (aria-keyshortcuts carries it).
+ */
+[data-key]::after {
+  content: attr(data-key) / '';
+  float: right;
+  margin-left: 1.5rem;
+  font-size: 0.75rem;
+  color: var(--color-ink-faint);
+}
