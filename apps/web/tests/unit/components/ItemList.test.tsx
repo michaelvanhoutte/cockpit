@@ -2488,6 +2488,57 @@ describe('Triage', () => {
       );
     });
 
+    it('dismisses the row from its menu as a duplicate', async () => {
+      held.items = [BART, OTHER];
+      held.duplicates = [{ itemId: BART.id, otherItemId: OTHER.id }];
+      const user = await showList({ items: [BART, OTHER] });
+
+      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Dismiss as duplicate' }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_dismissed',
+          payload: expect.objectContaining({ itemId: BART.id, dismissed: true }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('offers no dismissal as a duplicate on a row that is not flagged', async () => {
+      held.items = [BART, OTHER];
+      held.duplicates = [];
+      const user = await showList({ items: [BART, OTHER] });
+
+      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+
+      expect(screen.queryByRole('menuitem', { name: 'Dismiss as duplicate' })).toBeNull();
+    });
+
+    it('says in words that the row may repeat another, the hover naming that note', async () => {
+      held.items = [BART, OTHER];
+      held.duplicates = [{ itemId: BART.id, otherItemId: OTHER.id }];
+      await showList({ items: [BART, OTHER] });
+
+      const chips = screen.getAllByText('Duplicate?');
+      expect(chips.map((chip) => chip.getAttribute('title'))).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('Another note about the same thing'),
+          expect.stringContaining('Reply to Bart'),
+        ]),
+      );
+    });
+
+    it('draws no chip once the other note has been dismissed', async () => {
+      held.items = [BART, { ...OTHER, completedAt: '2026-08-12T10:00:00.000Z' }];
+      held.duplicates = [{ itemId: BART.id, otherItemId: OTHER.id }];
+      await showList({ items: [BART] });
+
+      expect(screen.queryByText('Duplicate?')).toBeNull();
+    });
+
     it('offers nothing where there is no pair to settle', async () => {
       held.items = [BART, OTHER];
       held.duplicates = [];

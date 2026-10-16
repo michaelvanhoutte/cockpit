@@ -489,6 +489,12 @@ export function ItemList({
    * ever settles a pair the row actually showed. Settling one it never drew
    * would be settling something nobody was ever asked about.
    */
+  /** The note(s) a flagged row may repeat, named for the chip's hover. */
+  const duplicateNamesOf = (item: Item): string =>
+    possibleDuplicatesOf(item.id, data?.items ?? [], filed, data?.duplicates ?? [])
+      .map((other) => `“${itemLabel(other)}”`)
+      .join(', ');
+
   const settleNotADuplicateFor = (item: Item): (() => void) | undefined => {
     const others = possibleDuplicatesOf(
       item.id,
@@ -854,6 +860,7 @@ export function ItemList({
       onMoveHere={() => move(item, null, 0, workspaceId)}
       alsoIn={alsoShownOn(item.id, alsoInByItem, data?.panels ?? [], panelId, alsoNotIn)}
       mayBeADuplicate={flagged.has(item.id)}
+      duplicateOf={flagged.has(item.id) ? duplicateNamesOf(item) : undefined}
       onSettleNotADuplicate={flagged.has(item.id)
         ? settleNotADuplicateFor(item)
         : undefined}
