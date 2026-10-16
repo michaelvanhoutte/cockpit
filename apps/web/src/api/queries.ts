@@ -355,6 +355,8 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
   return (
     args.name === 'move_item_to_panel' ||
     args.name === 'add_item_to_panel' ||
+    // Sent from an Inbox before the Item belongs to a Workspace, its Run shows in every Inbox (issue 1159).
+    args.name === 'send_item_to_claude' ||
     // A settled pair's own payload carries neither Item's decided state
     // (`set_duplicate_settled`, packages/shared/src/commands.ts), unlike a
     // capture naming its own - so this follows the move/add above rather

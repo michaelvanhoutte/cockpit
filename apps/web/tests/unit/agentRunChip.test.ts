@@ -60,6 +60,23 @@ describe('Agents', () => {
     });
 
     it.each([
+      { situation: 'Cowork', destination: 'cowork' as const, text: 'Sent to Cowork' },
+      { situation: 'Code', destination: 'code' as const, text: 'Sent to Code' },
+    ])('says an item sent to $situation went, naming no agent', ({ destination, text }) => {
+      const chip = runChipFor(
+        aRun({ agentId: '', agentName: null, sessionUrl: null, destination, stage: 'sent' }),
+        NOW,
+      );
+
+      expect({ agent: chip.agent, text: chip.text, link: chip.href, trouble: chip.trouble }).toEqual({
+        agent: '',
+        text,
+        link: null,
+        trouble: false,
+      });
+    });
+
+    it.each([
       { situation: 'an agent still there', agentName: 'Scope it', names: 'Scope it' },
       { situation: 'a deleted agent', agentName: null, names: 'a deleted agent' },
     ])('names $situation', ({ agentName, names }) => {

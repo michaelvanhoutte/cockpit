@@ -1810,6 +1810,10 @@ const runColumns = {
   reason: agentRuns.reason,
   startedAt: agentRuns.startedAt,
   waiting: agentRunActivity.waiting,
+  destination: agentRuns.destination,
+  folder: agentRuns.folder,
+  stage: agentRuns.stage,
+  resultUrl: agentRuns.resultUrl,
 };
 
 /**
@@ -1827,6 +1831,10 @@ function runFrom(row: {
   reason: string | null;
   startedAt: string;
   waiting: boolean | null;
+  destination: AgentRun['destination'];
+  folder: string | null;
+  stage: string | null;
+  resultUrl: string | null;
 }): AgentRun {
   const { agentDeletedAt, agentName, ...run } = row;
   return {
@@ -1856,7 +1864,17 @@ export function listOpenAgentRuns(db: AccountDb, tenantId: string, workspaceId: 
     .where(
       and(
         eq(agentRuns.tenantId, tenantId),
-        eq(agentRuns.workspaceId, workspaceId),
+        // Or an Item sent to Claude that is drawn here: one sent from an Inbox
+        // before it belongs to a Workspace is in every Inbox, and one filed
+        // since belongs to where it was filed (issue 1159). An Agent's run is
+        // listed only where it was started, as it always was.
+        or(
+          eq(agentRuns.workspaceId, workspaceId),
+          and(
+            isNotNull(agentRuns.destination),
+            or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+          ),
+        ),
         isNull(agentRuns.endedAt),
       ),
     )

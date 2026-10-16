@@ -11,6 +11,8 @@ import {
   changeUserSchema,
   userDeletedSchema,
   agentMessageFor,
+  attachmentLinksRequestSchema,
+  attachmentLinksSchema,
   claudeCodeHooksSchema,
   claudeCodeOutcomeSchema,
   REMOTE_SESSION_HEADER,
@@ -790,6 +792,27 @@ const connectedAppsRoute = createRoute({
   },
 });
 
+/**
+ * The address each of these files opens at for a Claude session that cannot
+ * sign in ("Send an item to Cowork or Claude Code with its prompt reviewed
+ * first", issue 1159). Made for this account only, and checked when opened
+ * (`auth/attachment-link.ts`), so an id that is not this account's file
+ * yields an address that opens nothing.
+ */
+const attachmentLinksRoute = createRoute({
+  method: 'post',
+  path: '/v1/attachment-links',
+  request: {
+    body: { required: true, content: { 'application/json': { schema: attachmentLinksRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'One address per file, none where links cannot be made',
+      content: { 'application/json': { schema: attachmentLinksSchema } },
+    },
+  },
+});
+
 /** Ends one app's access at once; what it captured stays. */
 const disconnectAppRoute = createRoute({
   method: 'delete',
@@ -1180,6 +1203,11 @@ async function readJsonBody(c: Context): Promise<unknown> {
 const LARGEST_BATCH = 100;
 const BATCH_BY_DEFAULT = 25;
 
+/** The answer a Connect carries to whether it files by name: exactly `true` or `false`, else none (issue 1147). */
+function filesByNameAnswered(asked: string | undefined): boolean | undefined {
+  return asked === 'true' ? true : asked === 'false' ? false : undefined;
+}
+
 /** The batch a call asked for, or that what it asked for is not one. */
 function batchSize(asked: string | undefined): number | 'not a batch size' {
   if (asked === undefined || asked === '') return BATCH_BY_DEFAULT;
@@ -1340,7 +1368,7 @@ const routes = app
             id: manifest.id,
             displayName: manifest.displayName,
             cardText: manifest.cardText,
-            asksFirst: manifest.choice !== undefined,
+            asksFirst: manifest.choice !== undefined || manifest.names !== undefined,
             ...(manifest.choice
               ? { choice: { question: manifest.choice.question, options: manifest.choice.options.map((option) => ({ ...option })) } }
               : {}),
@@ -1631,6 +1659,24 @@ const routes = app
     await settle({ status: 'link_lost' });
     return c.json({ alreadyStarted: false, status: 'link_lost' }, 200);
   })
+  .openapi(attachmentLinksRoute, async (c) => {
+    const { attachmentIds } = c.req.valid('json');
+    const key = await attachmentLinkKey(c.env.CONNECTOR_CREDENTIAL_KEY);
+    if (!key) return c.json({ links: {} }, 200);
+    const now = new Date();
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    const links: Record<string, string> = {};
+    for (const attachmentId of attachmentIds) {
+      // Only a file of this account on an Item that is not deleted gets an address.
+      if (!(await account.attachmentForDownload(attachmentId))) continue;
+      links[attachmentId] = new URL(
+        `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(key, { accountName, attachmentId }, now)}`,
+        c.env.APP_ORIGIN,
+      ).toString();
+    }
+    return c.json({ links }, 200);
+  })
   .openapi(rewriteHistoryForWorkspaceRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -1749,6 +1795,10 @@ const routes = app
     }
     return c.json(await account.applyChange('set_connection_files_by_name', cmd), 200);
   })
+  .openapi(
+    commandRoute('send_item_to_claude', { conflict: 'The item is done, dismissed, or Claude is already on it' }),
+    async (c) => c.json(await change(c, 'send_item_to_claude', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => {
@@ -2058,6 +2108,17 @@ const routes = app
     if (asked && !asked.options.some((option) => option.value === choice)) {
       return refuseConnection(c, workspaceId, 'the choice is not one the source offers');
     }
+    // Whether it files by the names the source gives mail, answered the same
+    // way for a connector that reports names: a yes or a no, or the Connect is
+    // refused and nothing is started (issue 1147). Not asked at all - a tab
+    // opened before Connect asked it - carries no answer, so a new connection
+    // starts off and a reconnect keeps what it holds. A source that reports
+    // none carries nothing.
+    const filesByNameAsked = c.req.query('filesByName');
+    const filesByName = filesByNameAnswered(filesByNameAsked);
+    if (sign.connector.manifest.names && filesByNameAsked !== undefined && filesByName === undefined) {
+      return refuseConnection(c, workspaceId, 'whether to file by name was not answered');
+    }
     try {
       // Theirs, and still there - asked before anybody is sent away, so a
       // Workspace deleted in another tab refuses here rather than after a
@@ -2079,6 +2140,7 @@ const routes = app
         accountName: c.get('visitor').accountName,
         connectorId: sign.connector.manifest.id,
         ...(asked && choice ? { choice } : {}),
+        ...(sign.connector.manifest.names && filesByName !== undefined ? { filesByName } : {}),
       };
       rememberConnectAttempt(c, attempt);
       // `client.clientId`, never the setting again: the two have to be
@@ -2138,6 +2200,11 @@ const routes = app
     if (asked && !asked.options.some((option) => option.value === attempt!.choice)) {
       return refuseConnection(c, attempt!.workspaceId, 'the choice is not one the source offers');
     }
+    // Whether it files by name rides along as asked: an attempt carrying
+    // anything but a yes or no is not read at all, and one carrying none - a
+    // tab opened before Connect asked it - leaves a new connection off and a
+    // reconnected one as it was (issue 1147).
+    const reportsNames = sign.connector.manifest.names !== undefined;
 
     try {
       const client = clientOf(c.env, sign.auth);
@@ -2173,6 +2240,7 @@ const routes = app
         displayName: account.displayName,
         ...sealed,
         ...(asked ? { choice: attempt!.choice! } : {}),
+        ...(reportsNames && attempt!.filesByName !== undefined ? { filesByName: attempt!.filesByName } : {}),
       });
       // **After the connection is stored, and only then.** The register's index
       // is what lets a saved message find this Workspace later ("Save a Teams

@@ -568,6 +568,117 @@ describe('Connector management', () => {
     });
   });
 
+  /** "Ask on Connect whether a mail connection files by label or category", issue 1147. */
+  describe('Connect asks whether the connection files by name, and Reconnect starts at the row’s own answer', () => {
+    const MAIL_CARD = {
+      id: 'outlook',
+      displayName: 'Outlook',
+      cardText: 'Messages you flag arrive as items.',
+      asksFirst: true,
+      choice: { question: 'Bring in messages', options: [{ value: 'flag', label: 'Flagged' }] },
+      names: { noun: 'category', example: 'a message with the category' },
+    };
+    const NAMES_ONLY_CARD = { ...MAIL_CARD, id: 'names-only', displayName: 'Names only', choice: undefined };
+    const PAGES_CARD = {
+      id: 'notion',
+      displayName: 'Notion',
+      cardText: 'Pages arrive as items.',
+      asksFirst: true,
+      choice: { question: 'Bring in', options: [{ value: 'starred', label: 'Starred pages' }] },
+    };
+    const FAILING_MAIL: SourceAccount = {
+      ...ADA,
+      id: 'account-mail',
+      connectorId: 'outlook',
+      displayName: 'Ada’s mail',
+      follows: 'flag',
+      followsLabel: 'Flagged',
+      failingBecause: 'Microsoft no longer accepts the sign-in.',
+    };
+    const TICK_BOX = 'File it on the panel named after its category';
+
+    beforeEach(() => {
+      held.registry = [TEAMS_CARD, MAIL_CARD, NAMES_ONLY_CARD, PAGES_CARD];
+      held.sourceNames = { ...held.sourceNames, outlook: 'Outlook', notion: 'Notion', 'names-only': 'Names only' };
+    });
+
+    function leavingTo(): ReturnType<typeof vi.fn> {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      return leaving;
+    }
+
+    it.each([
+      { situation: 'left unticked, Connect carries a no', tick: false, leaves: '/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&filesByName=false' },
+      { situation: 'ticked, Connect carries a yes', tick: true, leaves: '/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&filesByName=true' },
+    ])('Connect starts unticked and, $situation', async ({ tick, leaves }) => {
+      const leaving = leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      const box = within(asked).getByRole('checkbox', { name: TICK_BOX });
+      expect(box).not.toBeChecked();
+      if (tick) await userEvent.click(box);
+      expect(leaving).not.toHaveBeenCalled();
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith(leaves);
+    });
+
+    it('asks even where the connector has no choice to ask, and carries the answer alone', async () => {
+      const leaving = leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Names only' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Names only' });
+      await userEvent.click(within(asked).getByRole('checkbox', { name: TICK_BOX }));
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/names-only/connect?filesByName=true');
+    });
+
+    it.each([
+      { situation: 'a row filing by name starts ticked, and keeps it', on: true, leaves: 'filesByName=true' },
+      { situation: 'a row not filing by name starts unticked', on: false, leaves: 'filesByName=false' },
+    ])('Reconnect on $situation', async ({ on, leaves }) => {
+      const leaving = leavingTo();
+      held.sourceAccounts = [{ ...FAILING_MAIL, filesByName: on }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada’s mail' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Reconnect' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      expect((within(asked).getByRole('checkbox', { name: TICK_BOX }) as HTMLInputElement).checked).toBe(on);
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith(`/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&${leaves}`);
+    });
+
+    it('Reconnect carries the answer given on that Reconnect, not the row’s', async () => {
+      const leaving = leavingTo();
+      held.sourceAccounts = [{ ...FAILING_MAIL, filesByName: true }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada’s mail' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Reconnect' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      await userEvent.click(within(asked).getByRole('checkbox', { name: TICK_BOX }));
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&filesByName=false');
+    });
+
+    it('a connector that reports no names asks no tick box', async () => {
+      leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Notion' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Notion' });
+
+      expect(within(asked).queryByRole('checkbox')).toBeNull();
+    });
+  });
 
   /** "Switch Gmail onto the generic host, and take it out of the core", issue 944. */
   describe('a failing connection says why, and its row offers Reconnect, which signs in again under the choice it holds', () => {

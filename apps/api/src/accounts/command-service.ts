@@ -112,6 +112,7 @@ import {
   workspaceNamed,
 } from '../domain/workspaces.js';
 import { agentFromCommand, agentNamed, decideAgentStart } from '../domain/agents.js';
+import { decideClaudeSend } from '../domain/claude-sends.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
 import {
   applyProposedFields,
@@ -1974,6 +1975,8 @@ export function runCommand<N extends CommandName>(
             // What the Connect window asked of a connector that declares a
             // choice (issue 942).
             choice: cmd.choice ?? null,
+            // And whether it files by name, answered the same way (issue 1147).
+            filesByName: cmd.filesByName ?? false,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -1999,6 +2002,9 @@ export function runCommand<N extends CommandName>(
               // Asked again on a reconnect, so the answer replaces the stored
               // one; a reconnect that asked nothing leaves it.
               ...(decided.choiceOnRefresh !== undefined ? { choice: decided.choiceOnRefresh } : {}),
+              // Asked again as well, so the answer given on this reconnect
+              // is the one kept (issue 1147).
+              ...(cmd.filesByName !== undefined ? { filesByName: cmd.filesByName } : {}),
             },
           })
           .run();
@@ -2332,6 +2338,69 @@ export function runCommand<N extends CommandName>(
             agentId: cmd.agentId,
             status: 'starting',
             startedAt: cmd.issuedAt,
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'send_item_to_claude': {
+      const cmd = payload as CommandPayload<'send_item_to_claude'>;
+      // Decided here, inside the one call the object runs at a time, so two
+      // tabs sending the same Item are two of these run one after the other
+      // and the second meets the first's Run ("Send an item to Cowork or
+      // Claude Code with its prompt reviewed first", issue 1159). An Item
+      // that belongs to no Workspace yet is sent from whichever Inbox shows it.
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (
+        !item ||
+        !getWorkspace(db, tenantId, cmd.workspaceId) ||
+        (item.workspaceDecided && item.workspaceId !== cmd.workspaceId)
+      ) {
+        throw new ItemNotFoundError(cmd.itemId);
+      }
+      // An Item that belongs to no Workspace is drawn in every Inbox, so every
+      // tab is told its Run is there.
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
+      const open = openAgentRunOn(db, tenantId, cmd.itemId);
+      // The same send again under a new command id - the window keeps one run
+      // id, so a retry after a lost answer lands here - is the Run already
+      // made, not a second one for Claude to be refused on.
+      if (open?.id === cmd.runId) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      const decided = decideClaudeSend({ item, openRun: open });
+      switch (decided.refusal) {
+        case null:
+          break;
+        case 'item-not-to-be-done':
+          throw new AgentRunRefusedError('Claude only takes an item still to be done.');
+        case 'claude-already-on-item':
+          throw new AgentRunRefusedError('Claude is already on this item.');
+      }
+      db.transaction((tx) => {
+        // A run Claude refused started nothing, so a send replaces it.
+        if (open) {
+          tx.update(agentRuns)
+            .set({ endedAt: cmd.issuedAt })
+            .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, open.id)))
+            .run();
+        }
+        tx.insert(agentRuns)
+          .values({
+            id: cmd.runId,
+            tenantId,
+            workspaceId: cmd.workspaceId,
+            itemId: cmd.itemId,
+            // No Agent: the column is NOT NULL and cannot be widened.
+            agentId: '',
+            status: 'working',
+            startedAt: cmd.issuedAt,
+            destination: cmd.destination,
+            folder: cmd.folder === '' ? null : cmd.folder,
+            stage: 'sent',
           })
           .run();
         tx.insert(commands).values(commandRow).run();

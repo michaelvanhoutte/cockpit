@@ -22,6 +22,7 @@ import {
   agentNameSchema,
   agentEngineSchema,
 } from './domain/agent.js';
+import { claudeDestinationSchema, claudeFolderSchema } from './domain/claude-send.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import {
   filterConditionSchema,
@@ -527,6 +528,22 @@ export const beginAgentRunSchema = commandEnvelopeSchema.extend({
 export type BeginAgentRunCommand = z.infer<typeof beginAgentRunSchema>;
 
 /**
+ * send_item_to_claude — an Item sent to Cowork or Claude Code from its row,
+ * recorded as a Run that is *Sent* just before the browser opens the
+ * `claude://` address ("Send an item to Cowork or Claude Code with its prompt
+ * reviewed first", issue 1159). `runId` is chosen by the browser, because the
+ * prompt it is about to send already names it. The prompt itself is not
+ * stored: Claude has it, and an edit made there is not Cockpit's to keep.
+ */
+export const sendItemToClaudeSchema = commandEnvelopeSchema.extend({
+  runId: z.uuid(),
+  itemId: z.uuid(),
+  destination: claudeDestinationSchema,
+  folder: claudeFolderSchema.default(''),
+});
+export type SendItemToClaudeCommand = z.infer<typeof sendItemToClaudeSchema>;
+
+/**
  * settle_agent_run — how Claude answered a run's start (issue 571). Sent by
  * the start route once Claude has answered or failed to, never by a client.
  *
@@ -776,6 +793,15 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
    * the stored one alone.
    */
   choice: z.string().min(1).max(200).optional(),
+  /**
+   * Whether the connection files what it brings in on the Panel named after
+   * its label or category, as the person answered it before the sign-in
+   * ("Ask on Connect whether a mail connection files by label or category",
+   * issue 1147). Written by the callback route only for a connector that
+   * reports names. Absent: a new connection starts off, and a reconnect leaves
+   * the stored one alone.
+   */
+  filesByName: z.boolean().optional(),
 });
 export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
 
@@ -894,6 +920,7 @@ export const commandSchemas = {
   set_done: setDoneSchema,
   set_started: setStartedSchema,
   begin_agent_run: beginAgentRunSchema,
+  send_item_to_claude: sendItemToClaudeSchema,
   settle_agent_run: settleAgentRunSchema,
   finish_agent_run: finishAgentRunSchema,
   report_agent_run_activity: reportAgentRunActivitySchema,

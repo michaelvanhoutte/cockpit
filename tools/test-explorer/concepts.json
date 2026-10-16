@@ -398,11 +398,17 @@
     {
       "key": "Agents",
       "label": "Agents",
-      "browserWalks": 2,
+      "browserWalks": 3,
       "parent": "Workspaces",
       "sourcePatterns": [
         "packages/shared/src/domain/agent.ts",
         "packages/shared/src/domain/agent-run.ts",
+        "packages/shared/src/domain/claude-send.ts",
+        "packages/shared/src/domain/claude-prompt.ts",
+        "packages/shared/src/api/claude-links.ts",
+        "apps/api/src/domain/claude-sends.ts",
+        "apps/web/src/openClaude.ts",
+        "apps/web/src/components/SendToClaudeWindow.tsx",
         "apps/api/src/engines/claude-code.ts",
         "apps/api/src/http/app.ts",
         "apps/web/src/agentInTheAir.ts",

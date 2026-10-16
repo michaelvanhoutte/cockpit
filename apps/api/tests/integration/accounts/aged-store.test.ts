@@ -1931,7 +1931,7 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      // With `status` NULL, which `0080-connection-history-status` adds on the same open.
+      // With `status` NULL, which `0081-connection-history-status` adds on the same open.
       expect(await linesIn()).toEqual(before.map((row) => ({ ...row, did: null, status: null })));
       const nothing = { count: 0, items: [] };
       expect(read.status === 'ok' ? read.value : []).toEqual([
@@ -1944,14 +1944,14 @@ describe('Connector management', () => {
   });
 
   /**
-   * `0080-connection-history-status` ("Show the source's HTTP status on a
+   * `0081-connection-history-status` ("Show the source's HTTP status on a
    * connection's failed check", issue 1142) meets a connection's history from
    * before it: it adds a nullable column and rewrites no line.
    */
   describe('a history stored before failures kept a status reads each line as having none', () => {
     it('keeps every line as it was, and reads it back with no status', async () => {
       const name = 'aged-store-before-connection-history-status';
-      await agedTo(name, justBefore('0080-connection-history-status'));
+      await agedTo(name, justBefore('0081-connection-history-status'));
       await fillWithWhatIsAlreadyThere(name);
       const linesIn = () =>
         inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM connection_history ORDER BY id').toArray());
