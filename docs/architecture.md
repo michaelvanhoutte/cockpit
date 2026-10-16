@@ -433,8 +433,8 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 | Cold open → glanceable dashboard (installed PWA, warm cache) | **< 1s** |
 | Capture: entry point → note persisted (excluding typing) | **< 2s** |
 | Panel interactions (filter, drag, reorder, switch dashboard) | **< 100ms** |
-| Initial JS bundle (compressed) | **< 221KB**, hard CI gate |
-| Any one file fetched separately (compressed) | **< 221KB**, same gate, charged on its own |
+| Initial JS bundle (compressed) | **< 230KB**, hard CI gate |
+| Any one file fetched separately (compressed) | **< 230KB**, same gate, charged on its own |
 | Snapshot revalidation after cold open | background, never blocking paint |
 | Cold open's check for a new version (a waiting service worker, or the browser asked for one) | holds the app **at most 1.5s**; an answer after that shows the message over the open app |
 
@@ -447,6 +447,8 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 **Moved from 213KB to 220KB, all at once rather than per feature**, for the Dashboard-wide selection and its bulk edits ("Select across a Dashboard's panels, and change the type, priority, due date or status of everything selected", issue 861): the selection store and its bar, drawn once by the board, are in the entry because the first pick is a gesture on a Panel, and the Edit menu that follows is too. A lazy chunk for the Edit menu was rejected, the entry having had about 0.7KB left and the gate having been moved per feature many times.
 
 **Moved from 220KB to 221KB for Find item** ("Find an open Item with F and Shift+F, and land on its row", issue 828): the key handling and the landing request that outlives the column are in the entry, the board that draws the row consuming it; the filter bar's `F` handling that left was less than they added.
+
+**Moved from 222KB to 230KB at once, by the engineer's decision** ("Ask on Connect whether a mail connection files by label or category", issue 1147): the entry stood a few bytes under 222KB, so any feature touching it failed the gate, and a field added to the shared command contract was 24 bytes over.
 
 Two standing rules follow: **never block paint on auth** (paint the cached snapshot, verify the session in the background; long-lived sessions with silent refresh, no OAuth redirect on the hot path), and **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 
