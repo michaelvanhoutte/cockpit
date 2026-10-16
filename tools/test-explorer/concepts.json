@@ -373,7 +373,7 @@
     {
       "key": "Connector management",
       "label": "Connector management",
-      "browserWalks": 1,
+      "browserWalks": 2,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/connectors/credential-crypto.ts",

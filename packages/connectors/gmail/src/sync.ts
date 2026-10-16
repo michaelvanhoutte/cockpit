@@ -14,7 +14,9 @@ import {
   conversationPage,
   historyPage,
   labelChange,
+  namesOf,
   stillMarked,
+  userLabelsIn,
 } from './messages.js';
 
 /**
@@ -137,6 +139,9 @@ export async function syncMailbox(host: ConnectorHost, config: GmailConnectorCon
 class Reading {
   /** Whether the state holds something the host has not been given. */
   #unsaved = false;
+  /** Gmail's list of labels, once read this run: the connection following the label reads it to find the mark. */
+  #labelList: unknown;
+  #userLabels: Map<string, string> | undefined;
 
   constructor(
     private readonly host: ConnectorHost,
@@ -147,7 +152,7 @@ class Reading {
   ) {}
 
   async read(): Promise<void> {
-    const markId = await markIdOf(this.mailbox, this.choice);
+    const markId = await this.#markId();
     for (let attempt = 0; attempt < 2; attempt++) {
       if (this.state.historyId === null || this.state.listing) await this.#list(markId);
       if ((await this.#readHistory(markId)) === 'caught up') return;
@@ -157,6 +162,26 @@ class Reading {
       this.state.listing = null;
       this.#unsaved = true;
     }
+  }
+
+  /** The mark's id: the label's, from the list this run reads anyway, or the star's. */
+  async #markId(): Promise<string> {
+    if (this.choice === 'star') return STARRED;
+    this.#labelList = await this.mailbox.get('labels');
+    return labelMarkIn(this.#labelList);
+  }
+
+  /**
+   * The labels the person made, by id. Read at no cost where the connection
+   * follows the label, whose run has the list already; a connection following
+   * the star pays one call, the first time a run has names to report.
+   */
+  async #labelNames(): Promise<Map<string, string>> {
+    if (!this.#userLabels) {
+      this.#labelList ??= await this.mailbox.get('labels');
+      this.#userLabels = userLabelsIn(this.#labelList);
+    }
+    return this.#userLabels;
   }
 
   /** Hands the host the state, once, if it holds anything new. */
@@ -262,9 +287,14 @@ class Reading {
 
       const page = historyPage(answer, markId);
       const gained = new Set(page.gained);
-      const affected = [...new Set([...page.changed, ...page.gained])];
+      const changed = new Set(page.changed);
+      const affected = [...new Set([...page.changed, ...page.gained, ...page.relabelled])];
       for (let index = state.history.done; index < affected.length; index++) {
-        await this.#follow(affected[index]!, markId, gained.has(affected[index]!));
+        const threadId = affected[index]!;
+        // A conversation only relabelled has its names read again and nothing
+        // else: it neither closes nor reopens.
+        if (!gained.has(threadId) && !changed.has(threadId)) await this.#reportNames(threadId, markId);
+        else await this.#follow(threadId, markId, gained.has(threadId));
         state.history.done = index + 1;
         this.#unsaved = true;
       }
@@ -285,6 +315,17 @@ class Reading {
     }
   }
 
+  /** Reports the names of a conversation read, whole; the host works out what is new. */
+  async #say(threadId: string, thread: unknown, markId: string): Promise<void> {
+    await this.host.reportNames({ sourceId: threadId, names: namesOf(thread, await this.#labelNames(), markId) });
+  }
+
+  /** Reads a conversation whose labels changed, and reports its names if it is still marked. */
+  async #reportNames(threadId: string, markId: string): Promise<void> {
+    const thread = await this.mailbox.get(`threads/${encodeURIComponent(threadId)}?format=minimal`);
+    if (thread !== null && stillMarked(thread, markId)) await this.#say(threadId, thread, markId);
+  }
+
   /**
    * Reads one conversation and says what became of it: gone, in the bin or no
    * longer marked is `resolved`; marked is brought in as a titled Task where
@@ -300,6 +341,7 @@ class Reading {
       return;
     }
     if (!bringIn) {
+      await this.#say(threadId, thread, markId);
       await this.host.emitSourceStateChange({ sourceId: threadId, change: 'reopened', observedAt });
       return;
     }
@@ -313,6 +355,7 @@ class Reading {
       capturedMessage: conversation.text,
       title: conversation.title,
       choice: this.choice,
+      names: namesOf(thread, await this.#labelNames(), markId),
     });
     if (filing === 'already-known') {
       await this.host.emitSourceStateChange({ sourceId: threadId, change: 'reopened', observedAt });
@@ -326,8 +369,12 @@ class Reading {
  * and says so.
  */
 async function markIdOf(mailbox: Mailbox, choice: string): Promise<string> {
-  if (choice === 'star') return STARRED;
-  const labelId = cockpitLabelIn(await mailbox.get('labels'));
+  return choice === 'star' ? STARRED : labelMarkIn(await mailbox.get('labels'));
+}
+
+/** The id of the label called Cockpit in Gmail's list of labels, or the failure that says there is none. */
+function labelMarkIn(labels: unknown): string {
+  const labelId = cockpitLabelIn(labels);
   if (!labelId) throw new Error(NO_LABEL);
   return labelId;
 }
