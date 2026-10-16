@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import type { Page } from '@playwright/test';
 import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
   chooseRowAction,
@@ -20,9 +21,9 @@ const root = resolve(__dirname, '..', '..');
 const issuer = `http://127.0.0.1:${portsFor(root, { linked: isLinkedWorktree(root), env: process.env }).e2eIssuer}`;
 
 /**
- * F3, and the one walk this capability gets: connecting leaves the application
- * entirely, signs in at a second server and comes back, which is the one thing
- * no level below a real browser can do at all. Everything the walk finds on the
+ * F3, a walk per connector: connecting leaves the application entirely, signs
+ * in at a second server and comes back, which is the one thing no level below
+ * a real browser can do at all. Everything the walk finds on the
  * way back - the row, its name, its absence after disconnecting - is drawn from
  * a real store the browser really read.
  *
@@ -44,20 +45,38 @@ const issuer = `http://127.0.0.1:${portsFor(root, { linked: isLinkedWorktree(roo
  * both projects, so a connection left behind would be in the list the next
  * project's walk reads.
  */
+
+/** Signs in, makes and opens a workspace of this walk's own, and opens Settings on its Connections. */
+async function connectionsOfAWorkspaceOfItsOwn(page: Page, isMobile: boolean) {
+  await openFirstWorkspace(page, isMobile);
+  const workspace = uniqueTitle('Connected');
+  await makeWorkspace(page, workspace, isMobile);
+  await switchTo(page, workspace, isMobile);
+  const window = await openSettings(page, 'Connections', isMobile);
+  return { workspace, window };
+}
+
+/** Disconnects the one account every walk here connects, from the open Connections. */
+async function disconnectMichael(page: Page, isMobile: boolean): Promise<void> {
+  await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
+  await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
+  await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+}
+
+async function putTheWorkspaceBack(page: Page, workspace: string, isMobile: boolean): Promise<void> {
+  await closeSettings(page, isMobile);
+  await deleteWorkspace(page, workspace, isMobile);
+}
 test.describe('Connector management', () => {
+  // Settings is the pointer's, by decision: a phone has no way to it.
+  test.skip(({ isMobile }) => !!isMobile, 'a phone has no Connections, only Appearance');
+
   test.describe('a source account connected to a workspace is listed there until it is disconnected', () => {
     test('connects one, lists it once however often it is connected, and disconnects it', async ({
       page,
       isMobile,
     }) => {
-      // Settings is the pointer's, by decision: a phone has no way to it.
-      test.skip(isMobile, 'a phone has no Connections, only Appearance');
-      await openFirstWorkspace(page, isMobile);
-      const workspace = uniqueTitle('Connected');
-      await makeWorkspace(page, workspace, isMobile);
-      await switchTo(page, workspace, isMobile);
-
-      const window = await openSettings(page, 'Connections', isMobile);
+      const { workspace, window } = await connectionsOfAWorkspaceOfItsOwn(page, isMobile);
       await expect(window.getByRole('combobox', { name: /Workspace/ })).toHaveValue(/.+/);
       await expect(window.getByText(/Nothing connected yet/)).toBeVisible();
 
@@ -81,12 +100,7 @@ test.describe('Connector management', () => {
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       await expect(page.getByRole('dialog').getByText('michael@example.com')).toHaveCount(1);
 
-      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
-      await press(
-        page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }),
-        isMobile,
-      );
-      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await disconnectMichael(page, isMobile);
 
       // Reopened from scratch, which is the claim the issue makes about this
       // window: what it shows is what is stored, never what the last press
@@ -94,15 +108,23 @@ test.describe('Connector management', () => {
       await closeSettings(page, isMobile);
       const again = await openSettings(page, 'Connections', isMobile);
       await expect(again.getByText(/Nothing connected yet/)).toBeVisible();
+      await putTheWorkspaceBack(page, workspace, isMobile);
+    });
+  });
 
-      // A connector that declares one choice ("Ask a connection's one choice on
-      // connecting, and change it later", issue 942), against the fake pulled
-      // connector the stack registers beside the registry's own
-      // (apps/api/tests/e2e-worker.ts): the one place the question, the redirect
-      // that carries the answer and the stored row meet in a browser. What is
-      // stored, refused and handed to the connector is held below
-      // (apps/api/tests/integration/connectors/connection-choice.test.ts).
-      await press(again.getByRole('button', { name: 'Connect Fake Pages' }), isMobile);
+  test.describe('a connector that asks one question on connecting can have its answer changed later', () => {
+    test('asks it before the sign-in, names the answer on the row, and changes it without signing in again', async ({
+      page,
+      isMobile,
+    }) => {
+      // ("Ask a connection's one choice on connecting, and change it later",
+      // issue 942), against the fake pulled connector the stack registers beside
+      // the registry's own (apps/api/tests/e2e-worker.ts): the one place the
+      // question, the redirect that carries the answer and the stored row meet
+      // in a browser. What is stored, refused and handed to the connector is
+      // held below (apps/api/tests/integration/connectors/connection-choice.test.ts).
+      const { workspace, window } = await connectionsOfAWorkspaceOfItsOwn(page, isMobile);
+      await press(window.getByRole('button', { name: 'Connect Fake Pages' }), isMobile);
       const asked = page.getByRole('dialog', { name: 'Connect Fake Pages' });
       await expect(asked.getByRole('radio', { name: 'Starred pages' })).toBeChecked();
       await press(asked.getByText('Every page'), isMobile);
@@ -122,20 +144,27 @@ test.describe('Connector management', () => {
       await closeSettings(page, isMobile);
       const pagesAgain = await openSettings(page, 'Connections', isMobile);
       await expect(pagesAgain.getByText('Fake Pages · Starred pages')).toBeVisible();
-      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
-      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
-      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await disconnectMichael(page, isMobile);
+      await putTheWorkspaceBack(page, workspace, isMobile);
+    });
+  });
 
-      // Gmail, a registered connector like the rest ("Switch Gmail onto the
-      // generic host, and take it out of the core", issue 944): its one
-      // question before Google, which Cancel leaves without going anywhere,
-      // and then the same trip out and back through the generic sign-in.
-      await press(again.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+  test.describe('Gmail brings in the conversations labelled Cockpit, and Done takes the label off', () => {
+    test('connects through the generic sign-in, lands them as Tasks, unlabels one done, and follows the star instead', async ({
+      page,
+      isMobile,
+    }) => {
+      // A registered connector like the rest ("Switch Gmail onto the generic
+      // host, and take it out of the core", issue 944): its one question before
+      // Google, which Cancel leaves without going anywhere, and then the same
+      // trip out and back through the generic sign-in.
+      const { workspace, window } = await connectionsOfAWorkspaceOfItsOwn(page, isMobile);
+      await press(window.getByRole('button', { name: 'Connect Gmail' }), isMobile);
       const gmailAsked = page.getByRole('dialog', { name: 'Connect Gmail' });
       await expect(gmailAsked.getByRole('radio', { name: 'Labelled Cockpit' })).toBeChecked();
       await press(gmailAsked.getByRole('button', { name: 'Cancel' }), isMobile);
       await expect(gmailAsked).toHaveCount(0);
-      await press(again.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      await press(window.getByRole('button', { name: 'Connect Gmail' }), isMobile);
       await press(gmailAsked.getByRole('button', { name: 'Connect' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
 
@@ -191,15 +220,19 @@ test.describe('Connector management', () => {
       await expect(following).toHaveCount(0);
       await expect(checked.getByText(/^Gmail · Starred \(flagged in Outlook\)/)).toBeVisible();
 
-      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
-      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
-      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await disconnectMichael(page, isMobile);
+      await putTheWorkspaceBack(page, workspace, isMobile);
+    });
+  });
 
-      // By star ("Connect Gmail by star, and bring in conversations starred
-      // from then on", issue 822): a conversation starred after connecting
-      // becomes a Task. Starred once the first check has read where the
-      // mailbox stands, so the star comes after it; connecting the same
-      // mailbox again is what checks it now rather than five minutes out.
+  test.describe('Gmail by star brings in the conversations starred after connecting', () => {
+    test('lands a conversation starred once the first check has read the mailbox', async ({ page, isMobile }) => {
+      // ("Connect Gmail by star, and bring in conversations starred from then
+      // on", issue 822.) Starred once the first check has read where the
+      // mailbox stands, so the star comes after it; connecting the same mailbox
+      // again is what checks it now rather than five minutes out.
+      const { workspace } = await connectionsOfAWorkspaceOfItsOwn(page, isMobile);
+      const gmailAsked = page.getByRole('dialog', { name: 'Connect Gmail' });
       const askedOf = async (email: string) =>
         (await (await fetch(`${issuer}/gmail-stub/asked?email=${encodeURIComponent(email)}`)).json()) as string[];
       const connectByStar = async () => {
@@ -220,17 +253,23 @@ test.describe('Connector management', () => {
 
       const starred = await openSettings(page, 'Connections', isMobile);
       await expect(starred.getByText(/^Gmail · Starred \(flagged in Outlook\) · last checked /)).toBeVisible();
-      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
-      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
-      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await disconnectMichael(page, isMobile);
+      await putTheWorkspaceBack(page, workspace, isMobile);
+    });
+  });
 
-      // Outlook, a registered connector like the rest ("Connect Outlook from
-      // Settings, wherever the Microsoft client is set", issue 1048): its
-      // question, with what to know about the organisation before leaving, and
-      // the trip out and back through the same generic sign-in.
-      const microsoftAsks = page.getByRole('dialog', { name: 'Settings' });
-      await expect(microsoftAsks.getByText(/Your organisation may have to approve Cockpit first/)).toBeVisible();
-      await press(microsoftAsks.getByRole('button', { name: 'Connect Outlook' }), isMobile);
+  test.describe('Outlook brings in the messages flagged there, and Done completes the flag', () => {
+    test('says what to know about the organisation, connects, lands them as Tasks and completes one done', async ({
+      page,
+      isMobile,
+    }) => {
+      // A registered connector like the rest ("Connect Outlook from Settings,
+      // wherever the Microsoft client is set", issue 1048): its question, with
+      // what to know about the organisation before leaving, and the trip out and
+      // back through the same generic sign-in.
+      const { workspace, window } = await connectionsOfAWorkspaceOfItsOwn(page, isMobile);
+      await expect(window.getByText(/Your organisation may have to approve Cockpit first/)).toBeVisible();
+      await press(window.getByRole('button', { name: 'Connect Outlook' }), isMobile);
       const outlookAsked = page.getByRole('dialog', { name: 'Connect Outlook' });
       await expect(outlookAsked.getByRole('radio', { name: 'Flagged' })).toBeChecked();
       await press(outlookAsked.getByRole('button', { name: 'Connect' }), isMobile);
@@ -261,12 +300,9 @@ test.describe('Connector management', () => {
 
       const outlookChecked = await openSettings(page, 'Connections', isMobile);
       await expect(outlookChecked.getByText(/^Outlook · Flagged · last checked /)).toBeVisible();
-      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
-      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
-      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
-
-      await closeSettings(page, isMobile);
-      await deleteWorkspace(page, workspace, isMobile);
+      await disconnectMichael(page, isMobile);
+      await putTheWorkspaceBack(page, workspace, isMobile);
     });
   });
 });
+
