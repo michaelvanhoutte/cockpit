@@ -656,6 +656,33 @@ describe('Panels', () => {
     });
   });
 
+  describe('Move to… from a row opens on the Dashboard of the panel proposed for it', () => {
+    const proposed = { ...BART, proposedPanelId: 'p-reading', proposedPanelReason: 'a reading' };
+    const firstDashboard = (dialog: HTMLElement) =>
+      within(dialog).getAllByRole('heading', { level: 3 })[0]!.textContent;
+
+    it('puts that Dashboard first and marks the panel', async () => {
+      const user = await showList({ items: [proposed] });
+
+      const dialog = await openThePicker(user);
+
+      expect(firstDashboard(dialog)).toMatch(/^Research/);
+      expect(within(dialog).getByRole('button', { name: /^To read/ })).toHaveAttribute('aria-current', 'true');
+    });
+
+    it.each([
+      { situation: 'has no proposal', item: BART, flagged: false },
+      { situation: 'is proposed a panel flagged Never propose', item: proposed, flagged: true },
+    ])('opens as it always did for an item that $situation', async ({ item, flagged }) => {
+      held.panels = held.panels.map((panel) => (panel.id === 'p-reading' ? { ...panel, neverPropose: flagged } : panel));
+      const user = await showList({ items: [item] });
+
+      const dialog = await openThePicker(user);
+
+      expect(within(dialog).queryByText('proposed')).toBeNull();
+    });
+  });
+
   /**
    * "Say which other panels an item is also in, after its title" (issue 466):
    * *which* other live Panel or Filter an item shows on is
