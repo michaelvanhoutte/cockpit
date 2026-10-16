@@ -299,6 +299,18 @@ describe('Triage', () => {
     });
   });
 
+  describe('Ctrl+Enter is not a triage key', () => {
+    it('still opens the focused Inbox row and files nothing', async () => {
+      const user = await showInbox([anItem('First'), anItem('Second')]);
+      act(() => rowOfTitle('Second').focus());
+
+      await user.keyboard('{Control>}{Enter}{/Control}');
+
+      await waitFor(() => expect(held.navigate).toHaveBeenCalledOnce());
+      expect(held.sent).toEqual([]);
+    });
+  });
+
   describe('the keys are shown where their actions live', () => {
     it('names M, D, X and O in the row menu', async () => {
       const user = await showInbox([anItem('First')]);

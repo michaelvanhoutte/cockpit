@@ -666,7 +666,7 @@ export function ItemRow({
     const flexItemClass = menuItemSplitClass;
     // The key that does the same from the keyboard, where there is one: an
     // Inbox row at a desk (issue 1111), as C, G and F are shown.
-    const keyed = (key: string) => (inInbox && roomBesideTheMenu ? { 'data-key': key } : {});
+    const keyed = (key: string) => (inInbox && roomBesideTheMenu ? { 'data-key': key, 'aria-keyshortcuts': key } : {});
     const subTriggerClass = `${flexItemClass} data-[state=open]:bg-accent-tint`;
     // The menu is grouped by kind, a divider only between groups that have
     // something to offer on this row ("Group the item row's menu by kind, and
@@ -993,7 +993,9 @@ export function ItemRow({
         // Enter files in place of opening ("Act on the focused Inbox row with
         // one key, and move on", issue 1111). Not while a selection is held,
         // which suspends every single-row action (issue 438).
-        if (inInbox && roomBesideTheMenu && !selecting?.revealed && /^(Enter|[dmox])$/i.test(event.key)) {
+        // A chord is not a triage key: Ctrl+Enter still opens, as it did.
+        const chord = event.ctrlKey || event.altKey || event.metaKey || event.shiftKey;
+        if (inInbox && roomBesideTheMenu && !chord && !selecting?.revealed && /^(Enter|[dmox])$/i.test(event.key)) {
           // Fetched on the first such key: which of them it is, what each does,
           // and where the focus goes once the row has left the list.
           const row = event.currentTarget;
@@ -1011,7 +1013,8 @@ export function ItemRow({
             () => undefined,
           );
           return;
-        }        if (event.key === 'Enter') {
+        }
+        if (event.key === 'Enter') {
           event.preventDefault();
           // A double-click's first click ends a held selection; Enter has no click.
           if (selecting?.revealed) selecting.onEndSelection();
