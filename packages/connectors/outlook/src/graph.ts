@@ -68,12 +68,14 @@ export class SignInLost extends Error {
     super(why);
   }
 }
+/** What a request that never got an answer says: the fetch's own words can name the address it was sent to. */
+const NO_ANSWER = 'Microsoft could not be reached';
 /** Graph or Microsoft did not answer usefully this time - a 5xx, a rate limit, the network; `status` is what it answered, if it did. */
 export class NotAnswering extends SourceError {}
 /** Graph refusing a request in a way asking again will not alter (a 403, a 400); `status` is what it answered. */
 export class Refused extends SourceError {
-  constructor(status: number, where: string) {
-    super(`Microsoft refused the request for this mailbox: ${status} to ${where}`, status);
+  constructor(status: number) {
+    super(`Microsoft refused the request for this mailbox: ${status}`, status);
   }
 }
 /** A write refused because the message changed since the version it named was read, or while it was written (a 412, a 409). */
@@ -165,9 +167,8 @@ export class Mailbox {
       if (response.status === 401) throw new SignInLost();
     }
     if (response.status === 404) return null;
-    const where = url.slice(this.#origin.length).split('?')[0]!;
     if (response.status === 408 || response.status === 429 || response.status >= 500) {
-      throw new NotAnswering(`Graph answered ${response.status} to ${where}`, response.status);
+      throw new NotAnswering(`Graph answered ${response.status}`, response.status);
     }
     // 412 is the version named no longer the message's; 409 is Exchange's own
     // word for the same (ErrorIrresolvableConflict), which a write naming no
@@ -177,7 +178,7 @@ export class Mailbox {
     }
     // Anything else refused (a mailbox with no Exchange Online, a permission
     // an administrator took away) is not going to pass by asking again.
-    if (!response.ok) throw new Refused(response.status, where);
+    if (!response.ok) throw new Refused(response.status);
     return response.json();
   }
 
@@ -192,7 +193,7 @@ export class Mailbox {
         headers,
       });
     } catch (error) {
-      throw new NotAnswering(error instanceof Error ? error.message : String(error));
+      throw new NotAnswering(NO_ANSWER);
     }
   }
 
@@ -212,7 +213,7 @@ export class Mailbox {
         }),
       });
     } catch (error) {
-      throw new NotAnswering(error instanceof Error ? error.message : String(error));
+      throw new NotAnswering(NO_ANSWER);
     }
     // A refresh token revoked, expired, for another client or whose consent an
     // administrator withdrew is answered 400 or 401; anything else is

@@ -29,6 +29,25 @@ describe('Connector management', () => {
       expect(thrown).toBeInstanceOf(SourceError);
       expect((thrown as SourceError).status).toBe(status);
       expect((thrown as SourceError).message).toContain(String(status));
+      expect((thrown as SourceError).message).not.toMatch(/threads|in:inbox|https?:|\?|\//);
+    });
+  });
+
+  describe('the message holds no address', () => {
+    it('a request that never got an answer says nothing of where it was sent', async () => {
+      const address = `${API}/gmail/v1/users/me/threads?q=person@example.com`;
+      const mailbox = await mailboxOf(signedInHost(), {
+        clientId: 'gmails-own-client',
+        clientSecret: 'gmails-own-secret',
+        apiOrigin: API,
+        endpoints: { tokenEndpoint: TOKEN_URL, revocationEndpoint: REVOKE_URL },
+        fetch: () => Promise.reject(new TypeError(`failed to fetch ${address}`)),
+      });
+
+      const thrown = await mailbox.get('threads?q=person@example.com').catch((error: unknown) => error);
+
+      expect(thrown).toBeInstanceOf(SourceError);
+      expect((thrown as SourceError).message).not.toMatch(/example\.com|threads|https?:/);
     });
   });
 });

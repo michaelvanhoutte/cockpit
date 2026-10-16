@@ -30,6 +30,44 @@ describe('Connector management', () => {
       expect(thrown).toBeInstanceOf(SourceError);
       expect((thrown as SourceError).status).toBe(status);
       expect((thrown as SourceError).message).toContain(String(status));
+      expect((thrown as SourceError).message).not.toMatch(/messages|https?:|\?|\/v1/);
+    });
+  });
+
+  describe('the message holds no address', () => {
+    it('a request that never got an answer says nothing of where it was sent', async () => {
+      const address = `${API}/v1.0/me/messages?$filter=from/emailAddress/address eq 'person@example.com'`;
+      const mailbox = await mailboxOf(signedInHost(), {
+        clientId: 'microsofts-own-client',
+        clientSecret: 'microsofts-own-secret',
+        callsPerRun: BUDGET,
+        apiOrigin: API,
+        endpoints: { tokenEndpoint: TOKEN_URL },
+        fetch: () => Promise.reject(new TypeError(`failed to fetch ${address}`)),
+      });
+
+      const thrown = await mailbox.get('messages').catch((error: unknown) => error);
+
+      expect(thrown).toBeInstanceOf(SourceError);
+      expect((thrown as SourceError).message).not.toMatch(/example\.com|messages|https?:/);
+    });
+
+    it('a refusal names the status and not the path it was for', async () => {
+      const world = new GraphWorld();
+      world.failures.push({ prefix: 'mailFolders/deleteditems', status: 403 });
+      const mailbox = await mailboxOf(signedInHost(), {
+        clientId: 'microsofts-own-client',
+        clientSecret: 'microsofts-own-secret',
+        callsPerRun: BUDGET,
+        apiOrigin: API,
+        endpoints: { tokenEndpoint: TOKEN_URL },
+        fetch: world.fetch,
+      });
+
+      const thrown = await mailbox.get('mailFolders/deleteditems').catch((error: unknown) => error);
+
+      expect((thrown as SourceError).status).toBe(403);
+      expect((thrown as SourceError).message).not.toMatch(/mailFolders|deleteditems|\/v1/i);
     });
   });
 });

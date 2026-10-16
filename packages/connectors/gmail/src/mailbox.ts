@@ -74,6 +74,8 @@ export class SignInLost extends Error {
     super(why);
   }
 }
+/** What a request that never got an answer says: the fetch's own words can name the address it was sent to. */
+const NO_ANSWER = 'Gmail could not be reached';
 /** Gmail or Google did not answer usefully this time - a 5xx, a rate limit, the network; `status` is what it answered, if it did. */
 export class NotAnswering extends SourceError {}
 /** Gmail holding the mailbox back for now, so a change it was asked for waits for the next run. */
@@ -154,7 +156,7 @@ export class Mailbox {
       throw new HeldBack(`Gmail answered ${response.status} to a change`, response.status);
     }
     if (!response.ok) {
-      const failure = `Gmail answered ${response.status} to ${path.split('?')[0]}`;
+      const failure = `Gmail answered ${response.status}`;
       throw body !== undefined ? new HeldBack(failure, response.status) : new NotAnswering(failure, response.status);
     }
     return response.json();
@@ -175,7 +177,7 @@ export class Mailbox {
             },
       );
     } catch (error) {
-      throw new NotAnswering(error instanceof Error ? error.message : String(error));
+      throw new NotAnswering(NO_ANSWER);
     }
   }
 
@@ -195,7 +197,7 @@ export class Mailbox {
         }),
       });
     } catch (error) {
-      throw new NotAnswering(error instanceof Error ? error.message : String(error));
+      throw new NotAnswering(NO_ANSWER);
     }
     // A refresh token revoked, expired or for another client is answered
     // 400 or 401 (`invalid_grant`, `invalid_client`); anything else is Google

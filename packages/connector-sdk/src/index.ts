@@ -20,7 +20,8 @@ import type { Item } from '@cockpit/shared';
  *
  * **The message holds no credential, header or request URL**: it is shown to
  * the person and kept in the history, and the connector, not the host, chooses
- * its words - a path or an endpoint's name is fine, a token or a full URL is not.
+ * its words - no URL, path or query, and none of the fetch's own error text,
+ * which can carry the address.
  */
 export class SourceError extends Error {
   /** The HTTP status the source answered; absent where it never answered (a network failure). */
