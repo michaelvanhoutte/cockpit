@@ -2065,12 +2065,13 @@ const routes = app
     }
     // Whether it files by the names the source gives mail, answered the same
     // way for a connector that reports names: a yes or a no, or the Connect is
-    // refused and nothing is started (issue 1147). Not asked at all reads as
-    // no, since a tab opened before Connect asked it sends nothing. A source
-    // that reports none carries nothing.
+    // refused and nothing is started (issue 1147). Not asked at all - a tab
+    // opened before Connect asked it - carries no answer, so a new connection
+    // starts off and a reconnect keeps what it holds. A source that reports
+    // none carries nothing.
     const filesByNameAsked = c.req.query('filesByName');
-    const filesByName = filesByNameAsked === undefined ? false : filesByNameAnswered(filesByNameAsked);
-    if (sign.connector.manifest.names && filesByName === undefined) {
+    const filesByName = filesByNameAnswered(filesByNameAsked);
+    if (sign.connector.manifest.names && filesByNameAsked !== undefined && filesByName === undefined) {
       return refuseConnection(c, workspaceId, 'whether to file by name was not answered');
     }
     try {
@@ -2154,11 +2155,11 @@ const routes = app
     if (asked && !asked.options.some((option) => option.value === attempt!.choice)) {
       return refuseConnection(c, attempt!.workspaceId, 'the choice is not one the source offers');
     }
-    // And the same for whether it files by name (issue 1147).
+    // Whether it files by name rides along as asked: an attempt carrying
+    // anything but a yes or no is not read at all, and one carrying none - a
+    // tab opened before Connect asked it - leaves a new connection off and a
+    // reconnected one as it was (issue 1147).
     const reportsNames = sign.connector.manifest.names !== undefined;
-    if (reportsNames && typeof attempt!.filesByName !== 'boolean') {
-      return refuseConnection(c, attempt!.workspaceId, 'whether to file by name was not answered');
-    }
 
     try {
       const client = clientOf(c.env, sign.auth);
@@ -2194,7 +2195,7 @@ const routes = app
         displayName: account.displayName,
         ...sealed,
         ...(asked ? { choice: attempt!.choice! } : {}),
-        ...(reportsNames ? { filesByName: attempt!.filesByName! } : {}),
+        ...(reportsNames && attempt!.filesByName !== undefined ? { filesByName: attempt!.filesByName } : {}),
       });
       // **After the connection is stored, and only then.** The register's index
       // is what lets a saved message find this Workspace later ("Save a Teams

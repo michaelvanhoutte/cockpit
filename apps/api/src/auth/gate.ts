@@ -466,6 +466,8 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   if (typeof connectorId !== 'string' || !connectorId) return null;
+  // Absent is no answer; anything but a yes or no is no attempt at all (issue 1147).
+  if (filesByName !== undefined && typeof filesByName !== 'boolean') return null;
   return {
     state: held.state,
     nonce: held.nonce,

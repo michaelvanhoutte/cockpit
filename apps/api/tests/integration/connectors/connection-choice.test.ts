@@ -529,20 +529,23 @@ describe('Connector management', () => {
 
     it.each([
       { situation: 'a value that is not a yes or no', answer: 'yes' },
-      { situation: 'no value at all', answer: undefined },
+      { situation: 'a number', answer: 1 },
     ])('refuses a callback whose attempt carries $situation, and stores nothing', async ({ answer }) => {
       const session = await signInAs(USER_ID);
       const started = await startConnecting(NAMES, session, 'all', 'true');
 
       const back = await comeBack(NAMES, session, started, withFilesByName(started.attempt!, answer));
 
-      expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=refused`);
+      // An attempt that cannot be read is no attempt, sent home as any is.
+      expect(back.headers.get('location')).toBe('/');
       expect(await storedRows()).toEqual([]);
     });
 
     it.each([
       { situation: 'on, then reconnected unticked, is off', first: 'true', again: 'false', stored: [0] },
       { situation: 'off, then reconnected ticked, is on', first: 'false', again: 'true', stored: [1] },
+      // A tab opened before Connect asked it reconnects with no answer, which keeps the row's own.
+      { situation: 'on, then reconnected with no answer, stays on', first: 'true', again: undefined, stored: [1] },
     ])('a connection $situation', async ({ first, again, stored }) => {
       const session = await signInAs(USER_ID);
       await comeBack(NAMES, session, await startConnecting(NAMES, session, 'all', first));
