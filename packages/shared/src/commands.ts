@@ -359,6 +359,15 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
   priority: prioritySchema.optional(),
   dueDate: z.iso.date().optional(),
   /**
+   * The Panels Capture's *File on* chose ("File a note on Panels from Capture,
+   * skipping the Inbox", issue 1101): the Item is made and filed on each in the
+   * one transaction, at the top. **Never a reason to refuse** - a Panel that is
+   * gone, is of another Workspace or takes no Items is skipped, and with none
+   * left the Item lands in the Inbox. Left out by every other front door, and by
+   * an outbox entry kept before it.
+   */
+  panelIds: z.array(z.uuid()).max(50).optional(),
+  /**
    * The device's time zone, read the moment Capture is pressed - not when the
    * capture is sent, so a note kept offline is read on the calendar it was
    * captured on ("Read a due date you say when you capture, on your own

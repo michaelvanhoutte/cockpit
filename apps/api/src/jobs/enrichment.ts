@@ -529,7 +529,12 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // `panelsOrEmpty`'s own comment for why - and the text cleanup below has no
   // such dependency and must not be held hostage to a read the routing half
   // alone needs.
-  const panels = await panelsOrEmpty(account, item.workspaceId);
+  //
+  // **None for an Item already on a Panel**, which is a note filed at capture:
+  // the person has answered what a proposal would ask ("File a note on Panels
+  // from Capture, skipping the Inbox", issue 1101), and the store would discard
+  // the answer anyway.
+  const panels = (await account.itemIsFiled(item.id)) ? [] : await panelsOrEmpty(account, item.workspaceId);
 
   // This Workspace's decision history, capped and filtered to Panels that
   // still exist, and what else it has captured lately and not yet filed -

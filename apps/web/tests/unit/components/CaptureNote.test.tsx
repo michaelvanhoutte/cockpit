@@ -71,6 +71,8 @@ const held = vi.hoisted(() => ({
   mutate: vi.fn(),
   /** The workspaces the account holds, which another tab can delete one of. */
   workspaces: [] as unknown[],
+  /** The snapshot each workspace answers with; one left out is a workspace never read, which fails as offline does. */
+  snapshots: {} as Record<string, unknown>,
   /** What a capture is refused with, if it is. */
   refuses: null as Error | null,
   /**
@@ -88,11 +90,40 @@ vi.mock('../../../src/api/queries', () => ({
     queryKey: ['workspaces'],
     queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
   },
+  snapshotQuery: (workspaceId: string) => ({
+    queryKey: ['snapshot', workspaceId],
+    queryFn: () =>
+      held.snapshots[workspaceId] ? Promise.resolve(held.snapshots[workspaceId]) : Promise.reject(new Error('offline')),
+  }),
 }));
 
 
 const WORK = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' };
 const HOME = { id: 'ws-home', tenantId: 'tenant', name: 'Home', color: '#3f8f78' };
+
+/** What File on can offer: Work has two Dashboards, a Panel of text and a Filter that are never offered; Home has one Panel. */
+const aPanelOf = (id: string, name: string, dashboardId: string, kind: 'items' | 'text' | 'filter' = 'items') => ({
+  id,
+  name,
+  dashboardId,
+  kind,
+});
+const WORK_SNAPSHOT = {
+  dashboards: [
+    { id: 'd-today', name: 'Today' },
+    { id: 'd-later', name: 'Later' },
+  ],
+  panels: [
+    aPanelOf('p-falcon', 'Falcon', 'd-today'),
+    aPanelOf('p-notes', 'Notes', 'd-today', 'text'),
+    aPanelOf('p-overdue', 'Overdue', 'd-today', 'filter'),
+    aPanelOf('p-reading', 'Reading list', 'd-later'),
+  ],
+};
+const HOME_SNAPSHOT = {
+  dashboards: [{ id: 'd-house', name: 'House' }],
+  panels: [aPanelOf('p-garden', 'Garden', 'd-house')],
+};
 
 /**
  * The page, with a workspace already remembered as
@@ -156,6 +187,7 @@ async function thePage({
   onCaptured?: () => void;
 } = {}) {
   held.workspaces = [WORK, HOME];
+  held.snapshots = { 'ws-work': WORK_SNAPSHOT, 'ws-home': HOME_SNAPSHOT };
   held.refuses = null;
   held.pending = false;
   held.settle = () => {};
@@ -1179,6 +1211,165 @@ describe('Capture', () => {
       expect(box()).toHaveValue('Send the invoice');
       expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'true');
       expect(chip('Tmrw')).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
+  /**
+   * "File a note on Panels from Capture, skipping the Inbox" (issue 1101). The
+   * search is over snapshots the page already holds, so each rule here is what
+   * is offered and what is then sent; that a filed capture really lands on its
+   * Panel is the walk in tests/e2e/capture.test.ts, and the filing itself is
+   * apps/api/tests/integration/http/capture-on-panels.test.ts.
+   */
+  describe('File on searches the right Panels and files the note on those chosen', () => {
+    /** Opens the line's search, which is fetched on first focus, and answers it. */
+    async function searching(user: Awaited<ReturnType<typeof thePage>>) {
+      await user.click(screen.getByRole('textbox', { name: 'Find a Panel to file on' }));
+      return screen.findByRole('searchbox', { name: 'Find a Panel to file on' });
+    }
+    const offered = () =>
+      within(screen.getByRole('list', { name: 'Panels to file on' }))
+        .queryAllByRole('button')
+        .map((button) => button.textContent);
+
+    it.each([
+      {
+        situation: 'a Workspace is chosen',
+        choose: 'Work',
+        expected: ['FalconToday', 'Reading listLater'],
+      },
+      {
+        situation: 'Any workspace is chosen, each Panel naming its Workspace',
+        choose: 'Any workspace',
+        expected: ['FalconWork ▸ Today', 'Reading listWork ▸ Later', 'GardenHome ▸ House'],
+      },
+    ])('offers the Panels of Items in scope when $situation, and never a Filter or a Panel of text', async ({ choose, expected }) => {
+      const user = await thePage();
+      await user.click(chip(choose));
+
+      await searching(user);
+
+      await waitFor(() => expect(offered()).toEqual(expected));
+    });
+
+    it('settles the Workspace on the first Panel picked under Any workspace, and narrows the search to it', async () => {
+      const user = await thePage();
+      await searching(user);
+      await waitFor(() => expect(offered()).toContain('GardenHome ▸ House'));
+
+      await user.click(within(screen.getByRole('list', { name: 'Panels to file on' })).getByRole('button', { name: /Garden/ }));
+
+      expect(chip('Home')).toHaveAttribute('aria-pressed', 'true');
+      expect(chip('Any workspace')).toHaveAttribute('aria-pressed', 'false');
+      await waitFor(() => expect(offered()).toEqual([]));
+      expect(screen.getByRole('button', { name: 'Do not file on Garden' })).toBeVisible();
+    });
+
+    it('adds the top match as a chip on Enter with text typed, and several may be added', async () => {
+      const user = await thePage();
+      await user.click(chip('Work'));
+      const search = await searching(user);
+      await waitFor(() => expect(offered().length).toBeGreaterThan(0));
+
+      await user.type(search, 'la{Enter}');
+      await user.type(search, 'falc{Enter}');
+
+      expect(screen.getByRole('button', { name: 'Do not file on Reading list' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+      // Enter added a Panel and did not capture anything.
+      expect(everythingAsked()).toEqual([]);
+    });
+
+    it('adds nothing on Enter with nothing typed', async () => {
+      const user = await thePage();
+      await user.click(chip('Work'));
+      const search = await searching(user);
+      await waitFor(() => expect(offered().length).toBeGreaterThan(0));
+
+      await user.type(search, '{Enter}');
+
+      expect(screen.queryByRole('button', { name: /Do not file on/ })).toBeNull();
+    });
+
+    it('says which Workspace is left out when it has not been read and there is no connection', async () => {
+      const user = await thePage();
+      held.snapshots = { 'ws-work': WORK_SNAPSHOT };
+      await searching(user);
+
+      expect(await screen.findByText('Not read yet, so left out: Home.')).toBeVisible();
+      await waitFor(() => expect(offered()).toEqual(['FalconWork ▸ Today', 'Reading listWork ▸ Later']));
+    });
+
+    it.each([
+      { situation: 'one Panel', picks: ['Falcon'], expected: ['p-falcon'] },
+      { situation: 'two Panels', picks: ['Falcon', 'Reading list'], expected: ['p-falcon', 'p-reading'] },
+      { situation: 'none', picks: [] as string[], expected: undefined },
+    ])('sends a capture filed on $situation', async ({ picks, expected }) => {
+      const user = await thePage();
+      await user.click(chip('Work'));
+      if (picks.length > 0) {
+        await searching(user);
+        for (const name of picks) {
+          await user.click(within(await screen.findByRole('list', { name: 'Panels to file on' })).getByRole('button', { name: new RegExp(name) }));
+        }
+      }
+      await user.type(box(), 'Send the invoice');
+      await user.click(chip('Capture'));
+
+      const { payload } = await captured();
+      expect(payload.panelIds).toEqual(expected);
+      // Empty again for the next note.
+      await waitFor(() => expect(screen.queryByRole('button', { name: /^Do not file on/ })).toBeNull());
+    });
+
+    it('takes a Panel off the capture with its ✕, and drops the Panels of a Workspace left for another', async () => {
+      const user = await thePage();
+      await user.click(chip('Work'));
+      await searching(user);
+      await user.click(within(await screen.findByRole('list', { name: 'Panels to file on' })).getByRole('button', { name: /Falcon/ }));
+      await user.click(screen.getByRole('button', { name: 'Do not file on Falcon' }));
+      expect(screen.queryByRole('button', { name: 'Do not file on Falcon' })).toBeNull();
+
+      await user.click(within(screen.getByRole('list', { name: 'Panels to file on' })).getByRole('button', { name: /Reading list/ }));
+      await user.click(chip('Home'));
+
+      expect(screen.queryByRole('button', { name: /^Do not file on/ })).toBeNull();
+    });
+
+    it('keeps the Panels with a capture that cannot be sent yet, and sends them with it once connected', async () => {
+      vi.mocked(sendCommand).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      const user = await thePage();
+      await user.click(chip('Work'));
+      await searching(user);
+      await user.click(within(await screen.findByRole('list', { name: 'Panels to file on' })).getByRole('button', { name: /Falcon/ }));
+      await user.type(box(), 'Send the invoice');
+      await user.click(chip('Capture'));
+      await waitFor(() => expect(capturedCalls().length).toBe(1));
+      await screen.findByText('Waiting to send');
+
+      await act(async () => {
+        await user.outbox.send();
+      });
+
+      const sent = capturedCalls();
+      expect(sent.map((call) => call.payload.panelIds)).toEqual([['p-falcon'], ['p-falcon']]);
+      expect(sent[1]!.payload.commandId).toBe(sent[0]!.payload.commandId);
+    });
+
+    it('returns the Panels to the box with a refused capture it puts back', async () => {
+      vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(404, 'workspace ws-work not found'));
+      const user = await thePage();
+      await user.click(chip('Work'));
+      await searching(user);
+      await user.click(within(await screen.findByRole('list', { name: 'Panels to file on' })).getByRole('button', { name: /Falcon/ }));
+      await user.type(box(), 'Send the invoice');
+      await user.click(chip('Capture'));
+      await screen.findByText(/^Not sent:/);
+      expect(screen.queryByRole('button', { name: 'Do not file on Falcon' })).toBeNull();
+
+      await user.click(rowOf('Send the invoice').getByRole('button', { name: 'Put back' }));
+
+      expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
     });
   });
 

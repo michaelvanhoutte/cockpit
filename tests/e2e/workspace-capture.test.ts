@@ -197,6 +197,32 @@ test.describe('Capture', () => {
       // Somebody said where it belongs, so it is not waiting in everybody's.
       await openTheInboxOf(page, CAPTURED_FROM, isMobile);
       await expect(inbox(page).getByText(note)).toHaveCount(0);
+
+      // And it can say which Panel it goes on, skipping the Inbox ("File a
+      // note on Panels from Capture, skipping the Inbox", issue 1101): the
+      // search is fetched when its field is first used, and Enter adds the
+      // top match. Only a browser proves the whole path from the field to a
+      // row on the Panel and none in the Inbox.
+      const filed = uniqueTitle('Renew the venue contract');
+      await openCapture(page, isMobile);
+      await press(page.getByRole('button', { name: ELSEWHERE }), isMobile);
+      await press(page.getByRole('textbox', { name: 'Find a Panel to file on' }), isMobile);
+      const search = page.getByRole('searchbox', { name: 'Find a Panel to file on' });
+      await search.fill('Panel 1');
+      await search.press('Enter');
+      await expect(page.getByRole('button', { name: 'Do not file on Panel 1' })).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await captureBox(page).fill(filed);
+      await captureBox(page).press('ControlOrMeta+Enter');
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(filed)).toBeVisible();
+      await closeCapture(page, isMobile);
+
+      await switchTo(page, ELSEWHERE, isMobile);
+      // A phone opens a workspace on its Inbox, with the Dashboard a tab away.
+      if (isMobile) await press(page.getByRole('link', { name: 'Dashboard 1' }), isMobile);
+      await expect(page.getByRole('region', { name: 'Panel 1' }).getByText(filed)).toBeVisible();
+      await openTheInboxOf(page, ELSEWHERE, isMobile);
+      await expect(inbox(page).getByText(filed)).toHaveCount(0);
     });
 
   });

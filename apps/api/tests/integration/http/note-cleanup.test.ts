@@ -208,6 +208,23 @@ describe('Capture', () => {
       expect(await proposalShownFor(itemId)).toEqual({ proposedPanelId: null, proposedPanelFit: null });
     });
 
+    /**
+     * "File a note on Panels from Capture, skipping the Inbox" (issue 1101): a
+     * note filed at capture has been answered by the person, so the model is
+     * not offered a Panel for it - and where it names one anyway, none is kept.
+     */
+    it('is not asked a panel for a note filed when it was captured, and keeps none for it', async () => {
+      const filedOn = await aPanel('Falcon');
+      const zebra = await aPanel('Zebra budget');
+      theModelIs({ says: { ...A_READING, panel: { panelId: zebra, reason: 'a zebra question', fit: 'clear' } } });
+
+      const itemId = await captureANote({ panelIds: [filedOn] });
+      await untilTheNoteHasBeenRead(itemId);
+      await untilTheChangeIsRecorded(itemId);
+      expect(asked.filter(isACleanUp).every((call) => !call.system.includes('Zebra budget'))).toBe(true);
+      expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
+    });
+
     it('proposes nothing where the model names no panel - the common, right answer', async () => {
       theModelIs({ says: A_READING });
 

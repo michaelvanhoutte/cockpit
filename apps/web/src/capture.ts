@@ -40,6 +40,8 @@ export interface WhatToCapture {
   priority?: Priority;
   /** A calendar day, `YYYY-MM-DD`, with the same provenance as `priority`. */
   dueDate?: string;
+  /** The Panels *File on* chose, filed on as the Item is made (issue 1101). */
+  panelIds?: readonly string[];
 }
 
 /** What the surface is told, as the capture goes. */
@@ -115,6 +117,7 @@ export function useCapture(): {
           // neither carries neither.
           ...(what.priority ? { priority: what.priority } : {}),
           ...(what.dueDate ? { dueDate: what.dueDate } : {}),
+          ...(what.panelIds && what.panelIds.length > 0 ? { panelIds: [...what.panelIds] } : {}),
           // The calendar a due date the note states is read on (issue 1077).
           ...(timeZone ? { timeZone } : {}),
         },

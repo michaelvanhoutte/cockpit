@@ -109,6 +109,13 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   recentCapturedTimeZones(accountName: string): Awaitable<Answer<string[]>>;
   /**
+   * Whether the Item is on a live Panel already - what the proposal job reads so
+   * a note filed at capture is not asked a Panel ("File a note on Panels from
+   * Capture, skipping the Inbox", issue 1101). Read by the enrichment job and by
+   * nothing else.
+   */
+  itemIsFiled(accountName: string, itemId: string): Awaitable<Answer<boolean>>;
+  /**
    * What a title or description proposal reads about how this account
    * writes ("Learn how you write from the titles you correct", issue 394). Per
    * account, not per workspace. Read by the enrichment job for the prompt,

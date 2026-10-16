@@ -109,6 +109,7 @@ import {
   getSourceAccount,
   getWorkspace,
   hasClaudeCodeConnection,
+  isItemFiled,
   itemsToRead,
   judgeableItemsForAccount,
   listAgents,
@@ -506,6 +507,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    */
   recentCapturedTimeZones(accountName: string): Answer<string[]> {
     return this.#answer(accountName, (db) => recentCapturedTimeZones(db, accountName));
+  }
+
+  /** Whether the Item is on a live Panel already ("File a note on Panels from Capture, skipping the Inbox", issue 1101). */
+  itemIsFiled(accountName: string, itemId: string): Answer<boolean> {
+    return this.#answer(accountName, (db) => isItemFiled(db, accountName, itemId));
   }
 
   /**
