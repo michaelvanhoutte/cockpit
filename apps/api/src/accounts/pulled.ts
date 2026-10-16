@@ -22,6 +22,8 @@ import {
   type NamedTarget,
 } from '../domain/filing-by-name.js';
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
+import { keptMessage } from '../domain/connection-history.js';
+import { recordCheck } from './connection-history.js';
 
 /**
  * The store's half of checking a pulled connection through the generic host
@@ -526,12 +528,13 @@ export function confirmPulledOpenStates(
 }
 
 /**
- * Ends a run: its lease goes, the next check is due five minutes on - or soon
- * where the run worked and said there is more to do, a failed run's hint being
- * ignored - and the connection's row says why it failed - or, for a run that
- * worked, when it was last checked and nothing about failing. A run that no
- * longer holds its connection ends nothing, since another has it or it has
- * gone.
+ * Ends a run: its lease goes, the next check is due five minutes on - or soon,
+ * as a follow-up, where the run worked and said there is more to do, a failed
+ * run's hint being ignored - and the connection's row says why it failed - or,
+ * for a run that worked, when it was last checked and nothing about failing.
+ * The check's line of the history is written in the same transaction, saying
+ * why the check ran (issue 1140). A run that no longer holds its connection
+ * ends nothing and writes nothing, since another has it or it has gone.
  */
 export function endPulledRun(
   db: AccountDb,
@@ -544,11 +547,30 @@ export function endPulledRun(
 ): void {
   if (!runHolds(db, accountName, sourceAccountId, runId)) return;
   const at = now.toISOString();
+  const followUp = failing === null && moreToDo;
   db.transaction((tx) => {
+    const ran = tx
+      .select({ checkReason: pulledConnections.checkReason })
+      .from(pulledConnections)
+      .where(and(eq(pulledConnections.tenantId, accountName), eq(pulledConnections.sourceAccountId, sourceAccountId)))
+      .get();
     tx.update(pulledConnections)
-      .set({ runId: null, leaseUntil: null, dueAt: nextCheckAfter(now, failing === null && moreToDo) })
+      .set({
+        runId: null,
+        leaseUntil: null,
+        dueAt: nextCheckAfter(now, followUp),
+        checkReason: followUp ? 'follow-up' : null,
+      })
       .where(and(eq(pulledConnections.tenantId, accountName), eq(pulledConnections.sourceAccountId, sourceAccountId)))
       .run();
+    recordCheck(
+      tx,
+      accountName,
+      sourceAccountId,
+      ran?.checkReason ?? 'scheduled',
+      failing === null ? { outcome: 'worked' } : { outcome: 'failed', ...keptMessage(failing) },
+      at,
+    );
     if (failing === null) {
       tx.update(connectorAccounts)
         .set({ lastTestedAt: at })

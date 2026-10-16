@@ -14,6 +14,7 @@ import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { ConnectEngine } from './engines';
 import { ChangeConnectionChoice, ConnectWithChoice, type ConnectorChoice, type ConnectorNames } from './ConnectionChoice';
+import { ConnectionHistory } from './ConnectionHistory';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
@@ -218,6 +219,8 @@ export default function ManageConnections({
   const askingOpenedFrom = useRef<HTMLElement | null>(null);
   /** The row whose choice is being changed with *Change…* (issue 942). */
   const [changingChoice, setChangingChoice] = useState<SourceAccount | null>(null);
+  /** The row whose history is drawn in place of the list (issue 1140). */
+  const [historyOf, setHistoryOf] = useState<SourceAccount | null>(null);
   const choiceOpenedFrom = useRef<HTMLElement | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
   const claudeCodeOpenedFrom = useRef<HTMLElement | null>(null);
@@ -289,6 +292,7 @@ export default function ManageConnections({
     setClaudeCodeForm(false);
     setAsking(null);
     setChangingChoice(null);
+    setHistoryOf(null);
     onClose();
   };
 
@@ -334,190 +338,218 @@ export default function ManageConnections({
       returnFocusTo={returnFocusTo}
       ref={list}
     >
-      <p className="mt-2 text-sm text-ink-faint">
-        The accounts this workspace is connected to. No other workspace sees them.
-      </p>
-      {picker}
-
-      {outcome === 'connected' && (
-        <p role="status" className="pt-3 text-sm text-ink-soft">
-          Connected.
-        </p>
-      )}
-      {outcome === 'refused' && (
-        <p role="alert" className="pt-3 text-sm text-over-ink">
-          {refusalGiven ?? REFUSED}
-        </p>
-      )}
-
-      <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-        Connected
-      </h3>
-      <section className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto">
-        <ul>
-          {connected.map((account) => (
-            <li key={account.id} className="border-b border-shade/5 px-4 py-2 last:border-b-0">
-              <div className="flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm">{account.displayName}</p>
-                  <p className="text-sm text-ink-faint">{rowDetail(account, names, namesOf(account.connectorId)?.noun)}</p>
-                  {/* Why Claude last refused to start a session through it,
-                      until one starts again ("Drop an agent on an item to
-                      start a Claude Code session on it", issue 571). */}
-                  {account.failingBecause && (
-                    <p className="text-sm text-over-ink">Failing: {account.failingBecause}</p>
-                  )}
-                </div>
-                {!guest && <RowMenu
-                  label={`Actions for ${account.displayName}`}
-                  entries={[
-                    ...(account.connectorId === CLAUDE_CODE
-                      ? [
-                          {
-                            label: 'Test again',
-                            keepsFocus: true,
-                            onSelect: () => {
-                              setClaudeCodeMessage(null);
-                              testClaudeCode.mutate(account.id, {
-                                onSuccess: (result) => {
-                                  if (!result.accepted) setClaudeCodeMessage(result.message);
-                                },
-                                // The request itself failing (offline, a 5xx,
-                                // the row having just been disconnected
-                                // elsewhere) is not the same as Claude
-                                // refusing the test, but both leave the row
-                                // exactly as it was - so both get the same
-                                // one line rather than one of them getting
-                                // none at all (found in review).
-                                onError: () =>
-                                  setClaudeCodeMessage('That did not reach the server. Try again.'),
-                              });
-                            },
-                          },
-                          {
-                            label: 'Edit…',
-                            onSelect: (openedFrom: HTMLElement | null) => openClaudeCodeForm(openedFrom),
-                          },
-                        ]
-                      : []),
-                    // A failing row of a connector this environment can sign
-                    // in to: signing in again is what ends it (issue 944).
-                    ...(account.failingBecause && registered.some((card) => card.id === account.connectorId)
-                      ? [
-                          {
-                            label: 'Reconnect',
-                            onSelect: (openedFrom: HTMLElement | null) => reconnect(account, openedFrom),
-                          },
-                        ]
-                      : []),
-                    // The connector's own choice, changed without signing in
-                    // again (issue 942).
-                    ...(account.connectorId !== CLAUDE_CODE && (choiceOf(account.connectorId) || namesOf(account.connectorId))
-                      ? [
-                          {
-                            label: 'Change…',
-                            onSelect: (openedFrom: HTMLElement | null) => {
-                              choiceOpenedFrom.current = openedFrom;
-                              setChangingChoice(account);
-                            },
-                          },
-                        ]
-                      : []),
-                    {
-                      label: 'Disconnect',
-                      destructive: true,
-                      onSelect: (openedFrom) => startDisconnecting(account, openedFrom),
-                    },
-                  ]}
-                />}
-              </div>
-            </li>
-          ))}
-        </ul>
-        {beingDisconnected && (
-          <DeleteQuestion
-            open
-            question={`Disconnect ${beingDisconnected.displayName}? Cockpit forgets ${
-              beingDisconnected.connectorId === CLAUDE_CODE
-                ? 'the routine trigger it was connected with'
-                : 'the sign-in it was connected with'
-            }.`}
-            confirmLabel={`Yes, disconnect ${beingDisconnected.displayName}`}
-            confirmText="Disconnect"
-            canConfirm={!command.isPending}
-            refusal={commandRefusal}
-            returnFocusTo={askedFrom.current}
-            onCancel={stopAsking}
-            onConfirm={() =>
-              command.mutate(
-                {
-                  name: 'disconnect_source_account',
-                  payload: {
-                    commandId: uuidv7(),
-                    issuedAt: new Date().toISOString(),
-                    workspaceId,
-                    sourceAccountId: beingDisconnected.id,
-                  },
-                },
-                { onSuccess: () => setDisconnecting(null) },
-              )
-            }
-          />
-        )}
-        {listFailed && (
-          <div className="px-4 py-4">
-            <LoadFailure error={error} onRetry={() => void refetch()} />
-          </div>
-        )}
-        {answered && connected.length === 0 && !isFetching && (
-          <p className="px-4 py-4 text-sm text-ink-faint">Nothing connected yet. Add one below.</p>
-        )}
-        {claudeCodeMessage && (
-          <p role="alert" className="px-4 py-2 text-sm text-over-ink">
-            {claudeCodeMessage}
+      {historyOf ? (
+        <ConnectionHistory
+          workspaceId={workspaceId}
+          account={historyOf}
+          onBack={() => {
+            setHistoryOf(null);
+            list.current?.focus();
+          }}
+        />
+      ) : (
+        <>
+          <p className="mt-2 text-sm text-ink-faint">
+            The accounts this workspace is connected to. No other workspace sees them.
           </p>
-        )}
-      </section>
+          {picker}
 
-      <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-        Add a connection
-      </h3>
-      <div className="mt-2 flex flex-col gap-2">
-        {cards.map((card) => (
-          <div
-            key={card.id}
-            className="flex items-center gap-3 rounded-md border border-shade/10 p-3"
-          >
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">{card.name}</p>
-              <p className="text-sm text-ink-faint">{card.text}</p>
-            </div>
-            {guest ? (
-              <span className="shrink-0 text-sm text-ink-faint">{GUEST_SENTENCE}</span>
-            ) : card.id === CLAUDE_CODE && claudeCodeConnected ? (
-              <span className="shrink-0 text-sm text-ink-faint">Connected - one per workspace</span>
-            ) : (
-              <button
-                type="button"
-                // Two rows both reading "Connect" need two names for anyone
-                // not reading them side by side - a screen reader, or a test.
-                aria-label={`Connect ${card.name}`}
-                onClick={(event) => {
-                  if (card.id === CLAUDE_CODE) openClaudeCodeForm(event.currentTarget);
-                  else if (card.choice) {
-                    askingOpenedFrom.current = event.currentTarget;
-                    setAsking({ ...card, choice: card.choice });
-                  } else connectRegistered(card.id);
-                }}
-                disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending}
-                className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
-              >
-                Connect
-              </button>
+          {outcome === 'connected' && (
+            <p role="status" className="pt-3 text-sm text-ink-soft">
+              Connected.
+            </p>
+          )}
+          {outcome === 'refused' && (
+            <p role="alert" className="pt-3 text-sm text-over-ink">
+              {refusalGiven ?? REFUSED}
+            </p>
+          )}
+
+          <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+            Connected
+          </h3>
+          <section className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto">
+            <ul>
+              {connected.map((account) => (
+                <li key={account.id} className="border-b border-shade/5 px-4 py-2 last:border-b-0">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm">{account.displayName}</p>
+                      <p className="text-sm text-ink-faint">{rowDetail(account, names, namesOf(account.connectorId)?.noun)}</p>
+                      {/* Why Claude last refused to start a session through it,
+                          until one starts again ("Drop an agent on an item to
+                          start a Claude Code session on it", issue 571). */}
+                      {/* A connection that keeps a history opens it from here,
+                          where its checks say when it began failing (issue 1140). */}
+                      {account.failingBecause &&
+                        (account.keepsHistory ? (
+                          <button
+                            type="button"
+                            onClick={() => setHistoryOf(account)}
+                            className="block text-left text-sm text-over-ink underline-offset-2 hover:underline"
+                          >
+                            Failing: {account.failingBecause}
+                          </button>
+                        ) : (
+                          <p className="text-sm text-over-ink">Failing: {account.failingBecause}</p>
+                        ))}
+                    </div>
+                    {!guest && <RowMenu
+                      label={`Actions for ${account.displayName}`}
+                      entries={[
+                        ...(account.connectorId === CLAUDE_CODE
+                          ? [
+                              {
+                                label: 'Test again',
+                                keepsFocus: true,
+                                onSelect: () => {
+                                  setClaudeCodeMessage(null);
+                                  testClaudeCode.mutate(account.id, {
+                                    onSuccess: (result) => {
+                                      if (!result.accepted) setClaudeCodeMessage(result.message);
+                                    },
+                                    // The request itself failing (offline, a 5xx,
+                                    // the row having just been disconnected
+                                    // elsewhere) is not the same as Claude
+                                    // refusing the test, but both leave the row
+                                    // exactly as it was - so both get the same
+                                    // one line rather than one of them getting
+                                    // none at all (found in review).
+                                    onError: () =>
+                                      setClaudeCodeMessage('That did not reach the server. Try again.'),
+                                  });
+                                },
+                              },
+                              {
+                                label: 'Edit…',
+                                onSelect: (openedFrom: HTMLElement | null) => openClaudeCodeForm(openedFrom),
+                              },
+                            ]
+                          : []),
+                        // A failing row of a connector this environment can sign
+                        // in to: signing in again is what ends it (issue 944).
+                        ...(account.failingBecause && registered.some((card) => card.id === account.connectorId)
+                          ? [
+                              {
+                                label: 'Reconnect',
+                                onSelect: (openedFrom: HTMLElement | null) => reconnect(account, openedFrom),
+                              },
+                            ]
+                          : []),
+                        // When it was checked and why it failed (issue 1140).
+                        ...(account.keepsHistory
+                          ? [{ label: 'History…', onSelect: () => setHistoryOf(account) }]
+                          : []),
+                        // The connector's own choice, changed without signing in
+                        // again (issue 942).
+                        ...(account.connectorId !== CLAUDE_CODE && (choiceOf(account.connectorId) || namesOf(account.connectorId))
+                          ? [
+                              {
+                                label: 'Change…',
+                                onSelect: (openedFrom: HTMLElement | null) => {
+                                  choiceOpenedFrom.current = openedFrom;
+                                  setChangingChoice(account);
+                                },
+                              },
+                            ]
+                          : []),
+                        {
+                          label: 'Disconnect',
+                          destructive: true,
+                          onSelect: (openedFrom) => startDisconnecting(account, openedFrom),
+                        },
+                      ]}
+                    />}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {beingDisconnected && (
+              <DeleteQuestion
+                open
+                question={`Disconnect ${beingDisconnected.displayName}? Cockpit forgets ${
+                  beingDisconnected.connectorId === CLAUDE_CODE
+                    ? 'the routine trigger it was connected with'
+                    : 'the sign-in it was connected with'
+                }.`}
+                confirmLabel={`Yes, disconnect ${beingDisconnected.displayName}`}
+                confirmText="Disconnect"
+                canConfirm={!command.isPending}
+                refusal={commandRefusal}
+                returnFocusTo={askedFrom.current}
+                onCancel={stopAsking}
+                onConfirm={() =>
+                  command.mutate(
+                    {
+                      name: 'disconnect_source_account',
+                      payload: {
+                        commandId: uuidv7(),
+                        issuedAt: new Date().toISOString(),
+                        workspaceId,
+                        sourceAccountId: beingDisconnected.id,
+                      },
+                    },
+                    { onSuccess: () => setDisconnecting(null) },
+                  )
+                }
+              />
             )}
+            {listFailed && (
+              <div className="px-4 py-4">
+                <LoadFailure error={error} onRetry={() => void refetch()} />
+              </div>
+            )}
+            {answered && connected.length === 0 && !isFetching && (
+              <p className="px-4 py-4 text-sm text-ink-faint">Nothing connected yet. Add one below.</p>
+            )}
+            {claudeCodeMessage && (
+              <p role="alert" className="px-4 py-2 text-sm text-over-ink">
+                {claudeCodeMessage}
+              </p>
+            )}
+          </section>
+
+          <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+            Add a connection
+          </h3>
+          <div className="mt-2 flex flex-col gap-2">
+            {cards.map((card) => (
+              <div
+                key={card.id}
+                className="flex items-center gap-3 rounded-md border border-shade/10 p-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{card.name}</p>
+                  <p className="text-sm text-ink-faint">{card.text}</p>
+                </div>
+                {guest ? (
+                  <span className="shrink-0 text-sm text-ink-faint">{GUEST_SENTENCE}</span>
+                ) : card.id === CLAUDE_CODE && claudeCodeConnected ? (
+                  <span className="shrink-0 text-sm text-ink-faint">Connected - one per workspace</span>
+                ) : (
+                  <button
+                    type="button"
+                    // Two rows both reading "Connect" need two names for anyone
+                    // not reading them side by side - a screen reader, or a test.
+                    aria-label={`Connect ${card.name}`}
+                    onClick={(event) => {
+                      if (card.id === CLAUDE_CODE) openClaudeCodeForm(event.currentTarget);
+                      else if (card.choice) {
+                        askingOpenedFrom.current = event.currentTarget;
+                        setAsking({ ...card, choice: card.choice });
+                      } else connectRegistered(card.id);
+                    }}
+                    disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending}
+                    className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+                  >
+                    Connect
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       <ConnectEngine
         open={claudeCodeForm}

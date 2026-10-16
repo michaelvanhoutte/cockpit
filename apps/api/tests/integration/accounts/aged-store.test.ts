@@ -506,6 +506,14 @@ const rowsFor: {
     params: (name) => [name, AT, LATER],
   },
   {
+    // The table `0078-connection-history` creates (issue 1140): a failure
+    // folded from two checks, for the next update to meet.
+    table: 'connection_history',
+    sql: `INSERT INTO connection_history (id, tenant_id, source_account_id, outcome, reason, message, message_cut, count, first_at, last_at)
+          VALUES ('ch-before', ?, 'cn-before', 'failed', 'scheduled', 'the source stopped answering', 0, 2, ?, ?)`,
+    params: (name) => [name, AT, LATER],
+  },
+  {
     table: 'pulled_links',
     sql: `INSERT INTO pulled_links (tenant_id, workspace_id, connector_id, external_account_key, source_id, item_id, linked_at)
           VALUES (?, 'ws-before', 'teams', 'a-tenant:somebody', 'source-before', 'it-done-before', ?)`,
@@ -647,19 +655,10 @@ const points = updates
   .filter(({ applied }) => applied > 0);
 
 /**
- * **This file empties nothing, unlike every other suite here, and that is a
- * budget rather than a shortcut.** Every case works in a store of its own,
- * named after the point it is aged to, and none of them reads the register or
- * signs anybody in - so `startFromEmpty` would be clearing ten stores nothing
- * here touches, and the pool charges for that in a currency this file is short
- * of: the workers pool wraps the Durable Object's prototype in a fresh `Proxy`
- * on **every construction** (`createProxyPrototypeClass`,
- * @cloudflare/vitest-pool-workers), so a property read costs one stack frame
- * per construction the isolate has ever done. At ten a case across ninety-odd
- * cases, the last ones in the file were reading through a thousand of them and
- * fell over with `Maximum call stack size exceeded` - a failure that names
- * nothing about what it was doing, and that adding one change to the list was
- * enough to trigger ("Connect a Microsoft Teams source account", issue 485).
+ * **This file empties nothing, unlike every other suite here.** Every case
+ * works in a store of its own, named after the point it is aged to, and none
+ * of them reads the register or signs anybody in - so `startFromEmpty` would
+ * only clear ten stores nothing here touches.
  *
  * Aborting is still needed: an object that stays in memory believing itself up
  * to date would serve the next case over the tables it aged.
@@ -1887,6 +1886,34 @@ describe('What Cockpit changed', () => {
 
 describe('Connector management', () => {
   /**
+   * `0078-connection-history` ("See when a pulled connection was checked, and
+   * why it failed, from its row's History…", issue 1140) meets connections
+   * and a check part-way through a run from before it: it adds an empty
+   * history and a column, and rewrites no row.
+   */
+  describe('a store from the release before, brought up to date, keeps its connections and gains an empty history', () => {
+    it('keeps every connection and check as it was, and reads each connection’s history as empty', async () => {
+      const name = 'aged-store-before-connection-history';
+      await agedTo(name, justBefore('0078-connection-history'));
+      await fillWithWhatIsAlreadyThere(name);
+      const rowsIn = () =>
+        inStoreAsItIs(name, (sql) => ({
+          connections: sql.exec('SELECT * FROM connector_accounts ORDER BY id').toArray(),
+          checks: sql.exec('SELECT * FROM pulled_connections ORDER BY source_account_id').toArray(),
+        }));
+      const before = await rowsIn();
+
+      const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
+
+      expect(read).toEqual({ status: 'ok', value: [] });
+      expect(await rowsIn()).toEqual({
+        connections: before.connections,
+        checks: before.checks.map((row) => ({ ...row, check_reason: null })),
+      });
+    });
+  });
+
+  /**
    * `0056-gmail-followed-mark` ("Connect Gmail by star, and bring in
    * conversations starred from then on", issue 822) meets a Gmail connection
    * and a conversation it brought in from before the star existed.
@@ -1957,7 +1984,7 @@ const GMAIL_RECONNECT = '0066-gmail-connections-reconnect';
  */
 const connectorRowsIn = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, which `0078-files-by-name` adds on the same open.
+    // Without `files_by_name`, which `0079-files-by-name` adds on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
@@ -2051,19 +2078,23 @@ const schemaIn = (name: string) =>
 /** The rows the drop must leave alone: connections, Items and the generic host's own. */
 const keptBesideGmail = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, which `0078-files-by-name` adds on the same open.
+    // Without `files_by_name`, which `0079-files-by-name` adds on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
       .map(({ follows: _follows, files_by_name: _filesByName, ...row }) => row),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
-    // Without `names`, which `0078-files-by-name` adds on the same open.
+    // Without `names`, which `0079-files-by-name` adds on the same open.
     links: sql
       .exec('SELECT * FROM pulled_links ORDER BY source_id')
       .toArray()
       .map(({ names: _names, ...row }) => row),
-    checkpoints: sql.exec('SELECT * FROM pulled_connections ORDER BY source_account_id').toArray(),
+    // Without the column `0078-connection-history` adds on the same open.
+    checkpoints: sql
+      .exec('SELECT * FROM pulled_connections ORDER BY source_account_id')
+      .toArray()
+      .map(({ check_reason: _checkReason, ...row }) => row),
   }));
 
 describe('Connector management', () => {
@@ -2997,14 +3028,14 @@ describe('Triage', () => {
 });
 
 /**
- * `0078-files-by-name` ("File Outlook mail on the Panel named after its
+ * `0079-files-by-name` ("File Outlook mail on the Panel named after its
  * category", issue 1146) meets connections and a link from before it: every
  * connection reads as not filing by name and every link as having no names
  * recorded, so nothing already in is filed.
  */
 describe('Connector management', () => {
   describe('the migration leaves every existing connection off and every existing link without a baseline', () => {
-    const FILES_BY_NAME = '0078-files-by-name';
+    const FILES_BY_NAME = '0079-files-by-name';
     const filingRowsIn = (name: string) =>
       inStoreAsItIs(name, (sql) => ({
         switches: sql.exec('SELECT id, files_by_name FROM connector_accounts ORDER BY id').toArray(),

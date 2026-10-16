@@ -3,6 +3,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
+  ConnectionHistoryLine,
   Item,
   Panel,
   ServerEvent,
@@ -310,6 +311,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     workspaceId: string,
     sourceAccountId: string,
   ): Awaitable<Answer<{ lastArrivedAt: string | null }>>;
+  /** One connection's history, newest line first (issue 1140). */
+  connectionHistory(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Awaitable<Answer<ConnectionHistoryLine[]>>;
   changesSince(
     accountName: string,
     since: string,

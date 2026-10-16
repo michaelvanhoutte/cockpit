@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -35,6 +35,10 @@ const held = vi.hoisted(() => ({
   hooksAskedFor: [] as string[],
   /** What the Workspace's snapshot calls each source (issue 927). */
   sourceNames: {} as Record<string, string> | undefined,
+  /** What a connection's history read answers with, or that it fails (issue 1140). */
+  history: [] as unknown[] | 'fails',
+  /** The connection each history read was for. */
+  historyAskedFor: [] as string[],
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -64,6 +68,18 @@ vi.mock('../../../src/api/client', () => ({
           connections: {
             $get: () =>
               Promise.resolve(new Response(JSON.stringify({ sourceAccounts: held.sourceAccounts }))),
+            ':sourceAccountId': {
+              history: {
+                $get: ({ param }: { param: { sourceAccountId: string } }) => {
+                  held.historyAskedFor.push(param.sourceAccountId);
+                  return Promise.resolve(
+                    held.history === 'fails'
+                      ? new Response('', { status: 500 })
+                      : new Response(JSON.stringify({ lines: held.history })),
+                  );
+                },
+              },
+            },
             'claude-code': {
               ':sourceAccountId': {
                 hooks: {
@@ -188,6 +204,8 @@ beforeEach(() => {
   held.sourceAccounts = [];
   held.registry = [TEAMS_CARD];
   held.hooksAskedFor = [];
+  held.history = [];
+  held.historyAskedFor = [];
   held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail', 'claude-code': 'Claude Code' };
   vi.restoreAllMocks();
 });
@@ -859,6 +877,199 @@ describe('Agents', () => {
       // exists (ConnectClaudeCode.test.tsx), so it is not repeated here.
       expect(screen.getByText(says)).toBeInTheDocument();
       expect(held.hooksAskedFor).toEqual(['account-claude-code']);
+    });
+  });
+});
+
+/** "See when a pulled connection was checked, and why it failed, from its row's History…", issue 1140. */
+describe('Connector management', () => {
+  const ANNA: SourceAccount = {
+    id: 'account-anna',
+    connectorId: 'gmail',
+    displayName: 'anna@example.com',
+    connectedAt: '2026-10-01T09:00:00.000Z',
+    lastTestedAt: '2026-10-16T12:20:00.000Z',
+    failingBecause: null,
+    keepsHistory: true,
+  };
+  /** A moment of the day, in this machine's own time, as the view reads it. */
+  const at = (day: number, hour: number, minute: number) => new Date(2026, 9, day, hour, minute).toISOString();
+  const line = (over: Record<string, unknown>) => ({
+    id: crypto.randomUUID(),
+    outcome: 'worked',
+    reason: 'scheduled',
+    message: null,
+    messageCut: false,
+    count: 1,
+    firstAt: at(16, 9, 5),
+    lastAt: at(16, 9, 5),
+    ...over,
+  });
+
+  async function openHistory(account: SourceAccount = ANNA) {
+    await userEvent.click(await screen.findByRole('button', { name: `Actions for ${account.displayName}` }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'History…' }));
+    return screen.findByRole('region', { name: `History of ${account.displayName}` });
+  }
+
+  describe('History… is on the menu of a connection that keeps a history, and its Failing: line opens it', () => {
+    it.each([
+      { situation: 'a connected Gmail row', account: ANNA, offered: true },
+      { situation: 'a connected Outlook row', account: { ...ANNA, connectorId: 'outlook' }, offered: true },
+      { situation: 'the Claude Code row', account: CLAUDE, offered: false },
+      { situation: 'a Teams row, which keeps none yet', account: ADA, offered: false },
+    ])('$situation', async ({ account, offered }) => {
+      held.sourceAccounts = [account];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: `Actions for ${account.displayName}` }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'History…' }) !== null).toBe(offered);
+    });
+
+    it('opens the history of a failing row from its Failing: line', async () => {
+      held.sourceAccounts = [{ ...ANNA, failingBecause: 'Google refused the sign-in' }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Failing: Google refused the sign-in' }));
+
+      expect(await screen.findByRole('region', { name: 'History of anna@example.com' })).toBeInTheDocument();
+      expect(held.historyAskedFor).toEqual(['account-anna']);
+    });
+
+    it('goes back to the Connections of the same workspace with ‹ Connections', async () => {
+      held.sourceAccounts = [ANNA];
+      showWindow();
+      await openHistory();
+      expect(screen.queryByText('Add a connection')).toBeNull();
+
+      await userEvent.click(screen.getByRole('button', { name: '‹ Connections' }));
+
+      expect(await screen.findByText('Add a connection')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Actions for anna@example.com' })).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: /^History of/ })).toBeNull();
+    });
+  });
+
+  describe('a connection’s history is grouped by day, newest first, and says each outcome in words', () => {
+    beforeEach(() => {
+      // Only the clock, so the reads still settle on their own.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 9, 16, 14, 0));
+      held.sourceAccounts = [ANNA];
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('heads today’s lines Today and yesterday’s Yesterday', async () => {
+      held.history = [line({ lastAt: at(16, 9, 5), firstAt: at(16, 9, 5) }), line({ lastAt: at(15, 22, 0), firstAt: at(15, 22, 0) })];
+      showWindow();
+      const history = await openHistory();
+
+      expect(within(history).getAllByRole('heading', { level: 4 }).map((h) => h.textContent)).toEqual(['Today', 'Yesterday']);
+      expect(within(within(history).getByRole('region', { name: 'Yesterday' })).getByText('Worked')).toBeInTheDocument();
+    });
+
+    it('names the year of a day from another year, and keeps the same date a year apart as two days', async () => {
+      const lastYear = new Date(2025, 9, 5, 9, 0).toISOString();
+      const yearBefore = new Date(2024, 9, 5, 9, 0).toISOString();
+      held.history = [
+        line({ firstAt: lastYear, lastAt: lastYear }),
+        line({ outcome: 'failed', message: 'unavailable', firstAt: yearBefore, lastAt: yearBefore }),
+      ];
+      showWindow();
+      const history = await openHistory();
+
+      const headings = within(history).getAllByRole('heading', { level: 4 }).map((h) => h.textContent!);
+      expect(headings).toHaveLength(2);
+      expect(headings[0]).toContain('2025');
+      expect(headings[1]).toContain('2024');
+    });
+
+    it.each([
+      {
+        situation: 'a single check that worked, with why it ran',
+        held: line({ reason: 'follow-up' }),
+        says: 'Worked',
+        detail: ' · Follow-up',
+      },
+      {
+        situation: 'a folded quiet line, with its span',
+        held: line({ count: 40, firstAt: at(16, 9, 5), lastAt: at(16, 12, 20) }),
+        says: 'Checked 40 times, nothing new',
+        detail: null,
+        span: true,
+      },
+      {
+        situation: 'a single failure, with why it ran and its message',
+        held: line({ outcome: 'failed', message: 'unavailable' }),
+        says: 'Failed',
+        detail: ' · Scheduled · unavailable',
+      },
+      {
+        situation: 'a folded failure, with its span and message',
+        held: line({ outcome: 'failed', message: 'unavailable', count: 41, firstAt: at(16, 8, 50), lastAt: at(16, 12, 10) }),
+        says: 'Failed 41 times',
+        detail: ' · unavailable',
+        span: true,
+      },
+      {
+        situation: 'a failure whose message was cut, marked so',
+        held: line({ outcome: 'failed', message: 'a long story', messageCut: true }),
+        says: 'Failed',
+        detail: ' · Scheduled · a long story…',
+      },
+      {
+        situation: 'a failure that said nothing',
+        held: line({ outcome: 'failed', reason: 'a reason from a later release' }),
+        says: 'Failed',
+        detail: null,
+      },
+    ])('$situation', async ({ held: one, says, detail, span }) => {
+      held.history = [one];
+      showWindow();
+      const history = await openHistory();
+
+      const shown = within(history).getByText(says);
+      const row = shown.closest('li')!;
+      expect(row.textContent).toBe(`${row.firstChild!.textContent}${says}${detail ?? ''}`);
+      expect(row.firstChild!.textContent!.includes('–')).toBe(span === true);
+    });
+
+    it('says No checks yet where there are none', async () => {
+      showWindow();
+      const history = await openHistory();
+
+      expect(await within(history).findByText('No checks yet.')).toBeInTheDocument();
+    });
+
+    it('offers the load failure’s way to try again where the read fails, and reads again', async () => {
+      held.history = 'fails';
+      showWindow();
+      const history = await openHistory();
+
+      const retry = await within(history).findByRole('button', { name: 'Try again' });
+      held.history = [line({})];
+      await userEvent.click(retry);
+
+      expect(await within(history).findByText('Worked')).toBeInTheDocument();
+      expect(held.historyAskedFor).toEqual(['account-anna', 'account-anna']);
+    });
+
+    it('reads it again on opening it again, never drawing the read before', async () => {
+      held.history = [line({})];
+      showWindow();
+      expect(await within(await openHistory()).findByText('Worked')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: '‹ Connections' }));
+
+      held.history = 'fails';
+      const again = await openHistory();
+
+      expect(await within(again).findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+      expect(within(again).queryByText('Worked')).toBeNull();
+      expect(held.historyAskedFor).toEqual(['account-anna', 'account-anna']);
     });
   });
 });

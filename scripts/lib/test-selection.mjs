@@ -45,7 +45,7 @@
 //   the lockfile, a tsconfig - still forces full, attributed to that file.
 // - A package's own `vitest.config.ts`, its own `package.json`, a migration
 //   under its `migrations/`, its own `wrangler.jsonc` (the binding and
-//   Durable Object config `@cloudflare/vitest-pool-workers` runs its suite
+//   Durable Object config `@cloudflare/vitest-plugin` runs its suite
 //   against, per `apps/api/vitest.config.ts`'s `configPath`), or a
 //   `global-setup.ts` anywhere under it (run once per Vitest process via
 //   `globalSetup`, so it sits outside any test file's own import graph)

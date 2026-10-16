@@ -162,6 +162,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     REWRITE_HISTORY_WORKSPACE_SET,
     PROPOSED_PANEL_FIT,
     REWRITE_HISTORY_PANELS_FILED_ON,
+    CONNECTION_HISTORY,
     FILES_BY_NAME,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -570,6 +571,66 @@ const REWRITE_HISTORY_PANELS_FILED_ON: Change = {
   statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `panels_filed_on` text' }],
 };
 
+/** `isTimestamp` (schema.ts) written out, for the hand-written statements below. */
+function timestampCheck(table: string, column: string): string {
+  return `CONSTRAINT "${table}_${column}_is_timestamp" CHECK(${column} IS NULL OR (datetime(${column}) IS NOT NULL AND substr(${column}, 11, 1) = 'T' AND substr(${column}, -1) = 'Z' AND length(${column}) >= 20 AND date(${column}) = substr(${column}, 1, 10)))`;
+}
+
+/**
+ * Each connection's history, and why its next check runs ("See when a pulled
+ * connection was checked, and why it failed, from its row's History…", issue
+ * 1140) - a new table, its index, and one nullable column on
+ * `pulled_connections`; `schema.ts` says what each carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): a `CREATE TABLE`, a `CREATE INDEX` and an `ADD COLUMN`, and
+ *   no statement that reads or writes a row.
+ * - **If it stops halfway:** one change is one transaction, so a failure on any
+ *   statement takes the others back with it, and the next open applies all.
+ * - **The second time it runs:** it does not re-run once recorded; the table
+ *   and index are `IF NOT EXISTS` besides.
+ * - **Rows that predate it:** none in the new table. Every pulled connection
+ *   reads `check_reason` NULL, which is the cadence - what its next check is
+ *   unless the one before said there was more to do. Nothing is backfilled.
+ * - **What is in each environment:** staging and production gain an empty
+ *   table, and their pulled connections keep every row whole.
+ * - **Rolled back after it has run:** an older release never names the table
+ *   or the column; its checks write no line, and the history resumes on the
+ *   next release forward.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTION_HISTORY: Change = {
+  name: '0078-connection-history',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`connection_history\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`source_account_id\` text NOT NULL,
+	\`outcome\` text NOT NULL,
+	\`reason\` text NOT NULL,
+	\`message\` text,
+	\`message_cut\` integer NOT NULL,
+	\`count\` integer NOT NULL,
+	\`first_at\` text NOT NULL,
+	\`last_at\` text NOT NULL,
+	CONSTRAINT "connection_history_outcome_is_known" CHECK(outcome IN ('worked', 'failed')),
+	CONSTRAINT "connection_history_message_cut_is_flag" CHECK(message_cut IN (0, 1)),
+	CONSTRAINT "connection_history_count_is_positive" CHECK(count >= 1),
+	${timestampCheck('connection_history', 'first_at')},
+	${timestampCheck('connection_history', 'last_at')}
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `connection_history_newest` ON `connection_history` (`tenant_id`,`source_account_id`,`last_at`)',
+    },
+    { sql: 'ALTER TABLE `pulled_connections` ADD COLUMN `check_reason` text' },
+  ],
+};
+
 /**
  * Filing mail on the Panel named after its label or category ("File Outlook
  * mail on the Panel named after its category", issue 1146): the switch on the
@@ -597,7 +658,7 @@ const REWRITE_HISTORY_PANELS_FILED_ON: Change = {
  *   changes, so this one applies the next time the account is opened.
  */
 const FILES_BY_NAME: Change = {
-  name: '0078-files-by-name',
+  name: '0079-files-by-name',
   statements: [
     {
       sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `files_by_name` integer DEFAULT 0 NOT NULL CONSTRAINT "connector_accounts_files_by_name_is_a_flag" CHECK(files_by_name IN (0, 1))',

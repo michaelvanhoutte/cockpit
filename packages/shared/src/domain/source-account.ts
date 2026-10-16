@@ -56,6 +56,11 @@ export const sourceAccountSchema = z.object({
    * this field reads as off.
    */
   filesByName: z.boolean().default(false),
+  /**
+   * Whether the connection keeps a history its row's *History…* opens - a
+   * connection Cockpit pulls from, today (issue 1140). Absent reads as none.
+   */
+  keepsHistory: z.boolean().optional(),
 });
 export type SourceAccount = z.infer<typeof sourceAccountSchema>;
 
