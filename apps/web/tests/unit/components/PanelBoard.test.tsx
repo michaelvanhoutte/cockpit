@@ -17,6 +17,7 @@ import type {
   PanelSort,
 } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
+import { CaptureOpenerContext, type OpenCaptureOn } from '../../../src/captureOpener';
 import {
   NO_DASHBOARD_FILTER,
   isFiltering,
@@ -237,6 +238,8 @@ function showBoard({
   settles = true,
   /** A change already on its way out when the board is first drawn. */
   pending = false,
+  /** What a Panel's + and **Add an item…** open Capture with; none offers neither. */
+  opensCapture,
 }: {
   panels?: Panel[];
   panelsInWorkspace?: Panel[];
@@ -250,6 +253,7 @@ function showBoard({
   variables?: { name: string; payload: Record<string, unknown> };
   settles?: boolean;
   pending?: boolean;
+  opensCapture?: OpenCaptureOn;
 } = {}) {
   const mutate = vi.fn(
     (_args, options?: { onSuccess?: () => void; onError?: (error: Error) => void }) => {
@@ -274,18 +278,20 @@ function showBoard({
     drawnRuns: AgentRun[] = agentRuns,
   ) => (
     <QueryClientProvider client={client}>
-      <PanelBoard
-        workspaceId="ws-work"
-        dashboard={DASHBOARD}
-        dashboards={dashboards}
-        panels={drawing}
-        panelsInWorkspace={panelsInWorkspace}
-        layouts={layouts}
-        items={drawnItems}
-        attachments={drawnAttachments}
-        agentRuns={drawnRuns}
-        filings={filings}
-      />
+      <CaptureOpenerContext.Provider value={opensCapture ?? null}>
+        <PanelBoard
+          workspaceId="ws-work"
+          dashboard={DASHBOARD}
+          dashboards={dashboards}
+          panels={drawing}
+          panelsInWorkspace={panelsInWorkspace}
+          layouts={layouts}
+          items={drawnItems}
+          attachments={drawnAttachments}
+          agentRuns={drawnRuns}
+          filings={filings}
+        />
+      </CaptureOpenerContext.Provider>
     </QueryClientProvider>
   );
   const { unmount, rerender } = render(board(panels));
@@ -1789,6 +1795,56 @@ describe('Panels', () => {
   });
 
   /** "Keep a Panel out of proposals with Never propose" (issue 848). */
+  describe('a panel of items adds an Item through Capture, from a + on its header', () => {
+    it('opens Capture holding the Panel from the + on its header', async () => {
+      const opensCapture = vi.fn();
+      const { user } = showBoard({ opensCapture });
+
+      await user.click(
+        within(screen.getByRole('region', { name: 'Project Falcon' })).getByRole('button', {
+          name: 'Add an item to Project Falcon',
+        }),
+      );
+
+      expect(opensCapture).toHaveBeenCalledWith({ panelId: 'falcon', name: 'Project Falcon', workspaceId: 'ws-work' });
+    });
+
+    it('opens Capture holding the Panel from Add an item… in its menu', async () => {
+      const opensCapture = vi.fn();
+      const { user } = showBoard({ opensCapture });
+
+      await choose(user, 'To read', 'Add an item…');
+
+      expect(opensCapture).toHaveBeenCalledWith({ panelId: 'reading', name: 'To read', workspaceId: 'ws-work' });
+    });
+
+    it.each([
+      { situation: 'a panel of text', panel: aPanelOfText('words', 'What matters') },
+      {
+        situation: 'a filter',
+        panel: {
+          ...aPanel('due', 'What matters'),
+          kind: 'filter' as const,
+          filter: { rows: [], groupBy: 'none' as const },
+        },
+      },
+    ])('offers neither the + nor the menu entry on $situation', async ({ panel }) => {
+      showBoard({ panels: [panel], opensCapture: vi.fn() });
+
+      expect(screen.queryByRole('button', { name: /Add an item to/ })).toBeNull();
+      openMenu('What matters');
+      expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Add an item…' })).toBeNull();
+    });
+
+    it('has no + Add an item row on any panel', () => {
+      showBoard({ opensCapture: vi.fn() });
+
+      expect(screen.queryByRole('button', { name: '+ Add an item' })).toBeNull();
+      expect(screen.queryByText('+ Add an item')).toBeNull();
+    });
+  });
+
   describe('Never propose is offered on a panel of items, ticked while it is set', () => {
     it.each([
       { situation: 'setting it', set: false, sends: true },
@@ -3516,7 +3572,6 @@ describe('Panels', () => {
 
       for (const region of regions()) {
         expect(within(region).queryAllByRole('listitem')).toHaveLength(0);
-        notShown(within(region).queryByText(/Add an item/));
         notShown(within(region).queryByText(NOTHING_FILED_HERE));
         notShown(within(region).queryByText('Some prose'));
         expect(within(region).queryByRole('textbox')).toBeNull();
@@ -3533,18 +3588,6 @@ describe('Panels', () => {
     const notShown = (element: HTMLElement | null) => {
       if (element) expect(element).not.toBeVisible();
     };
-
-    it('keeps a half-typed item on a panel through a drag, hidden while it is in the air', () => {
-      board();
-      fireEvent.click(within(screen.getByRole('region', { name: 'Project Falcon' })).getByRole('button', { name: '+ Add an item' }));
-      fireEvent.change(screen.getByRole('textbox', { name: 'Capture a note or to-do' }), { target: { value: 'Call Bart' } });
-
-      pickUp('To read');
-      expect(screen.queryByRole('textbox', { name: 'Capture a note or to-do' })).toBeNull();
-      fireEvent.keyDown(window, { key: 'Escape' });
-
-      expect(screen.getByRole('textbox', { name: 'Capture a note or to-do' })).toHaveValue('Call Bart');
-    });
 
     it.each([
       { situation: 'dropped on the board', end: () => fireEvent.pointerUp(window, { pointerId: 1 }) },
@@ -3653,10 +3696,6 @@ describe('Panels', () => {
       for (const row of document.querySelectorAll<HTMLElement>('[data-panel-row]')) {
         expect(row.style.height).toBe('');
         expect(row.style.minHeight).toBe('');
-      }
-      for (const name of ['Project Falcon', 'Notes', 'Due', 'To read']) {
-        const region = screen.getByRole('region', { name });
-        expect(within(region).queryByText(/Add an item/)).not.toBeVisible();
       }
     });
 

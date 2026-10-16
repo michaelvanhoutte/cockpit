@@ -1,6 +1,7 @@
 import { Suspense, useEffect } from 'react';
 import { CaptureNote } from '../captureForm';
 import { ManageWindow } from './ManageWindow';
+import type { FiledOn } from './FileOnLine';
 
 /**
  * Capture over the screen you are on ("Capture over the screen you are on, and
@@ -20,11 +21,14 @@ export function CaptureWindow({
   open,
   onClose,
   startsIn,
+  startsOn = null,
 }: {
   open: boolean;
   onClose: () => void;
   /** The workspace you are in, or null for *Any workspace*. */
   startsIn: string | null;
+  /** The Panel a + on its header opened this for, held by *File on* to start with (issue 1105). */
+  startsOn?: FiledOn | null;
 }) {
   /**
    * **Escape is this window's, whatever else is open behind it.** Radix hands
@@ -48,7 +52,7 @@ export function CaptureWindow({
     <ManageWindow title="Capture" open={open} onClose={onClose}>
       <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Suspense fallback={null}>
-          <CaptureNote startsIn={startsIn} />
+          <CaptureNote startsIn={startsIn} startsOn={startsOn} />
         </Suspense>
       </div>
     </ManageWindow>

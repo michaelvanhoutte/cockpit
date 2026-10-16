@@ -6,6 +6,7 @@ import { NotSignedIn } from '../api/client';
 import { meQuery } from '../api/queries';
 import { CarCapture, CaptureNote } from '../captureForm';
 import { useArrived } from '../shareClaim';
+import type { FiledOn } from './FileOnLine';
 
 /**
  * Both sides of the Capture page's Write | Car switch, and what was shared into
@@ -23,10 +24,13 @@ import { useArrived } from '../shareClaim';
  */
 export function CaptureForms({
   startsIn,
+  startsOn = null,
   inCar,
   carried,
 }: {
   startsIn: string | null;
+  /** The Panel a + on its header opened this for (issue 1105). */
+  startsOn?: FiledOn | null;
   inCar: boolean;
   /** The page's navigation state, kept when the signal is taken out of the address. */
   carried: never;
@@ -58,6 +62,7 @@ export function CaptureForms({
         {inCar ? <CarCapture /> : (
           <CaptureNote
             startsIn={startsIn}
+            startsOn={startsOn}
             arrived={arrived}
             onPutOn={() => setShareFailed(false)}
             onCaptured={() => {

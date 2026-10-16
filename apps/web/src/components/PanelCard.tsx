@@ -14,9 +14,9 @@ import type { FilterGroup } from '../filterGroups';
 import { saysHowItIsSorted, sortOf } from '../sorting';
 import { ItemList } from './ItemList';
 import { dashboardScope, pickAll } from '../selection';
-import { PanelAddItemForm } from './PanelAddItemForm';
+import { useOpenCaptureOn } from '../captureOpener';
 import { PanelText } from '../panels/PanelText';
-import { SurfaceMenu, SurfaceMenuButton, opensOnKey, opensOnActivate } from './Menu';
+import { SurfaceMenu, SurfaceMenuButton, menuButtonClassName, opensOnKey, opensOnActivate } from './Menu';
 import {
   NOTHING_CHOSEN_TO_SHOW,
   NOTHING_FILED_HERE,
@@ -192,6 +192,15 @@ export function PanelCard({
   // says beside its name and what its menu offers.
   const text = panelHoldsText(panel);
   const filter = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS) : null;
+  /**
+   * Adding an Item here opens Capture holding this Panel. Only a Panel of
+   * Items has one: nothing is filed into a Filter or a text Panel.
+   */
+  const openCaptureOn = useOpenCaptureOn();
+  const addHere =
+    openCaptureOn && panelTakesItems(panel)
+      ? () => openCaptureOn({ panelId: panel.id, name: panel.name, workspaceId })
+      : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
   const shows = filter
     ? saysWhatItShows(filter.rows, panelsInWorkspace, filter.groupBy, dashboards)
@@ -257,6 +266,8 @@ export function PanelCard({
             isRenaming
               ? []
               : [
+                  // The header's + by another door, for a keyboard and a long press.
+                  ...(addHere ? [{ label: 'Add an item…', onSelect: addHere }] : []),
                   // Every row this Panel shows, added to what is picked on the
                   // Dashboard ("Select across every panel of a dashboard",
                   // issue 863). Always there on a Panel with rows to pick, and
@@ -512,7 +523,7 @@ export function PanelCard({
               </form>
             ) : (
               <>
-                <div className="flex min-w-0 flex-1 items-center gap-2 pr-11">
+                <div className={`flex min-w-0 flex-1 items-center gap-2 ${addHere ? 'pr-20 @max-[200px]:pr-11' : 'pr-11'}`}>
                   {/* The same heading the Inbox's carries in the band above it
                     (components/InboxPanel.tsx): small, uppercase and in the accent,
                     because a header on the sheet has no fill or rule to say it is a
@@ -629,30 +640,31 @@ export function PanelCard({
                   label={`Actions for ${panel.name}`}
                   className="absolute top-1/2 right-2 -translate-y-1/2"
                 />
+                {/* Beside the menu's button, and positioned the same way for the
+                    same reason. It goes where the count goes, on a header too
+                    narrow for both, and the menu's *Add an item…* stays. Its own keys are kept off the header, whose
+                    Enter and Space open the menu. */}
+                {addHere && (
+                  <button
+                    type="button"
+                    aria-label={`Add an item to ${panel.name}`}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      addHere();
+                    }}
+                    className={menuButtonClassName(false, 'absolute top-1/2 right-11 -translate-y-1/2 text-lg leading-none @max-[200px]:hidden')}
+                  >
+                    <span aria-hidden="true">+</span>
+                  </button>
+                )}
               </>
             )}
           </header>
         </SurfaceMenu>
       </div>
-
-      {/* A fixed row rather than the well's own first row: `ItemList`'s empty
-          state fills the well exactly (`min-h-full`, "tall enough to be
-          dropped on"), and a sibling inside that same scrolling box would
-          always read as more content than the well holds, meaning the well
-          would show a scrollbar it does not need - reachable at any height,
-          not only when a panel is dragged to its floor ("A Panel doesn't
-          shrink or scroll to fit a shorter dashboard row", issue 432). Kept
-          outside it instead, this row costs the well nothing and stays
-          reachable without scrolling down a long list to find it. */}
-      {/* Neither on a panel of text nor on a Filter: an item made here would
-          be filed onto the panel it was made on, and a Filter is the one panel
-          nothing is filed onto. */}
-      {!text && !filter && (
-        // Hidden rather than unmounted, so a half-typed item survives a drag.
-        <div style={collapsed ? { display: 'none' } : undefined}>
-          <PanelAddItemForm workspaceId={workspaceId} panelId={panel.id} />
-        </div>
-      )}
 
       {/* No padding of its own: a row carries its own, so a list inside a panel
           reads exactly as it does in the Inbox.

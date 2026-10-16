@@ -300,6 +300,9 @@ test.describe('Agents', () => {
         // above leaves at the bottom centre: with the Panel list taking the
         // dashboard's right edge, the row's middle sits behind the toast.
         await page.mouse.move(at.x + at.width - 30, at.y + at.height / 2, { steps: 8 });
+        // A second, short move inside the row: the drag's last event on the way
+        // in can be a leave from where it came, which the next over undoes.
+        await page.mouse.move(at.x + at.width - 40, at.y + at.height / 2 + 3, { steps: 2 });
         // Only the row under the pointer is lit; every other row that takes it is merely tinted.
         await expect(farRow).toHaveAttribute('data-agent-target', '');
         await expect(itemRow(page, asked)).not.toHaveAttribute('data-agent-target', '');
