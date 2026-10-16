@@ -21,6 +21,7 @@ import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.
 import type { RefreshAsk } from './debounce.js';
 import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { PulledRunBegun } from './pulled.js';
+import type { CheckDid } from '../domain/connection-history.js';
 
 /**
  * What one account's store answers to, as the Worker sees it across the
@@ -429,13 +430,13 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
     runId: string,
     change: SourceStateChange,
-  ): Awaitable<Answer<'changed' | 'unchanged' | 'disconnected'>>;
+  ): Awaitable<Answer<{ changed: string } | 'unchanged' | 'disconnected'>>;
   closePulledItemsNotListed(
     accountName: string,
     sourceAccountId: string,
     runId: string,
     listing: CompleteListing,
-  ): Awaitable<Answer<number | 'disconnected'>>;
+  ): Awaitable<Answer<string[] | 'disconnected'>>;
   pulledOpenStatesWaiting(
     accountName: string,
     sourceAccountId: string,
@@ -446,13 +447,14 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
     runId: string,
     confirmed: readonly OpenStateWanted[],
-  ): Awaitable<Answer<'confirmed' | 'not this run'>>;
+  ): Awaitable<Answer<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'>>;
   endPulledRun(
     accountName: string,
     sourceAccountId: string,
     runId: string,
     failing: string | null,
     moreToDo?: boolean,
+    did?: CheckDid,
   ): Awaitable<Answer<null>>;
 }
 

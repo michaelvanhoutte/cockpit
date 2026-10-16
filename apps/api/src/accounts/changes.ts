@@ -163,6 +163,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PROPOSED_PANEL_FIT,
     REWRITE_HISTORY_PANELS_FILED_ON,
     CONNECTION_HISTORY,
+    CONNECTION_HISTORY_DID,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -628,6 +629,32 @@ const CONNECTION_HISTORY: Change = {
     },
     { sql: 'ALTER TABLE `pulled_connections` ADD COLUMN `check_reason` text' },
   ],
+};
+
+/**
+ * What each check of a connection did ('Say what each check of a connection
+ * brought in, closed and sent back", issue 1141) - one nullable column on
+ * `connection_history`; `schema.ts` says what it holds.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, no statement that reads or writes a row.
+ * - **If it stops halfway:** one change is one transaction, so the column is
+ *   added or it is not, and the next open applies it.
+ * - **The second time it runs:** it does not re-run once recorded.
+ * - **Rows that predate it:** every line reads `did` NULL, which is a check
+ *   that did nothing - what none of them recorded. Nothing is backfilled.
+ * - **What is in each environment:** staging and production keep every line
+ *   whole, each now reading NULL.
+ * - **Rolled back after it has run:** an older release never names the column;
+ *   its lines record what they did before, and the column stays.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTION_HISTORY_DID: Change = {
+  name: '0079-connection-history-did',
+  statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `did` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
