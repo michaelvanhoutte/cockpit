@@ -706,9 +706,7 @@ export function ItemList({
       afterClicking(
         // In the order drawn, so a shift-click reaches across what is between
         // the two rows on the screen, groups included.
-        (proposalGroups ? [...proposalGroups.groups.flatMap((group) => group.items), ...proposalGroups.rest] : items).map(
-          (row) => row.id,
-        ),
+        drawnItems.map((row) => row.id),
         was,
         item.id,
         withShift,
@@ -937,6 +935,9 @@ export function ItemList({
    * (`routingProposalFor`) joins no group.
    */
   const proposalGroups = groupByProposal && panelId === null ? groupedByProposal() : null;
+  const drawnItems = proposalGroups
+    ? [...proposalGroups.groups.flatMap((group) => group.items), ...proposalGroups.rest]
+    : items;
   function groupedByProposal() {
     const held = new Map<string, Item[]>();
     for (const item of items) {
