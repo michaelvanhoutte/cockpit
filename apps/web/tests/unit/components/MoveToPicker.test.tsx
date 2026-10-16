@@ -286,6 +286,22 @@ describe('Panels', () => {
       expect(picked).toEqual([{ panel: 'p-papers' }]);
     });
 
+    it('goes to the top match, not past the proposed Panel, once a search has narrowed the list', async () => {
+      const { user, picked, dialog } = show({ proposedPanelId: 'p-reading' });
+
+      await user.type(search(dialog), 'a');
+      await user.keyboard('{ArrowDown}');
+      const first = within(dialog).getAllByRole('button').find((b) => b.hasAttribute('data-target'))!;
+      expect(first).toHaveFocus();
+      expect(picked).toEqual([]);
+    });
+
+    it('keeps the proposed Panel’s accessible name its own', () => {
+      const { dialog } = show({ proposedPanelId: 'p-papers' });
+
+      expect(within(dialog).getByRole('button', { name: 'Papers' })).toHaveAttribute('aria-current', 'true');
+    });
+
     it.each([
       { situation: 'no proposal', props: {} },
       { situation: 'a proposal for a Panel that is not offered', props: { proposedPanelId: 'p-gone' } },

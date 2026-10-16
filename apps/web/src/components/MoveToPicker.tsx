@@ -323,8 +323,12 @@ function MoveToPicker({
               } else if (event.key === 'ArrowDown') {
                 event.preventDefault();
                 const all = targets();
-                const at = all.findIndex((target) => target.dataset.proposed !== undefined);
-                // From the proposed Panel on, which is where the Item most likely goes.
+                // From the proposed Panel on, which is where the Item most likely
+                // goes - but not once a search has narrowed the list, where ↓ is the top match.
+                const at =
+                  needle === ''
+                    ? all.findIndex((target) => target.dataset.proposed !== undefined)
+                    : -1;
                 (all[at + 1] ?? all[0])?.focus();
               }
             }}
@@ -621,7 +625,12 @@ function Target({
       className={`flex w-full items-baseline gap-2 rounded py-1.5 pr-2 text-left text-sm text-ink hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:text-accent-deep focus-visible:outline-none disabled:opacity-50 ${indent ? 'pl-7' : 'pl-2'} ${proposed ? 'bg-accent-tint' : ''}`}
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {proposed && <span className="shrink-0 text-xs text-ink-faint">proposed</span>}
+      {/* Out of the accessible name, which aria-current speaks for, so a name match on the Panel still finds it. */}
+      {proposed && (
+        <span aria-hidden="true" className="shrink-0 text-xs text-ink-faint">
+          proposed
+        </span>
+      )}
       {hint && <span className="shrink-0 text-xs text-ink-faint">{hint}</span>}
     </button>
   );
