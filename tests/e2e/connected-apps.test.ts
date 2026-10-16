@@ -127,10 +127,13 @@ test.describe('MCP connections', () => {
       await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Send to Claude…' }), isMobile);
       const review = page.getByRole('dialog', { name: `Send “${said}” to Claude` });
-      // The prompt names the Run, as it does for Claude.
-      const runId = /report back to Cockpit through its connection, naming this run: (\S+)/.exec(
-        await review.getByLabel('Prompt').inputValue(),
-      )![1]!;
+      // The prompt names the Run, as it does for Claude. The window fills it in
+      // once the Item's files have loaded, so wait for the closing before reading.
+      const naming = /report back to Cockpit through its connection, naming this run: (\S+)/;
+      await expect(review.getByLabel('Prompt')).toHaveValue(naming);
+      const named = naming.exec(await review.getByLabel('Prompt').inputValue());
+      if (!named) throw new Error('The prompt does not name the run it was sent as.');
+      const runId = named[1]!;
       await press(review.getByRole('button', { name: /Open in Cowork/ }), isMobile);
       await expect(row.getByText('Sent to Cowork')).toBeVisible();
 
