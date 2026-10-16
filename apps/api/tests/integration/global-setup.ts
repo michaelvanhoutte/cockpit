@@ -1,4 +1,4 @@
-import { readD1Migrations } from '@cloudflare/vitest-pool-workers';
+import { readD1Migrations } from '@cloudflare/vitest-plugin';
 import type { TestProject } from 'vitest/node';
 
 /**

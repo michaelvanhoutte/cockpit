@@ -18,8 +18,8 @@
     "db:migrate:local": "wrangler d1 migrations apply harness-monitor --local"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
-    "@cloudflare/workers-types": "^5.20260831.1",
+    "@cloudflare/vitest-plugin": "^1.4.4",
+    "@cloudflare/workers-types": "^5.20261006.1",
     "@vitest/coverage-istanbul": "4.1.10",
     "typescript": "^5.9.0",
     "vitest": "^4.1.10",
