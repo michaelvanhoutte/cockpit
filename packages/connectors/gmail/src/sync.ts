@@ -168,9 +168,7 @@ class Reading {
   async #markId(): Promise<string> {
     if (this.choice === 'star') return STARRED;
     this.#labelList = await this.mailbox.get('labels');
-    const labelId = cockpitLabelIn(this.#labelList);
-    if (!labelId) throw new Error(NO_LABEL);
-    return labelId;
+    return labelMarkIn(this.#labelList);
   }
 
   /**
@@ -371,8 +369,12 @@ class Reading {
  * and says so.
  */
 async function markIdOf(mailbox: Mailbox, choice: string): Promise<string> {
-  if (choice === 'star') return STARRED;
-  const labelId = cockpitLabelIn(await mailbox.get('labels'));
+  return choice === 'star' ? STARRED : labelMarkIn(await mailbox.get('labels'));
+}
+
+/** The id of the label called Cockpit in Gmail's list of labels, or the failure that says there is none. */
+function labelMarkIn(labels: unknown): string {
+  const labelId = cockpitLabelIn(labels);
   if (!labelId) throw new Error(NO_LABEL);
   return labelId;
 }
