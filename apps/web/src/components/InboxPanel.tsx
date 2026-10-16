@@ -6,7 +6,7 @@ import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { INBOX_KEY } from '../inboxCollapsed';
-import { inboxStep } from '../inboxKeys';
+import { extendingSelection, inboxStep } from '../inboxKeys';
 import { endSelection, inboxScope } from '../selection';
 import { useDockedItem } from '../itemForm';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -269,7 +269,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
         if (event.shiftKey) {
           const ids = rows.map((row) => row.dataset.itemId!);
           const [fromId, toId] = [(from as HTMLElement).dataset.itemId!, to.dataset.itemId!];
-          void import('../inboxTriage').then((follow) => follow.extendSelection(scope, ids, fromId, toId));
+          extendingSelection(() => import('../inboxTriage').then((follow) => follow.extendSelection(scope, ids, fromId, toId)));
         } else endSelection(scope);
         // Followed where a form is docked open, and opened docked where none
         // is, for this opening only (`ItemForm.tsx`): a centered window would

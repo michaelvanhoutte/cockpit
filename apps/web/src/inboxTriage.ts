@@ -143,8 +143,11 @@ export function afterExtending(ids: readonly string[], selection: Selection, fro
     return ids.slice(Math.min(a, b), Math.max(a, b) + 1);
   };
   const picked = new Set(selection.picked);
-  for (const id of span(from)) picked.delete(id);
-  for (const id of span(to)) picked.add(id);
+  const away = (id: string) => Math.abs(ids.indexOf(id) - ids.indexOf(anchor));
+  // Back towards the anchor gives up the row left, and only that one: a row
+  // picked on its own inside the span stays picked.
+  if (away(to) < away(from)) picked.delete(from);
+  else for (const id of span(to)) picked.add(id);
   return { picked, reachingFrom: anchor };
 }
 

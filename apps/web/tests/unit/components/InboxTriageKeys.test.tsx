@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider, type QueryClient as Client } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
@@ -374,6 +374,21 @@ describe('Selection', () => {
       for (let at = 1; at < rows; at++) await user.keyboard('{Shift>}J{/Shift}');
     };
     const moves = () => sent().filter((command) => command.name === 'move_item_to_panel');
+
+    it('files the selection, not the focused row alone, when Enter comes before the selection has been extended', async () => {
+      await showInbox([anItem('A', FALCON.id), anItem('B', HARBOR.id), anItem('C')]);
+      act(() => rowOfTitle('A').focus());
+
+      // All within one task: none of the extensions has been applied when Enter is pressed.
+      act(() => {
+        for (const key of ['J', 'J']) fireEvent.keyDown(document.activeElement!, { key, shiftKey: true });
+        fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+      });
+
+      await waitFor(() => expect(moves()).toHaveLength(2));
+      expect(screen.queryByText('No Panel was proposed. M moves it.')).toBeNull();
+      expect(await screen.findByRole('status')).toHaveTextContent('2 items moved to their proposed Panels, 1 had no proposal');
+    });
 
     it('sends one filing per Item, each to its own proposal', async () => {
       const user = await showInbox([anItem('A', FALCON.id), anItem('B', HARBOR.id), anItem('C', FALCON.id)]);

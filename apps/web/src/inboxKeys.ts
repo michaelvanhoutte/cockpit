@@ -45,3 +45,27 @@ function coveredByAWindow(root: ParentNode): boolean {
 }
 
 const STEPS: Record<string, 1 | -1> = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
+
+let extension: Promise<void> | null = null;
+
+/**
+ * Runs `work` - the fetch of the code that extends the selection and its
+ * result - and holds it as the extension in flight until it settles, so a key
+ * pressed meanwhile can wait for it (`selectionBeingExtended`). Chained, so the
+ * extensions apply in the order they were pressed.
+ */
+export function extendingSelection(work: () => Promise<unknown>): void {
+  const settled: Promise<void> = (extension ?? Promise.resolve())
+    .then(work)
+    .then(
+      () => undefined,
+      () => undefined,
+    )
+    .finally(() => {
+      if (extension === settled) extension = null;
+    });
+  extension = settled;
+}
+
+/** The extension still being fetched or applied, or null once none is. */
+export const selectionBeingExtended = (): Promise<void> | null => extension;
