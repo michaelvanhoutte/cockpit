@@ -3,11 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { plainWords, uuidv7, type Priority, type Workspace, type WorkspaceSnapshot } from '@cockpit/shared';
 import { FileOnLine, type FiledOn } from './FileOnLine';
 import { CommandRefused, uploadAttachment } from '../api/client';
-import { workspacesQuery } from '../api/queries';
+import { useSendCommand, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
-import { howLongAgo, useCapture } from '../capture';
-import { needsWords, stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../captureOutbox';
+import { useCapture } from '../capture';
+import { stateOf, whatGoesBack, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
 import type { Arrived } from '../shares';
@@ -18,17 +18,13 @@ import { clock, useRecordedDictation, type RecordedDictation, type StartRecordin
 import { transcriptionOfferedQuery } from '../api/transcription';
 import { useKeptRecordings } from '../keptRecordings';
 
-/** How *Just captured* lists a note spoken in the Car view that is still waiting to be transcribed. */
-export const RECORDING_WAITING_FOR_WORDS = 'A recording, waiting for its words';
-/** And one refused before its words came back, whose **Put back** keeps it under the strip with Retry. */
-export const RECORDING_NOT_TRANSCRIBED = 'A recording, not transcribed';
 /** Said where that recording could not be kept under the strip, so it stays listed to put back again. */
 export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to retry, so it stays listed.';
 
 /**
  * The Capture form itself: the note, where it goes as one
- * more row of chips, and what was just captured under it ("Capture Page",
- * artboards 2a and 2c).
+ * more row of chips, and under the Capture button one line saying what was
+ * captured, with Undo ("Capture Page", artboards 2a and 2c; issue 1104).
  *
  * **One form in two places** ("Capture over the screen you are on, and open it
  * with C", issue 536): the page a phone and a typed `/capture` open
@@ -39,8 +35,8 @@ export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to r
  * **Capturing never waits on the network** ("Keep a capture made offline, and
  * send it once a connection gets through", issue 610): Capture writes the note
  * and its files to the outbox (`captureOutboxSender.tsx`), the box empties once
- * that write is done, and the outbox sends it. *Just captured* is drawn from the
- * outbox, so a note still waiting survives a reload. Only where the outbox
+ * that write is done, and the outbox sends it. What is still waiting or refused
+ * is one line drawn from the outbox, so it survives a reload. Only where the outbox
  * cannot be written - a private window, storage refused - does Capture send
  * directly, through `useCapture`, and refuse offline as it always did.
  *
@@ -196,12 +192,16 @@ export function CaptureNote({
    */
   const [filed, setFiled] = useState<FiledOn[]>([]);
   /**
-   * What landed while this form was open. The outbox forgets a capture once it
-   * has landed, so this is what keeps its row - with its time - until the form
-   * closes; after a reload only what is still waiting or refused is listed.
+   * The capture just made, until the next one or the form closes: the line
+   * beside the button and the draft Undo puts back. In this form's memory
+   * alone, so a reload has neither (issue 1104).
    */
-  const [landedHere, setLandedHere] = useState<Captured[]>([]);
-  /** The refused captures put back while this form was open, whose rows no longer offer it. */
+  const [last, setLast] = useState<Captured | null>(null);
+  /** Undo is working on it: pressed once, the line stops offering it. */
+  const [undoing, setUndoing] = useState(false);
+  const undone = useRef(new Set<string>());
+  const send = useSendCommand();
+  /** The refused captures put back while this form was open, whose line no longer offers it. */
   const [putBackRows, setPutBack] = useState<ReadonlySet<string>>(new Set());
   const putBackHere = useRef(new Set<string>());
   const form = useRef<HTMLFormElement>(null);
@@ -229,17 +229,6 @@ export function CaptureNote({
       outbox.onLanding(({ kind, entry }) => {
         if (kind === 'note' && madeHere.current.has(entry.id) && dockNow.current.openId !== null) {
           dockNow.current.show(entry.id, { keepFocus: true });
-        }
-        if (kind === 'whole') {
-          setLandedHere((was) => [
-            {
-              id: entry.id,
-              at: Date.parse(entry.capturedAt),
-              message: entry.message,
-              workspaceId: entry.decided ? entry.workspaceId : null,
-            },
-            ...was.filter((one) => one.id !== entry.id),
-          ]);
         }
       }),
     [outbox],
@@ -352,6 +341,60 @@ export function CaptureNote({
     } catch {
       setRefused(STILL_LISTED);
     }
+  };
+
+  /** A draft back in the box: after what is already there, and not over a choice made since. */
+  const restore = (draft: Captured) => {
+    setMessage((was) => (was.trim() ? `${was}
+${draft.message}` : draft.message));
+    setWhere(draft.where);
+    if (draft.priority) setPriority((was) => was ?? draft.priority);
+    if (draft.due) setDue((was) => was ?? draft.due);
+    if (draft.filed.length > 0) setFiled((was) => (was.length > 0 ? was : draft.filed));
+    setQueued((was) => [...was, ...draft.files.map(toQueued)]);
+    setRefused(null);
+  };
+
+  /**
+   * **Undo** takes the capture back wherever it is, then puts it in the box
+   * (decision 6 of issue 1100): the outbox deletes an entry still unsent, waits
+   * for one being sent, and an Item that reached the server is dismissed. The
+   * box is filled only once that has worked, so a failed Undo loses nothing and
+   * can be pressed again; once an Item is taken back it is never dismissed twice.
+   */
+  const undo = async () => {
+    if (!last || undoing || undone.current.has(last.id)) return;
+    const back = last;
+    undone.current.add(back.id);
+    setUndoing(true);
+    try {
+      const took = await outbox.takeBack(back.id);
+      if (took !== 'unsent') {
+        try {
+          await send({
+            name: 'set_dismissed',
+            payload: {
+              commandId: uuidv7(),
+              issuedAt: new Date().toISOString(),
+              workspaceId: back.workspaceId,
+              itemId: back.id,
+              dismissed: true,
+            },
+          });
+        } catch (failure) {
+          // A send that got no answer may never have landed, so there may be nothing to dismiss.
+          if (took === 'sent') throw failure;
+        }
+      }
+    } catch (failure) {
+      undone.current.delete(back.id);
+      setUndoing(false);
+      setRefused(failure instanceof CommandRefused ? failure.message : UNDO_FAILED);
+      return;
+    }
+    restore(back);
+    setLast((was) => (was?.id === back.id ? null : was));
+    setUndoing(false);
   };
 
   const removeQueued = (id: string) => {
@@ -475,6 +518,17 @@ export function CaptureNote({
       ...(dueAtSubmit ? { dueDate: dueAtSubmit } : {}),
       ...(panelIds.length > 0 ? { panelIds } : {}),
     };
+    // What Undo puts back, and what the line says it was filed on.
+    const captured = (itemId: string): Captured => ({
+      id: itemId,
+      message: trimmed,
+      workspaceId: targetWorkspace,
+      where: belongsTo,
+      priority: priorityAtSubmit,
+      due: dueAtSubmit,
+      filed: panelIds.length > 0 ? filedAtSubmit.filter((one) => one.workspaceId === targetWorkspace) : [],
+      files: queuedAtSubmit.map((one) => one.file),
+    });
     // Empties the box of what was captured and nothing typed or dropped since.
     const emptied = () => {
       setMessage((was) => (was.trim() === trimmed ? '' : was));
@@ -503,6 +557,8 @@ export function CaptureNote({
           // Only now, with the note kept: a write that never finished leaves it in the box.
           for (const file of queuedAtSubmit) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
           emptied();
+          setLast(captured(id));
+          setRefused(null);
         },
         () => {
           madeHere.current.delete(id);
@@ -518,10 +574,7 @@ export function CaptureNote({
       ask(what, {
         asking: emptied,
         captured: (itemId) => {
-          setLandedHere((already) => [
-            { id: itemId, at: Date.now(), message: trimmed, workspaceId: belongsTo },
-            ...already,
-          ]);
+          setLast(captured(itemId));
           void uploadQueued(queuedAtSubmit, itemId, targetWorkspace);
         },
         refused: (why) => {
@@ -537,26 +590,15 @@ export function CaptureNote({
   };
 
   /**
-   * Every row of *Just captured*, newest first: what the outbox still holds
-   * for you, waiting or refused, and what landed while this was open.
+   * What the outbox still holds for you, one line each and only while there is
+   * one: captures waiting to send, and captures the server refused, whose
+   * **Put back** returns them to the box.
    */
-  const stillHeld = new Set(waiting.map((entry) => entry.id));
-  const rows: Row[] = [
-    ...waiting.map((entry) => ({
-      id: entry.id,
-      at: Date.parse(entry.capturedAt),
-      // A note spoken in the Car view has no words until the outbox can transcribe it (issue 1045).
-      message: !needsWords(entry)
-        ? entry.message
-        : entry.refused === null
-          ? RECORDING_WAITING_FOR_WORDS
-          : RECORDING_NOT_TRANSCRIBED,
-      workspaceId: entry.decided ? entry.workspaceId : null,
-      state: stateOf(entry),
-      entry,
-    })),
-    ...landedHere.filter((one) => !stillHeld.has(one.id)).map((one) => ({ ...one, state: null, entry: null })),
-  ].sort((a, b) => b.at - a.at);
+  const waitingToSend = waiting.filter((entry) => stateOf(entry).waiting);
+  const notSent = waiting.filter((entry) => !stateOf(entry).waiting);
+  const putBackAll = () => {
+    for (const entry of notSent) if (!putBackRows.has(entry.id)) void putBack(entry);
+  };
 
   /** The plain box, which also stands in while the editor is on its way. */
   const plainBox = (readOnly: boolean) => (
@@ -712,16 +754,22 @@ export function CaptureNote({
         </p>
       )}
 
-      {/* Files queued to attach once Capture is pressed - shown whether or
-          not anything is queued yet, the same "Drag a file here, or" plus
-          Add button the Item form's own Attachments box always shows, so
-          there is something on screen naming drop, paste and a picker all
-          three before anyone has tried any of them. */}
+      {/* The Files line: chips for what is queued, + Add, and the other two
+          ways in, shown whether or not anything is queued so that drop, paste
+          and a picker are all named before anyone has tried one. */}
       <div
-        className={`order-1 mt-2 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 sm:order-none ${
+        role="group"
+        aria-label="Files"
+        className={`order-1 mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-dashed px-3 py-2 sm:order-none ${
           filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'
         }`}
       >
+        <span
+          aria-hidden="true"
+          className="text-[11px] font-semibold tracking-[0.11em] text-ink-faint uppercase sm:w-[74px] sm:shrink-0 sm:text-xs"
+        >
+          Files
+        </span>
         {queued.map((file) => (
           <div
             key={file.id}
@@ -753,19 +801,16 @@ export function CaptureNote({
             </button>
           </div>
         ))}
-        {queued.length === 0 && (
-          <p className="text-sm text-ink-faint">
-            Drag a file here, <span className="hidden sm:inline">paste an image with {PASTE_KEY}, </span>
-            or
-          </p>
-        )}
         <button
           type="button"
           onClick={() => attachmentInputRef.current?.click()}
-          className="self-start rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+          className="rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
         >
-          Add
+          + Add
         </button>
+        <span className="text-sm text-ink-faint">
+          or drop<span className="hidden sm:inline">, or {PASTE_KEY}</span>
+        </span>
         <input
           ref={attachmentInputRef}
           type="file"
@@ -836,7 +881,7 @@ export function CaptureNote({
       {/* Directly under the note on a phone, so it stays above the on-screen
           keyboard and the browser's toolbars; below the Where row, beside the
           note's own hint, at a desk. */}
-      <div className="order-2 mt-3 flex items-center gap-3.5 sm:order-none sm:mt-[22px]">
+      <div className="order-2 mt-3 flex flex-wrap items-center gap-x-3.5 gap-y-2 sm:order-none sm:mt-[22px]">
         <button
           type="submit"
           disabled={busy}
@@ -844,9 +889,25 @@ export function CaptureNote({
         >
           Capture
         </button>
-        <span className="hidden text-[13px] text-ink-faint sm:inline">
-          {SHORTCUT} · the box empties and the cursor stays put
-        </span>
+        {last ? (
+          <p role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
+            <span className="min-w-0 truncate">
+              Captured “{plainWords(last.message)}” → {last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}
+            </span>
+            <button
+              type="button"
+              disabled={undoing}
+              onClick={() => void undo()}
+              className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+            >
+              Undo
+            </button>
+          </p>
+        ) : (
+          <span className="hidden text-[13px] text-ink-faint sm:inline">
+            {SHORTCUT} · the box empties and the cursor stays put
+          </span>
+        )}
       </div>
 
       {refused && (
@@ -855,45 +916,38 @@ export function CaptureNote({
         </p>
       )}
 
-      {/* Nothing at all until something has been captured: an empty list
-          under an empty box is a heading saying you have done nothing. */}
-      {rows.length > 0 && (
-        <section
-          aria-labelledby={JUST_CAPTURED}
-          className="order-5 mt-[18px] border-t border-shade/8 pt-3 sm:order-none sm:mt-auto"
-        >
-          <div className="flex items-baseline gap-2">
-            <h2
-              id={JUST_CAPTURED}
-              className="text-xs font-semibold tracking-[0.11em] text-accent-deep uppercase"
-            >
-              Just captured
-            </h2>
-            <span className="ml-auto text-xs tabular-nums text-ink-faint sm:ml-0">
-              {rows.length}
-            </span>
-          </div>
-          <ul className="mt-2 sm:mt-1">
-            {rows.map((one) => {
-              const { entry } = one;
-              return (
-                <CapturedRow
-                  key={one.id}
-                  captured={one}
-                  workspaces={workspaces}
-                  onPutBack={entry && !putBackRows.has(entry.id) ? () => void putBack(entry) : null}
-                />
-              );
-            })}
-          </ul>
-        </section>
+      {/* Only while there is one: a heading over nothing says you have done nothing. */}
+      {(waitingToSend.length > 0 || notSent.length > 0) && (
+        <div className="order-5 mt-[18px] flex flex-col gap-1 border-t border-shade/8 pt-3 text-sm text-ink-soft sm:order-none sm:mt-auto">
+          {waitingToSend.length > 0 && <p role="status">{waitingToSend.length} waiting to send</p>}
+          {notSent.length > 0 && (
+            <p className="flex flex-wrap items-center gap-2 text-over-ink">
+              <span>{notSent.length} not sent</span>
+              {notSent.some((entry) => !putBackRows.has(entry.id)) && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    onClick={putBackAll}
+                    className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+                  >
+                    Put back
+                  </button>
+                </>
+              )}
+              <span className="w-full text-xs">
+                {notSent.flatMap((entry) => { const state = stateOf(entry); return state.waiting ? [] : [state.notSent]; }).join(' ')}
+              </span>
+            </p>
+          )}
+        </div>
       )}
     </form>
   );
 }
 
-/** Fixed rather than generated: one heading, and only one of these on a screen. */
-const JUST_CAPTURED = 'just-captured';
+/** What is said where Undo could not take the capture back. */
+export const UNDO_FAILED = 'That could not be undone. Try again.';
 
 /**
  * And what it says when there is no workspace to capture into at all. Named
@@ -1093,19 +1147,21 @@ interface QueuedFile {
   previewUrl: string | null;
 }
 
-/** One note this page has captured, as this page remembers it. */
+/** The capture just made, as this form remembers it: the line's words, and the draft Undo puts back. */
 interface Captured {
   /** The Item's id. */
   id: string;
-  /** When Capture was pressed. */
-  at: number;
   message: string;
-  /** Null where it was left on *Any workspace*. */
-  workspaceId: string | null;
+  /** The workspace it was captured against. */
+  workspaceId: string;
+  /** Where was chosen: null for *Any workspace*. */
+  where: string | null;
+  priority: Priority | null;
+  due: string | null;
+  filed: FiledOn[];
+  /** The files it was captured with, to queue again. */
+  files: File[];
 }
-
-/** A row of *Just captured*: still in the outbox, with its state and entry, or landed, with neither. */
-type Row = Captured & { state: EntryState | null; entry: OutboxEntry | null };
 
 /** A dropped, pasted, chosen or put-back file, as a chip in the box. */
 function toQueued(file: File): QueuedFile {
@@ -1199,57 +1255,5 @@ function Chip({
       )}
       {name}
     </button>
-  );
-}
-
-/**
- * One row of what was just captured: what you wrote, where it went, and how long ago - or, while it is still on this device,
- * *Waiting to send*, or *Not sent* with the server's reason and **Put back**.
- */
-function CapturedRow({
-  captured,
-  workspaces,
-  onPutBack,
-}: {
-  captured: Row;
-  workspaces: readonly Workspace[];
-  /** Offered only on a row the server refused, which is one still in the outbox. */
-  onPutBack: (() => void) | null;
-}) {
-  const workspace = workspaces.find((one) => one.id === captured.workspaceId);
-  const { state } = captured;
-
-  return (
-    <li className="flex flex-col gap-0.5 border-b border-shade/5 py-2 last:border-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:py-[7px]">
-      <span className="flex min-w-0 items-center gap-2 sm:flex-1">
-        <span className="min-w-0 truncate text-[15px] sm:text-sm">{plainWords(captured.message)}</span>
-      </span>
-      <span className="flex shrink-0 items-center gap-2 text-xs sm:pl-0">
-        <span className="rounded-full bg-accent-tint px-1.5 text-accent-deep">
-          {workspace?.name ?? 'Any workspace'}
-        </span>
-        {/* Where it stands, in the slot its time takes once it has landed:
-            nothing about a capture still on this device is "now". */}
-        {state === null ? (
-          <span className="tabular-nums text-ink-faint">{howLongAgo(Date.now() - captured.at)}</span>
-        ) : state.waiting ? (
-          <span className="text-ink-faint">Waiting to send</span>
-        ) : null}
-      </span>
-      {state && !state.waiting && (
-        <span className="flex w-full items-center gap-2 text-xs">
-          <span className="min-w-0 flex-1 text-over-ink">Not sent: {state.notSent}</span>
-          {onPutBack && (
-            <button
-              type="button"
-              onClick={onPutBack}
-              className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
-            >
-              Put back
-            </button>
-          )}
-        </span>
-      )}
-    </li>
   );
 }

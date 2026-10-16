@@ -800,13 +800,17 @@ export function itemRow(page: Page, title: string): Locator {
  *
  * Leaves the screen you were on, Inbox screen included on a phone.
  */
+/** The line beside Capture's button saying what was just captured, with its Undo. */
+export const capturedLine = (page: Page, note: string) =>
+  page.getByRole('status').filter({ hasText: `Captured “${note}”` });
+
 export async function capture(page: Page, title: string, isMobile: boolean): Promise<void> {
   await openCapture(page, isMobile);
   await captureBox(page).fill(title);
   await captureBox(page).press('ControlOrMeta+Enter');
   // What the form says it just did, which is the only thing on screen that can
   // while the Inbox is behind a window or not drawn at all.
-  await expect(page.getByRole('region', { name: 'Just captured' }).getByText(title)).toBeVisible();
+  await expect(capturedLine(page, title)).toBeVisible();
   await closeCapture(page, isMobile);
   await expect(itemRow(page, title)).toBeVisible();
 }

@@ -20,6 +20,7 @@ vi.mock('../../../src/description/RichDescription', () => {
 });
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: vi.fn(), isPending: false }),
+  useSendCommand: () => vi.fn(),
   workspacesQuery: { queryKey: ['workspaces'], queryFn: () => Promise.resolve({ workspaces: [] }) },
   snapshotQuery: (id: string) => ({ queryKey: ['snapshot', id], queryFn: () => new Promise(() => {}) }),
 }));

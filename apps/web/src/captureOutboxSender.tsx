@@ -181,6 +181,8 @@ export class CaptureOutbox {
   private readonly inFlight = new Set<AbortController>();
   /** Which read of storage is the latest, so one that finishes late is not applied over it. */
   private reads = 0;
+  /** The entry whose note is on its way to the server in this tab right now. */
+  private sending: string | null = null;
   /** The spoken notes handed over in this tab whose first try at their words is still to be told. */
   private readonly hearing = new Map<string, (heard: Heard) => void>();
 
@@ -371,6 +373,27 @@ export class CaptureOutbox {
     tell(heard);
   }
 
+  /**
+   * **Undo**: takes a capture back wherever it is ("Undo a capture back into
+   * the box, in place of the Just captured list", issue 1104). Run under the
+   * lock, so a send in flight has its answer before this looks: an entry still
+   * unsent is deleted and nothing reaches the server (`unsent`); one that
+   * landed, or has been forgotten since, is for the caller to dismiss (`sent`).
+   * A send of this tab's that was in flight and got no answer may have landed
+   * all the same (`maybe`): the entry goes, and the caller dismisses what it can.
+   */
+  async takeBack(id: string): Promise<'unsent' | 'sent' | 'maybe'> {
+    const midSend = this.sending === id;
+    return this.deps.lock(async () => {
+      const entry = (await this.refresh()).find((one) => one.id === id);
+      if (!entry) return 'sent';
+      await this.deps.store.remove(id);
+      await this.changedHere();
+      if (entry.landed) return 'sent';
+      return midSend ? 'maybe' : 'unsent';
+    });
+  }
+
   /** Deletes one entry - only ever after **Put back** has returned it to the box. */
   async remove(id: string): Promise<void> {
     await this.deps.store.remove(id);
@@ -497,7 +520,12 @@ export class CaptureOutbox {
     if (!current.landed) {
       try {
         const payload = capturePayload(current);
-        await this.timed((signal) => this.deps.sender.capture(payload, signal), this.noteTimeout());
+        this.sending = current.id;
+        try {
+          await this.timed((signal) => this.deps.sender.capture(payload, signal), this.noteTimeout());
+        } finally {
+          this.sending = null;
+        }
       } catch (error) {
         const outcome = outcomeOf(error);
         if (outcome.waits) {
