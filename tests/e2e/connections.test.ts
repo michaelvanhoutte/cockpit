@@ -202,13 +202,19 @@ test.describe('Connector management', () => {
 
       // Its history ("See when a pulled connection was checked, and why it
       // failed, from its row's History…", issue 1140): the checks it has had
-      // worked and brought nothing to say, under Today, and ‹ Connections goes
-      // back to the row. What each line says is held by ManageConnections.test.tsx.
+      // worked, under Today, one of them naming the two conversations it
+      // brought in and the one it sent back when Lunch was done (issue 1141),
+      // and ‹ Connections goes back to the row. What each line says is held by
+      // ManageConnections.test.tsx.
       await chooseRowAction(page, 'michael@example.com', 'History…', isMobile);
       const history = checked.getByRole('region', { name: 'History of michael@example.com' });
       await expect(
-        history.getByRole('region', { name: 'Today' }).getByText(/^(Worked|Checked \d+ times, nothing new)$/),
+        history.getByRole('region', { name: 'Today' }).getByText(/^(Worked|Checked \d+ times, nothing new)$/).first(),
       ).toBeVisible();
+      const today = history.getByRole('region', { name: 'Today' });
+      await expect(today.getByText(/New: .*Quarterly figures for the board/)).toBeVisible();
+      await expect(today.getByText(/New: .*Lunch on Thursday\?/)).toBeVisible();
+      await expect(today.getByText('Sent back: Lunch on Thursday?')).toBeVisible();
       await press(history.getByRole('button', { name: '‹ Connections' }), isMobile);
       await expect(checked.getByText(/^Gmail · Labelled Cockpit · last checked /)).toBeVisible();
 
@@ -272,11 +278,16 @@ test.describe('Connector management', () => {
       await press(window.getByRole('button', { name: 'Connect Outlook' }), isMobile);
       const outlookAsked = page.getByRole('dialog', { name: 'Connect Outlook' });
       await expect(outlookAsked.getByRole('radio', { name: 'Flagged' })).toBeChecked();
+      // And whether it files by category (issue 1147): unticked to start, and
+      // the answer given rides the sign-in to be the new connection's.
+      const filesByCategory = outlookAsked.getByRole('checkbox', { name: 'File it on the panel named after its category' });
+      await expect(filesByCategory).not.toBeChecked();
+      await press(filesByCategory, isMobile);
       await press(outlookAsked.getByRole('button', { name: 'Connect' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       const backFromMicrosoft = page.getByRole('dialog', { name: 'Settings' });
       await expect(backFromMicrosoft.getByText('Connected.')).toBeVisible();
-      await expect(backFromMicrosoft.getByText(/^Outlook · Flagged/)).toBeVisible();
+      await expect(backFromMicrosoft.getByText(/^Outlook · Flagged · files by category/)).toBeVisible();
 
       // The check connecting queued brings the messages flagged in the stack's
       // stand-in Graph mailbox in as Tasks from Outlook, openable there; Done
@@ -299,7 +310,7 @@ test.describe('Connector management', () => {
         .toBe('complete');
 
       const outlookChecked = await openSettings(page, 'Connections', isMobile);
-      await expect(outlookChecked.getByText(/^Outlook · Flagged · last checked /)).toBeVisible();
+      await expect(outlookChecked.getByText(/^Outlook · Flagged · files by category · last checked /)).toBeVisible();
       await disconnectMichael(page, isMobile);
       await putTheWorkspaceBack(page, workspace, isMobile);
     });

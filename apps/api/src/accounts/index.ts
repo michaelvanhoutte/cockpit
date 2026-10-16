@@ -40,6 +40,7 @@ import type {
   SourceStateChange,
 } from '@cockpit/connector-sdk';
 import type { PulledRunBegun } from './pulled.js';
+import type { CheckDid } from '../domain/connection-history.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -357,15 +358,20 @@ export interface PulledRun {
   ): Promise<EmittedItem | 'disconnected'>;
   /** Records an Item's names as the source reported them, filing it by the new ones (issue 1146). */
   reportNames(report: NamesReport): Promise<'recorded' | 'unknown' | 'disconnected'>;
-  applySourceChange(change: SourceStateChange): Promise<'changed' | 'unchanged' | 'disconnected'>;
-  /** Closes the Items the connection filed under the listing's choice that it did not see (issue 938). */
-  closeItemsNotListed(listing: CompleteListing): Promise<number | 'disconnected'>;
+  applySourceChange(change: SourceStateChange): Promise<{ changed: string } | 'unchanged' | 'disconnected'>;
+  /** Closes the Items the connection filed under the listing's choice that it did not see, answering their ids (issues 938, 1141). */
+  closeItemsNotListed(listing: CompleteListing): Promise<string[] | 'disconnected'>;
   /** Every open state a person set that the source has not confirmed (issue 893). */
   openStatesWaiting(): Promise<OpenStateWanted[]>;
-  /** Clears the ones the source confirmed, each only where still what was handed over (issue 893). */
-  confirmOpenStates(confirmed: readonly OpenStateWanted[]): Promise<'confirmed' | 'not this run'>;
-  /** `moreToDo` asks for the next check soon, and is ignored where the run failed (issue 957). */
-  end(failing: string | null, moreToDo?: boolean): Promise<null>;
+  /** Clears the ones the source confirmed, each only where still what was handed over, answering the Item of each cleared (issues 893, 1141). */
+  confirmOpenStates(
+    confirmed: readonly OpenStateWanted[],
+  ): Promise<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'>;
+  /**
+   * `moreToDo` asks for the next check soon, and is ignored where the run failed (issue 957).
+   * `did` is what the run did, which its line of the history keeps (issue 1141).
+   */
+  end(failing: string | null, moreToDo?: boolean, did?: CheckDid): Promise<null>;
 }
 
 /**
@@ -467,8 +473,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       openStatesWaiting: async () => unwrap(await store.pulledOpenStatesWaiting(accountName, sourceAccountId, runId)),
       confirmOpenStates: async (confirmed) =>
         unwrap(await store.confirmPulledOpenStates(accountName, sourceAccountId, runId, confirmed)),
-      end: async (failing, moreToDo) =>
-        unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo)),
+      end: async (failing, moreToDo, did) =>
+        unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo, did)),
     }),
   };
 }

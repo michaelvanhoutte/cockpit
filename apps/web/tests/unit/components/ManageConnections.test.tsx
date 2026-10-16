@@ -39,6 +39,14 @@ const held = vi.hoisted(() => ({
   history: [] as unknown[] | 'fails',
   /** The connection each history read was for. */
   historyAskedFor: [] as string[],
+  /** The Items a press on a named Item asked to open (issue 1141). */
+  opened: [] as string[],
+}));
+
+vi.mock('../../../src/itemForm', () => ({
+  useOpenItem: () => (itemId: string) => {
+    held.opened.push(itemId);
+  },
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -206,6 +214,7 @@ beforeEach(() => {
   held.hooksAskedFor = [];
   held.history = [];
   held.historyAskedFor = [];
+  held.opened = [];
   held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail', 'claude-code': 'Claude Code' };
   vi.restoreAllMocks();
 });
@@ -559,6 +568,117 @@ describe('Connector management', () => {
     });
   });
 
+  /** "Ask on Connect whether a mail connection files by label or category", issue 1147. */
+  describe('Connect asks whether the connection files by name, and Reconnect starts at the row’s own answer', () => {
+    const MAIL_CARD = {
+      id: 'outlook',
+      displayName: 'Outlook',
+      cardText: 'Messages you flag arrive as items.',
+      asksFirst: true,
+      choice: { question: 'Bring in messages', options: [{ value: 'flag', label: 'Flagged' }] },
+      names: { noun: 'category', example: 'a message with the category' },
+    };
+    const NAMES_ONLY_CARD = { ...MAIL_CARD, id: 'names-only', displayName: 'Names only', choice: undefined };
+    const PAGES_CARD = {
+      id: 'notion',
+      displayName: 'Notion',
+      cardText: 'Pages arrive as items.',
+      asksFirst: true,
+      choice: { question: 'Bring in', options: [{ value: 'starred', label: 'Starred pages' }] },
+    };
+    const FAILING_MAIL: SourceAccount = {
+      ...ADA,
+      id: 'account-mail',
+      connectorId: 'outlook',
+      displayName: 'Ada’s mail',
+      follows: 'flag',
+      followsLabel: 'Flagged',
+      failingBecause: 'Microsoft no longer accepts the sign-in.',
+    };
+    const TICK_BOX = 'File it on the panel named after its category';
+
+    beforeEach(() => {
+      held.registry = [TEAMS_CARD, MAIL_CARD, NAMES_ONLY_CARD, PAGES_CARD];
+      held.sourceNames = { ...held.sourceNames, outlook: 'Outlook', notion: 'Notion', 'names-only': 'Names only' };
+    });
+
+    function leavingTo(): ReturnType<typeof vi.fn> {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      return leaving;
+    }
+
+    it.each([
+      { situation: 'left unticked, Connect carries a no', tick: false, leaves: '/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&filesByName=false' },
+      { situation: 'ticked, Connect carries a yes', tick: true, leaves: '/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&filesByName=true' },
+    ])('Connect starts unticked and, $situation', async ({ tick, leaves }) => {
+      const leaving = leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      const box = within(asked).getByRole('checkbox', { name: TICK_BOX });
+      expect(box).not.toBeChecked();
+      if (tick) await userEvent.click(box);
+      expect(leaving).not.toHaveBeenCalled();
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith(leaves);
+    });
+
+    it('asks even where the connector has no choice to ask, and carries the answer alone', async () => {
+      const leaving = leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Names only' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Names only' });
+      await userEvent.click(within(asked).getByRole('checkbox', { name: TICK_BOX }));
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/names-only/connect?filesByName=true');
+    });
+
+    it.each([
+      { situation: 'a row filing by name starts ticked, and keeps it', on: true, leaves: 'filesByName=true' },
+      { situation: 'a row not filing by name starts unticked', on: false, leaves: 'filesByName=false' },
+    ])('Reconnect on $situation', async ({ on, leaves }) => {
+      const leaving = leavingTo();
+      held.sourceAccounts = [{ ...FAILING_MAIL, filesByName: on }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada’s mail' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Reconnect' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      expect((within(asked).getByRole('checkbox', { name: TICK_BOX }) as HTMLInputElement).checked).toBe(on);
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith(`/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&${leaves}`);
+    });
+
+    it('Reconnect carries the answer given on that Reconnect, not the row’s', async () => {
+      const leaving = leavingTo();
+      held.sourceAccounts = [{ ...FAILING_MAIL, filesByName: true }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada’s mail' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Reconnect' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      await userEvent.click(within(asked).getByRole('checkbox', { name: TICK_BOX }));
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&filesByName=false');
+    });
+
+    it('a connector that reports no names asks no tick box', async () => {
+      leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Notion' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Notion' });
+
+      expect(within(asked).queryByRole('checkbox')).toBeNull();
+    });
+  });
 
   /** "Switch Gmail onto the generic host, and take it out of the core", issue 944. */
   describe('a failing connection says why, and its row offers Reconnect, which signs in again under the choice it holds', () => {
@@ -895,6 +1015,8 @@ describe('Connector management', () => {
   };
   /** A moment of the day, in this machine's own time, as the view reads it. */
   const at = (day: number, hour: number, minute: number) => new Date(2026, 9, day, hour, minute).toISOString();
+  const none = { count: 0, items: [] as { id: string; title: string | null; dismissed: boolean }[] };
+  const didNothing = { broughtIn: none, closed: none, sentBack: none, refused: none };
   const line = (over: Record<string, unknown>) => ({
     id: crypto.randomUUID(),
     outcome: 'worked',
@@ -904,6 +1026,7 @@ describe('Connector management', () => {
     count: 1,
     firstAt: at(16, 9, 5),
     lastAt: at(16, 9, 5),
+    did: didNothing,
     ...over,
   });
 
@@ -1037,6 +1160,41 @@ describe('Connector management', () => {
       const row = shown.closest('li')!;
       expect(row.textContent).toBe(`${row.firstChild!.textContent}${says}${detail ?? ''}`);
       expect(row.firstChild!.textContent!.includes('–')).toBe(span === true);
+    });
+
+    it('lists what a check did, each Item named and opening its form, a dismissed one and one not held left unopenable', async () => {
+      held.history = [
+        line({
+          did: {
+            ...didNothing,
+            broughtIn: { count: 2, items: [{ id: 'item-1', title: 'Invoice 2026-118 from Acme', dismissed: false }, { id: 'item-2', title: 'Re: Q4 planning', dismissed: false }] },
+            sentBack: { count: 1, items: [{ id: 'item-3', title: 'Lunch on Thursday?', dismissed: true }] },
+            refused: { count: 1, items: [{ id: 'item-4', title: null, dismissed: false }] },
+          },
+        }),
+      ];
+      showWindow();
+      const history = await openHistory();
+
+      const row = within(history).getByText('Worked').closest('li')!;
+      expect(row.textContent).toContain('Worked · Scheduled · Brought in 2, Sent back 1, Refused 1');
+      expect(row.textContent).toContain('New: Invoice 2026-118 from Acme, Re: Q4 planning');
+      expect(row.textContent).toContain('Sent back: Lunch on Thursday? (dismissed)');
+      expect(row.textContent).toContain('Refused: an Item no longer in Cockpit');
+      await userEvent.click(within(row).getByRole('button', { name: 'Re: Q4 planning' }));
+      expect(held.opened).toEqual(['item-2']);
+      expect(within(row).queryByRole('button', { name: 'an Item no longer in Cockpit' })).toBeNull();
+      expect(within(row).queryByRole('button', { name: /Lunch on Thursday/ })).toBeNull();
+    });
+
+    it('says how many more a count holds than the Items the line names', async () => {
+      held.history = [
+        line({ did: { ...didNothing, closed: { count: 60, items: [{ id: 'item-1', title: 'One', dismissed: false }] } } }),
+      ];
+      showWindow();
+      const history = await openHistory();
+
+      expect(within(history).getByText('Worked').closest('li')!.textContent).toContain('Closed: One and 59 more');
     });
 
     it('says No checks yet where there are none', async () => {

@@ -1915,6 +1915,34 @@ describe('Connector management', () => {
   });
 
   /**
+   * `0079-connection-history-did` ("Say what each check of a connection
+   * brought in, closed and sent back", issue 1141) meets a connection's
+   * history from before it: it adds a nullable column and rewrites no line.
+   */
+  describe('a history stored before checks counted what they did reads each line as having done nothing', () => {
+    it('keeps every line as it was, and reads it back with nothing brought in, closed or sent back', async () => {
+      const name = 'aged-store-before-connection-history-did';
+      await agedTo(name, justBefore('0079-connection-history-did'));
+      await fillWithWhatIsAlreadyThere(name);
+      const linesIn = () =>
+        inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM connection_history ORDER BY id').toArray());
+      const before = await linesIn();
+      expect(before).toHaveLength(1);
+
+      const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
+
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, did: null })));
+      const nothing = { count: 0, items: [] };
+      expect(read.status === 'ok' ? read.value : []).toEqual([
+        expect.objectContaining({
+          count: 2,
+          did: { broughtIn: nothing, closed: nothing, sentBack: nothing, refused: nothing },
+        }),
+      ]);
+    });
+  });
+
+  /**
    * `0056-gmail-followed-mark` ("Connect Gmail by star, and bring in
    * conversations starred from then on", issue 822) meets a Gmail connection
    * and a conversation it brought in from before the star existed.

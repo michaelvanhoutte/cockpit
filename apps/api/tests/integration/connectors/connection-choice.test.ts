@@ -6,6 +6,7 @@ import { handleQueue } from '../../../src/jobs/index.js';
 import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
 import {
   ACCOUNT_NAME,
+  DASHBOARD_ID,
   USER_ID,
   WORKSPACE_ID,
   alsoWorkspaces,
@@ -29,6 +30,7 @@ import { ISSUER, issuerIsForgotten, issuerIsReachable, issuerWillIdentify } from
 
 const CHOOSES = 'fake-chooses';
 const PLAIN = 'fake-plain';
+const NAMES = 'fake-names';
 const OTHER_WORKSPACE = 'ws-atlas';
 
 const OPTIONS = [
@@ -41,7 +43,7 @@ const settings = env as unknown as Record<string, string | undefined>;
 /** The choice each run of the connector that declares one was handed, in order. */
 const seen: (string | null)[] = [];
 
-function sourceNamed(id: string, choice: boolean): Connector {
+function sourceNamed(id: string, choice: boolean, names = false): Connector {
   return {
     manifest: {
       id,
@@ -51,6 +53,7 @@ function sourceNamed(id: string, choice: boolean): Connector {
       pulled: true,
       mirrorsOpenState: true,
       ...(choice ? { choice: { question: 'Bring in', options: OPTIONS } } : {}),
+      ...(names ? { names: { noun: 'category', example: 'a message with the category' } } : {}),
       auth: {
         kind: 'oauth2',
         endpoints: { authorizationUrl: `${ISSUER}/authorize`, tokenUrl: `${ISSUER}/token` },
@@ -60,7 +63,7 @@ function sourceNamed(id: string, choice: boolean): Connector {
     },
     async sync(host: ConnectorHost) {
       seen.push(host.choice);
-      await host.emitItem(aPage('page-1'));
+      await host.emitItem(names ? { ...aPage('page-1'), names: ['Customer Atlas'] } : aPage('page-1'));
     },
     async mirrorOpenState() {
       return [];
@@ -102,7 +105,7 @@ beforeEach(async () => {
     },
   } as unknown as typeof env.ENRICHMENT;
   seen.length = 0;
-  env.TEST_CONNECTORS = [sourceNamed(CHOOSES, true), sourceNamed(PLAIN, false)];
+  env.TEST_CONNECTORS = [sourceNamed(CHOOSES, true), sourceNamed(PLAIN, false), sourceNamed(NAMES, true, true)];
   settings.FAKE_SOURCE_CLIENT_ID = 'the-fake-source-client';
   settings.FAKE_SOURCE_CLIENT_SECRET = 'the-fake-source-secret';
 });
@@ -127,8 +130,11 @@ function storedRows(): Promise<StoredRow[]> {
 }
 
 /** Pressing Connect once the window has asked: what the browser is sent to, and what it is left holding. */
-async function startConnecting(connectorId: string, session: string, choice?: string) {
-  const query = choice === undefined ? '' : `?choice=${encodeURIComponent(choice)}`;
+async function startConnecting(connectorId: string, session: string, choice?: string, filesByName?: string) {
+  const asked = new URLSearchParams();
+  if (choice !== undefined) asked.set('choice', choice);
+  if (filesByName !== undefined) asked.set('filesByName', filesByName);
+  const query = asked.size ? `?${asked}` : '';
   const res = await SELF.fetch(
     `http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/${connectorId}/connect${query}`,
     { redirect: 'manual', headers: { cookie: session } },
@@ -426,6 +432,135 @@ describe('Connector management', () => {
       await nextCheckRuns();
 
       expect(seen).toEqual(['starred', 'all']);
+    });
+  });
+});
+
+/** The cookie as a hand-edited one would come back: the answer to whether it files by name replaced, or taken away. */
+function withFilesByName(attempt: string, answer: unknown): string {
+  const [name, value] = [attempt.slice(0, attempt.indexOf('=')), attempt.slice(attempt.indexOf('=') + 1)];
+  const carried = JSON.parse(decodeURIComponent(value)) as Record<string, unknown>;
+  if (answer === undefined) delete carried.filesByName;
+  else carried.filesByName = answer;
+  return `${name}=${encodeURIComponent(JSON.stringify(carried))}`;
+}
+
+const switches = () =>
+  inTheStore((sql) => [...sql.exec<{ files_by_name: number }>('SELECT files_by_name FROM connector_accounts ORDER BY connected_at')].map((row) => row.files_by_name));
+
+async function addPanel(name: string): Promise<string> {
+  const panelId = crypto.randomUUID();
+  const res = await asUser('http://cockpit.test/v1/commands/add_panel', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      commandId: crypto.randomUUID(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: WORKSPACE_ID,
+      dashboardId: DASHBOARD_ID,
+      panelId,
+      name,
+    }),
+  });
+  expect(res.status).toBe(200);
+  return panelId;
+}
+
+/** The Panels the Items the connection brought in are on. */
+async function panelsHoldingItems(): Promise<string[]> {
+  const read = (await (await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`)).json()) as {
+    items: { id: string; source: string }[];
+    filings: { panelId: string; itemId: string }[];
+  };
+  const brought = new Set(read.items.filter((item) => item.source.startsWith('fake-')).map((item) => item.id));
+  return read.filings.filter((filing) => brought.has(filing.itemId)).map((filing) => filing.panelId);
+}
+
+describe('Connector management', () => {
+  describe('whether a connection files by name is asked before Connect and stored with the connection', () => {
+    it('lists that a connector reporting names asks first', async () => {
+      const connectors = (
+        (await (await asUser('http://cockpit.test/v1/connectors')).json()) as {
+          connectors: { id: string; asksFirst: boolean }[];
+        }
+      ).connectors;
+
+      expect(connectors.find((one) => one.id === NAMES)).toMatchObject({ asksFirst: true });
+    });
+
+    it.each([
+      { situation: 'ticked, the connection files by name', answer: 'true', stored: [1] },
+      { situation: 'unticked, it does not', answer: 'false', stored: [0] },
+      // A tab opened before Connect asked it sends no answer at all.
+      { situation: 'not asked at all, it does not', answer: undefined, stored: [0] },
+    ])('$situation', async ({ answer, stored }) => {
+      const session = await signInAs(USER_ID);
+      const started = await startConnecting(NAMES, session, 'all', answer);
+
+      const back = await comeBack(NAMES, session, started);
+
+      expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=connected`);
+      expect(await switches()).toEqual(stored);
+    });
+
+    it.each([
+      { situation: 'ticked, its first check files what it brings in on the Panel named after the name', answer: 'true', filedOn: true },
+      { situation: 'unticked, its first check leaves it in the Inbox', answer: 'false', filedOn: false },
+    ])('$situation', async ({ answer, filedOn }) => {
+      const panelId = await addPanel('Customer Atlas');
+      const session = await signInAs(USER_ID);
+      await comeBack(NAMES, session, await startConnecting(NAMES, session, 'all', answer));
+
+      await nextCheckRuns();
+
+      expect(await panelsHoldingItems()).toEqual(filedOn ? [panelId] : []);
+    });
+
+    it.each([
+      { situation: 'one that is neither a yes nor a no', answer: 'maybe' },
+      { situation: 'an empty one', answer: '' },
+    ])('starts nothing for $situation', async ({ answer }) => {
+      const started = await startConnecting(NAMES, await signInAs(USER_ID), 'all', answer);
+
+      expect(started.res.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=refused`);
+      expect(started.attempt).toBeUndefined();
+      expect(await storedRows()).toEqual([]);
+    });
+
+    it.each([
+      { situation: 'a value that is not a yes or no', answer: 'yes' },
+      { situation: 'a number', answer: 1 },
+    ])('refuses a callback whose attempt carries $situation, and stores nothing', async ({ answer }) => {
+      const session = await signInAs(USER_ID);
+      const started = await startConnecting(NAMES, session, 'all', 'true');
+
+      const back = await comeBack(NAMES, session, started, withFilesByName(started.attempt!, answer));
+
+      // An attempt that cannot be read is no attempt, sent home as any is.
+      expect(back.headers.get('location')).toBe('/');
+      expect(await storedRows()).toEqual([]);
+    });
+
+    it.each([
+      { situation: 'on, then reconnected unticked, is off', first: 'true', again: 'false', stored: [0] },
+      { situation: 'off, then reconnected ticked, is on', first: 'false', again: 'true', stored: [1] },
+      // A tab opened before Connect asked it reconnects with no answer, which keeps the row's own.
+      { situation: 'on, then reconnected with no answer, stays on', first: 'true', again: undefined, stored: [1] },
+    ])('a connection $situation', async ({ first, again, stored }) => {
+      const session = await signInAs(USER_ID);
+      await comeBack(NAMES, session, await startConnecting(NAMES, session, 'all', first));
+
+      await comeBack(NAMES, session, await startConnecting(NAMES, session, 'all', again));
+
+      expect(await switches()).toEqual(stored);
+    });
+
+    it('carries no answer for a connector that reports no names', async () => {
+      const session = await signInAs(USER_ID);
+
+      await comeBack(PLAIN, session, await startConnecting(PLAIN, session, undefined, 'true'));
+
+      expect(await switches()).toEqual([0]);
     });
   });
 });

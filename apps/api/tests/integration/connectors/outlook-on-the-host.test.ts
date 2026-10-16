@@ -76,7 +76,7 @@ async function deliver(body: EnrichmentJob, under: typeof env = env): Promise<vo
 async function signInThroughMicrosoft(): Promise<void> {
   const session = await signInAs();
   const started = await SELF.fetch(
-    `http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/outlook/connect?choice=flag`,
+    `http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/outlook/connect?choice=flag&filesByName=false`,
     { redirect: 'manual', headers: { cookie: session } },
   );
   const asked = new URL(started.headers.get('location')!);

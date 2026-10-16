@@ -1974,6 +1974,8 @@ export function runCommand<N extends CommandName>(
             // What the Connect window asked of a connector that declares a
             // choice (issue 942).
             choice: cmd.choice ?? null,
+            // And whether it files by name, answered the same way (issue 1147).
+            filesByName: cmd.filesByName ?? false,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -1999,6 +2001,9 @@ export function runCommand<N extends CommandName>(
               // Asked again on a reconnect, so the answer replaces the stored
               // one; a reconnect that asked nothing leaves it.
               ...(decided.choiceOnRefresh !== undefined ? { choice: decided.choiceOnRefresh } : {}),
+              // Asked again as well, so the answer given on this reconnect
+              // is the one kept (issue 1147).
+              ...(cmd.filesByName !== undefined ? { filesByName: cmd.filesByName } : {}),
             },
           })
           .run();
