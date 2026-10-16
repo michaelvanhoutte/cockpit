@@ -39,6 +39,8 @@ import { Logo } from '../components/Logo';
 import { opensCapture } from '../captureShortcut';
 import { useShortcutTip } from '../shortcutTip';
 import { captureStateFor } from './CapturePage';
+import { CaptureOpenerContext } from '../captureOpener';
+import type { FiledOn } from '../components/FileOnLine';
 import { browserStore } from '../lastVisited';
 import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
@@ -150,8 +152,11 @@ function TheShell() {
   useEffect(() => {
     if (!roomForTheInbox) setCapturing(false);
   }, [roomForTheInbox]);
+  /** The Panel a + on its header opened the window for; empty for the tab and `C`. */
+  const [capturePanel, setCapturePanel] = useState<FiledOn | null>(null);
   const openCapture = () => {
     if (onCapture) return;
+    setCapturePanel(null);
     if (roomForTheInbox) setCapturing(true);
     else
       void navigate({
@@ -159,6 +164,19 @@ function TheShell() {
         state: captureStateFor(params.workspaceId),
       });
   };
+  /** A Panel's + or **Add an item…**: Capture with that Panel in *File on* (issue 1105). */
+  const openCaptureOn = useCallback(
+    (panel: FiledOn) => {
+      if (onCapture) return;
+      if (roomForTheInbox) {
+        setCapturePanel(panel);
+        setCapturing(true);
+      } else {
+        void navigate({ to: '/capture', state: captureStateFor(panel.workspaceId, panel) });
+      }
+    },
+    [onCapture, roomForTheInbox, navigate],
+  );
   // Read at press time through a ref, so the one listener never goes stale
   // and is not taken off and put back on every render.
   const openCaptureNow = useRef(openCapture);
@@ -712,6 +730,7 @@ function TheShell() {
   const theme = shellColours(paintedWorkspace(active), appearance);
 
   return (
+    <CaptureOpenerContext.Provider value={openCaptureOn}>
     <div
       className="flex h-dvh flex-col"
       // A click anywhere in the shell, asked whether it landed on a control
@@ -1251,8 +1270,12 @@ function TheShell() {
       {/* Capture, over the workspace rather than instead of it, at a desk. */}
       <CaptureWindow
         open={capturing}
-        onClose={() => setCapturing(false)}
-        startsIn={params.workspaceId ?? null}
+        onClose={() => {
+          setCapturing(false);
+          setCapturePanel(null);
+        }}
+        startsIn={capturePanel?.workspaceId ?? params.workspaceId ?? null}
+        startsOn={capturePanel}
       />
 
       <DeleteQuestion
@@ -1274,6 +1297,7 @@ function TheShell() {
         </Suspense>
       )}
     </div>
+    </CaptureOpenerContext.Provider>
   );
 }
 

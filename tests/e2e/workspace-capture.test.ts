@@ -248,6 +248,38 @@ test.describe('Capture', () => {
       await expect(page.getByRole('region', { name: fresh }).getByText(onFresh)).toBeVisible();
     });
 
+    test('adds an Item to a Panel from the + on its header, and the row is at the top of it', async ({
+      page,
+      isMobile,
+    }) => {
+      // Only a browser proves the + on a real header opens the window at a
+      // desk and the page on a phone, set to the Panel, and that what is
+      // captured there is the row at the top of that Panel
+      // ("Add an Item to a Panel from a + on its header, through Capture",
+      // issue 1105).
+      await openInbox(page, isMobile);
+      await switchTo(page, ELSEWHERE, isMobile);
+      const panel = page.getByRole('region', { name: 'Panel 1' });
+      // A phone opens a workspace on its Inbox, or back on the Dashboard it
+      // last showed, which pressing its tab again would open the menu of.
+      if (isMobile && !(await panel.isVisible())) {
+        await press(page.getByRole('link', { name: 'Dashboard 1' }), isMobile);
+      }
+      await expect(panel).toBeVisible();
+
+      const note = uniqueTitle('Call the caterer');
+      await press(panel.getByRole('button', { name: 'Add an item to Panel 1' }), isMobile);
+      await expect(page.getByRole('button', { name: ELSEWHERE })).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByRole('button', { name: 'Do not file on Panel 1' })).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await captureBox(page).fill(note);
+      await captureBox(page).press('ControlOrMeta+Enter');
+      await expect(capturedLine(page, note)).toBeVisible();
+      await closeCapture(page, isMobile);
+
+      await expect(panel.getByRole('listitem').first()).toContainText(note);
+    });
+
   });
 
   test.describe('Capture starts on the workspace you are in, and C opens it at a desk', () => {

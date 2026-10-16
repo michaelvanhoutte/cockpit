@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { CaptureForms } from '../captureForm';
+import type { FiledOn } from '../components/FileOnLine';
 
 /**
  * What the header's tab and `C` put in the navigation's state to say which
@@ -10,6 +11,8 @@ import { CaptureForms } from '../captureForm';
  */
 export interface CaptureState {
   captureFrom?: string;
+  /** The Panel a + on its header opened Capture for (issue 1105). */
+  captureOn?: FiledOn;
 }
 
 /**
@@ -17,8 +20,11 @@ export interface CaptureState {
  * state as an interface only an augmentation of `@tanstack/history` can add
  * to, and that package is not this one's to import.
  */
-export const captureStateFor = (workspaceId: string | undefined): never =>
-  (workspaceId ? { captureFrom: workspaceId } : {}) as CaptureState as never;
+export const captureStateFor = (workspaceId: string | undefined, on?: FiledOn): never =>
+  ({
+    ...(workspaceId ? { captureFrom: workspaceId } : {}),
+    ...(on ? { captureOn: on } : {}),
+  }) as CaptureState as never;
 
 /**
  * Capture as a screen of its own ("Capture Page", artboards 2a and 2c): what a
@@ -47,6 +53,9 @@ export const captureStateFor = (workspaceId: string | undefined): never =>
 export function CapturePage() {
   const startsIn = useRouterState({
     select: (state) => (state.location.state as CaptureState).captureFrom ?? null,
+  });
+  const startsOn = useRouterState({
+    select: (state) => (state.location.state as CaptureState).captureOn ?? null,
   });
   const inCar = useRouterState({ select: (state) => state.location.pathname === '/capture/car' });
   // Carried over the switch, so Where still starts on the workspace you came from.
@@ -96,7 +105,7 @@ export function CapturePage() {
         </div>
       </div>
       <Suspense fallback={null}>
-        <CaptureForms startsIn={startsIn} inCar={inCar} carried={carried} />
+        <CaptureForms startsIn={startsIn} startsOn={startsOn} inCar={inCar} carried={carried} />
       </Suspense>
     </section>
   );

@@ -47,12 +47,15 @@ export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to r
  */
 export function CaptureNote({
   startsIn,
+  startsOn,
   arrived,
   onPutOn,
   onCaptured,
   dictating,
 }: {
   startsIn: string | null;
+  /** A Panel *File on* starts holding, and so its Workspace for Where: what a Panel's + opens (issue 1105). */
+  startsOn?: FiledOn | null | undefined;
   /** What the share sheet handed over, claimed by the page: put on the note once, as if typed and dropped here. */
   arrived?: Arrived | null | undefined;
   /** Said once `arrived` is on the note, so the page can stop offering it to a form drawn again. */
@@ -170,7 +173,7 @@ export function CaptureNote({
     setGeneration((was) => was + 1);
   }, [shown, formatted]);
   /** Which workspace it belongs to, or null for *Any workspace*. */
-  const [where, setWhere] = useState<string | null>(startsIn);
+  const [where, setWhere] = useState<string | null>(startsOn?.workspaceId ?? startsIn);
   const [refused, setRefused] = useState<string | null>(null);
   /**
    * What the strip inside the box has chosen ("Set a priority and a due date
@@ -190,7 +193,7 @@ export function CaptureNote({
    * which the first one picked settles. Like the strip, empty again once a
    * capture is kept, and put back with a refused one.
    */
-  const [filed, setFiled] = useState<FiledOn[]>([]);
+  const [filed, setFiled] = useState<FiledOn[]>(startsOn ? [startsOn] : []);
   /**
    * The capture just made, until the next one or the form closes: the line
    * beside the button and the draft Undo puts back. In this form's memory

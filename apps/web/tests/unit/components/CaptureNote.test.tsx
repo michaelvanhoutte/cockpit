@@ -146,6 +146,7 @@ afterEach(() => {
 async function thePage({
   cameFrom = 'ws-home',
   startsIn = null,
+  startsOn = null,
   heldMutation = false,
   store = browserOutboxStore(),
   dictating,
@@ -168,6 +169,8 @@ async function thePage({
   cameFrom?: string;
   /** The workspace Where starts on, or null for *Any workspace*. */
   startsIn?: string | null;
+  /** The Panel a + on its header opened this for. */
+  startsOn?: { panelId: string; name: string; workspaceId: string } | null;
   /**
    * True for a test that needs a capture still in flight - `busy` (and
    * `held.pending`) stays true until the test calls `held.settle()`, which
@@ -230,7 +233,7 @@ async function thePage({
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
         <KeptRecordingsProvider value={kept}>
-          <CaptureNote startsIn={startsIn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} />
+          <CaptureNote startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} />
         </KeptRecordingsProvider>
       </OutboxProvider>
     </QueryClientProvider>,
@@ -1369,6 +1372,27 @@ describe('Capture', () => {
    * Panel is the walk in tests/e2e/capture.test.ts, and the filing itself is
    * apps/api/tests/integration/http/capture-on-panels.test.ts.
    */
+  describe('a Panel’s + opens Capture holding that Panel', () => {
+    const FALCON = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' };
+
+    it('sets Where to the Panel’s Workspace and File on to the Panel, even under another Workspace', async () => {
+      await thePage({ startsIn: 'ws-home', startsOn: FALCON });
+
+      expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
+      expect(chip('Any workspace')).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+    });
+
+    it('files the note it captures on that Panel', async () => {
+      const user = await thePage({ startsOn: FALCON });
+
+      await user.type(box(), 'Reply to Bart');
+      await user.click(chip('Capture'));
+
+      expect((await captured()).payload).toMatchObject({ workspaceId: 'ws-work', panelIds: ['p-falcon'] });
+    });
+  });
+
   describe('File on searches the right Panels and files the note on those chosen', () => {
     /** Opens the line's search, which is fetched on first focus, and answers it. */
     async function searching(user: Awaited<ReturnType<typeof thePage>>) {

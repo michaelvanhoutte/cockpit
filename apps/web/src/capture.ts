@@ -11,14 +11,12 @@ import { deviceTimeZone } from './deviceTimeZone';
  *
  * **Here rather than in the form that runs it**, because that form is drawn in
  * two places - the Capture page (pages/CapturePage.tsx) and the window over the
- * screen you are on (components/CaptureWindow.tsx) - and the Panel's own
- * *Add an item* row asks for the same thing. What they send has to be the same
- * answer.
+ * screen you are on (components/CaptureWindow.tsx). What they send has to be
+ * the same answer.
  *
  * **Sent at once, and refused offline.** The Capture form keeps a note in the
  * outbox instead (`captureOutboxSender.tsx`) and comes here only where that
- * cannot be written; the Panel's row always comes here, because it files what
- * it makes and filing needs the server.
+ * cannot be written.
  *
  * **It names no Type**: a capture carries none, and the server refuses one
  * ("Capture without a Type, at every front door", issue 1067).
