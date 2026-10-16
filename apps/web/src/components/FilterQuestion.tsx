@@ -302,7 +302,7 @@ function AddMenu({
 }
 
 /** The fields a condition can be about, in the order the add menus offer them. */
-const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'panel', 'dashboard', 'status'];
+const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'panel', 'dashboard', 'status', 'agent'];
 
 /** What each field is called on the add menus and beside its row. */
 const FIELD_LABELS: Record<FilterCondition['field'], string> = {
@@ -311,6 +311,7 @@ const FIELD_LABELS: Record<FilterCondition['field'], string> = {
   panel: 'Panel',
   dashboard: 'Dashboard',
   status: 'Status',
+  agent: 'Agent running',
 };
 
 /** A fresh row for a field just added - nothing chosen yet, except Due date, which has always defaulted to *today*, and Status, which opens on In progress, the one answer it gave before it took values. Every values card opens on *is*: no `exclude` is written until *is not* is chosen. */
@@ -319,6 +320,7 @@ function defaultConditionFor(field: FilterCondition['field']): FilterCondition {
   if (field === 'priority') return { field: 'priority', values: [] };
   if (field === 'panel') return { field: 'panel', values: [] };
   if (field === 'dashboard') return { field: 'dashboard', values: [] };
+  if (field === 'agent') return { field: 'agent' };
   return { field: 'status', values: ['in_progress'] };
 }
 
@@ -340,6 +342,7 @@ function ConditionRow({
   onChange: (row: FilterCondition) => void;
   onRemove: () => void;
 }) {
+  if (row.field === 'agent') return <AgentConditionRow at={at} onRemove={onRemove} />;
   if (row.field === 'priority') {
     return (
       <ValuesCondition
@@ -432,7 +435,7 @@ const STATUS_OPTIONS = [
 ];
 
 /** A values condition with its *is* / *is not* set, writing no `exclude` at all for *is* so a card never saved as *is not* stays as it was stored. */
-function withExclusion<T extends Exclude<FilterCondition, { field: 'dueDate' }>>(row: T, exclude: boolean): T {
+function withExclusion<T extends Exclude<FilterCondition, { field: 'dueDate' | 'agent' }>>(row: T, exclude: boolean): T {
   const { exclude: _was, ...rest } = row;
   return (exclude ? { ...rest, exclude: true } : rest) as T;
 }
@@ -517,6 +520,16 @@ function DueConditionRow({
           </label>
         )}
       </span>
+      <RemoveButton at={at} onRemove={onRemove} />
+    </div>
+  );
+}
+
+/** An Agent running row: the field name and its cross alone, since it has no operator and no values ("Gather the Items an agent is running on into a Filter panel", issue 1153). */
+function AgentConditionRow({ at, onRemove }: { at: number; onRemove: () => void }) {
+  return (
+    <div className={ROW}>
+      <span className={`${FIELD} sm:col-span-3`}>{FIELD_LABELS.agent}</span>
       <RemoveButton at={at} onRemove={onRemove} />
     </div>
   );

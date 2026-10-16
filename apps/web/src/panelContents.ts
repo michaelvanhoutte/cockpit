@@ -34,6 +34,7 @@ export function itemsShownOn(panel: Panel, c: PanelContents): Item[] {
         c.panelsInWorkspace,
         c.dashboards,
         panel.filter ?? NO_CONDITIONS,
+        c.withRun,
         c.today,
         sortOf(panel) ?? DEFAULT_FILTER_SORT,
       )

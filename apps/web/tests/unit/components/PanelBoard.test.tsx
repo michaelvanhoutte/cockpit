@@ -2380,6 +2380,7 @@ describe('Onboarding', () => {
           'Panel',
           'Dashboard',
           'Status',
+          'Agent running',
         ]);
         await user.keyboard('{Escape}');
 
@@ -2389,6 +2390,7 @@ describe('Onboarding', () => {
           'Panel',
           'Dashboard',
           'Status',
+          'Agent running',
         ]);
         await user.click(screen.getByRole('menuitem', { name: 'Due date' }));
         await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -2407,6 +2409,7 @@ describe('Onboarding', () => {
           'Panel',
           'Dashboard',
           'Status',
+          'Agent running',
         ]);
         await user.click(screen.getByRole('menuitem', { name: 'Priority' }));
         await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -2421,6 +2424,7 @@ describe('Onboarding', () => {
           { field: 'panel', values: [] },
           { field: 'dashboard', values: [] },
           { field: 'status' },
+          { field: 'agent' },
         ];
         const { user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', [everything])] });
 
@@ -2431,6 +2435,72 @@ describe('Onboarding', () => {
 
         expect(screen.queryByRole('button', { name: /^\+ Or…/ })).toBeNull();
         expect(screen.getByRole('button', { name: '+ And…' })).toBeVisible();
+      });
+
+      it('offers Agent running from + Or… on a row without it, and not on a row that holds it', async () => {
+        const { user } = showBoard({
+          panels: [aFilterOfRows('due', 'Due soon', [[PRIORITY_HIGH], [{ field: 'agent' }]])],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('button', { name: '+ Or… to row 1' }));
+        expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toContain('Agent running');
+        await user.keyboard('{Escape}');
+        await user.click(screen.getByRole('button', { name: '+ Or… to row 2' }));
+
+        expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).not.toContain(
+          'Agent running',
+        );
+      });
+
+      it('draws Agent running as its field name and a cross alone, and saves it in its row', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', [[PRIORITY_HIGH]])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('button', { name: '+ Or… to row 1' }));
+        await user.click(screen.getByRole('menuitem', { name: 'Agent running' }));
+
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getByText('Agent running', { selector: 'span' })).toBeVisible();
+        // Beside Priority's own is or is not, it has no operator and no values.
+        expect(within(dialog).getAllByRole('combobox')).toHaveLength(1);
+        expect(within(dialog).queryByRole('group', { name: 'Agent running' })).toBeNull();
+        expect(screen.getByRole('button', { name: 'Remove condition 2' })).toBeVisible();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(sentRows(mutate)).toEqual([[PRIORITY_HIGH, { field: 'agent' }]]);
+      });
+
+      it('reads Agent running back in the funnel beside its name', async () => {
+        showBoard({
+          panels: [aFilterOfRows('due', 'Due soon', [[DUE_TODAY, { field: 'agent' }], [{ field: 'status' }]])],
+        });
+
+        const due = await screen.findByRole('region', { name: 'Due soon' });
+        expect(within(due).getByRole('img', { name: /^Shows / })).toHaveAttribute(
+          'title',
+          '(Due today or overdue or Agent running) and Status is In progress',
+        );
+      });
+
+      it('gathers an Item filed elsewhere as its run starts, and lets it go as the run ends', async () => {
+        const rent = anItem('11111111-1111-7111-8111-000000000001', 'Pay the rent');
+        const { redrawnWithRuns } = showBoard({
+          panels: [
+            aPanel('falcon', 'Project Falcon'),
+            aFilterOfRows('running', 'With an agent', [[{ field: 'agent' }]]),
+          ],
+          items: [rent],
+          filings: [{ panelId: 'falcon', itemId: rent.id, position: 0 }],
+        });
+        const gathered = await screen.findByRole('region', { name: 'With an agent' });
+        expect(within(gathered).queryByText(/Pay the rent/)).toBeNull();
+
+        redrawnWithRuns([{ itemId: rent.id, status: 'starting' } as AgentRun]);
+        expect(within(gathered).getByText(/Pay the rent/)).toBeVisible();
+
+        redrawnWithRuns([]);
+        expect(within(gathered).queryByText(/Pay the rent/)).toBeNull();
       });
 
       it('draws a box that is down to one condition as a plain card again, and keeps it as a row', async () => {
@@ -3159,7 +3229,7 @@ describe('Onboarding', () => {
       });
     });
 
-    it('offers Due date, Priority, Panel, Dashboard and Status on its add menu, and no Type', async () => {
+    it('offers Due date, Priority, Panel, Dashboard, Status and Agent running on its add menu, and no Type', async () => {
       const { user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
 
       await choose(user, 'Due soon', 'Filter…');
@@ -3171,6 +3241,7 @@ describe('Onboarding', () => {
         'Panel',
         'Dashboard',
         'Status',
+        'Agent running',
       ]);
     });
 
