@@ -89,6 +89,7 @@ export function ItemRow({
   onAcceptRouting,
   onAcceptSelection,
   mayBeADuplicate,
+  duplicateOf,
   onSettleNotADuplicate,
   selecting,
   alsoIn = EMPTY_ALSO_IN,
@@ -184,6 +185,8 @@ export function ItemRow({
    * the row is not given.
    */
   mayBeADuplicate?: boolean | undefined;
+  /** The note(s) the chip's hover names ("Dismiss a possible duplicate from its warning", issue 1114). */
+  duplicateOf?: string | undefined;
   /**
    * Settles every pair this row is currently flagged in as not a duplicate
    * ("Say a flagged pair is not a duplicate", issue 408) - offered in the menu
@@ -840,6 +843,11 @@ export function ItemRow({
             Not a duplicate
           </M.Item>
         ),
+        mayBeADuplicate && onSettleNotADuplicate && (
+          <M.Item key="dismiss-as-duplicate" className={menuItemClass} onSelect={dismiss}>
+            Dismiss as duplicate
+          </M.Item>
+        ),
       ],
       // Dismiss.
       [
@@ -1255,12 +1263,10 @@ export function ItemRow({
                 word. */}
             {mayBeADuplicate && (
               <span
-                className="shrink-0 text-ink-faint"
-                title="Possible duplicate"
-                aria-label="Possible duplicate"
-                role="img"
+                className="shrink-0 rounded-full bg-accent-tint px-1.5 text-xs text-accent-deep"
+                title={duplicateOf ? `May repeat ${duplicateOf}` : 'Possible duplicate'}
               >
-                ⧉
+                Duplicate?
               </span>
             )}
           </span>

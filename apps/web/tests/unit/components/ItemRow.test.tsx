@@ -820,7 +820,7 @@ describe('Item editing', () => {
     ])('$situation', ({ flagged }) => {
       aRow({ mayBeADuplicate: flagged });
 
-      expect(screen.queryByLabelText('Possible duplicate') !== null).toBe(flagged);
+      expect(screen.queryByText('Duplicate?') !== null).toBe(flagged);
     });
 
     /**
@@ -1083,7 +1083,7 @@ describe('Item editing', () => {
       expect(menu.slice(0, 2)).toEqual(['Move to this workspace', 'Move to…']);
     });
 
-    it('puts Not a duplicate in a group of its own, between Status and Dismiss', async () => {
+    it('puts Not a duplicate and Dismiss as duplicate in a group of their own, between Status and Dismiss', async () => {
       const user = userEvent.setup();
       aRow({ mayBeADuplicate: true, onSettleNotADuplicate: () => {} });
       await user.click(screen.getByLabelText('Item actions'));
@@ -1091,7 +1091,7 @@ describe('Item editing', () => {
       const menu = await menuTopToBottom();
       const at = menu.indexOf('Not a duplicate');
 
-      expect(menu.slice(at - 2, at + 3)).toEqual([expect.stringMatching(/^Status/), '---', 'Not a duplicate', '---', 'Dismiss']);
+      expect(menu.slice(at - 2, at + 5)).toEqual([expect.stringMatching(/^Status/), '---', 'Not a duplicate', 'Dismiss as duplicate', '---', 'Dismiss']);
     });
 
     it('calls Add to… “Also show on…”, and opens the same picker', async () => {

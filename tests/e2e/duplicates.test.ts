@@ -81,12 +81,14 @@ test.describe('Triage', () => {
 
       // The mark arrives on its own: reading a note happens behind the capture,
       // and the Inbox is told about it the way it is told about everything else.
-      await expect(itemRow(page, one).getByLabel('Possible duplicate')).toBeVisible();
-      await expect(itemRow(page, again).getByLabel('Possible duplicate')).toBeVisible();
+      await expect(itemRow(page, one).getByText('Duplicate?')).toBeVisible();
+      await expect(itemRow(page, again).getByText('Duplicate?')).toBeVisible();
       // And on no other row, which is the half that would pass on a mark drawn
       // against every note.
-      await expect(itemRow(page, unrelated).getByLabel('Possible duplicate')).toHaveCount(0);
+      await expect(itemRow(page, unrelated).getByText('Duplicate?')).toHaveCount(0);
 
+      // The chip's hover names the other note (the open form hides the rows).
+      await expect(itemRow(page, one).getByText('Duplicate?')).toHaveAttribute('title', new RegExp(again));
       await openItem(page, one, isMobile);
       await expect(titleBox(page)).toHaveValue(one);
       await expect(form(page).getByText('Possible duplicate of')).toBeVisible();
@@ -102,6 +104,14 @@ test.describe('Triage', () => {
       // of address rather than something only this tab knows.
       await page.goBack();
       await expect(titleBox(page)).toHaveValue(one);
+
+      // The form's warning offers the answer "yes, it is": this one goes, the other stays.
+      // The phone project shares the desktop's account, so it can be flagged against
+      // the desktop's leftovers too: each offers the same dismissal of this note.
+      await press(form(page).getByRole('button', { name: 'Dismiss this one' }).first(), isMobile);
+      await expect(itemRow(page, one)).toHaveCount(0);
+      await expect(itemRow(page, again)).toBeVisible();
+      await expect(page.getByRole('status')).toContainText('dismissed');
     });
   });
 });
@@ -125,23 +135,23 @@ test.describe('Triage', () => {
       await capture(page, one, isMobile);
       await capture(page, again, isMobile);
 
-      await expect(itemRow(page, one).getByLabel('Possible duplicate')).toBeVisible();
-      await expect(itemRow(page, again).getByLabel('Possible duplicate')).toBeVisible();
+      await expect(itemRow(page, one).getByText('Duplicate?')).toBeVisible();
+      await expect(itemRow(page, again).getByText('Duplicate?')).toBeVisible();
 
       await press(itemRow(page, one).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Not a duplicate' }), isMobile);
 
-      await expect(itemRow(page, one).getByLabel('Possible duplicate')).toHaveCount(0);
+      await expect(itemRow(page, one).getByText('Duplicate?')).toHaveCount(0);
       // Both halves lose the mark - it is a fact about the pair, not about
       // whichever row the settling was pressed from.
-      await expect(itemRow(page, again).getByLabel('Possible duplicate')).toHaveCount(0);
+      await expect(itemRow(page, again).getByText('Duplicate?')).toHaveCount(0);
 
       const offer = page.getByRole('status');
       await expect(offer).toContainText('is not a duplicate');
       await press(offer.getByRole('button', { name: 'Undo' }), isMobile);
 
-      await expect(itemRow(page, one).getByLabel('Possible duplicate')).toBeVisible();
-      await expect(itemRow(page, again).getByLabel('Possible duplicate')).toBeVisible();
+      await expect(itemRow(page, one).getByText('Duplicate?')).toBeVisible();
+      await expect(itemRow(page, again).getByText('Duplicate?')).toBeVisible();
       await expect(offer).toHaveCount(0);
     });
   });

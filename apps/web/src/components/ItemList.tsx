@@ -472,6 +472,12 @@ export function ItemList({
     return () => move(item, panelId, 0);
   };
 
+  /** The note(s) a flagged row may repeat, named for the chip's hover. */
+  const duplicateNamesOf = (item: Item): string =>
+    possibleDuplicatesOf(item.id, data?.items ?? [], filed, data?.duplicates ?? [])
+      .map((other) => `“${itemLabel(other)}”`)
+      .join(', ');
+
   /**
    * Settles every pair this row is currently flagged in as not a duplicate,
    * in one go ("Say a flagged pair is not a duplicate", issue 408).
@@ -854,6 +860,7 @@ export function ItemList({
       onMoveHere={() => move(item, null, 0, workspaceId)}
       alsoIn={alsoShownOn(item.id, alsoInByItem, data?.panels ?? [], panelId, alsoNotIn)}
       mayBeADuplicate={flagged.has(item.id)}
+      duplicateOf={flagged.has(item.id) ? duplicateNamesOf(item) : undefined}
       onSettleNotADuplicate={flagged.has(item.id)
         ? settleNotADuplicateFor(item)
         : undefined}

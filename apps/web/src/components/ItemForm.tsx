@@ -421,6 +421,36 @@ function TheForm({
   };
 
   /**
+   * Dismisses this note as the copy ("Dismiss a possible duplicate from its
+   * warning", issue 1114): the same change the row's Dismiss sends, with the
+   * same way back, and the form closes because the Item it was open on has
+   * left every list. The other note stays.
+   */
+  const dismissAsDuplicate = async () => {
+    // Dismissing ends the Item's open run; the undo names it, as the row's does.
+    const endedRunId = data?.agentRuns?.find((run) => run.itemId === itemId)?.id;
+    const endedFor = (dismissed: boolean) => ({
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId,
+      itemId,
+      dismissed,
+      ...(!dismissed && endedRunId && { reopensRunId: endedRunId }),
+    });
+    try {
+      await send({ name: 'set_dismissed', payload: endedFor(true) });
+    } catch (failure) {
+      setRefusal(failure instanceof Error ? failure.message : 'That could not be dismissed');
+      return;
+    }
+    offerToUndo({
+      what: `“${item ? itemLabel(item) : 'Note'}” dismissed`,
+      undo: () => send({ name: 'set_dismissed', payload: endedFor(false) }),
+    });
+    onClose();
+  };
+
+  /**
    * Attaches files as they are chosen or dropped, one upload at a time and
    * each sent the moment it arrives - unlike the title, description and
    * priority above, an attachment is not batched into Save (issue 441's own
@@ -1701,6 +1731,15 @@ function TheForm({
                                   className="flex-1 rounded-md border border-shade/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
                                 >
                                   <span className="block font-medium text-ink">{itemLabel(other)}</span>
+                                </button>
+                                {/* The answer "yes, it is": this note goes, the other stays. */}
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void dismissAsDuplicate()}
+                                  className="rounded-md border border-shade/10 bg-surface px-2 text-sm text-ink hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                                >
+                                  Dismiss this one
                                 </button>
                                 {/* About this pair, not about either note ("Say a
                                   flagged pair is not a duplicate", issue 408) - it

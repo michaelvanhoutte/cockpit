@@ -1806,6 +1806,41 @@ describe('Item editing', () => {
       expect(held.open).not.toHaveBeenCalled();
     });
 
+    it('dismisses this note, not the other, and closes the form', async () => {
+      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
+      const user = await theForm(anItem(), [ANOTHER_NOTE]);
+
+      await user.click(screen.getByRole('button', { name: 'Dismiss this one' }));
+
+      expect(sent()).toContainEqual(
+        expect.objectContaining({
+          name: 'set_dismissed',
+          payload: expect.objectContaining({ itemId: 'item-1', dismissed: true }),
+        }),
+      );
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+    });
+
+    it('offers Dismiss this one beside each note it is flagged against', async () => {
+      const A_THIRD_NOTE = anItem({ id: 'item-3', title: 'Novy and the audit trail' });
+      held.duplicates = [
+        { itemId: 'item-1', otherItemId: ANOTHER_NOTE.id },
+        { itemId: 'item-1', otherItemId: A_THIRD_NOTE.id },
+      ];
+      const user = await theForm(anItem(), [ANOTHER_NOTE, A_THIRD_NOTE]);
+
+      const buttons = screen.getAllByRole('button', { name: 'Dismiss this one' });
+      expect(buttons).toHaveLength(2);
+      await user.click(buttons[1]!);
+
+      expect(sent()).toContainEqual(
+        expect.objectContaining({
+          name: 'set_dismissed',
+          payload: expect.objectContaining({ itemId: 'item-1' }),
+        }),
+      );
+    });
+
     it('says so, and offers no undo, where settling is refused', async () => {
       held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
       held.send.mockRejectedValueOnce(new Error('That did not reach the server. Try again.'));
