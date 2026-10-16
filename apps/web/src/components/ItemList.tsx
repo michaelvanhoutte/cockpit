@@ -32,7 +32,7 @@ import {
 } from '../filing';
 import { alsoShownOn, dayOf, panelAndFilterIdsByItem } from '../filters';
 import type { FilterGroup } from '../filterGroups';
-import { useFilteredDashboardIds } from '../dashboardFilter';
+import { itemIdsWithRun, useFilteredDashboardIds } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
@@ -177,8 +177,15 @@ export function ItemList({
    */
   const alsoInByItem = useMemo(
     () =>
-      panelAndFilterIdsByItem(data?.items ?? [], data?.filings ?? [], data?.panels ?? [], data?.dashboards ?? [], today),
-    [data?.items, data?.filings, data?.panels, data?.dashboards, today],
+      panelAndFilterIdsByItem(
+        data?.items ?? [],
+        data?.filings ?? [],
+        data?.panels ?? [],
+        data?.dashboards ?? [],
+        itemIdsWithRun(data?.agentRuns ?? []),
+        today,
+      ),
+    [data?.items, data?.filings, data?.panels, data?.dashboards, data?.agentRuns, today],
   );
   /**
    * The Agents a row here can be started with ("Drop an agent on an item to

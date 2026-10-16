@@ -269,8 +269,26 @@ export function statusValuesOf(condition: StatusCondition): readonly ('to_do' | 
 }
 
 /**
+ * One condition on a Filter, on whether an Item has an agent running on it
+ * ("Gather the Items an agent is running on into a Filter panel", issue 1153):
+ * an open run in any state, whichever Agent started it, a deleted Agent
+ * included - the rule the Dashboard filter's *Agent running* already keeps.
+ *
+ * **Holds only its field**: no values and no *is not*, so a later *is not* or
+ * run-state choice adds an optional field the way the Panel and Status
+ * conditions grew one, with no stored Filter rewritten. **Accepted risk, as for
+ * the Dashboard condition (issue 985):** the previous release cannot read a
+ * Filter holding this kind, so it draws that Filter with nothing chosen, and a
+ * save of *Filter…* from that state overwrites all its conditions.
+ */
+export const agentConditionSchema = z.object({
+  field: z.literal('agent'),
+});
+export type AgentCondition = z.infer<typeof agentConditionSchema>;
+
+/**
  * One condition of a Filter: a Due date, a Priority, a Panel, a
- * Dashboard or a Status condition.
+ * Dashboard, a Status or an Agent running condition.
  */
 export const filterConditionSchema = z.discriminatedUnion('field', [
   dueConditionSchema,
@@ -278,6 +296,7 @@ export const filterConditionSchema = z.discriminatedUnion('field', [
   panelConditionSchema,
   dashboardConditionSchema,
   statusConditionSchema,
+  agentConditionSchema,
 ]);
 export type FilterCondition = z.infer<typeof filterConditionSchema>;
 

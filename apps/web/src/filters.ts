@@ -138,6 +138,11 @@ export function isAPeriod(window: DueWindow): boolean {
  * every Item fails to match and the condition matches nothing, never widening
  * to stand for every Panel.
  *
+ * **An Agent running condition keeps an Item with an open run in any state**
+ * ("Gather the Items an agent is running on into a Filter panel", issue 1153),
+ * read off `withRun` - the ids the snapshot's runs name, as the Dashboard
+ * filter reads them (`itemIdsWithRun`).
+ *
  * **An *is not* condition matches an Item holding none of its live values**
  * ("Include or exclude a Filter panel condition's values, and filter on To do
  * as well as In progress", issue 908), so an Item with no Priority
@@ -154,7 +159,9 @@ function holdsFor(
   filedPanelIds: ReadonlySet<string>,
   liveDashboardIds: ReadonlySet<string>,
   filedDashboardIds: ReadonlySet<string>,
+  withRun: ReadonlySet<string>,
 ): boolean | null {
+  if (condition.field === 'agent') return withRun.has(item.id);
   if (condition.field !== 'dueDate' && condition.exclude) {
     if (condition.field === 'priority') {
       return excluding(condition.values, (live) => item.priority === null || !live.includes(item.priority));
@@ -282,6 +289,8 @@ export function itemsMatchingFilter(
   /** The Workspace's live Dashboards, which is what a Dashboard condition's values are read against. */
   dashboards: readonly Pick<Dashboard, 'id'>[],
   filter: PanelFilter,
+  /** The ids of the Items with an open run (`itemIdsWithRun`), which an Agent running condition is read against. */
+  withRun: ReadonlySet<string>,
   on: Day,
   /** How the Filter is sorted, which a Filter nobody has sorted answers with `DEFAULT_FILTER_SORT`. */
   sort: PanelSort = DEFAULT_FILTER_SORT,
@@ -309,7 +318,7 @@ export function itemsMatchingFilter(
       const filedDashboardIds = filedDashboardIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS;
       return filter.rows.every((row) =>
         meetsRow(row, (condition) =>
-          holdsFor(condition, item, on, livePanelIds, filedPanelIds, liveDashboardIds, filedDashboardIds),
+          holdsFor(condition, item, on, livePanelIds, filedPanelIds, liveDashboardIds, filedDashboardIds, withRun),
         ),
       );
     }),
@@ -363,6 +372,7 @@ export function panelAndFilterIdsByItem(
   filings: readonly Filing[],
   panelsInWorkspace: readonly Panel[],
   dashboards: readonly Pick<Dashboard, 'id'>[],
+  withRun: ReadonlySet<string>,
   on: Day,
 ): Map<string, Set<string>> {
   const byItem = new Map<string, Set<string>>();
@@ -376,6 +386,7 @@ export function panelAndFilterIdsByItem(
       panelsInWorkspace,
       dashboards,
       filter.filter ?? NO_CONDITIONS,
+      withRun,
       on,
     );
     for (const item of matches) addToSetMap(byItem, item.id, filter.id);
@@ -567,6 +578,7 @@ function sentenceFor(
       .filter((name): name is string => name !== undefined);
     return valuesSentence('Filed on', 'Not filed on', condition.exclude, names);
   }
+  if (condition.field === 'agent') return 'Agent running';
   if (condition.field === 'status') {
     const names = statusValuesOf(condition).map((value) => (value === 'to_do' ? 'To do' : 'In progress'));
     return valuesSentence('Status is', 'Status is not', condition.exclude, names);
