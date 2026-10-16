@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { connectionHistorySchema, type ConnectionHistory as History, type SourceAccount } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
 import { historyDays } from '../connectionHistory';
+import { useOpenItem } from '../itemForm';
 import { LoadFailure } from './LoadFailure';
 
 /** One connection's history, read when it is opened and never from a copy. */
@@ -39,6 +40,7 @@ export function ConnectionHistory({
     gcTime: 0,
   });
   const back = useRef<HTMLButtonElement>(null);
+  const openItem = useOpenItem();
   // Opened from a menu that has gone with the list, so the focus starts on the way back.
   useEffect(() => back.current?.focus(), []);
 
@@ -69,6 +71,28 @@ export function ConnectionHistory({
                     <span className="min-w-0 flex-1">
                       <span className={line.failed ? 'font-medium text-over-ink' : 'text-ink-soft'}>{line.says}</span>
                       {line.detail && <span className="break-words text-ink-faint"> · {line.detail}</span>}
+                      {line.did.map((list) => (
+                        <p key={list.label} className="mt-0.5 break-words text-ink-soft">
+                          <span className="text-ink-faint">{list.label}: </span>
+                          {list.items.map((item, index) => (
+                            <span key={item.key}>
+                              {index > 0 && ', '}
+                              {item.id === null ? (
+                                <span className="italic text-ink-faint">{item.text}</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => openItem(item.id!)}
+                                  className="rounded-sm text-left underline decoration-shade/30 hover:decoration-ink"
+                                >
+                                  {item.text}
+                                </button>
+                              )}
+                            </span>
+                          ))}
+                          {list.more > 0 && <span className="text-ink-faint"> and {list.more} more</span>}
+                        </p>
+                      ))}
                     </span>
                   </li>
                 ))}

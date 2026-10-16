@@ -10,7 +10,23 @@ import { z } from 'zod';
  *   still parses the line, and says nothing of why.
  * - `message` is a failure's, as the source gave it and kept to 2 KB, with
  *   `messageCut` where it ran longer; null where it said nothing.
+ * - `did` is what the check did ("Say what each check of a connection brought
+ *   in, closed and sent back", issue 1141): per kind the exact `count` and the
+ *   first Items by `id`, each named by its title now - `title` null only where
+ *   no such Item is held, and `dismissed` where it is dismissed, which the
+ *   Item form does not open. An Item of another Workspace is counted and not
+ *   listed.
  */
+export const itemDidSchema = z.object({ id: z.string(), title: z.string().nullable(), dismissed: z.boolean() });
+export const didKindSchema = z.object({ count: z.number().int().min(0), items: itemDidSchema.array() });
+export const checkDidSchema = z.object({
+  broughtIn: didKindSchema,
+  closed: didKindSchema,
+  sentBack: didKindSchema,
+  refused: didKindSchema,
+});
+export type CheckDidShown = z.infer<typeof checkDidSchema>;
+
 export const connectionHistoryLineSchema = z.object({
   id: z.string(),
   outcome: z.enum(['worked', 'failed']),
@@ -20,6 +36,7 @@ export const connectionHistoryLineSchema = z.object({
   count: z.number().int().min(1),
   firstAt: z.iso.datetime(),
   lastAt: z.iso.datetime(),
+  did: checkDidSchema,
 });
 export type ConnectionHistoryLine = z.infer<typeof connectionHistoryLineSchema>;
 
