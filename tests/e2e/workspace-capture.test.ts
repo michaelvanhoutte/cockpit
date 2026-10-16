@@ -223,6 +223,28 @@ test.describe('Capture', () => {
       await expect(page.getByRole('region', { name: 'Panel 1' }).getByText(filed)).toBeVisible();
       await openTheInboxOf(page, ELSEWHERE, isMobile);
       await expect(inbox(page).getByText(filed)).toHaveCount(0);
+
+      // And a Panel that does not exist yet can be made from the same line
+      // ("Make a new Panel from Capture's File on", issue 1103): the last
+      // option of the search makes it where the text says, and the capture
+      // lands on it. Only a browser proves the made Panel is really drawn on
+      // its Dashboard with the row on it.
+      const fresh = uniqueTitle('Venue contracts');
+      const onFresh = uniqueTitle('Sign the venue contract');
+      await openCapture(page, isMobile);
+      await press(page.getByRole('button', { name: ELSEWHERE }), isMobile);
+      await press(page.getByRole('textbox', { name: 'Find a Panel to file on' }), isMobile);
+      await page.getByRole('searchbox', { name: 'Find a Panel to file on' }).fill(`Dashboard 1 ▸ ${fresh}`);
+      await press(page.getByRole('button', { name: `+ New panel “${fresh}”` }), isMobile);
+      await expect(page.getByRole('button', { name: `Do not file on ${fresh}` })).toBeVisible();
+      await captureBox(page).fill(onFresh);
+      await captureBox(page).press('ControlOrMeta+Enter');
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(onFresh)).toBeVisible();
+      await closeCapture(page, isMobile);
+
+      await switchTo(page, ELSEWHERE, isMobile);
+      if (isMobile) await press(page.getByRole('link', { name: 'Dashboard 1' }), isMobile);
+      await expect(page.getByRole('region', { name: fresh }).getByText(onFresh)).toBeVisible();
     });
 
   });

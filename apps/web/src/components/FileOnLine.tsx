@@ -25,6 +25,7 @@ const FIELD =
  */
 export function FileOnLine({
   where,
+  from,
   workspaces,
   filed,
   disabled,
@@ -33,6 +34,8 @@ export function FileOnLine({
 }: {
   /** The Workspace chosen, or null for *Any workspace*. */
   where: string | null;
+  /** The Workspace Capture was opened from, for a Panel made under *Any workspace*. */
+  from: string | null;
   workspaces: readonly Workspace[];
   filed: readonly FiledOn[];
   disabled: boolean;
@@ -69,7 +72,7 @@ export function FileOnLine({
         ))}
         {armed ? (
           <Suspense fallback={<input readOnly aria-label="Find a Panel to file on" placeholder="Find a Panel…" className={FIELD} />}>
-            <FileOnSearch where={where} workspaces={workspaces} chosen={filed.map((one) => one.panelId)} onPick={onAdd} />
+            <FileOnSearch where={where} from={from} workspaces={workspaces} chosen={filed.map((one) => one.panelId)} onPick={onAdd} />
           </Suspense>
         ) : (
           <input
