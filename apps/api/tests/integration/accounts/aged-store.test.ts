@@ -506,6 +506,14 @@ const rowsFor: {
     params: (name) => [name, AT, LATER],
   },
   {
+    // The table `0078-connection-history` creates (issue 1140): a failure
+    // folded from two checks, for the next update to meet.
+    table: 'connection_history',
+    sql: `INSERT INTO connection_history (id, tenant_id, source_account_id, outcome, reason, message, message_cut, count, first_at, last_at)
+          VALUES ('ch-before', ?, 'cn-before', 'failed', 'scheduled', 'the source stopped answering', 0, 2, ?, ?)`,
+    params: (name) => [name, AT, LATER],
+  },
+  {
     table: 'pulled_links',
     sql: `INSERT INTO pulled_links (tenant_id, workspace_id, connector_id, external_account_key, source_id, item_id, linked_at)
           VALUES (?, 'ws-before', 'teams', 'a-tenant:somebody', 'source-before', 'it-done-before', ?)`,
@@ -1887,6 +1895,34 @@ describe('What Cockpit changed', () => {
 
 describe('Connector management', () => {
   /**
+   * `0078-connection-history` ("See when a pulled connection was checked, and
+   * why it failed, from its row's History…", issue 1140) meets connections
+   * and a check part-way through a run from before it: it adds an empty
+   * history and a column, and rewrites no row.
+   */
+  describe('a store from the release before, brought up to date, keeps its connections and gains an empty history', () => {
+    it('keeps every connection and check as it was, and reads each connection’s history as empty', async () => {
+      const name = 'aged-store-before-connection-history';
+      await agedTo(name, justBefore('0078-connection-history'));
+      await fillWithWhatIsAlreadyThere(name);
+      const rowsIn = () =>
+        inStoreAsItIs(name, (sql) => ({
+          connections: sql.exec('SELECT * FROM connector_accounts ORDER BY id').toArray(),
+          checks: sql.exec('SELECT * FROM pulled_connections ORDER BY source_account_id').toArray(),
+        }));
+      const before = await rowsIn();
+
+      const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
+
+      expect(read).toEqual({ status: 'ok', value: [] });
+      expect(await rowsIn()).toEqual({
+        connections: before.connections,
+        checks: before.checks.map((row) => ({ ...row, check_reason: null })),
+      });
+    });
+  });
+
+  /**
    * `0056-gmail-followed-mark` ("Connect Gmail by star, and bring in
    * conversations starred from then on", issue 822) meets a Gmail connection
    * and a conversation it brought in from before the star existed.
@@ -2057,7 +2093,11 @@ const keptBesideGmail = (name: string) =>
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
     links: sql.exec('SELECT * FROM pulled_links ORDER BY source_id').toArray(),
-    checkpoints: sql.exec('SELECT * FROM pulled_connections ORDER BY source_account_id').toArray(),
+    // Without the column `0078-connection-history` adds on the same open.
+    checkpoints: sql
+      .exec('SELECT * FROM pulled_connections ORDER BY source_account_id')
+      .toArray()
+      .map(({ check_reason: _checkReason, ...row }) => row),
   }));
 
 describe('Connector management', () => {

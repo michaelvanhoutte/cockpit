@@ -50,6 +50,11 @@ export const sourceAccountSchema = z.object({
   follows: z.string().optional(),
   /** What the row says it follows, in the connector's own words; absent from a release before it, which then reads as `follows` itself. */
   followsLabel: z.string().optional(),
+  /**
+   * Whether the connection keeps a history its row's *History…* opens - a
+   * connection Cockpit pulls from, today (issue 1140). Absent reads as none.
+   */
+  keepsHistory: z.boolean().optional(),
 });
 export type SourceAccount = z.infer<typeof sourceAccountSchema>;
 

@@ -11,6 +11,7 @@ export * from './domain/recording.js';
 export * from './domain/share.js';
 export * from './domain/panel.js';
 export * from './domain/rewrite-history.js';
+export * from './domain/connection-history.js';
 export * from './domain/source-account.js';
 export * from './domain/starting.js';
 export * from './domain/text-learning-rules.js';

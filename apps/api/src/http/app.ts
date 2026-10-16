@@ -30,6 +30,7 @@ import {
   signedInSchema,
   registeredConnectorListSchema,
   sourceAccountListSchema,
+  connectionHistorySchema,
   uuidv7,
   userAddedSchema,
   userChangedSchema,
@@ -732,6 +733,28 @@ const sourceAccountsRoute = createRoute({
 });
 
 /**
+ * One connection's history, newest line first ("See when a pulled connection
+ * was checked, and why it failed, from its row's History…", issue 1140) - read
+ * when *History…* opens it, never part of the Workspace snapshot, which would
+ * carry every line on every navigation.
+ */
+const connectionHistoryRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/connections/{sourceAccountId}/history',
+  request: { params: z.object({ workspaceId: z.string(), sourceAccountId: z.string() }) },
+  responses: {
+    200: {
+      description: "The connection's history, newest line first",
+      content: { 'application/json': { schema: connectionHistorySchema } },
+    },
+    404: {
+      description: 'Unknown workspace or connection',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * The connectors this environment's registry holds that a person can sign in
  * to ("List the registry's connectors in the Connections window", issue 894):
  * what the Connections window draws a card from, so adding a source adds its
@@ -1282,11 +1305,24 @@ const routes = app
         sourceAccounts: (await account.sourceAccounts(workspaceId)).map((held) => {
           const options = choiceOptionsOf(c.env, held.connectorId);
           const label = options?.find((option) => option.value === held.follows)?.label;
-          return label === undefined ? held : { ...held, followsLabel: label };
+          // A pulled connection's checks are what its history holds (issue 1140).
+          const keepsHistory = getConnector(c.env, held.connectorId)?.manifest.pulled === true;
+          return {
+            ...held,
+            ...(label === undefined ? {} : { followsLabel: label }),
+            ...(keepsHistory ? { keepsHistory } : {}),
+          };
         }),
       },
       200,
     );
+  })
+  .openapi(connectionHistoryRoute, async (c) => {
+    const { workspaceId, sourceAccountId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    // Throws where the row is not a live connection of this Workspace, which
+    // `onError` answers with the 404 every connection route gives.
+    return c.json({ lines: await account.connectionHistory(workspaceId, sourceAccountId) }, 200);
   })
   .openapi(registeredConnectorsRoute, async (c) => {
     // Listed only where Connect would go through: the sign-in, client and

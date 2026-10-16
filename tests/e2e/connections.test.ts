@@ -171,6 +171,18 @@ test.describe('Connector management', () => {
       const checked = await openSettings(page, 'Connections', isMobile);
       await expect(checked.getByText(/^Gmail · Labelled Cockpit · last checked /)).toBeVisible();
 
+      // Its history ("See when a pulled connection was checked, and why it
+      // failed, from its row's History…", issue 1140): the checks it has had
+      // worked and brought nothing to say, under Today, and ‹ Connections goes
+      // back to the row. What each line says is held by ManageConnections.test.tsx.
+      await chooseRowAction(page, 'michael@example.com', 'History…', isMobile);
+      const history = checked.getByRole('region', { name: 'History of michael@example.com' });
+      await expect(
+        history.getByRole('region', { name: 'Today' }).getByText(/^(Worked|Checked \d+ times, nothing new)$/),
+      ).toBeVisible();
+      await press(history.getByRole('button', { name: '‹ Connections' }), isMobile);
+      await expect(checked.getByText(/^Gmail · Labelled Cockpit · last checked /)).toBeVisible();
+
       // Switched to the star without signing in again: the row names it.
       await chooseRowAction(page, 'michael@example.com', 'Change…', isMobile);
       const following = page.getByRole('dialog', { name: 'Change michael@example.com' });

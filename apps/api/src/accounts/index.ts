@@ -2,6 +2,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
+  ConnectionHistoryLine,
   Item,
   Panel,
   ServerEvent,
@@ -312,6 +313,8 @@ export interface Account {
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(workspaceId: string, sourceAccountId: string): Promise<{ lastArrivedAt: string | null }>;
+  /** One connection of this Workspace's history, newest line first (issue 1140). */
+  connectionHistory(workspaceId: string, sourceAccountId: string): Promise<ConnectionHistoryLine[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
   applyChange<N extends CommandName>(
     name: N,
@@ -432,6 +435,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     transcriptionArrived: async (at) => store.transcriptionArrived(at),
     claudeCodeHookArrival: async (workspaceId, sourceAccountId) =>
       unwrap(await store.claudeCodeHookArrival(accountName, workspaceId, sourceAccountId)),
+    connectionHistory: async (workspaceId, sourceAccountId) =>
+      unwrap(await store.connectionHistory(accountName, workspaceId, sourceAccountId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
     beginPulledRun: async (sourceAccountId) => unwrap(await store.beginPulledRun(accountName, sourceAccountId)),
