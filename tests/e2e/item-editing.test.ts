@@ -1223,6 +1223,22 @@ test.describe('Item editing', () => {
       await openItem(page, first, isMobile);
       await centerIfDocked(page, isMobile);
 
+      // With the account's form centered, J on a row opens it docked on the
+      // next one for that opening only ("Move through the Inbox with J and K,
+      // the docked form following", issue 1110); closed, the ordinary way in
+      // is still the centered window.
+      await page.keyboard.press('Escape');
+      await expect(form(page)).toHaveCount(0);
+      const inboxRows = page.locator('[data-inbox] li[data-item-row]');
+      await inboxRows.nth(0).click();
+      await page.keyboard.press('j');
+      await expect(form(page)).toHaveAttribute('data-docked-form', '');
+      await expect(inboxRows.nth(1)).toHaveAttribute('aria-current', 'true');
+      await page.keyboard.press('Escape');
+      await expect(form(page)).toHaveCount(0);
+      await openItem(page, first, isMobile);
+      await expect(form(page)).not.toHaveAttribute('data-docked-form', '');
+
       let followedTo = first;
       try {
         const docking = answeredThePresentation(page);
@@ -1243,6 +1259,25 @@ test.describe('Item editing', () => {
         await expect(titleBox(page)).toHaveValue(next);
         await expect(itemRow(page, next)).toHaveAttribute('aria-current', 'true');
         await expect(itemRow(page, renamed)).toBeVisible();
+
+        // J and K move the focus a row at a time and the dock follows
+        // ("Move through the Inbox with J and K, the docked form following",
+        // issue 1110): the click left the keyboard on the row, so K twice
+        // reaches the first row and J the second, wherever the two sit.
+        const rows = page.locator('[data-inbox] li[data-item-row]');
+        // The click moved the keyboard into the form; Escape in its field hands it back to the row, the form staying open.
+        await expect(titleBox(page)).toBeFocused();
+        await titleBox(page).press('Escape');
+        await expect(itemRow(page, next)).toBeFocused();
+        await expect(form(page)).toBeVisible();
+        await page.keyboard.press('k');
+        await page.keyboard.press('k');
+        await expect(rows.nth(0)).toHaveAttribute('aria-current', 'true');
+        await expect(rows.nth(0)).toBeFocused();
+        await page.keyboard.press('j');
+        await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true');
+        await itemRow(page, next).click();
+        await expect(titleBox(page)).toHaveValue(next);
 
         // A capture moves it again and leaves the keyboard in the capture
         // box, so a run of notes can be typed one after another: real focus,

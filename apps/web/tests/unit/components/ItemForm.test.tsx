@@ -2248,6 +2248,8 @@ describe('Item editing', () => {
       held.items = [anItem()];
       held.openItemId = 'item-2';
       held.quietly = true;
+      // As a capture's follow is, docked already; a quiet opening is docked anyway (issue 1110).
+      held.itemFormPresentation = 'docked';
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       const shell = () => (
         <QueryClientProvider client={client}>
@@ -2386,6 +2388,17 @@ describe('Item editing', () => {
       await user.click(centerButton());
 
       await waitFor(() => expect(titleBox()).toHaveFocus());
+    });
+
+    // J and K in the Inbox open the form this way (issue 1110): docked for that
+    // opening, the account's centered choice left unwritten.
+    it('opens docked, and writes no choice, where the account centers it', async () => {
+      held.quietly = true;
+      await theForm();
+
+      expect(held.reportDocked).toHaveBeenCalledWith(true);
+      expect(centerButton()).toBeInTheDocument();
+      expect(held.send).not.toHaveBeenCalledWith(expect.objectContaining({ name: 'set_item_form_presentation' }));
     });
 
     it('tells the rows nothing is docked while the form is centered', async () => {

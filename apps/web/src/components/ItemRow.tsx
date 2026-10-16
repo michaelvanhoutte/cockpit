@@ -873,6 +873,9 @@ export function ItemRow({
       // What a list measures when it works out where a dragged row would land,
       // so the line drawn between rows is not counted as one of them.
       data-item-row=""
+      // Focusable by a click or a program, never by Tab: the row the keyboard is
+      // on is what J and K move from (`InboxPanel`).
+      tabIndex={-1}
       // Which Item this is, for Show on the undo bar to find the row it
       // highlights (`PanelBoard`).
       data-item-id={item.id}
@@ -1054,7 +1057,7 @@ export function ItemRow({
       // overdue row is no longer filled red. The row being shown in a docked
       // form is ringed instead, and named to assistive tech.
       aria-current={dock.openId === item.id ? 'true' : undefined}
-      className={`group relative touch-pan-y border-b border-shade/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
+      className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
       }${selecting?.picked ? 'bg-accent-tint ' : ''}${
         // Every row that will take the Agent in the air is faintly tinted the
