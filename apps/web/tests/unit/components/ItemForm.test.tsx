@@ -142,6 +142,13 @@ vi.mock('../../../src/description/RichDescription', () => ({
 
 vi.mock('../../../src/api/queries', () => ({
   useSendCommand: () => held.send,
+  // What a filing is built on: the Panel as it stands now, which is what `held` holds.
+  useLatestSnapshot: () => async () => ({ filings: held.filings }),
+  workspacesQuery: {
+    queryKey: ['workspaces'],
+    queryFn: async () => ({ workspaces: [{ id: 'ws-work', name: 'Work' }] }),
+  },
+  refusalFrom: ({ error }: { error: unknown }) => (error instanceof Error ? error.message : null),
   // Keyed on the item alone, and answering what `held` holds when it is asked,
   // so a re-read is the form's own doing and not a new key's.
   rewriteHistoryForItemQuery: (itemId: string) => ({
@@ -251,6 +258,9 @@ async function theForm(
   await theEditorHasArrived();
   return userEvent.setup();
 }
+
+/** `theForm`, for the describes that wrap it with a wait of their own. */
+const theFormOpened = theForm;
 
 /**
  * The editor is fetched behind the form, so for a tick the description is the
@@ -932,38 +942,245 @@ describe('Item editing', () => {
     });
   });
 
-  describe('the form lists where the item is shown, read-only, at the bottom of Details', () => {
-    const detailsTab = async (user: ReturnType<typeof userEvent.setup>) =>
-      user.click(screen.getByRole('tab', { name: 'Details' }));
-
-    it('names the dashboard and panel it is filed on, and puts the list last', async () => {
+  describe('Details names no Shown on, and On panels lists the Panels the Item is filed on', () => {
+    const aPanelOn = (id: string, name: string, kind: Panel['kind'] = 'items'): Panel =>
+      ({ id, tenantId: 't', dashboardId: 'd1', name, kind, format: 'plain', body: '', readOnly: false, neverPropose: false, filter: null, sort: null }) as Panel;
+    const FALCON = aPanelOn('p-falcon', 'Falcon');
+    const ATLAS = aPanelOn('p-atlas', 'Atlas');
+    const onPanels = () => within(screen.getByRole('group', { name: 'On panels' }));
+    /** The field is fetched behind the form, like the editor. */
+    const theForm = async (...args: Parameters<typeof theFormOpened>) => {
+      const user = await theFormOpened(...args);
+      await screen.findByRole('group', { name: 'On panels' });
+      return user;
+    };
+    const lastSent = (at: number) => (held.send.mock.calls as unknown as [{ payload: unknown }][])[at]![0];
+    const filedOn = (...panelIds: string[]) => {
       held.dashboards = [{ id: 'd1', name: 'Work' }];
-      held.panels = [{ id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Falcon', kind: 'items', format: 'plain', body: '', readOnly: false, neverPropose: false, filter: null, sort: null }];
-      held.filings = [{ panelId: 'p1', itemId: 'item-1', position: 0 }];
-      const user = await theForm();
+      held.panels = [FALCON, ATLAS, aPanelOn('p-journal', 'Journal', 'text'), aPanelOn('p-due', 'Due soon', 'filter')];
+      held.filings = panelIds.map((panelId, position) => ({ panelId, itemId: 'item-1', position }));
+    };
+    const search = async (user: ReturnType<typeof userEvent.setup>, typed: string) => {
+      await user.click(screen.getByLabelText('Find a Panel to file on'));
+      const box = await screen.findByRole('searchbox', { name: 'Find a Panel to file on' });
+      await user.type(box, typed);
+      return box;
+    };
+    const dockedForm = async () => {
+      held.itemFormPresentation = 'docked';
+      return theForm(anItem(), [], true);
+    };
+    const pick = async (user: ReturnType<typeof userEvent.setup>, typed: string, name: RegExp) => {
+      await search(user, typed);
+      await user.click(await screen.findByRole('button', { name }));
+    };
 
-      await detailsTab(user);
+    it('lists both Panels it is filed on, each with a ✕, and leaves out a Filter that shows it', async () => {
+      filedOn('p-falcon', 'p-atlas', 'p-due');
+      await theForm();
 
-      const heading = screen.getByText('Shown on');
-      expect(heading.closest('dl')?.lastElementChild).toBe(heading.parentElement);
-      expect(screen.getByText('Work › Falcon')).toBeVisible();
-      expect(heading.parentElement?.querySelector('button, input, select')).toBeNull();
+      expect(onPanels().getByText('Falcon')).toBeVisible();
+      expect(onPanels().getByText('Atlas')).toBeVisible();
+      expect(onPanels().getByRole('button', { name: 'Remove from Falcon' })).toBeVisible();
+      expect(onPanels().queryByText('Due soon')).toBeNull();
     });
 
-    it('says the inbox where it is filed nowhere', async () => {
-      const user = await theForm();
+    it('is empty for an Item in the Inbox', async () => {
+      await theForm();
 
-      await detailsTab(user);
-
-      expect(screen.getByText('Inbox')).toBeVisible();
+      expect(onPanels().queryAllByRole('button')).toHaveLength(0);
+      expect(screen.getByPlaceholderText('Inbox — or find a Panel…')).toBeVisible();
     });
 
-    it('says a finished item is not shown on any panel', async () => {
-      const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
+    it('follows the Item being filed elsewhere from another tab', async () => {
+      filedOn('p-falcon');
+      await theForm();
+      expect(onPanels().queryByText('Atlas')).toBeNull();
 
-      await detailsTab(user);
+      // The snapshot is re-read when another tab files the Item, so the list is drawn from the new copy.
+      held.filings = [...held.filings, { panelId: 'p-atlas', itemId: 'item-1', position: 0 }];
+      cleanup();
+      await theForm();
 
-      expect(screen.getByText(/not shown on any panel while it is done/i)).toBeVisible();
+      expect(onPanels().getByText('Atlas')).toBeVisible();
+    });
+
+    it('has no Shown on among the Details', async () => {
+      filedOn('p-falcon');
+      const user = await theForm();
+
+      await user.click(screen.getByRole('tab', { name: 'Details' }));
+
+      expect(screen.getByText('Last changed')).toBeVisible();
+      expect(screen.queryByText('Shown on')).toBeNull();
+    });
+
+    it('offers the Panels of its Workspace it is not on, never a Filter or a Panel of text', async () => {
+      filedOn('p-falcon');
+      const user = await theForm();
+
+      await search(user, 'a');
+
+      const offered = within(await screen.findByRole('list', { name: 'Panels to file on' }));
+      expect(offered.getByRole('button', { name: /Atlas/ })).toBeVisible();
+      expect(offered.queryByRole('button', { name: /Falcon/ })).toBeNull();
+      expect(offered.queryByText('Journal')).toBeNull();
+      expect(offered.queryByText('Due soon')).toBeNull();
+    });
+
+    describe('docked, each change is written at once and offered back', () => {
+      it('files the Item on a Panel the moment it is picked, and Undo takes it off', async () => {
+        filedOn('p-falcon');
+        const user = await dockedForm();
+
+        await pick(user, 'atl', /Atlas/);
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['add_item_to_panel']));
+        expect(lastSent(0)).toMatchObject({
+          payload: { itemId: 'item-1', panelId: 'p-atlas', order: ['item-1'] },
+        });
+        held.send.mockClear();
+        await user.click(await screen.findByText('Undo'));
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['remove_item_from_panel']));
+      });
+
+      it('takes the Item off its last Panel with the ✕, back in the Inbox, and Undo puts it back', async () => {
+        filedOn('p-falcon');
+        const user = await dockedForm();
+
+        await user.click(onPanels().getByRole('button', { name: 'Remove from Falcon' }));
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['remove_item_from_panel']));
+        expect(lastSent(0)).toMatchObject({ payload: { itemId: 'item-1', panelId: 'p-falcon' } });
+        held.send.mockClear();
+        await user.click(await screen.findByText('Undo'));
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['add_item_to_panel']));
+        expect(lastSent(0)).toMatchObject({ payload: { panelId: 'p-falcon', order: ['item-1'] } });
+      });
+
+      it('names the Panel it could not be filed on, and offers no Undo', async () => {
+        filedOn();
+        const user = await dockedForm();
+        held.send.mockImplementation(() => Promise.reject(new Error('That Panel is gone.')));
+
+        await pick(user, 'atl', /Atlas/);
+
+        expect(await screen.findByText(/not filed on “Atlas”.*That Panel is gone\./)).toBeVisible();
+        expect(screen.queryByText('Undo')).toBeNull();
+      });
+    });
+
+    it('lets a Panel the Dock switch could not file be taken off again', async () => {
+      filedOn();
+      const user = await theForm();
+      held.send.mockImplementation(((change: { name: string }) =>
+        change.name === 'add_item_to_panel'
+          ? Promise.reject(new Error('That Panel is gone.'))
+          : Promise.resolve({ ok: true as const, applied: true })) as never);
+
+      await pick(user, 'atl', /Atlas/);
+      await user.click(screen.getByRole('button', { name: 'Dock' }));
+      expect(await screen.findByText(/not filed on “Atlas”/)).toBeVisible();
+
+      await user.click(onPanels().getByRole('button', { name: 'Remove from Atlas' }));
+      expect(onPanels().queryByText('Atlas')).toBeNull();
+    });
+
+    describe('in the modal, a change waits for Save like every other field', () => {
+      it('writes nothing for a Panel added and then Cancel', async () => {
+        filedOn();
+        const user = await theForm();
+
+        await pick(user, 'atl', /Atlas/);
+        expect(onPanels().getByText('Atlas')).toBeVisible();
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(held.send).not.toHaveBeenCalled();
+        expect(held.close).toHaveBeenCalled();
+      });
+
+      it('writes the title edit and then the Panel on Save', async () => {
+        filedOn();
+        const user = await theForm();
+
+        await user.type(titleBox(), ' now');
+        await pick(user, 'atl', /Atlas/);
+        expect(held.send).not.toHaveBeenCalled();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_title', 'add_item_to_panel']);
+      });
+
+      it('files on the new Panel before it takes the Item off the old one', async () => {
+        filedOn('p-falcon');
+        const user = await theForm();
+
+        await user.click(onPanels().getByRole('button', { name: 'Remove from Falcon' }));
+        await pick(user, 'atl', /Atlas/);
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['add_item_to_panel', 'remove_item_from_panel']);
+      });
+
+      it('keeps the saved title and names the Panel that was refused', async () => {
+        filedOn();
+        const user = await theForm();
+        held.send.mockImplementation(((change: { name: string }) =>
+          change.name === 'add_item_to_panel'
+            ? Promise.reject(new Error('That Panel is gone.'))
+            : Promise.resolve({ ok: true as const, applied: true })) as never);
+
+        await user.type(titleBox(), ' now');
+        await pick(user, 'atl', /Atlas/);
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(await screen.findByText(/not filed on “Atlas”.*That Panel is gone\./)).toBeVisible();
+        expect(held.close).not.toHaveBeenCalled();
+        expect(sent().map((change) => change.name)).toEqual(['set_title', 'add_item_to_panel']);
+        // A second Save sends the Panel again and the title never again.
+        held.send.mockClear();
+        held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['add_item_to_panel']);
+      });
+
+      it('leaves the earlier changes applied when a later one is refused', async () => {
+        filedOn('p-falcon');
+        const user = await theForm();
+        held.send.mockImplementation(((change: { name: string }) =>
+          change.name === 'remove_item_from_panel'
+            ? Promise.reject(new Error('Nope.'))
+            : Promise.resolve({ ok: true as const, applied: true })) as never);
+
+        await pick(user, 'atl', /Atlas/);
+        await user.click(onPanels().getByRole('button', { name: 'Remove from Falcon' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(await screen.findByText(/not taken off “Falcon”.*Nope\./)).toBeVisible();
+        expect(sent().map((change) => change.name)).toEqual(['add_item_to_panel', 'remove_item_from_panel']);
+        expect(held.close).not.toHaveBeenCalled();
+      });
+
+      it('waits for Save on a phone too', async () => {
+        const original = window.innerWidth;
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+        try {
+          filedOn('p-falcon');
+          const user = await theForm();
+
+          await user.click(onPanels().getByRole('button', { name: 'Remove from Falcon' }));
+          expect(held.send).not.toHaveBeenCalled();
+          await user.click(screen.getByRole('button', { name: 'Save' }));
+
+          await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+          expect(sent().map((change) => change.name)).toEqual(['remove_item_from_panel']);
+        } finally {
+          Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
+        }
+      });
     });
   });
 
