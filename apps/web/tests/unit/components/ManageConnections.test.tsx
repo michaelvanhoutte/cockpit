@@ -889,6 +889,7 @@ describe('Connector management', () => {
     displayName: 'anna@example.com',
     connectedAt: '2026-10-01T09:00:00.000Z',
     lastTestedAt: '2026-10-16T12:20:00.000Z',
+    filesByName: false,
     failingBecause: null,
     keepsHistory: true,
   };

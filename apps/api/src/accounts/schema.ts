@@ -1725,7 +1725,7 @@ export const connectorAccounts = sqliteTable(
      * Whether the connection files what it brings in on the Panel named after
      * its label or category ("File Outlook mail on the Panel named after its
      * category", issue 1146). Off for every connection made before it
-     * (`0079-files-by-name`, changes.ts) and until a person ticks the box; read
+     * (`0078-files-by-name`, changes.ts) and until a person ticks the box; read
      * by the check, never by the connector.
      */
     filesByName: integer('files_by_name', { mode: 'boolean' }).notNull().default(false),

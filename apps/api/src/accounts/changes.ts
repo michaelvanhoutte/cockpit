@@ -658,7 +658,7 @@ const CONNECTION_HISTORY: Change = {
  *   changes, so this one applies the next time the account is opened.
  */
 const FILES_BY_NAME: Change = {
-  name: '0079-files-by-name',
+  name: '0078-files-by-name',
   statements: [
     {
       sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `files_by_name` integer DEFAULT 0 NOT NULL CONSTRAINT "connector_accounts_files_by_name_is_a_flag" CHECK(files_by_name IN (0, 1))',

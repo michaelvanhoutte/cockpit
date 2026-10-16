@@ -1907,7 +1907,8 @@ describe('Connector management', () => {
 
       expect(read).toEqual({ status: 'ok', value: [] });
       expect(await rowsIn()).toEqual({
-        connections: before.connections,
+        // With `files_by_name` off, which `0078-files-by-name` adds on the same open.
+        connections: before.connections.map((row) => ({ ...row, files_by_name: 0 })),
         checks: before.checks.map((row) => ({ ...row, check_reason: null })),
       });
     });
@@ -1984,7 +1985,7 @@ const GMAIL_RECONNECT = '0066-gmail-connections-reconnect';
  */
 const connectorRowsIn = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, which `0079-files-by-name` adds on the same open.
+    // Without `files_by_name`, which `0078-files-by-name` adds on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
@@ -2078,14 +2079,14 @@ const schemaIn = (name: string) =>
 /** The rows the drop must leave alone: connections, Items and the generic host's own. */
 const keptBesideGmail = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, which `0079-files-by-name` adds on the same open.
+    // Without `files_by_name`, which `0078-files-by-name` adds on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
       .map(({ follows: _follows, files_by_name: _filesByName, ...row }) => row),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
-    // Without `names`, which `0079-files-by-name` adds on the same open.
+    // Without `names`, which `0078-files-by-name` adds on the same open.
     links: sql
       .exec('SELECT * FROM pulled_links ORDER BY source_id')
       .toArray()
@@ -3028,14 +3029,14 @@ describe('Triage', () => {
 });
 
 /**
- * `0079-files-by-name` ("File Outlook mail on the Panel named after its
+ * `0078-files-by-name` ("File Outlook mail on the Panel named after its
  * category", issue 1146) meets connections and a link from before it: every
  * connection reads as not filing by name and every link as having no names
  * recorded, so nothing already in is filed.
  */
 describe('Connector management', () => {
   describe('the migration leaves every existing connection off and every existing link without a baseline', () => {
-    const FILES_BY_NAME = '0079-files-by-name';
+    const FILES_BY_NAME = '0078-files-by-name';
     const filingRowsIn = (name: string) =>
       inStoreAsItIs(name, (sql) => ({
         switches: sql.exec('SELECT id, files_by_name FROM connector_accounts ORDER BY id').toArray(),
