@@ -38,17 +38,30 @@ function ChoiceQuestion({
 /** The connector being connected, as the question needs to name it. */
 interface Asked {
   displayName: string;
-  choice: ConnectorChoice;
+  /** What the connector asks, where it asks a question. */
+  choice?: ConnectorChoice | undefined;
+  /** How the connector speaks of names, where it reports any: the tick box is drawn when present (issue 1147). */
+  names?: ConnectorNames | undefined;
   /** The option to start at - a reconnect's own choice - where it is one of the options. */
   startAt?: string | undefined;
+  /** Whether the tick box starts ticked - a reconnected row's own value; unticked on a first Connect. */
+  startFilesByName?: boolean | undefined;
+}
+
+/** What the person answered before Connect leaves: each part is present only where the connector asked it. */
+export interface ConnectAnswer {
+  choice?: string;
+  filesByName?: boolean;
 }
 
 /**
  * The step before the source ("Ask a connection's one choice on connecting,
- * and change it later", issue 942): the connector's own question, answered
- * before Connect leaves, the answer riding the address to the sign-in that
- * carries it back. Starts at the connector's first option every time it opens,
- * or at a reconnected row's own choice.
+ * and change it later", issue 942): the connector's own question, and for a
+ * connector that reports names whether it files by them ("Ask on Connect
+ * whether a mail connection files by label or category", issue 1147), answered
+ * before Connect leaves, the answers riding the address to the sign-in that
+ * carries them back. Starts at the connector's first option and unticked every
+ * time it opens, or at a reconnected row's own values.
  *
  * **Nested over `ManageConnections`'s window**, so Cancel leaves the
  * connections list exactly where it was.
@@ -62,7 +75,7 @@ export function ConnectWithChoice({
   /** The connector being connected; absent, the window is shut. */
   connector: Asked | null;
   /** Leaves for the source with the option picked. */
-  onConnect: (value: string) => void;
+  onConnect: (answer: ConnectAnswer) => void;
   onClose: () => void;
   returnFocusTo?: HTMLElement | null;
 }) {
@@ -86,17 +99,21 @@ export function ConnectWithChoice({
   );
 }
 
-function Question({ connector, onConnect }: { connector: Asked; onConnect: (value: string) => void }) {
+function Question({ connector, onConnect }: { connector: Asked; onConnect: (answer: ConnectAnswer) => void }) {
+  const { choice, names } = connector;
   const [value, setValue] = useState(
-    connector.choice.options.find((option) => option.value === connector.startAt)?.value ??
-      connector.choice.options[0]!.value,
+    choice && (choice.options.find((option) => option.value === connector.startAt)?.value ?? choice.options[0]!.value),
   );
+  const [filesByName, setFilesByName] = useState(connector.startFilesByName ?? false);
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Dialog.Title className="text-base font-semibold">Connect {connector.displayName}</Dialog.Title>
         <Dialog.Description className="sr-only">Choose before signing in.</Dialog.Description>
-        <ChoiceQuestion choice={connector.choice} value={value} onChange={setValue} />
+        {choice && value !== undefined && (
+          <ChoiceQuestion choice={choice} value={value} onChange={setValue} />
+        )}
+        {names && <FilesByName names={names} checked={filesByName} onChange={setFilesByName} />}
       </div>
       <div className="flex justify-end gap-2 pt-4">
         <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
@@ -105,7 +122,12 @@ function Question({ connector, onConnect }: { connector: Asked; onConnect: (valu
         <button
           type="button"
           // Leaves the application, as every Connect does.
-          onClick={() => onConnect(value)}
+          onClick={() =>
+            onConnect({
+              ...(choice && typeof value === 'string' ? { choice: value } : {}),
+              ...(names ? { filesByName } : {}),
+            })
+          }
           className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover"
         >
           Connect
