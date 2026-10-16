@@ -307,6 +307,7 @@ describe('Connector management', () => {
               { value: 'star', label: 'Starred (flagged in Outlook)' },
             ],
           },
+          names: { noun: 'label', example: 'a conversation labelled' },
           refusals: GMAIL_REFUSALS,
         },
         {
