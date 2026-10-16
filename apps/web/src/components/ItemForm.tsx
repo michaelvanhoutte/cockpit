@@ -289,10 +289,14 @@ function TheForm({
     // effect exists for falls through to `data` again on the next render
     // (found in review).
     if (fixedPresentation === null && data) {
-      setFixedPresentation(data.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION);
+      // A form opened quietly with none open before it is the Inbox's J or K
+      // (issue 1110; a capture and a row follow only a form already docked):
+      // docked for this opening, held here like any lock and never written to
+      // the account.
+      setFixedPresentation(openedQuietly ? 'docked' : (data.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION));
     }
-  }, [data, fixedPresentation, setFixedPresentation]);
-  const presentation = fixedPresentation ?? data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
+  }, [data, fixedPresentation, setFixedPresentation, openedQuietly]);
+  const presentation = fixedPresentation ?? (openedQuietly ? 'docked' : data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION);
   const chosenDocked = presentation === 'docked';
   const screenWidth = useScreenWidth();
   /**

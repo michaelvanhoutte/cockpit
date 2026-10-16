@@ -1223,6 +1223,22 @@ test.describe('Item editing', () => {
       await openItem(page, first, isMobile);
       await centerIfDocked(page, isMobile);
 
+      // With the account's form centered, J on a row opens it docked on the
+      // next one for that opening only ("Move through the Inbox with J and K,
+      // the docked form following", issue 1110); closed, the ordinary way in
+      // is still the centered window.
+      await page.keyboard.press('Escape');
+      await expect(form(page)).toHaveCount(0);
+      const inboxRows = page.locator('[data-inbox] li[data-item-row]');
+      await inboxRows.nth(0).click();
+      await page.keyboard.press('j');
+      await expect(form(page)).toHaveAttribute('data-docked-form', '');
+      await expect(inboxRows.nth(1)).toHaveAttribute('aria-current', 'true');
+      await page.keyboard.press('Escape');
+      await expect(form(page)).toHaveCount(0);
+      await openItem(page, first, isMobile);
+      await expect(form(page)).not.toHaveAttribute('data-docked-form', '');
+
       let followedTo = first;
       try {
         const docking = answeredThePresentation(page);

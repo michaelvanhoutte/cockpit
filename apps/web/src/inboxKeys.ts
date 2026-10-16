@@ -35,10 +35,3 @@ function coveredByAWindow(root: ParentNode): boolean {
 }
 
 const STEPS: Record<string, 1 | -1> = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
-
-/** The row one step from `from` in `ids`, or null where there is none to move to: the ends stay put, and so does a row that is not listed. */
-export function neighbourOf(ids: readonly string[], from: string, step: 1 | -1): string | null {
-  const at = ids.indexOf(from);
-  if (at === -1) return null;
-  return ids[at + step] ?? null;
-}

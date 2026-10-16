@@ -312,29 +312,21 @@ describe('Triage', () => {
       expect(rowOfTitle('Second')).toHaveFocus();
     });
 
-    it('opens the form where the account docks it and none is open', async () => {
-      const user = userEvent.setup();
-      const show = vi.fn();
-      held.presentation = 'docked';
-      await showWorkspace([anItem('First'), anItem('Second')], [], { openId: null, show });
-      act(() => rowOfTitle('First').focus());
+    it.each(['centered', 'docked'] as const)(
+      'opens the form docked for this opening where none is open, the account centering or docking it (%s)',
+      async (presentation) => {
+        const user = userEvent.setup();
+        const show = vi.fn();
+        held.presentation = presentation;
+        await showWorkspace([anItem('First'), anItem('Second')], [], { openId: null, show });
+        act(() => rowOfTitle('First').focus());
 
-      await user.keyboard('j');
+        await user.keyboard('j');
 
-      expect(show).toHaveBeenCalledExactlyOnceWith(idOf('Second'), { keepFocus: true });
-    });
-
-    it('opens nothing where the account centers its form', async () => {
-      const user = userEvent.setup();
-      const show = vi.fn();
-      await showWorkspace([anItem('First'), anItem('Second')], [], { openId: null, show });
-      act(() => rowOfTitle('First').focus());
-
-      await user.keyboard('j');
-
-      expect(rowOfTitle('Second')).toHaveFocus();
-      expect(show).not.toHaveBeenCalled();
-    });
+        expect(show).toHaveBeenCalledExactlyOnceWith(idOf('Second'), { keepFocus: true });
+        expect(rowOfTitle('Second')).toHaveFocus();
+      },
+    );
 
     it('leaves J to the keyboard in a field', async () => {
       const user = userEvent.setup();

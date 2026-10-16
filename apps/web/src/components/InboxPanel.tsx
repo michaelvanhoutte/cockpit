@@ -6,7 +6,7 @@ import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { INBOX_KEY } from '../inboxCollapsed';
-import { inboxStep, neighbourOf } from '../inboxKeys';
+import { inboxStep } from '../inboxKeys';
 import { useDockedItem } from '../itemForm';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { rowOf, useLanding, useLandingStep } from '../landOnItem';
@@ -249,20 +249,18 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
         const target = event.target;
         if (!room || !(target instanceof HTMLElement) || !event.currentTarget.contains(target)) return;
         const step = inboxStep(event.nativeEvent);
-        const from = step === null ? undefined : target.closest<HTMLElement>('[data-item-row]')?.dataset.itemId;
+        const from = step === null ? null : target.closest('li[data-item-row]');
         if (step === null || !from) return;
         event.preventDefault();
         const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('li[data-item-row]')];
-        const ids = rows.map((row) => row.dataset.itemId ?? '');
-        const to = neighbourOf(ids, from, step);
-        if (to === null) return;
-        rows[ids.indexOf(to)]?.focus();
-        // Followed where a form is docked open, and opened where the account
-        // docks it and none is: with the form centered, a move opens nothing,
-        // since a window over the list would take the keys it was moved for.
-        if (dock.openId !== null || data.itemFormPresentation === 'docked') {
-          dock.show(to, { keepFocus: true });
-        }
+        const to = rows[rows.indexOf(from as HTMLElement) + step];
+        if (!to) return;
+        to.focus();
+        // Followed where a form is docked open, and opened docked where none
+        // is, for this opening only (`ItemForm.tsx`): a centered window would
+        // take the keys it was moved for, and the account's own choice is
+        // left as it is.
+        dock.show(to.dataset.itemId!, { keepFocus: true });
       }}
     >
       <ItemList
