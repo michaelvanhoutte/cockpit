@@ -3163,6 +3163,23 @@ describe('Triage', () => {
     });
   });
 
+  describe('a shift-click reaches across the rows as the groups draw them', () => {
+    it('picks the two rows and none between them in the Inbox order that the groups moved away', async () => {
+      const items = [
+        proposedFor('Fal1', 'p-falcon'),
+        proposedFor('Mid1', 'p-anna'),
+        proposedFor('Fal2', 'p-falcon'),
+      ];
+      const user = await showInbox(items);
+
+      await tick(user, items[0]!);
+      await tick(user, items[2]!, true);
+
+      expect(screen.getByText('2 selected')).toBeVisible();
+      expect(isPicked(items[1]!)).toBe(false);
+    });
+  });
+
   describe('inside a group the chip of a row reads File, and outside it names the Dashboard and Panel', () => {
     it('reads File, filled when clear and dashed when closest, and files that row on the Panel of the group', async () => {
       const clear = proposedFor('Fal1', 'p-falcon');

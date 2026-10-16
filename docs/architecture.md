@@ -448,7 +448,7 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 
 **Moved from 220KB to 221KB for Find item** ("Find an open Item with F and Shift+F, and land on its row", issue 828): the key handling and the landing request that outlives the column are in the entry, the board that draws the row consuming it; the filter bar's `F` handling that left was less than they added.
 
-**Moved from 221KB to 223KB** (the gate stood at 222KB after the Inbox's one-key triage, "Act on the focused Inbox row with one key, and move on", issue 1111; this line had not caught up) **for the Inbox grouped by proposed Panel** ("Group the Inbox's rows under a header per proposed Panel", issue 1166): the grouping and its headers are in the entry because the Inbox is the first thing drawn on a cold open, and a lazy chunk would paint it flat and then rearrange it every time.
+**Moved from 221KB to 223KB for the Inbox grouped by proposed Panel** ("Group the Inbox's rows under a header per proposed Panel", issue 1166): the grouping and its headers are in the entry because the Inbox is the first thing drawn on a cold open, and a lazy chunk would paint it flat and then rearrange it every time.
 
 Two standing rules follow: **never block paint on auth** (paint the cached snapshot, verify the session in the background; long-lived sessions with silent refresh, no OAuth redirect on the hot path), and **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 

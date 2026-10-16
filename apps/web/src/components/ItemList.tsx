@@ -704,7 +704,11 @@ export function ItemList({
   const pick = (item: Item, withShift: boolean) => {
     setSelection((was) =>
       afterClicking(
-        items.map((row) => row.id),
+        // In the order drawn, so a shift-click reaches across what is between
+        // the two rows on the screen, groups included.
+        (proposalGroups ? [...proposalGroups.groups.flatMap((group) => group.items), ...proposalGroups.rest] : items).map(
+          (row) => row.id,
+        ),
         was,
         item.id,
         withShift,
@@ -937,7 +941,10 @@ export function ItemList({
     const held = new Map<string, Item[]>();
     for (const item of items) {
       const proposal = routingProposalFor(item);
-      if (proposal) held.set(proposal.panelId, [...(held.get(proposal.panelId) ?? []), item]);
+      if (!proposal) continue;
+      const rows = held.get(proposal.panelId);
+      if (rows) rows.push(item);
+      else held.set(proposal.panelId, [item]);
     }
     const dashboards = data?.dashboards ?? [];
     const panels = data?.panels ?? [];
