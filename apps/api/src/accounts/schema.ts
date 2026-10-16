@@ -36,6 +36,7 @@ import type {
   Source,
   StoredPanelKind,
 } from '@cockpit/shared';
+import type { CheckReason } from '../domain/connection-history.js';
 
 /**
  * The palette `item_types.color` is checked against. Kept here, not in the wire
@@ -1862,6 +1863,10 @@ export const claudeCodeHookArrivals = sqliteTable(
  * - `run_id` and `lease_until` name the run under way; every call the run
  *   makes is refused once its connection is gone or another run has taken
  *   it, which a delivery may do once `lease_until` has passed.
+ * - `check_reason` is why the check made due next - and then queued and run -
+ *   runs, carried into its line of the history (issue 1140): `follow-up`
+ *   where the check before it worked and said there was more to do, null for
+ *   the connection's own cadence.
  *
  * **No foreign key**, for the reason `connectionFailures` gives: a disconnect
  * deletes its connection for real, and a row here naming one that has gone is
@@ -1877,12 +1882,56 @@ export const pulledConnections = sqliteTable(
     queuedAt: text('queued_at'),
     runId: text('run_id'),
     leaseUntil: text('lease_until'),
+    checkReason: text('check_reason').$type<CheckReason>(),
   },
   (t) => [
     check('pulled_connections_state_is_json', sql.raw('state IS NULL OR json_valid(state)')),
     check('pulled_connections_due_at_is_timestamp', isTimestamp('due_at')),
     check('pulled_connections_queued_at_is_timestamp', isTimestamp('queued_at')),
     check('pulled_connections_lease_until_is_timestamp', isTimestamp('lease_until')),
+  ],
+);
+
+/**
+ * What each check of a connection did ("See when a pulled connection was
+ * checked, and why it failed, from its row's History…", issue 1140): a line
+ * per check, written in the same transaction that ends it - except that a
+ * check alike the line before it extends that line instead (`whatACheckWrites`,
+ * domain/connection-history.ts), so `count` checks ran between `first_at` and
+ * `last_at`.
+ *
+ * - `outcome` is `worked` or `failed`; `message` is a failure's, kept to 2 KB
+ *   and `message_cut` where it was longer, null where the source said nothing.
+ * - `reason` is why the line's first check ran (`CheckReason`). **No CHECK on
+ *   its values**, since SQLite cannot widen one without rebuilding the table,
+ *   and *Check now* adds one ("Check a pulled connection now, from its row or
+ *   its history", issue 1143).
+ *
+ * **No foreign key**, for the reason `connectionFailures` gives: a disconnect
+ * deletes its connection for real, and its lines are never read again, since
+ * the read asks for a live connection first.
+ */
+export const connectionHistory = sqliteTable(
+  'connection_history',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    sourceAccountId: text('source_account_id').notNull(),
+    outcome: text('outcome').notNull().$type<'worked' | 'failed'>(),
+    reason: text('reason').notNull().$type<CheckReason>(),
+    message: text('message'),
+    messageCut: integer('message_cut', { mode: 'boolean' }).notNull(),
+    count: integer('count').notNull(),
+    firstAt: text('first_at').notNull(),
+    lastAt: text('last_at').notNull(),
+  },
+  (t) => [
+    index('connection_history_newest').on(t.tenantId, t.sourceAccountId, t.lastAt),
+    check('connection_history_outcome_is_known', oneOf('outcome', ['worked', 'failed'])),
+    check('connection_history_message_cut_is_flag', sql.raw('message_cut IN (0, 1)')),
+    check('connection_history_count_is_positive', sql.raw('count >= 1')),
+    check('connection_history_first_at_is_timestamp', isTimestamp('first_at')),
+    check('connection_history_last_at_is_timestamp', isTimestamp('last_at')),
   ],
 );
 

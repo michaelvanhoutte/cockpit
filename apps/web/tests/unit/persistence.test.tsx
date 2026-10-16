@@ -152,4 +152,26 @@ describe('Offline', () => {
       expect(screen.getByText('three panels')).toBeInTheDocument();
     });
   });
+
+  describe('the copy holds what the app paints from, and never what is read only to be current', () => {
+    it('stores the Workspace, and neither the register nor a connection’s history', async () => {
+      const client = new QueryClient();
+      render(
+        <PaintedFromTheStoredCopy client={client}>
+          <p>open</p>
+        </PaintedFromTheStoredCopy>,
+      );
+      await screen.findByText('open');
+
+      client.setQueryData(['registeredUsers'], { users: [] });
+      client.setQueryData(['connectionHistory', 'ws-work', 'account-anna'], { lines: [] });
+      client.setQueryData(WHAT_THE_WORKSPACE_HOLDS, 'three panels');
+
+      const storedKeys = () =>
+        ((stored.get('cockpit-query-cache-v1') as { clientState?: { queries: { queryKey: unknown[] }[] } } | undefined)
+          ?.clientState?.queries ?? []).map((query) => query.queryKey[0]);
+      await vi.waitFor(() => expect(storedKeys()).toContain('snapshot'), { timeout: 3_000 });
+      expect(storedKeys()).toEqual(['snapshot']);
+    });
+  });
 });

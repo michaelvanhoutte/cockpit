@@ -117,7 +117,7 @@ export const CACHE_BUSTER = 'v15';
  * What is worth keeping on disk, which is everything the app paints itself from
  * and nothing else.
  *
- * **The register is the exception, and deliberately.** The admin page's list is
+ * **The register is an exception, and deliberately.** The admin page's list is
  * every person's name, address, role and account, and writing it into one
  * admin's browser would keep other people's addresses there for a week, on a
  * machine that is not theirs, for a page the admin opens now and then. It is
@@ -125,10 +125,15 @@ export const CACHE_BUSTER = 'v15';
  * the register must not go on being drawn from a copy - and there is nothing to
  * paint offline, since the page cannot act without the server anyway.
  *
+ * **So is a connection's history** ("See when a pulled connection was checked,
+ * and why it failed, from its row's History…", issue 1140): read each time
+ * *History…* opens, it is hundreds of lines of a source's failure messages
+ * that nothing paints from, and a copy drawn offline would read as current.
+ *
  * Written as what is kept out rather than what is let in, so a query added
  * later is stored like every other unless somebody decides otherwise.
  */
-const NOT_STORED: readonly string[] = ['registeredUsers'];
+const NOT_STORED: readonly string[] = ['registeredUsers', 'connectionHistory'];
 
 function worthStoring(query: { queryKey: readonly unknown[]; state: { status: string } }): boolean {
   if (NOT_STORED.includes(String(query.queryKey[0]))) return false;

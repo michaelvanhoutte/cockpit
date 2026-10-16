@@ -3,6 +3,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
+  ConnectionHistoryLine,
   Item,
   Panel,
   ServerEvent,
@@ -39,6 +40,7 @@ import {
 } from './call-window.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
+import { connectionHistoryOf } from './connection-history.js';
 import {
   applyPulledSourceChange,
   closePulledItemsNotListed,
@@ -854,6 +856,19 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
       return { lastArrivedAt: lastHookArrival(db, accountName, sourceAccountId) };
     });
+  }
+
+  /**
+   * One connection's history, newest line first - refused as not found unless
+   * it is a live connection of this Workspace ("See when a pulled connection
+   * was checked, and why it failed, from its row's History…", issue 1140).
+   */
+  connectionHistory(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Answer<ConnectionHistoryLine[]> {
+    return this.#answer(accountName, (db) => connectionHistoryOf(db, accountName, workspaceId, sourceAccountId));
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */
