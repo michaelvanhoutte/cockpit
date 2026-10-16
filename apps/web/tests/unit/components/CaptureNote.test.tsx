@@ -571,6 +571,8 @@ describe('Capture', () => {
       expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
       await waitFor(() => expect(screen.queryByText('1 not sent')).toBeNull());
       expect(user.outbox.getShown()).toEqual([]);
+      // Back in the box already, so the line offers no second Undo of it.
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     });
 
     it('counts a note spoken in the Car view as waiting to send while its recording waits for its words', async () => {

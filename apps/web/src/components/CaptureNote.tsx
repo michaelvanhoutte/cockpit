@@ -297,6 +297,8 @@ export function CaptureNote({
     if (putBackHere.current.has(entry.id)) return;
     putBackHere.current.add(entry.id);
     setPutBack((was) => new Set(was).add(entry.id));
+    // Back in the box already: Undo on the same capture would put it there twice.
+    setLast((was) => (was?.id === entry.id ? null : was));
     const back = whatGoesBack(entry);
     if (back.recording) {
       // A spoken note refused before its words came back: its recording is
@@ -345,8 +347,7 @@ export function CaptureNote({
 
   /** A draft back in the box: after what is already there, and not over a choice made since. */
   const restore = (draft: Captured) => {
-    setMessage((was) => (was.trim() ? `${was}
-${draft.message}` : draft.message));
+    setMessage((was) => (was.trim() ? `${was}\n${draft.message}` : draft.message));
     setWhere(draft.where);
     if (draft.priority) setPriority((was) => was ?? draft.priority);
     if (draft.due) setDue((was) => was ?? draft.due);
@@ -367,6 +368,7 @@ ${draft.message}` : draft.message));
     const back = last;
     undone.current.add(back.id);
     setUndoing(true);
+    let unsure = false;
     try {
       const took = await outbox.takeBack(back.id);
       if (took !== 'unsent') {
@@ -384,6 +386,8 @@ ${draft.message}` : draft.message));
         } catch (failure) {
           // A send that got no answer may never have landed, so there may be nothing to dismiss.
           if (took === 'sent') throw failure;
+          // Not answered at all, so the Item may be on the server undismissed: say so.
+          unsure = !(failure instanceof CommandRefused);
         }
       }
     } catch (failure) {
@@ -393,6 +397,7 @@ ${draft.message}` : draft.message));
       return;
     }
     restore(back);
+    if (unsure) setRefused(UNDO_MAYBE_SENT);
     setLast((was) => (was?.id === back.id ? null : was));
     setUndoing(false);
   };
@@ -948,6 +953,9 @@ ${draft.message}` : draft.message));
 
 /** What is said where Undo could not take the capture back. */
 export const UNDO_FAILED = 'That could not be undone. Try again.';
+
+/** And where the send never got an answer, so the note may be in the Inbox as well as back in the box. */
+export const UNDO_MAYBE_SENT = 'Back in the box, but it may already have reached the Inbox - check there first.';
 
 /**
  * And what it says when there is no workspace to capture into at all. Named
