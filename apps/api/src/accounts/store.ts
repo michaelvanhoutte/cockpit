@@ -1063,9 +1063,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     failing: string | null,
     moreToDo = false,
     did?: CheckDid,
+    status?: number,
   ): Promise<Answer<null>> {
     const ended = this.#answer(accountName, (db) => {
-      endPulledRun(db, accountName, sourceAccountId, runId, failing, new Date(), moreToDo, did);
+      endPulledRun(db, accountName, sourceAccountId, runId, failing, new Date(), moreToDo, did, status);
       return null;
     });
     if (ended.status === 'ok') await this.#arm(accountName);

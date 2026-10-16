@@ -10,6 +10,28 @@ import type { Item } from '@cockpit/shared';
  * particular source didn't? If not, it stays inside that connector.
  */
 
+/**
+ * The error a connector throws when its source answered badly or not at all
+ * ("Show the source's HTTP status on a connection's failed check", issue
+ * 1142). The host records `status` beside the message on the failed check's
+ * line in the connection's history; an error without one shows its message
+ * alone. Connectors fetch their sources directly, so the host sees a status no
+ * other way.
+ *
+ * **The message holds no credential, header or request URL**: it is shown to
+ * the person and kept in the history, and the connector, not the host, chooses
+ * its words - a path or an endpoint's name is fine, a token or a full URL is not.
+ */
+export class SourceError extends Error {
+  /** The HTTP status the source answered; absent where it never answered (a network failure). */
+  readonly status: number | undefined;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 export interface ConnectorManifest {
   id: string;
   displayName: string;

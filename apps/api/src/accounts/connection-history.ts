@@ -52,6 +52,7 @@ export function recordCheck(
       outcome: connectionHistory.outcome,
       message: connectionHistory.message,
       messageCut: connectionHistory.messageCut,
+      status: connectionHistory.status,
       did: connectionHistory.did,
     })
     .from(connectionHistory)
@@ -77,6 +78,7 @@ export function recordCheck(
       reason,
       message: ended.outcome === 'failed' ? ended.message : null,
       messageCut: ended.outcome === 'failed' && ended.messageCut,
+      status: ended.outcome === 'failed' ? ended.status : null,
       count: 1,
       firstAt: at,
       lastAt: at,
@@ -107,6 +109,7 @@ export function connectionHistoryOf(
       reason: connectionHistory.reason,
       message: connectionHistory.message,
       messageCut: connectionHistory.messageCut,
+      status: connectionHistory.status,
       count: connectionHistory.count,
       firstAt: connectionHistory.firstAt,
       lastAt: connectionHistory.lastAt,

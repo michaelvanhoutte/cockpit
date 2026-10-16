@@ -541,7 +541,7 @@ export function confirmPulledOpenStates(
  * for a run that worked, when it was last checked and nothing about failing.
  * The check's line of the history is written in the same transaction, saying
  * why the check ran (issue 1140) and what it did (issue 1141), a failed
- * check's included. A run that no longer holds its connection
+ * check's included, with the source's HTTP status where it gave one (issue 1142). A run that no longer holds its connection
  * ends nothing and writes nothing, since another has it or it has gone.
  */
 export function endPulledRun(
@@ -553,6 +553,7 @@ export function endPulledRun(
   now: Date,
   moreToDo = false,
   did: CheckDid = { broughtIn: [], closed: [], sentBack: [], refused: [] },
+  status?: number,
 ): void {
   if (!runHolds(db, accountName, sourceAccountId, runId)) return;
   const at = now.toISOString();
@@ -577,7 +578,7 @@ export function endPulledRun(
       accountName,
       sourceAccountId,
       ran?.checkReason ?? 'scheduled',
-      failing === null ? { outcome: 'worked' } : { outcome: 'failed', ...keptMessage(failing) },
+      failing === null ? { outcome: 'worked' } : { outcome: 'failed', ...keptMessage(failing), status: status ?? null },
       did,
       at,
     );

@@ -912,6 +912,7 @@ describe('Connector management', () => {
     reason: 'scheduled',
     message: null,
     messageCut: false,
+    status: null,
     count: 1,
     firstAt: at(16, 9, 5),
     lastAt: at(16, 9, 5),
@@ -1033,6 +1034,18 @@ describe('Connector management', () => {
         held: line({ outcome: 'failed', message: 'a long story', messageCut: true }),
         says: 'Failed',
         detail: ' · Scheduled · a long story…',
+      },
+      {
+        situation: 'a failure with a status and a message, the status first',
+        held: line({ outcome: 'failed', message: 'unavailable', status: 503 }),
+        says: 'Failed',
+        detail: ' · Scheduled · HTTP 503 · unavailable',
+      },
+      {
+        situation: 'a failure with a status and no message, the status alone',
+        held: line({ outcome: 'failed', status: 403 }),
+        says: 'Failed',
+        detail: ' · Scheduled · HTTP 403',
       },
       {
         situation: 'a failure that said nothing',

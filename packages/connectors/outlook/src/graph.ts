@@ -1,4 +1,4 @@
-import type { ConnectorHost } from '@cockpit/connector-sdk';
+import { SourceError, type ConnectorHost } from '@cockpit/connector-sdk';
 import {
   credentialIn,
   credentialRefreshed,
@@ -68,19 +68,16 @@ export class SignInLost extends Error {
     super(why);
   }
 }
-/** Graph or Microsoft did not answer usefully this time - a 5xx, a rate limit, the network. */
-export class NotAnswering extends Error {}
+/** Graph or Microsoft did not answer usefully this time - a 5xx, a rate limit, the network; `status` is what it answered, if it did. */
+export class NotAnswering extends SourceError {}
 /** Graph refusing a request in a way asking again will not alter (a 403, a 400); `status` is what it answered. */
-export class Refused extends Error {
-  constructor(
-    readonly status: number,
-    where: string,
-  ) {
-    super(`Microsoft refused the request for this mailbox: ${status} to ${where}`);
+export class Refused extends SourceError {
+  constructor(status: number, where: string) {
+    super(`Microsoft refused the request for this mailbox: ${status} to ${where}`, status);
   }
 }
 /** A write refused because the message changed since the version it named was read, or while it was written (a 412, a 409). */
-export class Changed extends Error {}
+export class Changed extends SourceError {}
 /** The run's calls are spent; what is left is the next run's. */
 export class OutOfCalls extends Error {}
 
@@ -170,13 +167,13 @@ export class Mailbox {
     if (response.status === 404) return null;
     const where = url.slice(this.#origin.length).split('?')[0]!;
     if (response.status === 408 || response.status === 429 || response.status >= 500) {
-      throw new NotAnswering(`Graph answered ${response.status} to ${where}`);
+      throw new NotAnswering(`Graph answered ${response.status} to ${where}`, response.status);
     }
     // 412 is the version named no longer the message's; 409 is Exchange's own
     // word for the same (ErrorIrresolvableConflict), which a write naming no
     // version can meet too, saved against at the same moment. Neither is for good.
     if (response.status === 412 || response.status === 409) {
-      throw new Changed(`Graph answered ${response.status}: the message changed while it was written`);
+      throw new Changed(`Graph answered ${response.status}: the message changed while it was written`, response.status);
     }
     // Anything else refused (a mailbox with no Exchange Online, a permission
     // an administrator took away) is not going to pass by asking again.
@@ -223,7 +220,7 @@ export class Mailbox {
     if (response.status === 400 || response.status === 401) {
       throw new SignInLost(consentWithdrawn(await response.json().catch(() => null)) ? ORGANISATION_WITHDREW : SIGN_IN_REFUSED);
     }
-    if (!response.ok) throw new NotAnswering(`Microsoft answered ${response.status} to a refresh`);
+    if (!response.ok) throw new NotAnswering(`Microsoft answered ${response.status} to a refresh`, response.status);
     const refreshed = credentialRefreshed(this.credential, await response.json().catch(() => null), this.#now());
     if (!refreshed) throw new NotAnswering('Microsoft answered a refresh with no access token');
     // Handed back before it is used: a reconnect made meanwhile keeps its own.
@@ -271,7 +268,7 @@ export async function endpointsOf(
   if (!held) {
     held = (async () => {
       const answer = await (config.fetch ?? fetch)(`${issuer.replace(/\/$/, '')}/.well-known/openid-configuration`);
-      if (!answer.ok) throw new NotAnswering(`the issuer's discovery document could not be read: ${answer.status}`);
+      if (!answer.ok) throw new NotAnswering(`the issuer's discovery document could not be read: ${answer.status}`, answer.status);
       const document = (await answer.json()) as Record<string, unknown>;
       if (typeof document.token_endpoint !== 'string') {
         throw new NotAnswering('the issuer names nowhere to refresh a sign-in');

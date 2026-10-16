@@ -1,4 +1,4 @@
-import type { ConnectorHost } from '@cockpit/connector-sdk';
+import { SourceError, type ConnectorHost } from '@cockpit/connector-sdk';
 import {
   credentialIn,
   credentialRefreshed,
@@ -74,14 +74,14 @@ export class SignInLost extends Error {
     super(why);
   }
 }
-/** Gmail or Google did not answer usefully this time - a 5xx, a rate limit, the network. */
-export class NotAnswering extends Error {}
+/** Gmail or Google did not answer usefully this time - a 5xx, a rate limit, the network; `status` is what it answered, if it did. */
+export class NotAnswering extends SourceError {}
 /** Gmail holding the mailbox back for now, so a change it was asked for waits for the next run. */
 export class HeldBack extends NotAnswering {}
 /** Gmail refusing a change in a way asking again will not alter; `status` is what it answered. */
-export class ChangeRefused extends Error {
-  constructor(readonly status: number) {
-    super(`Gmail refused the change: ${status}`);
+export class ChangeRefused extends SourceError {
+  constructor(status: number) {
+    super(`Gmail refused the change: ${status}`, status);
   }
 }
 /** The run's calls are spent; what is left is the next run's. */
@@ -151,11 +151,11 @@ export class Mailbox {
     if (!response.ok && body !== undefined && response.status < 500) {
       const refusal = labelChangeRefusal(response.status, await response.json().catch(() => null));
       if (refusal === 'never') throw new ChangeRefused(response.status);
-      throw new HeldBack(`Gmail answered ${response.status} to a change`);
+      throw new HeldBack(`Gmail answered ${response.status} to a change`, response.status);
     }
     if (!response.ok) {
       const failure = `Gmail answered ${response.status} to ${path.split('?')[0]}`;
-      throw body !== undefined ? new HeldBack(failure) : new NotAnswering(failure);
+      throw body !== undefined ? new HeldBack(failure, response.status) : new NotAnswering(failure, response.status);
     }
     return response.json();
   }
@@ -201,7 +201,7 @@ export class Mailbox {
     // 400 or 401 (`invalid_grant`, `invalid_client`); anything else is Google
     // not answering this time.
     if (response.status === 400 || response.status === 401) throw new SignInLost();
-    if (!response.ok) throw new NotAnswering(`Google answered ${response.status} to a refresh`);
+    if (!response.ok) throw new NotAnswering(`Google answered ${response.status} to a refresh`, response.status);
     const refreshed = credentialRefreshed(this.credential, await response.json().catch(() => null), this.#now());
     if (!refreshed) throw new NotAnswering('Google answered a refresh with no access token');
     // Handed back before it is used: a reconnect made meanwhile keeps its own.
@@ -231,7 +231,7 @@ export async function endpointsOf(
   if (!held) {
     held = (async () => {
       const answer = await (config.fetch ?? fetch)(`${issuer.replace(/\/$/, '')}/.well-known/openid-configuration`);
-      if (!answer.ok) throw new NotAnswering(`the issuer's discovery document could not be read: ${answer.status}`);
+      if (!answer.ok) throw new NotAnswering(`the issuer's discovery document could not be read: ${answer.status}`, answer.status);
       const document = (await answer.json()) as Record<string, unknown>;
       if (typeof document.token_endpoint !== 'string') {
         throw new NotAnswering('the issuer names nowhere to refresh a sign-in');
