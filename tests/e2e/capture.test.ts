@@ -85,6 +85,9 @@ test.describe('Capture', () => {
       page,
       isMobile,
     }) => {
+      // On CI it takes 24-29s of the default 30s, so a
+      // slow runner times it out with nothing broken.
+      test.slow();
       await openInbox(page, isMobile);
       await expectNoSidewaysScroll(page);
       // No note box in the Inbox: the header's Capture tab is the only way in

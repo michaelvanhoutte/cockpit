@@ -178,6 +178,9 @@ test.describe('Agents', () => {
       page,
       isMobile,
     }) => {
+      // On CI it takes 25-28s of the default 30s at a desk, so a slow runner
+      // times it out with nothing broken.
+      test.slow();
       await openFirstWorkspace(page, isMobile);
       const asking = uniqueTitle('Ask about it');
       const askingId = randomUUID();

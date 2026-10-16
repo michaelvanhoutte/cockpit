@@ -52,6 +52,9 @@ test.describe('Connector management', () => {
     }) => {
       // Settings is the pointer's, by decision: a phone has no way to it.
       test.skip(isMobile, 'a phone has no Connections, only Appearance');
+      // Six trips out to the issuer and back: on CI it takes 28s of the
+      // default 30s, so a slow runner times it out with nothing broken.
+      test.slow();
       await openFirstWorkspace(page, isMobile);
       const workspace = uniqueTitle('Connected');
       await makeWorkspace(page, workspace, isMobile);
