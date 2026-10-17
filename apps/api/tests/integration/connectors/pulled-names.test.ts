@@ -31,13 +31,14 @@ import {
 
 const FAKE = 'fake-names';
 const PLAIN = 'fake-plain';
+const QUALIFYING = 'fake-qualifying';
 
 const fake = {
   /** What the next check does; consumed once. */
   next: null as ((host: ConnectorHost) => Promise<void>) | null,
 };
 
-function pulledConnector(id: string, names: boolean): Connector {
+function pulledConnector(id: string, names: boolean, byDashboard = false): Connector {
   return {
     manifest: {
       id,
@@ -45,7 +46,7 @@ function pulledConnector(id: string, names: boolean): Connector {
       cardText: 'A source Cockpit pulls from.',
       supportsPush: false,
       pulled: true,
-      ...(names ? { names: { noun: 'category', example: 'a message with the category' } } : {}),
+      ...(names ? { names: { noun: 'category', example: 'a message with the category', ...(byDashboard ? { byDashboard } : {}) } } : {}),
       auth: { kind: 'none' },
     },
     async sync(host) {
@@ -198,7 +199,7 @@ beforeEach(async () => {
     },
   } as unknown as typeof env.ENRICHMENT;
   fake.next = null;
-  env.TEST_CONNECTORS = [pulledConnector(FAKE, true), pulledConnector(PLAIN, false)];
+  env.TEST_CONNECTORS = [pulledConnector(FAKE, true), pulledConnector(PLAIN, false), pulledConnector(QUALIFYING, true, true)];
 });
 
 afterEach(async () => {
@@ -427,6 +428,7 @@ interface NameSaid {
   dashboard: string | null;
   why: string | null;
   dashboards: number | null;
+  panels: number | null;
 }
 interface HistoryLine {
   count: number;
@@ -446,7 +448,7 @@ async function newestSaid(connection: string): Promise<Record<string, string[]>>
     newest!.did.named.messages.map((message) => [
       message.title,
       message.names.map((one) =>
-        one.why === null ? `${one.name} -> ${one.panel}` : `${one.name}: ${one.why}${one.dashboards ? ` ${one.dashboards}` : ''}`,
+        one.why === null ? `${one.name} -> ${one.panel}` : `${one.name}: ${one.why}${one.dashboards ? ` ${one.dashboards}` : ''}${one.panels ? ` ${one.panels}` : ''}`,
       ),
     ]),
   );
@@ -564,7 +566,7 @@ describe('Connector management', () => {
 
       const [newest] = await historyOf(connection);
       expect(newest!.did.named.messages[0]!.names).toEqual([
-        { name: 'Tasks', panel: 'Tasks', dashboard: 'Privé', why: null, dashboards: null },
+        { name: 'Tasks', panel: 'Tasks', dashboard: 'Privé', why: null, dashboards: null, panels: null },
       ]);
     });
 
@@ -610,6 +612,50 @@ describe('Connector management', () => {
       const [newest] = await historyOf(connection);
 
       expect(newest!.did.named).toEqual({ count: 0, messages: [] });
+    });
+  });
+});
+
+describe('Connector management', () => {
+  describe('a name may qualify a Panel by its Dashboard only for a connector whose manifest declares it (issue 1198)', () => {
+    it.each([
+      { situation: 'a connector that declares it files Cubico-Tasks on Tasks of Cubico', connector: QUALIFYING, filed: true },
+      { situation: 'a connector that does not files nothing by Cubico-Tasks', connector: FAKE, filed: false },
+    ])('$situation', async ({ connector, filed }) => {
+      await addDashboardWithPanel('Cubico', 'Tasks');
+      await addDashboardWithPanel('Privé', 'Tasks');
+      const connection = await connect(connector);
+      await filesByName(connection, true);
+
+      await nextCheck(arrives('m-1', ['Cubico-Tasks']));
+
+      expect(await panelsOf('m-1')).toHaveLength(filed ? 1 : 0);
+      expect(await newestSaid(connection)).toEqual({
+        'Message m-1': [filed ? 'Cubico-Tasks -> Tasks' : 'Cubico-Tasks: no-panel'],
+      });
+    });
+
+    it('files on a Panel called Cubico-Tasks as before, for a connector that does not declare it', async () => {
+      await addDashboardWithPanel('Cubico', 'Tasks');
+      const called = await addPanel('Cubico-Tasks');
+      const connection = await connect(FAKE);
+      await filesByName(connection, true);
+
+      await nextCheck(arrives('m-1', ['Cubico-Tasks']));
+
+      expect(await panelsOf('m-1')).toEqual([called]);
+    });
+
+    it('files nothing and says how many Panels a name read as when it reads as two', async () => {
+      await addDashboardWithPanel('Privé', 'Tasks');
+      await addDashboardWithPanel('Home', 'Prive-Tasks');
+      const connection = await connect(QUALIFYING);
+      await filesByName(connection, true);
+
+      await nextCheck(arrives('m-1', ['prive-tasks']));
+
+      expect(await panelsOf('m-1')).toEqual([]);
+      expect(await newestSaid(connection)).toEqual({ 'Message m-1': ['prive-tasks: pairs 2'] });
     });
   });
 });

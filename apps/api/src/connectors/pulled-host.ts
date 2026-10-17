@@ -20,6 +20,7 @@ import { open, seal, sealingKey, type Sealed } from './credential-crypto.js';
 import { derivedUuid } from './push-host.js';
 import { getConnector } from './registry.js';
 import type { CheckDid } from '../domain/connection-history.js';
+import type { NameForms } from '../domain/filing-by-name.js';
 
 /**
  * The generic host a connector Cockpit pulls from is run through ("Check a
@@ -79,7 +80,7 @@ export async function checkPulledConnection(
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
     }
-    const host = pulledHost(env, begun, run, did, connector.manifest.names !== undefined, (itemId) =>
+    const host = pulledHost(env, begun, run, did, connector.manifest.names !== undefined, { byDashboard: connector.manifest.names?.byDashboard === true }, (itemId) =>
       filed(job.accountName, itemId, begun.connectorId),
     );
     // Before the source is read, so a change a person made that it has not
@@ -158,6 +159,7 @@ function pulledHost(
   run: PulledRun,
   did: CheckDid,
   reportsNames: boolean,
+  forms: NameForms,
   filed: (itemId: string) => Promise<void>,
 ): ConnectorHost {
   const { connectorId } = begun;
@@ -232,6 +234,7 @@ function pulledHost(
           ...(reportsNames && names && followed ? { followed } : {}),
         },
         { itemId, commandId: await derivedUuid(`pulled-capture:${named}`) },
+        forms,
       );
       if (namedOn) (did.named ??= []).push(namedOn);
       // Disconnected meanwhile: nothing was filed, and nothing is asked of
@@ -261,11 +264,14 @@ function pulledHost(
      */
     async reportNames(report: NamesReport): Promise<void> {
       if (!reportsNames) return;
-      const { named } = await run.reportNames({
-        sourceId: report.sourceId,
-        names: [...report.names],
-        ...(report.followed ? { followed: report.followed } : {}),
-      });
+      const { named } = await run.reportNames(
+        {
+          sourceId: report.sourceId,
+          names: [...report.names],
+          ...(report.followed ? { followed: report.followed } : {}),
+        },
+        forms,
+      );
       if (named) (did.named ??= []).push(named);
     },
 

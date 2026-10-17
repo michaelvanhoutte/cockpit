@@ -23,7 +23,7 @@ const line: ConnectionHistoryLine = {
   listed: 2,
 };
 
-const outcome: Omit<NameOutcomeShown, 'name'> = { panel: null, dashboard: null, why: null, dashboards: null };
+const outcome: Omit<NameOutcomeShown, 'name'> = { panel: null, dashboard: null, why: null, dashboards: null, panels: null };
 const readOne = (message: Partial<{ id: string; title: string | null; dismissed: boolean }>, names: NameOutcomeShown[]) => ({
   ...line,
   did: { ...line.did, named: { count: 1, messages: [{ id: 'm1', title: 'Quote request', dismissed: false, ...message, names }] } },
@@ -75,6 +75,11 @@ describe('Connector management', () => {
         situation: 'two Panels on one Dashboard',
         names: [{ ...outcome, name: 'Tasks', why: 'several', dashboards: 1 }],
         says: ['Tasks: skipped, more than one Panel by that name'],
+      },
+      {
+        situation: 'a Dashboard-qualified name reading as two Panels',
+        names: [{ ...outcome, name: 'A-B-C', why: 'pairs', panels: 2 }],
+        says: ['A-B-C: skipped, matches 2 Panels'],
       },
       { situation: 'no Panel', names: [{ ...outcome, name: 'Red category', why: 'no-panel' }], says: ['Red category: skipped, no Panel by that name'] },
       { situation: 'the followed category', names: [{ ...outcome, name: 'Cockpit', why: 'followed' }], says: ['Cockpit: skipped, the category followed'] },
