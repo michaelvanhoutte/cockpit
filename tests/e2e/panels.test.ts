@@ -1184,7 +1184,7 @@ test.describe('Panels', () => {
    * apps/web/tests/unit/components/{ItemList,PanelBoard}.test.tsx.
    */
   test.describe('a panel flagged Never propose is no longer suggested in the Inbox', () => {
-    test('takes the suggestion naming it off its Inbox row', async ({ page, isMobile }) => {
+    test('takes the suggestion naming it off its Inbox row, and a row proposed for Claude opens Send to Claude on the proposal', async ({ page, isMobile }) => {
       const [panel, row] = isMobile
         ? ['Admin & money', 'Look into a cheaper energy tariff']
         : ['Errands', "Mum's birthday on the 24th - present?"];
@@ -1206,6 +1206,33 @@ test.describe('Panels', () => {
       const stillThere = inbox(page).getByRole('listitem').filter({ hasText: row });
       await expect(stillThere).toBeVisible();
       await expect(stillThere).not.toContainText(suggestion);
+
+      // The guest's items arrive proposed for Claude as well ("Propose what to
+      // do with each item before you look", issue 1161), so the same account
+      // shows Send to Claude… opening on a proposal: switch, folder and prompt
+      // as proposed, and Open records the run the row then names. A phone has
+      // no Send to Claude entry. Which answers are kept and when one is made
+      // are apps/api/tests/{unit/ai,integration/http}/claude-proposals.test.ts;
+      // what the window draws for each is SendToClaudeWindow.test.tsx.
+      if (isMobile) return;
+      await switchTo(page, 'Halcyon Health', isMobile);
+      const proposed = inbox(page)
+        .getByRole('listitem')
+        .filter({ hasText: 'Clinic in Ghent reports slow logins since Monday' });
+      await press(proposed.getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Send to Claude…' }), isMobile);
+      const review = page.getByRole('dialog', { name: /Send “Clinic in Ghent reports slow logins since Monday” to Claude/ });
+      // The prompt is filled in once the item's files have loaded: waited for before anything is read.
+      // A mail from Els, so the prompt opens on where it came from, then the proposed task.
+      await expect(review.getByLabel('Prompt')).toHaveValue(
+        /^Prepared by Cockpit from a Gmail message by “Els Maes” - [^\n]*\n\nIn the Halcyon booking service, find why logging in/,
+      );
+      await expect(review.getByText('Cockpit proposes 2 things to do, from a Gmail message by “Els Maes”')).toBeVisible();
+      await expect(review.getByRole('radio', { name: 'Code', exact: true })).toHaveAttribute('aria-checked', 'true');
+      await expect(review.getByLabel('Folder')).toHaveValue('C:\\Code\\halcyon-booking');
+      await expect(review.getByRole('radiogroup', { name: 'Proposed' }).getByRole('radio')).toHaveCount(2);
+      await press(review.getByRole('button', { name: /Open in Code/ }), isMobile);
+      await expect(proposed.getByText('Sent to Code')).toBeVisible();
     });
   });
 

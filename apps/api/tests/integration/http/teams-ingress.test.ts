@@ -272,7 +272,7 @@ describe('Capture', () => {
    * route hands it in, as the queue consumer hands the pulled host its own),
    * so only the real route, queue binding and store can show it still queues.
    */
-  describe('a message saved from Teams is cleaned up and read for its meaning, once for each item it files', () => {
+  describe('a message saved from Teams is cleaned up, read for its meaning and proposed for Claude, once for each item it files', () => {
     let held: EnrichmentJob[];
     let realQueue: typeof env.ENRICHMENT;
 
@@ -297,12 +297,12 @@ describe('Capture', () => {
       held.filter((job) => 'itemId' in job && job.itemId === itemId).map((job) => job.kind).sort();
 
     async function untilQueuedFor(itemId: string): Promise<void> {
-      for (let waited = 0; waited < 10_000 && queuedFor(itemId).length < 2; waited += 25) {
+      for (let waited = 0; waited < 10_000 && queuedFor(itemId).length < 3; waited += 25) {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     }
 
-    it('queues both for the item it files, and nothing again when the same press is delivered twice', async () => {
+    it('queues all three for the item it files, and nothing again when the same press is delivered twice', async () => {
       await connectTeams();
 
       await saveFromTeams();
@@ -316,8 +316,8 @@ describe('Capture', () => {
       await untilQueuedFor(items[0]!.id);
       await untilQueuedFor(items[1]!.id);
       expect(items.map((item) => queuedFor(item.id))).toEqual([
-        ['clean-up-a-note', 'read-what-a-note-means'],
-        ['clean-up-a-note', 'read-what-a-note-means'],
+        ['clean-up-a-note', 'propose-for-claude', 'read-what-a-note-means'],
+        ['clean-up-a-note', 'propose-for-claude', 'read-what-a-note-means'],
       ]);
     });
   });

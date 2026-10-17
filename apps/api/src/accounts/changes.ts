@@ -5,6 +5,7 @@ import {
   GRID_COLUMNS,
   MOST_ACROSS,
   NAME_MAX_LENGTH,
+  claudeProposalsSchema,
   demoAddress,
   filterGroupingSchema,
   panelFilterSchema,
@@ -168,6 +169,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     AGENT_RUNS_SENT_TO_CLAUDE,
     AGENT_RUNS_NOTE,
     CONNECTION_HISTORY_STATUS,
+    ITEM_CLAUDE_PROPOSALS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -778,6 +780,25 @@ const AGENT_RUNS_NOTE: Change = {
 const CONNECTION_HISTORY_STATUS: Change = {
   name: '0082-connection-history-status',
   statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `status` integer' }],
+};
+
+/**
+ * What Cockpit proposes doing with each Item ("Propose what to do with each
+ * item before you look", issue 1161): one nullable JSON column on `items`.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ADD COLUMN`.
+ * - **Stopped halfway, or run twice:** a single statement in one transaction;
+ *   SQLite refuses a column that already exists.
+ * - **Existing rows:** take null, which the window reads as no proposal yet and
+ *   opens on the plain prompt. Nothing is backfilled.
+ * - **Rolled back after it has run:** an older release names the columns it
+ *   reads and ignores this one.
+ * - **A backup restored from before it:** the recorded changes are replayed,
+ *   so it applies the next time the account is opened.
+ */
+const ITEM_CLAUDE_PROPOSALS: Change = {
+  name: '0083-item-claude-proposals',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `claude_proposals` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
@@ -4743,6 +4764,19 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
     // An Inbox Item's suggestion is a foreign key to a Panel, found by name
     // across every Dashboard of its Workspace - so the name has to find
     // exactly one, and one that takes Items.
+    // A proposal the app would not read back is one the window never opens on,
+    // so it is a typo here, not a demonstration (issue 1161).
+    const items = [
+      ...workspace.inbox,
+      ...workspace.dashboards.flatMap((dashboard) =>
+        dashboard.rows.flatMap((row) => row.panels.flatMap((panel) => (isFilter(panel) ? [] : panel.items))),
+      ),
+    ];
+    for (const item of items) {
+      if (item.forClaude && !claudeProposalsSchema.safeParse(item.forClaude).success) {
+        wrong(`"${item.title}" is proposed something the app cannot read`);
+      }
+    }
     for (const item of workspace.inbox) {
       if (!item.suggest) continue;
       const named = workspace.dashboards
@@ -5210,10 +5244,10 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
       sql: `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, captured_message, source, source_connector,
                                source_link, sender, source_timestamp, title,
                                description, type_id, priority, due_date, started_at,
-                               proposed_panel_id, proposed_panel_reason, status, created_at, updated_at)
+                               proposed_panel_id, proposed_panel_reason, claude_proposals, status, created_at, updated_at)
               SELECT ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT id FROM panels WHERE id = ? AND tenant_id = ?),
-                     (SELECT ? FROM panels WHERE id = ? AND tenant_id = ?), 'to_process', ?, ?
+                     (SELECT ? FROM panels WHERE id = ? AND tenant_id = ?), ?, 'to_process', ?, ?
               WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
                 AND NOT EXISTS (SELECT 1 FROM items WHERE id = ?)`,
       params: [
@@ -5237,6 +5271,8 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
         suggestion?.why ?? null,
         suggestion?.panelId ?? null,
         accountId,
+        // Seeded, since the guest never calls the model (issue 1161).
+        item.forClaude ? JSON.stringify(item.forClaude) : null,
         madeAt,
         madeAt,
         workspaceId,

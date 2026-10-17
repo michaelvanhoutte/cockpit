@@ -7,7 +7,9 @@ import {
   cleanUpACapturedNote,
   enqueueCleanUp,
   enqueueReadingItsMeaning,
+  enqueueProposalForClaude,
   enrichmentJobSchema,
+  proposeForClaude,
   readWhatANoteMeans,
   reproposePanels,
   type EnrichmentJob,
@@ -20,8 +22,10 @@ export {
   cleanUpACapturedNote,
   enqueueCleanUp,
   enqueueReadingItsMeaning,
+  enqueueProposalForClaude,
   enqueueRepropose,
   enrichmentJobSchema,
+  proposeForClaude,
   readWhatANoteMeans,
   reproposePanels,
 } from './enrichment.js';
@@ -30,6 +34,7 @@ export type {
   CleanUpJob,
   ReadWhatItMeansJob,
   ReproposePanelsJob,
+  ProposeForClaudeJob,
   SimulatedRunWaitsJob,
   GuestArrivalJob,
 } from './enrichment.js';
@@ -234,6 +239,8 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return cleanUpACapturedNote(env, job);
     case 're-propose-panels':
       return reproposePanels(env, job);
+    case 'propose-for-claude':
+      return proposeForClaude(env, job);
     case 'read-what-a-note-means':
       return readWhatANoteMeans(env, job);
     case 'simulated-run-waits':
@@ -244,6 +251,7 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return checkPulledConnection(env, job, async (accountName, itemId, connectorId) => {
         await enqueueCleanUp(env, accountName, itemId, `connector:${connectorId}`);
         await enqueueReadingItsMeaning(env, accountName, itemId, `connector:${connectorId}`);
+        await enqueueProposalForClaude(env, accountName, itemId, `connector:${connectorId}`);
       });
   }
 }
@@ -253,6 +261,7 @@ function describe(job: EnrichmentJob): string {
   switch (job.kind) {
     case 'clean-up-a-note':
     case 'read-what-a-note-means':
+    case 'propose-for-claude':
       return `item ${job.itemId}`;
     case 're-propose-panels':
       return `workspace ${job.workspaceId}`;

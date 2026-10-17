@@ -118,6 +118,7 @@ import {
   applyProposedFields,
   type FieldsSet,
   applyProposedPanel,
+  applyClaudeProposals,
   applyProposedTexts,
   applySetDescription,
   applySetDismissed,
@@ -1806,6 +1807,30 @@ export function runCommand<N extends CommandName>(
         db.transaction((tx) => {
           tx.update(items)
             // Both source columns, as the capture above (`asStored`, domain/items.ts).
+            .set(asStored(updated))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
+      }
+      break;
+    }
+    case 'propose_item_for_claude': {
+      const cmd = payload as CommandPayload<'propose_item_for_claude'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      // The same 404, for the reason `propose_item_panel` above gives.
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+
+      const updated = applyClaudeProposals(existing, cmd);
+      if (updated === null) {
+        // Discarded rather than refused, as a stale Panel proposal is: the
+        // change that made it stale queued the proposal that replaces it.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        db.transaction((tx) => {
+          tx.update(items)
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();

@@ -1192,6 +1192,7 @@ export function ItemList({
             attachments={(data?.attachments ?? []).filter((one) => one.itemId === sendingToClaude.id)}
             onClose={() => setSendingToClaude(null)}
             returnFocusTo={openedFrom.current}
+            sourceNames={data?.sourceNames}
           />
         </Suspense>
       )}

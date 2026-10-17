@@ -29,6 +29,7 @@ import type {
   AgentEngine,
   AgentRunStatus,
   ClaudeDestination,
+  ClaudeProposal,
   AssociationKind,
   ItemFormPresentation,
   ItemReading,
@@ -973,6 +974,13 @@ export const items = sqliteTable(
      * `proposed_panel_id` has none.
      */
     proposedPanelFit: text('proposed_panel_fit').$type<PanelFit>(),
+    /**
+     * What Cockpit proposes doing with this Item - Cowork, Claude Code, or
+     * nothing - as JSON, read back whole with the Item the way `readings` is
+     * ("Propose what to do with each item before you look", issue 1161). NULL
+     * until worked out. No CHECK, for the reason `proposed_panel_id` has none.
+     */
+    claudeProposals: text('claude_proposals', { mode: 'json' }).$type<ClaudeProposal[]>(),
     /**
      * What kind of thing it is ("Capture a thought or an action, and see which
      * it is", issue 155). Nullable, which is what let it be added at all:

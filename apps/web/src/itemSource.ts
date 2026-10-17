@@ -41,7 +41,7 @@ export function whereALinkOpens(link: string): string | null {
  * beside it: "Task · Claude", not "mcp · Claude". The protocol is how it got
  * here, not who it is.
  */
-export function capturingApp(item: Item): string | null {
+export function capturingApp(item: Pick<Item, 'source' | 'sender'>): string | null {
   return item.source === 'mcp' ? (item.sender ?? 'An app') : null;
 }
 

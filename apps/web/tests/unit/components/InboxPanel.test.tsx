@@ -116,6 +116,7 @@ function anItem(title: string, completedAt: string | null = null): Item {
     proposedPanelId: null,
     proposedPanelReason: null,
     proposedPanelFit: null,
+    claudeProposals: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt,

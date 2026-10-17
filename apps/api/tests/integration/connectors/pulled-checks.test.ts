@@ -410,8 +410,8 @@ describe('Connector management', () => {
     });
   });
 
-  describe('each thing a source Cockpit pulls from brings in is one Item in the connection’s Workspace, cleaned up and read for its meaning', () => {
-    it('something new is an open Item there, and is cleaned up and read', async () => {
+  describe('each thing a source Cockpit pulls from brings in is one Item in the connection’s Workspace, cleaned up, read for its meaning and proposed for Claude', () => {
+    it('something new is an open Item there, and is cleaned up, read, and proposed for Claude', async () => {
       // Both set, so neither is left unasked because this environment could not have run it.
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
       env.EMBEDDINGS_STAND_IN = 'true';
@@ -426,7 +426,7 @@ describe('Connector management', () => {
       expect(item).toMatchObject({ sourceId: 'page-1', completedAt: null });
       expect(await itemsFrom(OTHER_WORKSPACE_ID)).toEqual([]);
       const asked = held.filter((job) => 'itemId' in job && job.itemId === item!.id).map((job) => job.kind);
-      expect(asked.sort()).toEqual(['clean-up-a-note', 'read-what-a-note-means']);
+      expect(asked.sort()).toEqual(['clean-up-a-note', 'propose-for-claude', 'read-what-a-note-means']);
     });
 
     it('the same thing brought in by a later check is already known, and no second Item', async () => {
