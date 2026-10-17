@@ -11,7 +11,8 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
-import { dashboardScope, useSelection, useShowing } from '../../../src/selection';
+import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection, useSelection, useShowing } from '../../../src/selection';
+import { landItem, liftItem, selectionCarriedAcross } from '../../../src/itemInTheAir';
 import { tipForClick } from '../../../src/shortcutTip';
 import { allItemsFilterId, readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
 import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
@@ -1091,6 +1092,71 @@ describe('Panels', () => {
 
       // `fireEvent` answers false when the default was prevented.
       expect(dropped).toBe(false);
+    });
+
+    describe('a selection in the air is carried over the switch its own drag makes, and only that one', () => {
+      const OPEN = 'ws-work-dashboard 1';
+      /** The drag of picked rows held in `scope`, in the air. */
+      function carrying(scope: string) {
+        act(() => {
+          updateSelection(scope, () => ({ picked: new Set(['a', 'b']), reachingFrom: null }));
+          liftItem('a', null, { ids: ['a', 'b'], scope });
+        });
+      }
+      afterEach(() => {
+        landItem();
+        endSelection();
+      });
+
+      it('carries the open Dashboard’s selection to the Dashboard it rests on', async () => {
+        showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+        await screen.findByRole('link', { name: 'Research' });
+        carrying(dashboardScope(OPEN));
+
+        restOn('Research', DWELL_MS);
+
+        expect(wentTo.calls).toHaveLength(1);
+        expect(selectionCarriedAcross()).toBe(dashboardScope(OPEN));
+      });
+
+      it('carries nothing before the drag has rested long enough to switch', async () => {
+        showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+        await screen.findByRole('link', { name: 'Research' });
+        carrying(dashboardScope(OPEN));
+
+        restOn('Research', DWELL_MS - 1);
+
+        expect(selectionCarriedAcross()).toBeNull();
+      });
+
+      it('leaves the Inbox’s selection held where it is, which a switch of Dashboard does not leave', async () => {
+        showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+        await screen.findByRole('link', { name: 'Research' });
+        carrying(inboxScope('ws-work'));
+
+        restOn('Research', DWELL_MS);
+
+        expect(wentTo.calls).toHaveLength(1);
+        expect(selectionCarriedAcross()).toBeNull();
+        expect([...pickedNow(inboxScope('ws-work'))]).toEqual(['a', 'b']);
+      });
+
+      it('carries nothing when a tab is clicked with no drag', async () => {
+        const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+        await user.click(await screen.findByRole('link', { name: 'Research' }));
+
+        expect(selectionCarriedAcross()).toBeNull();
+      });
+
+      it('carries nothing for a drag that carries one row', async () => {
+        showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+        await screen.findByRole('link', { name: 'Research' });
+        act(() => liftItem('a', null, null));
+
+        restOn('Research', DWELL_MS);
+
+        expect(selectionCarriedAcross()).toBeNull();
+      });
     });
 
     it('leaves a drag that is not one of our rows alone', async () => {

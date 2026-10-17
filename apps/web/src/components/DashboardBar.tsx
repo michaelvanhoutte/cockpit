@@ -17,6 +17,7 @@ import { usePanelsCollapsed } from '../panelsCollapsed';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { allItemsFilterId, setAllItemsTab, useAllItemsTab } from '../allItemsTab';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { carryAcrossSwitch } from '../itemInTheAir';
 import { browserStore } from '../lastVisited';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { keepingTheOpenItem } from '../itemForm';
@@ -260,6 +261,10 @@ export function DashboardBar({
     const switchTo = dashboardToSwitchTo(restingOn.current, now, openDashboardId);
     if (!switchTo) return;
     restingOn.current = null;
+    // A selection in the air goes with it, to be dropped on a Panel there
+    // ("Keep a dragged selection across the Dashboard switch its drag makes",
+    // issue 1218). Said before the switch, which is what ends one otherwise.
+    if (openDashboardId) carryAcrossSwitch(dashboardScope(openDashboardId));
     void navigate({
       to: '/w/$workspaceId/d/$dashboardId',
       params: { workspaceId, dashboardId: switchTo },

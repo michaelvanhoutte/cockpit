@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
@@ -8,6 +8,9 @@ import { ItemList } from '../../../src/components/ItemList';
 import { UndoWhatJustHappened } from '../../../src/undo';
 import { NO_DASHBOARD_FILTER, useDashboardFilter } from '../../../src/dashboardFilter';
 import { useCommand } from '../../../src/api/queries';
+import { carryAcrossSwitch, landItem, liftItem } from '../../../src/itemInTheAir';
+import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
+import { dashboardScope, endSelection, pickedNow } from '../../../src/selection';
 
 /**
  * F1: one selection across a Dashboard's Panels, as the person sees it - the
@@ -561,6 +564,190 @@ describe('Selection', () => {
       await waitFor(() => expect(sent()).toHaveLength(1));
       expect(sent()[0]).toMatchObject({ name: 'move_item_to_panel', panelId: null });
       expect(sent()[0]!.from).toBeUndefined();
+    });
+  });
+});
+describe('Selection', () => {
+  describe('a selection survives the Dashboard switch its own drag made, and only that one', () => {
+    const TARGET = aPanel('target', 'Target panel', {}, OTHER.id);
+    const ALREADY_THERE = anItem('11111111-1111-7111-8111-000000000005', 'Already on Target');
+    const here = dashboardScope(DASHBOARD.id);
+    const ON_TWO_PANELS: World = {
+      items: [BART, RENEW, CHASE, ALREADY_THERE],
+      filings: [
+        filedOn('falcon', BART.id),
+        filedOn('reading', RENEW.id),
+        // On a Panel of the Dashboard it is dropped on already: a move from here leaves it be.
+        filedOn('target', ALREADY_THERE.id),
+        filedOn('reading', CHASE.id, 1),
+      ],
+      panels: [FALCON, READING, TARGET],
+    };
+
+    beforeEach(() => {
+      landItem();
+      endSelection();
+    });
+
+    /** Two rows picked on this Dashboard, one from each Panel. */
+    async function pickedOnTwoPanels() {
+      const user = await showDashboard(ON_TWO_PANELS);
+      await tick(user, 'Project Falcon', BART);
+      await tick(user, 'To read', RENEW);
+      return user;
+    }
+
+    /** The drag of the picked rows, in the air, as a row's own drag start leaves it. */
+    const lifted = () => liftItem(BART.id, 'falcon', { ids: [BART.id, RENEW.id], scope: here });
+
+    /** What a tab does when the drag has rested on it long enough. */
+    const restedOnTheTab = () =>
+      act(() => {
+        lifted();
+        carryAcrossSwitch(here);
+      });
+
+    /** The filing server: a move leaves only the Panels it names, or every one; the board is redrawn from what is left. */
+    function filesAsTheServerDoes() {
+      held.send = vi.fn((args: unknown) => {
+        const { name, payload } = args as {
+          name: string;
+          payload: { itemId: string; panelId: string | null; order: string[]; fromPanelIds?: string[] };
+        };
+        const left = (filing: Filing) =>
+          name === 'move_item_to_panel' &&
+          filing.itemId === payload.itemId &&
+          (!payload.fromPanelIds || payload.fromPanelIds.includes(filing.panelId));
+        const arriving = payload.panelId
+          ? payload.order.map((itemId, position) => filedOn(payload.panelId!, itemId, position))
+          : [];
+        nextSnapshot({
+          filings: [
+            ...world.filings.filter((filing) => !left(filing) && filing.panelId !== payload.panelId),
+            ...arriving,
+          ],
+        });
+        return Promise.resolve();
+      });
+    }
+
+    const targetBox = () => within(screen.getByRole('region', { name: 'Target panel' })).getByRole('list').parentElement!;
+    async function dropOnTarget(grabbed: Item) {
+      await act(async () => {});
+      const dataTransfer = {
+        types: [ITEM_BEING_DRAGGED],
+        getData: (type: string) => (type === ITEM_BEING_DRAGGED ? grabbed.id : ''),
+        setData: vi.fn(),
+        dropEffect: '',
+      };
+      fireEvent.dragOver(targetBox(), { dataTransfer });
+      fireEvent.drop(targetBox(), { dataTransfer });
+    }
+    const filedOnPanels = (item: Item) => world.filings.filter((f) => f.itemId === item.id).map((f) => f.panelId);
+
+    it('is still held on the Dashboard the drag rested on, where it was picked on another', async () => {
+      await pickedOnTwoPanels();
+
+      restedOnTheTab();
+      nextSnapshot({ dashboard: OTHER });
+
+      expect([...pickedNow(here)]).toEqual([BART.id, RENEW.id]);
+    });
+
+    it('ends at once on a switch the drag did not make, even with a drag in the air', async () => {
+      await pickedOnTwoPanels();
+
+      act(lifted);
+      nextSnapshot({ dashboard: OTHER });
+
+      expect(pickedNow(here).size).toBe(0);
+    });
+
+    it('ends when the drag is cancelled after the switch, there being no row left to say so', async () => {
+      await pickedOnTwoPanels();
+      restedOnTheTab();
+      nextSnapshot({ dashboard: OTHER });
+
+      act(() => {
+        document.dispatchEvent(new Event('dragend', { bubbles: true }));
+      });
+
+      expect(pickedNow(here).size).toBe(0);
+    });
+
+    it('ends when the pointer comes back after a drag that let go over nothing', async () => {
+      await pickedOnTwoPanels();
+      restedOnTheTab();
+      nextSnapshot({ dashboard: OTHER });
+
+      act(() => {
+        document.dispatchEvent(new Event('pointermove', { bubbles: true }));
+      });
+
+      expect(pickedNow(here).size).toBe(0);
+    });
+
+    it('files every picked Item on a Panel there, taking each off the Panels of the Dashboard it was picked on', async () => {
+      filesAsTheServerDoes();
+      const user = await pickedOnTwoPanels();
+      restedOnTheTab();
+      nextSnapshot({ dashboard: OTHER });
+
+      await dropOnTarget(BART);
+      await user.click(await screen.findByRole('button', { name: 'Move them here' }));
+
+      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(2));
+      expect(held.send.mock.calls.map(([call]) => [call.name, call.payload.itemId, call.payload.fromPanelIds])).toEqual([
+        ['move_item_to_panel', BART.id, ['falcon']],
+        ['move_item_to_panel', RENEW.id, ['reading']],
+      ]);
+      expect(filedOnPanels(BART)).toEqual(['target']);
+      expect(filedOnPanels(RENEW)).toEqual(['target']);
+      // Another Item of the Panel it left stays where it was.
+      expect(filedOnPanels(CHASE)).toEqual(['reading']);
+      expect(await screen.findByText('2 items moved to Target panel')).toBeVisible();
+      // Nothing is left picked on a Dashboard it was not picked on.
+      expect(pickedNow(here).size).toBe(0);
+    });
+
+    it('names the Dashboard the rows were picked on as the one a move leaves, not the one on screen', async () => {
+      await pickedOnTwoPanels();
+      restedOnTheTab();
+      nextSnapshot({ dashboard: OTHER });
+
+      await dropOnTarget(BART);
+
+      expect(await screen.findByRole('alertdialog')).toHaveTextContent(
+        'Moving them takes each off the other panels of Today;',
+      );
+    });
+
+    it('puts every Item back on the Panels it left when the move is undone', async () => {
+      filesAsTheServerDoes();
+      const user = await pickedOnTwoPanels();
+      restedOnTheTab();
+      nextSnapshot({ dashboard: OTHER });
+      await dropOnTarget(BART);
+      await user.click(await screen.findByRole('button', { name: 'Move them here' }));
+      await screen.findByText('2 items moved to Target panel');
+
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(filedOnPanels(BART)).toEqual(['falcon']));
+      expect(filedOnPanels(RENEW)).toEqual(['reading']);
+    });
+
+    it('files nothing, and ends, when the question is cancelled', async () => {
+      filesAsTheServerDoes();
+      const user = await pickedOnTwoPanels();
+      restedOnTheTab();
+      nextSnapshot({ dashboard: OTHER });
+      await dropOnTarget(BART);
+
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+      expect(held.send).not.toHaveBeenCalled();
+      expect(pickedNow(here).size).toBe(0);
     });
   });
 });

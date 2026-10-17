@@ -34,8 +34,11 @@ export function MoveOrAddQuestion({
 }: {
   /** How many rows were let go together, where it is a selection: one answer for all of them (issue 1217). */
   several?: number;
-  /** The Panel the row was dropped from, which moving it takes it off and adding it leaves. Absent where that is not known. */
-  leaves?: string;
+  /**
+   * The Panel the row was dropped from, which moving it takes it off and adding it leaves - or, for a
+   * selection carried across a Dashboard switch, the Dashboard it was picked on (issue 1218). Absent where that is not known.
+   */
+  leaves?: string | undefined;
   itemTitle: string;
   /** The panel it was dropped on, named in both answers so neither is a guess. */
   panelName: string;
@@ -62,7 +65,7 @@ export function MoveOrAddQuestion({
           </AlertDialog.Title>
           <p className="pt-2 text-sm text-ink-soft">
             {several
-              ? 'Moving them takes each off the other panels of this dashboard; adding them leaves them where they are.'
+              ? `Moving them takes each off the other panels of ${leaves ?? 'this dashboard'}; adding them leaves them where they are.`
               : leaves
                 ? `Moving it takes it off ${leaves}; adding it leaves it there.`
                 : 'Adding it leaves it on the panels it is on now.'}

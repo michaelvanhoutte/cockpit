@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { endSelection, keepAcrossSwitch } from './selection';
 
 /**
  * Which Item a row drag is carrying, while one is in the air.
@@ -16,6 +17,7 @@ import { useSyncExternalStore } from 'react';
 let inTheAir: string | null = null;
 let liftedFrom: string | null = null;
 let selectionInTheAir: SelectionInTheAir | null = null;
+let crossedFrom: string | null = null;
 
 /**
  * The selection a drag of one of its picked rows carries ("Drag a selection,
@@ -45,6 +47,7 @@ export function liftItem(
   inTheAir = itemId;
   liftedFrom = fromPanelId;
   selectionInTheAir = carrying;
+  crossedFrom = null;
   tell();
 }
 
@@ -52,7 +55,22 @@ export function landItem(): void {
   inTheAir = null;
   liftedFrom = null;
   selectionInTheAir = null;
+  crossedFrom = null;
+  keepAcrossSwitch(null);
+  stopListeningForTheEnd();
   tell();
+}
+
+/**
+ * The drag ended - `dragend` on a row still on the page, or the pointer speaking
+ * again where none is. One that crossed a Dashboard switch and was not dropped
+ * was cancelled, and its selection ends with it; a drop has already landed it
+ * (`landItem`), so this finds nothing to end.
+ */
+export function dragEnded(): void {
+  const from = crossedFrom;
+  landItem();
+  if (from !== null) endSelection(from);
 }
 
 /** The Panel the Item in the air was picked up from, or null if none, or if it is not this Item. */
@@ -67,6 +85,45 @@ export function itemInTheAir(): string | null {
 /** The selection in the air, or null when what is carried is one row. */
 export function selectionCarried(): SelectionInTheAir | null {
   return selectionInTheAir;
+}
+
+// ---------------------------------------------------------------------------
+// A selection carried across the Dashboard switch its own drag makes.
+// ---------------------------------------------------------------------------
+
+/**
+ * The Dashboard scope the selection in the air is leaving by that drag's own
+ * switch, or null ("Keep a dragged selection across the Dashboard switch its
+ * drag makes", issue 1218).
+ */
+export function selectionCarriedAcross(): string | null {
+  return crossedFrom;
+}
+
+/**
+ * Called by the tab a drag has rested on, just before it switches Dashboard: the
+ * selection `from` is in the air, so leaving its Dashboard does not end it and
+ * it can be dropped on a Panel of the next. Any other switch is not this call
+ * and ends it as it always did.
+ *
+ * **The drag's end is listened for on the document**, because the row it began
+ * on is drawn on the Dashboard just left - gone from the page, where its own
+ * `dragend` can no longer reach anything. A drag that ends without a drop is a
+ * cancel, and the selection ends with it; the pointer is silent through a drag
+ * and speaks again as it ends, which is what `pointermove` is for where no
+ * `dragend` arrives.
+ */
+export function carryAcrossSwitch(from: string): void {
+  if (selectionInTheAir?.scope !== from) return;
+  crossedFrom = from;
+  keepAcrossSwitch(from);
+  for (const event of DRAG_IS_OVER) document.addEventListener(event, dragEnded);
+}
+
+const DRAG_IS_OVER = ['dragend', 'pointermove', 'pointerdown'] as const;
+
+function stopListeningForTheEnd() {
+  for (const event of DRAG_IS_OVER) document.removeEventListener(event, dragEnded);
 }
 
 // ---------------------------------------------------------------------------

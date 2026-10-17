@@ -20,7 +20,7 @@ import { runChipFor, sessionHrefFor } from '../agentRunChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
-import { inTheOrderDrawn, landItem, liftItem, useCarriedIds } from '../itemInTheAir';
+import { dragEnded, inTheOrderDrawn, liftItem, useCarriedIds } from '../itemInTheAir';
 import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
@@ -1090,7 +1090,7 @@ export function ItemRow({
         if (selecting?.revealed && !selecting.picked) setTimeout(selecting.onEndSelection, 0);
         if (carrying) underThePointer(event.dataTransfer, carrying.ids.length);
       }}
-      onDragEnd={landItem}
+      onDragEnd={dragEnded}
       // `touch-action: pan-y` leaves vertical scrolling to the browser and
       // gives this the horizontal component. `select-none` stops a long press
       // turning the row into selected text mid-swipe, and is

@@ -101,6 +101,11 @@ export const NOTHING_HELD: Held = { scope: null, selection: NOTHING_PICKED };
 export const dashboardScope = (dashboardId: string) => `dashboard:${dashboardId}`;
 export const inboxScope = (workspaceId: string) => `inbox:${workspaceId}`;
 
+/** The Dashboard a scope is the selection of, or null for the Inbox's. */
+export function dashboardOfScope(scope: string): string | null {
+  return scope.startsWith('dashboard:') ? scope.slice('dashboard:'.length) : null;
+}
+
 /** What `scope` holds: nothing, unless it is the scope the selection is in. */
 export function selectionIn(held: Held, scope: string): Selection {
   return held.scope === scope ? held.selection : NOTHING_PICKED;
@@ -183,9 +188,21 @@ export function shownIn(
 // ---------------------------------------------------------------------------
 
 let held: Held = NOTHING_HELD;
+/**
+ * The scope whose Dashboard is being left by the very drag that carries its
+ * selection ("Keep a dragged selection across the Dashboard switch its drag
+ * makes", issue 1218): leaving it does not end the selection. Set by
+ * `carryAcrossSwitch` (itemInTheAir.ts), which also ends the selection when the
+ * drag does; it lapses on its own once anything else is held.
+ */
+let keptAcrossSwitch: string | null = null;
+export function keepAcrossSwitch(scope: string | null) {
+  keptAcrossSwitch = scope;
+}
 const heldListeners = new Set<() => void>();
 const set = (next: Held) => {
   if (next === held) return;
+  if (keptAcrossSwitch !== null && next.scope !== keptAcrossSwitch) keptAcrossSwitch = null;
   held = next;
   for (const listener of heldListeners) listener();
 };
@@ -282,6 +299,9 @@ export function useHeldTo(scope: string | null) {
       waiting = true;
       queueMicrotask(() => {
         waiting = false;
+        // Its lists are leaving with the Dashboard, so they show nothing: not
+        // a reason to let go of rows the drag is still carrying.
+        if (keptAcrossSwitch === scope) return;
         set(afterPruning(held, scope, shownOn(scope)));
       });
     };
@@ -289,8 +309,8 @@ export function useHeldTo(scope: string | null) {
     return () => {
       listsListeners.delete(prune);
       // Leaving the Dashboard - for another, or for another Workspace - is the
-      // end of its selection.
-      endSelection(scope);
+      // end of its selection, unless its own drag made the switch.
+      if (keptAcrossSwitch !== scope) endSelection(scope);
     };
   }, [scope]);
 }
