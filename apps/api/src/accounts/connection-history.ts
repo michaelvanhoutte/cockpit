@@ -11,6 +11,7 @@ import {
   keptMessage,
   whatACheckWrites,
   type CheckDid,
+  type DidKind,
   type CheckEnded,
   type CheckOutcome,
   type CheckReason,
@@ -25,7 +26,6 @@ import {
 
 type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
 
-type DidKind = Exclude<keyof CheckDid, 'listed'>;
 type DidAsStored = Record<DidKind, DidKept>;
 
 const KINDS = ['broughtIn', 'closed', 'sentBack', 'refused'] as const;

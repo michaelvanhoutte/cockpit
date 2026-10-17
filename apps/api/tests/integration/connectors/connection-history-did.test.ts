@@ -125,6 +125,7 @@ interface Kind {
 interface Line {
   outcome: string;
   count: number;
+  listed: number | null;
   did: { broughtIn: Kind; closed: Kind; sentBack: Kind; refused: Kind };
 }
 
@@ -359,7 +360,7 @@ describe('Connector management', () => {
   describe('a check’s line says how many messages its complete listing returned', () => {
     const lists = (...sourceIds: string[]) => (host: ConnectorHost) =>
       host.reportCompleteListing({ choice: 'flag', sourceIds });
-    const listed = async (id: string) => (await linesOf(id)).map((line) => (line as Line & { listed: number | null }).listed);
+    const listed = async (id: string) => (await linesOf(id)).map((line) => line.listed);
 
     it.each([
       { situation: 'a listing of two, nothing brought in', script: lists('a', 'b'), listed: 2, broughtIn: 0 },
@@ -389,7 +390,7 @@ describe('Connector management', () => {
       await queuedCheckRuns();
 
       const [line] = await linesOf(id);
-      expect((line as Line & { listed: number | null }).listed).toBe(expected);
+      expect(line!.listed).toBe(expected);
       expect(line!.did.broughtIn.count).toBe(broughtIn);
     });
 
@@ -416,7 +417,7 @@ describe('Connector management', () => {
       await queuedCheckRuns();
 
       const lines = await linesOf(id);
-      expect(lines.map((line) => [line.count, (line as Line & { listed: number | null }).listed])).toEqual([
+      expect(lines.map((line) => [line.count, line.listed])).toEqual([
         [1, 1],
         [1, 2],
       ]);
