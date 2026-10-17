@@ -33,6 +33,8 @@ Prose that reads fine fails on contact — two designs agreed in discussion over
 
 **A POC is throwaway**: in the real app rather than `poc/`, no tests, no docs. Save the diff outside git before reverting, because what it found is an input to step 3 and rows in step 6.
 
+**An approved POC's presentation is the spec.** Post its saved diff as a comment on the ticket and say so in What to build; whoever builds it reproduces the POC's layout, controls, wording and order from that source, wired to the real data, and names any deviation in the pull request — because a builder working from a prose description rebuilds the screen rather than reproducing the one that was approved.
+
 ### 3. Sharpen fuzzy language before sizing anything
 
 Resolve any term used inconsistently with those docs, and any unstated product decision, before drafting. Never guess, and never ask the user what you could answer by reading the docs or the code.
