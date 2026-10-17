@@ -216,12 +216,9 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
     return <p className="px-4 py-3 text-ink-faint">Loading…</p>;
   }
 
-  // Everything still yours to handle that is on no panel. `?? []` because a
-  // snapshot can be older than the field: the stored copy is rehydrated from
-  // IndexedDB without being parsed again (main.tsx), so somebody who had
-  // Cockpit open before this landed opens it afterwards holding a snapshot with
-  // no filings at all — which should be an Inbox holding everything, the way it
-  // was, rather than a blank screen.
+  // Everything still yours to handle that is on no panel. `?? []` is a guard
+  // kept from before saved reads were checked on the way back in
+  // (`savedReads.ts`), when a snapshot saved before the field had no filings.
   // A filing onto a Filter is no filing at all (`filingsThatFile`), so the item
   // it names is still here - which is the whole of what makes one harmless.
   const filed = filingsThatFile(data.filings ?? [], data.panels ?? []);

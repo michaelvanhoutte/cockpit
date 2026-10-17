@@ -1,105 +1,100 @@
+import 'fake-indexeddb/auto';
 import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { QueryClient, useQuery } from '@tanstack/react-query';
-import { persistQueryClientSave } from '@tanstack/react-query-persist-client';
-import { CACHE_BUSTER, PaintedFromTheStoredCopy, persister } from '../../src/persistence';
+import { clear, createStore, del, entries, get, set } from 'idb-keyval';
+import type { WorkspaceSnapshot } from '@cockpit/shared';
+import {
+  CACHE_MAX_AGE_MS,
+  PaintedFromTheStoredCopy,
+  saveRead,
+} from '../../src/persistence';
+import { aWorkspace, anItem } from './support/savedReads';
 
 /**
- * F1: what a visit does with the copy the last one left behind. The rules are
- * about wiring rather than logic - the copy is drawn without waiting, and it is
- * still asked about - so they are stated as what ends up on screen.
+ * F1: what a visit does with the reads the last ones saved, against a fake
+ * IndexedDB. Whether a saved read converts is tests/unit/savedReads.test.ts;
+ * here it is what is drawn, what is asked, and what is kept on disk.
  *
- * The browser's own storage is the boundary being replaced, at the edge:
- * `idb-keyval` is the whole of what this module asks of IndexedDB, and jsdom
- * has none. That a *sign-out* empties it is proved against the real thing in
- * tests/e2e/sign-in.test.ts; nothing here re-proves it.
- *
- * The walk that says a resize really survives the page being thrown away is
- * tests/e2e/panels.test.ts. It reaches this rule only when the timing is
- * against it, which is why the rule is stated here as well: a stored copy
- * written a second ago is exactly the one `staleTime` would call fresh.
+ * That a *sign-out* empties it is tests/unit/session/forget.test.ts, and
+ * against the real browser tests/e2e/sign-in.test.ts.
  */
 
-const stored = new Map<string, unknown>();
-vi.mock('idb-keyval', () => ({
-  get: (key: string) => Promise.resolve(stored.get(key)),
-  set: (key: string, value: unknown) => {
-    stored.set(key, value);
-    return Promise.resolve();
-  },
-  del: (key: string) => {
-    stored.delete(key);
-    return Promise.resolve();
-  },
-}));
+const WORK = ['snapshot', 'ws-work'];
+const HOME = ['snapshot', 'ws-home'];
+const DAY = 24 * 60 * 60 * 1000;
 
-const WHAT_THE_WORKSPACE_HOLDS = ['snapshot', 'ws-work'];
+const savedReads = createStore('cockpit-saved-reads', 'reads');
+const outbox = createStore('cockpit-capture-outbox', 'entries');
 
-/** A copy written by a visit that has just ended, so nothing about it is old. */
-async function aStoredCopySaying(what: string): Promise<void> {
-  const lastVisit = new QueryClient();
-  lastVisit.setQueryData(WHAT_THE_WORKSPACE_HOLDS, what);
-  await persistQueryClientSave({ queryClient: lastVisit, persister, buster: CACHE_BUSTER });
+const titled = (title: string) => aWorkspace([anItem(1, { title })]);
+
+async function savedAt(key: readonly unknown[]): Promise<number | undefined> {
+  const found = await entries<string, { queryKey: unknown[]; savedAt: number }>(savedReads);
+  return found.find(([, read]) => JSON.stringify(read.queryKey) === JSON.stringify(key))?.[1].savedAt;
 }
 
-/**
- * A screen reading the workspace the way the app reads it: from the cache,
- * which is asked again only when what it holds has gone stale.
- */
-function Screen({ theServer }: { theServer: () => Promise<string> }) {
-  const { data, isError } = useQuery({
-    queryKey: WHAT_THE_WORKSPACE_HOLDS,
-    queryFn: theServer,
-    staleTime: 15_000,
-  });
+async function savedKeys(): Promise<string[]> {
+  const found = await entries<string, { queryKey: unknown[] }>(savedReads);
+  return found.map(([, read]) => String(read.queryKey[0])).sort();
+}
+
+/** A screen reading one Workspace the way the app reads it: from the cache, asked again once stale. */
+function Screen({ queryKey, theServer }: { queryKey: unknown[]; theServer: () => Promise<WorkspaceSnapshot> }) {
+  const { data, isError } = useQuery({ queryKey, queryFn: theServer, staleTime: 15_000 });
   return (
     <>
-      <p>{data ?? 'nothing yet'}</p>
+      <p>{data ? data.items.map((item) => item.title).join(', ') : 'nothing yet'}</p>
       {isError && <p>could not reach the server</p>}
     </>
   );
 }
 
 /** A server that has not answered yet, and a hand on when it does. */
-function aServerSaying(what: string): [() => Promise<string>, () => void] {
+function aServerSaying(what: WorkspaceSnapshot): [() => Promise<WorkspaceSnapshot>, () => void] {
   let answer: () => void = () => {};
-  const answered = new Promise<string>((resolve) => {
+  const answered = new Promise<WorkspaceSnapshot>((resolve) => {
     answer = () => resolve(what);
   });
   return [() => answered, () => answer()];
 }
 
-function open(theServer: () => Promise<string>) {
+const offline = () => Promise.reject(new Error('offline'));
+
+function open(theServer: () => Promise<WorkspaceSnapshot>, queryKey: unknown[] = WORK): QueryClient {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <PaintedFromTheStoredCopy client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <Screen theServer={theServer} />
+    <PaintedFromTheStoredCopy client={client}>
+      <Screen queryKey={queryKey} theServer={theServer} />
     </PaintedFromTheStoredCopy>,
   );
+  return client;
 }
 
-beforeEach(() => {
-  stored.clear();
+beforeEach(async () => {
+  await clear(savedReads);
+  await clear(outbox);
+  await del('cockpit-query-cache-v1');
 });
 
 describe('Offline', () => {
-  describe('opening Cockpit draws the copy it already holds and then what the server has', () => {
-    it('draws the copy before the server has said anything', async () => {
-      await aStoredCopySaying('three panels');
-      const [theServer] = aServerSaying('four panels');
+  describe('opening Cockpit draws the checked saved read and then what the server has', () => {
+    it('draws the saved read before the server has said anything', async () => {
+      await saveRead({ queryKey: WORK, data: titled('three panels'), savedAt: Date.now() });
+      const [theServer] = aServerSaying(titled('four panels'));
 
       open(theServer);
 
       expect(await screen.findByText('three panels')).toBeInTheDocument();
     });
 
-    it('asks anyway, however recently the copy was written', async () => {
-      // Written a moment ago, which is the case that goes wrong: a copy this
+    it('asks anyway, however recently the read was saved', async () => {
+      // Saved a moment ago, which is the case that goes wrong: a read this
       // fresh is one nothing would otherwise re-read, so a change made just
-      // before the page was thrown away would be missing from what is drawn
-      // and stay missing.
-      await aStoredCopySaying('three panels');
-      const [theServer, answer] = aServerSaying('four panels');
+      // before the page was thrown away would stay missing.
+      await saveRead({ queryKey: WORK, data: titled('three panels'), savedAt: Date.now() });
+      const [theServer, answer] = aServerSaying(titled('four panels'));
 
       open(theServer);
       expect(await screen.findByText('three panels')).toBeInTheDocument();
@@ -108,18 +103,17 @@ describe('Offline', () => {
       expect(await screen.findByText('four panels')).toBeInTheDocument();
     });
 
-    it('has the copy in the cache before anything beneath it reads it', async () => {
+    it('has the saved read in hand before anything beneath it reads it', async () => {
       // What the router does on mount: take what the cache holds, and go to the
-      // server only for what it does not. Mounted ahead of the restore, this
-      // finds nothing and asks a server that cannot answer.
-      await aStoredCopySaying('three panels');
+      // server only for what it does not.
+      await saveRead({ queryKey: WORK, data: titled('three panels'), savedAt: Date.now() });
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      const server = vi.fn(() => Promise.reject(new Error('offline')));
-      let found: unknown;
+      const server = vi.fn(offline);
+      let found: WorkspaceSnapshot | undefined;
       function ReadsOnMount() {
         useEffect(() => {
           void client
-            .ensureQueryData({ queryKey: WHAT_THE_WORKSPACE_HOLDS, queryFn: server })
+            .ensureQueryData({ queryKey: WORK, queryFn: server })
             .then((data) => {
               found = data;
             })
@@ -134,44 +128,87 @@ describe('Offline', () => {
         </PaintedFromTheStoredCopy>,
       );
 
-      await vi.waitFor(() => expect(found).toBe('three panels'));
+      await vi.waitFor(() => expect(found?.items[0]?.title).toBe('three panels'));
       expect(server).not.toHaveBeenCalled();
     });
 
-    it('leaves the copy on screen when the server cannot be reached', async () => {
-      await aStoredCopySaying('three panels');
+    it('leaves the saved read on screen when the server cannot be reached', async () => {
+      await saveRead({ queryKey: WORK, data: titled('three panels'), savedAt: Date.now() });
 
-      open(() => Promise.reject(new Error('offline')));
+      open(offline);
 
-      // The failure is waited for, not the copy. Asserting the copy alone says
-      // nothing: it is on screen from the first paint, before a re-read has
-      // been attempted, so the assertion holds just as well where no re-read is
-      // ever made - which is the state this whole file exists to rule out.
+      // The failure is waited for, not the read: it is on screen from the first
+      // paint, before a re-read has been attempted.
       expect(await screen.findByText('could not reach the server')).toBeInTheDocument();
-
       expect(screen.getByText('three panels')).toBeInTheDocument();
+    });
+
+    it('draws nothing from a saved read this version cannot convert', async () => {
+      await saveRead({ queryKey: WORK, data: { ...titled('three panels'), layouts: 'old' }, savedAt: Date.now() });
+
+      open(offline);
+
+      expect(await screen.findByText('could not reach the server')).toBeInTheDocument();
+      expect(screen.getByText('nothing yet')).toBeInTheDocument();
     });
   });
 
-  describe('the copy holds what the app paints from, and never what is read only to be current', () => {
-    it('stores the Workspace, and neither the register nor a connection’s history', async () => {
-      const client = new QueryClient();
-      render(
-        <PaintedFromTheStoredCopy client={client}>
-          <p>open</p>
-        </PaintedFromTheStoredCopy>,
-      );
-      await screen.findByText('open');
+  describe('each read is saved on its own, and replaced only by its own next answer', () => {
+    it('keeps a Workspace saved yesterday when only another one is read today', async () => {
+      await saveRead({ queryKey: WORK, data: titled('from yesterday'), savedAt: Date.now() - DAY });
+      open(() => Promise.resolve(titled('home today')), HOME);
+      expect(await screen.findByText('home today')).toBeInTheDocument();
+      await vi.waitFor(async () => expect(await savedKeys()).toEqual(['snapshot', 'snapshot']));
+      cleanup();
+
+      open(offline, WORK);
+
+      expect(await screen.findByText('from yesterday')).toBeInTheDocument();
+    });
+
+    it('moves the saved time of the read that answered, and of no other', async () => {
+      const yesterday = Date.now() - DAY;
+      await saveRead({ queryKey: WORK, data: titled('work'), savedAt: yesterday });
+      await saveRead({ queryKey: HOME, data: titled('home'), savedAt: yesterday });
+
+      open(() => Promise.resolve(titled('work again')), WORK);
+      expect(await screen.findByText('work again')).toBeInTheDocument();
+
+      await vi.waitFor(async () => expect(await savedAt(WORK)).toBeGreaterThan(yesterday));
+      expect(await savedAt(HOME)).toBe(yesterday);
+    });
+
+    it('does not draw a read saved over a week ago', async () => {
+      await saveRead({ queryKey: WORK, data: titled('last month'), savedAt: Date.now() - CACHE_MAX_AGE_MS - DAY });
+
+      open(offline);
+
+      expect(await screen.findByText('could not reach the server')).toBeInTheDocument();
+      expect(screen.getByText('nothing yet')).toBeInTheDocument();
+    });
+
+    it('never saves the register or a connection’s history', async () => {
+      const client = open(() => Promise.resolve(titled('three panels')));
+      expect(await screen.findByText('three panels')).toBeInTheDocument();
 
       client.setQueryData(['registeredUsers'], { users: [] });
       client.setQueryData(['connectionHistory', 'ws-work', 'account-anna'], { lines: [] });
-      client.setQueryData(WHAT_THE_WORKSPACE_HOLDS, 'three panels');
+      client.setQueryData(['me'], { user: { id: 'user-anna', name: 'Anna', role: 'user' } });
 
-      const storedKeys = () =>
-        ((stored.get('cockpit-query-cache-v1') as { clientState?: { queries: { queryKey: unknown[] }[] } } | undefined)
-          ?.clientState?.queries ?? []).map((query) => query.queryKey[0]);
-      await vi.waitFor(() => expect(storedKeys()).toContain('snapshot'), { timeout: 3_000 });
-      expect(storedKeys()).toEqual(['snapshot']);
+      await vi.waitFor(async () => expect(await savedKeys()).toEqual(['me', 'snapshot']));
+    });
+  });
+
+  describe('captures waiting to send survive a new version', () => {
+    it('deletes the one saved copy earlier versions kept, and leaves the outbox as it was', async () => {
+      await set('cockpit-query-cache-v1', { clientState: { queries: [] } });
+      await set('capture-1', { text: 'Call Ann' }, outbox);
+
+      open(offline);
+      await screen.findByText('could not reach the server');
+
+      expect(await get('cockpit-query-cache-v1')).toBeUndefined();
+      expect(await get('capture-1', outbox)).toEqual({ text: 'Call Ann' });
     });
   });
 });

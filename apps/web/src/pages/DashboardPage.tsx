@@ -3,6 +3,7 @@ import { snapshotQuery } from '../api/queries';
 import { dashboardRoute } from '../router';
 import { LoadFailure } from '../components/LoadFailure';
 import { PanelBoard } from '../components/PanelBoard';
+import { itemsLeftOut } from '../persistence';
 
 /**
  * One dashboard of a workspace ("Add and switch dashboards", issue 32), holding
@@ -16,7 +17,8 @@ import { PanelBoard } from '../components/PanelBoard';
  */
 export function DashboardPage() {
   const { workspaceId, dashboardId } = dashboardRoute.useParams();
-  const { data, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
+  const { data, dataUpdatedAt, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
+  const leftOut = itemsLeftOut(workspaceId, dataUpdatedAt);
 
   if (error && !data) {
     return <LoadFailure error={error} onRetry={() => void refetch()} />;
@@ -33,6 +35,13 @@ export function DashboardPage() {
           says it once for the whole window (Layout.tsx), because a workspace
           that cannot be read is a fact about the workspace rather than about
           this page - and the Inbox column beside it reads the same snapshot. */}
+      {leftOut > 0 && (
+        <p role="status" className="text-sm text-ink-faint">
+          {leftOut === 1
+            ? "1 Item was saved by an older version and can't be shown offline."
+            : `${leftOut} Items were saved by an older version and can't be shown offline.`}
+        </p>
+      )}
       {dashboard && (
         // Keyed by the dashboard, so switching to another one starts clean: the
         // half-typed panel name, the open question and any arrangement not yet
@@ -42,13 +51,9 @@ export function DashboardPage() {
           workspaceId={workspaceId}
           dashboard={dashboard}
           dashboards={data.dashboards}
-          // `?? []` because a snapshot can be older than these two fields.
-          // The stored copy is rehydrated from IndexedDB without being parsed
-          // again (main.tsx), so somebody who had Cockpit open before this
-          // landed opens it afterwards holding a snapshot with no `panels` at
-          // all - and reading through it would be a blank screen rather than an
-          // empty dashboard, worst of all while offline, where no answer is
-          // coming to repair it.
+          // `?? []`: guards kept from before saved reads were checked on the
+          // way back in (`savedReads.ts`), when a snapshot saved before these
+          // fields had none.
           panels={(data.panels ?? []).filter((panel) => panel.dashboardId === dashboard.id)}
           // Unfiltered, and deliberately beside the line above: whether a
           // filing files is a fact about the Panel it names rather than about

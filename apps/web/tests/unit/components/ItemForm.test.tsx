@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -18,6 +19,8 @@ import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
 import { DEADLINE_PILLS, dueDateLabel } from '../../../src/dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../../../src/dueDateShortcuts';
 import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
+import { forgetEverySavedRead, restoreSavedReads, saveRead } from '../../../src/persistence';
+import { aHistoryEntrySavedBeforePanelsFiledOn } from '../support/savedReads';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -3333,6 +3336,29 @@ describe('What Cockpit changed', () => {
       await user.click(screen.getByRole('button', { name: 'Try again' }));
 
       expect(await screen.findByRole('button', { name: /Changed the title/ })).toBeVisible();
+    });
+
+    it('says in the tab that a history saved by an older version can’t be loaded offline, while the rest of the form works', async () => {
+      await saveRead({
+        queryKey: ['rewriteHistory', 'item', 'item-1'],
+        data: { entries: [aHistoryEntrySavedBeforePanelsFiledOn()] },
+        savedAt: Date.now(),
+      });
+      await restoreSavedReads(new QueryClient());
+      held.historyFails = true;
+      try {
+        const user = await theForm();
+        await user.click(changesTab());
+
+        expect(
+          await screen.findByText("What Cockpit changed was saved by an older version and can't be loaded offline."),
+        ).toBeVisible();
+        await user.click(screen.getByRole('tab', { name: 'Item' }));
+        await user.type(titleBox(), ' now');
+        expect(titleBox()).toHaveValue('Part 11 now');
+      } finally {
+        await forgetEverySavedRead();
+      }
     });
   });
 

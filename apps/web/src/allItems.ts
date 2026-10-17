@@ -115,8 +115,8 @@ function sortValue(row: AllItemsRow, key: AllItemsKey): string | number {
  * Every item of the snapshot as a row, ordered. Equal rows keep the newest
  * change first, so a column of the same value is never in an arbitrary order.
  *
- * The lists besides the items are optional: a stored copy rehydrated from
- * IndexedDB is not parsed again, so one taken before a field existed lacks it.
+ * The lists besides the items are optional, a guard kept from before saved reads
+ * were checked on the way back in (`savedReads.ts`).
  */
 export function allItemsRows(
   snapshot: {

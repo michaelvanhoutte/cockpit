@@ -11,11 +11,10 @@ import { statusOf } from './api/loadFailure';
  * explaining itself and waiting to be clicked.
  *
  * **It stops the whole window rather than saying so in a panel**, because the
- * stored copy is no safer than the network answer. The persisted snapshot is
- * rehydrated from IndexedDB *without being parsed again* (persistence.tsx) —
- * the schemas guard the way in from the network, not the way out of storage —
- * so a build that cannot read what the server says cannot trust what it already
- * holds either. Carrying on is the one thing that is actively wrong.
+ * stored copy is no safer than the network answer. Saved reads are checked
+ * against this build's own schemas (`savedReads.ts`), not against what the
+ * server now sends, so a build that cannot read what the server says cannot
+ * trust what it already holds either. Carrying on is the one thing that is actively wrong.
  *
  * That the restore now re-reads everything on the way out of itself
  * ("Re-read the stored copy on load instead of trusting how fresh it looks",

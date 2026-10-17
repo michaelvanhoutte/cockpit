@@ -282,9 +282,8 @@ function TheForm({
    */
   useEffect(() => {
     // `?? DEFAULT_ITEM_FORM_PRESENTATION` rather than trusting `data` to
-    // always carry the field: a snapshot restored from a stored copy older
-    // than this field (persistence.tsx's own `CACHE_BUSTER`) is read but
-    // never re-validated, so it can answer `undefined` here - which must
+    // always carry the field, a guard kept from before saved reads were
+    // checked on the way back in (`savedReads.ts`): `undefined` here must
     // still lock to a real value, not `undefined` itself, or the lock this
     // effect exists for falls through to `data` again on the next render
     // (found in review).
@@ -2071,6 +2070,7 @@ function TheForm({
                         error={cockpit.error}
                         loading={cockpit.loading}
                         onRetry={cockpit.retry}
+                        savedByAnOlderVersion={cockpit.savedByAnOlderVersion}
                       />
                     </Suspense>
                   </div>

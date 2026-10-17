@@ -40,21 +40,21 @@ const waitingLine = (page: Page) => page.getByText('1 waiting to send');
 /** By its address rather than its role: at a desk the window open over it takes the header out of the accessibility tree. */
 const captureTab = (page: Page) => page.locator('header a[href="/capture"]').first();
 
-/** Whether the app's stored copy has been written whole, which a reload with no server paints from. */
+/** Whether the reads a reload with no server paints from have been saved. */
 const storedCopyWritten = (page: Page) =>
   page.evaluate(
     () =>
       new Promise<boolean>((resolve) => {
-        const opening = indexedDB.open('keyval-store');
+        const opening = indexedDB.open('cockpit-saved-reads');
         opening.onerror = () => resolve(false);
         opening.onsuccess = () => {
           const db = opening.result;
-          if (!db.objectStoreNames.contains('keyval')) return resolve(false);
-          const read = db.transaction('keyval').objectStore('keyval').get('cockpit-query-cache-v1');
+          if (!db.objectStoreNames.contains('reads')) return resolve(false);
+          const read = db.transaction('reads').objectStore('reads').getAll();
           // Who is signed in and the workspace's own copy, both: a capture is
-          // kept for whoever the stored copy says is signed in.
+          // kept for whoever the saved reads say is signed in.
           read.onsuccess = () => {
-            const kept: { queryKey: unknown[] }[] = read.result?.clientState?.queries ?? [];
+            const kept: { queryKey: unknown[] }[] = read.result ?? [];
             const has = (first: string) => kept.some((query) => query.queryKey[0] === first);
             resolve(has('me') && has('snapshot') && has('workspaces'));
           };
