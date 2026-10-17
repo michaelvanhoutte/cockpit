@@ -30,7 +30,8 @@ const answerShape = z.object({
  * (architecture, "AI layer"): a destination other than Cowork, Code or nothing,
  * an action with no prompt, a folder it was not offered, nothing beside an
  * action, more than three, a label or reason pointing anywhere, a link or a
- * command in the prompt of an Item someone else sent (`fromSomeoneElse`), or
+ * command in the prompt of an Item someone else sent, or one shaped by past
+ * sends, which came from such Items (`fromSomeoneElse`), or
  * anything that is not this shape discards the whole
  * answer rather than keeping the parts that read.
  */
@@ -52,7 +53,7 @@ export function readClaudeProposals(
   if (!answer.success) return { discarded: 'the answer was not a list of proposals' };
 
   // A folder is named by its number in the list offered, never by its path
-  // (`propose-for-claude.v2`), and empty for none.
+  // (`propose-for-claude.v3`), and empty for none.
   const folders = answer.data.proposals.map((one) => folderNumbered(one.folder, offeredFolders));
   if (folders.includes(undefined)) return { discarded: 'the answer named a folder it was not offered' };
 

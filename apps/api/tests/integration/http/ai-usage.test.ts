@@ -311,7 +311,7 @@ describe('AI usage', () => {
       await proposeWhatWasHeld(env);
 
       expect((await everyRecord()).find((record) => record.operation === 'propose-for-claude')).toMatchObject({
-        prompt_version: 'propose-for-claude.v2',
+        prompt_version: 'propose-for-claude.v3',
         triggered_by: 'captured-in-app',
         account_name: ACCOUNT_NAME,
         item_id: itemId,

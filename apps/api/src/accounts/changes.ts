@@ -171,6 +171,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     CONNECTION_HISTORY_STATUS,
     ITEM_CLAUDE_PROPOSALS,
     CONNECTION_HISTORY_WRITTEN,
+    CLAUDE_SENDS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -830,6 +831,59 @@ const CONNECTION_HISTORY_WRITTEN: Change = {
     {
       sql: 'CREATE INDEX IF NOT EXISTS `connection_history_written` ON `connection_history` (`tenant_id`,`last_at`)',
     },
+  ],
+};
+
+/**
+ * What was sent to Claude, kept as an example for later proposals ("Learn from
+ * what you sent to Claude", issue 1162): a new table and its index;
+ * `schema.ts` says what each column carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): a `CREATE TABLE` and a `CREATE INDEX`, and no statement
+ *   that reads or writes a row.
+ * - **If it stops halfway:** one change is one transaction, so a failure on
+ *   either statement takes the other back with it, and the next open applies
+ *   both.
+ * - **The second time it runs:** it does not re-run once recorded; both
+ *   statements are `IF NOT EXISTS` besides.
+ * - **Rows that predate it:** none. Sends made before it left no record and
+ *   are not rebuilt - their prompts were never kept - so the first proposals
+ *   learn from nothing and are made as before.
+ * - **What is in each environment:** staging and production gain an empty
+ *   table; every existing row is untouched.
+ * - **Rolled back after it has run:** an older release never names the table,
+ *   so its sends write no record and the table keeps what it held.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CLAUDE_SENDS: Change = {
+  name: '0085-claude-sends',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`claude_sends\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`item_title\` text NOT NULL,
+	\`item_description\` text,
+	\`proposed_destination\` text NOT NULL,
+	\`proposed_folder\` text NOT NULL,
+	\`proposed_prompt\` text NOT NULL,
+	\`sent_destination\` text NOT NULL,
+	\`sent_folder\` text NOT NULL,
+	\`sent_prompt\` text NOT NULL,
+	\`sent_at\` text NOT NULL,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "claude_sends_proposed_destination_is_known" CHECK(proposed_destination IN ('cowork', 'code')),
+	CONSTRAINT "claude_sends_sent_destination_is_known" CHECK(sent_destination IN ('cowork', 'code')),
+	${timestampCheck('claude_sends', 'sent_at')}
+) STRICT`,
+    },
+    { sql: 'CREATE INDEX IF NOT EXISTS `claude_sends_tenant_sent_at` ON `claude_sends` (`tenant_id`,`sent_at`)' },
   ],
 };
 

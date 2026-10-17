@@ -1864,6 +1864,53 @@ export const agentRunActivity = sqliteTable(
 );
 
 /**
+ * What was sent to Claude, kept as an example for the next proposals ("Learn
+ * from what you sent to Claude", issue 1162): one row per send, `id` being the
+ * Run's own, so the same send twice is one row.
+ *
+ * - **Append-only, and never shown as a list.** Nothing updates or deletes a
+ *   row; the only reader is the proposal for another Item, which takes the few
+ *   closest to it (`closestSends`, domain/claude-sends.ts).
+ * - **The Item as it read when sent** (`item_title`, `item_description`, the
+ *   latter kept short), since the Item's words move on and an example has to
+ *   say what it was about. Its meaning is *not* copied: the closeness of two
+ *   Items is read from `item_meanings`, the vectors already kept for
+ *   duplicates, by `item_id`.
+ * - **`proposed_*` and `sent_*`** are a destination, a folder and the prompt
+ *   without the parts Cockpit writes itself (`promptWithoutFixedParts`). The
+ *   prompt may be taken from untrusted mail, so a proposal reads it as data.
+ * - **No foreign key to `agent_runs`**: a Run is ended, never erased, but this
+ *   row would outlive any change to that table.
+ */
+export const claudeSends = sqliteTable(
+  'claude_sends',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    itemTitle: text('item_title').notNull(),
+    itemDescription: text('item_description'),
+    proposedDestination: text('proposed_destination').notNull().$type<ClaudeDestination>(),
+    proposedFolder: text('proposed_folder').notNull(),
+    proposedPrompt: text('proposed_prompt').notNull(),
+    sentDestination: text('sent_destination').notNull().$type<ClaudeDestination>(),
+    sentFolder: text('sent_folder').notNull(),
+    sentPrompt: text('sent_prompt').notNull(),
+    sentAt: text('sent_at').notNull(),
+  },
+  (t) => [
+    // What the proposal reads: the account's newest sends.
+    index('claude_sends_tenant_sent_at').on(t.tenantId, t.sentAt),
+    check('claude_sends_proposed_destination_is_known', oneOf('proposed_destination', CLAUDE_DESTINATIONS)),
+    check('claude_sends_sent_destination_is_known', oneOf('sent_destination', CLAUDE_DESTINATIONS)),
+    check('claude_sends_sent_at_is_timestamp', isTimestamp('sent_at')),
+  ],
+);
+
+/**
  * When a hook last reached Cockpit for a Claude Code connection (issue 572),
  * whatever it said and whether it moved a run - what the connection's form
  * shows, so a repository whose hooks arrive but name no run can be told from

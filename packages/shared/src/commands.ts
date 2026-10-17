@@ -23,6 +23,7 @@ import {
   agentEngineSchema,
 } from './domain/agent.js';
 import {
+  CLAUDE_PROMPT_LIMIT,
   CLAUDE_REPORTED_STAGES,
   REPORT_NOTE_LIMIT,
   claudeDestinationSchema,
@@ -540,14 +541,27 @@ export type BeginAgentRunCommand = z.infer<typeof beginAgentRunSchema>;
  * recorded as a Run that is *Sent* just before the browser opens the
  * `claude://` address ("Send an item to Cowork or Claude Code with its prompt
  * reviewed first", issue 1159). `runId` is chosen by the browser, because the
- * prompt it is about to send already names it. The prompt itself is not
- * stored: Claude has it, and an edit made there is not Cockpit's to keep.
+ * prompt it is about to send already names it. **The Run does not keep the
+ * prompt**; the send is kept apart, as an example for later proposals ("Learn
+ * from what you sent to Claude", issue 1162), from `prompt` - what the window
+ * sent - and `proposed` - what it opened on, which the Item's own proposal may
+ * have moved on from by now. Both optional, so a tab from before them still
+ * sends, and learns nothing; an edit made later inside Claude is not Cockpit's
+ * to keep.
  */
 export const sendItemToClaudeSchema = commandEnvelopeSchema.extend({
   runId: z.uuid(),
   itemId: z.uuid(),
   destination: claudeDestinationSchema,
   folder: claudeFolderSchema.default(''),
+  prompt: z.string().max(CLAUDE_PROMPT_LIMIT).optional(),
+  proposed: z
+    .object({
+      destination: claudeDestinationSchema,
+      folder: claudeFolderSchema.default(''),
+      prompt: z.string().max(CLAUDE_PROMPT_LIMIT),
+    })
+    .optional(),
 });
 export type SendItemToClaudeCommand = z.infer<typeof sendItemToClaudeSchema>;
 

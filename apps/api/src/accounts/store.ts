@@ -525,8 +525,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /** Where an Item stands, for proposing what to do with it ("Propose what to do with each item before you look", issue 1161). */
-  claudeProposalContext(accountName: string, itemId: string): Answer<ClaudeProposalContext> {
-    return this.#answer(accountName, (db) => claudeProposalContext(db, accountName, itemId));
+  claudeProposalContext(accountName: string, itemId: string, model: string): Answer<ClaudeProposalContext> {
+    return this.#answer(accountName, (db) => claudeProposalContext(db, accountName, itemId, model));
   }
 
   /** Whether the Item is on a live Panel already ("File a note on Panels from Capture, skipping the Inbox", issue 1101). */

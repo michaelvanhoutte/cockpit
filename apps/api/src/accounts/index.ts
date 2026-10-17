@@ -173,7 +173,7 @@ export interface Account {
   /** Whether the Item is on a live Panel already, so the proposal job leaves it alone (issue 1101). */
   itemIsFiled(itemId: string): Promise<boolean>;
   /** Where an Item stands - its Workspace, the Panels it is on, the folders sent to before - for proposing what to do with it (issue 1161). Read by the enrichment job and by nothing else. */
-  claudeProposalContext(itemId: string): Promise<ClaudeProposalContext>;
+  claudeProposalContext(itemId: string, model: string): Promise<ClaudeProposalContext>;
   /**
    * What a title or description proposal reads about how this account
    * writes ("Learn how you write from the titles you correct", issue 394).
@@ -421,7 +421,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     textLearningContext: async () => unwrap(await store.textLearningContext(accountName)),
     recentCapturedTimeZones: async () => unwrap(await store.recentCapturedTimeZones(accountName)),
     itemIsFiled: async (itemId) => unwrap(await store.itemIsFiled(accountName, itemId)),
-    claudeProposalContext: async (itemId) => unwrap(await store.claudeProposalContext(accountName, itemId)),
+    claudeProposalContext: async (itemId, model) => unwrap(await store.claudeProposalContext(accountName, itemId, model)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     meaningsForRefresh: async (workspaceId, since, candidateIds, model) =>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readClaudeProposals } from '../../../src/ai/claude-proposals.js';
-import { renderItem } from '../../../src/ai/prompts/propose-for-claude.v2.js';
+import { renderItem } from '../../../src/ai/prompts/propose-for-claude.v3.js';
 
 /**
  * L1: reading what the model proposed doing with an Item is a pure decision over

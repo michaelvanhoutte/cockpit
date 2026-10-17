@@ -34,6 +34,7 @@ import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } from '../domain/claude-send-records.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
@@ -42,6 +43,7 @@ import {
   agentRuns,
   agents,
   associations,
+  claudeSends,
   attachments,
   claudeCodeHookArrivals,
   commands,
@@ -1699,6 +1701,12 @@ export interface ClaudeProposalContext {
   filedOn: { dashboard: string; panel: string }[];
   /** The folders sent to Claude in from its Workspace (from any, for an Item in none yet), most recently used first. */
   folders: string[];
+  /**
+   * The sends closest to this Item (issue 1162), closest first; none where
+   * nothing has read it yet, where nothing has been sent, or where nothing
+   * sent is like it.
+   */
+  pastSends: PastSend[];
 }
 
 /** The most folders a proposal is offered, most recently used first. */
@@ -1709,9 +1717,15 @@ const FOLDERS_OFFERED = 12;
  * with each item before you look", issue 1161): its Workspace's name, the
  * Panels it is filed on - leaving out a deleted Panel or Dashboard, as
  * `isItemFiled` does - and the folders its Workspace has opened Claude in, which
- * are the only folders a proposal may name.
+ * are the only folders a proposal may name - and the closest past sends, read
+ * from the meanings `model` made of the Items they were for (issue 1162).
  */
-export function claudeProposalContext(db: AccountDb, tenantId: string, itemId: string): ClaudeProposalContext {
+export function claudeProposalContext(
+  db: AccountDb,
+  tenantId: string,
+  itemId: string,
+  model: string,
+): ClaudeProposalContext {
   const item = db
     .select({ workspaceId: items.workspaceId, workspaceDecided: items.workspaceDecided })
     .from(items)
@@ -1759,7 +1773,112 @@ export function claudeProposalContext(db: AccountDb, tenantId: string, itemId: s
     .limit(FOLDERS_OFFERED)
     .all()
     .flatMap((row) => (row.folder ? [row.folder] : []));
-  return { workspace, filedOn, folders };
+  return {
+    workspace,
+    filedOn,
+    folders,
+    pastSends: closestPastSends(db, tenantId, itemId, model, item?.workspaceDecided ? item.workspaceId : null),
+  };
+}
+
+/**
+ * Keeps what was sent to Claude, once: a send already kept under the same Run
+ * is left as it is, so the same Open twice is one record (issue 1162).
+ */
+export function recordClaudeSend(db: InTheStore, tenantId: string, send: ClaudeSendRecord): void {
+  db.insert(claudeSends)
+    .values({
+      id: send.id,
+      tenantId,
+      workspaceId: send.workspaceId,
+      itemId: send.itemId,
+      itemTitle: send.itemTitle,
+      itemDescription: send.itemDescription,
+      proposedDestination: send.proposed.destination,
+      proposedFolder: send.proposed.folder,
+      proposedPrompt: send.proposed.prompt,
+      sentDestination: send.sent.destination,
+      sentFolder: send.sent.folder,
+      sentPrompt: send.sent.prompt,
+      sentAt: send.sentAt,
+    })
+    .onConflictDoNothing()
+    .run();
+}
+
+/**
+ * The past sends closest to one Item, found with the meanings already kept for
+ * duplicates (`item_meanings`, issue 1162): the account's newest
+ * `SENDS_COMPARED` sends, each compared with the Item by the meaning `model`
+ * read from the Item it was for.
+ *
+ * **Only this account's own** (every read is scoped to `tenantId`), **and for
+ * an Item in a Workspace, only that Workspace's** - the rule the folders
+ * offered keep, so a send made for one Workspace never carries its folder, or
+ * the way its mail was written, into another's. An Item belonging to none yet
+ * sees every Workspace's. **Never the Item's own sends**: it is being
+ * proposed for again, not asked what it was sent as.
+ *
+ * Nothing at all where the Item has no meaning yet (it was only just captured,
+ * and the reading is a job of its own) or an emptied one.
+ */
+function closestPastSends(
+  db: AccountDb,
+  tenantId: string,
+  itemId: string,
+  model: string,
+  inWorkspace: string | null,
+): PastSend[] {
+  const reading = db
+    .select({ reading: itemMeanings.reading })
+    .from(itemMeanings)
+    .where(and(eq(itemMeanings.tenantId, tenantId), eq(itemMeanings.itemId, itemId), eq(itemMeanings.model, model)))
+    .get()?.reading;
+  if (!reading || reading.length === 0) return [];
+
+  // Placed by the readings alone first: a send keeps its prompts up to 100,000
+  // characters apiece, and only the few that are shown need to be read.
+  const placed = db
+    .select({ id: claudeSends.id, itemId: claudeSends.itemId, reading: itemMeanings.reading })
+    .from(claudeSends)
+    .innerJoin(
+      itemMeanings,
+      and(eq(itemMeanings.itemId, claudeSends.itemId), eq(itemMeanings.tenantId, claudeSends.tenantId), eq(itemMeanings.model, model)),
+    )
+    .where(
+      and(
+        eq(claudeSends.tenantId, tenantId),
+        ne(claudeSends.itemId, itemId),
+        inWorkspace === null ? undefined : eq(claudeSends.workspaceId, inWorkspace),
+      ),
+    )
+    .orderBy(desc(claudeSends.sentAt), desc(claudeSends.id))
+    .limit(SENDS_COMPARED)
+    .all();
+
+  const closest = closestSends(reading, placed);
+  if (closest.length === 0) return [];
+
+  const kept = new Map(
+    db
+      .select()
+      .from(claudeSends)
+      .where(and(eq(claudeSends.tenantId, tenantId), inArray(claudeSends.id, closest.map((one) => one.id))))
+      .all()
+      .map((row) => [row.id, row]),
+  );
+  return closest.flatMap((one) => {
+    const row = kept.get(one.id);
+    if (!row) return [];
+    return [
+      {
+        title: row.itemTitle,
+        description: row.itemDescription,
+        proposed: { destination: row.proposedDestination, folder: row.proposedFolder, prompt: row.proposedPrompt },
+        sent: { destination: row.sentDestination, folder: row.sentFolder, prompt: row.sentPrompt },
+      },
+    ];
+  });
 }
 
 // --- Agents, and what the dock draws (issue 570) ------------------------------
