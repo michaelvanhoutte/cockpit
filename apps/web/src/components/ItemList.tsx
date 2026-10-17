@@ -960,7 +960,14 @@ export function ItemList({
     : items;
   const orientation = useOrientation(
     groupByProposal && panelId === null,
-    drawnItems.map((item) => item.id).join(),
+    // The rows and where the headers fall among them: a header arriving above
+    // the keyboard's row moves it without reordering anything.
+    proposalGroups
+      ? [
+          ...proposalGroups.groups.map((group) => [group.panelId, ...group.items.map((item) => item.id)].join()),
+          proposalGroups.rest.map((item) => item.id).join(),
+        ].join('|')
+      : drawnItems.map((item) => item.id).join(),
     picked.map((item) => item.id),
   );
   function groupedByProposal() {
@@ -1317,7 +1324,12 @@ function useOrientation(on: boolean, order: string, picked: readonly string[]) {
   useEffect(() => {
     if (!on) return;
     let live = true;
-    void import('../inboxOrientation').then((loaded) => live && setChunk(loaded));
+    // A chunk that will not load (a deploy replaced it under an open tab) leaves
+    // the list jumping, as before it existed.
+    import('../inboxOrientation').then(
+      (loaded) => live && setChunk(loaded),
+      () => {},
+    );
     return () => {
       live = false;
     };

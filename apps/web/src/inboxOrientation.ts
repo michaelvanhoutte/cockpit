@@ -112,9 +112,12 @@ export function orient(box: HTMLElement) {
       // First the focused row back where it was, then every other row measured
       // against that, so the slide starts from where it was on screen.
       const scroller = scrollerOf(box);
-      const shift = scroller ? scrollToHold(then, see(box), focusedId) : 0;
-      if (scroller && shift !== 0) scroller.scrollTop += shift;
-      const now = see(box);
+      let now = see(box);
+      const shift = scroller ? scrollToHold(then, now, focusedId) : 0;
+      if (scroller && shift !== 0) {
+        scroller.scrollTop += shift;
+        now = see(box);
+      }
 
       const { slides, flashes } = whatMoves(then, now, [...picked, ...(focusedId ? [focusedId] : []), ...(pointerOn ? [pointerOn] : [])]);
       const drawn = new Map([...box.querySelectorAll<HTMLElement>(ROW)].map((row) => [row.dataset.itemId!, row]));
