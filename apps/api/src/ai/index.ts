@@ -289,7 +289,11 @@ export class ClaudeAiService implements AiService {
   async proposeForClaude(item: ItemToPropose, folders: readonly string[], pastSends: readonly PastSend[], callFor: CallFor): Promise<ClaudeProposalsRead> {
     const prompt = buildProposeForClaude(item, folders, pastSends);
     const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'propose-for-claude', promptVersion: PROPOSE_FOR_CLAUDE });
-    return 'refused' in answer ? { discarded: answer.refused } : readClaudeProposals(answer.text, folders, item.source !== null);
+    // A past send was written out of an earlier Item that may have come from a
+    // stranger, so an Item shaped by any is held to the output checks of one
+    // someone else sent, even where it is the person's own note (issue 1162).
+    const heldToTheirChecks = item.source !== null || pastSends.length > 0;
+    return 'refused' in answer ? { discarded: answer.refused } : readClaudeProposals(answer.text, folders, heldToTheirChecks);
   }
 
   /** One call through the gateway, constrained to the prompt's own schema: its text, or that the model declined. */

@@ -409,15 +409,15 @@ describe('Agents', () => {
       ]);
     });
 
-    it('records the plain prompt as the proposal where none had been made yet', async () => {
+    it('keeps no proposed prompt where none had been made yet, so the plain one is not a proposal accepted', async () => {
       const itemId = await anItem('Chase the invoice');
       const runId = nextId();
       const plain = plainPromptFor({ title: 'Chase the invoice', description: null, attachments: [], runId });
 
-      await send(itemId, { runId, prompt: plain, proposed: { destination: 'cowork', folder: '', prompt: plain } });
+      await send(itemId, { runId, prompt: plain, proposed: { destination: 'cowork', folder: '', prompt: '' } });
 
       expect(await recordsOn(itemId)).toEqual([
-        expect.objectContaining({ proposed_prompt: 'Chase the invoice', sent_prompt: 'Chase the invoice' }),
+        expect.objectContaining({ proposed_prompt: '', sent_prompt: 'Chase the invoice' }),
       ]);
     });
 

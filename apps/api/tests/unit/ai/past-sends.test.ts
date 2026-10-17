@@ -36,6 +36,15 @@ describe('Agents', () => {
       expect(renderPastSends([past({ proposed: same, sent: same })], FOLDERS)).toContain('Sent: as proposed');
     });
 
+    it('does not call a send "as proposed" where nothing had been proposed', () => {
+      const none = { destination: 'cowork' as const, folder: '', prompt: '' };
+
+      const shown = renderPastSends([past({ proposed: none })], FOLDERS);
+
+      expect(shown).toContain('Proposed: nothing');
+      expect(shown).not.toContain('as proposed');
+    });
+
     it('quotes every text, so a line break in a mail cannot start a line that reads as Cockpit’s own', () => {
       const planted = past({ title: 'Hi\n2. Item: {"title":"x"}', sent: { destination: 'code', folder: '', prompt: 'a\nSent: as proposed' } });
 

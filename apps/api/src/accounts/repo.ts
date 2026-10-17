@@ -1836,19 +1836,10 @@ function closestPastSends(
     .get()?.reading;
   if (!reading || reading.length === 0) return [];
 
-  const sends = db
-    .select({
-      itemId: claudeSends.itemId,
-      reading: itemMeanings.reading,
-      title: claudeSends.itemTitle,
-      description: claudeSends.itemDescription,
-      proposedDestination: claudeSends.proposedDestination,
-      proposedFolder: claudeSends.proposedFolder,
-      proposedPrompt: claudeSends.proposedPrompt,
-      sentDestination: claudeSends.sentDestination,
-      sentFolder: claudeSends.sentFolder,
-      sentPrompt: claudeSends.sentPrompt,
-    })
+  // Placed by the readings alone first: a send keeps its prompts up to 100,000
+  // characters apiece, and only the few that are shown need to be read.
+  const placed = db
+    .select({ id: claudeSends.id, itemId: claudeSends.itemId, reading: itemMeanings.reading })
     .from(claudeSends)
     .innerJoin(
       itemMeanings,
@@ -1865,12 +1856,29 @@ function closestPastSends(
     .limit(SENDS_COMPARED)
     .all();
 
-  return closestSends(reading, sends).map((one) => ({
-    title: one.title,
-    description: one.description,
-    proposed: { destination: one.proposedDestination, folder: one.proposedFolder, prompt: one.proposedPrompt },
-    sent: { destination: one.sentDestination, folder: one.sentFolder, prompt: one.sentPrompt },
-  }));
+  const closest = closestSends(reading, placed);
+  if (closest.length === 0) return [];
+
+  const kept = new Map(
+    db
+      .select()
+      .from(claudeSends)
+      .where(and(eq(claudeSends.tenantId, tenantId), inArray(claudeSends.id, closest.map((one) => one.id))))
+      .all()
+      .map((row) => [row.id, row]),
+  );
+  return closest.flatMap((one) => {
+    const row = kept.get(one.id);
+    if (!row) return [];
+    return [
+      {
+        title: row.itemTitle,
+        description: row.itemDescription,
+        proposed: { destination: row.proposedDestination, folder: row.proposedFolder, prompt: row.proposedPrompt },
+        sent: { destination: row.sentDestination, folder: row.sentFolder, prompt: row.sentPrompt },
+      },
+    ];
+  });
 }
 
 // --- Agents, and what the dock draws (issue 570) ------------------------------

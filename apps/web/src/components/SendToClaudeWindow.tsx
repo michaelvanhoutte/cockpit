@@ -165,12 +165,14 @@ export function SendToClaudeWindow({
           destination,
           folder: chosen,
           // Kept apart as an example for later proposals (issue 1162): what the
-          // window opened on, and what it sent.
+          // window opened on, and what it sent. No prompt where nothing was
+          // proposed to open on, so the plain one is never read as a proposal
+          // the person accepted.
           prompt: prompt.slice(0, CLAUDE_PROMPT_LIMIT),
           proposed: {
             destination: action?.destination ?? 'cowork',
             folder: action ? action.folder : startingFolder,
-            prompt: plain.slice(0, CLAUDE_PROMPT_LIMIT),
+            prompt: action ? plain.slice(0, CLAUDE_PROMPT_LIMIT) : '',
           },
         },
       });

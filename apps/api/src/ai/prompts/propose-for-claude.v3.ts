@@ -171,7 +171,9 @@ export function renderPastSends(pastSends: readonly PastSend[], folders: readonl
         title: shortened(one.title, PAST_SEND_SHOWN.title),
         ...(one.description?.trim() ? { description: shortened(one.description.trim(), PAST_SEND_SHOWN.description) } : {}),
       });
-      return [`${at + 1}. Item: ${about}`, `   Proposed: ${doing(one.proposed)}`, `   Sent: ${same ? 'as proposed' : doing(one.sent)}`].join('\n');
+      // No proposal had been made when it was sent: nothing to be "as proposed".
+      const proposed = one.proposed.prompt === '' ? 'nothing' : doing(one.proposed);
+      return [`${at + 1}. Item: ${about}`, `   Proposed: ${proposed}`,`   Sent: ${same ? 'as proposed' : doing(one.sent)}`].join('\n');
     }),
   ].join('\n');
 }
