@@ -34,6 +34,8 @@ export const nameOutcomeSchema = z.object({
   dashboard: z.string().nullable().default(null),
   why: z.string().nullable().default(null),
   dashboards: z.number().int().nullable().default(null),
+  /** How many Panels the name matched where it read as a Dashboard-qualified name of several (issue 1198). */
+  panels: z.number().int().nullable().default(null),
 });
 export type NameOutcomeShown = z.infer<typeof nameOutcomeSchema>;
 export const messageNamedSchema = itemDidSchema.extend({ names: nameOutcomeSchema.array() });

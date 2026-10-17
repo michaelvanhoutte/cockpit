@@ -53,8 +53,13 @@ export interface ConnectorManifest {
    * `example` how it speaks of an Item carrying one, before the name itself,
    * for the line under it (*a message with the category*). Absent: the window
    * offers no such box, and the host files nothing by name.
+   *
+   * `byDashboard` declares that a name may also qualify a Panel by the
+   * Dashboard it lives on, `Dashboard-Panel` ("File Outlook mail on a
+   * dashboard-panel category", issue 1198). Absent: a name is a Panel's own
+   * name only. The host reads this, never which connector it is.
    */
-  names?: { noun: string; example: string };
+  names?: { noun: string; example: string; byDashboard?: boolean };
   /** Whether the source can push (webhooks) in addition to being pulled. */
   supportsPush: boolean;
   /**

@@ -87,4 +87,10 @@ describe('Connector management', () => {
       });
     });
   });
+
+  describe('whether a name may qualify a Panel by its Dashboard is declared in the manifest (issue 1198)', () => {
+    it('Outlook declares it', () => {
+      expect(new GraphWorld().connector().manifest.names?.byDashboard).toBe(true);
+    });
+  });
 });

@@ -177,4 +177,10 @@ describe('Connector management', () => {
       expect(world.requests.filter((one) => one.includes('/labels'))).toHaveLength(1);
     });
   });
+
+  describe('whether a name may qualify a Panel by its Dashboard is declared in the manifest (issue 1198)', () => {
+    it('Gmail declares no such form', () => {
+      expect(new GmailWorld().connector().manifest.names?.byDashboard).toBeUndefined();
+    });
+  });
 });

@@ -137,7 +137,7 @@ describe('Connector management', () => {
 
   describe('a check that read names is a line of its own (issue 1197)', () => {
     const nothing = { broughtIn: [], closed: [], sentBack: [], refused: [] };
-    const outcome = { name: 'Tasks', panel: null, dashboard: null, why: 'off' as const, dashboards: null };
+    const outcome = { name: 'Tasks', panel: null, dashboard: null, why: 'off' as const, dashboards: null, panels: null };
     const readOne = { ...nothing, named: [{ itemId: 'a', names: [outcome] }] };
 
     it('does not fold into a quiet streak, in either direction', () => {
