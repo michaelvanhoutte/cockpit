@@ -19,7 +19,7 @@ import {
 import { CommandRefused } from '../api/client';
 import { useCommand, useSendCommand } from '../api/queries';
 import { AGENT_BEING_DRAGGED, landAgent, useAgentInTheAir } from '../agentInTheAir';
-import { runChipFor } from '../agentRunChip';
+import { runChipFor, sessionHrefFor } from '../agentRunChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -89,6 +89,7 @@ export function ItemRow({
   onAcceptRouting,
   onAcceptSelection,
   inProposalGroup = false,
+  onFileGroup,
   mayBeADuplicate,
   duplicateOf,
   onSettleNotADuplicate,
@@ -210,6 +211,12 @@ export function ItemRow({
    * under a header per proposed Panel", issue 1166).
    */
   inProposalGroup?: boolean;
+  /**
+   * Shift+Enter, and the header's File all: files the whole proposal group this
+   * row is drawn in ("File a proposal group in one action", issue 1167).
+   * Absent outside a group, where Shift+Enter files this row alone.
+   */
+  onFileGroup?: (() => void) | undefined;
   /**
    * Picking this row out to be acted on with others ("Select several items, and
    * file them all in one go", issue 169), and whether it is picked.
@@ -340,6 +347,7 @@ export function ItemRow({
     return () => clearTimeout(timer);
   }, [run?.status, run?.startedAt]);
   const chip = run ? runChipFor(run, Date.now()) : null;
+  const sessionHref = run && chip ? sessionHrefFor(run, chip) : null;
   /** Whether this row takes an Agent right now: on a dashboard, with nothing already running on it. */
   const takesAnAgent = agentsHere !== undefined && !runBlocksAStart(run);
   const lifted = useAgentInTheAir();
@@ -799,9 +807,9 @@ export function ItemRow({
             Send to Claude…
           </M.Item>
         ),
-        chip?.href && (
+        sessionHref && (
           <M.Item key="session" asChild className={menuItemClass}>
-            <a href={chip.href} target="_blank" rel="noopener noreferrer">
+            <a href={sessionHref} target="_blank" rel="noopener noreferrer">
               Open the Claude session ↗
             </a>
           </M.Item>
@@ -1050,6 +1058,28 @@ export function ItemRow({
         // not made one yet: the key waits for it and is pressed again, so it
         // acts on the selection and not on this row alone.
         const extending = selectionBeingExtended();
+        // Shift+Enter, alone: this row's whole proposal group, or this row
+        // outside one. Not while a selection is held, which suspends the row's
+        // own actions (issue 438), and then it opens as it did.
+        if (
+          inInbox && roomBesideTheMenu && !selecting?.revealed && event.key === 'Enter' && event.shiftKey &&
+          !event.ctrlKey && !event.altKey && !event.metaKey
+        ) {
+          // Not prevented: the press is read again once the code has loaded,
+          // and a prevented one reads as claimed by somebody else.
+          if (extending) return;
+          const row = event.currentTarget;
+          const press = event.nativeEvent;
+          const show = dock.show;
+          import('../inboxTriage').then(
+            (follow) =>
+              follow.triageGroup(press, row, onFileGroup ?? onAcceptRouting, show, () =>
+                setStartRefusal('No Panel was proposed. M moves it.'),
+              ),
+            () => undefined,
+          );
+          return;
+        }
         if (extending && inInbox && roomBesideTheMenu && !chord && /^(Enter|[dmox])$/i.test(event.key)) {
           event.preventDefault();
           const row = event.currentTarget;
@@ -1339,7 +1369,11 @@ export function ItemRow({
                 <span
                   title={chip.hint ?? undefined}
                   className={`shrink-0 rounded-full px-1.5 ${
-                    chip.trouble ? 'bg-over/15 text-over-deep-ink' : 'bg-accent-tint text-accent-deep'
+                    chip.trouble
+                      ? 'bg-over/15 text-over-deep-ink'
+                      : chip.waiting
+                        ? 'bg-due-soft text-due-ink'
+                        : 'bg-accent-tint text-accent-deep'
                   }`}
                 >
                   {chip.agent ? `${chip.agent} · ` : ''}{chip.text}
@@ -1395,7 +1429,7 @@ export function ItemRow({
                     ? 'outline-1 -outline-offset-1 outline-dashed outline-accent/60 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-solid focus-visible:outline-accent'
                     : 'bg-accent-tint'
                 }`}
-                title={inInbox && roomBesideTheMenu ? `${routingLabel}\nEnter files it here` : routingLabel}
+                title={inInbox && roomBesideTheMenu ? `${routingLabel}\nEnter files it here${inProposalGroup ? '\nShift+Enter files the group' : ''}` : routingLabel}
                 aria-label={routingLabel}
                 onClick={(event) => {
                   event.stopPropagation();

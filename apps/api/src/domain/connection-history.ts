@@ -5,8 +5,11 @@
  * the decision kept here so it is proven without a store.
  */
 
-/** Why a check ran: on the connection's cadence, or soon after one that said there was more to do. */
-export type CheckReason = 'scheduled' | 'follow-up';
+/**
+ * Why a check ran: on the connection's cadence, soon after one that said there
+ * was more to do, or because a person pressed *Check now* (issue 1143).
+ */
+export type CheckReason = 'scheduled' | 'follow-up' | 'check-now';
 
 /** What a check did, by Item id: brought in, closed, sent back to the source, refused by it for good. */
 export interface CheckDid {
@@ -19,16 +22,20 @@ export interface CheckDid {
 /** How a check ended, as its line records it. */
 export type CheckEnded =
   | { outcome: 'worked' }
-  | { outcome: 'failed'; message: string | null; messageCut: boolean };
+  | { outcome: 'failed'; message: string | null; messageCut: boolean; status: number | null };
 
 /** How a check ended, and whether it did anything. */
-export type CheckOutcome = CheckEnded & { did: boolean };
+export type CheckOutcome = CheckEnded & { did: boolean; reason: CheckReason };
 
 /** The line a new check would fold into, as the store holds it. */
 export interface LineAsHeld {
+  /** Why the line's first check ran. */
+  reason: CheckReason;
   outcome: 'worked' | 'failed';
   message: string | null;
   messageCut: boolean;
+  /** The HTTP status the source answered a failure with (issue 1142); null where it gave none, or the line worked. */
+  status: number | null;
   /** Whether the line's check did anything - such a line is a line of its own. */
   did: boolean;
 }
@@ -103,13 +110,16 @@ function isQuiet(line: { outcome: 'worked' | 'failed'; did: boolean }): boolean 
 
 /**
  * What a check's end does to the history: extends the line before it where
- * both are quiet, or both failed with the same message and neither did
- * anything; inserts a line of its own otherwise - a check that did anything is
- * never folded, and never extended.
+ * both are quiet, or both failed with the same status and message and neither
+ * did anything; inserts a line of its own otherwise - a check that did anything is
+ * never folded, and never extended. Nor is a *Check now* (issue 1143): a person
+ * pressed it to see its line, which a later quiet check would bury in a count.
  */
 export function whatACheckWrites(previous: LineAsHeld | null, ended: CheckOutcome): 'extend' | 'insert' {
   if (previous === null || ended.did || previous.did) return 'insert';
+  if (ended.reason === 'check-now' || previous.reason === 'check-now') return 'insert';
   if (isQuiet(ended)) return isQuiet(previous) ? 'extend' : 'insert';
   if (ended.outcome !== 'failed' || previous.outcome !== 'failed') return 'insert';
-  return previous.message === ended.message && previous.messageCut === ended.messageCut ? 'extend' : 'insert';
+  const alike = previous.status === ended.status && previous.message === ended.message;
+  return alike && previous.messageCut === ended.messageCut ? 'extend' : 'insert';
 }

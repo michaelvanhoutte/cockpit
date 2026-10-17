@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
-import type { Item } from '@cockpit/shared';
+import type { AgentRun, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   OTHER_USER_ID,
@@ -9,6 +9,7 @@ import {
   alsoWorkspaces,
   asUser,
   besidesTheGuide,
+  inTheStore,
   seedRegister,
   signInAs,
   startFromEmpty,
@@ -172,6 +173,7 @@ async function createItem(token: string, args: Record<string, unknown>): Promise
 }
 
 interface ListedTool {
+  name: string;
   description: string;
   inputSchema: { properties: Record<string, { enum?: string[] }> };
 }
@@ -180,7 +182,7 @@ async function listedTool(token: string): Promise<ListedTool> {
   const answer = await mcp(token, 'tools/list');
   expect(answer.status).toBe(200);
   const { tools } = ((await answer.json()) as { result: { tools: ListedTool[] } }).result;
-  expect(tools).toHaveLength(1);
+  expect(tools.map((tool) => tool.name)).toEqual(['create_item', 'report_run']);
   return tools[0]!;
 }
 
@@ -776,6 +778,200 @@ describe('MCP connections', () => {
     it('is for somebody signed in', async () => {
       const answer = await SELF.fetch(`${ORIGIN}/v1/connected-apps`);
       expect(answer.status).toBe(401);
+    });
+  });
+});
+
+
+/** An Item captured and sent to Cowork as `userId`; the Run's id is the one the prompt names. */
+async function aSentRun(userId: string = USER_ID): Promise<{ runId: string; itemId: string }> {
+  const itemId = crypto.randomUUID();
+  const runId = crypto.randomUUID();
+  const post = (name: string, body: Record<string, unknown>) =>
+    asUser(
+      `${ORIGIN}/v1/commands/${name}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: crypto.randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: WORKSPACE_ID,
+          ...body,
+        }),
+      },
+      userId,
+    );
+  expect((await post('capture_item', { itemId, message: 'Draft the reply to the landlord' })).status).toBe(200);
+  expect((await post('send_item_to_claude', { itemId, runId, destination: 'cowork', folder: '' })).status).toBe(200);
+  return { runId, itemId };
+}
+
+async function reportRun(token: string, args: Record<string, unknown>): Promise<ToolAnswer> {
+  const answer = await mcp(token, 'tools/call', { name: 'report_run', arguments: args });
+  expect(answer.status).toBe(200);
+  return ((await answer.json()) as { result: ToolAnswer }).result;
+}
+
+async function theRun(runId: string, userId: string = USER_ID): Promise<AgentRun | undefined> {
+  const answer = await asUser(`${ORIGIN}/v1/workspaces/${WORKSPACE_ID}/snapshot`, {}, userId);
+  return ((await answer.json()) as WorkspaceSnapshot).agentRuns.find((run) => run.id === runId);
+}
+
+const reportsLogged = () =>
+  inTheStore((sql) => [...sql.exec("SELECT command_id FROM commands WHERE name = 'report_claude_run'")].length);
+
+const SESSION = 'https://claude.ai/code/session_01ABC';
+
+describe('Agents', () => {
+  describe('a report moves the Run through its stages, from Sent', () => {
+    it('stores on it with the session link', async () => {
+      const { token } = await connected();
+      const { runId } = await aSentRun();
+
+      const said = await reportRun(token, { run: runId, stage: 'on_it', session_url: SESSION });
+
+      expect(said.isError).toBeFalsy();
+      expect(await theRun(runId)).toMatchObject({ stage: 'on_it', sessionUrl: SESSION, destination: 'cowork' });
+    });
+
+    it('stores ready with the result link and the note', async () => {
+      const { token } = await connected();
+      const { runId } = await aSentRun();
+      await reportRun(token, { run: runId, stage: 'on_it', session_url: SESSION });
+
+      await reportRun(token, { run: runId, stage: 'ready', result_url: 'https://example.com/draft', note: 'Two drafts, A and B' });
+
+      expect(await theRun(runId)).toMatchObject({
+        stage: 'ready',
+        sessionUrl: SESSION,
+        resultUrl: 'https://example.com/draft',
+        note: 'Two drafts, A and B',
+      });
+    });
+
+    it('stores needs you with its question', async () => {
+      const { token } = await connected();
+      const { runId } = await aSentRun();
+
+      await reportRun(token, { run: runId, stage: 'needs_you', note: 'Which tenancy is it?' });
+
+      expect(await theRun(runId)).toMatchObject({ stage: 'needs_you', note: 'Which tenancy is it?' });
+    });
+
+    it('goes back to on it when Claude picks it up again after an answer', async () => {
+      const { token } = await connected();
+      const { runId } = await aSentRun();
+      await reportRun(token, { run: runId, stage: 'ready', result_url: 'https://example.com/draft', note: 'Done' });
+
+      await reportRun(token, { run: runId, stage: 'on_it' });
+
+      expect(await theRun(runId)).toMatchObject({ stage: 'on_it', note: null });
+    });
+
+    it('is one change, announced once, when the same report arrives twice', async () => {
+      const { token } = await connected();
+      const { runId } = await aSentRun();
+      const before = await reportsLogged();
+
+      const report = { run: runId, stage: 'ready', result_url: 'https://example.com/draft', note: 'Done' };
+      const first = await reportRun(token, report);
+      const second = await reportRun(token, report);
+
+      expect([first.isError, second.isError]).toEqual([undefined, undefined]);
+      expect((await reportsLogged()) - before).toBe(1);
+    });
+  });
+
+  describe('only the person’s own open Runs can be reported on, and nothing else on the Item changes', () => {
+    const noRun = 'There is no open run with that id';
+
+    it('refuses an id that is no Run of theirs, in words the model can act on', async () => {
+      const { token } = await connected();
+
+      const said = await reportRun(token, { run: crypto.randomUUID(), stage: 'on_it' });
+
+      expect(said).toMatchObject({ isError: true, content: [{ text: expect.stringContaining(noRun) }] });
+    });
+
+    it('refuses another account’s Run in the same words, and leaves it as it was', async () => {
+      const { token } = await connected();
+      const theirs = await aSentRun(OTHER_USER_ID);
+      const unknown = await reportRun(token, { run: crypto.randomUUID(), stage: 'ready' });
+
+      const said = await reportRun(token, { run: theirs.runId, stage: 'ready', note: 'Mine now' });
+
+      expect(said).toEqual(unknown);
+      expect(await theRun(theirs.runId, OTHER_USER_ID)).toMatchObject({ stage: 'sent', note: null });
+    });
+
+    it('refuses a Run the Item’s Status has ended', async () => {
+      const { token } = await connected();
+      const { runId, itemId } = await aSentRun();
+      const dismissed = await asUser(`${ORIGIN}/v1/commands/set_dismissed`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: crypto.randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: WORKSPACE_ID,
+          itemId,
+          dismissed: true,
+        }),
+      });
+      expect(dismissed.status).toBe(200);
+
+      const said = await reportRun(token, { run: runId, stage: 'ready' });
+
+      expect(said).toMatchObject({ isError: true, content: [{ text: expect.stringContaining(noRun) }] });
+    });
+
+    it('turns away an app whose grant was revoked', async () => {
+      const { token } = await connected();
+      const { runId } = await aSentRun();
+      const [listed] = await listedFor();
+      expect((await asUser(`${ORIGIN}/v1/connected-apps/${listed!.id}`, { method: 'DELETE' })).status).toBe(200);
+
+      const answer = await mcp(token, 'tools/call', { name: 'report_run', arguments: { run: runId, stage: 'ready' } });
+
+      expect(answer.status).toBe(401);
+      expect(await theRun(runId)).toMatchObject({ stage: 'sent' });
+    });
+  });
+
+  describe('a link is stored only where it is safe to open', () => {
+    it.each([
+      { situation: 'a session link off claude.ai', args: { session_url: 'https://example.com/s' } },
+      { situation: 'a file result link', args: { result_url: 'file:///C:/secret.txt' } },
+      { situation: 'a javascript result link', args: { result_url: 'javascript:alert(1)' } },
+      { situation: 'a plain http result link', args: { result_url: 'http://example.com/x' } },
+      { situation: 'a link over 2,048 characters', args: { result_url: 'https://example.com/' + 'a'.repeat(2_048) } },
+    ])('refuses $situation and writes nothing', async ({ args }) => {
+      const { token } = await connected();
+      const { runId } = await aSentRun();
+
+      const said = await reportRun(token, { run: runId, stage: 'ready', ...args });
+
+      expect(said.isError).toBe(true);
+      expect(await theRun(runId)).toMatchObject({ stage: 'sent', sessionUrl: null, resultUrl: null });
+    });
+  });
+
+  describe('an app may report at most 60 times a minute, as it may capture', () => {
+    it('refuses the 61st in a minute, and admits the next minute', async () => {
+      const { token } = await connected();
+      const { runId } = await aSentRun();
+      for (let n = 1; n <= 60; n += 1) {
+        expect((await reportRun(token, { run: runId, stage: 'on_it' })).isError, `report ${n}`).toBeFalsy();
+      }
+
+      const sixtyFirst = await reportRun(token, { run: runId, stage: 'ready' });
+      expect(sixtyFirst.isError).toBe(true);
+      expect(sixtyFirst.content[0]!.text).toContain('Too many');
+      expect(await theRun(runId)).toMatchObject({ stage: 'on_it' });
+
+      vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 61_000 });
+      expect((await reportRun(token, { run: runId, stage: 'ready' })).isError).toBeFalsy();
     });
   });
 });

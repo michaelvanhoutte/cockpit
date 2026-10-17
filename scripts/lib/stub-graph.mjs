@@ -130,6 +130,9 @@ export function createStubGraph({ mailboxOfToken, json }) {
     const path = url.pathname.slice('/v1.0/me/'.length);
     const mailbox = heldMailbox(email);
     mailbox.asked.push(`${request.method} ${path}`);
+    if (mailbox.refusing) {
+      return json(response, { error: { code: 'ErrorAccessDenied', message: 'Access is denied.' } }, mailbox.refusing);
+    }
 
     if (path === 'mailFolders/deleteditems') return json(response, { id: DELETED_ITEMS });
     if (path === 'messages' && request.method === 'GET') return json(response, listing(mailbox, url, origin));
@@ -164,7 +167,9 @@ export function createStubGraph({ mailboxOfToken, json }) {
    * one, each also carrying every `category=` given; `POST
    * /graph-stub/tag?email=&id=&category=` adds a category to a message already
    * there; `GET /graph-stub/message?email=&id=` reads back what a message's flag
-   * and categories are now, and `/graph-stub/asked?email=` lists every call
+   * and categories are now; `POST /graph-stub/refuse?email=&status=403` makes
+   * every later call of that mailbox answer that status (`status=0` ends it), to
+   * see a failed check's status in its connection's history; and `/graph-stub/asked?email=` lists every call
    * the mailbox was asked, oldest first, so a walk can wait for a check.
    */
   function act(action, url, request, response) {
@@ -177,6 +182,10 @@ export function createStubGraph({ mailboxOfToken, json }) {
       return json(response, { id: held.id, flagStatus: held.flag.flagStatus, categories: held.categories });
     }
     if (request.method !== 'POST') return json(response, { error: 'POST only' }, 405);
+    if (action === 'refuse') {
+      mailbox.refusing = Number(url.searchParams.get('status') ?? 0) || null;
+      return json(response, { refusing: mailbox.refusing });
+    }
     const extra = url.searchParams.getAll('category');
     if (action === 'tag') {
       const held = mailbox.messages.find((one) => one.id === url.searchParams.get('id'));
@@ -206,7 +215,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
         void graph(url, request, response, origin);
         return true;
       }
-      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked)$/.exec(url.pathname);
+      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked|refuse)$/.exec(url.pathname);
       if (acting) {
         act(acting[1], url, request, response);
         return true;

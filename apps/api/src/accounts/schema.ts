@@ -29,6 +29,7 @@ import type {
   AgentEngine,
   AgentRunStatus,
   ClaudeDestination,
+  ClaudeProposal,
   AssociationKind,
   ItemFormPresentation,
   ItemReading,
@@ -974,6 +975,13 @@ export const items = sqliteTable(
      */
     proposedPanelFit: text('proposed_panel_fit').$type<PanelFit>(),
     /**
+     * What Cockpit proposes doing with this Item - Cowork, Claude Code, or
+     * nothing - as JSON, read back whole with the Item the way `readings` is
+     * ("Propose what to do with each item before you look", issue 1161). NULL
+     * until worked out. No CHECK, for the reason `proposed_panel_id` has none.
+     */
+    claudeProposals: text('claude_proposals', { mode: 'json' }).$type<ClaudeProposal[]>(),
+    /**
      * What kind of thing it is ("Capture a thought or an action, and see which
      * it is", issue 155). Nullable, which is what let it be added at all:
      * SQLite accepts a new column with a REFERENCES clause only when its
@@ -1818,6 +1826,7 @@ export const agentRuns = sqliteTable(
     folder: text('folder'),
     stage: text('stage'),
     resultUrl: text('result_url'),
+    note: text('note'),
   },
   (t) => [
     uniqueIndex('agent_runs_one_open_per_item').on(t.itemId).where(sql`${t.endedAt} IS NULL`),
@@ -1927,7 +1936,7 @@ export const pulledConnections = sqliteTable(
  *   and `message_cut` where it was longer, null where the source said nothing.
  * - `reason` is why the line's first check ran (`CheckReason`). **No CHECK on
  *   its values**, since SQLite cannot widen one without rebuilding the table,
- *   and *Check now* adds one ("Check a pulled connection now, from its row or
+ *   and *Check now* added one ("Check a pulled connection now, from its row or
  *   its history", issue 1143).
  *
  * **No foreign key**, for the reason `connectionFailures` gives: a disconnect
@@ -1955,9 +1964,14 @@ export const connectionHistory = sqliteTable(
      * folded. Items are named by their title on read, never stored by title.
      */
     did: text('did'),
+    /** The HTTP status the source answered a failed check with (issue 1142); NULL where it gave none, and on every line that worked or predates it. */
+    status: integer('status'),
   },
   (t) => [
     index('connection_history_newest').on(t.tenantId, t.sourceAccountId, t.lastAt),
+    // What the live-updates poll asks every few seconds: the lines a check
+    // has written since its cursor, across the account's connections (issue 1143).
+    index('connection_history_written').on(t.tenantId, t.lastAt),
     check('connection_history_outcome_is_known', oneOf('outcome', ['worked', 'failed'])),
     check('connection_history_message_cut_is_flag', sql.raw('message_cut IN (0, 1)')),
     check('connection_history_count_is_positive', sql.raw('count >= 1')),

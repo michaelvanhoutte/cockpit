@@ -1,11 +1,12 @@
-import type {
-  CompleteListing,
-  Connector,
-  ConnectorHost,
-  EmittedItem,
-  NamesReport,
-  SourceItem,
-  SourceStateChange,
+import {
+  SourceError,
+  type CompleteListing,
+  type Connector,
+  type ConnectorHost,
+  type EmittedItem,
+  type NamesReport,
+  type SourceItem,
+  type SourceStateChange,
 } from '@cockpit/connector-sdk';
 import type { Env } from '../env.js';
 import {
@@ -70,6 +71,7 @@ export async function checkPulledConnection(
   const run = account.pulledRun(job.sourceAccountId, begun.runId);
   const connector = getConnector(env, begun.connectorId);
   let failing: string | null = null;
+  let status: number | undefined;
   let moreToDo = false;
   // What the connector's calls through the host did, for the check's line of the history (issue 1141).
   const did: CheckDid = { broughtIn: [], closed: [], sentBack: [], refused: [] };
@@ -93,9 +95,11 @@ export async function checkPulledConnection(
     if (pushFailed) throw pushFailed.error;
   } catch (error) {
     failing = error instanceof Error ? error.message : String(error);
+    // The source's own status, where the connector gave one (issue 1142).
+    if (error instanceof SourceError) status = error.status;
     logged(begun.connectorId, 'error', `a check of connection ${job.sourceAccountId} failed`, failing);
   }
-  await run.end(failing, moreToDo, did);
+  await run.end(failing, moreToDo, did, status);
 }
 
 /**

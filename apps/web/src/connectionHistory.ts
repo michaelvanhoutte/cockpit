@@ -56,7 +56,7 @@ export interface HistoryDay {
 }
 
 /** Why a check ran, in words; a reason this release does not know says nothing. */
-const REASONS: Record<string, string> = { scheduled: 'Scheduled', 'follow-up': 'Follow-up' };
+const REASONS: Record<string, string> = { scheduled: 'Scheduled', 'follow-up': 'Follow-up', 'check-now': 'Check now' };
 
 const time = (at: string) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
@@ -101,7 +101,9 @@ export function lineShown(line: ConnectionHistoryLine): HistoryLineShown {
       text: item.title === null ? GONE : item.dismissed ? `${item.title}${DISMISSED}` : item.title,
     })),
   }));
-  const parts = [folded ? null : (REASONS[line.reason] ?? null), summary || null, message].filter(
+  // The source's status stands before its message, as given (issue 1142).
+  const answered = failed && line.status !== null ? [`HTTP ${line.status}`, message].filter((part) => part !== null).join(' · ') : message;
+  const parts = [folded ? null : (REASONS[line.reason] ?? null), summary || null, answered].filter(
     (part) => part !== null,
   );
   return {

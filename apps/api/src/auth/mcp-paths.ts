@@ -9,7 +9,7 @@
  * `worker.ts` records for the store's class).
  */
 
-/** The MCP endpoint itself: one tool, behind an access token. */
+/** The MCP endpoint itself: its tools, behind an access token. */
 export const MCP_PATH = '/mcp';
 
 /** The consent page, which is Cockpit's own and the one page here a person sees. */

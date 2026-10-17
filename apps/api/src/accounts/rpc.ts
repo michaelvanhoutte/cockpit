@@ -12,7 +12,7 @@ import type {
 } from '@cockpit/shared';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
-import type { UnfiledCandidate } from './repo.js';
+import type { ClaudeProposalContext, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
@@ -27,7 +27,7 @@ import type {
   SourceItem,
   SourceStateChange,
 } from '@cockpit/connector-sdk';
-import type { PulledRunBegun } from './pulled.js';
+import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid } from '../domain/connection-history.js';
 
 /**
@@ -124,6 +124,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * nothing else.
    */
   itemIsFiled(accountName: string, itemId: string): Awaitable<Answer<boolean>>;
+  claudeProposalContext(accountName: string, itemId: string): Awaitable<Answer<ClaudeProposalContext>>;
   /**
    * What a title or description proposal reads about how this account
    * writes ("Learn how you write from the titles you correct", issue 394). Per
@@ -400,6 +401,16 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
   ): Awaitable<Answer<'armed' | 'already armed' | 'nothing to check'>>;
   /**
+   * *Check now* on one pulled connection of this Workspace (issue 1143): its
+   * check made due at once and the alarm armed, or relabelled where already
+   * queued, or left where running. Refused as not found otherwise.
+   */
+  checkPulledConnectionNow(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Awaitable<Answer<CheckedNow>>;
+  /**
    * The calls a run of one pulled connection's check makes, each naming the
    * run so the store can refuse one that no longer holds its connection
    * (issue 891). `beginPulledRun` is what a delivered check takes the lease
@@ -468,6 +479,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     failing: string | null,
     moreToDo?: boolean,
     did?: CheckDid,
+    status?: number,
   ): Awaitable<Answer<null>>;
 }
 

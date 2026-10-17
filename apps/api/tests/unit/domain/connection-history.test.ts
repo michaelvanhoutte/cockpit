@@ -16,16 +16,39 @@ import {
  * tests/integration/connectors/connection-history.test.ts's.
  */
 
-const quiet: LineAsHeld = { outcome: 'worked', message: null, messageCut: false, did: false };
+const quiet: LineAsHeld = {
+  reason: 'scheduled',
+  outcome: 'worked',
+  message: null,
+  messageCut: false,
+  status: null,
+  did: false,
+};
 const broughtSomethingIn: LineAsHeld = { ...quiet, did: true };
-const unavailable: LineAsHeld = { outcome: 'failed', message: 'unavailable', messageCut: false, did: false };
-const worked: CheckOutcome = { outcome: 'worked', did: false };
-const workedAndDidSomething: CheckOutcome = { outcome: 'worked', did: true };
-const failedAlike: CheckOutcome = { outcome: 'failed', message: 'unavailable', messageCut: false, did: false };
+const unavailable: LineAsHeld = {
+  reason: 'scheduled',
+  outcome: 'failed',
+  message: 'unavailable',
+  messageCut: false,
+  status: 503,
+  did: false,
+};
+const worked: CheckOutcome = { reason: 'scheduled', outcome: 'worked', did: false };
+const workedAndDidSomething: CheckOutcome = { reason: 'scheduled', outcome: 'worked', did: true };
+const failedAlike: CheckOutcome = {
+  reason: 'scheduled',
+  outcome: 'failed',
+  message: 'unavailable',
+  messageCut: false,
+  status: 503,
+  did: false,
+};
 const failedOtherwise: CheckOutcome = {
+  reason: 'scheduled',
   outcome: 'failed',
   message: 'the sign-in was refused',
   messageCut: false,
+  status: 503,
   did: false,
 };
 
@@ -37,11 +60,14 @@ describe('Connector management', () => {
       { situation: 'a check that worked after a failure', previous: unavailable, ended: worked, writes: 'insert' },
       { situation: 'a failure alike the one before', previous: unavailable, ended: failedAlike, writes: 'extend' },
       { situation: 'a failure with another message', previous: unavailable, ended: failedOtherwise, writes: 'insert' },
+      { situation: 'a failure with the same message and another status', previous: unavailable, ended: { ...failedAlike, status: 500 }, writes: 'insert' },
+      { situation: 'a failure with the same message and no status after one with a status', previous: unavailable, ended: { ...failedAlike, status: null }, writes: 'insert' },
+      { situation: 'a failure with no status alike the one before', previous: { ...unavailable, status: null }, ended: { ...failedAlike, status: null }, writes: 'extend' },
       { situation: 'a failure after a quiet line', previous: quiet, ended: failedAlike, writes: 'insert' },
       {
         situation: 'a failure whose message was cut after one that was not',
         previous: unavailable,
-        ended: { outcome: 'failed', message: 'unavailable', messageCut: true, did: false } as CheckOutcome,
+        ended: { ...failedAlike, messageCut: true } as CheckOutcome,
         writes: 'insert',
       },
       { situation: 'a check that did something after a quiet line', previous: quiet, ended: workedAndDidSomething, writes: 'insert' },
@@ -53,6 +79,8 @@ describe('Connector management', () => {
         ended: { ...failedAlike, did: true },
         writes: 'insert',
       },
+      { situation: 'a Check now after a quiet line', previous: quiet, ended: { ...worked, reason: 'check-now' as const }, writes: 'insert' },
+      { situation: 'a quiet check after a Check now line', previous: { ...quiet, reason: 'check-now' as const }, ended: worked, writes: 'insert' },
       {
         situation: 'a failure alike one that had done something',
         previous: { ...unavailable, did: true },

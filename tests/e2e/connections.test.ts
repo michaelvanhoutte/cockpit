@@ -345,5 +345,46 @@ test.describe('Connector management', () => {
       await deleteWorkspace(page, workspace, isMobile);
     });
   });
+
+  test.describe('Check now brings a pulled connection’s next check forward and its line into the open history', () => {
+    test('pressed at the head of the history, its Check now line appears without a reload', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'a phone has no Connections, only Appearance');
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('Check now');
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+
+      // "Check a pulled connection now, from its row or its history", issue 1143:
+      // only the alarm, the queue, the check and the stream together make the
+      // line arrive. What the menu and the head offer is held by
+      // ManageConnections.test.tsx, and the queueing by
+      // apps/api/tests/integration/connectors/connection-check-now.test.ts.
+      const window = await openSettings(page, 'Connections', isMobile);
+      await press(window.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      const gmailAsked = page.getByRole('dialog', { name: 'Connect Gmail' });
+      await press(gmailAsked.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+      const connections = page.getByRole('dialog', { name: 'Settings' });
+      await expect(connections.getByText(/^Gmail · Labelled Cockpit · last checked /)).toBeVisible();
+
+      await chooseRowAction(page, 'michael@example.com', 'History…', isMobile);
+      const history = connections.getByRole('region', { name: 'History of michael@example.com' });
+      const today = history.getByRole('region', { name: 'Today' });
+      await expect(today).toBeVisible();
+      await expect(today.getByText(/Check now/)).toHaveCount(0);
+
+      await press(history.getByRole('button', { name: 'Check now' }), isMobile);
+
+      await expect(history.getByRole('status')).toHaveText('Checking michael@example.com now.');
+      await expect(today.getByText(/Check now/)).toBeVisible();
+
+      await press(history.getByRole('button', { name: '‹ Connections' }), isMobile);
+      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await closeSettings(page, isMobile);
+      await deleteWorkspace(page, workspace, isMobile);
+    });
+  });
 });
 

@@ -465,6 +465,17 @@ describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Gra
     assert.deepEqual((await read()).categories, []);
   });
 
+  it('answers every call with a status a walk asks for, until it asks for none', async () => {
+    const token = await accessTokenFor('graph-refusing@example.com');
+    const refuse = (status) =>
+      fetch(`${issuer.origin}/graph-stub/refuse?email=graph-refusing%40example.com&status=${status}`, { method: 'POST' });
+
+    await refuse(403);
+    assert.equal((await graph(token, flagged)).status, 403);
+    await refuse(0);
+    assert.equal((await graph(token, flagged)).status, 200);
+  });
+
   it('flags a new message for a walk, and records the calls it was asked', async () => {
     const token = await accessTokenFor('graph-flagging@example.com');
     const { id } = await fetch(`${issuer.origin}/graph-stub/flag?email=graph-flagging%40example.com&subject=Just%20flagged`, {

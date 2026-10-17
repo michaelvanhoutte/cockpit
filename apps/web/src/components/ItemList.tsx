@@ -270,11 +270,20 @@ export function ItemList({
    * proposed Panel ("Accept the proposals of a selection with Enter", issue
    * 1112). Fetched on the first press, so none of it is in the initial bundle.
    */
-  const acceptSelection = () => {
+  const acceptSelection = () => acceptEach(picked);
+
+  /**
+   * Files each of `chosen` on its own proposed Panel, with one Undo: Enter on a
+   * selection, and a proposal group's File all and Shift+Enter ("File a
+   * proposal group in one action", issue 1167), which is the group taken as the
+   * selection. Where everything went to one Panel the bar offers Show and Also
+   * show on… as well.
+   */
+  const acceptEach = (chosen: readonly Item[]) => {
     if (filingSeveral.filing) return;
     void import('../inboxTriage').then((follow) =>
       follow.acceptSelection({
-        picked,
+        picked: chosen,
         // The same reading the chip is drawn from, so a proposal that is not
         // drawn is not taken.
         panelFor: (item) => (routingProposalFor(item) ? item.proposedPanelId! : undefined),
@@ -286,6 +295,7 @@ export function ItemList({
         nameOf,
         putSeveralBack: filingSeveral.putSeveralBack,
         offerToUndo,
+        nextSteps: filingSeveral.nextSteps,
       }),
     );
   };
@@ -849,10 +859,11 @@ export function ItemList({
    * which the row has no need to say it is also in ("Group a Filter panel's items
    * by the Dashboard or Panel they are filed on", issue 805).
    */
-  const rowFor = (item: Item, alsoNotIn: string | null = null, inProposalGroup = false) => (
+  const rowFor = (item: Item, alsoNotIn: string | null = null, group?: readonly Item[]) => (
     <ItemRow
       item={item}
-      inProposalGroup={inProposalGroup}
+      inProposalGroup={group !== undefined}
+      {...(group ? { onFileGroup: () => acceptEach(group) } : {})}
       sourceNames={data?.sourceNames}
       workspaceId={workspaceId}
       inInbox={panelId === null}
@@ -1051,10 +1062,10 @@ export function ItemList({
               <li key={group.panelId}>
                 {/* Sticks like a Filter panel's heading. The name is cut and
                     the count never: it is what the header is for. */}
-                <h4 className="sticky top-0 z-[1] border-b border-shade/10 bg-surface px-4 pb-1 pt-2.5 text-xs text-ink-faint">
+                <h4 className="sticky top-0 z-[1] flex items-baseline gap-2 border-b border-shade/10 bg-surface px-4 pb-1 pt-2.5 text-xs text-ink-faint">
                   <button
                     type="button"
-                    className="flex w-full min-w-0 items-baseline text-left hover:text-ink"
+                    className="flex min-w-0 flex-1 items-baseline text-left hover:text-ink"
                     title="Select this group"
                     onClick={() =>
                       setSelection({ picked: new Set(group.items.map((item) => item.id)), reachingFrom: null })
@@ -1069,10 +1080,21 @@ export function ItemList({
                       {group.closest > 0 && ` (${group.closest} closest)`}
                     </span>
                   </button>
+                  {/* Every Item of the group on its Panel, closest included,
+                      with one Undo - Enter on a selection of the group. */}
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-full bg-accent-tint px-2 py-0.5 font-medium text-accent-deep hover:bg-accent hover:text-on-accent disabled:opacity-50"
+                    title={`File all ${group.items.length} on ${group.panelName}`}
+                    disabled={filingSeveral.filing}
+                    onClick={() => acceptEach(group.items)}
+                  >
+                    File all
+                  </button>
                 </h4>
-                <ul>
+                <ul data-proposal-group={group.panelId}>
                   {group.items.map((item) => (
-                    <Fragment key={item.id}>{rowFor(item, null, true)}</Fragment>
+                    <Fragment key={item.id}>{rowFor(item, null, group.items)}</Fragment>
                   ))}
                 </ul>
               </li>
@@ -1170,6 +1192,7 @@ export function ItemList({
             attachments={(data?.attachments ?? []).filter((one) => one.itemId === sendingToClaude.id)}
             onClose={() => setSendingToClaude(null)}
             returnFocusTo={openedFrom.current}
+            sourceNames={data?.sourceNames}
           />
         </Suspense>
       )}

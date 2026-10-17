@@ -212,6 +212,9 @@ if (running.api) {
         // 1048): two messages flagged and one categorised Cockpit for any
         // address. Flag or categorise another with POST <issuer>/graph-stub/flag
         // (or /categorise) ?email=&subject=.
+        // POST <issuer>/graph-stub/refuse?email=&status=403 makes that mailbox
+        // answer every call with the status, to see a failed check's HTTP status
+        // in its connection's History… (status=0 ends it).
         '--var',
         `GRAPH_API_ORIGIN:${issuer.origin}`,
         // Production sets this and staging deliberately does not, which is what

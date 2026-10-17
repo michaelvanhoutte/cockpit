@@ -57,6 +57,8 @@ import {
   resealPulledCredential,
   savePulledState,
   schedulePulledChecks,
+  checkPulledConnectionNow,
+  type CheckedNow,
   type PulledRunBegun,
 } from './pulled.js';
 import type {
@@ -121,6 +123,8 @@ import {
   getWorkspace,
   hasClaudeCodeConnection,
   isItemFiled,
+  claudeProposalContext,
+  type ClaudeProposalContext,
   itemsToRead,
   judgeableItemsForAccount,
   listAgents,
@@ -518,6 +522,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    */
   recentCapturedTimeZones(accountName: string): Answer<string[]> {
     return this.#answer(accountName, (db) => recentCapturedTimeZones(db, accountName));
+  }
+
+  /** Where an Item stands, for proposing what to do with it ("Propose what to do with each item before you look", issue 1161). */
+  claudeProposalContext(accountName: string, itemId: string): Answer<ClaudeProposalContext> {
+    return this.#answer(accountName, (db) => claudeProposalContext(db, accountName, itemId));
   }
 
   /** Whether the Item is on a live Panel already ("File a note on Panels from Capture, skipping the Inbox", issue 1101). */
@@ -937,6 +946,23 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /**
+   * *Check now* on one pulled connection (issue 1143): its check made due at
+   * once and the alarm armed - or, with a check already queued or running, no
+   * more than that check relabelled or left, since the alarm is armed for it.
+   */
+  async checkPulledConnectionNow(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Promise<Answer<CheckedNow>> {
+    const answer = this.#answer(accountName, (db) =>
+      checkPulledConnectionNow(db, accountName, workspaceId, sourceAccountId, this.pulledConnectorIds(), new Date()),
+    );
+    if (answer.status === 'ok' && answer.value === 'queued') await this.#arm(accountName);
+    return answer;
+  }
+
+  /**
    * A delivered check of one pulled connection taking its lease, or doing
    * nothing because a run holds it or no check is waiting (issue 891).
    */
@@ -1063,9 +1089,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     failing: string | null,
     moreToDo = false,
     did?: CheckDid,
+    status?: number,
   ): Promise<Answer<null>> {
     const ended = this.#answer(accountName, (db) => {
-      endPulledRun(db, accountName, sourceAccountId, runId, failing, new Date(), moreToDo, did);
+      endPulledRun(db, accountName, sourceAccountId, runId, failing, new Date(), moreToDo, did, status);
       return null;
     });
     if (ended.status === 'ok') await this.#arm(accountName);

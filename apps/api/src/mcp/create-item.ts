@@ -2,7 +2,7 @@ import { TITLE_LENGTH, captureItemSchema, cutTo, type Workspace } from '@cockpit
 import { namedTheSame } from '../domain/names.js';
 
 /**
- * The one tool an app connected to Cockpit is offered ("Connect Claude to
+ * The tool an app connected to Cockpit captures with ("Connect Claude to
  * Cockpit, and capture an item from it", issue 599): what it is called, what
  * it says it does, and how its arguments are read against the account they
  * will be captured into.

@@ -24,7 +24,7 @@ import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
-import type { UnfiledCandidate } from './repo.js';
+import type { ClaudeProposalContext, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
@@ -39,7 +39,7 @@ import type {
   SourceItem,
   SourceStateChange,
 } from '@cockpit/connector-sdk';
-import type { PulledRunBegun } from './pulled.js';
+import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid } from '../domain/connection-history.js';
 
 export type { AccountSnapshot } from './answer.js';
@@ -172,6 +172,8 @@ export interface Account {
   recentCapturedTimeZones(): Promise<string[]>;
   /** Whether the Item is on a live Panel already, so the proposal job leaves it alone (issue 1101). */
   itemIsFiled(itemId: string): Promise<boolean>;
+  /** Where an Item stands - its Workspace, the Panels it is on, the folders sent to before - for proposing what to do with it (issue 1161). Read by the enrichment job and by nothing else. */
+  claudeProposalContext(itemId: string): Promise<ClaudeProposalContext>;
   /**
    * What a title or description proposal reads about how this account
    * writes ("Learn how you write from the titles you correct", issue 394).
@@ -334,6 +336,8 @@ export interface Account {
    * generic host", issue 891).
    */
   beginPulledRun(sourceAccountId: string): Promise<PulledRunBegun>;
+  /** *Check now* on one pulled connection of this Workspace - its check made due at once (issue 1143). */
+  checkNow(workspaceId: string, sourceAccountId: string): Promise<CheckedNow>;
   /** What a run that took its lease may do with its connection, until it ends (issue 891). */
   pulledRun(sourceAccountId: string, runId: string): PulledRun;
 }
@@ -370,8 +374,9 @@ export interface PulledRun {
   /**
    * `moreToDo` asks for the next check soon, and is ignored where the run failed (issue 957).
    * `did` is what the run did, which its line of the history keeps (issue 1141).
+   * `status` is the HTTP status the source answered a failure with, kept beside its message (issue 1142).
    */
-  end(failing: string | null, moreToDo?: boolean, did?: CheckDid): Promise<null>;
+  end(failing: string | null, moreToDo?: boolean, did?: CheckDid, status?: number): Promise<null>;
 }
 
 /**
@@ -412,6 +417,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     textLearningContext: async () => unwrap(await store.textLearningContext(accountName)),
     recentCapturedTimeZones: async () => unwrap(await store.recentCapturedTimeZones(accountName)),
     itemIsFiled: async (itemId) => unwrap(await store.itemIsFiled(accountName, itemId)),
+    claudeProposalContext: async (itemId) => unwrap(await store.claudeProposalContext(accountName, itemId)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     meaningsForRefresh: async (workspaceId, since, candidateIds, model) =>
@@ -455,6 +461,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
     beginPulledRun: async (sourceAccountId) => unwrap(await store.beginPulledRun(accountName, sourceAccountId)),
+    checkNow: async (workspaceId, sourceAccountId) =>
+      unwrap(await store.checkPulledConnectionNow(accountName, workspaceId, sourceAccountId)),
     pulledRun: (sourceAccountId, runId) => ({
       state: async () => unwrap(await store.pulledState(accountName, sourceAccountId, runId)),
       saveState: async (state) => unwrap(await store.savePulledState(accountName, sourceAccountId, runId, state)),
@@ -473,8 +481,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       openStatesWaiting: async () => unwrap(await store.pulledOpenStatesWaiting(accountName, sourceAccountId, runId)),
       confirmOpenStates: async (confirmed) =>
         unwrap(await store.confirmPulledOpenStates(accountName, sourceAccountId, runId, confirmed)),
-      end: async (failing, moreToDo, did) =>
-        unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo, did)),
+      end: async (failing, moreToDo, did, status) =>
+        unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo, did, status)),
     }),
   };
 }

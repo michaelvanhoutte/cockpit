@@ -531,6 +531,8 @@ describe('Triage', () => {
     it('a refresh with nothing left unsettled asks the model nothing', async () => {
       const elsewhere = await aPanel('Somewhere else');
       const settling = await captureANote('call jan about the invoice');
+      // Its own clean-up is a call too, and not the refresh's: waited for first.
+      await vi.waitFor(() => expect(asked).toContain('call jan about the invoice'), { timeout: 15_000, interval: 25 });
       asked = [];
 
       await moveOnto(settling, elsewhere);
@@ -773,7 +775,17 @@ describe('What Cockpit changed', () => {
 
       const rows = await historyRows();
       const recorded = rows.map((row) => row.item_id).sort();
-      const askedAbout = [...new Set(asked)];
+      // Only this case's own notes: a job an earlier case queued can still be
+      // asking about one of its own while this runs, under a loaded suite.
+      const own = new Set([
+        'a note that fits a panel',
+        'a note the model makes nothing of',
+        'a note nothing fits',
+        'a note whose panel no longer fits',
+        'a note whose panel goes while it is read',
+        'a note that fails',
+      ]);
+      const askedAbout = [...new Set(asked)].filter((note) => own.has(note));
       expect(askedAbout).toHaveLength(6);
       expect(new Set(recorded).size).toBe(recorded.length);
       // Every item's note is asked about by the refresh and by nothing else,

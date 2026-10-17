@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { plainWords } from './plain-words.js';
+import { claudeProposalsSchema } from './claude-proposal.js';
 
 /**
  * The Item + Association model (functional-definition.md §4.2).
@@ -159,6 +160,8 @@ export const itemSchema = z.object({
   proposedPanelReason: z.string().nullable(),
   /** How sure Cockpit is of the Panel above ("Propose the closest Panel at capture, and draw a less certain one dashed", issue 1107). Null where nothing said, which reads as `clear`: every proposal from before it, and every re-proposal until it says too. */
   proposedPanelFit: panelFitSchema.nullable(),
+  /** What Cockpit proposes doing with this Item - Cowork, Claude Code, or nothing - and null until it has ("Propose what to do with each item before you look", issue 1161). Replaced whole each time it is worked out again. */
+  claudeProposals: claudeProposalsSchema.nullable(),
   /** The current, always-editable next-action label (functional-definition.md §6.1). */
   nextAction: z.string().nullable(),
   /** When this was finished with — a time rather than a flag ("An item is either yours to deal with or finished with", issue 154; architecture.md §4.4). App-owned: a re-sync never clears it. */

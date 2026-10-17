@@ -1,4 +1,5 @@
 import {
+  type ClaudeProposal,
   type PanelFilter,
   type Priority,
   type WorkspaceTint,
@@ -65,6 +66,13 @@ export interface SeedItem {
    * Only on an Item filed on a Panel, which is the only place an Agent starts.
    */
   readonly run?: { readonly agent: DemoAgentName; readonly state: 'working' | 'waiting' };
+  /**
+   * What Cockpit proposes doing with it - Cowork, Claude Code, or nothing - which
+   * *Send to Claude…* opens on ("Propose what to do with each item before you
+   * look", issue 1161). Written here because the guest never calls the model;
+   * an Item with none opens on the plain prompt, as one not yet proposed does.
+   */
+  readonly forClaude?: readonly ClaudeProposal[];
 }
 
 /** An Agent of the guest's dock: what its tile says and sends, as an Agent a person made would. */
@@ -218,17 +226,40 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
       {
         title: "Mum's birthday on the 24th - present?",
         suggest: { panel: 'Errands', why: 'Something to buy, like the other errands.' },
+        forClaude: [
+          {
+            destination: 'cowork',
+            label: 'Find present ideas for Mum',
+            folder: '',
+            prompt:
+              "Suggest five birthday present ideas for my mum, whose birthday is on the 24th, each with a rough price and where to buy it. Ask me first what she is into and what I want to spend - the note does not say.",
+          },
+        ],
       },
       {
         title: 'Look into a cheaper energy tariff',
         via: { source: 'gmail', sender: 'Voltra Energy' },
         suggest: { panel: 'Admin & money', why: 'A bill to compare, like the insurance quote.' },
+        forClaude: [
+          {
+            destination: 'cowork',
+            label: 'Compare energy tariffs',
+            folder: '',
+            prompt:
+              'Voltra Energy mailed me about my energy tariff. Compare their offer with the three cheapest fixed tariffs for a household in Belgium, in a short table with the yearly cost of each, and say which you would pick and why. Ask me for my yearly usage if you need it.',
+          },
+        ],
       },
-      { title: 'Weekend in the Ardennes in October?', note: true },
+      {
+        title: 'Weekend in the Ardennes in October?',
+        note: true,
+        forClaude: [{ destination: 'nothing', why: 'A thought to come back to, not yet something to hand over.' }],
+      },
       {
         title: 'Call the accountant back about the invoice numbering',
         description: 'Could be the business or the personal account - not decided which.',
         anyWorkspace: true,
+        forClaude: [{ destination: 'nothing', why: 'A call only you can make.' }],
       },
     ],
     dashboards: [
@@ -337,17 +368,51 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
         people: ['Sara Okafor'],
         via: { source: 'teams', sender: 'Sara Okafor' },
         suggest: { panel: 'Today', why: 'A question from Sara about this week.' },
+        forClaude: [
+          {
+            destination: 'cowork',
+            label: 'Draft the reply to Sara',
+            folder: '',
+            prompt:
+              "Draft a short Teams reply to Sara Okafor, who asks to move Thursday's sync to Friday. Look at my calendar for Friday and offer two times that are free. Leave it for me to send.",
+          },
+        ],
       },
       {
         title: 'Clinic in Ghent reports slow logins since Monday',
         priority: 'high',
         via: { source: 'gmail', sender: 'Els Maes' },
         suggest: { panel: 'API & service cutover', why: 'Logins go through the new booking service.' },
+        forClaude: [
+          {
+            destination: 'code',
+            label: 'Find why Ghent logins are slow',
+            folder: 'C:\\Code\\halcyon-booking',
+            prompt:
+              'In the Halcyon booking service, find why logging in has been slow at the clinic in Ghent since Monday. Check what changed around then and where the time goes during a login, and propose a fix with tests. Hand back what you found and the fix on a branch.',
+          },
+          {
+            destination: 'cowork',
+            label: 'Draft the reply to Els',
+            folder: '',
+            prompt:
+              'Draft a short reply to Els Maes at Halcyon Health, who reports slow logins at the Ghent clinic since Monday: we are looking into it and will come back with the cause. Ask me when she can expect an update before you write that part. Leave it for me to send.',
+          },
+        ],
       },
       {
         title: 'Security questionnaire arrived from the imaging supplier',
         via: { source: 'gmail', sender: 'Lumen Imaging' },
         suggest: { panel: 'Vendor & third-party review', why: 'Another supplier answering for the audit.' },
+        forClaude: [
+          {
+            destination: 'cowork',
+            label: 'Review the questionnaire',
+            folder: '',
+            prompt:
+              "Lumen Imaging sent their answers to Halcyon Health's security questionnaire. Read them against the questions and list every answer that is missing, vague or a risk, with what to ask them back. Ask me for the questionnaire if it is not attached.",
+          },
+        ],
       },
       { title: 'Check whether the pen test window clashes with the release freeze' },
       { title: "Tom's notes from the clinic visit", note: true, people: ['Tom Delrue'] },

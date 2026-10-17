@@ -641,6 +641,7 @@ const itemColumns = {
   proposedPanelId: items.proposedPanelId,
   proposedPanelReason: items.proposedPanelReason,
   proposedPanelFit: items.proposedPanelFit,
+  claudeProposals: items.claudeProposals,
   sourceResolvedAt: items.sourceResolvedAt,
   nextAction: items.nextAction,
   completedAt: items.completedAt,
@@ -1690,6 +1691,77 @@ export function isItemFiled(db: AccountDb, tenantId: string, itemId: string): bo
   );
 }
 
+/** What a proposal for Claude reads beside the Item itself (issue 1161). */
+export interface ClaudeProposalContext {
+  /** The Workspace's name, or null for an Item belonging to none yet. */
+  workspace: string | null;
+  /** The live Panels it is filed on, each with its Dashboard. */
+  filedOn: { dashboard: string; panel: string }[];
+  /** The folders sent to Claude in from its Workspace (from any, for an Item in none yet), most recently used first. */
+  folders: string[];
+}
+
+/** The most folders a proposal is offered, most recently used first. */
+const FOLDERS_OFFERED = 12;
+
+/**
+ * Where an Item stands, for proposing what to do with it ("Propose what to do
+ * with each item before you look", issue 1161): its Workspace's name, the
+ * Panels it is filed on - leaving out a deleted Panel or Dashboard, as
+ * `isItemFiled` does - and the folders its Workspace has opened Claude in, which
+ * are the only folders a proposal may name.
+ */
+export function claudeProposalContext(db: AccountDb, tenantId: string, itemId: string): ClaudeProposalContext {
+  const item = db
+    .select({ workspaceId: items.workspaceId, workspaceDecided: items.workspaceDecided })
+    .from(items)
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
+    .get();
+  const workspace =
+    item && item.workspaceDecided
+      ? (db
+          .select({ name: workspaces.name })
+          .from(workspaces)
+          .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, item.workspaceId)))
+          .get()?.name ?? null)
+      : null;
+  const filedOn = db
+    .select({ dashboard: dashboards.name, panel: panels.name })
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(panelItems.tenantId, tenantId),
+        eq(panelItems.itemId, itemId),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(asc(dashboards.name), asc(panels.name))
+    .all();
+  const folders = db
+    .select({ folder: agentRuns.folder, last: max(agentRuns.startedAt) })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.tenantId, tenantId),
+        isNotNull(agentRuns.destination),
+        ne(agentRuns.folder, ''),
+        // Its own Workspace's folders only, so an item one Workspace receives
+        // never has another's repository offered for it; every folder for an
+        // item that belongs to none yet.
+        item?.workspaceDecided ? eq(agentRuns.workspaceId, item.workspaceId) : undefined,
+      ),
+    )
+    .groupBy(agentRuns.folder)
+    .orderBy(desc(max(agentRuns.startedAt)))
+    .limit(FOLDERS_OFFERED)
+    .all()
+    .flatMap((row) => (row.folder ? [row.folder] : []));
+  return { workspace, filedOn, folders };
+}
+
 // --- Agents, and what the dock draws (issue 570) ------------------------------
 
 /** Every live Agent of the account, in dock order: position first, createdAt breaks a tie. */
@@ -1814,6 +1886,7 @@ const runColumns = {
   folder: agentRuns.folder,
   stage: agentRuns.stage,
   resultUrl: agentRuns.resultUrl,
+  note: agentRuns.note,
 };
 
 /**
@@ -1835,6 +1908,7 @@ function runFrom(row: {
   folder: string | null;
   stage: string | null;
   resultUrl: string | null;
+  note: string | null;
 }): AgentRun {
   const { agentDeletedAt, agentName, ...run } = row;
   return {

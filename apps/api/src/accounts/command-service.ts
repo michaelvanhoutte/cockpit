@@ -1,5 +1,5 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { hookNamesSession } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, hookNamesSession } from '@cockpit/shared';
 import { CLAUDE_CODE } from '../domain/named-sources.js';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
@@ -118,6 +118,7 @@ import {
   applyProposedFields,
   type FieldsSet,
   applyProposedPanel,
+  applyClaudeProposals,
   applyProposedTexts,
   applySetDescription,
   applySetDismissed,
@@ -1814,6 +1815,30 @@ export function runCommand<N extends CommandName>(
       }
       break;
     }
+    case 'propose_item_for_claude': {
+      const cmd = payload as CommandPayload<'propose_item_for_claude'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      // The same 404, for the reason `propose_item_panel` above gives.
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+
+      const updated = applyClaudeProposals(existing, cmd);
+      if (updated === null) {
+        // Discarded rather than refused, as a stale Panel proposal is: the
+        // change that made it stale queued the proposal that replaces it.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        db.transaction((tx) => {
+          tx.update(items)
+            .set(asStored(updated))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
+      }
+      break;
+    }
     case 'propose_item_fields': {
       const cmd = payload as CommandPayload<'propose_item_fields'>;
       const existing = getItem(db, tenantId, cmd.itemId);
@@ -2402,6 +2427,51 @@ export function runCommand<N extends CommandName>(
             folder: cmd.folder === '' ? null : cmd.folder,
             stage: 'sent',
           })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'report_claude_run': {
+      const cmd = payload as CommandPayload<'report_claude_run'>;
+      // Held to the contract here as well as at the tool: this is the one
+      // place a stage or a link reaches the table ("Follow on the row what
+      // Claude reports back", issue 1160).
+      if (
+        !CLAUDE_REPORTED_STAGES.includes(cmd.stage) ||
+        (cmd.sessionUrl !== undefined && claudeSessionLink(cmd.sessionUrl) === null) ||
+        (cmd.resultUrl !== undefined && claudeResultLink(cmd.resultUrl) === null) ||
+        (cmd.note ?? '').length > REPORT_NOTE_LIMIT
+      ) {
+        throw new AgentRunRefusedError('That report is not one Cockpit takes.');
+      }
+      // Only a Run sent to Claude, still open: unknown, ended and an Agent's
+      // run are refused alike, so the answer tells nobody which it was.
+      const run = getAgentRun(db, tenantId, cmd.runId);
+      if (!run || run.endedAt !== null || !run.destination) throw new AgentRunNotFoundError(cmd.runId);
+      const sessionUrl = cmd.sessionUrl ?? run.sessionUrl;
+      const resultUrl = cmd.resultUrl ?? run.resultUrl ?? null;
+      const note = cmd.note === undefined || cmd.note.trim() === '' ? null : cmd.note.trim();
+      // Logged against the Run's own Workspace, or every one for an Item that
+      // belongs to none, which is drawn in every Inbox.
+      commandRow.workspaceId = run.workspaceId;
+      const item = getItem(db, tenantId, run.itemId);
+      if (item && !item.workspaceDecided) everyWorkspaceSees(commandRow);
+      // The same report again is the Run as it stands: nothing is written and
+      // nothing is announced.
+      if (
+        run.stage === cmd.stage &&
+        (run.sessionUrl ?? null) === (sessionUrl ?? null) &&
+        (run.resultUrl ?? null) === resultUrl &&
+        (run.note ?? null) === note
+      ) {
+        applied = false;
+        break;
+      }
+      db.transaction((tx) => {
+        tx.update(agentRuns)
+          .set({ stage: cmd.stage, sessionUrl: sessionUrl ?? null, resultUrl, note })
+          .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, cmd.runId)))
           .run();
         tx.insert(commands).values(commandRow).run();
       });

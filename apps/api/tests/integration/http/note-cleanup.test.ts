@@ -500,9 +500,11 @@ describe('Capture', () => {
       const second = await captureANote({ message: 'a second, unrelated note' });
       await untilTheNoteHasBeenRead(second);
 
-      expect(asked[0]!.system).toContain('Compliance questions');
-      expect(asked[0]!.system).toContain('Laurens');
-      expect(asked[0]!.system).toContain('but it was filed on Laurens instead');
+      // The filing's own refresh can ask about where an item belongs first.
+      const cleanUp = asked.find(isACleanUp)!;
+      expect(cleanUp.system).toContain('Compliance questions');
+      expect(cleanUp.system).toContain('Laurens');
+      expect(cleanUp.system).toContain('but it was filed on Laurens instead');
     });
 
     /**
@@ -526,8 +528,9 @@ describe('Capture', () => {
       const second = await captureANote({ message: 'a second, unrelated note' });
       await untilTheNoteHasBeenRead(second);
 
-      expect(asked[0]!.system).toContain('you proposed Notes, but it was filed on Notes instead');
-      expect(asked[0]!.system).not.toContain('accepted the proposal');
+      const cleanUp = asked.find(isACleanUp)!;
+      expect(cleanUp.system).toContain('you proposed Notes, but it was filed on Notes instead');
+      expect(cleanUp.system).not.toContain('accepted the proposal');
     });
 
     it('never carries a decision made in another workspace', async () => {

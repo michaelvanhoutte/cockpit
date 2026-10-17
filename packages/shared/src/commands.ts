@@ -22,7 +22,15 @@ import {
   agentNameSchema,
   agentEngineSchema,
 } from './domain/agent.js';
-import { claudeDestinationSchema, claudeFolderSchema } from './domain/claude-send.js';
+import {
+  CLAUDE_REPORTED_STAGES,
+  REPORT_NOTE_LIMIT,
+  claudeDestinationSchema,
+  claudeFolderSchema,
+  claudeResultLink,
+  claudeSessionLink,
+} from './domain/claude-send.js';
+import { claudeProposalsSchema } from './domain/claude-proposal.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import {
   filterConditionSchema,
@@ -544,6 +552,29 @@ export const sendItemToClaudeSchema = commandEnvelopeSchema.extend({
 export type SendItemToClaudeCommand = z.infer<typeof sendItemToClaudeSchema>;
 
 /**
+ * report_claude_run — Cowork or Claude Code saying how a Run it was sent
+ * stands ("Follow on the row what Claude reports back", issue 1160). Sent by
+ * the MCP tool alone, never posted as JSON: the Run's own Workspace is found
+ * from the Run, so `workspaceId` here is not read. Only the stage, the two
+ * links and the note change, and a link that is not safe to open is refused
+ * (`claudeSessionLink`, `claudeResultLink`).
+ */
+export const reportClaudeRunSchema = commandEnvelopeSchema.extend({
+  runId: z.uuid(),
+  stage: z.enum(CLAUDE_REPORTED_STAGES),
+  sessionUrl: z
+    .string()
+    .refine((value) => claudeSessionLink(value) !== null)
+    .optional(),
+  resultUrl: z
+    .string()
+    .refine((value) => claudeResultLink(value) !== null)
+    .optional(),
+  note: z.string().max(REPORT_NOTE_LIMIT).optional(),
+});
+export type ReportClaudeRunCommand = z.infer<typeof reportClaudeRunSchema>;
+
+/**
  * settle_agent_run — how Claude answered a run's start (issue 571). Sent by
  * the start route once Claude has answered or failed to, never by a client.
  *
@@ -723,6 +754,19 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
   });
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
+/**
+ * propose_item_for_claude - what Cockpit proposes doing with an Item, sent by
+ * the enrichment job ("Propose what to do with each item before you look",
+ * issue 1161), replacing whatever the Item carried. `madeFrom` is the Item's
+ * `updatedAt` as the job read it: an Item changed since is left alone, and the
+ * job asks for its proposal again.
+ */
+export const proposeItemForClaudeSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  proposals: claudeProposalsSchema,
+  madeFrom: z.iso.datetime(),
+});
+export type ProposeItemForClaudeCommand = z.infer<typeof proposeItemForClaudeSchema>;
 /** The most Panels one note is filed on; the job sends no more, so a long answer never fails the whole reading (issue 1116). */
 export const PANELS_A_NOTE_FILES_ON = 20;
 
@@ -921,6 +965,7 @@ export const commandSchemas = {
   set_started: setStartedSchema,
   begin_agent_run: beginAgentRunSchema,
   send_item_to_claude: sendItemToClaudeSchema,
+  report_claude_run: reportClaudeRunSchema,
   settle_agent_run: settleAgentRunSchema,
   finish_agent_run: finishAgentRunSchema,
   report_agent_run_activity: reportAgentRunActivitySchema,
@@ -937,6 +982,7 @@ export const commandSchemas = {
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
   propose_item_fields: proposeItemFieldsSchema,
+  propose_item_for_claude: proposeItemForClaudeSchema,
   connect_source_account: connectSourceAccountSchema,
   disconnect_source_account: disconnectSourceAccountSchema,
   set_connection_choice: setConnectionChoiceSchema,
@@ -957,6 +1003,7 @@ export type SelfSentCommandName =
   | 'propose_item_texts'
   | 'propose_item_panel'
   | 'propose_item_fields'
+  | 'propose_item_for_claude'
   // Sent by the callback Microsoft returns to, which is a navigation rather
   // than a request a page makes - and which carries a sealed credential no
   // browser may ever hand over (see `connectSourceAccountSchema` above).
@@ -969,6 +1016,8 @@ export type SelfSentCommandName =
   // (see `beginAgentRunSchema` above).
   | 'begin_agent_run'
   | 'settle_agent_run'
+  // Sent by the `report_run` MCP tool (see `reportClaudeRunSchema` above).
+  | 'report_claude_run'
   // Sent by the Claude Code hook route once the call's secret is checked (see
   // `reportAgentRunActivitySchema` above).
   | 'report_agent_run_activity';

@@ -33,6 +33,7 @@ import {
   registeredConnectorListSchema,
   sourceAccountListSchema,
   connectionHistorySchema,
+  checkedNowSchema,
   uuidv7,
   userAddedSchema,
   userChangedSchema,
@@ -93,6 +94,7 @@ import {
 import {
   CannotReadMeaningError,
   enqueueCleanUp,
+  enqueueProposalForClaude,
   enqueueReadingItsMeaning,
   enqueueRepropose,
   enqueueGuestArrivals,
@@ -757,6 +759,29 @@ const connectionHistoryRoute = createRoute({
 });
 
 /**
+ * *Check now* on one pulled connection ("Check a pulled connection now, from
+ * its row or its history", issue 1143): its check made due at once through the
+ * path a person's change takes, labelled *Check now*. A POST to the
+ * connection and not a command - it changes no Item or setting, only when the
+ * next check runs, and pressing it twice makes one check.
+ */
+const checkConnectionNowRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/connections/{sourceAccountId}/check-now',
+  request: { params: z.object({ workspaceId: z.string(), sourceAccountId: z.string() }) },
+  responses: {
+    200: {
+      description: 'What pressing it did to the connection’s check',
+      content: { 'application/json': { schema: checkedNowSchema } },
+    },
+    404: {
+      description: 'Unknown workspace, or not a pulled connection of it',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * The connectors this environment's registry holds that a person can sign in
  * to ("List the registry's connectors in the Connections window", issue 894):
  * what the Connections window draws a card from, so adding a source adds its
@@ -1126,6 +1151,8 @@ async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'a
   if (result.settledRouting) {
     c.executionCtx.waitUntil(enqueueRepropose(c.env, accountName, payload.workspaceId));
   }
+  // Any filing, settling or not, changes the Panel a proposal for Claude is made from (issue 1161).
+  if (result.applied) c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, payload.itemId, 'item-changed'));
   return result;
 }
 
@@ -1137,9 +1164,10 @@ async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'a
  * this account writes ("Learn how you write from the titles you correct",
  * issue 394).
  *
- * **A correction queues nothing but the re-reading of what the Item means.**
- * What it teaches reaches later captures only; the Items already in the Inbox
- * keep the texts they have ("Cut what cleaning up a captured note costs",
+ * **A correction queues the re-reading of what the Item means, and of what to
+ * do with it** ("Propose what to do with each item before you look", issue
+ * 1161), and nothing else: what it teaches reaches later captures only; the
+ * Items already in the Inbox keep the texts they have ("Cut what cleaning up a captured note costs",
  * issue 887).
  *
  * **The form showing the duplicates is where a stale answer would show up
@@ -1161,6 +1189,7 @@ async function changeThatRewritesTheTexts<N extends 'set_title' | 'set_descripti
   const result = await change(c, name, payload);
   if (result.applied) {
     c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, payload.itemId));
+    c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, payload.itemId, 'item-changed'));
   }
   return result;
 }
@@ -1352,6 +1381,13 @@ const routes = app
     // Throws where the row is not a live connection of this Workspace, which
     // `onError` answers with the 404 every connection route gives.
     return c.json({ lines: await account.connectionHistory(workspaceId, sourceAccountId) }, 200);
+  })
+  .openapi(checkConnectionNowRoute, async (c) => {
+    const { workspaceId, sourceAccountId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    // Throws where it is not a live pulled connection of this Workspace,
+    // which `onError` answers with the 404 every connection route gives.
+    return c.json({ status: await account.checkNow(workspaceId, sourceAccountId) }, 200);
   })
   .openapi(registeredConnectorsRoute, async (c) => {
     // Listed only where Connect would go through: the sign-in, client and
@@ -1831,6 +1867,8 @@ const routes = app
       // it lands, whether or not this environment can also clean it up. Where
       // it can, the cleanup's own rewrite queues a second read of its own.
       c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, captured.itemId, 'captured-in-app'));
+      // And what to do with it, debounced so the cleanup's rewrite takes this ask's place (issue 1161).
+      c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, captured.itemId, 'captured-in-app'));
     }
     return c.json(result, 200);
   })
@@ -1848,9 +1886,15 @@ const routes = app
     async (c) =>
       c.json(await changeThatMightSettleARouting(c, 'add_item_to_panel', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('remove_item_from_panel'), async (c) =>
-    c.json(await change(c, 'remove_item_from_panel', c.req.valid('json')), 200),
-  )
+  .openapi(commandRoute('remove_item_from_panel'), async (c) => {
+    const payload = c.req.valid('json');
+    const result = await change(c, 'remove_item_from_panel', payload);
+    // Off a Panel is a filing changed too, as in `changeThatMightSettleARouting` (issue 1161).
+    if (result.applied) {
+      c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, c.get('visitor').accountName, payload.itemId, 'item-changed'));
+    }
+    return c.json(result, 200);
+  })
   .openapi(
     commandRoute('create_agent', { conflict: 'An agent already has that name' }),
     async (c) => c.json(await change(c, 'create_agent', c.req.valid('json')), 200),
@@ -2584,6 +2628,7 @@ const routes = app
         filed: (accountName, itemId, filedBy) => {
           c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, itemId, `connector:${filedBy}`));
           c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, itemId, `connector:${filedBy}`));
+          c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, itemId, `connector:${filedBy}`));
         },
       }),
     );

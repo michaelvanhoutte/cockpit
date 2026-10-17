@@ -4,6 +4,7 @@ import { ACCOUNT_WIDE } from '@cockpit/shared';
 import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, inStoreAsItIs, inTheStore, storeNamed } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
+import { heldProposals } from '../../held-proposals.js';
 import {
   A_READING,
   asked,
@@ -304,6 +305,38 @@ describe('Capture', () => {
 
       expect(await panelsHolding(itemId)).toEqual([{ panelId: ADMIN, position: 0 }]);
       expect(refreshesAskedFor).toEqual([expect.objectContaining({ kind: 're-propose-panels', workspaceId: PERSONAL })]);
+    });
+  });
+
+  /** "Propose what to do with each item before you look" (issue 1161). */
+  describe('what to do with a note filed where it said is proposed again from where it now is', () => {
+    it('asks for it once the note is filed, even where you rewrote its title while it was read', async () => {
+      theModelReadsAPlace({ panels: ['Admin & money'] });
+      const itemId = nextId();
+      reading.during = duringThe(isACleanUp, () =>
+        postChange('set_title', {
+          commandId: nextId(),
+          issuedAt: '2026-09-09T10:00:01.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId,
+          title: 'My own title',
+        }),
+      );
+
+      await captureANote({ itemId, workspaceDecided: false });
+
+      // The capture's, the edit's, and the filing's, which is the clean-up's own.
+      await vi.waitFor(
+        () =>
+          expect(heldProposals.filter((job) => job.itemId === itemId).map((job) => job.triggeredBy).sort()).toEqual([
+            'captured-in-app',
+            'captured-in-app',
+            'item-changed',
+          ]),
+        { timeout: 15_000, interval: 25 },
+      );
+      expect((await textsOf(itemId))?.title).toBe('My own title');
+      expect(await panelsHolding(itemId)).toEqual([{ panelId: ADMIN, position: 0 }]);
     });
   });
 

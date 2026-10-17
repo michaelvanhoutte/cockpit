@@ -9,8 +9,8 @@ import type {
 } from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
-import { runCommand } from './command-service.js';
-import { getItem, listDashboards, listFilingsOnPanel, listPanels } from './repo.js';
+import { SourceAccountNotFoundError, runCommand } from './command-service.js';
+import { getItem, getSourceAccount, listDashboards, listFilingsOnPanel, listPanels } from './repo.js';
 import { connectionFailures, connectorAccounts, items, pulledConnections, pulledLinks } from './schema.js';
 import { confirmOpenStates, openStatesWaiting } from './pulled-open-state.js';
 import { applySourceStateChange } from './source-state.js';
@@ -135,6 +135,64 @@ export function queueDuePulledChecks(
       .run();
   }
   return due;
+}
+
+/** What pressing *Check now* did: made a check due, relabelled the one queued, or found one running. */
+export type CheckedNow = 'queued' | 'already queued' | 'running';
+
+/**
+ * Makes a pulled connection's check due now, labelled *Check now* (issue 1143),
+ * by the path a person's change takes (`bringPulledCheckForward`) - no queue of
+ * its own:
+ *
+ * | The connection is | Does |
+ * |---|---|
+ * | idle | due now, reason *Check now*; answers `queued`, for the caller to arm the alarm |
+ * | queued | the queued check takes the reason; `already queued` |
+ * | running | nothing - the run keeps its own reason; `running` |
+ *
+ * Refused as not found where it is not a live pulled connection of this
+ * Workspace. The reason is a column of the connection's row, so one queued
+ * before a deploy is read by the code after it.
+ */
+export function checkPulledConnectionNow(
+  db: AccountDb,
+  accountName: string,
+  workspaceId: string,
+  sourceAccountId: string,
+  pulledIds: readonly string[],
+  now: Date,
+): CheckedNow {
+  const held = getSourceAccount(db, accountName, sourceAccountId);
+  if (
+    accountName === GUEST_ACCOUNT_NAME ||
+    !held ||
+    held.workspaceId !== workspaceId ||
+    !pulledIds.includes(held.connectorId)
+  ) {
+    throw new SourceAccountNotFoundError(sourceAccountId);
+  }
+  // A connection the alarm has not yet scheduled has no row to relabel.
+  db.insert(pulledConnections)
+    .values({ sourceAccountId, tenantId: accountName, dueAt: now.toISOString() })
+    .onConflictDoNothing()
+    .run();
+  const where = and(
+    eq(pulledConnections.tenantId, accountName),
+    eq(pulledConnections.sourceAccountId, sourceAccountId),
+  );
+  const row = db
+    .select({ queuedAt: pulledConnections.queuedAt, runId: pulledConnections.runId })
+    .from(pulledConnections)
+    .where(where)
+    .get()!;
+  if (row.runId !== null) return 'running';
+  if (row.queuedAt !== null) {
+    db.update(pulledConnections).set({ checkReason: 'check-now' }).where(where).run();
+    return 'already queued';
+  }
+  db.update(pulledConnections).set({ dueAt: now.toISOString(), checkReason: 'check-now' }).where(where).run();
+  return 'queued';
 }
 
 /**
@@ -541,7 +599,7 @@ export function confirmPulledOpenStates(
  * for a run that worked, when it was last checked and nothing about failing.
  * The check's line of the history is written in the same transaction, saying
  * why the check ran (issue 1140) and what it did (issue 1141), a failed
- * check's included. A run that no longer holds its connection
+ * check's included, with the source's HTTP status where it gave one (issue 1142). A run that no longer holds its connection
  * ends nothing and writes nothing, since another has it or it has gone.
  */
 export function endPulledRun(
@@ -553,6 +611,7 @@ export function endPulledRun(
   now: Date,
   moreToDo = false,
   did: CheckDid = { broughtIn: [], closed: [], sentBack: [], refused: [] },
+  status?: number,
 ): void {
   if (!runHolds(db, accountName, sourceAccountId, runId)) return;
   const at = now.toISOString();
@@ -577,7 +636,7 @@ export function endPulledRun(
       accountName,
       sourceAccountId,
       ran?.checkReason ?? 'scheduled',
-      failing === null ? { outcome: 'worked' } : { outcome: 'failed', ...keptMessage(failing) },
+      failing === null ? { outcome: 'worked' } : { outcome: 'failed', ...keptMessage(failing), status: status ?? null },
       did,
       at,
     );
