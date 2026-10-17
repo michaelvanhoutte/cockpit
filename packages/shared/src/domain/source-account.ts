@@ -48,6 +48,8 @@ export const sourceAccountSchema = z.object({
   follows: z.string().optional(),
   /** What the row says it follows, in the connector's own words; absent from a release before it, which then reads as `follows` itself. */
   followsLabel: z.string().optional(),
+  /** What a listing under that choice counts, in the connector's words (*flagged*), said by a check's history line beside how many it listed (issue 1196); absent where the connector gave none. */
+  followsListed: z.string().optional(),
   /**
    * Whether the connection files what it brings in on the Panel named after
    * its label or category (issue 1146). Defaulted, so an answer from before

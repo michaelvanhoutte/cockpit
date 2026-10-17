@@ -35,8 +35,8 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
       choice: {
         question: 'Bring in messages',
         options: [
-          { value: 'flag', label: 'Flagged' },
-          { value: 'category', label: 'Category Cockpit' },
+          { value: 'flag', label: 'Flagged', listed: 'flagged' },
+          { value: 'category', label: 'Category Cockpit', listed: 'with category Cockpit' },
         ],
       },
       // A message's categories, the followed Cockpit one left out, are its

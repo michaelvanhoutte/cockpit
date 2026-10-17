@@ -2079,6 +2079,8 @@ export const connectionHistory = sqliteTable(
     did: text('did'),
     /** The HTTP status the source answered a failed check with (issue 1142); NULL where it gave none, and on every line that worked or predates it. */
     status: integer('status'),
+    /** How many messages the check's complete listing returned (issue 1196); NULL where it listed nothing completely - a failed or stopped check - and on every line from before it. */
+    listed: integer('listed'),
   },
   (t) => [
     index('connection_history_newest').on(t.tenantId, t.sourceAccountId, t.lastAt),

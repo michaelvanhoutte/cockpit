@@ -40,8 +40,8 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
       choice: {
         question: 'Bring in conversations',
         options: [
-          { value: 'label', label: 'Labelled Cockpit' },
-          { value: 'star', label: 'Starred (flagged in Outlook)' },
+          { value: 'label', label: 'Labelled Cockpit', listed: 'labelled Cockpit' },
+          { value: 'star', label: 'Starred (flagged in Outlook)', listed: 'starred' },
         ],
       },
       // A conversation's labels, but Gmail's own and the one followed, are its

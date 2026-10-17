@@ -11,6 +11,7 @@ import {
   keptMessage,
   whatACheckWrites,
   type CheckDid,
+  type DidKind,
   type CheckEnded,
   type CheckOutcome,
   type CheckReason,
@@ -25,7 +26,7 @@ import {
 
 type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
 
-type DidAsStored = Record<keyof CheckDid, DidKept>;
+type DidAsStored = Record<DidKind, DidKept>;
 
 const KINDS = ['broughtIn', 'closed', 'sentBack', 'refused'] as const;
 
@@ -63,10 +64,12 @@ export function recordCheck(
     .limit(1)
     .get();
   const kept = keptDid(did);
+  // Only a check that worked has a complete listing to count (issue 1196).
+  const listed = ended.outcome === 'worked' ? (did.listed ?? null) : null;
   const checkEnded: CheckOutcome = { ...ended, did: didAnything(did), reason };
   if (previous && whatACheckWrites({ ...previous, did: previous.did !== null }, checkEnded) === 'extend') {
     tx.update(connectionHistory)
-      .set({ count: sql`${connectionHistory.count} + 1`, lastAt: at })
+      .set({ count: sql`${connectionHistory.count} + 1`, lastAt: at, listed })
       .where(and(eq(connectionHistory.tenantId, accountName), eq(connectionHistory.id, previous.id)))
       .run();
     return;
@@ -85,6 +88,7 @@ export function recordCheck(
       firstAt: at,
       lastAt: at,
       did: kept === null ? null : JSON.stringify(kept),
+      listed,
     })
     .run();
 }
@@ -175,6 +179,7 @@ export function connectionHistoryOf(
       firstAt: connectionHistory.firstAt,
       lastAt: connectionHistory.lastAt,
       did: connectionHistory.did,
+      listed: connectionHistory.listed,
     })
     .from(connectionHistory)
     .where(and(eq(connectionHistory.tenantId, accountName), eq(connectionHistory.sourceAccountId, sourceAccountId)))
@@ -217,7 +222,7 @@ type ItemNamed = { title: string | null; dismissed: boolean };
 
 /** What a line did, with each Item named; nothing where it did nothing. */
 function shown(did: DidAsStored | null, titles: Map<string, ItemNamed>): CheckDidShown {
-  const kind = (which: keyof CheckDid) => ({
+  const kind = (which: DidKind) => ({
     count: did?.[which].count ?? 0,
     items: (did?.[which].ids ?? []).flatMap((id) => {
       const named = titles.get(id);

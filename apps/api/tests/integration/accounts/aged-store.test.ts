@@ -1960,8 +1960,8 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      // With `status` NULL, which `0082-connection-history-status` adds on the same open.
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, did: null, status: null })));
+      // With `status` and `listed` NULL, which `0082-connection-history-status` and `0088-connection-history-listed` add on the same open.
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, did: null, status: null, listed: null })));
       const nothing = { count: 0, items: [] };
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([
         expect.objectContaining({
@@ -1989,7 +1989,7 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, status: null })));
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, status: null, listed: null })));
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2, status: null })]);
     });
   });
@@ -2011,8 +2011,30 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      expect(await linesIn()).toEqual(before);
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null })));
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2 })]);
+    });
+  });
+
+  /**
+   * `0088-connection-history-listed` ("Say how many messages each pulled check
+   * listed, on its history line", issue 1196) meets a history from before it:
+   * it adds a nullable column and rewrites no line.
+   */
+  describe('a history stored before checks counted what they listed reads each line as having no count', () => {
+    it('keeps every line as it was, and reads it back with no count', async () => {
+      const name = 'aged-store-before-connection-history-listed';
+      await agedTo(name, justBefore('0088-connection-history-listed'));
+      await fillWithWhatIsAlreadyThere(name);
+      const linesIn = () =>
+        inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM connection_history ORDER BY id').toArray());
+      const before = await linesIn();
+      expect(before).toHaveLength(1);
+
+      const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
+
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null })));
+      expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2, listed: null })]);
     });
   });
 

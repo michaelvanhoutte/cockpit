@@ -1231,12 +1231,14 @@ const routes = app
       {
         sourceAccounts: (await account.sourceAccounts(workspaceId)).map((held) => {
           const options = choiceOptionsOf(c.env, held.connectorId);
-          const label = options?.find((option) => option.value === held.follows)?.label;
+          const chosen = options?.find((option) => option.value === held.follows);
+          const label = chosen?.label;
           const isPulled = pulled.includes(held.connectorId);
           const keepsHistory = isPulled || pushed.includes(held.connectorId);
           return {
             ...held,
             ...(label === undefined ? {} : { followsLabel: label }),
+            ...(chosen?.listed === undefined ? {} : { followsListed: chosen.listed }),
             ...(keepsHistory ? { keepsHistory } : {}),
             ...(isPulled ? { pulled: true } : {}),
           };
