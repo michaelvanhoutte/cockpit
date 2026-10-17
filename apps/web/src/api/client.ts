@@ -4,12 +4,14 @@ import {
   accountHoldingsSchema,
   attachmentAddress,
   claudeCodeOutcomeSchema,
+  checkedNowSchema,
   startAgentOutcomeSchema,
   registeredUserListSchema,
   usageSchema,
   rewriteHistoryResponseSchema,
   userDeletedSchema,
   type AccountHoldings,
+  type CheckedNow,
   type ClaudeCodeOutcome,
   type ConnectClaudeCode,
   type StartAgent,
@@ -317,6 +319,20 @@ export async function testClaudeCodeConnection(
   ].test.$post({ param: { workspaceId, sourceAccountId } });
   if (!res.ok) throw refusal('testing Claude Code', res.status);
   return claudeCodeOutcomeSchema.parse(await res.json());
+}
+
+/**
+ * *Check now* on a pulled connection ("Check a pulled connection now, from its
+ * row or its history", issue 1143): its check made due at once. Its own
+ * function rather than a `commandSenders` entry - it changes no Item or
+ * setting, only when the next check runs.
+ */
+export async function checkConnectionNow(workspaceId: string, sourceAccountId: string): Promise<CheckedNow> {
+  const res = await api.v1.workspaces[':workspaceId'].connections[':sourceAccountId']['check-now'].$post({
+    param: { workspaceId, sourceAccountId },
+  });
+  if (!res.ok) throw refusal('checking the connection', res.status);
+  return checkedNowSchema.parse(await res.json());
 }
 
 /**

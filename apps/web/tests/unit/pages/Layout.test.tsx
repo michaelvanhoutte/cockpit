@@ -116,6 +116,7 @@ vi.mock('../../../src/api/queries', () => ({
   // Read by the sections of Settings (components/SettingsWindow.tsx).
   useConnectClaudeCode: () => ({ mutate: () => undefined, isPending: false, error: null, data: undefined, reset: () => undefined }),
   useTestClaudeCodeConnection: () => ({ mutate: () => undefined, isPending: false }),
+  useCheckConnectionNow: () => ({ mutate: () => undefined, isPending: false }),
   useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
   // Signed in, so the shell renders rather than sending itself to the logon
   // page - which is what this case needs on screen to look at. The role is

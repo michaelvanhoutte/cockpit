@@ -27,7 +27,7 @@ import type {
   SourceItem,
   SourceStateChange,
 } from '@cockpit/connector-sdk';
-import type { PulledRunBegun } from './pulled.js';
+import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid } from '../domain/connection-history.js';
 
 /**
@@ -400,6 +400,16 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   keepCheckingPulledConnections(
     accountName: string,
   ): Awaitable<Answer<'armed' | 'already armed' | 'nothing to check'>>;
+  /**
+   * *Check now* on one pulled connection of this Workspace (issue 1143): its
+   * check made due at once and the alarm armed, or relabelled where already
+   * queued, or left where running. Refused as not found otherwise.
+   */
+  checkPulledConnectionNow(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Awaitable<Answer<CheckedNow>>;
   /**
    * The calls a run of one pulled connection's check makes, each naming the
    * run so the store can refuse one that no longer holds its connection

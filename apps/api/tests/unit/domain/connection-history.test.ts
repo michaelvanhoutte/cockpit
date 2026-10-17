@@ -16,18 +16,27 @@ import {
  * tests/integration/connectors/connection-history.test.ts's.
  */
 
-const quiet: LineAsHeld = { outcome: 'worked', message: null, messageCut: false, status: null, did: false };
+const quiet: LineAsHeld = {
+  reason: 'scheduled',
+  outcome: 'worked',
+  message: null,
+  messageCut: false,
+  status: null,
+  did: false,
+};
 const broughtSomethingIn: LineAsHeld = { ...quiet, did: true };
 const unavailable: LineAsHeld = {
+  reason: 'scheduled',
   outcome: 'failed',
   message: 'unavailable',
   messageCut: false,
   status: 503,
   did: false,
 };
-const worked: CheckOutcome = { outcome: 'worked', did: false };
-const workedAndDidSomething: CheckOutcome = { outcome: 'worked', did: true };
+const worked: CheckOutcome = { reason: 'scheduled', outcome: 'worked', did: false };
+const workedAndDidSomething: CheckOutcome = { reason: 'scheduled', outcome: 'worked', did: true };
 const failedAlike: CheckOutcome = {
+  reason: 'scheduled',
   outcome: 'failed',
   message: 'unavailable',
   messageCut: false,
@@ -35,6 +44,7 @@ const failedAlike: CheckOutcome = {
   did: false,
 };
 const failedOtherwise: CheckOutcome = {
+  reason: 'scheduled',
   outcome: 'failed',
   message: 'the sign-in was refused',
   messageCut: false,
@@ -69,6 +79,8 @@ describe('Connector management', () => {
         ended: { ...failedAlike, did: true },
         writes: 'insert',
       },
+      { situation: 'a Check now after a quiet line', previous: quiet, ended: { ...worked, reason: 'check-now' as const }, writes: 'insert' },
+      { situation: 'a quiet check after a Check now line', previous: { ...quiet, reason: 'check-now' as const }, ended: worked, writes: 'insert' },
       {
         situation: 'a failure alike one that had done something',
         previous: { ...unavailable, did: true },

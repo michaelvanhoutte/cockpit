@@ -25,10 +25,17 @@ async function fetchHistory(workspaceId: string, sourceAccountId: string): Promi
 export function ConnectionHistory({
   workspaceId,
   account,
+  onCheckNow,
+  checkNowPending,
+  checkNowNote,
   onBack,
 }: {
   workspaceId: string;
   account: SourceAccount;
+  /** Asks for the connection's check at once (issue 1143); its line arrives here when the check ends. */
+  onCheckNow: () => void;
+  checkNowPending: boolean;
+  checkNowNote: { ok: boolean; text: string } | null;
   onBack: () => void;
 }) {
   const { data, error, refetch } = useQuery({
@@ -56,7 +63,25 @@ export function ConnectionHistory({
           ‹ Connections
         </button>
       </div>
-      <h3 className="mt-2 text-sm font-medium">History of {account.displayName}</h3>
+      <div className="mt-2 flex items-center gap-3">
+        <h3 className="min-w-0 flex-1 text-sm font-medium">History of {account.displayName}</h3>
+        <button
+          type="button"
+          onClick={onCheckNow}
+          disabled={checkNowPending}
+          className="shrink-0 rounded-md border border-shade/10 px-3 py-1 text-sm hover:bg-shade/5 disabled:opacity-50"
+        >
+          Check now
+        </button>
+      </div>
+      {checkNowNote && (
+        <p
+          role={checkNowNote.ok ? 'status' : 'alert'}
+          className={`mt-1 text-sm ${checkNowNote.ok ? 'text-ink-soft' : 'text-over-ink'}`}
+        >
+          {checkNowNote.text}
+        </p>
+      )}
       <div className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto px-2">
         {error && !data && <LoadFailure error={error} onRetry={() => void refetch()} />}
         {data && data.lines.length === 0 && <p className="py-2 text-sm text-ink-faint">No checks yet.</p>}

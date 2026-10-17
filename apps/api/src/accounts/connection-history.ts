@@ -49,6 +49,7 @@ export function recordCheck(
   const previous = tx
     .select({
       id: connectionHistory.id,
+      reason: connectionHistory.reason,
       outcome: connectionHistory.outcome,
       message: connectionHistory.message,
       messageCut: connectionHistory.messageCut,
@@ -61,7 +62,7 @@ export function recordCheck(
     .limit(1)
     .get();
   const kept = keptDid(did);
-  const checkEnded: CheckOutcome = { ...ended, did: didAnything(did) };
+  const checkEnded: CheckOutcome = { ...ended, did: didAnything(did), reason };
   if (previous && whatACheckWrites({ ...previous, did: previous.did !== null }, checkEnded) === 'extend') {
     tx.update(connectionHistory)
       .set({ count: sql`${connectionHistory.count} + 1`, lastAt: at })

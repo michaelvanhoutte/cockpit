@@ -39,7 +39,7 @@ import type {
   SourceItem,
   SourceStateChange,
 } from '@cockpit/connector-sdk';
-import type { PulledRunBegun } from './pulled.js';
+import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid } from '../domain/connection-history.js';
 
 export type { AccountSnapshot } from './answer.js';
@@ -336,6 +336,8 @@ export interface Account {
    * generic host", issue 891).
    */
   beginPulledRun(sourceAccountId: string): Promise<PulledRunBegun>;
+  /** *Check now* on one pulled connection of this Workspace - its check made due at once (issue 1143). */
+  checkNow(workspaceId: string, sourceAccountId: string): Promise<CheckedNow>;
   /** What a run that took its lease may do with its connection, until it ends (issue 891). */
   pulledRun(sourceAccountId: string, runId: string): PulledRun;
 }
@@ -459,6 +461,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
     beginPulledRun: async (sourceAccountId) => unwrap(await store.beginPulledRun(accountName, sourceAccountId)),
+    checkNow: async (workspaceId, sourceAccountId) =>
+      unwrap(await store.checkPulledConnectionNow(accountName, workspaceId, sourceAccountId)),
     pulledRun: (sourceAccountId, runId) => ({
       state: async () => unwrap(await store.pulledState(accountName, sourceAccountId, runId)),
       saveState: async (state) => unwrap(await store.savePulledState(accountName, sourceAccountId, runId, state)),

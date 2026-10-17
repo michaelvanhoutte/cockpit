@@ -170,6 +170,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     AGENT_RUNS_NOTE,
     CONNECTION_HISTORY_STATUS,
     ITEM_CLAUDE_PROPOSALS,
+    CONNECTION_HISTORY_WRITTEN,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -799,6 +800,37 @@ const CONNECTION_HISTORY_STATUS: Change = {
 const ITEM_CLAUDE_PROPOSALS: Change = {
   name: '0083-item-claude-proposals',
   statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `claude_proposals` text' }],
+};
+
+/**
+ * The index the live-updates poll reads a connection's new history lines
+ * through ("Check a pulled connection now, from its row or its history", issue
+ * 1143): one `CREATE INDEX` on `connection_history`.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): an index, and no statement that reads or writes a row.
+ * - **If it stops halfway:** one change is one transaction, so the index is
+ *   there or it is not, and the next open applies it.
+ * - **The second time it runs:** it does not re-run once recorded, and the
+ *   statement is `IF NOT EXISTS` besides.
+ * - **Rows that predate it:** indexed as the index is built; none is changed.
+ * - **What is in each environment:** staging and production keep every line
+ *   whole.
+ * - **Rolled back after it has run:** an older release never names the index;
+ *   SQLite keeps it up to date on each write, which costs a line one more
+ *   entry.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTION_HISTORY_WRITTEN: Change = {
+  name: '0084-connection-history-written',
+  statements: [
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `connection_history_written` ON `connection_history` (`tenant_id`,`last_at`)',
+    },
+  ],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

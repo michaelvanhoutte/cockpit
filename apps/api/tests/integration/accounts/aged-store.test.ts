@@ -1967,6 +1967,28 @@ describe('Connector management', () => {
   });
 
   /**
+   * `0084-connection-history-written` ("Check a pulled connection now, from its
+   * row or its history", issue 1143) meets a history from before it: it adds an
+   * index and rewrites no line.
+   */
+  describe('a history stored before the live-updates index keeps every line whole', () => {
+    it('leaves the lines as they were and reads them back', async () => {
+      const name = 'aged-store-before-connection-history-written';
+      await agedTo(name, justBefore('0084-connection-history-written'));
+      await fillWithWhatIsAlreadyThere(name);
+      const linesIn = () =>
+        inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM connection_history ORDER BY id').toArray());
+      const before = await linesIn();
+      expect(before).toHaveLength(1);
+
+      const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
+
+      expect(await linesIn()).toEqual(before);
+      expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ count: 2 })]);
+    });
+  });
+
+  /**
    * `0056-gmail-followed-mark` ("Connect Gmail by star, and bring in
    * conversations starred from then on", issue 822) meets a Gmail connection
    * and a conversation it brought in from before the star existed.

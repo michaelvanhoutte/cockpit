@@ -358,3 +358,25 @@ describe('Live updates', () => {
 
   });
 });
+
+describe('Connector management', () => {
+  describe('a check ending re-reads the history of its connection and nothing else', () => {
+    it.each([
+      { situation: 'the connection it names', sourceAccountId: 'account-anna', reads: true },
+      { situation: 'another connection', sourceAccountId: 'account-ada', reads: false },
+    ])('an open history of $situation', async ({ sourceAccountId, reads }) => {
+      open();
+      client.setQueryData(['connectionHistory', 'ws-work', 'account-anna'], { lines: [] });
+      client.setQueryData(['snapshot', 'ws-work'], { items: [] });
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.announces({ type: 'connection_history_changed', workspaceId: 'ws-work', sourceAccountId });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['connectionHistory', 'ws-work', 'account-anna'])?.isInvalidated ?? false).toBe(reads);
+      // It changes nothing the snapshot draws.
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(false);
+    });
+  });
+});
