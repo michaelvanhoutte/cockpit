@@ -65,15 +65,23 @@ const ITEM = {
   title: 'Pay the invoice',
   description: 'Due on Friday.',
   claudeProposals: null as ClaudeProposal[] | null,
+  source: 'internal',
+  sender: null as string | null,
 };
 const PNG = { id: 'att-1', filename: 'receipt.png', contentType: 'image/png' };
 
-function showWindow(attachments = [PNG], item = ITEM) {
+function showWindow(attachments = [PNG], item: typeof ITEM = ITEM) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onClose = vi.fn();
   render(
     <QueryClientProvider client={client}>
-      <SendToClaudeWindow item={item} workspaceId="ws-1" attachments={attachments} onClose={onClose} />
+      <SendToClaudeWindow
+        item={item}
+        workspaceId="ws-1"
+        attachments={attachments}
+        onClose={onClose}
+        sourceNames={{ gmail: 'Gmail' }}
+      />
     </QueryClientProvider>,
   );
   return { onClose };
@@ -250,8 +258,26 @@ describe('Agents', () => {
       showWindow([PNG], { ...ITEM, claudeProposals: [{ destination: 'nothing', why: 'A quote to keep.' }] });
 
       expect((await prompt()).value).toMatch(/^Pay the invoice\n\nDue on Friday\./);
-      expect(screen.getByText(/Cockpit proposes nothing to do: A quote to keep\./)).toBeInTheDocument();
+      expect(screen.getByText('Cockpit proposes nothing to do. You can still send it as it is.')).toBeInTheDocument();
+      // The model's reason is quoted beside it, not said as Cockpit's own.
+      expect(screen.getByText('A quote to keep.').tagName).toBe('Q');
       expect(screen.getByRole('button', { name: /Open in Cowork/ })).toBeEnabled();
+    });
+
+    it('names who sent an item someone else sent, beside the proposal and at the head of the prompt', async () => {
+      showWindow([PNG], { ...ITEM, source: 'gmail', sender: 'Els Maes', claudeProposals: [REPLY] });
+
+      const text = (await prompt()).value;
+
+      expect(screen.getByText(/Cockpit proposes this from a Gmail message by Els Maes\./)).toBeInTheDocument();
+      expect(text).toMatch(/^Prepared by Cockpit from a Gmail message by Els Maes - .*not mine:\n\nDraft a reply to the supplier/);
+    });
+
+    it('starts the proposed prompt on the task itself for an item the person captured', async () => {
+      showWindow([PNG], { ...ITEM, claudeProposals: [REPLY] });
+
+      expect((await prompt()).value).toMatch(/^Draft a reply to the supplier/);
+      expect(screen.queryByText(/Cockpit proposes this from/)).not.toBeInTheDocument();
     });
 
     it('starts on the plain prompt where nothing has been proposed yet', async () => {

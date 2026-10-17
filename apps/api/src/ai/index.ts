@@ -5,7 +5,7 @@ import { providerCallsIn } from '../gateway/record.js';
 import { buildCleanUpANote } from './prompts/clean-up-a-note.v16.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v3.js';
 import { buildResolveAPlace } from './prompts/resolve-a-place.v1.js';
-import { buildProposeForClaude, type ItemToPropose } from './prompts/propose-for-claude.v1.js';
+import { buildProposeForClaude, type ItemToPropose } from './prompts/propose-for-claude.v2.js';
 import { readClaudeProposals, type ClaudeProposalsRead } from './claude-proposals.js';
 import { readPanelChoice, readPlace, readProposal, type PanelRead, type PlaceRead, type ProposalRead } from './note-texts.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
@@ -15,7 +15,7 @@ import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.
 
 export type { NoteTexts, PanelRead, PlaceRead, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
 export type { ItemToPlace } from './prompts/choose-a-panel.v3.js';
-export type { ItemToPropose } from './prompts/propose-for-claude.v1.js';
+export type { ItemToPropose } from './prompts/propose-for-claude.v2.js';
 export type { ClaudeProposalsRead } from './claude-proposals.js';
 
 /**
@@ -25,7 +25,7 @@ export type { ClaudeProposalsRead } from './claude-proposals.js';
 const CLEAN_UP_A_NOTE = 'clean-up-a-note.v16';
 const CHOOSE_A_PANEL = 'choose-a-panel.v3';
 const RESOLVE_A_PLACE = 'resolve-a-place.v1';
-const PROPOSE_FOR_CLAUDE = 'propose-for-claude.v1';
+const PROPOSE_FOR_CLAUDE = 'propose-for-claude.v2';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
 export interface CallFor {

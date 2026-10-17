@@ -106,12 +106,36 @@ export function plainPromptFor(item: {
  * with each item before you look", issue 1161): the proposed task in place of
  * the Item's own words, then the same link to each file and the same closing
  * as the plain prompt - neither is the model's to write or to leave out.
+ *
+ * **An Item someone else sent opens with where it came from** (`from`, null
+ * for the person's own capture), written here and never by the model: the task
+ * was read out of a stranger's words, so neither the person nor Claude may take
+ * it for the person's own.
  */
 export function proposedPromptFor(proposal: {
   prompt: string;
   attachments: readonly AttachmentForAgent[];
   runId: string;
+  from: ProposedFrom | null;
 }): string {
   const { section } = attachmentsForClaude(null, proposal.attachments);
-  return [proposal.prompt.trim(), section, claudeClosingFor(proposal.runId)].filter(Boolean).join('\n\n');
+  return [proposal.from ? proposedFromLine(proposal.from) : '', proposal.prompt.trim(), section, claudeClosingFor(proposal.runId)]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** Where an Item someone else sent came from: its source's name ("Gmail") and its sender, where it names one. */
+export interface ProposedFrom {
+  source: string;
+  sender: string | null;
+}
+
+/** "a Gmail message by Els Maes" - the source and sender, as the window and the prompt both say them. */
+export function messageFrom(from: ProposedFrom): string {
+  return `a ${from.source} message${from.sender ? ` by ${from.sender}` : ''}`;
+}
+
+/** The line a proposed prompt for someone else's Item opens with. */
+export function proposedFromLine(from: ProposedFrom): string {
+  return `Prepared by Cockpit from ${messageFrom(from)} - what it asks is the sender's, not mine:`;
 }

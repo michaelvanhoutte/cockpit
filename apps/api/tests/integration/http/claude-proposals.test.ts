@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
-import { ACCOUNT_NAME, WORKSPACE_ID, inStoreAsItIs, inTheStore } from '../seed.js';
+import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, inStoreAsItIs, inTheStore } from '../seed.js';
 import { enqueueProposalForClaude, handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { GUEST_ACCOUNT_NAME } from '../../../src/accounts/new-user.js';
@@ -21,7 +21,7 @@ import {
  * before you look", issue 1161) through the real Worker, the real consumer and
  * the real store, with the model faked at the network boundary - as
  * note-cleanup.test.ts does. Whether the real model proposes well is the
- * contract tier's (tests/contract/propose-for-claude.v1.test.ts); which answers
+ * contract tier's (tests/contract/propose-for-claude.v2.test.ts); which answers
  * are kept is apps/api/tests/unit/ai/claude-proposals.test.ts.
  *
  * **The queue is held, and drained by hand** (`delivered`), as
@@ -140,6 +140,43 @@ describe('Agents', () => {
       await handleQueue(aProposalJob(itemId), env);
 
       expect(proposing.asked.map((call) => call.item)).toEqual([expect.stringContaining('Came from: Gmail, from Els Maes')]);
+    });
+
+    it('offers only the folders sent to from its own workspace, and every folder for an item in none yet', async () => {
+      await alsoWorkspaces();
+      const itemId = await aSettledNote();
+      await inTheStore((sql) => {
+        for (const [id, workspaceId, folder] of [
+          ['run-own', WORKSPACE_ID, 'C:\\Code\\own-repo'],
+          ['run-other', 'ws-atlas', 'C:\\Code\\other-repo'],
+        ] as const) {
+          sql.exec(
+            `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, started_at, ended_at, destination, folder)
+             VALUES (?, ?, ?, ?, 'claude', 'working', '2026-09-09T10:00:00.000Z', '2026-09-09T10:01:00.000Z', 'code', ?)`,
+            id,
+            ACCOUNT_NAME,
+            workspaceId,
+            itemId,
+            folder,
+          );
+        }
+      });
+      const foldersOffered = async () => {
+        proposing.asked.length = 0;
+        await handleQueue(aProposalJob(itemId), env);
+        return proposing.asked[0]!.system;
+      };
+
+      const inItsWorkspace = await foldersOffered();
+      await inTheStore((sql) => {
+        sql.exec('UPDATE items SET workspace_decided = 0 WHERE id = ?', itemId);
+      });
+      const inNone = await foldersOffered();
+
+      expect(inItsWorkspace).toContain('own-repo');
+      expect(inItsWorkspace).not.toContain('other-repo');
+      expect(inNone).toContain('own-repo');
+      expect(inNone).toContain('other-repo');
     });
 
     it('proposes again once the title is edited', async () => {

@@ -53,6 +53,8 @@ describe('Agents', () => {
       { situation: 'a folder it was not offered', text: answer(said({ folder: '3' })) },
       { situation: 'a folder by its path rather than its number', text: answer(said({ folder: 'C:\\GitHub\\Cockpit' })) },
       { situation: 'a field left out', text: JSON.stringify({ proposals: [{ destination: 'cowork', prompt: 'Do it.' }] }) },
+      { situation: 'a reason for nothing naming an address', text: answer(said({ destination: 'nothing', prompt: '', why: 'Reply to help@desk.example first.' })) },
+      { situation: 'a reason for nothing carrying a link', text: answer(said({ destination: 'nothing', prompt: '', why: 'Verify at https://evil.example/login.' })) },
       { situation: 'text that is not JSON', text: 'I would send this to Cowork.' },
       { situation: 'no text at all', text: undefined },
     ])('keeps none for $situation', ({ text }) => {

@@ -8,17 +8,20 @@ import {
   CLAUDE_DESTINATION_NAMES,
   claudeLinkFor,
   isClaudeAction,
+  messageFrom,
   plainPromptFor,
   proposedPromptFor,
   uuidv7,
   type Attachment,
   type ClaudeDestination,
   type Item,
+  type ProposedFrom,
 } from '@cockpit/shared';
 import { CommandRefused, api, refusal } from '../api/client';
 import { useSendCommand } from '../api/queries';
 import { openClaude } from '../openClaude';
 import { connectedAppsQuery } from './ManageConnectedApps';
+import { capturingApp, sourceNamed, type SourceNames } from '../itemSource';
 
 /**
  * The addresses a Claude session opens an Item's files at, for the prompt. Read
@@ -67,6 +70,9 @@ function rememberFolder(folder: string): void {
  * link to each of the Item's files, and is shown once those links are made:
  * the textarea would otherwise be rewritten under the cursor. Where the links
  * cannot be made, the files are named instead and the prompt says so.
+ *
+ * **An Item someone else sent says so beside the proposal, and the prompt opens
+ * with it** (`proposedPromptFor`): its task was read out of their words.
  */
 export function SendToClaudeWindow({
   item,
@@ -74,12 +80,14 @@ export function SendToClaudeWindow({
   attachments,
   onClose,
   returnFocusTo,
+  sourceNames,
 }: {
-  item: Pick<Item, 'id' | 'title' | 'description' | 'claudeProposals'>;
+  item: Pick<Item, 'id' | 'title' | 'description' | 'claudeProposals' | 'source' | 'sender'>;
   workspaceId: string;
   attachments: readonly Pick<Attachment, 'id' | 'filename' | 'contentType'>[];
   onClose: () => void;
   returnFocusTo?: HTMLElement | null;
+  sourceNames?: SourceNames;
 }) {
   const send = useSendCommand();
   // One Run id for this window: the prompt names it, and an Open pressed
@@ -110,9 +118,14 @@ export function SendToClaudeWindow({
   const ready = !links.isPending;
   const apps = useQuery(connectedAppsQuery);
 
+  // Where an Item someone else sent came from; an app's capture is named by the app alone.
+  const from: ProposedFrom | null =
+    item.source === 'internal'
+      ? null
+      : { source: capturingApp(item) ?? sourceNamed(sourceNames, item.source), sender: item.source === 'mcp' ? null : item.sender };
   const linked = attachments.map((attachment) => ({ ...attachment, link: links.data?.[attachment.id] }));
   const plain = action
-    ? proposedPromptFor({ prompt: action.prompt, runId, attachments: linked })
+    ? proposedPromptFor({ prompt: action.prompt, runId, attachments: linked, from })
     : plainPromptFor({ title: item.title, description: item.description, runId, attachments: linked });
   const prompt = edited ?? plain;
 
@@ -187,7 +200,9 @@ export function SendToClaudeWindow({
           >
             {actions.length > 1 && (
               <div role="radiogroup" aria-label="Proposed" className="mt-4 flex flex-col gap-1">
-                <span className="text-sm text-ink-soft">Cockpit proposes {actions.length} things to do</span>
+                <span className="text-sm text-ink-soft">
+                  Cockpit proposes {actions.length} things to do{from ? `, from ${messageFrom(from)}` : ''}
+                </span>
                 {actions.map((one, at) => (
                   <button
                     key={at}
@@ -206,10 +221,18 @@ export function SendToClaudeWindow({
               </div>
             )}
 
+            {actions.length === 1 && from && (
+              <p className="mt-4 text-sm text-ink-soft">Cockpit proposes this from {messageFrom(from)}. Check what it asks before you send.</p>
+            )}
+
             {nothing && (
-              <p className="mt-4 rounded-md bg-accent-tint px-3 py-2 text-sm text-ink-soft">
-                Cockpit proposes nothing to do: {nothing.why} You can still send it as it is.
-              </p>
+              <div className="mt-4 rounded-md bg-accent-tint px-3 py-2 text-sm text-ink-soft">
+                <p>Cockpit proposes nothing to do. You can still send it as it is.</p>
+                {/* The model's reason, quoted and set apart rather than said in Cockpit's own voice. */}
+                <p className="mt-1 text-ink-faint">
+                  Why: <q className="italic">{nothing.why}</q>
+                </p>
+              </div>
             )}
 
             <div role="radiogroup" aria-label="Send to" className="mt-4 inline-flex rounded-md border border-shade/10 p-0.5">

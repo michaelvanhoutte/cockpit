@@ -115,11 +115,21 @@ describe('Agents', () => {
     it('puts the proposed task first, then a link to each file, then the closing naming the run', () => {
       const png = { id: 'att-1', filename: 'receipt.png', contentType: 'image/png', link: 'https://cockpit.test/a/1' };
 
-      const text = proposedPromptFor({ prompt: '  Draft the reply to Els.  ', attachments: [png], runId: RUN });
+      const text = proposedPromptFor({ prompt: '  Draft the reply to Els.  ', attachments: [png], runId: RUN, from: null });
 
       expect(text.startsWith('Draft the reply to Els.\n\nAttachments')).toBe(true);
       expect(text).toContain('- receipt.png: https://cockpit.test/a/1');
       expect(text.endsWith(RUN)).toBe(true);
+    });
+
+    it.each([
+      { situation: 'with its sender', from: { source: 'Gmail', sender: 'Els Maes' }, opens: 'Prepared by Cockpit from a Gmail message by Els Maes -' },
+      { situation: 'with none named', from: { source: 'Teams', sender: null }, opens: 'Prepared by Cockpit from a Teams message -' },
+    ])('opens an item someone else sent with where it came from, $situation, before the task', ({ from, opens }) => {
+      const text = proposedPromptFor({ prompt: 'Draft the reply to Els.', attachments: [], runId: RUN, from });
+
+      expect(text.startsWith(opens)).toBe(true);
+      expect(text).toContain("not mine:\n\nDraft the reply to Els.");
     });
   });
 

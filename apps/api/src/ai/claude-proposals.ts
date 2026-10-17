@@ -46,7 +46,7 @@ export function readClaudeProposals(raw: unknown, offeredFolders: readonly strin
   if (!answer.success) return { discarded: 'the answer was not a list of proposals' };
 
   // A folder is named by its number in the list offered, never by its path
-  // (`propose-for-claude.v1`), and empty for none.
+  // (`propose-for-claude.v2`), and empty for none.
   const folders = answer.data.proposals.map((one) => folderNumbered(one.folder, offeredFolders));
   if (folders.includes(undefined)) return { discarded: 'the answer named a folder it was not offered' };
 
@@ -58,8 +58,16 @@ export function readClaudeProposals(raw: unknown, offeredFolders: readonly strin
     ),
   );
   if (!proposals.success) return { discarded: 'the answer did not hold to what a proposal is' };
+  // A reason is shown in the window as the model's, but beside Cockpit's own
+  // words, so it may not carry an address or a link an item could plant there.
+  if (proposals.data.some((one) => one.destination === 'nothing' && ADDRESS_OR_LINK.test(one.why))) {
+    return { discarded: 'the reason for proposing nothing named an address or a link' };
+  }
   return { proposals: proposals.data };
 }
+
+/** An `@`, a scheme, or a `www.` - what a reason would need to point anybody anywhere. */
+const ADDRESS_OR_LINK = /@|[a-z][a-z0-9+.-]*:\/\/|\bwww\./i;
 
 /** The folder a number names, counting from 1; the empty string for none, and undefined for a number not offered. */
 function folderNumbered(answer: string, offered: readonly string[]): string | undefined {
