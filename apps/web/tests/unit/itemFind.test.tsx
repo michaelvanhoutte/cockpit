@@ -40,7 +40,7 @@ function aSnapshot(items: Item[], filed: [string, string][] = []): WorkspaceSnap
 }
 
 const rowsFor = (snapshot: WorkspaceSnapshot, query: string, scope: 1 | 2 = 2) =>
-  findItems(indexForFind(snapshot), query, scope, 'today');
+  findItems(indexForFind(snapshot, '2026-09-01'), query, scope, 'today');
 
 describe('Dashboards', () => {
   describe('Find lists the open Items in scope that match what is typed, in any of four fields', () => {
@@ -111,7 +111,7 @@ describe('Dashboards', () => {
         [['open-old', 'plan'], ['done-new', 'plan']],
       );
     const listed = (scope: 1 | 2, withDone: boolean) =>
-      findItems(indexForFind(snapshot()), 'rent', scope, 'today', FIND_LIMIT, withDone).rows;
+      findItems(indexForFind(snapshot(), '2026-09-01'), 'rent', scope, 'today', FIND_LIMIT, withDone).rows;
 
     it('lists no finished Item unless asked', () => {
       expect(listed(2, false).map((row) => row.itemId)).toEqual(['open-old']);
@@ -150,7 +150,7 @@ describe('Dashboards', () => {
         },
       });
       const first = aSnapshot([counted]);
-      const { result, rerender } = renderHook(({ snapshot }) => useFindIndex(snapshot), {
+      const { result, rerender } = renderHook(({ snapshot }) => useFindIndex(snapshot, '2026-09-01'), {
         initialProps: { snapshot: first },
       });
       for (const typed of ['r', 're', 'ren', 'rent', 'rent ']) findItems(result.current, typed, 2, 'today');

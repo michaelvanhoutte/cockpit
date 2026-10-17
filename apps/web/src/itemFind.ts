@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
-import { itemLabel, NO_CONDITIONS, panelGathers } from '@cockpit/shared';
+import { itemLabel, panelGathers } from '@cockpit/shared';
 import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { itemIdsWithRun } from './dashboardFilter';
 import { filingsThatFile, itemsInTheInbox, stillOpen } from './filing';
-import { dayOf, itemsMatchingFilter } from './filters';
+import { panelAndFilterIdsByItem } from './filters';
 import type { Day } from './filters';
 
 /**
@@ -69,42 +69,35 @@ export function searchTextOf(item: Pick<Item, 'title' | 'description' | 'nextAct
  * first and then the finished, each most recently changed first. **An Item filed on a Filter panel only is in the
  * Inbox**, as the Inbox itself and *All items* read it (`filingsThatFile`).
  * **What a Filter panel gathers is read the way the board draws it**
- * (`itemsMatchingFilter`, ignoring the Dashboard's own filter, which landing
+ * (`panelAndFilterIdsByItem`, ignoring the Dashboard's own filter, which landing
  * clears), so the index follows `today` and the open runs as well as the snapshot.
  */
-export function indexForFind(snapshot: WorkspaceSnapshot, today: Day = dayOf(new Date())): FindIndex {
+export function indexForFind(snapshot: WorkspaceSnapshot, today: Day): FindIndex {
   const panels = snapshot.panels ?? [];
   const filings = filingsThatFile(snapshot.filings ?? [], panels);
   const dashboardOrder = new Map(snapshot.dashboards.map((dashboard, at) => [dashboard.id, at]));
   const dashboardNames = new Map(snapshot.dashboards.map((dashboard) => [dashboard.id, dashboard.name]));
   const panelsById = new Map(panels.map((panel) => [panel.id, panel]));
+  // The Panels each Item is filed on, then the Filter panels gathering it, as the rows' "also in" reads them.
+  const heldBy = panelAndFilterIdsByItem(
+    snapshot.items,
+    snapshot.filings ?? [],
+    panels,
+    snapshot.dashboards,
+    itemIdsWithRun(snapshot.agentRuns ?? []),
+    today,
+  );
   const placesOf = new Map<string, FoundPlace[]>();
-  for (const filing of filings) {
-    const panel = panelsById.get(filing.panelId);
-    const dashboardName = panel && dashboardNames.get(panel.dashboardId);
-    if (!panel || dashboardName === undefined) continue;
-    const places = placesOf.get(filing.itemId) ?? [];
-    places.push({ dashboardId: panel.dashboardId, dashboardName, panelId: panel.id, panelName: panel.name });
-    placesOf.set(filing.itemId, places);
-  }
-  const withRun = itemIdsWithRun(snapshot.agentRuns ?? []);
   const gatheredOf = new Map<string, FoundPlace[]>();
-  for (const panel of panels) {
-    const dashboardName = dashboardNames.get(panel.dashboardId);
-    if (!panelGathers(panel) || dashboardName === undefined) continue;
-    const gathered = itemsMatchingFilter(
-      snapshot.items,
-      snapshot.filings ?? [],
-      panels,
-      snapshot.dashboards,
-      panel.filter ?? NO_CONDITIONS,
-      withRun,
-      today,
-    );
-    for (const item of gathered) {
-      const list = gatheredOf.get(item.id) ?? [];
+  for (const [itemId, panelIds] of heldBy) {
+    for (const panelId of panelIds) {
+      const panel = panelsById.get(panelId);
+      const dashboardName = panel && dashboardNames.get(panel.dashboardId);
+      if (!panel || dashboardName === undefined) continue;
+      const into = panelGathers(panel) ? gatheredOf : placesOf;
+      const list = into.get(itemId) ?? [];
       list.push({ dashboardId: panel.dashboardId, dashboardName, panelId: panel.id, panelName: panel.name });
-      gatheredOf.set(item.id, list);
+      into.set(itemId, list);
     }
   }
   const inbox = new Set(itemsInTheInbox(snapshot.items, filings).map((item) => item.id));
@@ -127,7 +120,7 @@ export function indexForFind(snapshot: WorkspaceSnapshot, today: Day = dayOf(new
 }
 
 /** The index of a snapshot, rebuilt only when the snapshot is replaced or the day turns. */
-export function useFindIndex(snapshot: WorkspaceSnapshot | undefined, today: Day = dayOf(new Date())): FindIndex {
+export function useFindIndex(snapshot: WorkspaceSnapshot | undefined, today: Day): FindIndex {
   return useMemo(() => (snapshot ? indexForFind(snapshot, today) : []), [snapshot, today]);
 }
 
