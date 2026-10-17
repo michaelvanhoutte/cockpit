@@ -8,9 +8,10 @@ import type { EnrichmentJob, ProposeForClaudeJob } from '../src/jobs/enrichment.
  * **Held for every file, by `no-model.ts`**, because nobody waits for one: a
  * capture, its clean-up, an edit and a filing each queue one, and delivered on
  * the real queue it ran into the next case, against a store that case had
- * already emptied and a model that case had stubbed. The cases about
- * proposals deliver them with `proposeWhatWasHeld`, once what queued them has
- * finished.
+ * already emptied and a model that case had stubbed. A case about proposals
+ * delivers them itself, once what queued them has finished: with
+ * `proposeWhatWasHeld`, or by holding the whole queue and draining it
+ * (`claude-proposals.test.ts`).
  */
 export const heldProposals: ProposeForClaudeJob[] = [];
 
