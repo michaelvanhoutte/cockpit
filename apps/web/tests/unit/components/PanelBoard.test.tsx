@@ -1964,9 +1964,12 @@ describe('Panels', () => {
       const form = await openSettings(user, 'Project Falcon');
       await user.click(within(form).getByRole('radio', { name: 'Split into columns' }));
 
-      expect(within(form).getByText(/^Here that gives 3 columns\./)).toBeVisible();
+      // The count is set in bold, so the sentence spans more than one text node.
+      const saysItGives = (columns: string) => (_: string, element: Element | null) =>
+        element?.tagName === 'P' && (element.textContent ?? '').startsWith(`Here that gives ${columns}.`);
+      expect(within(form).getByText(saysItGives('3 columns'))).toBeVisible();
       await user.click(within(form).getByRole('radio', { name: /^Wide/ }));
-      expect(within(form).getByText(/^Here that gives 2 columns\./)).toBeVisible();
+      expect(within(form).getByText(saysItGives('2 columns'))).toBeVisible();
     });
 
     it('sends only the columns when that is all that changed, and one list as null', async () => {
@@ -2021,7 +2024,7 @@ describe('Panels', () => {
         situation: 'a panel of items',
         panel: aPanel('falcon', 'Project Falcon'),
         says: 'A panel of items: it holds what you file onto it.',
-        headings: ['Name', 'Inbox suggestions', 'How it looks'],
+        headings: ['Name', 'How it looks', 'Inbox suggestions'],
       },
       {
         situation: 'a filter',
