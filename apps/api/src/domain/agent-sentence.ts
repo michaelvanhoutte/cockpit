@@ -38,22 +38,38 @@ const PLACEHOLDER = /\{title\}|\{description\}|\{link\}|\{prompt\}/g;
 /** Anything else in braces: a placeholder no Agent ever filled, so what the template meant there is unknown. */
 const UNKNOWN_PLACEHOLDER = /\{[^{}\s]*\}/;
 
-/** A word that is nothing but the punctuation a placeholder sat between - the `:` of `{title}: {description}`. */
+/**
+ * A word that is nothing but punctuation, dropped only where it touches a
+ * placeholder - the `:` of `{title}: {description}` - so a `&` or `-` the
+ * person wrote between their own words stays.
+ */
 const ONLY_PUNCTUATION = /^[\p{P}\p{S}]+$/u;
 
 /** A Claude Code command the template starts with, such as `/scoping`. */
 const SLASH_COMMAND = /^\/[\w:-]+$/;
 
+const isSeparator = (word: string) => ONLY_PUNCTUATION.test(word) && !SLASH_COMMAND.test(word);
+
+/** The template's own words, the placeholders taken out with the punctuation either side of each. */
+function instructionOf(message: string): string {
+  const pieces = message.split(PLACEHOLDER);
+  return pieces
+    .flatMap((piece, at) => {
+      const words = onOneLine(piece).split(' ').filter((word) => word !== '');
+      if (at > 0) while (words.length > 0 && isSeparator(words[0]!)) words.shift();
+      if (at < pieces.length - 1) while (words.length > 0 && isSeparator(words.at(-1)!)) words.pop();
+      return words;
+    })
+    .join(' ');
+}
+
 export function sentenceForAgent(agent: { name: string; message: string; deleted: boolean }): AgentSentence {
   if (agent.deleted) return { notRemembered: 'deleted' };
   const action = onOneLine(agent.name);
-  const withoutTheItem = agent.message.replace(PLACEHOLDER, ' ');
-  if (UNKNOWN_PLACEHOLDER.test(withoutTheItem)) return { notRemembered: 'unknown-placeholder' };
-  const instruction = onOneLine(withoutTheItem)
-    .split(' ')
-    .filter((word) => word !== '' && !(ONLY_PUNCTUATION.test(word) && !SLASH_COMMAND.test(word)))
-    .join(' ');
-  if (instruction === '' || action === '') return { notRemembered: 'empty' };
+  if (UNKNOWN_PLACEHOLDER.test(agent.message.replace(PLACEHOLDER, ' '))) return { notRemembered: 'unknown-placeholder' };
+  const instruction = instructionOf(agent.message);
+  // No letter or digit left: punctuation alone says nothing to Claude.
+  if (!/[\p{L}\p{N}]/u.test(instruction) || action === '') return { notRemembered: 'empty' };
   const sentence = SLASH_COMMAND.test(instruction.split(' ')[0]!)
     ? `${action}: Claude Code, start with ${instruction}`
     : `${action}: Claude Code. ${instruction}`;

@@ -35,6 +35,12 @@ describe('Agents', () => {
         message: 'Answer this: {prompt}\n\n{title}',
         sentence: 'Ask Claude: Claude Code. Answer this:',
       },
+      {
+        situation: 'punctuation of the person’s own between their words, kept where no placeholder touches it',
+        name: 'Research',
+        message: 'Research & summarise - then tell me “{title}”',
+        sentence: 'Research: Claude Code. Research & summarise - then tell me',
+      },
     ])('$situation', ({ name, message, sentence }) => {
       expect(sentenceForAgent({ name, message, deleted: false })).toEqual({ sentence, action: name });
     });
@@ -45,6 +51,7 @@ describe('Agents', () => {
       { situation: 'a deleted Agent', name: 'Fix it', message: 'Fix this.', deleted: true, because: 'deleted' },
       { situation: 'a template of the Item’s words alone', name: 'Echo', message: '{title}\n\n{description}', deleted: false, because: 'empty' },
       { situation: 'a blank template', name: 'Blank', message: '   ', deleted: false, because: 'empty' },
+      { situation: 'a template of punctuation alone', name: 'Dashes', message: '- -- !', deleted: false, because: 'empty' },
       { situation: 'a placeholder no Agent ever filled', name: 'Odd', message: 'Reply to {sender} about {title}', deleted: false, because: 'unknown-placeholder' },
       { situation: 'one too long to read at a glance', name: 'Long', message: 'word '.repeat(60), deleted: false, because: 'too-long' },
       { situation: 'one naming an address', name: 'Mail it', message: 'Send it to someone@example.com', deleted: false, because: 'points-somewhere' },
