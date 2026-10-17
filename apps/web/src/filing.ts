@@ -193,10 +193,18 @@ export function orderWithItemAt(
 export function ordersForFilingSeveral(
   held: readonly string[],
   ids: readonly string[],
+  at = 0,
 ): string[][] {
+  // `at` is counted among what the panel holds without any of them, which is
+  // what a drop's landing line is measured in (`placeSeveralAmongHeld`).
+  const anchor = held.filter((id) => !ids.includes(id))[at];
   return ids.map((_, k) => {
     const sent = ids.slice(0, k + 1);
-    return [...sent, ...held.filter((id) => !sent.includes(id))];
+    // Those still to be sent that the panel holds already stay in `rest`, so
+    // each order names exactly what the panel holds plus what has arrived.
+    const rest = held.filter((id) => !sent.includes(id));
+    const place = at <= 0 ? 0 : anchor === undefined ? rest.length : rest.indexOf(anchor);
+    return [...rest.slice(0, place), ...sent, ...rest.slice(place)];
   });
 }
 

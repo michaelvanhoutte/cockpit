@@ -82,3 +82,29 @@ export function placeAmongHeld(
   // happen if the two lists have come apart; last is the harmless answer.
   return at === -1 ? withoutIt.length : at;
 }
+
+/**
+ * Where a *selection* dropped on a Panel lands in the order the Panel holds:
+ * the index among what it holds without any of the carried Items, which is what
+ * `ordersForFilingSeveral` puts them at ("Drag a selection, and drop it on the
+ * Dashboard it was picked on", issue 1217).
+ *
+ * `gap` is the gap the pointer was over among the rows drawn. The carried rows
+ * drawn there are about to leave it, so they are not passed - `placeAfterMoving`
+ * for each of them at once - and the block goes immediately before the drawn
+ * row it was dropped above, for the reason `placeAmongHeld` anchors.
+ */
+export function placeSeveralAmongHeld(
+  held: readonly string[],
+  drawn: readonly string[],
+  carried: readonly string[],
+  gap: number,
+): number {
+  const leaving = new Set(carried);
+  const placeAmongDrawn = drawn.slice(0, gap).filter((id) => !leaving.has(id)).length;
+  const withoutThem = held.filter((id) => !leaving.has(id));
+  const anchor = drawn.filter((id) => !leaving.has(id))[placeAmongDrawn];
+  if (anchor === undefined) return withoutThem.length;
+  const at = withoutThem.indexOf(anchor);
+  return at === -1 ? withoutThem.length : at;
+}

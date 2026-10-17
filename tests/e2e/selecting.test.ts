@@ -364,6 +364,41 @@ test.describe('Selection', () => {
       await expect.poll(() => itemsOn(page, reading)).toEqual([third]);
     });
 
+    test('drags one picked row onto a third panel, and all three go there in the order shown, until Undo', async ({
+      page,
+      isMobile,
+    }) => {
+      // The drag is the browser's own, and there is no row drag on a phone,
+      // where the same movement is a swipe ("Drag a selection, and drop it on
+      // the Dashboard it was picked on", issue 1217).
+      test.skip(isMobile, 'a row is swiped on a phone, not dragged');
+      const { falcon, reading, done, first, second, third } = await picksOnTwoPanels(page, isMobile);
+      await startSelecting(page, first, isMobile);
+      await addToSelection(page, second, isMobile);
+      await addToSelection(page, third, isMobile);
+      await expect(page.getByText('3 selected')).toHaveCount(1);
+
+      const target = page.getByRole('region', { name: done });
+      const to = (await target.boundingBox())!;
+      await itemRow(page, first).dragTo(target, { targetPosition: { x: to.width / 2, y: to.height / 2 } });
+
+      // One question for all three, not one each.
+      const question = page.getByRole('alertdialog');
+      await expect(question).toContainText('Move these 3 items to');
+      await question.getByRole('button', { name: 'Move them here' }).click();
+
+      await expect.poll(() => itemsOn(page, done)).toEqual([first, second, third]);
+      await expect.poll(() => itemsOn(page, falcon)).toEqual([]);
+      await expect.poll(() => itemsOn(page, reading)).toEqual([]);
+      await expect(page.getByText(/ selected$/)).toHaveCount(0);
+      await expect(page.getByText(`3 items moved to ${done}`)).toBeVisible();
+
+      await page.getByRole('button', { name: 'Undo' }).click();
+      await expect.poll(() => itemsOn(page, done)).toEqual([]);
+      await expect.poll(() => itemsOn(page, falcon)).toEqual([first, second]);
+      await expect.poll(() => itemsOn(page, reading)).toEqual([third]);
+    });
+
     test('edits a field on every pick, the offer clear of the bar, and one Undo puts both back', async ({
       page,
       isMobile,

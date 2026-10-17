@@ -20,7 +20,8 @@ import { runChipFor, sessionHrefFor } from '../agentRunChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
-import { landItem, liftItem } from '../itemInTheAir';
+import { inTheOrderDrawn, landItem, liftItem, useCarriedIds } from '../itemInTheAir';
+import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { capturingApp, openableAtSource, sourceNamed, type SourceNames } from '../itemSource';
@@ -221,6 +222,8 @@ export function ItemRow({
   selecting?: {
     picked: boolean;
     revealed: boolean;
+    /** Where the selection is held, which a drag of a picked row carries (issue 1217). */
+    scope?: string | undefined;
     onPick: (withShift: boolean) => void;
     /** Everything a selection put on screen, gone - what ending one does. */
     onEndSelection: () => void;
@@ -498,6 +501,8 @@ export function ItemRow({
    */
   const held = useRef(false);
   const dock = useDockedItem();
+  /** The rows a selection in the air carries, which fade where they stand. */
+  const carriedInTheAir = useCarriedIds();
   /**
    * Which kind of pointer last pressed down on this row, read back when a
    * click follows - a click carries no `pointerType` of its own, and a plain
@@ -1064,7 +1069,19 @@ export function ItemRow({
         // without something it recognises on the transfer.
         event.dataTransfer.setData('text/plain', itemLabel(item));
         event.dataTransfer.effectAllowed = 'move';
-        liftItem(item.id, liftedFrom ?? null);
+        // **A picked row carries every picked row, and an unpicked one ends the
+        // selection and goes alone** ("Drag a selection, and drop it on the
+        // Dashboard it was picked on", issue 1217). One picked row is not a
+        // selection to carry: it goes as a row always has.
+        const carrying =
+          selecting?.picked && selecting.scope && pickedNow(selecting.scope).size > 1
+            ? { ids: inTheOrderDrawn(pickedNow(selecting.scope)), scope: selecting.scope }
+            : null;
+        liftItem(item.id, liftedFrom ?? null, carrying);
+        // After the event returns, for the reason `itemInTheAir` tells the rows
+        // a tick late: the picture the browser draws is taken when it does.
+        if (selecting?.revealed && !selecting.picked) setTimeout(selecting.onEndSelection, 0);
+        if (carrying) underThePointer(event.dataTransfer, carrying.ids.length);
       }}
       onDragEnd={landItem}
       // `touch-action: pan-y` leaves vertical scrolling to the browser and
@@ -1087,7 +1104,7 @@ export function ItemRow({
       aria-current={dock.openId === item.id ? 'true' : undefined}
       className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
-      }${selecting?.picked ? 'bg-accent-tint ' : ''}`}
+      }${selecting?.picked ? 'bg-accent-tint ' : ''}${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}`}
     >
       <WhatLettingGoWouldDo across={gone} />
       {/* The row itself, which is what moves: the band above has to stay where
@@ -1514,3 +1531,21 @@ function Gone() {
   );
 }
 
+
+/**
+ * What the pointer carries while a selection is in the air: a count, in place of
+ * the row's own picture ("3 items"). Drawn off the screen for the one moment the
+ * browser takes its picture, then taken away.
+ */
+function underThePointer(transfer: DataTransfer, count: number) {
+  // A transfer with no picture to set - a test's, or an old browser's - has
+  // nothing to say it with, and the rows fading say the rest.
+  if (!transfer.setDragImage) return;
+  const label = document.createElement('div');
+  label.textContent = `${count} items`;
+  label.className =
+    'fixed -left-96 -top-96 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent';
+  document.body.appendChild(label);
+  transfer.setDragImage(label, 12, 12);
+  setTimeout(() => label.remove(), 0);
+}

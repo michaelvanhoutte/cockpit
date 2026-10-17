@@ -244,6 +244,41 @@ describe('Panels', () => {
       expect(ordersForFilingSeveral(held, filing)).toEqual(orders);
     });
 
+    it.each([
+      {
+        situation: 'from elsewhere, at the second place',
+        held: ['x', 'y', 'z'],
+        filing: ['a', 'b'],
+        at: 1,
+        orders: [
+          ['x', 'a', 'y', 'z'],
+          ['x', 'a', 'b', 'y', 'z'],
+        ],
+      },
+      {
+        situation: 'past the last of what the panel holds',
+        held: ['x', 'y'],
+        filing: ['a', 'b'],
+        at: 2,
+        orders: [
+          ['x', 'y', 'a'],
+          ['x', 'y', 'a', 'b'],
+        ],
+      },
+      {
+        situation: 'both already on the panel, gathered at the end',
+        held: ['a', 'x', 'b', 'y'],
+        filing: ['a', 'b'],
+        at: 2,
+        orders: [
+          ['x', 'b', 'y', 'a'],
+          ['x', 'y', 'a', 'b'],
+        ],
+      },
+    ])('lands them at a place the panel holds without them: $situation', ({ held, filing, at, orders }) => {
+      expect(ordersForFilingSeveral(held, filing, at)).toEqual(orders);
+    });
+
     it('names each item once in every order it sends', () => {
       // The rule the shape check on the command holds the other side of: an
       // order naming one item twice has no order in it, and it is the overlap

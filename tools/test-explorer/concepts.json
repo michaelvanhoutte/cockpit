@@ -474,7 +474,7 @@
     {
       "key": "Selection",
       "label": "Selection",
-      "browserWalks": 10,
+      "browserWalks": 11,
       "parent": "Across the app",
       "sourcePatterns": [
         "apps/web/src/selection.ts",
