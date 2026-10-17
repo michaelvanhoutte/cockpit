@@ -1531,7 +1531,6 @@ function Gone() {
   );
 }
 
-
 /**
  * What the pointer carries while a selection is in the air: a count, in place of
  * the row's own picture ("3 items"). Drawn off the screen for the one moment the

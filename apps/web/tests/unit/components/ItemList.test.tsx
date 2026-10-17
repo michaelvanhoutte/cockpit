@@ -3521,6 +3521,22 @@ describe('Triage', () => {
         expect(nowOn('p-reading')).toEqual([CHASE.id]);
       });
 
+      it('files only what is still picked when it is answered, not what was picked when it was asked', async () => {
+        const user = await droppedOnFalcon();
+        await screen.findByRole('alertdialog');
+        act(() =>
+          updateSelection(dashboardOfTheDrag(), () => ({
+            picked: new Set([BART.id, RENEW.id]),
+            reachingFrom: null,
+          })),
+        );
+
+        await user.click(await screen.findByRole('button', { name: 'Move them here' }));
+
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(2));
+        expect(sentCalls().map(([, itemId]) => itemId)).toEqual([BART.id, RENEW.id]);
+      });
+
       it('files nothing when cancelled, and the selection is still held', async () => {
         const user = await droppedOnFalcon();
 

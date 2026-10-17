@@ -772,14 +772,6 @@ export function ItemList({
   };
 
   /**
-   * A row let go over this list.
-   *
-   * The order sent is the panel's whole arrangement with the item put in the
-   * gap it was dropped in - and `placeAfterMoving` is what makes a row dragged
-   * *downwards* land where it was let go rather than one short, because taking
-   * it out of its old place shifts every gap below that place up by one.
-   */
-  /**
    * A selection let go over this list ("Drag a selection, and drop it on the
    * Dashboard it was picked on", issue 1217): the bar's Move to…, onto the gap
    * the pointer is over.
@@ -796,7 +788,9 @@ export function ItemList({
     const stillPicked = pickedNow(carrying.scope);
     const byId = new Map((data?.items ?? []).filter(stillOpen).map((item) => [item.id, item]));
     let chosen = carrying.ids.filter((id) => stillPicked.has(id)).flatMap((id) => byId.get(id) ?? []);
-    const filedOn = (item: Item) => filed.filter((filing) => filing.itemId === item.id).map((f) => f.panelId);
+    const panelsOf = new Map<string, string[]>();
+    for (const filing of filed) panelsOf.set(filing.itemId, [...(panelsOf.get(filing.itemId) ?? []), filing.panelId]);
+    const filedOn = (item: Item) => panelsOf.get(item.id) ?? [];
 
     if (panelId === null) {
       // Off every Panel; one already in the Inbox has nothing to leave.
@@ -828,6 +822,21 @@ export function ItemList({
     void filingSeveral.dropOnto(chosen, panelId, { at, scope: carrying.scope });
   };
 
+  /** What of a question's rows is still picked and open when it is answered, not when it was asked. */
+  const stillPickedOf = (asked: { items: Item[]; scope: string }) => {
+    const stillPicked = pickedNow(asked.scope);
+    const open = new Set((data?.items ?? []).filter(stillOpen).map((item) => item.id));
+    return asked.items.filter((item) => stillPicked.has(item.id) && open.has(item.id));
+  };
+
+  /**
+   * A row let go over this list.
+   *
+   * The order sent is the panel's whole arrangement with the item put in the
+   * gap it was dropped in - and `placeAfterMoving` is what makes a row dragged
+   * *downwards* land where it was let go rather than one short, because taking
+   * it out of its old place shifts every gap below that place up by one.
+   */
   const drop = (event: React.DragEvent) => {
     const itemId = event.dataTransfer.getData(ITEM_BEING_DRAGGED);
     setLandingAt(null);
@@ -1220,11 +1229,14 @@ export function ItemList({
               // Closed on the press: the filing says why it stopped in its own
               // line above the rows that are still picked.
               onMove={() => {
-                void filingSeveral.dropOnto(askingSeveral.items, panelId, askingSeveral);
+                void filingSeveral.dropOnto(stillPickedOf(askingSeveral), panelId, askingSeveral);
                 setAskingSeveral(null);
               }}
               onAdd={() => {
-                void filingSeveral.dropOnto(askingSeveral.items, panelId, { ...askingSeveral, alsoShow: true });
+                void filingSeveral.dropOnto(stillPickedOf(askingSeveral), panelId, {
+                  ...askingSeveral,
+                  alsoShow: true,
+                });
                 setAskingSeveral(null);
               }}
               onCancel={() => setAskingSeveral(null)}
