@@ -1,11 +1,25 @@
-import type { Item, Panel, RewriteHistoryEntry, WorkspaceSnapshot } from '@cockpit/shared';
+import {
+  itemSchema,
+  panelSchema,
+  rewriteHistoryEntrySchema,
+  workspaceSnapshotSchema,
+  type Item,
+  type Panel,
+  type RewriteHistoryEntry,
+  type WorkspaceSnapshot,
+} from '@cockpit/shared';
 
-/** Reads in the shape this version's schemas parse, for the checks a saved one goes through. */
+/**
+ * Reads in the shape this version's schemas parse, for the checks a saved one
+ * goes through. Each is put through its schema before `over` is spread on, so
+ * a property the schema gains with a default is present here too, while a
+ * value `over` makes invalid stays invalid.
+ */
 
 export const itemId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 export function anItem(n: number, over: Partial<Item> = {}): Item {
-  return {
+  const base = itemSchema.parse({
     id: itemId(n),
     tenantId: 'tenant',
     workspaceId: 'ws-work',
@@ -39,12 +53,12 @@ export function anItem(n: number, over: Partial<Item> = {}): Item {
     deletedAt: null,
     createdAt: '2026-10-01T09:00:00.000Z',
     updatedAt: '2026-10-01T09:00:00.000Z',
-    ...over,
-  };
+  });
+  return { ...base, ...over };
 }
 
 export function aPanel(over: Partial<Panel> = {}): Panel {
-  return {
+  const base = panelSchema.parse({
     id: 'panel-today',
     tenantId: 'tenant',
     dashboardId: 'dashboard-today',
@@ -56,12 +70,12 @@ export function aPanel(over: Partial<Panel> = {}): Panel {
     neverPropose: false,
     filter: null,
     sort: null,
-    ...over,
-  };
+  });
+  return { ...base, ...over };
 }
 
 export function aWorkspace(items: unknown[] = [anItem(1)], over: Record<string, unknown> = {}): WorkspaceSnapshot {
-  return {
+  const base = workspaceSnapshotSchema.parse({
     workspace: {
       id: 'ws-work',
       tenantId: 'tenant',
@@ -71,7 +85,7 @@ export function aWorkspace(items: unknown[] = [anItem(1)], over: Record<string, 
       ground: '#e3e1f2',
       header: '#d2cdea',
     },
-    items,
+    items: [],
     dashboards: [{ id: 'dashboard-today', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Today' }],
     panels: [aPanel()],
     layouts: [],
@@ -83,12 +97,12 @@ export function aWorkspace(items: unknown[] = [anItem(1)], over: Record<string, 
     agentRuns: [],
     sourceNames: { gmail: 'Gmail' },
     generatedAt: '2026-10-01T09:00:00.000Z',
-    ...over,
-  } as WorkspaceSnapshot;
+  });
+  return { ...base, items, ...over } as WorkspaceSnapshot;
 }
 
 export function aHistoryEntry(over: Partial<RewriteHistoryEntry> = {}): RewriteHistoryEntry {
-  return {
+  const base = rewriteHistoryEntrySchema.parse({
     id: 'attempt-1',
     itemId: itemId(1),
     titleBefore: 'call ann re q3 numbers',
@@ -106,8 +120,8 @@ export function aHistoryEntry(over: Partial<RewriteHistoryEntry> = {}): RewriteH
     dueDateSet: null,
     workspaceSet: null,
     panelsFiledOn: [],
-    ...over,
-  };
+  });
+  return { ...base, ...over };
 }
 
 /** An entry as it was saved before an Item's history named the Panels it filed on. */

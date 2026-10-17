@@ -106,7 +106,7 @@ describe('Offline', () => {
       },
       {
         situation: 'a Panel fails',
-        saved: aWorkspace([anItem(1)], { panels: [{ ...aPanel(), columns: 3 }] }),
+        saved: aWorkspace([anItem(1)], { panels: [{ ...aPanel(), retiredSetting: 3 }] }),
         drawn: undefined,
         leftOut: undefined,
       },
