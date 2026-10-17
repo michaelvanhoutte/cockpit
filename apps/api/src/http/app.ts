@@ -1855,9 +1855,15 @@ const routes = app
     async (c) =>
       c.json(await changeThatMightSettleARouting(c, 'add_item_to_panel', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('remove_item_from_panel'), async (c) =>
-    c.json(await change(c, 'remove_item_from_panel', c.req.valid('json')), 200),
-  )
+  .openapi(commandRoute('remove_item_from_panel'), async (c) => {
+    const payload = c.req.valid('json');
+    const result = await change(c, 'remove_item_from_panel', payload);
+    // Off a Panel is a filing changed too, as in `changeThatMightSettleARouting` (issue 1161).
+    if (result.applied) {
+      c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, c.get('visitor').accountName, payload.itemId, 'item-changed'));
+    }
+    return c.json(result, 200);
+  })
   .openapi(
     commandRoute('create_agent', { conflict: 'An agent already has that name' }),
     async (c) => c.json(await change(c, 'create_agent', c.req.valid('json')), 200),

@@ -85,19 +85,6 @@ function stubTheModel(): void {
     // ("Enable prompt caching on the note-cleanup prompt", issue 584). Read here as the one text the model sees.
     const system = typeof sent.system === 'string' ? sent.system : sent.system.map((block) => block.text).join('\n\n');
     const content = sent.messages[0]!.content;
-    // A proposal for Claude, which a capture and a filing now also ask for (issue
-    // 1161), is none of what this file counts, and is answered apart.
-    if ('proposals' in sent.output_config.format.schema.properties) {
-      return Response.json({
-        id: 'msg_1',
-        type: 'message',
-        role: 'assistant',
-        model: 'claude-haiku-5-5',
-        content: [{ type: 'text', text: JSON.stringify({ proposals: [{ destination: 'nothing', label: '', folder: '', prompt: '', why: 'Nothing to do.' }] }) }],
-        stop_reason: 'end_turn',
-        usage: { input_tokens: 1, output_tokens: 1 },
-      });
-    }
     // A panel-only question is told apart by the answer it asks for.
     const panelOnly = 'panelId' in sent.output_config.format.schema.properties;
     const note = panelOnly ? (JSON.parse(/^Captured note: (.*)$/m.exec(content)![1]!) as string) : content;

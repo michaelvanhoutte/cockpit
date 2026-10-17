@@ -85,13 +85,18 @@ export const asked: { system: string; note: string; blocks: { text: string; cach
 /**
  * The calls proposing what to do with an Item ("Propose what to do with each
  * item before you look", issue 1161), kept apart from `asked` and answered
- * apart: every capture and edit now asks one, and the cases about cleaning a
- * note up count and read only their own calls. `answer` is what the model
- * proposes; by default, nothing.
+ * apart: the cases about cleaning a note up count and read only their own
+ * calls. `answer` is what the model proposes; by default, nothing. `during`
+ * runs between the question and the answer, as `reading.during` does.
  */
-export const proposing: { asked: { system: string; item: string }[]; answer: unknown } = {
+export const proposing: {
+  asked: { system: string; item: string }[];
+  answer: unknown;
+  during: (() => Promise<unknown>) | null;
+} = {
   asked: [],
   answer: { proposals: [{ destination: 'nothing', label: '', folder: '', prompt: '', why: 'Nothing to do.' }] },
+  during: null,
 };
 
 /** Whether a call is a proposal for Claude, by the folder list only that prompt carries. */
@@ -125,6 +130,7 @@ export function theModelIs(answering: Answering): void {
     const system = sent.system.map((block) => block.text).join('\n\n');
     if (isAProposal({ system })) {
       proposing.asked.push({ system, item: sent.messages[0]!.content });
+      if (proposing.during) await proposing.during();
       return Response.json({
         id: 'msg_1',
         type: 'message',
@@ -585,6 +591,7 @@ export function aModelThatReads(): void {
     reading.during = null;
     proposing.asked.length = 0;
     proposing.answer = { proposals: [{ destination: 'nothing', label: '', folder: '', prompt: '', why: 'Nothing to do.' }] };
+    proposing.during = null;
     // The suite runs with no key at all (vitest.config.ts), which is what keeps
     // every other file's captures from reaching a model. This file is the one
     // that wants a reading, so it sets one - and the fake below is what the key

@@ -19,6 +19,7 @@ import {
 import { handleQueue, handleScheduled } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { PURGE_BATCH } from '../../../src/gateway/record.js';
+import { heldProposals, proposeWhatWasHeld } from '../../held-proposals.js';
 
 /**
  * Integration level: each record is a row of the register's own D1, written
@@ -59,9 +60,9 @@ function theModelIsOnTheNetwork(): void {
       model: string;
       output_config: { format: { schema: { properties: Record<string, unknown> } } };
     };
-    // A proposal for Claude, which every capture and filing now also asks for
-    // (issue 1161): answered apart, so it neither takes a scripted attempt nor
-    // counts as one of the calls a case is about.
+    // A proposal for Claude, which the case about those delivers (issue 1161):
+    // answered apart, so it neither takes a scripted attempt nor counts as one
+    // of the calls a case is about.
     if ('proposals' in sent.output_config.format.schema.properties) {
       return Response.json({
         id: 'msg_1',
@@ -301,11 +302,13 @@ describe('AI usage', () => {
 
     it('records what to do with a captured note being proposed, on the cheapest model', async () => {
       const itemId = await captureANote();
+      // Held for every case (`held-proposals.ts`), and delivered here once queued.
+      await vi.waitFor(() => expect(heldProposals.some((job) => job.itemId === itemId)).toBe(true), {
+        timeout: 15_000,
+        interval: 25,
+      });
 
-      await vi.waitFor(
-        async () => expect((await everyRecord()).some((record) => record.operation === 'propose-for-claude')).toBe(true),
-        { timeout: 15_000, interval: 50 },
-      );
+      await proposeWhatWasHeld(env);
 
       expect((await everyRecord()).find((record) => record.operation === 'propose-for-claude')).toMatchObject({
         prompt_version: 'propose-for-claude.v1',

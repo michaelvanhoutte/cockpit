@@ -717,11 +717,13 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // an Item's texts - and only where the write actually landed, so a
   // redelivered job whose proposal the store refused costs no second reading.
   if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, job.itemId, job.triggeredBy);
-  // What to do with it is proposed again from the words it now shows, taking
-  // the place of the ask capture made (issue 1161) - asked once everything
-  // below has landed, so the Panel proposal is never held up behind it.
+  // What to do with it is proposed again from the words, Workspace and Panels
+  // it now has, taking the place of the ask capture made (issue 1161) - asked
+  // once everything below has landed, so the Panel proposal is never held up
+  // behind it.
   const proposeAgain = async () => {
-    if (written.applied) await enqueueProposalForClaude(env, job.accountName, job.itemId, job.triggeredBy);
+    const moved = fieldsSet.workspaceId !== undefined || (fieldsSet.filedOnPanelIds ?? []).length > 0;
+    if (written.applied || moved) await enqueueProposalForClaude(env, job.accountName, job.itemId, job.triggeredBy);
   };
 
   // Filed where the note said, as the person's own filing: the routing has
@@ -1372,6 +1374,12 @@ export async function proposeForClaude(env: Env, job: ProposeForClaudeJob): Prom
     { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
   );
   if (!('proposals' in read)) return say(job.itemId, `nothing was proposed: ${read.discarded}`);
+  // Asked again once the answer is in, because `madeFrom` cannot tell: the
+  // clean-up's rewrite and a filing leave `updatedAt` alone, so a later ask
+  // that ran while this one waited on the model would be written over.
+  if (await aLaterAskTookItsPlace(account, claudeProposalRefresh(job.itemId), job.ask)) {
+    return say(job.itemId, 'nothing was written: a later change queued the proposal that will');
+  }
 
   try {
     const written = await account.applyChange('propose_item_for_claude', {

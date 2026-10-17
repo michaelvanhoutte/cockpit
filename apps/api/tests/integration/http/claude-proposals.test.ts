@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
 import { ACCOUNT_NAME, WORKSPACE_ID, inStoreAsItIs, inTheStore } from '../seed.js';
-import { handleQueue } from '../../../src/jobs/index.js';
+import { enqueueProposalForClaude, handleQueue } from '../../../src/jobs/index.js';
+import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { GUEST_ACCOUNT_NAME } from '../../../src/accounts/new-user.js';
 import {
   A_READING,
@@ -17,20 +18,80 @@ import {
 
 /**
  * L2: proposing what to do with an Item ("Propose what to do with each item
- * before you look", issue 1161) through the real Worker, the real queue and
+ * before you look", issue 1161) through the real Worker, the real consumer and
  * the real store, with the model faked at the network boundary - as
  * note-cleanup.test.ts does. Whether the real model proposes well is the
  * contract tier's (tests/contract/propose-for-claude.v1.test.ts); which answers
  * are kept is apps/api/tests/unit/ai/claude-proposals.test.ts.
+ *
+ * **The queue is held, and drained by hand** (`delivered`), as
+ * correcting-a-text-reads-nothing.test.ts does: a capture queues a proposal
+ * and its clean-up queues another, and a case that waits for one of them on
+ * the real queue cannot tell whether the other is still to land.
  */
 
 aModelThatReads();
+
+let held: EnrichmentJob[] = [];
+let realQueue: typeof env.ENRICHMENT;
+
+beforeEach(() => {
+  held = [];
+  realQueue = env.ENRICHMENT;
+  env.ENRICHMENT = {
+    send: async (body: EnrichmentJob) => {
+      held.push(body);
+    },
+    sendBatch: async () => {
+      throw new Error('nothing here sends a batch');
+    },
+  } as unknown as typeof env.ENRICHMENT;
+});
+
+afterEach(() => {
+  env.ENRICHMENT = realQueue;
+});
+
+/** Waits for a change's own queueing, which runs after it has answered, to have held a job of this kind for the Item. */
+async function untilQueued(kind: EnrichmentJob['kind'], itemId: string): Promise<void> {
+  await vi.waitFor(() => expect(held.some((job) => job.kind === kind && 'itemId' in job && job.itemId === itemId)).toBe(true), {
+    timeout: 15_000,
+    interval: 25,
+  });
+}
+
+/**
+ * Delivers everything held, and whatever that queues in turn, through the real
+ * consumer - every other job before a proposal, as the debounce window lets a
+ * clean-up land before the proposals asked around it run.
+ */
+async function delivered(): Promise<void> {
+  for (;;) {
+    const next = held.find((job) => job.kind !== 'propose-for-claude') ?? held[0];
+    if (!next) return;
+    held.splice(held.indexOf(next), 1);
+    await handleQueue(batchOf(next), env);
+  }
+}
+
+/** A note captured, cleaned up and proposed for, with every job it queued delivered. */
+async function aSettledNote(): Promise<string> {
+  const itemId = await captureANote();
+  await untilQueued('clean-up-a-note', itemId);
+  await untilQueued('propose-for-claude', itemId);
+  await delivered();
+  return itemId;
+}
 
 const TO_CODE = {
   proposals: [
     { destination: 'code', label: 'Fix it', folder: '', prompt: 'In the Billing repository, fix the rounding.', why: '' },
   ],
 };
+
+const AS_KEPT = [{ destination: 'code', label: 'Fix it', folder: '', prompt: 'In the Billing repository, fix the rounding.' }];
+
+const NOTHING_KEPT = [{ destination: 'nothing', why: 'Nothing to do.' }];
 
 /** What the Item carries, read straight out of the store. */
 async function proposalsOn(itemId: string, accountName = ACCOUNT_NAME): Promise<unknown> {
@@ -47,20 +108,6 @@ async function proposalsOn(itemId: string, accountName = ACCOUNT_NAME): Promise<
   return stored === null ? null : JSON.parse(stored);
 }
 
-/** Waits for a proposal call about this item whose words match, and answers the Item's proposals once written. */
-async function untilProposedAbout(words: RegExp): Promise<void> {
-  await vi.waitFor(() => expect(proposing.asked.some((call) => words.test(call.item))).toBe(true), {
-    timeout: 15_000,
-    interval: 50,
-  });
-}
-
-async function untilItCarries(itemId: string, proposals: unknown): Promise<void> {
-  await vi.waitFor(async () => expect(await proposalsOn(itemId)).toEqual(proposals), { timeout: 15_000, interval: 50 });
-}
-
-const AS_KEPT = [{ destination: 'code', label: 'Fix it', folder: '', prompt: 'In the Billing repository, fix the rounding.' }];
-
 /** A proposal job for one Item, as the queue would hand it over, asked for now. */
 function aProposalJob(itemId: string) {
   return batchOf({
@@ -73,20 +120,18 @@ function aProposalJob(itemId: string) {
 
 describe('Agents', () => {
   describe('a proposal is made when an Item arrives and redone when what it was made from changes', () => {
-    it('writes a proposal onto a captured note, made from the words its clean-up gave it', async () => {
+    it('writes one proposal onto a captured note, made from the words its clean-up gave it', async () => {
       proposing.answer = TO_CODE;
 
-      const itemId = await captureANote();
+      const itemId = await aSettledNote();
 
-      // The clean-up's rewrite asks again; this suite runs with no debounce
-      // window, so the capture's own ask can run before it as well.
-      await untilProposedAbout(new RegExp(A_READING.title));
-      await untilItCarries(itemId, AS_KEPT);
+      // The capture's own ask gave way to the clean-up's: one call, on the new words.
+      expect(proposing.asked.map((call) => call.item)).toEqual([expect.stringContaining(`Title: "${A_READING.title}"`)]);
+      expect(await proposalsOn(itemId)).toEqual(AS_KEPT);
     });
 
     it('sends where an Item from Gmail came from, and who sent it', async () => {
-      const itemId = await captureANote();
-      await untilItCarries(itemId, [{ destination: 'nothing', why: 'Nothing to do.' }]);
+      const itemId = await aSettledNote();
       await inTheStore((sql) => {
         sql.exec("UPDATE items SET source_connector = 'gmail', sender = 'Els Maes' WHERE id = ?", itemId);
       });
@@ -98,8 +143,8 @@ describe('Agents', () => {
     });
 
     it('proposes again once the title is edited', async () => {
-      const itemId = await captureANote();
-      await untilItCarries(itemId, [{ destination: 'nothing', why: 'Nothing to do.' }]);
+      const itemId = await aSettledNote();
+      expect(await proposalsOn(itemId)).toEqual(NOTHING_KEPT);
       proposing.answer = TO_CODE;
 
       const edited = await postChange('set_title', {
@@ -110,29 +155,67 @@ describe('Agents', () => {
         title: 'Fix the rounding on invoices',
       });
       expect(edited.status).toBe(200);
+      await untilQueued('propose-for-claude', itemId);
+      await delivered();
 
-      await untilProposedAbout(/Fix the rounding on invoices/);
-      await untilItCarries(itemId, AS_KEPT);
+      expect(proposing.asked.at(-1)?.item).toMatch(/Fix the rounding on invoices/);
+      expect(await proposalsOn(itemId)).toEqual(AS_KEPT);
     });
 
-    it('proposes again once it is filed on a panel, naming the panel', async () => {
+    it.each([
+      { situation: 'filed on a panel', filed: /Filed on: .* › Billing bugs/, removed: false },
+      { situation: 'taken off that panel again', filed: /Filed on: the inbox, on no panel yet/, removed: true },
+    ])('proposes again once it is $situation, naming where it is', async ({ filed, removed }) => {
       const panelId = await aPanel('Billing bugs');
-      const itemId = await captureANote();
-      await untilItCarries(itemId, [{ destination: 'nothing', why: 'Nothing to do.' }]);
+      const itemId = await aSettledNote();
+      if (removed) {
+        await fileOnto(itemId, panelId);
+        await untilQueued('propose-for-claude', itemId);
+        await delivered();
+        const off = await postChange('remove_item_from_panel', {
+          commandId: nextId(),
+          issuedAt: '2026-09-09T10:05:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId,
+          panelId,
+        });
+        expect(off.status).toBe(200);
+      } else {
+        await fileOnto(itemId, panelId);
+      }
       proposing.answer = TO_CODE;
+      await untilQueued('propose-for-claude', itemId);
+      await delivered();
 
-      await fileOnto(itemId, panelId);
+      expect(proposing.asked.at(-1)?.item).toMatch(filed);
+      expect(await proposalsOn(itemId)).toEqual(AS_KEPT);
+    });
 
-      await untilProposedAbout(/Filed on: .* › Billing bugs/);
-      await untilItCarries(itemId, AS_KEPT);
+    it('writes nothing where it was filed while the proposal was being made, leaving it to the one the filing asked for', async () => {
+      const panelId = await aPanel('Billing bugs');
+      const itemId = await aSettledNote();
+      proposing.answer = TO_CODE;
+      proposing.during = async () => {
+        proposing.during = null;
+        await fileOnto(itemId, panelId);
+        // What the filing queues, asked here so it is recorded before the answer comes back.
+        await enqueueProposalForClaude(env, ACCOUNT_NAME, itemId, 'item-changed');
+      };
+
+      await handleQueue(aProposalJob(itemId), env);
+
+      expect(await proposalsOn(itemId)).toEqual(NOTHING_KEPT);
+      await untilQueued('propose-for-claude', itemId);
+      await delivered();
+      expect(proposing.asked.at(-1)?.item).toMatch(/Filed on: .* › Billing bugs/);
+      expect(await proposalsOn(itemId)).toEqual(AS_KEPT);
     });
 
     it.each([
       { situation: 'done', command: 'set_done' as const, field: { done: true } },
       { situation: 'dismissed', command: 'set_dismissed' as const, field: { dismissed: true } },
     ])('proposes nothing again for an Item that is $situation', async ({ command, field }) => {
-      const itemId = await captureANote();
-      await untilItCarries(itemId, [{ destination: 'nothing', why: 'Nothing to do.' }]);
+      const itemId = await aSettledNote();
       const closed = await postChange(command, {
         commandId: nextId(),
         issuedAt: '2026-09-09T10:05:00.000Z',
