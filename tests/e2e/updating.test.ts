@@ -157,11 +157,12 @@ test.describe('Updating', () => {
 
       await expect(other.getByRole('alertdialog', MESSAGE)).toHaveCount(1);
       expect(await buildOf(other)).toBe(deployed.entryOf(1));
-      // Not asserted, because it does not hold today: the click activates the
-      // new worker, which clears the old version's files from the shared
-      // precache, so this tab's `pageAsks(other, deployed.aFileOf(1))` is a 404
-      // until its own click. What a page should do once its files are gone is
-      // "Load the latest version on one click" (issue 1186)'s to settle.
+      // Not asserted, because it does not hold: the click activates the new
+      // worker, which clears the old version's files from the shared precache, so
+      // `pageAsks(other, deployed.aFileOf(1))` is a 404 until this tab's own
+      // click. That is the risk the update work accepted: an on-demand file here
+      // can fail in that window, and "Get the new version" is the last resort.
+      // "Load the latest version on one click" (issue 1186) does not claim to fix it.
     });
   });
 });
