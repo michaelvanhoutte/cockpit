@@ -7,6 +7,7 @@ import type {
   Filing,
   Item,
   Panel,
+  PanelColumns,
   PossibleDuplicate,
   Workspace,
   WorkspaceSnapshot,
@@ -189,7 +190,7 @@ const RESEARCH: Dashboard = {
 };
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false, neverPropose: false, filter: null, sort: null };
+  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false, neverPropose: false, filter: null, sort: null, columns: null };
 }
 
 function aWorkspace(id: string, name: string): Workspace {
@@ -205,6 +206,8 @@ function aWorkspace(id: string, name: string): Workspace {
 }
 
 const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+const LISA = anItem('11111111-1111-7111-8111-000000000002', 'Reply to Lisa');
+const MAGGIE = anItem('11111111-1111-7111-8111-000000000003', 'Reply to Maggie');
 
 /**
  * An item whose label is not its title: the next action wins over both the
@@ -261,7 +264,9 @@ async function showList({
   sorted = false,
   groups = undefined as FilterGroup[] | undefined,
   groupByProposal = false,
+  columns = null as PanelColumns | null,
 }: {
+  columns?: PanelColumns | null;
   groupByProposal?: boolean;
   items?: Item[];
   openDashboardId?: string | null;
@@ -284,6 +289,7 @@ async function showList({
           sorted={sorted}
           groups={groups}
           groupByProposal={groupByProposal}
+          columns={columns}
           emptyMessage="Nothing to deal with."
         />
       </UndoWhatJustHappened>
@@ -718,6 +724,7 @@ describe('Panels', () => {
           neverPropose: false,
           filter: { rows: [[{ field: 'panel' as const, values: ['p-falcon'] }]], groupBy: 'none' as const },
           sort: null,
+          columns: null,
         },
       ];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
@@ -740,6 +747,7 @@ describe('Panels', () => {
         neverPropose: false,
         filter: { rows: [[{ field: 'panel' as const, values: ['p-falcon'] }]], groupBy: 'none' as const },
         sort: null,
+        columns: null,
       };
       held.panels = [...held.panels, gathers];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
@@ -834,6 +842,59 @@ describe('Panels', () => {
 
       expect(screen.queryByRole('heading', { level: 4 })).toBeNull();
       expect(screen.getByText(BART.title)).toBeInTheDocument();
+    });
+  });
+
+  describe('a grouped Filter panel draws each heading across the Panel with its own rows in columns under it', () => {
+    const FILTER_ID = 'p-gather';
+    const under = (name: string, panelId: string, items: Item[]): FilterGroup => ({
+      key: panelId,
+      name,
+      dashboardName: TODAY.name,
+      panelId,
+      items,
+    });
+
+    it('puts the columns on each group’s own list and leaves its heading outside them', async () => {
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-falcon', itemId: LISA.id, position: 1 },
+        { panelId: 'p-anna', itemId: MAGGIE.id, position: 0 },
+      ];
+
+      await showList({
+        items: [BART, LISA, MAGGIE],
+        panelId: FILTER_ID,
+        gathered: true,
+        columns: 'medium',
+        groups: [under('Falcon', 'p-falcon', [BART, LISA]), under('Anna', 'p-anna', [MAGGIE])],
+      });
+
+      const headings = screen.getAllByRole('heading', { level: 4 });
+      expect(headings).toHaveLength(2);
+      const columnsOf = (heading: HTMLElement) => heading.parentElement!.querySelector('ul') as HTMLElement;
+      for (const heading of headings) {
+        expect(heading.closest('ul[style*="grid"]')).toBeNull();
+        expect(columnsOf(heading).style.gridTemplateColumns).toBe(
+          'repeat(auto-fill, minmax(min(100%, 420px), 1fr))',
+        );
+      }
+      // Which heading a row sits under is structure, not layout.
+      expect(within(columnsOf(headings[0]!)).getAllByRole('listitem').map((one) => one.dataset.itemId)).toEqual([
+        BART.id,
+        LISA.id,
+      ]);
+      expect(within(columnsOf(headings[1]!)).getAllByRole('listitem').map((one) => one.dataset.itemId)).toEqual([
+        MAGGIE.id,
+      ]);
+    });
+
+    it('draws no columns on a list that was not set to them', async () => {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+
+      await showList({ panelId: FILTER_ID, gathered: true, groups: [under('Falcon', 'p-falcon', [BART])] });
+
+      expect(document.querySelector('ul[style*="grid"]')).toBeNull();
     });
   });
 

@@ -29,6 +29,7 @@ function aPanel(id: string, dashboardId: string, name: string): Panel {
     neverPropose: false,
     filter: null,
     sort: null,
+    columns: null,
   };
 }
 

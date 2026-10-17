@@ -56,6 +56,7 @@ const panel = (id: string, name: string, dashboardId: string, over: Partial<Pane
   neverPropose: false,
   filter: null,
   sort: null,
+  columns: null,
   ...over,
 });
 

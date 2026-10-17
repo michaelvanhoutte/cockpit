@@ -83,6 +83,7 @@ export function ItemRow({
   onAcceptRouting,
   onAcceptSelection,
   inProposalGroup = false,
+  landing,
   onFileGroup,
   mayBeADuplicate,
   duplicateOf,
@@ -204,6 +205,12 @@ export function ItemRow({
    * under a header per proposed Panel", issue 1166).
    */
   inProposalGroup?: boolean;
+  /**
+   * That a dragged row would land before this one, or after it when this is the
+   * last, in a Panel drawn in columns - shown as an accent edge on this row,
+   * where one column draws a line between two.
+   */
+  landing?: 'before' | 'after';
   /**
    * Shift+Enter, and the header's File all: files the whole proposal group this
    * row is drawn in ("File a proposal group in one action", issue 1167).
@@ -1104,7 +1111,13 @@ export function ItemRow({
       aria-current={dock.openId === item.id ? 'true' : undefined}
       className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
-      }${selecting?.picked ? 'bg-accent-tint ' : ''}${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}`}
+      }${selecting?.picked ? 'bg-accent-tint ' : ''}${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}${
+        landing === 'before'
+          ? 'shadow-landing-before '
+          : landing === 'after'
+            ? 'shadow-landing-after '
+            : ''
+      }`}
     >
       <WhatLettingGoWouldDo across={gone} />
       {/* The row itself, which is what moves: the band above has to stay where

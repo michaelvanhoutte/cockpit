@@ -1,6 +1,14 @@
 import { useId, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { panelGathers, panelHoldsText, panelTakesItems, type Panel } from '@cockpit/shared';
+import {
+  PANEL_COLUMN_WIDTHS,
+  panelGathers,
+  panelHoldsText,
+  panelTakesItems,
+  type Panel,
+  type PanelColumns,
+} from '@cockpit/shared';
+import { columnsThatFit } from '../panelColumns';
 
 /** What the form changed, and only that: a field left alone is not in it. */
 export interface PanelSettingsChanges {
@@ -8,7 +16,16 @@ export interface PanelSettingsChanges {
   neverPropose?: boolean;
   readOnly?: boolean;
   format?: 'plain' | 'rich';
+  /** The narrowest a column may be, or null for one list. */
+  columns?: PanelColumns | null;
 }
+
+/** The widths offered, each with the kind of title it suits. */
+const COLUMN_CHOICES: readonly { value: PanelColumns; label: string; suits: string }[] = [
+  { value: 'narrow', label: 'Narrow', suits: 'short titles' },
+  { value: 'medium', label: 'Medium', suits: 'most panels' },
+  { value: 'wide', label: 'Wide', suits: 'long titles' },
+];
 
 /** Which kind of Panel this is, said in a line under the title. */
 function kindLine(panel: Panel): string {
@@ -38,6 +55,7 @@ function PanelSettingsQuestion({
   refusal,
   busy = false,
   returnFocusTo,
+  drawnWidth = null,
 }: {
   panel: Panel;
   open: boolean;
@@ -46,11 +64,15 @@ function PanelSettingsQuestion({
   refusal?: string | null;
   busy?: boolean;
   returnFocusTo?: HTMLElement | null;
+  /** How wide the Panel's list is drawn, in pixels, which is what the columns line is worked out from. */
+  drawnWidth?: number | null;
 }) {
   const [name, setName] = useState(panel.name);
   const [suggest, setSuggest] = useState(!panel.neverPropose);
   const [readOnly, setReadOnly] = useState(panel.readOnly);
   const [rich, setRich] = useState(panel.format === 'rich');
+  const [split, setSplit] = useState(panel.columns !== null);
+  const [columnWidth, setColumnWidth] = useState<PanelColumns>(panel.columns ?? 'medium');
   const ids = useId();
 
   const items = panelTakesItems(panel);
@@ -65,6 +87,8 @@ function PanelSettingsQuestion({
     if (items && suggest === panel.neverPropose) changes.neverPropose = !suggest;
     if (text && readOnly !== panel.readOnly) changes.readOnly = readOnly;
     if (text && rich !== (panel.format === 'rich')) changes.format = rich ? 'rich' : 'plain';
+    const columns = split ? columnWidth : null;
+    if (!text && columns !== panel.columns) changes.columns = columns;
     if (Object.keys(changes).length === 0) onCancel();
     else onSave(changes);
   };
@@ -127,6 +151,50 @@ function PanelSettingsQuestion({
               </section>
             )}
 
+            {!text && (
+              <section aria-labelledby={`${ids}-look`}>
+                <h3
+                  id={`${ids}-look`}
+                  className="text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep"
+                >
+                  How it looks
+                </h3>
+                <fieldset className="mt-2 text-sm">
+                  <legend className="pb-1 text-ink-soft">When the panel is wide enough</legend>
+                  <Choice name={`${ids}-split`} checked={!split} onChange={() => setSplit(false)} label="Keep one list" />
+                  <Choice
+                    name={`${ids}-split`}
+                    checked={split}
+                    onChange={() => setSplit(true)}
+                    label="Split into columns"
+                  />
+                </fieldset>
+                {split && (
+                  <fieldset className="mt-3 text-sm">
+                    <legend className="pb-1 text-ink-soft">Make each column at least</legend>
+                    {COLUMN_CHOICES.map((choice) => (
+                      <Choice
+                        key={choice.value}
+                        name={`${ids}-width`}
+                        checked={columnWidth === choice.value}
+                        onChange={() => setColumnWidth(choice.value)}
+                        label={choice.label}
+                        hint={choice.suits}
+                      />
+                    ))}
+                    {drawnWidth !== null && (
+                      <p className="pt-2 text-xs text-ink-faint">
+                        {(() => {
+                          const n = columnsThatFit(drawnWidth, PANEL_COLUMN_WIDTHS[columnWidth]);
+                          return `Here that gives ${n} ${n === 1 ? 'column' : 'columns'}. Fewer on a smaller screen, one on a phone.`;
+                        })()}
+                      </p>
+                    )}
+                  </fieldset>
+                )}
+              </section>
+            )}
+
             {text && (
               <section aria-labelledby={`${ids}-text`}>
                 <h3
@@ -177,6 +245,28 @@ function PanelSettingsQuestion({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function Choice({
+  name,
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  name: string;
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <label className="flex items-center gap-2 py-0.5">
+      <input type="radio" name={name} checked={checked} onChange={onChange} />
+      {label}
+      {hint && <span className="text-xs text-ink-faint">{hint}</span>}
+    </label>
   );
 }
 

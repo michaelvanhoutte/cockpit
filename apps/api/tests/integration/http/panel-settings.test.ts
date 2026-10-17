@@ -164,12 +164,62 @@ describe('Panels', () => {
     });
   });
 
+  describe('a Panel keeps its column choice, the same on every device, and one never set draws one list', () => {
+    it('reads back the width saved, then one list once that is saved', async () => {
+      const panelId = await aPanel(await aDashboard(), 'Next up');
+      expect((await panelNow(panelId)).columns).toBeNull();
+
+      expect((await settings(panelId, { columns: 'medium' })).status).toBe(200);
+      expect((await panelNow(panelId)).columns).toBe('medium');
+
+      expect((await settings(panelId, { columns: null })).status).toBe(200);
+      expect((await panelNow(panelId)).columns).toBeNull();
+    });
+
+    it('is kept on a filter as well', async () => {
+      const panelId = await aPanel(await aDashboard(), 'Due soon', 'filter');
+
+      expect((await settings(panelId, { columns: 'wide' })).status).toBe(200);
+
+      expect((await panelNow(panelId)).columns).toBe('wide');
+    });
+
+    it('reads a stored width this release has never heard of as one list', async () => {
+      const panelId = await aPanel(await aDashboard(), 'Next up');
+      await inTheStore((sql) => sql.exec('UPDATE panels SET columns = ? WHERE id = ?', 'huge', panelId));
+
+      expect((await panelNow(panelId)).columns).toBeNull();
+    });
+  });
+
+  describe('the column choice is written with the rest of the form, or not at all', () => {
+    it('leaves the columns as they were when the name is already taken', async () => {
+      const dashboardId = await aDashboard();
+      await aPanel(dashboardId, 'To read');
+      const panelId = await aPanel(dashboardId, 'Next up');
+
+      const refused = await settings(panelId, { name: 'to read', columns: 'wide' });
+
+      expect(refused.status).toBe(409);
+      expect(await panelNow(panelId)).toMatchObject({ name: 'Next up', columns: null });
+    });
+
+    it('lands a rename and the columns together', async () => {
+      const panelId = await aPanel(await aDashboard(), 'Next up');
+
+      expect((await settings(panelId, { name: 'Soon', columns: 'narrow' })).status).toBe(200);
+
+      expect(await panelNow(panelId)).toMatchObject({ name: 'Soon', columns: 'narrow' });
+    });
+  });
+
   describe('a setting that does not apply to the panel’s kind is refused, and nothing is written', () => {
     it.each([
       { situation: 'Never propose on a filter', kind: 'filter', changes: { name: 'Renamed', neverPropose: true } },
       { situation: 'read-only on a panel of items', kind: undefined, changes: { name: 'Renamed', readOnly: true } },
       { situation: 'formatting on a panel of items', kind: undefined, changes: { name: 'Renamed', format: 'rich' } },
       { situation: 'Never propose on a panel of text', kind: 'text', changes: { name: 'Renamed', neverPropose: true } },
+      { situation: 'columns on a panel of text', kind: 'text', changes: { name: 'Renamed', columns: 'medium' } },
     ])('$situation', async ({ kind, changes }) => {
       const panelId = await aPanel(await aDashboard(), 'Original', kind);
       const before = await panelNow(panelId);

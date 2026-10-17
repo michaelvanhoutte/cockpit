@@ -489,6 +489,8 @@ describe('Backup', () => {
     // `0082-item-claude-proposals` adds what Cockpit proposes doing with an
     // Item; the guest's demonstration adds rows only, and only to the guest.
     items: ['claude_proposals'],
+    // `0089-panel-columns` adds how wide a Panel's columns may be.
+    panels: ['columns'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */
@@ -606,6 +608,33 @@ describe('Backup', () => {
         { tenant_id: ACCOUNT_NAME, layout_id: 'ly-wide', row_index: 0, height: 320, title: null },
       ]);
       expect(now.tables.panel_placements!.map((cell) => [cell.layout_id, cell.span])).toEqual([['ly-wide', 6]]);
+    });
+
+    /**
+     * A backup taken before a Panel could be split into columns ("Split a wide
+     * Panel's rows into columns, at a minimum width set in its settings", issue
+     * 1207): its rows have no `columns` and it does not list the change, so the
+     * restore replays what it records and the account then adds the column.
+     */
+    it('puts back a backup from before columns, every panel reading one list', async () => {
+      await captureInto(USER_ID, 'written before columns');
+      const taken = await backUp(ACCOUNT_NAME);
+      const older: AccountFile = {
+        ...taken,
+        changesApplied: taken.changesApplied.filter((name) => name !== '0089-panel-columns'),
+        tables: {
+          ...taken.tables,
+          panels: taken.tables.panels!.map(({ columns: _columns, ...row }) => row),
+        },
+      };
+      expect(older.tables.panels!.length).toBeGreaterThan(0);
+      await emptyTheStore(ACCOUNT_NAME);
+
+      expect((await restore(ACCOUNT_NAME, older)).status).toBe(200);
+
+      const now = await backUp(ACCOUNT_NAME);
+      expect(now.changesApplied).toContain('0089-panel-columns');
+      expect(now.tables.panels!.map((row) => row.columns)).toEqual(now.tables.panels!.map(() => null));
     });
 
     /**

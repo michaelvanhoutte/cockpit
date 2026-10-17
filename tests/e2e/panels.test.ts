@@ -238,6 +238,22 @@ async function dragBefore(page: Page, panel: string, before: string): Promise<vo
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
 }
 
+/**
+ * Drags one row onto the left or right half of another, as a person aims at a
+ * column: `dragTo`, for the reason `dragItemOnto` records (support/app.ts).
+ */
+async function dragRowOnto(page: Page, title: string, onto: string, side: 'left' | 'right'): Promise<void> {
+  const dragged = itemRow(page, title);
+  const target = itemRow(page, onto);
+  await dragged.scrollIntoViewIfNeeded();
+  await target.scrollIntoViewIfNeeded();
+  const to = await target.boundingBox();
+  if (!to) throw new Error(`cannot drag ${title} onto ${onto}: it is not on screen`);
+  await dragged.dragTo(target, {
+    targetPosition: { x: side === 'left' ? to.width / 4 : (to.width * 3) / 4, y: to.height / 2 },
+  });
+}
+
 test.describe('Panels', () => {
   /**
    * The three things done to a panel from its own header, in one walk because
@@ -685,6 +701,104 @@ test.describe('Panels', () => {
       await press(dashboardBar(page).getByRole('link', { name: here }), isMobile);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+    });
+  });
+
+  /**
+   * "Split a wide Panel's rows into columns, at a minimum width set in its
+   * settings" (issue 1207): the count the form promises, the reading order the
+   * grid draws, and a real row dragged between columns are all layout, which
+   * only a browser has. Desktop only: a phone is one column, and a row is moved
+   * there from its menu.
+   */
+  test.describe('a wide panel set to columns reads across, then down, and a row dragged between columns lands where it was dropped', () => {
+    test.skip(({ isMobile }) => !!isMobile, 'a row is dragged with a pointer, and a phone is one column');
+
+    test('draws the count its form promised, moves a row onto the left half of another, keeps it through a reload, and takes no reorder once sorted', async ({
+      page,
+      isMobile,
+    }) => {
+      // Wide enough that the panel beside the Inbox holds three Medium columns.
+      await page.setViewportSize({ width: 2000, height: 1000 });
+      await ownDashboard(page, isMobile);
+      const panel = uniqueTitle('Falcon');
+      await addPanel(page, panel, isMobile);
+
+      const titles = ['one', 'two', 'three', 'four', 'five', 'six'].map(uniqueTitle);
+      for (const title of titles) {
+        await capture(page, title, isMobile);
+        await fileOnto(page, title, panel, isMobile);
+      }
+      // Each filed from the menu lands on top of the one before.
+      const [first, second, third, fourth, fifth, sixth] = [...titles].reverse() as [
+        string, string, string, string, string, string,
+      ];
+      await expect.poll(() => itemsOn(page, panel)).toEqual([first, second, third, fourth, fifth, sixth]);
+
+      const form = await openPanelSettings(page, panel, isMobile);
+      await form.getByRole('radio', { name: 'Split into columns' }).check();
+      await expect(form.getByRole('radio', { name: /^Medium/ })).toBeChecked();
+      await expect(form.getByText(/^Here that gives 3 columns\./)).toBeVisible();
+      const set = answerTo(page, 'set_panel_settings');
+      await press(form.getByRole('button', { name: 'Save' }), isMobile);
+      expect((await set).status()).toBe(200);
+      await expect(form).toHaveCount(0);
+
+      // Across, then down: the first three share one line, in order, and the
+      // fourth starts the next - the count the form promised is what is drawn.
+      const tops = async () =>
+        Promise.all(
+          [first, second, third, fourth].map(async (title) => (await itemRow(page, title).boundingBox())!.y),
+        );
+      await expect
+        .poll(async () => {
+          const [a, b, c, d] = await tops();
+          return [a === b, b === c, d! > c!];
+        })
+        .toEqual([true, true, true]);
+      const lefts = await Promise.all(
+        [first, second, third].map(async (title) => (await itemRow(page, title).boundingBox())!.x),
+      );
+      expect(lefts[0]).toBeLessThan(lefts[1]!);
+      expect(lefts[1]).toBeLessThan(lefts[2]!);
+
+      // The fourth, dropped on the left half of the first, is first.
+      const moved = answerTo(page, 'add_item_to_panel');
+      await dragRowOnto(page, fourth, first, 'left');
+      expect((await moved).status()).toBe(200);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([fourth, first, second, third, fifth, sixth]);
+
+      // And on the right half of a row on the first line, from the second line:
+      // after it, which no reading of the pointer's height alone can say.
+      const movedAgain = answerTo(page, 'add_item_to_panel');
+      await dragRowOnto(page, sixth, second, 'right');
+      expect((await movedAgain).status()).toBe(200);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([fourth, first, second, sixth, third, fifth]);
+
+      await page.reload();
+      await expect.poll(() => itemsOn(page, panel)).toEqual([fourth, first, second, sixth, third, fifth]);
+      const [x, y] = await Promise.all([fourth, first].map(async (title) => itemRow(page, title).boundingBox()));
+      expect(x!.y).toBe(y!.y);
+
+      // Sorted, a row is dragged to no new place in it.
+      const sorted = answerTo(page, 'set_panel_sort');
+      await choosePanelAction(page, panel, 'Sort…', isMobile);
+      const question = page.getByRole('dialog');
+      await press(question.getByText('Sorted', { exact: true }), isMobile);
+      await press(question.getByRole('button', { name: '+ Sort by…' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Title' }), isMobile);
+      await press(question.getByRole('button', { name: 'Save' }), isMobile);
+      expect((await sorted).status()).toBe(200);
+      await expect(question).toHaveCount(0);
+      const inTheSortsOrder = await itemsOn(page, panel);
+      let reordered = 0;
+      page.on('request', (request) => {
+        if (request.url().endsWith('/v1/commands/add_item_to_panel')) reordered += 1;
+      });
+      await dragRowOnto(page, inTheSortsOrder[3]!, inTheSortsOrder[0]!, 'left');
+      await page.waitForTimeout(500);
+      expect(reordered).toBe(0);
+      expect(await itemsOn(page, panel)).toEqual(inTheSortsOrder);
     });
   });
 

@@ -174,6 +174,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     REMEMBERED_SENTENCES,
     AGENTS_REMEMBERED,
     CONNECTION_HISTORY_LISTED,
+    PANEL_COLUMNS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1006,6 +1007,29 @@ const AGENTS_REMEMBERED: Change = {
 const CONNECTION_HISTORY_LISTED: Change = {
   name: '0088-connection-history-listed',
   statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `listed` integer' }],
+};
+
+/**
+ * How wide a Panel's columns may be made ("Split a wide Panel's rows into
+ * columns, at a minimum width set in its settings", issue 1207): one nullable
+ * column on `panels`; `schema.ts` says what it holds and why it has no CHECK.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway, or runs twice:** one statement in the transaction
+ *   that records it; SQLite refuses a column that already exists.
+ * - **Rows that already break the new rule:** there can be none. Every Panel
+ *   takes NULL, which is one list - the way it was already drawn.
+ * - **What is in each environment:** every Panel reads one list.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so a Panel set to columns is drawn as one list until the release goes
+ *   forward again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const PANEL_COLUMNS: Change = {
+  name: '0089-panel-columns',
+  statements: [{ sql: 'ALTER TABLE `panels` ADD COLUMN `columns` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

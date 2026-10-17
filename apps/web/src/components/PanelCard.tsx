@@ -589,6 +589,7 @@ export function PanelCard({
             // removed from a panel it was never put on.
             gathered={filter !== null}
             hidden={collapsed}
+            columns={panel.columns}
             // A sorted Panel's rows go where the sort puts them, so none is
             // dragged to a new place in it.
             sorted={(sortedAs !== null || dashboardFiltered) && filter === null}
