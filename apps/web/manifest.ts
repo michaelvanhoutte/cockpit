@@ -35,7 +35,7 @@ export const manifest: Partial<ManifestOptions> = {
   description: 'Unified inbox and dashboards',
   start_url: '/',
   display: 'standalone',
-  background_color: '#f4f4f2',
+  background_color: '#e2e2df',
   theme_color: '#2d2e35',
   icons: [{ ...icon, purpose: 'any maskable' }],
   // The installed app's icon menu: right-click on the Windows taskbar or Start

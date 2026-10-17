@@ -975,3 +975,15 @@ describe('Agents', () => {
     });
   });
 });
+
+describe('Appearance', () => {
+  describe('in light, the page is one grey wherever it is drawn', () => {
+    it('draws the page an app is asked to be allowed on the one light page grey', async () => {
+      const app = await registerApp('Claude');
+      const { path } = await attempt(app);
+      const shown = await SELF.fetch(`${ORIGIN}${path}`, { headers: { cookie: await signInAs(USER_ID) } });
+
+      expect(await shown.text()).toContain('background: #e2e2df;');
+    });
+  });
+});

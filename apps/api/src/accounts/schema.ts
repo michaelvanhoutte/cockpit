@@ -245,6 +245,9 @@ export const workspaces = sqliteTable(
      * top, `bar` is the strip the dashboard tabs sit on one step lighter than
      * it, and `ground` is the page behind the panels.
      *
+     * Only `color` is read back to paint a workspace (the shell looks the rest
+     * up from the theme it names).
+     *
      * All four are stored rather than the name of a theme, so the palette is a
      * picker and not a storage format - mixing your own colors later writes the
      * same four columns instead of needing a migration.

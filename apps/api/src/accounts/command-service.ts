@@ -62,7 +62,8 @@ import { recordOfSend } from '../domain/claude-send-records.js';
 import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
 import {
   ACCOUNT_WIDE,
-  isPaletteTheme,
+  isPaletteTint,
+  themeOf,
   panelFilterAsStored,
   panelSortAsStored,
   panelGathers,
@@ -1529,19 +1530,19 @@ export function runCommand<N extends CommandName>(
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
-      // The four colors are stored, but only the palette's combinations may be
-      // stored: that is what "picked from designed options" means once there is
-      // a wire format a caller can put anything into, and it is how the
-      // legibility half of the decision is actually kept rather than intended.
-      // The day mixing your own is wanted, this check is what relaxes.
-      if (
-        !isPaletteTheme({ tint: cmd.color, bar: cmd.bar, ground: cmd.ground, header: cmd.header })
-      ) {
+      // The accent is what a theme is picked by: only a palette accent may be
+      // stored, which is how "picked from designed options" holds once a wire
+      // format can carry anything. The other three colours are not trusted - a
+      // tab opened before the palette changed, or a pick replayed from the
+      // offline queue, carries an older set - so the palette's own are stored
+      // for it. The day mixing your own is wanted, this check is what relaxes.
+      if (!isPaletteTint(cmd.color)) {
         throw new UnknownThemeError();
       }
+      const theme = themeOf(cmd.color);
       db.transaction((tx) => {
         tx.update(workspaces)
-          .set({ color: cmd.color, bar: cmd.bar, ground: cmd.ground, header: cmd.header })
+          .set({ color: theme.tint, bar: theme.bar, ground: theme.ground, header: theme.header })
           .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId)))
           .run();
         tx.insert(commands).values(commandRow).run();

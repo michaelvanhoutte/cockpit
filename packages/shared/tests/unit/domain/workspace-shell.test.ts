@@ -39,6 +39,27 @@ describe('Appearance', () => {
 
     it.each([
       {
+        situation: 'a Workspace stored with an older page grey, band and top bar',
+        workspace: { color: WORKSPACE_THEMES[3]!.tint, bar: '#594e91', ground: '#f3f3f1', header: '#18152b' },
+        painted: WORKSPACE_THEMES[3]!,
+      },
+      {
+        situation: 'a tint the palette never had, stored with an older set',
+        workspace: { color: '#123456', bar: '#211d37', ground: '#f3f3f1', header: '#18152b' },
+        painted: { ...DEFAULT_WORKSPACE_THEME, tint: '#123456' },
+      },
+    ])('paints $situation in the palette’s current set for its accent, in light', ({ workspace, painted }) => {
+      expect(shellColours(paintedWorkspace(workspace), 'light')).toMatchObject({
+        ground: painted.ground,
+        bar: painted.bar,
+        header: painted.header,
+        tint: painted.tint,
+        accentDeep: painted.deep,
+      });
+    });
+
+    it.each([
+      {
         situation: 'a set from before the palette changed, on a tint the palette has',
         workspace: { color: WORKSPACE_THEMES[3]!.tint, bar: '#211d37', ground: '#edebf7', header: '#18152b' },
         bar: WORKSPACE_THEMES[3]!.bar,

@@ -21,10 +21,10 @@
   /* The Conselit inks (conselit assets/brand.css): headings, body, secondary. */
   --color-ink-strong: #16181d;
   --color-ink: #3a3f4b;
-  --color-ink-soft: #646a78;
-  --color-ink-faint: #6a6f7e;
+  --color-ink-soft: #555b68;
+  --color-ink-faint: #5a5f6d;
   --color-surface: #f4f5fb;
-  --color-ground: #f4f4f2;
+  --color-ground: #e2e2df;
   /* Hairlines, dimming and shadows are this ink at low alpha, never black. */
   --color-shade: #16181d;
 
@@ -99,7 +99,7 @@
    */
   --color-over-deep: #a04a43;
   /* over / over-deep where they are text (an error line; a failed chip): the same in light, lifted in dark where the fills stay. */
-  --color-over-ink: #bf5d55;
+  --color-over-ink: #9d4d46;
   --color-over-deep-ink: #a04a43;
   /* What dims the page behind a dialog. */
   --color-scrim: #16181d;

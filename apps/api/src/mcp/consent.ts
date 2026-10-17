@@ -239,7 +239,7 @@ function page({ title, body }: { title: string; body: string }): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(title)} - Cockpit</title>
 <style>
-  body { margin: 0; background: #f3f3f1; color: #23242a; font: 15px/1.55 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  body { margin: 0; background: #e2e2df; color: #23242a; font: 15px/1.55 system-ui, -apple-system, 'Segoe UI', sans-serif; }
   main { max-width: 32rem; margin: 12vh auto; padding: 2rem; background: #fff; border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.08); }
   h1 { font-size: 1.3rem; line-height: 1.3; margin: 0 0 1rem; color: #594e91; }
   p { margin: 0 0 1rem; }

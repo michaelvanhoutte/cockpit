@@ -15,7 +15,7 @@ const workspace = (id: string, name: string): Workspace => ({
   name,
   color: '#6f62b5',
   bar: '#594e91',
-  ground: '#f3f3f1',
+  ground: '#e2e2df',
   header: '#2d2e35',
 });
 const HOME = workspace('ws-home', 'Home');
