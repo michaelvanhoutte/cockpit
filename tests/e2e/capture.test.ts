@@ -2,6 +2,7 @@ import type { Locator } from '@playwright/test';
 
 import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE, TRANSCRIPTION_PATH } from '@cockpit/shared';
 import {
+  backToTheInbox,
   captureBox,
   capturedLine,
   closeCapture,
@@ -217,23 +218,16 @@ test.describe('Capture', () => {
       await expect.poll(() => colour('body')).toBe(NIGHT);
       await expect(page.getByRole('button', { name: 'Dark view' })).toHaveAttribute('aria-pressed', 'true');
 
-      // Spoken into the same fake microphone as Write's: tap, a second of
-      // sound, tap, and the Item holds the stand-in's words. It is not the
-      // phrase of this run, so the row is found by being exactly those words.
-      await press(drive, isMobile);
-      await expect(page.getByText('Listening — tap to capture')).toBeVisible();
-      await expect(page.getByLabel('Recording')).toContainText('Listening · 0:01');
-      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
-      await expect(page.getByText('Captured', { exact: true })).toBeVisible();
-      const capturedHere = page.getByRole('list', { name: 'Captured here' });
-      await expect(capturedHere.getByText(STAND_IN_WORDS)).toBeVisible();
-
-      // With no connection it still captures at once: the recording waits on
-      // the phone for its words, and once the server can be reached it is
+      // Spoken into the same fake microphone as Write's, with no connection:
+      // the Car view's capture with one is CarCapture.test.tsx's, and the
+      // recorder and the transcriber are Write's walk above, so what only
+      // this one adds is the kept recording. It still captures at once: the
+      // recording waits on the phone for its words, and once the server can be reached it is
       // transcribed and lands as an Item ("Capture in the Car view without a
       // connection, from the recording", issue 1045). Only a browser keeps a
       // real recording in IndexedDB and hears the connection come back.
       await page.route('**/v1/**', (route) => route.abort('internetdisconnected'));
+      const capturedHere = page.getByRole('list', { name: 'Captured here' });
       await press(drive, isMobile);
       await expect(page.getByLabel('Recording')).toContainText('Listening · 0:01');
       await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
@@ -243,12 +237,11 @@ test.describe('Capture', () => {
       await page.context().setOffline(true);
       await page.context().setOffline(false);
       await expect(capturedHere.getByText('Waiting for its words')).toHaveCount(0, { timeout: 15_000 });
-      await expect(capturedHere.getByText(STAND_IN_WORDS)).toHaveCount(2);
-      await openInbox(page, isMobile);
+      await expect(capturedHere.getByText(STAND_IN_WORDS)).toHaveCount(1);
+      await backToTheInbox(page, isMobile);
       const spoken = page.getByRole('listitem').filter({ has: page.getByText(STAND_IN_WORDS, { exact: true }) });
       await expect(spoken.first()).toBeVisible();
-      // Both of this run's: the one spoken with a connection, and the one spoken without.
-      await expect.poll(() => spoken.count()).toBeGreaterThanOrEqual(2);
+      await expect.poll(() => spoken.count()).toBeGreaterThanOrEqual(1);
       // Put somewhere, because a note without a workspace waits in every Inbox
       // of the one account all specs share, and would turn up in their counts.
       // Every run of this walk speaks the same words, so each row still
@@ -341,7 +334,7 @@ test.describe('Capture', () => {
       await expect(captureBox(page)).toHaveValue('');
       await expect(page.getByText('sunset.png')).toHaveCount(0);
 
-      await openInbox(page, isMobile);
+      await backToTheInbox(page, isMobile);
       await press(itemRow(page, shared).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
       await press(itemRow(page, shared).getByRole('button', { name: 'Item actions' }), isMobile);
