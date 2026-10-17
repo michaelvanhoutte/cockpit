@@ -1211,8 +1211,12 @@ mail provider.
   own: workspaces nobody works in, so what somebody is testing by hand beside it
   is never what the suite just deleted. It is the only deletion in a deployed
   environment that is not a recovery. Until then the local stack is what F3 drives,
-  which leaves the service worker, the built bundle and the Worker's asset
-  routing proven by nothing but a manual look.
+  which leaves the Worker's asset routing, and which navigations the service
+  worker answers, proven by nothing but a manual look. The worker's update
+  lifecycle is the exception: `tests/e2e/updating.test.ts` drives it against the
+  production build behind a server of its own, which copies two of Cloudflare's
+  behaviours (the start page for an unknown navigation, a deploy removing the
+  old files) and is not Cloudflare.
 - **Bundle-size gate:** the budget needs recording as a number before it can be enforced as one.
 - **Sentry, the connector watchdog, and the external uptime check:** they land
   with the code they observe. `/health` already reports whether the register and
