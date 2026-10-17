@@ -82,10 +82,12 @@ export default defineConfig({
         // request never left the browser, and the app rendered its own "Not
         // Found" over a URL that was never ours to serve.
         //
-        // Deliberately untested, which the testing skill requires saying out
-        // loud rather than leaving as a gap. F3 runs Vite's dev server, where
-        // this plugin registers no service worker at all, so reaching it needs
-        // a real browser holding a real service worker against a deployment.
+        // This list itself is deliberately untested, which the testing skill
+        // requires saying out loud rather than leaving as a gap. F3 runs Vite's
+        // dev server, where this plugin registers no service worker at all, and
+        // the one spec that holds a real worker against the production build
+        // (tests/e2e/updating.test.ts) walks the update lifecycle, not which
+        // navigations the shell answers.
         //
         // Note this list is **not** the same as `run_worker_first` in
         // apps/api/wrangler.jsonc, though every entry but the last two matches

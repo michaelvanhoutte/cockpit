@@ -31,6 +31,10 @@ import { isLinkedWorktree, portsFor } from './scripts/lib/ports.mjs';
  *    Worker's `run_worker_first` routing. Those three are all-or-nothing
  *    failures rather than per-feature ones, and until the suite can run against
  *    a deployment they are covered by looking at staging before promoting.
+ *    The one exception is the update path: tests/e2e/updating.test.ts opens the
+ *    production build in a real browser holding a real service worker, from a
+ *    server of its own that decides when a deploy lands, so every other walk
+ *    still runs with none.
  *    Running it against a deployment needs a way to keep test data out of real
  *    data, which is now possible - accounts and sign-in arrived with "Sign in
  *    by picking a name, each user in their own account" (issue 86), so the
