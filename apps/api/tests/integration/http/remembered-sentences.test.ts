@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, asUser, inStoreAsItIs, inTheStore } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
-import { ACCOUNT_WIDE } from '@cockpit/shared';
+import { ACCOUNT_WIDE, rememberOfferAnswerSchema } from '@cockpit/shared';
 import {
   aModelThatReads,
   batchOf,
@@ -164,6 +164,16 @@ describe('Agents', () => {
       expect(offering.asked).toHaveLength(1);
       expect(offering.asked[0]!.item).toContain(JSON.stringify(PROPOSED));
       expect(offering.asked[0]!.item).toContain(JSON.stringify(EDITED));
+    });
+
+    it('offers a sentence for the first workspace, whose id is ws-1, in a body the window accepts', async () => {
+      offering.answer = { sentence: SENTENCE, action: 'reply to a mail', workspace: 'Workspace 1' };
+      const runId = await sentWith(await anItem(), EDITED);
+
+      const res = await asUser(`http://cockpit.test/v1/claude-sends/${runId}/remember-offer`, { method: 'POST' });
+      const answer = rememberOfferAnswerSchema.parse(await res.json());
+
+      expect(answer.offer).toMatchObject({ workspaceId: WORKSPACE_ID, workspaceName: 'Workspace 1' });
     });
 
     it('offers nothing, and keeps the send, where the model cannot be reached', async () => {

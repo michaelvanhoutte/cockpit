@@ -24,8 +24,8 @@ export const REMEMBERED_SENTENCES_SHOWN = 8;
 export const rememberOfferSchema = z.object({
   sentence: z.string().trim().min(1).max(REMEMBERED_SENTENCE_LIMIT),
   action: z.string().trim().min(1).max(REMEMBERED_ACTION_LIMIT),
-  /** The Workspace the sentence names, or null for every Workspace. */
-  workspaceId: z.uuid().nullable(),
+  /** The Workspace the sentence names, or null for every Workspace. Not a uuid: an account's first Workspace is `ws-1`. */
+  workspaceId: z.string().nullable(),
   workspaceName: z.string().nullable(),
   /** Where the Item the edit was on came from, as the Item names it: what "a kind of action" is matched on. */
   sourceKind: z.string().min(1).max(100),
