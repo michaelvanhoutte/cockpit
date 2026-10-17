@@ -81,7 +81,9 @@ export async function restoreSavedReads(client: QueryClient, now = Date.now()): 
     return;
   }
   for (const [hash, read] of found) {
-    if (now - read.savedAt > CACHE_MAX_AGE_MS) {
+    // A record not in the shape this version writes - one a later version
+    // wrote before a rollback - is deleted like an expired one, not read.
+    if (!isSavedRead(read) || now - read.savedAt > CACHE_MAX_AGE_MS) {
       void del(hash, savedReads()).catch(() => {});
       continue;
     }
@@ -96,6 +98,12 @@ export async function restoreSavedReads(client: QueryClient, now = Date.now()): 
       restored.leftOut.set(String(read.queryKey[1]), { savedAt: read.savedAt, count: checked.itemsLeftOut });
     }
   }
+}
+
+function isSavedRead(read: unknown): read is SavedRead {
+  if (typeof read !== 'object' || read === null) return false;
+  const { queryKey, savedAt } = read as Partial<SavedRead>;
+  return Array.isArray(queryKey) && typeof savedAt === 'number' && Number.isFinite(savedAt);
 }
 
 /**
@@ -156,12 +164,16 @@ export function PaintedFromTheStoredCopy({
   useEffect(() => {
     let current = true;
     let stop: (() => void) | undefined;
-    void restoreSavedReads(client).then(() => {
-      if (!current) return;
-      stop = saveReadsAsTheyAnswer(client);
-      setRestoring(false);
-      void client.invalidateQueries();
-    });
+    // A restore that throws still opens the app, from the server alone, rather
+    // than leaving it blank on every load.
+    void restoreSavedReads(client)
+      .catch(() => {})
+      .then(() => {
+        if (!current) return;
+        stop = saveReadsAsTheyAnswer(client);
+        setRestoring(false);
+        void client.invalidateQueries();
+      });
     return () => {
       current = false;
       stop?.();

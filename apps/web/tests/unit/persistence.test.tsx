@@ -178,6 +178,16 @@ describe('Offline', () => {
       expect(await savedAt(HOME)).toBe(yesterday);
     });
 
+    it('opens past a record in a shape this version never writes, and deletes it', async () => {
+      // What a later version may leave behind before a rollback.
+      await set('a-later-shape', { key: WORK, data: titled('three panels') }, savedReads);
+
+      open(() => Promise.resolve(titled('four panels')));
+
+      expect(await screen.findByText('four panels')).toBeInTheDocument();
+      await vi.waitFor(async () => expect(await get('a-later-shape', savedReads)).toBeUndefined());
+    });
+
     it('does not draw a read saved over a week ago', async () => {
       await saveRead({ queryKey: WORK, data: titled('last month'), savedAt: Date.now() - CACHE_MAX_AGE_MS - DAY });
 

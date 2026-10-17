@@ -60,7 +60,7 @@ function keptWhole(saved: unknown, parsed: unknown): boolean {
   if (isPlainObject(saved)) {
     if (!isPlainObject(parsed)) return false;
     return Object.entries(saved).every(
-      ([key, value]) => value === undefined || (key in parsed && keptWhole(value, parsed[key])),
+      ([key, value]) => value === undefined || (Object.hasOwn(parsed, key) && keptWhole(value, parsed[key])),
     );
   }
   return Object.is(saved, parsed);
@@ -137,7 +137,6 @@ export function checkSavedRead(
   queryKey: readonly unknown[],
   saved: unknown,
 ): CheckedRead | 'unusable' | 'unchecked' {
-  const check = CHECKS[String(queryKey[0])];
-  if (!check || !hasCheck(queryKey)) return 'unchecked';
-  return check(saved) ?? 'unusable';
+  if (!hasCheck(queryKey)) return 'unchecked';
+  return CHECKS[String(queryKey[0])]!(saved) ?? 'unusable';
 }

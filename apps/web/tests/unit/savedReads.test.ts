@@ -44,6 +44,12 @@ describe('Offline', () => {
         drawn: undefined,
       },
       {
+        situation: 'it holds a property this version does not know, named like one every object inherits',
+        schema: itemSchema,
+        saved: JSON.parse(JSON.stringify(anItem(1)).replace('{', '{"__proto__":{},')) as unknown,
+        drawn: undefined,
+      },
+      {
         situation: 'a value does not parse',
         schema: itemSchema,
         saved: anItem(1, { createdAt: 'yesterday' }),
