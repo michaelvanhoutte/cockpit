@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
@@ -958,6 +958,11 @@ export function ItemList({
   const drawnItems = proposalGroups
     ? [...proposalGroups.groups.flatMap((group) => group.items), ...proposalGroups.rest]
     : items;
+  const orientation = useOrientation(
+    groupByProposal && panelId === null,
+    drawnItems.map((item) => item.id).join(),
+    picked.map((item) => item.id),
+  );
   function groupedByProposal() {
     const held = new Map<string, Item[]>();
     for (const item of items) {
@@ -1006,6 +1011,7 @@ export function ItemList({
         // what is in it, so an empty panel's drop target was the one line of
         // text saying it is empty - and letting go anywhere in the space below
         // did nothing, which is most of the panel.
+        ref={orientation}
         className={fillsTheRestOfItsColumn ? 'flex-1' : 'min-h-full'}
         onDragOver={(event) => {
           // Only a row of ours. A panel dragged by its header crosses lists on
@@ -1290,4 +1296,48 @@ export function ItemList({
  */
 function Landing() {
   return <li aria-hidden="true" className="h-0.5 list-none bg-accent" />;
+}
+
+/**
+ * Keeps your place when the Inbox's rows rearrange (`inboxOrientation`, issue
+ * 1168). The chunk is fetched in an effect, so after the first paint; a
+ * rearrangement before it has arrived just jumps. Returns the ref for the box
+ * holding the rows.
+ *
+ * Rows are read while rendering a change to their order, before it lands in the
+ * page, and again in the layout effect after it has - the one point where both
+ * are in hand, so nothing is stored.
+ */
+function useOrientation(on: boolean, order: string, picked: readonly string[]) {
+  const box = useRef<HTMLDivElement>(null);
+  const [chunk, setChunk] = useState<typeof import('../inboxOrientation') | null>(null);
+  const orienter = useRef<ReturnType<(typeof import('../inboxOrientation'))['orient']> | null>(null);
+  const drawn = useRef(order);
+
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    void import('../inboxOrientation').then((loaded) => live && setChunk(loaded));
+    return () => {
+      live = false;
+    };
+  }, [on]);
+
+  useLayoutEffect(() => {
+    if (!chunk || !box.current) return;
+    const oriented = chunk.orient(box.current);
+    orienter.current = oriented;
+    return () => {
+      oriented.detach();
+      orienter.current = null;
+    };
+  }, [chunk]);
+
+  if (order !== drawn.current) orienter.current?.read();
+  useLayoutEffect(() => {
+    if (order === drawn.current) return;
+    drawn.current = order;
+    orienter.current?.settle(picked);
+  });
+  return box;
 }
