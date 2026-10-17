@@ -1,6 +1,6 @@
 import type { Message, MessageBatch, ScheduledController } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
-import { keepEveryAccountChecking, resetGuestAccount } from '../accounts/index.js';
+import { keepEveryAccountChecking, pruneEveryAccountsHistory, resetGuestAccount } from '../accounts/index.js';
 import { purgeOldSignIns } from '../auth/sign-in-history.js';
 import { purgeOldProviderCalls } from '../gateway/record.js';
 import {
@@ -56,8 +56,9 @@ export type { BatchRead } from './backfill-meanings.js';
  *
  * **It queues nothing.** The nightly filing summary that once did is gone
  * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392);
- * what runs is the guest reset, the sign-in history and provider call
- * purges, and re-arming any pulled-connection check that was lost - each
+ * what runs is the guest reset, the sign-in history, provider call and
+ * connection history purges, and re-arming any pulled-connection check that
+ * was lost - each
  * idempotent, so a tick run twice changes nothing the first did not.
  */
 export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
@@ -65,7 +66,30 @@ export async function handleScheduled(controller: ScheduledController, env: Env)
   await resetTheGuestAccount(env);
   await purgeTheOldSignIns(env);
   await purgeTheOldProviderCalls(env);
+  await pruneConnectionHistories(env);
   await keepCheckingPulledConnections(env);
+}
+
+/**
+ * A connection's history is kept 30 days, and the nightly run deletes the rest
+ * in every account ("Keep a connection's history 30 days, and fold a quiet
+ * past day into one line", issue 1145) - one account failing is logged
+ * inside, and the rest go on; an account missed keeps its older lines until
+ * the next night that reaches it.
+ */
+async function pruneConnectionHistories(env: Env): Promise<void> {
+  try {
+    await pruneEveryAccountsHistory(env);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `connections' old history was not removed tonight: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
 }
 
 /**

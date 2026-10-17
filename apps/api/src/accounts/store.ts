@@ -3,7 +3,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
-  ConnectionHistoryLine,
+  ConnectionHistory,
   Item,
   Panel,
   ServerEvent,
@@ -40,8 +40,8 @@ import {
 } from './call-window.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
-import { capturePushed, connectionHistoryOf, recordPushFailed } from './connection-history.js';
-import type { CheckDid } from '../domain/connection-history.js';
+import { capturePushed, connectionHistoryOf, pruneConnectionHistory, recordPushFailed } from './connection-history.js';
+import { historyKeptFrom, type CheckDid } from '../domain/connection-history.js';
 import {
   applyPulledSourceChange,
   closePulledItemsNotListed,
@@ -885,8 +885,20 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     accountName: string,
     workspaceId: string,
     sourceAccountId: string,
-  ): Answer<ConnectionHistoryLine[]> {
+  ): Answer<ConnectionHistory> {
     return this.#answer(accountName, (db) => connectionHistoryOf(db, accountName, workspaceId, sourceAccountId));
+  }
+
+  /**
+   * Deletes the account's connections' history lines older than 30 days, and
+   * answers how many went - what the nightly run asks of every account ("Keep
+   * a connection's history 30 days, and fold a quiet past day into one line",
+   * issue 1145).
+   */
+  pruneConnectionHistory(accountName: string): Answer<number> {
+    return this.#answer(accountName, (db) =>
+      pruneConnectionHistory(db, accountName, historyKeptFrom(new Date())),
+    );
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

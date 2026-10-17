@@ -1,4 +1,4 @@
-import type { ConnectionHistoryLine } from '@cockpit/shared';
+import { HISTORY_KEPT_DAYS, type ConnectionHistoryLine } from '@cockpit/shared';
 
 /**
  * What a connection's history says, day by day ("See when a pulled connection
@@ -53,7 +53,28 @@ export interface HistoryDay {
   /** *Today*, *Yesterday*, or the day's date - with its year where it is not this one. */
   heading: string;
   lines: HistoryLineShown[];
+  /**
+   * The one line a quiet past day folds into ("Keep a connection's history 30
+   * days, and fold a quiet past day into one line", issue 1145), drawn in
+   * place of its lines until they are asked for; null where the day is drawn
+   * in full.
+   */
+  folded: FoldedDay | null;
 }
+
+/** A quiet past day as one line: its span, and how many checks did what. */
+export interface FoldedDay {
+  when: string;
+  says: string;
+}
+
+/** What a folded day says of the checks that did each kind of thing, in the order a line says them. */
+const DAY_SAYS = [
+  { kind: 'broughtIn', says: 'brought something in' },
+  { kind: 'closed', says: 'closed something' },
+  { kind: 'sentBack', says: 'sent something back' },
+  { kind: 'refused', says: 'had something refused' },
+] as const;
 
 /** Why a check ran, in words; a reason this release does not know says nothing. */
 const REASONS: Record<string, string> = {
@@ -121,17 +142,62 @@ export function lineShown(line: ConnectionHistoryLine): HistoryLineShown {
   };
 }
 
-/** The history's lines, newest first, under the day each last ran on. */
-export function historyDays(lines: readonly ConnectionHistoryLine[], now: Date): HistoryDay[] {
-  const days: HistoryDay[] = [];
-  let key: string | null = null;
+/**
+ * The history's lines, newest first, under the day each last ran on. A day
+ * before today whose checks all worked folds into one line (issue 1145); today,
+ * a day with a failure, a day of one line and a day of deliveries - each of
+ * which is something a source sent - are drawn in full. So is the oldest day
+ * shown where `olderRemain`, since the read stopped partway through it and a
+ * failure it did not carry could be that day's.
+ */
+export function historyDays(lines: readonly ConnectionHistoryLine[], now: Date, olderRemain: boolean): HistoryDay[] {
+  const days: { key: string; at: Date; held: ConnectionHistoryLine[] }[] = [];
   for (const line of lines) {
     const at = new Date(line.lastAt);
-    if (dayOf(at) !== key) {
-      key = dayOf(at);
-      days.push({ key, heading: headingFor(at, now), lines: [] });
-    }
-    days[days.length - 1]!.lines.push(lineShown(line));
+    if (dayOf(at) !== days.at(-1)?.key) days.push({ key: dayOf(at), at, held: [] });
+    days.at(-1)!.held.push(line);
   }
-  return days;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return days.map(({ key, at, held }, index) => ({
+    key,
+    heading: headingFor(at, now),
+    lines: held.map(lineShown),
+    folded: at < today && !(olderRemain && index === days.length - 1) ? foldedDay(held, at) : null,
+  }));
+}
+
+/** A past day's lines, newest first, as the one line they fold into; null where the day is drawn in full. */
+function foldedDay(lines: readonly ConnectionHistoryLine[], day: Date): FoldedDay | null {
+  if (lines.length < 2) return null;
+  if (lines.some((line) => line.outcome === 'failed' || line.reason === 'delivery')) return null;
+  const checks = lines.reduce((sum, line) => sum + line.count, 0);
+  const did = DAY_SAYS.flatMap(({ kind, says }) => {
+    const checksThatDid = lines.filter((line) => line.did[kind].count > 0).length;
+    return checksThatDid > 0 ? [`${checksThatDid} ${says}`] : [];
+  });
+  // Quiet checks fold across midnight, so the day's oldest line can have begun
+  // the day before; the span starts no earlier than the day itself.
+  const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const earliest = Math.min(...lines.map((line) => new Date(line.firstAt).getTime()));
+  return {
+    when: `${time(new Date(Math.max(dayStart, earliest)).toISOString())}–${time(lines[0]!.lastAt)}`,
+    says: did.length > 0 ? [`Checked ${checks} times`, ...did].join(' · ') : `Checked ${checks} times, nothing new`,
+  };
+}
+
+/**
+ * What the history ends with where the store keeps older lines than the read
+ * carries (issue 1145): how far back they go, which is the 30 days the history
+ * is kept. Null where the read carries every line.
+ */
+export function olderDaysNote(olderRemain: boolean, now: Date): string | null {
+  if (!olderRemain) return null;
+  const keptFrom = new Date(now);
+  keptFrom.setDate(now.getDate() - HISTORY_KEPT_DAYS);
+  const date = keptFrom.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'long',
+    ...(keptFrom.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  });
+  return `Older days follow, back to ${date}`;
 }

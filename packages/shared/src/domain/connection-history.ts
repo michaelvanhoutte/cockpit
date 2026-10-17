@@ -43,9 +43,22 @@ export const connectionHistoryLineSchema = z.object({
 });
 export type ConnectionHistoryLine = z.infer<typeof connectionHistoryLineSchema>;
 
-/** A connection's history, newest line first. */
+/**
+ * How many days a connection's history is kept ("Keep a connection's history
+ * 30 days, and fold a quiet past day into one line", issue 1145): the nightly
+ * run deletes every line that last ran before then.
+ */
+export const HISTORY_KEPT_DAYS = 30;
+
+/**
+ * A connection's history, newest line first and at most a fixed number of
+ * lines; `olderRemain` where the store keeps older lines than the read carries
+ * ("Keep a connection's history 30 days, and fold a quiet past day into one
+ * line", issue 1145). Absent reads as none.
+ */
 export const connectionHistorySchema = z.object({
   lines: connectionHistoryLineSchema.array(),
+  olderRemain: z.boolean().default(false),
 });
 export type ConnectionHistory = z.infer<typeof connectionHistorySchema>;
 

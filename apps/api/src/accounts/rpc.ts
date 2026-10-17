@@ -3,7 +3,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
-  ConnectionHistoryLine,
+  ConnectionHistory,
   Item,
   Panel,
   ServerEvent,
@@ -318,7 +318,14 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
     workspaceId: string,
     sourceAccountId: string,
-  ): Awaitable<Answer<ConnectionHistoryLine[]>>;
+  ): Awaitable<Answer<ConnectionHistory>>;
+  /**
+   * Deletes the account's connections' history lines older than 30 days,
+   * answering how many went ("Keep a connection's history 30 days, and fold a
+   * quiet past day into one line", issue 1145) - what the nightly run asks of
+   * every account.
+   */
+  pruneConnectionHistory(accountName: string): Awaitable<Answer<number>>;
   /** A delivery a source pushed to one connection, filed with its history line in one transaction (issue 1144). */
   capturePushed(
     accountName: string,

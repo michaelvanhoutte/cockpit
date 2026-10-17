@@ -1,5 +1,5 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import type { CheckDidShown, CommandPayload, CommandResult, ConnectionHistoryLine } from '@cockpit/shared';
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import type { CheckDidShown, CommandPayload, CommandResult, ConnectionHistory } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { SourceAccountNotFoundError, runCommand } from './command-service.js';
 import { getSourceAccount } from './repo.js';
@@ -149,8 +149,9 @@ export function recordPushFailed(
 
 /**
  * One connection's history, newest line first and at most
- * `HISTORY_MOST_LINES` of it - refused as not found unless the connection is
- * this Workspace's and still connected. Each Item a line names is named by its
+ * `HISTORY_MOST_LINES` of it, saying whether older lines remain beyond it
+ * (issue 1145) - refused as not found unless the connection is this
+ * Workspace's and still connected. Each Item a line names is named by its
  * title now - dismissed or not - null only where no such Item is held, and left
  * out where it is another Workspace's (issue 1141).
  */
@@ -159,10 +160,10 @@ export function connectionHistoryOf(
   accountName: string,
   workspaceId: string,
   sourceAccountId: string,
-): ConnectionHistoryLine[] {
+): ConnectionHistory {
   const held = getSourceAccount(db, accountName, sourceAccountId);
   if (!held || held.workspaceId !== workspaceId) throw new SourceAccountNotFoundError(sourceAccountId);
-  const lines = db
+  const read = db
     .select({
       id: connectionHistory.id,
       outcome: connectionHistory.outcome,
@@ -178,8 +179,11 @@ export function connectionHistoryOf(
     .from(connectionHistory)
     .where(and(eq(connectionHistory.tenantId, accountName), eq(connectionHistory.sourceAccountId, sourceAccountId)))
     .orderBy(desc(connectionHistory.lastAt), desc(connectionHistory.firstAt))
-    .limit(HISTORY_MOST_LINES)
+    // One more than the read carries, to learn whether older lines remain.
+    .limit(HISTORY_MOST_LINES + 1)
     .all();
+  const olderRemain = read.length > HISTORY_MOST_LINES;
+  const lines = read.slice(0, HISTORY_MOST_LINES);
   const stored = lines.map((line) => (line.did === null ? null : (JSON.parse(line.did) as DidAsStored)));
   const titles = titlesOf(
     db,
@@ -187,7 +191,26 @@ export function connectionHistoryOf(
     workspaceId,
     stored.flatMap((did) => (did ? KINDS.flatMap((kind) => did[kind].ids) : [])),
   );
-  return lines.map(({ did: _did, ...line }, index) => ({ ...line, did: shown(stored[index] ?? null, titles) }));
+  return {
+    lines: lines.map(({ did: _did, ...line }, index) => ({ ...line, did: shown(stored[index] ?? null, titles) })),
+    olderRemain,
+  };
+}
+
+/**
+ * Deletes every line of the account's connections' history that last ran
+ * before `keptFrom` ("Keep a connection's history 30 days, and fold a quiet
+ * past day into one line", issue 1145), and answers how many went. One
+ * statement, so a store's deletion is applied whole or not at all, and a
+ * second run with the same `keptFrom` finds nothing. A line's end decides: one
+ * folded across the boundary is kept whole. Nothing else is touched.
+ */
+export function pruneConnectionHistory(db: AccountDb, accountName: string, keptFrom: string): number {
+  return db
+    .delete(connectionHistory)
+    .where(and(eq(connectionHistory.tenantId, accountName), lt(connectionHistory.lastAt, keptFrom)))
+    .returning({ id: connectionHistory.id })
+    .all().length;
 }
 
 type ItemNamed = { title: string | null; dismissed: boolean };

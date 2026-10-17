@@ -2,7 +2,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
-  ConnectionHistoryLine,
+  ConnectionHistory,
   Item,
   Panel,
   ServerEvent,
@@ -324,7 +324,7 @@ export interface Account {
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(workspaceId: string, sourceAccountId: string): Promise<{ lastArrivedAt: string | null }>;
   /** One connection of this Workspace's history, newest line first (issue 1140). */
-  connectionHistory(workspaceId: string, sourceAccountId: string): Promise<ConnectionHistoryLine[]>;
+  connectionHistory(workspaceId: string, sourceAccountId: string): Promise<ConnectionHistory>;
   /** A delivery a source pushed to one of this account's connections, filed with its history line (issue 1144). */
   capturePushed(sourceAccountId: string, capture: CommandPayload<'capture_item'>): Promise<CommandResult>;
   /** A delivery that failed after it was attributed to a connection, as its *Failed* line (issue 1144). */
@@ -669,6 +669,26 @@ export async function keepEveryAccountChecking(env: Env): Promise<number> {
     }
   }
   return armed;
+}
+
+/**
+ * Deletes every account's connection history older than 30 days ("Keep a
+ * connection's history 30 days, and fold a quiet past day into one line",
+ * issue 1145), reaching each account the way `keepEveryAccountChecking` does.
+ * Answers how many lines went; one account failing is logged and costs only
+ * itself, keeping its lines until a later night works.
+ */
+export async function pruneEveryAccountsHistory(env: Env): Promise<number> {
+  let pruned = 0;
+  for (const accountName of await registeredAccountNames(env)) {
+    try {
+      const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
+      pruned += unwrap(await store.pruneConnectionHistory(accountName));
+    } catch (error) {
+      notLookedAt(accountName, 'connection history', error);
+    }
+  }
+  return pruned;
 }
 
 function notLookedAt(accountName: string, what: string, error: unknown): void {

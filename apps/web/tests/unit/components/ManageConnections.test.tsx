@@ -42,6 +42,8 @@ const held = vi.hoisted(() => ({
   sourceNames: {} as Record<string, string> | undefined,
   /** What a connection's history read answers with, or that it fails (issue 1140). */
   history: [] as unknown[] | 'fails',
+  /** Whether that read says older lines remain than it carries (issue 1145). */
+  olderRemain: false,
   /** The connection each history read was for. */
   historyAskedFor: [] as string[],
   /** The Items a press on a named Item asked to open (issue 1141). */
@@ -89,7 +91,7 @@ vi.mock('../../../src/api/client', () => ({
                   return Promise.resolve(
                     held.history === 'fails'
                       ? new Response('', { status: 500 })
-                      : new Response(JSON.stringify({ lines: held.history })),
+                      : new Response(JSON.stringify({ lines: held.history, olderRemain: held.olderRemain })),
                   );
                 },
               },
@@ -230,6 +232,7 @@ beforeEach(() => {
   held.registry = [TEAMS_CARD];
   held.hooksAskedFor = [];
   held.history = [];
+  held.olderRemain = false;
   held.historyAskedFor = [];
   held.opened = [];
   checkedNow = [];
@@ -1367,6 +1370,114 @@ describe('Connector management', () => {
       expect(await within(again).findByRole('button', { name: 'Try again' })).toBeInTheDocument();
       expect(within(again).queryByText('Worked')).toBeNull();
       expect(held.historyAskedFor).toEqual(['account-anna', 'account-anna']);
+    });
+  });
+
+  /** "Keep a connection's history 30 days, and fold a quiet past day into one line", issue 1145. */
+  describe('a past day with no failure folds into one line that expands, and the history says where older days remain', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 9, 16, 14, 0));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const broughtIn = (id: string) => ({
+      did: { ...didNothing, broughtIn: { count: 1, items: [{ id, title: `Item ${id}`, dismissed: false }] } },
+    });
+    /** A day's lines, newest first: 285 quiet checks around three that each brought an Item in. */
+    const aQuietDay = (day: number, over: Record<string, unknown> = {}) => [
+      line({ firstAt: at(day, 18, 0), lastAt: at(day, 23, 55), count: 200 }),
+      line({ firstAt: at(day, 17, 55), lastAt: at(day, 17, 55), ...broughtIn(`${day}-c`) }),
+      line({ firstAt: at(day, 12, 0), lastAt: at(day, 12, 0), ...broughtIn(`${day}-b`), ...over }),
+      line({ firstAt: at(day, 9, 0), lastAt: at(day, 9, 0), ...broughtIn(`${day}-a`) }),
+      line({ firstAt: at(day, 0, 0), lastAt: at(day, 8, 55), count: 85 }),
+    ];
+    const failed = { outcome: 'failed', message: 'unavailable', did: didNothing };
+    const hhmm = (moment: string) => new Date(moment).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    /** Yesterday's quiet day, its first quiet checks folded on from the evening before. */
+    const begunTheEveningBefore = aQuietDay(15).map((one, index, all) =>
+      index === all.length - 1 ? { ...one, firstAt: at(14, 20, 0) } : one,
+    );
+
+    it.each([
+      { situation: 'yesterday, every check worked', lines: aQuietDay(15), day: 'Yesterday', folds: true },
+      {
+        situation: 'yesterday, its first quiet checks begun the evening before',
+        lines: begunTheEveningBefore,
+        day: 'Yesterday',
+        folds: true,
+      },
+      { situation: 'yesterday, with one failure', lines: aQuietDay(15, failed), day: 'Yesterday', folds: false },
+      { situation: 'today, every check worked', lines: aQuietDay(16), day: 'Today', folds: false },
+      { situation: 'yesterday, a single line', lines: aQuietDay(15).slice(0, 1), day: 'Yesterday', folds: false },
+      {
+        situation: 'yesterday, the oldest day shown, where older lines remain than the history shows',
+        lines: aQuietDay(15),
+        day: 'Yesterday',
+        folds: false,
+        olderRemain: true,
+      },
+      {
+        situation: 'yesterday, a pushed connection’s deliveries',
+        lines: aQuietDay(15).slice(1, 4).map((one) => ({ ...one, reason: 'delivery' })),
+        day: 'Yesterday',
+        folds: false,
+        account: PUSHED,
+      },
+    ])('$situation', async ({ lines, day, folds, account = ANNA, olderRemain = false }) => {
+      held.sourceAccounts = [account];
+      held.history = lines;
+      held.olderRemain = olderRemain;
+      showWindow();
+      const history = await openHistory(account);
+
+      const shown = within(await within(history).findByRole('region', { name: day })).getAllByRole('listitem');
+      if (folds) {
+        expect(shown).toHaveLength(1);
+        // The span is the day's own, from its midnight however early its first quiet checks began.
+        expect(shown[0]!.textContent).toBe(
+          `${hhmm(at(15, 0, 0))}–${hhmm(at(15, 23, 55))}Checked 288 times · 3 brought something in · show them`,
+        );
+      } else {
+        expect(shown).toHaveLength(lines.length);
+        expect(within(history).queryByRole('button', { name: 'show them' })).toBeNull();
+      }
+    });
+
+    it('shows the day’s own lines when show them is pressed, and folds them again with hide them', async () => {
+      held.sourceAccounts = [ANNA];
+      held.history = [...aQuietDay(16), ...aQuietDay(15)];
+      showWindow();
+      const history = await openHistory();
+      const yesterday = await within(history).findByRole('region', { name: 'Yesterday' });
+
+      await userEvent.click(within(yesterday).getByRole('button', { name: 'show them' }));
+
+      expect(within(yesterday).getAllByRole('listitem')).toHaveLength(6);
+      expect(within(yesterday).getByRole('button', { name: 'Item 15-b' })).toBeInTheDocument();
+      expect(within(within(history).getByRole('region', { name: 'Today' })).getAllByRole('listitem')).toHaveLength(5);
+      await userEvent.click(within(yesterday).getByRole('button', { name: 'hide them' }));
+      expect(within(yesterday).getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    it.each([
+      {
+        situation: 'older lines remain than the read carries',
+        olderRemain: true,
+        says: `Older days follow, back to ${new Date(2026, 8, 16).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}`,
+      },
+      { situation: 'the read carries every line', olderRemain: false, says: null },
+    ])('ends saying how far back older days go only where $situation', async ({ olderRemain, says }) => {
+      held.sourceAccounts = [ANNA];
+      held.history = [line({})];
+      held.olderRemain = olderRemain;
+      showWindow();
+      const history = await openHistory();
+      await within(history).findByText('Worked');
+
+      expect(within(history).queryByText(/^Older days follow/)?.textContent ?? null).toBe(says);
     });
   });
 });

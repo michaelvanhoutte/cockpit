@@ -1906,7 +1906,7 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      expect(read).toEqual({ status: 'ok', value: [] });
+      expect(read).toEqual({ status: 'ok', value: { lines: [], olderRemain: false } });
       expect(await rowsIn()).toEqual({
         // With `files_by_name` off, which `0078-files-by-name` adds on the same open.
         connections: before.connections.map((row) => ({ ...row, files_by_name: 0 })),
@@ -1935,7 +1935,7 @@ describe('Connector management', () => {
       // With `status` NULL, which `0082-connection-history-status` adds on the same open.
       expect(await linesIn()).toEqual(before.map((row) => ({ ...row, did: null, status: null })));
       const nothing = { count: 0, items: [] };
-      expect(read.status === 'ok' ? read.value : []).toEqual([
+      expect(read.status === 'ok' ? read.value.lines : []).toEqual([
         expect.objectContaining({
           count: 2,
           did: { broughtIn: nothing, closed: nothing, sentBack: nothing, refused: nothing },
@@ -1962,7 +1962,7 @@ describe('Connector management', () => {
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
       expect(await linesIn()).toEqual(before.map((row) => ({ ...row, status: null })));
-      expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ count: 2, status: null })]);
+      expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2, status: null })]);
     });
   });
 
@@ -1984,7 +1984,7 @@ describe('Connector management', () => {
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
       expect(await linesIn()).toEqual(before);
-      expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ count: 2 })]);
+      expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2 })]);
     });
   });
 

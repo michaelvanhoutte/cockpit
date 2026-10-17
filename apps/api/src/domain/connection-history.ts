@@ -4,6 +4,7 @@
  * 1140): one line per real event, consecutive alike checks folded on write -
  * the decision kept here so it is proven without a store.
  */
+import { HISTORY_KEPT_DAYS } from '@cockpit/shared';
 
 /**
  * Why a line was written: a check on the connection's cadence, soon after one
@@ -55,11 +56,21 @@ export const NAMED_MOST_ITEMS = 50;
 export const MESSAGE_MOST_BYTES = 2048;
 
 /**
- * The most lines *History…* reads, newest first. Nothing prunes the history,
- * and a source whose failures never repeat word for word writes a line every
- * check, so the read is capped rather than growing with the connection's age.
+ * The most lines *History…* reads, newest first. The history is kept 30 days
+ * (`HISTORY_KEPT_DAYS`), and a source whose failures never repeat word for word
+ * writes a line every check - 288 a day - so the read is capped as well.
  */
 export const HISTORY_MOST_LINES = 500;
+
+/**
+ * The moment before which a line is past keeping, `HISTORY_KEPT_DAYS` before
+ * `now` ("Keep a connection's history 30 days, and fold a quiet past day into
+ * one line", issue 1145): its end decides,
+ * so a folded line begun before it and ended after it is kept whole.
+ */
+export function historyKeptFrom(now: Date): string {
+  return new Date(now.getTime() - HISTORY_KEPT_DAYS * 24 * 60 * 60 * 1000).toISOString();
+}
 
 /**
  * A failure's message as its line keeps it: at most 2 KB, cut on a character
