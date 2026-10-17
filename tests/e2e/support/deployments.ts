@@ -14,14 +14,15 @@ import { extname, join, normalize, sep } from 'node:path';
  * the build as it is. Each later one is a copy in which every file under
  * `assets/` is renamed and every reference to it rewritten, including the
  * entry module the app reads its own version from (`updating.ts`, `buildOf`)
- * and the precache manifest in `sw.js`, whose `index.html` revision is
+ * and the precache manifest in `sw.js`, whose start page revision is
  * recomputed. So a browser sees a new worker script, new addresses for
  * everything the shell is made of, and an old version whose files are gone.
  *
- * **It copies the two behaviours of Cloudflare the worker depends on, and is
- * not Cloudflare.** A navigation to an address nothing answers gets the start
- * page, and a deploy removes the previous version's files, so what only it had
- * is a 404. Checking staging before promoting still covers the real thing.
+ * **It copies the behaviours of Cloudflare the worker depends on, and is not
+ * Cloudflare.** A navigation to an address nothing answers gets the start page,
+ * `/index.html` is redirected to `/`, and a deploy removes the previous
+ * version's files, so what only it had is a 404. Checking staging before
+ * promoting still covers the real thing.
  *
  * API calls (`/v1/...`) are answered `401`, which is enough for the signed-out
  * shell to open. Nothing here is signed in or stores anything.
@@ -113,7 +114,15 @@ export async function serveDeployments(build: string): Promise<Deployments> {
       response.writeHead(401, { 'content-type': 'application/json' }).end('{}');
       return;
     }
-    const file = join(directory(version), normalize(path));
+    // Cloudflare's default HTML handling: the start page lives at `/`, and asking
+    // for it by its file name is redirected there, query kept. A worker that
+    // hands that redirect to a navigation is what fails it.
+    if (path === '/index.html') {
+      const url = request.url ?? '';
+      response.writeHead(307, { location: url.includes('?') ? `/${url.slice(url.indexOf('?'))}` : '/' }).end();
+      return;
+    }
+    const file = join(directory(version), normalize(path === '/' ? '/index.html' : path));
     const inside = file.startsWith(directory(version) + sep);
     const isFile = inside && existsSync(file) && statSync(file).isFile();
     if (isFile && path.startsWith('/assets/')) {
@@ -215,7 +224,7 @@ function derive(from: string, to: string, version: number): void {
   const revision = createHash('md5').update(readFileSync(join(to, 'index.html'))).digest('hex');
   const worker = join(to, 'sw.js');
   const script = readFileSync(worker, 'utf8');
-  const updated = script.replace(/(url:"index\.html",revision:")[0-9a-f]+(")/, `$1${revision}$2`);
-  if (updated === script) throw new Error('sw.js has no index.html entry in its precache manifest to update');
+  const updated = script.replace(/(url:"\/",revision:")[0-9a-f]+(")/, `$1${revision}$2`);
+  if (updated === script) throw new Error('sw.js has no start page entry (`/`) in its precache manifest to update');
   writeFileSync(worker, updated);
 }

@@ -70,7 +70,20 @@ export default defineConfig({
       // (architecture, "The read model", "Performance budgets"); API
       // calls are never intercepted — the persisted snapshot lives in IndexedDB.
       workbox: {
-        navigateFallback: '/index.html',
+        // The start page is stored under `/`, its address on Cloudflare, rather
+        // than `/index.html`, which Cloudflare redirects to `/`. A navigation the
+        // stored copy cannot answer then falls back to fetching `/`, which
+        // answers with the page; fetching `/index.html` answers with the
+        // redirect, and a browser refuses a redirect as the answer to a
+        // navigation, so the page would fail on every plain reload until a hard
+        // one.
+        navigateFallback: '/',
+        manifestTransforms: [
+          (entries) => ({
+            manifest: entries.map((entry) => (entry.url === 'index.html' ? { ...entry, url: '/' } : entry)),
+            warnings: [],
+          }),
+        ],
         // Prefixes the shell must never answer for. All but the last two are
         // this service's own: they are requests for data, or the consent page
         // an app opens, and a cached page is not an answer to either.
