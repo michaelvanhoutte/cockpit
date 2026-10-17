@@ -326,6 +326,8 @@ const commandSenders = {
   add_panel: (p: CommandPayload<'add_panel'>, o?: ClientRequestOptions) => api.v1.commands.add_panel.$post({ json: p }, o),
   rename_panel: (p: CommandPayload<'rename_panel'>, o?: ClientRequestOptions) =>
     api.v1.commands.rename_panel.$post({ json: p }, o),
+  set_panel_settings: (p: CommandPayload<'set_panel_settings'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_panel_settings.$post({ json: p }, o),
   delete_panel: (p: CommandPayload<'delete_panel'>, o?: ClientRequestOptions) =>
     api.v1.commands.delete_panel.$post({ json: p }, o),
   move_panel_to_dashboard: (p: CommandPayload<'move_panel_to_dashboard'>, o?: ClientRequestOptions) =>

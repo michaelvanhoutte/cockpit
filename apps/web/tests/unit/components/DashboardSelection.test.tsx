@@ -402,17 +402,17 @@ describe('Selection', () => {
 
       await user.click(screen.getByRole('button', { name: 'Actions for Notes' }));
 
-      await screen.findByRole('menuitem', { name: 'Rename' });
+      await screen.findByRole('menuitem', { name: 'Settings…' });
       expect(screen.queryByRole('menuitem', { name: /^Select all/ })).toBeNull();
     });
 
-    it('sits in a group of its own above Rename', async () => {
+    it('sits in a group of its own above Settings…', async () => {
       const user = await showDashboard(TWO_PANELS);
 
       await user.click(screen.getByRole('button', { name: 'Actions for To read' }));
 
       const entries = (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
-      expect(entries.slice(0, 2)).toEqual(['Select all', 'Rename']);
+      expect(entries.slice(0, 2)).toEqual(['Select all', 'Settings…']);
     });
   });
 

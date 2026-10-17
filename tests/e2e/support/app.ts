@@ -689,11 +689,23 @@ export async function choosePanelAction(
   } else {
     await header.click({ button: 'right' });
   }
-  // A setting's entry is a checkbox entry (`Never propose`), the rest actions.
-  await press(
-    page.getByRole('menuitem', { name: entry }).or(page.getByRole('menuitemcheckbox', { name: entry })),
-    isMobile,
-  );
+  await press(page.getByRole('menuitem', { name: entry }), isMobile);
+}
+
+/**
+ * Opens a panel's Panel settings form from its menu and returns it, for the
+ * walk to fill and save ("Change a Panel's name and settings in one Panel
+ * settings form", issue 1206).
+ */
+export async function openPanelSettings(
+  page: Page,
+  panelName: string,
+  isMobile: boolean,
+): Promise<Locator> {
+  await choosePanelAction(page, panelName, 'Settings…', isMobile);
+  const form = page.getByRole('dialog', { name: 'Panel settings' });
+  await expect(form).toBeVisible();
+  return form;
 }
 
 /**

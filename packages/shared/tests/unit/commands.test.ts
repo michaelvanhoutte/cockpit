@@ -8,6 +8,7 @@ import {
   proposeItemTextsSchema,
   setDuplicateSettledSchema,
   setPanelFilterSchema,
+  setPanelSettingsSchema,
   setPanelSortSchema,
 } from '../../src/commands.js';
 
@@ -331,6 +332,31 @@ describe('Triage', () => {
           }).success,
         ).toBe(true);
       }
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a save that cannot be a rename, or says nothing, is refused before it is sent', () => {
+    const base = {
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: 'ws-work',
+      panelId: uuidv7(),
+    };
+
+    it.each([
+      { situation: 'a name of one character', changes: { name: 'x' }, accepted: true },
+      { situation: 'a name of 60 characters', changes: { name: 'x'.repeat(60) }, accepted: true },
+      { situation: 'a name of 61 characters', changes: { name: 'x'.repeat(61) }, accepted: false },
+      { situation: 'a name of nothing but blanks', changes: { name: '   ' }, accepted: false },
+      { situation: 'an empty name', changes: { name: '' }, accepted: false },
+      { situation: 'Never propose alone', changes: { neverPropose: false }, accepted: true },
+      { situation: 'read-only and formatting alone', changes: { readOnly: true, format: 'rich' }, accepted: true },
+      { situation: 'a way of drawing nothing knows about', changes: { format: 'html' }, accepted: false },
+      { situation: 'nothing at all', changes: {}, accepted: false },
+    ])('$situation', ({ changes, accepted }) => {
+      expect(setPanelSettingsSchema.safeParse({ ...base, ...changes }).success).toBe(accepted);
     });
   });
 });

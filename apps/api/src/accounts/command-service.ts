@@ -1296,6 +1296,36 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
+    case 'set_panel_settings': {
+      const cmd = payload as CommandPayload<'set_panel_settings'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // Every refusal is decided before the transaction opens, so a refused
+      // field writes none of the others.
+      if (cmd.neverPropose !== undefined) refuseAPanelNothingIsFiledOn(panel);
+      if (cmd.readOnly !== undefined || cmd.format !== undefined) refuseUnlessPanelOfText(panel);
+      if (cmd.name !== undefined) {
+        const alreadyCalledThat = panelNamed(
+          listPanels(db, tenantId, panel.dashboardId),
+          cmd.name,
+          panel.id,
+        );
+        if (alreadyCalledThat) throw new PanelNameTakenError(alreadyCalledThat.name);
+      }
+      db.transaction((tx) => {
+        tx.update(panels)
+          .set({
+            // `foldedName` alongside `name`, as `rename_panel` writes them.
+            ...(cmd.name !== undefined ? { name: cmd.name, foldedName: foldName(cmd.name) } : {}),
+            ...(cmd.neverPropose !== undefined ? { neverPropose: cmd.neverPropose } : {}),
+            ...(cmd.readOnly !== undefined ? { readOnly: cmd.readOnly } : {}),
+            ...(cmd.format !== undefined ? { format: cmd.format } : {}),
+          })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'delete_panel': {
       const cmd = payload as CommandPayload<'delete_panel'>;
       // A panel already deleted is not there to delete again, so the same
