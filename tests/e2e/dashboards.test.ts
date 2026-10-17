@@ -776,8 +776,13 @@ test.describe('Dashboards', () => {
       await page.keyboard.press('g');
       await list.getByRole('button', { name: 'All' }).click();
       await page.keyboard.type(abroad.name);
-      await page.keyboard.press('ArrowDown');
-      await expect(page).toHaveURL(new RegExp(`/w/${abroad.id}/d/`));
+      // Its snapshot is read when All is chosen: after a reload nothing is held to answer from, so the list has to wait for it.
+      await expect(list.getByRole('heading', { name: abroad.name, level: 3 })).toBeVisible();
+      // Until the other Workspaces' snapshots have landed a highlight can be taken back, so the press is repeated until it holds.
+      await expect(async () => {
+        await page.keyboard.press('ArrowDown');
+        await expect(page).toHaveURL(new RegExp(`/w/${abroad.id}/d/`), { timeout: 1_000 });
+      }).toPass();
       await page.keyboard.press('Enter');
       await expect(list).toHaveCount(0);
       await expect(page).toHaveURL(new RegExp(`/w/${abroad.id}/d/`));
