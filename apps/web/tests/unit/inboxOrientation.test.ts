@@ -139,13 +139,20 @@ function list(order: string[]) {
 }
 
 describe('Triage', () => {
-  let animations: { id: string; keyframes: Keyframe[] }[];
+  let animations: { id: string; keyframes: Keyframe[]; end(event: 'finish' | 'cancel'): void }[];
   beforeEach(() => {
     vi.useFakeTimers();
     animations = [];
     Element.prototype.animate = function (this: HTMLElement, keyframes: Keyframe[]) {
-      animations.push({ id: this.dataset.itemId!, keyframes });
-      return {} as Animation;
+      const heard: Record<string, (() => void)[]> = {};
+      animations.push({
+        id: this.dataset.itemId!,
+        keyframes,
+        end: (event) => (heard[event] ?? []).forEach((listener) => listener()),
+      });
+      return {
+        addEventListener: (event: string, listener: () => void) => (heard[event] ??= []).push(listener),
+      } as unknown as Animation;
     };
   });
   afterEach(() => {
@@ -213,8 +220,83 @@ describe('Triage', () => {
       row('a').dispatchEvent(new MouseEvent(kind, { bubbles: true, cancelable: true }));
       expect(acted).not.toHaveBeenCalled();
 
-      vi.advanceTimersByTime(SLIDE_MS);
+      for (const slide of animations) slide.end('finish');
       row('a').dispatchEvent(new MouseEvent(kind, { bubbles: true, cancelable: true }));
+      expect(acted).toHaveBeenCalledTimes(1);
+      oriented.detach();
+    });
+
+    it('lets a press through once the slide has finished, though the timer has not fired', () => {
+      const { box, place, row } = list(['a', 'b']);
+      const oriented = orient(box);
+      const acted = vi.fn();
+      box.addEventListener('click', acted);
+      oriented.read();
+      place(['b', 'a']);
+      oriented.settle([]);
+      for (const slide of animations.filter((a) => 'transform' in a.keyframes[0]!)) slide.end('finish');
+
+      row('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      expect(acted).toHaveBeenCalledTimes(1);
+      oriented.detach();
+    });
+
+    it('lets a press through once the slide has been cancelled', () => {
+      const { box, place, row } = list(['a', 'b']);
+      const oriented = orient(box);
+      const acted = vi.fn();
+      box.addEventListener('click', acted);
+      oriented.read();
+      place(['b', 'a']);
+      oriented.settle([]);
+      animations.find((a) => 'transform' in a.keyframes[0]!)!.end('cancel');
+
+      row('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      expect(acted).toHaveBeenCalledTimes(1);
+      oriented.detach();
+    });
+
+    it('keeps swallowing presses when a second slide starts before the first has ended, until the second ends', () => {
+      const { box, place, row } = list(['a', 'b']);
+      const oriented = orient(box);
+      const acted = vi.fn();
+      box.addEventListener('click', acted);
+      const click = () => row('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      const slides = () => animations.filter((a) => 'transform' in a.keyframes[0]!);
+
+      oriented.read();
+      place(['b', 'a']);
+      oriented.settle([]);
+      const first = slides();
+      vi.advanceTimersByTime(100);
+      oriented.read();
+      place(['a', 'b']);
+      oriented.settle([]);
+      const second = slides().filter((slide) => !first.includes(slide));
+
+      for (const slide of first) slide.end('finish');
+      click();
+      expect(acted).not.toHaveBeenCalled();
+
+      for (const slide of second) slide.end('finish');
+      click();
+      expect(acted).toHaveBeenCalledTimes(1);
+      oriented.detach();
+    });
+
+    it('falls back to the timer where the slide cannot be followed', () => {
+      Element.prototype.animate = () => ({}) as Animation;
+      const { box, place, row } = list(['a', 'b']);
+      const oriented = orient(box);
+      const acted = vi.fn();
+      box.addEventListener('click', acted);
+      oriented.read();
+      place(['b', 'a']);
+      oriented.settle([]);
+      row('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      expect(acted).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(SLIDE_MS);
+      row('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       expect(acted).toHaveBeenCalledTimes(1);
       oriented.detach();
     });

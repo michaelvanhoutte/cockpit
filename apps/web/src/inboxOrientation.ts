@@ -78,6 +78,7 @@ export function orient(box: HTMLElement) {
   let seen: Seen | null = null;
   let pointerOn: string | null = null;
   let sliding = false;
+  let generation = 0;
   let slideOver: ReturnType<typeof setTimeout> | undefined;
 
   const track = (event: Event) => {
@@ -125,17 +126,33 @@ export function orient(box: HTMLElement) {
       const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
       if (slides.length > 0 && !still) {
-        for (const { id, dy } of slides) {
-          rowOf(id)?.animate?.([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], {
+        const started = slides.flatMap(({ id, dy }) => {
+          const slide = rowOf(id)?.animate?.([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], {
             duration: SLIDE_MS,
             easing: 'ease-out',
           });
-        }
+          return slide ? [slide] : [];
+        });
+        // The guard ends when the slide does, not when a timer says it should
+        // have: on a busy machine the timer fires late, and a row that has
+        // visibly landed would swallow the press meant for it. A slide that
+        // began since is not ended by an earlier one finishing.
+        const mine = ++generation;
         sliding = true;
         clearTimeout(slideOver);
-        slideOver = setTimeout(() => {
+        const over = () => {
+          if (generation !== mine) return;
           sliding = false;
-        }, SLIDE_MS);
+          clearTimeout(slideOver);
+        };
+        const followed = started.filter((slide) => typeof slide.addEventListener === 'function');
+        for (const slide of followed) {
+          slide.addEventListener('finish', over, { once: true });
+          slide.addEventListener('cancel', over, { once: true });
+        }
+        // The timer is the way out where the slide cannot be followed, and a
+        // backstop where it can, should neither event ever fire.
+        slideOver = setTimeout(over, followed.length > 0 ? SLIDE_MS * 4 : SLIDE_MS);
       }
       for (const id of flashes) {
         const mark = 'inset 0 0 0 2px var(--color-accent)';
@@ -151,6 +168,7 @@ export function orient(box: HTMLElement) {
       }
     },
     detach() {
+      generation++;
       clearTimeout(slideOver);
       sliding = false;
       box.removeEventListener('pointermove', track);
