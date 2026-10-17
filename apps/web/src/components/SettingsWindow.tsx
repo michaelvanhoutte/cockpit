@@ -9,9 +9,10 @@ import { SettingsModal } from './SettingsModal';
 const ManageConnections = lazy(() => import('./ManageConnections'));
 const ManageConnectedApps = lazy(() => import('./ManageConnectedApps'));
 const ManageAppearance = lazy(() => import('./ManageAppearance'));
+const ManageRememberedSentences = lazy(() => import('./ManageRememberedSentences'));
 
 /** The sections of Settings, in the order they are listed. */
-export type SettingsKey = 'connections' | 'agents' | 'mcp' | 'appearance';
+export type SettingsKey = 'connections' | 'agents' | 'mcp' | 'remembered' | 'appearance';
 
 /** How a trip out to Microsoft or Google ended, and the workspace it was made from. */
 export interface ConnectOutcomeFor {
@@ -23,7 +24,7 @@ export interface ConnectOutcomeFor {
 
 /**
  * Settings: the account's Gmail and Teams connections, the Claude Code
- * connection and the MCP apps, each the content of the window it used to have
+ * connection, the MCP apps and the sentences Cockpit remembers, each the content of the window it used to have
  * ("Open Settings from the profile menu, with connections, agent
  * settings and MCP as its sections", issue 693).
  */
@@ -32,6 +33,7 @@ export default function SettingsWindow({
   startsIn,
   outcome,
   guest,
+  sentenceId,
   onlyAppearance,
   onClose,
   returnFocusTo,
@@ -44,6 +46,8 @@ export default function SettingsWindow({
   outcome?: ConnectOutcomeFor | undefined;
   /** The shared guest, who is offered no connection to make (issue 772). */
   guest?: boolean | undefined;
+  /** The remembered sentence *What Cockpit remembers* opens for editing, where a window that used it sent the person here. */
+  sentenceId?: string | undefined;
   /** On a phone, which holds Appearance and nothing else: the rest of Settings is for a desk. */
   onlyAppearance?: boolean | undefined;
   onClose: () => void;
@@ -68,6 +72,7 @@ export default function SettingsWindow({
           content: <ConnectionsOf section="agents" startsIn={startsIn} guest={guest} onClose={onClose} />,
         },
         { key: 'mcp', label: 'MCP', content: <ManageConnectedApps open onClose={onClose} /> },
+        { key: 'remembered', label: 'What Cockpit remembers', content: <ManageRememberedSentences focus={sentenceId} /> },
         appearance,
       ]}
     />

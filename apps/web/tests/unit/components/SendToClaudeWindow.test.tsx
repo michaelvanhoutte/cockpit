@@ -4,6 +4,7 @@ import { MAX_CLAUDE_LINK_LENGTH, type ClaudeProposal } from '@cockpit/shared';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import SendToClaudeWindow from '../../../src/components/SendToClaudeWindow';
+import { SettingsOpener } from '../../../src/settingsOpener';
 
 /**
  * F1: what the review window draws and what it does on Open. That the Run is
@@ -24,6 +25,11 @@ const held = vi.hoisted(() => ({
   /** The runs an offer to remember was asked for, and what the server answers to it. */
   offersAsked: [] as string[],
   offer: null as (() => Promise<Response>) | null,
+  /** The remembered sentences the account holds, as Settings lists them, and how often they were read. */
+  sentences: [] as unknown[],
+  sentencesRead: 0,
+  /** The sentences *change* was pressed on. */
+  settingsOpened: [] as unknown[][],
 }));
 
 vi.mock('../../../src/api/client', () => ({
@@ -40,6 +46,12 @@ vi.mock('../../../src/api/client', () => ({
               return held.offer ? held.offer() : Promise.resolve(new Response(JSON.stringify({ offer: null })));
             },
           },
+        },
+      },
+      'remembered-sentences': {
+        $get: () => {
+          held.sentencesRead += 1;
+          return Promise.resolve(new Response(JSON.stringify({ sentences: held.sentences })));
         },
       },
       'attachment-links': {
@@ -88,13 +100,15 @@ function showWindow(attachments = [PNG], item: typeof ITEM = ITEM) {
   const onClose = vi.fn();
   render(
     <QueryClientProvider client={client}>
-      <SendToClaudeWindow
-        item={item}
-        workspaceId="ws-1"
-        attachments={attachments}
-        onClose={onClose}
-        sourceNames={{ gmail: 'Gmail' }}
-      />
+      <SettingsOpener.Provider value={(...args) => void held.settingsOpened.push(args)}>
+        <SendToClaudeWindow
+          item={item}
+          workspaceId="ws-1"
+          attachments={attachments}
+          onClose={onClose}
+          sourceNames={{ gmail: 'Gmail' }}
+        />
+      </SettingsOpener.Provider>
     </QueryClientProvider>,
   );
   return { onClose };
@@ -115,6 +129,9 @@ beforeEach(() => {
   held.sendFails = null;
   held.offersAsked = [];
   held.offer = null;
+  held.sentences = [];
+  held.sentencesRead = 0;
+  held.settingsOpened = [];
   try {
     window.localStorage.clear();
   } catch {
@@ -464,6 +481,68 @@ describe('Agents', () => {
       expect(held.opened).toHaveLength(1);
       expect(held.sent).toHaveLength(1);
       expect(screen.queryByLabelText('Remember this?')).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe('Agents', () => {
+  describe('the window names the sentences that shaped this proposal, each with a way to change it', () => {
+    const SENTENCE = (id: string, sentence: string) => ({
+      id,
+      sentence,
+      action: 'reply to a mail',
+      sourceKind: 'gmail',
+      workspaceId: null,
+      workspaceName: null,
+      useCount: 1,
+      lastUsedAt: '2026-10-17T10:00:00.000Z',
+      createdAt: '2026-10-16T10:00:00.000Z',
+    });
+    const FIRST = '018f0000-0000-7000-8000-0000000000a1';
+    const SECOND = '018f0000-0000-7000-8000-0000000000a2';
+    const GONE = '018f0000-0000-7000-8000-0000000000a3';
+    const REPLY: ClaudeProposal = {
+      destination: 'cowork',
+      label: 'Draft the reply',
+      folder: '',
+      prompt: 'Draft a reply to the supplier saying it is paid.',
+      learnedFrom: [FIRST, SECOND, GONE],
+    };
+
+    it('names each sentence that is still remembered, as it now reads, and none that was deleted', async () => {
+      held.sentences = [SENTENCE(FIRST, 'Mails to the supplier: Dutch.'), SENTENCE(SECOND, 'Sign as Michael.')];
+
+      showWindow([], { ...ITEM, claudeProposals: [REPLY] });
+
+      const learned = (await screen.findByText('Learned from you')).parentElement!;
+      expect(within(learned).getByText('Mails to the supplier: Dutch.')).toBeInTheDocument();
+      expect(within(learned).getByText('Sign as Michael.')).toBeInTheDocument();
+      expect(within(learned).getAllByRole('listitem')).toHaveLength(2);
+    });
+
+    it('opens Settings on the sentence when change is pressed, leaving the window where it was', async () => {
+      held.sentences = [SENTENCE(FIRST, 'Mails to the supplier: Dutch.')];
+      const user = userEvent.setup();
+      const { onClose } = showWindow([], { ...ITEM, claudeProposals: [{ ...REPLY, learnedFrom: [FIRST] }] });
+
+      await user.click(await screen.findByRole('button', { name: 'Change \u201cMails to the supplier: Dutch.\u201d' }));
+
+      expect(held.settingsOpened).toEqual([[FIRST]]);
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { situation: 'the proposal learned from nothing', claudeProposals: [{ ...REPLY, learnedFrom: undefined }], reads: false },
+      { situation: 'every sentence it learned from has been deleted', claudeProposals: [REPLY], reads: true },
+      { situation: 'nothing has been proposed yet', claudeProposals: null, reads: false },
+    ])('has no line where $situation', async ({ claudeProposals, reads }) => {
+      showWindow([], { ...ITEM, claudeProposals });
+
+      await prompt();
+      // Where the sentences are read, the answer has come back before the absence means anything.
+      if (reads) await waitFor(() => expect(held.sentencesRead).toBeGreaterThan(0));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(screen.queryByText('Learned from you')).not.toBeInTheDocument();
     });
   });
 });

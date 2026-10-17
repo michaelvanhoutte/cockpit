@@ -216,7 +216,7 @@ describe('Across the app', () => {
       expect(await screen.findByRole('menuitem', { name: 'Settings…' })).toBeVisible();
     });
 
-    it('opens on Appearance alone on a phone-width screen, and on Connections with Appearance after MCP at a desk', async () => {
+    it('opens on Appearance alone on a phone-width screen, and on Connections with Appearance last at a desk', async () => {
       const user = userEvent.setup();
       const sections = async (desk: boolean) => {
         onADesk(desk);
@@ -235,7 +235,7 @@ describe('Across the app', () => {
 
       expect(await sections(false)).toEqual({ listed: ['Appearance'], current: 'Appearance' });
       expect(await sections(true)).toEqual({
-        listed: ['Connections', 'Agent settings', 'MCP', 'Appearance'],
+        listed: ['Connections', 'Agent settings', 'MCP', 'What Cockpit remembers', 'Appearance'],
         current: 'Connections',
       });
     });

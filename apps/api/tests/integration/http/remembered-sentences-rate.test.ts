@@ -36,6 +36,28 @@ describe('Agents', () => {
       expect(statuses.slice(10)).toEqual([409, 409]);
     });
 
+    it('counts rewording and deleting in the same minute as Remember, since each asks for Items to be proposed again', async () => {
+      const sentenceId = nextId();
+      const first = await remember('Sentence number 0.', { sentenceId });
+      for (let at = 1; at < 9; at += 1) await remember(`Sentence number ${at}.`);
+      const reworded = await postChange('edit_remembered_sentence', {
+        commandId: nextId(),
+        issuedAt: AT,
+        workspaceId: ACCOUNT_WIDE,
+        sentenceId,
+        sentence: 'Sentence number zero.',
+      });
+      const forgotten = await postChange('delete_remembered_sentence', {
+        commandId: nextId(),
+        issuedAt: AT,
+        workspaceId: ACCOUNT_WIDE,
+        sentenceId,
+      });
+
+      expect([first.status, reworded.status, forgotten.status]).toEqual([200, 200, 409]);
+      expect(((await forgotten.json()) as { error: string }).error).toMatch(/too many/i);
+    });
+
     it('asks the model for ten offers in a minute and for no more, each later one answering no offer', async () => {
       offering.answer = { sentence: 'Dutch, short.', action: 'reply to a mail', workspace: '' };
       const itemId = await captureANote({ itemId: nextId(), workspaceId: WORKSPACE_ID });

@@ -1,4 +1,5 @@
 import { REMEMBERED_SENTENCES_SHOWN } from '@cockpit/shared';
+import { LINK_OR_COMMAND, folded, pointsSomewhere } from './pointing.js';
 
 /**
  * Which remembered sentences shape a proposal ("Remember an edit as a sentence
@@ -57,3 +58,23 @@ function saidAs(one: Pick<RememberedSentence, 'sentence'>): string {
 
 /** The most open Items a newly remembered sentence has proposed again at once: the newest, so a long Inbox is not all re-read together. */
 export const ITEMS_PROPOSED_AGAIN = 20;
+
+/** What a person is told when a sentence is refused for pointing somewhere. */
+export const SENTENCE_POINTS_SOMEWHERE = 'Cockpit cannot remember a sentence that names an address, a link, a phone number or a command.';
+
+/** Words on one line, as a sentence and the kind of action are kept. */
+export function onOneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Whether a sentence, and the kind of action it is for where one is given, may
+ * be kept. The one check a sentence is held to whether it is remembered or
+ * reworded later ("See and change what Cockpit remembers", issue 1164): it is
+ * shown to every later proposal, and what the person typed may have been pasted.
+ * Takes the words already on one line.
+ */
+export function sentenceMayBeKept(sentence: string, action?: string): boolean {
+  if (sentence === '' || pointsSomewhere(sentence) || LINK_OR_COMMAND.test(folded(sentence))) return false;
+  return action === undefined || !pointsSomewhere(action);
+}

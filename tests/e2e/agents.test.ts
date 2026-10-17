@@ -569,6 +569,73 @@ test.describe('Agents', () => {
     });
   });
 
+  test.describe('a remembered sentence is changed from the window that used it', () => {
+    /**
+     * The guest, for the reason the walk below it is. This stack has no model, so
+     * no proposal is ever made with a sentence: the one response that says so is
+     * the snapshot, with the model's part (a proposal naming the sentence) put
+     * into it at the network boundary, as a third party is. Everything else is
+     * real: the sentence is kept through its command, listed, reworded and read
+     * back through Settings. That the window names it and opens Settings on it is
+     * apps/web/tests/unit/components/SendToClaudeWindow.test.tsx; that a reworded or
+     * deleted sentence changes what is proposed is
+     * apps/api/tests/integration/http/remembered-sentences-manage.test.ts.
+     */
+    test('goes from the window to the sentence in Settings, rewords it, and comes back to the window', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'Settings on a phone holds Appearance alone');
+      const title = 'Look into a cheaper energy tariff';
+      const sentenceId = randomUUID();
+      await page.route('**/v1/workspaces/*/snapshot*', async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as { items?: { title: string; claudeProposals: { learnedFrom?: string[] }[] | null }[] };
+        for (const item of body.items ?? []) {
+          if (item.title === title) item.claudeProposals = (item.claudeProposals ?? []).map((one) => ({ ...one, learnedFrom: [sentenceId] }));
+        }
+        await route.fulfill({ response, json: body });
+      });
+      await page.goto('/signin');
+      await press(page.getByRole('link', { name: 'Continue as guest' }), isMobile);
+      await dashboardBar(page).or(captureBox(page)).first().waitFor({ state: 'visible' });
+      await pastCapture(page, isMobile);
+      await expect(inbox(page)).toBeVisible();
+      const kept = await page.request.post('/v1/commands/remember_sentence', {
+        data: {
+          commandId: randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: ACCOUNT_WIDE,
+          sentenceId,
+          sentence: 'Replies: Dutch, short.',
+          action: 'reply to a mail',
+          sourceKind: 'gmail',
+        },
+      });
+      expect(kept.status()).toBe(200);
+
+      await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Send to Claude…' }), isMobile);
+      const review = page.getByRole('dialog', { name: `Send “${title}” to Claude` });
+      await expect(review.getByText('Replies: Dutch, short.')).toBeVisible();
+      await press(review.getByRole('button', { name: 'Change “Replies: Dutch, short.”' }), isMobile);
+
+      // Settings is over the window, on the sentence, ready to reword.
+      const settings = page.getByRole('dialog', { name: 'Settings' });
+      await expect(settings.getByRole('heading', { name: 'What Cockpit remembers', exact: true })).toBeVisible();
+      const box = settings.getByLabel('Sentence');
+      await expect(box).toHaveValue('Replies: Dutch, short.');
+      await box.fill('Replies: Dutch, short, signed M.');
+      const reworded = page.waitForResponse(
+        (response) => response.request().method() === 'POST' && /\/v1\/commands\/edit_remembered_sentence$/.test(response.url()),
+      );
+      await press(settings.getByRole('button', { name: 'Save' }), isMobile);
+      expect((await reworded).status()).toBe(200);
+      await expect(settings.getByText('Replies: Dutch, short, signed M.')).toBeVisible();
+
+      await closeSettings(page, isMobile);
+      await expect(review).toBeVisible();
+      await expect(review.getByText('Replies: Dutch, short, signed M.')).toBeVisible();
+    });
+  });
+
   test.describe('an edit to a proposal is offered back as a sentence to remember', () => {
     /**
      * The guest, because its Items carry proposals from the start and this

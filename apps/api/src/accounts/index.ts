@@ -8,6 +8,7 @@ import type {
   ServerEvent,
   SourceAccount,
   Workspace,
+  RememberedSentenceView,
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
@@ -176,6 +177,8 @@ export interface Account {
   claudeProposalContext(itemId: string, model: string): Promise<ClaudeProposalContext>;
   /** The send kept under a Run, with what an offer to remember a sentence is made from (issue 1163); null where none was kept. */
   sendToOfferOn(runId: string): Promise<SendToOfferOn | null>;
+  /** The account's remembered sentences, newest first (issue 1164). */
+  rememberedSentences(): Promise<RememberedSentenceView[]>;
   /** The open Items a sentence for this kind of source, in this Workspace or in any, may fit (issue 1163). */
   openItemsASentenceMayFit(sourceKind: string, workspaceId: string | null): Promise<string[]>;
   /**
@@ -429,6 +432,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     itemIsFiled: async (itemId) => unwrap(await store.itemIsFiled(accountName, itemId)),
     claudeProposalContext: async (itemId, model) => unwrap(await store.claudeProposalContext(accountName, itemId, model)),
     sendToOfferOn: async (runId) => unwrap(await store.sendToOfferOn(accountName, runId)),
+    rememberedSentences: async () => unwrap(await store.rememberedSentences(accountName)),
     openItemsASentenceMayFit: async (sourceKind, workspaceId) =>
       unwrap(await store.openItemsASentenceMayFit(accountName, sourceKind, workspaceId)),
     unfiledItemsInWorkspace: async (workspaceId) =>

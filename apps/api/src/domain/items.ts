@@ -479,7 +479,13 @@ export function applyProposedPanel(item: Item, cmd: ProposeItemPanelCommand): It
 export function applyClaudeProposals(item: Item, cmd: ProposeItemForClaudeCommand): Item | null {
   if (item.updatedAt !== cmd.madeFrom) return null;
   if (item.completedAt !== null || item.deletedAt !== null) return null;
-  return { ...item, claudeProposals: cmd.proposals };
+  // Each action says which remembered sentences it was made with, for the
+  // review window's *Learned from you* line (issue 1164); none where none were.
+  const learnedFrom = cmd.usedSentenceIds ?? [];
+  const proposals = cmd.proposals.map((one) =>
+    one.destination === 'nothing' || learnedFrom.length === 0 ? one : { ...one, learnedFrom },
+  );
+  return { ...item, claudeProposals: proposals };
 }
 
 /**

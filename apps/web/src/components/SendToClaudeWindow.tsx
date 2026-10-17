@@ -24,6 +24,8 @@ import { useSendCommand } from '../api/queries';
 import { openClaude } from '../openClaude';
 import { RememberASentence } from './RememberASentence';
 import { connectedAppsQuery } from './ManageConnectedApps';
+import { rememberedSentencesQuery } from '../rememberedSentences';
+import { useOpenSettings } from '../settingsOpener';
 import { capturingApp, sourceNamed, type SourceNames } from '../itemSource';
 
 /**
@@ -126,6 +128,12 @@ export function SendToClaudeWindow({
   });
   const ready = !links.isPending;
   const apps = useQuery(connectedAppsQuery);
+  // The sentences this proposal was made with, as they read now: one since
+  // deleted names nothing, and one reworded shows its new words (issue 1164).
+  const learnedFrom = action?.learnedFrom ?? [];
+  const sentences = useQuery({ ...rememberedSentencesQuery, enabled: learnedFrom.length > 0 });
+  const learned = (sentences.data?.sentences ?? []).filter((one) => learnedFrom.includes(one.id));
+  const openSettings = useOpenSettings();
 
   // Where an Item someone else sent came from; an app's capture is named by the app alone.
   const from: ProposedFrom | null =
@@ -256,6 +264,30 @@ export function SendToClaudeWindow({
 
             {actions.length === 1 && from && (
               <p className="mt-4 text-sm text-ink-soft">Cockpit proposes this from {messageFrom(from)}. Check what it asks before you send.</p>
+            )}
+
+            {learned.length > 0 && (
+              <div className="mt-4 text-sm text-ink-soft">
+                <p className="font-medium text-ink">Learned from you</p>
+                <ul className="mt-1 flex flex-col gap-1">
+                  {learned.map((one) => (
+                    <li key={one.id} className="flex items-baseline gap-2">
+                      <q className="min-w-0 flex-1 italic">{one.sentence}</q>
+                      {openSettings && (
+                        <button
+                          type="button"
+                          disabled={sending}
+                          aria-label={`Change “${one.sentence}”`}
+                          onClick={() => openSettings(one.id)}
+                          className="shrink-0 rounded px-1.5 text-accent-deep underline hover:bg-accent-tint disabled:opacity-50"
+                        >
+                          change
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
 
             {nothing && (

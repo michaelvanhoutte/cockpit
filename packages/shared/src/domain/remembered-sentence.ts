@@ -24,8 +24,8 @@ export const REMEMBERED_SENTENCES_SHOWN = 8;
 export const rememberOfferSchema = z.object({
   sentence: z.string().trim().min(1).max(REMEMBERED_SENTENCE_LIMIT),
   action: z.string().trim().min(1).max(REMEMBERED_ACTION_LIMIT),
-  /** The Workspace the sentence names, or null for every Workspace. */
-  workspaceId: z.uuid().nullable(),
+  /** The Workspace the sentence names, or null for every Workspace. Not a uuid: an account's first Workspace is `ws-1`. */
+  workspaceId: z.string().nullable(),
   workspaceName: z.string().nullable(),
   /** Where the Item the edit was on came from, as the Item names it: what "a kind of action" is matched on. */
   sourceKind: z.string().min(1).max(100),
@@ -53,3 +53,29 @@ export function editedTheProposal(
     proposed.prompt.trim() !== sent.prompt.trim()
   );
 }
+
+/** One remembered sentence as Settings lists it ("See and change what Cockpit remembers", issue 1164). */
+export const rememberedSentenceViewSchema = z.object({
+  id: z.uuid(),
+  sentence: z.string(),
+  /** The kind of action it applies to, as the model named it. */
+  action: z.string(),
+  /** Where the Items it applies to came from: a connector or kind of source, as the Item names it. */
+  sourceKind: z.string(),
+  /**
+   * The Workspace it names, or null for every Workspace. Not a uuid: an
+   * account's first Workspace is `ws-1`, and a list that would not parse for
+   * a sentence naming it would show none of the others either.
+   */
+  workspaceId: z.string().nullable(),
+  /** That Workspace's name, null where it names none or the Workspace is gone. */
+  workspaceName: z.string().nullable(),
+  useCount: z.number().int().nonnegative(),
+  lastUsedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type RememberedSentenceView = z.infer<typeof rememberedSentenceViewSchema>;
+
+/** The account's remembered sentences, the newest first. */
+export const rememberedSentenceListSchema = z.object({ sentences: z.array(rememberedSentenceViewSchema) });
+export type RememberedSentenceList = z.infer<typeof rememberedSentenceListSchema>;

@@ -398,7 +398,7 @@
     {
       "key": "Agents",
       "label": "Agents",
-      "browserWalks": 7,
+      "browserWalks": 8,
       "parent": "Workspaces",
       "sourcePatterns": [
         "packages/shared/src/domain/agent.ts",

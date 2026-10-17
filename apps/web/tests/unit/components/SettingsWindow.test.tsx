@@ -171,6 +171,7 @@ describe('Across the app', () => {
         'Connections',
         'Agent settings',
         'MCP',
+        'What Cockpit remembers',
         'Appearance',
       ]);
     });
