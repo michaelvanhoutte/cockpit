@@ -66,7 +66,7 @@ On an Item's phone page the fields are one wrapping row of pill chips, 36px tall
 
 ## The dark appearance
 
-The whole app, logon page included, when the device is set to dark or the choice stored on this device (`cockpit.appearance`: `light` or `dark`, absent for Match device) says so. **Dimmed, not inverted**, like the Car view's night: a near-black page, grey ink, each surface one notch lighter, the wells sunk below the page. The top bar is graphite already and unchanged. The same names take a second set of values under `html[data-app-dark]` in `styles.css`; **a new colour is light until it is given a value there**. Every text below is at least 4.5:1 on what it is drawn on, held by `workspace-themes.test.ts` (the accent) and `appearanceTokens.test.ts` (the rest).
+The whole app, logon page included, when the device is set to dark or the choice stored on this device (`cockpit.appearance`: `light` or `dark`, absent for Match device) says so. **Dimmed, not inverted**, like the Car view's night: a near-black page, grey ink, a dialog or card set apart by its ring and shadow rather than by its tone, and the wells sunk far enough below the page to show by tone alone. The top bar is graphite already and unchanged. The same names take a second set of values under `html[data-app-dark]` in `styles.css`; **a new colour is light until it is given a value there**. Every text below is at least 4.5:1 on what it is drawn on, held by `workspace-themes.test.ts` (the accent) and `appearanceTokens.test.ts` (the rest).
 
 | Name | Dark value |
 |---|---|

@@ -332,7 +332,11 @@ html[data-app-dark] {
   --shadow-raised: 0 0 0 1px rgb(255 255 255 / 0.1), 0 12px 28px rgb(0 0 0 / 0.55);
   --shadow-field: inset 0 1px 2px rgb(0 0 0 / 0.35);
 }
-/* The wells are shares of the page (56% and 66% of it), so they follow `--ground`; on the default page they land on #141418 and #17181c, a step the eye can see by tone alone. */
+/*
+ * The wells are shares of the page (56% and 66% of it), so they follow
+ * `--ground`: on the dark page they land on #141418 and #17181c, a step that
+ * shows by tone alone, without a border.
+ */
 html[data-app-dark] .well {
   background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 56%, black);
   box-shadow:
