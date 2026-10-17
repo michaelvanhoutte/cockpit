@@ -117,6 +117,22 @@ describe('Agents', () => {
           waiting: false,
         },
         {
+          situation: 'needing you in the guest demo, its session Cockpit’s own page for one',
+          run: { stage: 'needs_you', sessionUrl: 'https://demo.cockpit.invalid/session/run-1', note: 'Which day?' },
+          text: 'Needs you ↗',
+          href: '/demo/session',
+          hint: 'Which day?',
+          waiting: true,
+        },
+        {
+          situation: 'ready in the guest demo, opening Cockpit’s own page for its session',
+          run: { stage: 'ready', sessionUrl: 'https://demo.cockpit.invalid/session/run-1', resultUrl: 'https://demo.cockpit.invalid/session/run-1', note: 'A one-page comparison' },
+          text: 'Ready ↗',
+          href: '/demo/session',
+          hint: 'A one-page comparison',
+          waiting: false,
+        },
+        {
           situation: 'needing you, with its question',
           run: { stage: 'needs_you', sessionUrl: 'https://claude.ai/code/session_01', note: 'Which account?' },
           text: 'Needs you ↗',

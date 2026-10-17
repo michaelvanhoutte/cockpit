@@ -23,8 +23,8 @@ import {
  *
  * Not re-proved here: the address and the prompt, which are
  * packages/shared/tests/unit/domain/claude-send.test.ts's; the chip's wording,
- * which is the web app's own F1 test; and how an Agent's run is started or
- * settled, which is agent-runs.test.ts's.
+ * which is the web app's own F1 test; and an Agent's run kept from before
+ * Agents were retired, which is agent-runs-retired.test.ts's.
  */
 
 const ATLAS = 'ws-atlas';

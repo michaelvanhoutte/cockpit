@@ -173,7 +173,7 @@ export interface Env {
    * bringing in labelled conversations can be driven without a real mailbox
    * ("Bring in the conversations already labelled Cockpit as tasks", issue
    * 725). Absent from every environment block for the reason
-   * `CLAUDE_CODE_ROUTINES_ORIGIN` below is: a deployment that set it would
+   * `BOT_FRAMEWORK_METADATA_URL` below is: a deployment that set it would
    * send its access tokens wherever it pointed. **Believed only where it names
    * a local host** (`standIn`, connectors/registry.ts), so one set by mistake
    * is ignored; `OIDC_ISSUER` is read the same way for Gmail.
@@ -225,19 +225,6 @@ export interface Env {
    * are absent from every environment block.
    */
   BOT_FRAMEWORK_METADATA_URL?: string;
-  /**
-   * Where Claude Code routines are fired, in place of Anthropic's own API.
-   * Unset everywhere but local development and the browser suite, which point
-   * it at the stub issuer's stand-in routine (scripts/lib/stub-issuer.mjs) - so
-   * starting an agent on an Item can be driven without a real routine, and
-   * without every walk starting a real session ("Drop an agent on an item to
-   * start a Claude Code session on it", issue 571).
-   *
-   * Absent from every environment block for the reason `BOT_FRAMEWORK_METADATA_URL`
-   * above is: a deployment that set it would send its routine tokens wherever
-   * it pointed.
-   */
-  CLAUDE_CODE_ROUTINES_ORIGIN?: string;
   /**
    * Whether this environment offers a way in without a Google account at all
    * ("Sign in as a guest, without a password", issue 354). Set on production,
@@ -306,13 +293,6 @@ export interface Env {
    * queue does not wait out a window it is not asserting on.
    */
   REPROPOSE_DEBOUNCE_SECONDS?: string;
-  /**
-   * How many milliseconds a simulated run in the guest account stays on
-   * *Starting Claude…* before it is settled as working
-   * (`src/jobs/simulated-run.ts`). Unset everywhere but the backend suite,
-   * which sets `0` so a start does not wait for a pause nobody is asserting on.
-   */
-  SIMULATED_START_MS?: string;
   /**
    * Connectors registered beside the registry's own list
    * (`connectors/registry.ts`). Set by nothing in any deployment, nor in

@@ -5,7 +5,6 @@ import { ShortcutTip, TIPS } from '../../src/components/ShortcutTip';
 import { opensCapture } from '../../src/captureShortcut';
 import { somethingIsOpenOverThePage, togglesTheInbox } from '../../src/inboxCollapsed';
 import { modeOfKeyPress } from '../../src/panelList';
-import { togglesTheAgentDock } from '../../src/agentDockHidden';
 import { UndoWhatJustHappened, useUndo } from '../../src/undo';
 
 /**
@@ -33,8 +32,6 @@ describe('Shortcuts', () => {
       { situation: 'the collapsed Inbox\u2019s handle', tip: 'inbox', says: 'Tip: press I to collapse or open the Inbox' },
       { situation: 'Go to panel’s hide control', tip: 'panels', says: 'Tip: press G to go to a Panel' },
       { situation: 'Go to panel’s strip', tip: 'panels', says: 'Tip: press G to go to a Panel' },
-      { situation: 'the dock\u2019s hide control', tip: 'dock', says: 'Tip: press A to hide or show the agents\u2019 dock' },
-      { situation: 'the dock\u2019s show strip', tip: 'dock', says: 'Tip: press A to hide or show the agents\u2019 dock' },
       { situation: 'the funnel on a Dashboard’s tab', tip: 'filter', says: null },
       { situation: 'anything else', tip: undefined, says: null },
     ])('$situation', ({ tip, says }) => {
@@ -89,7 +86,7 @@ describe('Shortcuts', () => {
       expect(result.current.tip).toBeNull();
     });
 
-    it('leaves C, I and A working while it shows', () => {
+    it('leaves C, I and F working while it shows', () => {
       const { unmount } = render(<ShortcutTip control="capture" onDismiss={() => {}} />);
       expect(screen.getByText('Tip: press C to capture from anywhere')).toBeTruthy();
       // The tip is no menu or window, so the keys' own guard finds nothing open.
@@ -105,7 +102,6 @@ describe('Shortcuts', () => {
       });
       expect(opensCapture(new KeyboardEvent('keydown', { key: 'c' }))).toBe(true);
       expect(togglesTheInbox(press('i'), covered)).toBe(true);
-      expect(togglesTheAgentDock(press('a'), covered)).toBe(true);
       expect(modeOfKeyPress(press('f'), covered)).toBe('item');
       unmount();
     });

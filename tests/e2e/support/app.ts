@@ -368,11 +368,11 @@ export async function deleteWorkspace(page: Page, name: string, isMobile: boolea
  * window. A desk's: a phone has no Settings, by decision, so a walk that needs
  * it skips below `sm` or reaches the same thing another way.
  *
- * Connections and Agent settings start on the workspace that is open.
+ * Connections starts on the workspace that is open.
  */
 export async function openSettings(
   page: Page,
-  section: 'Connections' | 'Agent settings' | 'MCP',
+  section: 'Connections' | 'MCP',
   isMobile: boolean,
 ): Promise<Locator> {
   await press(page.getByRole('button', { name: 'Profile' }), isMobile);

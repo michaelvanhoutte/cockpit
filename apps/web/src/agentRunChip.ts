@@ -2,8 +2,9 @@ import { CLAUDE_DESTINATION_NAMES, STARTING_GIVES_UP_AFTER_MS, type AgentRun } f
 import { whereALinkOpens } from './itemSource';
 
 /**
- * What a row's chip says about its run ("Drop an agent on an item to start a
- * Claude Code session on it", issue 571). Pure, so every wording is provable
+ * What a row's chip says about its run - an Item sent to Claude, or one an
+ * Agent started before Agents were retired ("Drop an agent on an item to start
+ * a Claude Code session on it", issue 571). Pure, so every wording is provable
  * without drawing a row, with the clock handed in.
  *
  * **A run still starting after two minutes is not believed.** Starting is
@@ -34,8 +35,13 @@ function hostOf(link: string): string {
   }
 }
 
+/**
+ * Where a link the Run holds opens: an `https` address as it is, and the guest
+ * demo's own as Cockpit's page for it ("Retire the agents' dock and routines,
+ * keeping what each agent knew", issue 1165); anything else is not drawn.
+ */
 function openable(link: string | null | undefined): string | null {
-  return link?.startsWith('https://') ? link : null;
+  return link?.startsWith('https://') ? whereALinkOpens(link) : null;
 }
 
 /**
@@ -66,7 +72,7 @@ export function runChipFor(run: AgentRun, now: number): RunChip {
           ...base,
           text: `Ready${opens ? ' ↗' : ''}`,
           href: opens,
-          hint: opens ? `Opens ${hostOf(opens)}${run.note ? ` - ${run.note}` : ''}` : (run.note ?? null),
+          hint: opens && hostOf(opens) ? `Opens ${hostOf(opens)}${run.note ? ` - ${run.note}` : ''}` : (run.note ?? null),
         };
       case 'needs_you':
         return {

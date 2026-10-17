@@ -23,10 +23,9 @@ import {
  * opens its file is the route, the account's own store and R2 together
  * ("Send an item's attachments along when an agent starts", issue 573).
  *
- * Links are made here with the Worker's own key rather than by starting an
- * agent, since an expired or another account's link is not something a start
- * can be made to hand out; that a start's message carries a working link is
- * agent-runs.test.ts's.
+ * Links are made here with the Worker's own key rather than asked for, since
+ * an expired or another account's link is not something the app can be made
+ * to hand out.
  */
 
 let seq = 0;

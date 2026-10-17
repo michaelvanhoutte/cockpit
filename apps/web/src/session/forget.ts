@@ -8,7 +8,6 @@ import { forgetInboxCollapsed } from '../inboxCollapsed';
 import { forgetPanelListCollapsed, forgetPanelListWidth } from '../panelList';
 import { forgetEveryDashboardFilter } from '../dashboardFilter';
 import { forgetEveryAllItemsTab } from '../allItemsTab';
-import { forgetAgentDockHidden } from '../agentDockHidden';
 import { forgetEverySeenChange } from '../cockpitChanges';
 import { forgetWhatJustHappened } from '../undo';
 import { persister } from '../persistence';
@@ -31,11 +30,10 @@ import { persister } from '../persistence';
  * - which view each workspace was last on, which panels were last filed into,
  *   the size a drag last left the item form at, the width a drag last left it
  *   docked to, the size a drag last left the Inbox column and the Panel list at, whether the
- *   Inbox and the Panel list are collapsed, and whether the
- *   agents' dock is hidden, which dashboards are filtered, which
- *   workspaces show their All items tab, and which of what Cockpit changed on
- *   an item has been seen, all twelve in localStorage - the last
- *   eleven of them
+ *   Inbox and the Panel list are collapsed, which dashboards are filtered,
+ *   which workspaces show their All items tab, and which of what Cockpit
+ *   changed on an item has been seen, all eleven in localStorage - the last
+ *   ten of them
  *   because leaving one behind gives the first person's answer to the second;
  * - what the undo bar is still offering, which is a title of theirs drawn over
  *   whatever screen comes next.
@@ -68,7 +66,6 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   forgetPanelListCollapsed(browserStore());
   forgetPanelListWidth(browserStore());
   forgetEveryDashboardFilter(browserStore());
-  forgetAgentDockHidden(browserStore());
   forgetEveryAllItemsTab(browserStore());
   forgetEverySeenChange(browserStore());
   forgetWhatJustHappened();

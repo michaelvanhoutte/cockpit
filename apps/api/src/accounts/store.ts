@@ -10,10 +10,9 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { CLAUDE_CODE } from '../domain/named-sources.js';
-import { itemLabel, panelTakesItems, type RememberedSentenceView } from '@cockpit/shared';
+import { panelTakesItems, type RememberedSentenceView } from '@cockpit/shared';
 import type { Env } from '../env.js';
-import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
+import type { AccountSnapshot, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
@@ -33,7 +32,6 @@ import {
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
 import {
   APP_CAPTURES_PER_MINUTE,
-  HOOK_CALLS_PER_MINUTE,
   TRANSCRIPTIONS_PER_MINUTE,
   REMEMBER_OFFERS_PER_MINUTE,
   SENTENCES_REMEMBERED_PER_MINUTE,
@@ -81,8 +79,6 @@ import {
 import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations, watermark } from './events.js';
 import {
-  AgentNameTakenError,
-  AgentNotFoundError,
   AgentRunNotFoundError,
   AgentRunRefusedError,
   AttachmentIdTakenError,
@@ -112,20 +108,12 @@ import {
   everyMeaning,
   filingMeaningsSince,
   forgetMeaning,
-  claudeCodeConnectionOf,
-  getAgent,
-  getAgentRun,
-  lastHookArrival,
   listOpenAgentRuns,
-  recordHookArrival,
   getAttachment,
   getAttachmentForDownload,
-  listAttachmentsOfItem,
   getItem,
   getItemFormPresentation,
-  getSourceAccount,
   getWorkspace,
-  hasClaudeCodeConnection,
   isItemFiled,
   claudeProposalContext,
   sendToOfferOn,
@@ -135,11 +123,9 @@ import {
   type SendToOfferOn,
   itemsToRead,
   judgeableItemsForAccount,
-  listAgents,
   listAssociationsForWorkspace,
   listAttachmentsInWorkspace,
   listDuplicatesInWorkspace,
-  listHiddenAgents,
   listDashboards,
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
@@ -175,6 +161,7 @@ import {
   type WhatStood,
 } from '../domain/text-corrections.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
+import { retireAgents, whyItFailed } from './retire-agents.js';
 
 /** R2's own limit on how many keys one `delete()` call accepts ("Attach a file to an item", issue 441). */
 const R2_DELETE_BATCH = 1000;
@@ -225,8 +212,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
 
   #db: AccountDb | null = null;
   #upToDate = false;
-  /** The hook calls each Claude Code connection was admitted for, newest last - see `claudeCodeHookArrived`. */
-  #hookCalls = new Map<string, number[]>();
+  /** Whether this account's Agents are all retired and its routine connections gone - see `#retireAgents`. */
+  #agentsRetired = false;
   /** The calls each app's grant was admitted for, newest last - see `appCaptureArrived`. */
   #appCaptures = new Map<string, number[]>();
   /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
@@ -261,11 +248,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
-        agents: listAgents(db, accountName),
-        hiddenAgents: listHiddenAgents(db, accountName, workspaceId),
-        hasClaudeCodeConnection: hasClaudeCodeConnection(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
-        claudeCodeFailing: claudeCodeConnectionOf(db, accountName, workspaceId)?.failingBecause ?? null,
       };
     });
   }
@@ -763,98 +746,12 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /**
-   * What a run just recorded as starting is fired with ("Drop an agent on an
-   * item to start a Claude Code session on it", issue 571): the Workspace's
-   * sealed Claude Code credential, the Agent's template, and the Item's own
-   * words to fill it with. Read in one call, straight after `begin_agent_run`
-   * decided the start may go ahead, so an Agent edited in between is sent as
-   * it is now.
-   */
-  agentRunToFire(accountName: string, workspaceId: string, runId: string): Answer<AgentRunToFire> {
-    return this.#answer(accountName, (db) => {
-      const run = getAgentRun(db, accountName, runId);
-      if (!run || run.workspaceId !== workspaceId) throw new AgentRunNotFoundError(runId);
-      const connection = claudeCodeConnectionOf(db, accountName, workspaceId);
-      const item = getItem(db, accountName, run.itemId);
-      if (!connection || !item) throw new AgentRunNotFoundError(runId);
-      const agent = getAgent(db, accountName, run.agentId);
-      return {
-        sourceAccountId: connection.id,
-        // The row `claudeCodeConnectionOf` just found is the row this reads.
-        ...sealedCredentialOf(db, accountName, connection.id)!,
-        // An Agent deleted between the start being recorded and this read
-        // sends nothing of its own - Claude is still called, once, since the
-        // run already says it is starting.
-        name: agent?.name ?? '',
-        message: agent?.message ?? '',
-        item: { title: itemLabel(item), description: item.description, sourceLink: item.sourceLink },
-        attachments: listAttachmentsOfItem(db, accountName, item.id),
-      };
-    });
-  }
-
-  /**
-   * The sealed credential of one Claude Code connection this Workspace holds,
-   * for the test route about to fire it ("Connect a workspace to Claude
-   * Code", issue 569).
-   *
-   * **Checked against the Workspace and the connector, unlike
-   * `sealedCredential` above.** That one is read only for a push already
-   * matched to its connection by `connectionUnder`; this is read for a
-   * request naming a Workspace and a row id directly, so it has to rule out
-   * both another Workspace's row and a Teams row itself - the same 404
-   * `disconnect_source_account` gives for the first of those
-   * (command-service.ts).
-   */
-  claudeCodeCredential(
-    accountName: string,
-    workspaceId: string,
-    sourceAccountId: string,
-  ): Answer<{ sealedCredential: string; credentialNonce: string }> {
-    return this.#answer(accountName, (db) => {
-      claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
-      // The row this just confirmed exists is the row this reads - there is
-      // nothing between the two calls that could make the second miss.
-      return sealedCredentialOf(db, accountName, sourceAccountId)!;
-    });
-  }
-
-  /**
-   * A Claude Code hook reaching one of this Workspace's connections ("See on
-   * the item when Claude is waiting on you", issue 572): admitted and recorded
-   * as when a hook last arrived, or refused as one of too many.
-   *
-   * **Counted here, in memory**, because this object is the one place every
-   * call for one connection passes through one at a time. A count lost to the
-   * object being evicted starts a flood's window over, which is all it costs.
-   */
-  claudeCodeHookArrived(
-    accountName: string,
-    workspaceId: string,
-    sourceAccountId: string,
-    at: string,
-  ): Answer<'admitted' | 'too-many'> {
-    return this.#answer(accountName, (db) => {
-      claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
-      const calls = admittedCalls(
-        this.#hookCalls.get(sourceAccountId) ?? [],
-        Date.parse(at),
-        HOOK_CALLS_PER_MINUTE,
-      );
-      if (!calls) return 'too-many';
-      this.#hookCalls.set(sourceAccountId, calls);
-      recordHookArrival(db, accountName, sourceAccountId, at);
-      return 'admitted';
-    });
-  }
-
-  /**
    * An app connected to this account calling `create_item` ("Connect Claude
    * to Cockpit, and capture an item from it", issue 599): admitted, or refused
    * as one of too many calls from that one grant in a minute.
    *
-   * **Counted here, in memory, for the reason `claudeCodeHookArrived` is**:
-   * every `create_item` call a grant makes passes through this one object one at a time,
+   * **Counted here, in memory**: every `create_item` call a grant makes passes
+   * through this one object one at a time,
    * since a grant acts for one person and so for one account. A count lost to
    * the object being evicted starts a flood's window over, which is all it
    * costs. Nothing is read or written, so it answers before the account is
@@ -900,18 +797,6 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     const { admitted, calls } = countedCalls(this.#sentenceCalls[kind], Date.parse(at), limit);
     this.#sentenceCalls[kind] = calls;
     return admitted ? 'admitted' : 'too-many';
-  }
-
-  /** When a hook last reached one of this Workspace's Claude Code connections (issue 572), for its form. */
-  claudeCodeHookArrival(
-    accountName: string,
-    workspaceId: string,
-    sourceAccountId: string,
-  ): Answer<{ lastArrivedAt: string | null }> {
-    return this.#answer(accountName, (db) => {
-      claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
-      return { lastArrivedAt: lastHookArrival(db, accountName, sourceAccountId) };
-    });
   }
 
   /**
@@ -1382,6 +1267,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     // being up to date has to go with it, or the outstanding changes are never
     // applied to what was just written.
     this.#upToDate = false;
+    this.#agentsRetired = false;
 
     // **A backup of an account nobody had opened restores to one nobody has
     // opened**, rather than to one that has been brought up to date. Bringing
@@ -1453,6 +1339,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     await this.ctx.storage.deleteAll();
     this.#db = null;
     this.#upToDate = false;
+    this.#agentsRetired = false;
   }
 
   /**
@@ -1561,13 +1448,13 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       if (allowanceSpent(error)) return spentAllowance(error);
       return { status: 'not-up-to-date', failure: (error as Error).message };
     }
+    this.#retireAgents(accountName);
     try {
       return { status: 'ok', value: work(this.#database()) };
     } catch (error) {
       if (
         error instanceof ItemNotFoundError ||
         error instanceof SentenceNotFoundError ||
-        error instanceof AgentNotFoundError ||
         error instanceof AgentRunNotFoundError ||
         error instanceof WorkspaceNotFoundError ||
         error instanceof DashboardNotFoundError ||
@@ -1583,7 +1470,6 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         error instanceof DashboardNameTakenError ||
         error instanceof PanelNameTakenError ||
         error instanceof AttachmentIdTakenError ||
-        error instanceof AgentNameTakenError ||
         // Said to the person who dropped the agent, in the words it carries.
         error instanceof AgentRunRefusedError ||
         // A refusal to say out loud rather than a shape problem: the request is
@@ -1615,6 +1501,36 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       // After the errors above, whose messages can carry a name somebody typed.
       if (allowanceSpent(error)) return spentAllowance(error);
       throw error;
+    }
+  }
+
+  /**
+   * Retires the account's Agents and then its Claude Code routine connections
+   * ("Retire the agents' dock and routines, keeping what each agent knew",
+   * issue 1165; `retireAgents`), on every call until a pass finds nothing left
+   * to do. **Never fails the call it runs in**: what it cannot do is logged
+   * and tried again on the next call, and the account answers as it would
+   * have - a retirement that threw on an odd row would otherwise stop the
+   * account opening, which is exactly what a change that throws does.
+   */
+  #retireAgents(accountName: string): void {
+    if (this.#agentsRetired) return;
+    try {
+      this.#agentsRetired = retireAgents(
+        this.#database(),
+        accountName,
+        () => new Date().toISOString(),
+        this.mirroringConnectorIds(),
+      ).done;
+    } catch (error) {
+      if (allowanceSpent(error)) return;
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: 'retiring the Agents stopped, and will be tried again',
+          cause: whyItFailed(error),
+        }),
+      );
     }
   }
 
@@ -1715,21 +1631,4 @@ function refreshRanKey(accountName: string, refresh: string): string {
 /** Where one refresh's latest ask is kept - carrying the account's name for the reason every query filters on it (`rpc.ts`). */
 function refreshAskKey(accountName: string, refresh: string): string {
   return `refresh-ask:${accountName}:${refresh}`;
-}
-
-/**
- * Refuses, as not found, a row that is not this Workspace's Claude Code
- * connection - another Workspace's, or a Teams row - for every read that names
- * a Workspace and a row id directly (see `claudeCodeCredential`).
- */
-function claudeCodeConnectionHeld(
-  db: AccountDb,
-  accountName: string,
-  workspaceId: string,
-  sourceAccountId: string,
-): void {
-  const held = getSourceAccount(db, accountName, sourceAccountId);
-  if (!held || held.workspaceId !== workspaceId || held.connectorId !== CLAUDE_CODE) {
-    throw new SourceAccountNotFoundError(sourceAccountId);
-  }
 }

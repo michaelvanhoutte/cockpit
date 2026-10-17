@@ -1,10 +1,10 @@
 import {
+  type ClaudeDestination,
   type ClaudeProposal,
   type PanelFilter,
   type Priority,
   type WorkspaceTint,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, CLAUDE_CODE_NAME } from '../domain/named-sources.js';
 
 /**
  * What the shared guest account holds when a visitor opens it: a contractor's
@@ -61,11 +61,20 @@ export interface SeedItem {
    */
   readonly via?: { readonly source: 'gmail' | 'teams'; readonly sender: string };
   /**
-   * That one of the demo's Agents is on this Item ("Show agents at work in the
-   * guest demo, with simulated runs", issue 774), working or waiting on you.
-   * Only on an Item filed on a Panel, which is the only place an Agent starts.
+   * That this Item was sent to Cowork or Claude Code with *Send to Claude…*,
+   * and where Claude stands with it ("Retire the agents' dock and routines,
+   * keeping what each agent knew", issue 1165): only *Sent* so far, *on it*,
+   * *Ready* with what it made, or *Needs you* with its question - the row's
+   * chip, as Claude's own reports would leave it.
    */
-  readonly run?: { readonly agent: DemoAgentName; readonly state: 'working' | 'waiting' };
+  readonly sent?: {
+    readonly to: ClaudeDestination;
+    readonly stage: 'sent' | 'on_it' | 'ready' | 'needs_you';
+    /** What Claude said with its last report: the answer, or the question it needs answered. */
+    readonly note?: string;
+    /** The folder it was sent to open in. */
+    readonly folder?: string;
+  };
   /**
    * What Cockpit proposes doing with it - Cowork, Claude Code, or nothing - which
    * *Send to Claude…* opens on ("Propose what to do with each item before you
@@ -74,53 +83,6 @@ export interface SeedItem {
    */
   readonly forClaude?: readonly ClaudeProposal[];
 }
-
-/** An Agent of the guest's dock: what its tile says and sends, as an Agent a person made would. */
-export interface SeedAgent {
-  readonly name: string;
-  /** One of the palette's tints (`AGENT_COLORS`), which the table's CHECK holds it to. */
-  readonly color: WorkspaceTint;
-  readonly message: string;
-  readonly startsInProgress: boolean;
-}
-
-/** What every demo Agent's message ends with: the Item's own words, in the template's placeholders. */
-const ABOUT_THE_ITEM = '\n\n{title}\n\n{description}\n\n{link}';
-
-/**
- * The four Agents the guest's dock holds ("Show agents at work in the guest
- * demo, with simulated runs", issue 774), in the order the dock draws them.
- * Ordinary Agents, so one the guest edits or deletes behaves like any: what
- * makes a start simulated is the account being the guest's, not these rows.
- */
-export const GUEST_DEMO_AGENTS = [
-  {
-    name: 'Draft a reply',
-    color: '#6f62b5',
-    message: `Draft a short, friendly reply to this and leave it for me to send.${ABOUT_THE_ITEM}`,
-    startsInProgress: false,
-  },
-  {
-    name: 'Research',
-    color: '#3f8f78',
-    message: `Research this and come back with what you found and where you found it.${ABOUT_THE_ITEM}`,
-    startsInProgress: false,
-  },
-  {
-    name: 'Plan it',
-    color: '#b58a2f',
-    message: `Break this into small steps and put them in order.${ABOUT_THE_ITEM}`,
-    startsInProgress: false,
-  },
-  {
-    name: 'Fix it',
-    color: '#c06a45',
-    message: `Find what is wrong here and fix it, then tell me what you changed.${ABOUT_THE_ITEM}`,
-    startsInProgress: true,
-  },
-] as const satisfies readonly SeedAgent[];
-
-export type DemoAgentName = (typeof GUEST_DEMO_AGENTS)[number]['name'];
 
 /**
  * The connections every demo Workspace shows as connected, under Settings ›
@@ -140,11 +102,6 @@ export const GUEST_DEMO_CONNECTIONS: readonly {
 }[] = [
   { connectorId: 'gmail', externalAccountKey: 'alex@contractor.example', displayName: 'alex@contractor.example' },
   { connectorId: 'teams', externalAccountKey: 'demo-tenant/alex', displayName: 'Alex Contractor' },
-  // Claude Code, so an Agent can start ("Show agents at work in the guest
-  // demo, with simulated runs", issue 774). Its key is the constant a real one
-  // carries (`externalAccountKey` of the connect route); the credential is the
-  // placeholder, which a guest's start never opens - it is simulated instead.
-  { connectorId: CLAUDE_CODE, externalAccountKey: 'connection', displayName: CLAUDE_CODE_NAME },
 ];
 
 /** The credential every demo connection carries: not sealed, and not a secret, so nothing can open it. */
@@ -280,7 +237,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   {
                     title: 'Reply to Mum about the weekend',
                     via: { source: 'gmail', sender: 'Mum' },
-                    run: { agent: 'Draft a reply', state: 'waiting' },
+                    sent: { to: 'cowork', stage: 'needs_you', note: 'Shall I say yes to Sunday lunch, or only to Saturday?' },
                   },
                   {
                     title: 'Pick up the parcel from the collection point',
@@ -305,7 +262,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     title: 'Insurance renewal quote came in - worth comparing',
                     note: true,
                     via: { source: 'gmail', sender: 'Ardent Insurance' },
-                    run: { agent: 'Research', state: 'working' },
+                    sent: { to: 'cowork', stage: 'on_it' },
                   },
                 ],
               },
@@ -330,7 +287,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   {
                     title: 'Draw up the agenda for the committee meeting',
                     people: ['Bram Willems'],
-                    run: { agent: 'Plan it', state: 'working' },
+                    sent: { to: 'cowork', stage: 'sent' },
                   },
                   {
                     title: 'Ask Bram to sign off the referee expenses',
@@ -434,7 +391,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     title: 'Reply to Els about the slow logins in Ghent',
                     priority: 'high',
                     via: { source: 'gmail', sender: 'Els Maes' },
-                    run: { agent: 'Draft a reply', state: 'waiting' },
+                    sent: { to: 'cowork', stage: 'ready', note: 'The reply is drafted in Gmail, ready for you to send.' },
                   },
                   {
                     title: 'Sara needs a yes or no on Friday for the sync',
@@ -444,7 +401,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   {
                     title: 'Send the imaging supplier our answers',
                     via: { source: 'gmail', sender: 'Lumen Imaging' },
-                    run: { agent: 'Draft a reply', state: 'working' },
+                    sent: { to: 'cowork', stage: 'on_it' },
                   },
                 ],
               },
@@ -462,7 +419,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   {
                     title: 'Pair with Sara on the scheduling bug',
                     people: ['Sara Okafor'],
-                    run: { agent: 'Fix it', state: 'working' },
+                    sent: { to: 'code', stage: 'on_it', folder: 'C:\\Code\\appointments' },
                   },
                   { title: 'Answer the clinic leads about the new booking hours', due: 0 },
                 ],
@@ -557,7 +514,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     title: 'Rollback plan for the first cutover window',
                     due: 0,
                     priority: 'high',
-                    run: { agent: 'Plan it', state: 'waiting' },
+                    sent: { to: 'cowork', stage: 'needs_you', note: 'Is the first cutover window Saturday night or Sunday morning?' },
                   },
                 ],
               },
@@ -660,7 +617,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   {
                     title: 'Remove the shared service account from the database',
                     priority: 'high',
-                    run: { agent: 'Fix it', state: 'waiting' },
+                    sent: { to: 'code', stage: 'needs_you', note: 'Two nightly jobs still sign in with it. Move them first?', folder: 'C:\\Code\\platform' },
                   },
                   { title: 'Turn off the VPN accounts of last year\'s contractors', due: -4 },
                   { title: 'Encryption at rest confirmed for every store', note: true, topics: ['Security'] },
@@ -743,7 +700,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     due: 0,
                     priority: 'high',
                     started: 1,
-                    run: { agent: 'Plan it', state: 'working' },
+                    sent: { to: 'cowork', stage: 'on_it' },
                   },
                   { title: 'Review the warehouse integration spike', priority: 'normal' },
                   {
@@ -756,7 +713,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     title: 'Decide build or buy for the loyalty scheme',
                     due: 4,
                     priority: 'high',
-                    run: { agent: 'Research', state: 'waiting' },
+                    sent: { to: 'cowork', stage: 'ready', note: 'A one-page comparison of three vendors against building it.' },
                   },
                   { title: 'Store managers are asking for offline mode on the tills', note: true, people: ['Priya Shah'] },
                 ],

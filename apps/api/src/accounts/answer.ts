@@ -1,33 +1,14 @@
 import type {
-  Agent,
   AgentRun,
   Association,
   Dashboard,
   Filing,
-  HiddenAgent,
   Item,
   Layout,
   Panel,
   PossibleDuplicate,
   Workspace,
 } from '@cockpit/shared';
-
-/**
- * What a run just recorded as starting is fired with (issue 571): the sealed
- * credential of the connection, the Agent's template, and the Item's words.
- * Sealed still - only the Worker holds the key to open it.
- */
-export interface AgentRunToFire {
-  sourceAccountId: string;
-  sealedCredential: string;
-  credentialNonce: string;
-  /** The Agent's name as stored now, so a renamed Agent is named by its new name. */
-  name: string;
-  message: string;
-  item: { title: string; description: string | null; sourceLink: string | null };
-  /** Every file on the Item, oldest first, for the message to link (issue 573). */
-  attachments: { id: string; filename: string; contentType: string }[];
-}
 
 /** The full read model for one workspace, as the store answers it. */
 export interface AccountSnapshot {
@@ -52,16 +33,8 @@ export interface AccountSnapshot {
    * every pair are Items this snapshot already carries.
    */
   duplicates: PossibleDuplicate[];
-  /** Every live Agent of the account, in dock order (issue 570). */
-  agents: Agent[];
-  /** Which Agents are hidden on which of this Workspace's Dashboards (issue 570). */
-  hiddenAgents: HiddenAgent[];
-  /** Whether this Workspace holds a live Claude Code connection (issue 570). */
-  hasClaudeCodeConnection: boolean;
-  /** Every open run on this Workspace's Items (issue 571). */
+  /** Every open run on this Workspace's Items: sent to Claude, or started by an Agent before Agents were retired (issue 1165). */
   agentRuns: AgentRun[];
-  /** Why Claude last refused this Workspace's Claude Code connection, or null (issue 571). */
-  claudeCodeFailing: string | null;
   /** POC (own-event refetch): the newest change this snapshot is built on. */
   upTo: string | undefined;
 }

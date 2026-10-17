@@ -5,7 +5,7 @@ import { browserStore } from './lastVisited';
 /**
  * Whether a workspace shows its *All items* tab ("Put each setting where a
  * person looks for it", issue 688): on or off per workspace, **remembered in
- * this browser and forgotten at sign-out**, the shape `agentDockHidden.ts`
+ * this browser and forgotten at sign-out**, the shape `inboxCollapsed.ts`
  * carries and for the same reason - it is a choice about the chrome, not about
  * the workspace's data. A browser that refuses the write still shows the tab
  * for this visit: the readers are told either way.

@@ -10,9 +10,8 @@ import type { GuestArrivalJob } from './enrichment.js';
  * about twenty seconds in and a Teams message about ten seconds after it, so a
  * visitor watching the Inbox sees Cockpit take in work as it arrives.
  *
- * **Delayed messages on the enrichment queue**, for the reason a simulated run
- * is (`jobs/simulated-run.ts`): work held open after a response is cut off by
- * a Worker. The consumer captures each as an ordinary Item through
+ * **Delayed messages on the enrichment queue**: work held open after a
+ * response is cut off by a Worker at about thirty seconds, with no trace. The consumer captures each as an ordinary Item through
  * `capture_item`, so open tabs hear of it over SSE like any capture.
  *
  * **Each message carries its own ids**, minted at sign-in, so a redelivery is a

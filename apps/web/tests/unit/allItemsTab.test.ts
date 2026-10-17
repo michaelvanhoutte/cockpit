@@ -4,7 +4,7 @@ import { forgetEveryAllItemsTab, readAllItemsTab, writeAllItemsTab } from '../..
 /**
  * F1, and pure: what is remembered of whether a workspace shows its All items
  * tab is read off and written to a store handed in, the split
- * `agentDockHidden.test.ts` makes for the dock. That the bar draws the tab from
+ * `inboxCollapsed.test.ts` makes for the Inbox. That the bar draws the tab from
  * it is tests/unit/components/DashboardBar.test.tsx.
  */
 function aStore(): Storage {

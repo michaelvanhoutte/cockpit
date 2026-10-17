@@ -16,7 +16,6 @@ import { GUEST_ACCOUNT_NAME } from './new-user.js';
 import { foldName } from '../domain/names.js';
 import {
   GUEST_DEMO,
-  GUEST_DEMO_AGENTS,
   GUEST_DEMO_CONNECTIONS,
   GUEST_DEMO_PLACEHOLDER_CREDENTIAL,
   isFilter,
@@ -173,6 +172,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     CONNECTION_HISTORY_WRITTEN,
     CLAUDE_SENDS,
     REMEMBERED_SENTENCES,
+    AGENTS_REMEMBERED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -933,6 +933,53 @@ const REMEMBERED_SENTENCES: Change = {
     },
     {
       sql: 'CREATE INDEX IF NOT EXISTS `remembered_sentences_tenant_source` ON `remembered_sentences` (`tenant_id`,`source_kind`)',
+    },
+  ],
+};
+
+/**
+ * Where each Agent went when Agents were retired ("Retire the agents' dock and
+ * routines, keeping what each agent knew", issue 1165): two nullable columns on
+ * `agents` and one on `remembered_sentences`, with an index that holds a
+ * sentence to one per Agent. `schema.ts` says what each carries.
+ *
+ * **The columns only.** Turning each Agent into a sentence, and disconnecting
+ * a routine connection once an account's Agents are done, is
+ * `retireAgents` (retire-agents.ts), which the store runs after every change
+ * has applied: what a sentence becomes is the product's own rule
+ * (`domain/agent-sentence.ts`), which SQL cannot hold, and an Agent it cannot
+ * convert has to be logged and passed over rather than fail the change - a
+ * change that throws stops every account opening.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): three `ADD COLUMN`s and a `CREATE INDEX`, and no statement
+ *   that reads or writes a row.
+ * - **If it stops halfway:** one change is one transaction, so a failure on any
+ *   statement takes the others back with it, and the next open applies all.
+ * - **The second time it runs:** it does not re-run once recorded; SQLite
+ *   refuses a column that already exists, which the transaction makes safe.
+ * - **Rows that predate it:** every Agent reads not yet retired and every
+ *   sentence reads as remembered from an edit, which is what each was.
+ * - **What is in each environment:** production holds one Agent and two
+ *   routine connections; staging is read before this merges. Neither is
+ *   touched by this change, only by the retirement after it.
+ * - **Rolled back after it has run:** an older release names none of the
+ *   columns; it would draw the dock again from the kept Agents, and a sentence
+ *   already written stays a sentence.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened, and the
+ *   retirement after it converts what the backup held.
+ */
+const AGENTS_REMEMBERED: Change = {
+  name: '0087-agents-remembered',
+  statements: [
+    { sql: `ALTER TABLE \`agents\` ADD COLUMN \`retired_at\` text ${timestampCheck('agents', 'retired_at')}` },
+    { sql: 'ALTER TABLE `agents` ADD COLUMN `retired_as` text' },
+    { sql: 'ALTER TABLE `remembered_sentences` ADD COLUMN `agent_id` text' },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `remembered_sentences_one_per_agent` ON `remembered_sentences` (`agent_id`) WHERE `agent_id` IS NOT NULL',
     },
   ],
 };
@@ -4859,7 +4906,6 @@ const DEMO_ITEM = '0b000000';
 const DEMO_ASSOCIATION = '0c000000';
 const DEMO_LAYOUT = '0d000000';
 const DEMO_CONNECTION = '0e000000';
-const DEMO_AGENT = '0f000000';
 const DEMO_RUN = '10000000';
 
 /** A readable, stable id for the things whose ids are not uuids: `Day to day` -> `day-to-day`. */
@@ -5111,37 +5157,6 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
   let associationsSoFar = 0;
   let connectionsSoFar = 0;
   let runsSoFar = 0;
-
-  // The guest's dock ("Show agents at work in the guest demo, with simulated
-  // runs", issue 774). Account-wide, so written once, ahead of every Workspace.
-  // Guarded on the live name as well as the id: `agents_tenant_live_folded_name`
-  // is unique, and a guest's own Agent that took the name first must skip this
-  // one rather than fail the whole change.
-  const agentIds = new Map<string, string>();
-  GUEST_DEMO_AGENTS.forEach((agent, position) => {
-    const agentId = demoId(DEMO_AGENT, position + 1);
-    agentIds.set(agent.name, agentId);
-    statements.push({
-      sql: `INSERT INTO agents (id, tenant_id, name, folded_name, color, engine, message, asks_for_prompt, starts_in_progress, position, created_at)
-              SELECT ?, ?, ?, ?, ?, 'claude-code', ?, 0, ?, ?, ?
-              WHERE NOT EXISTS (SELECT 1 FROM agents WHERE id = ?)
-                AND NOT EXISTS (SELECT 1 FROM agents WHERE tenant_id = ? AND folded_name = ? AND deleted_at IS NULL)`,
-      params: [
-        agentId,
-        accountId,
-        agent.name,
-        foldName(agent.name),
-        agent.color,
-        agent.message,
-        agent.startsInProgress ? 1 : 0,
-        position,
-        at,
-        agentId,
-        accountId,
-        foldName(agent.name),
-      ],
-    });
-  });
 
   demo.forEach((workspace, index) => {
     const workspaceId = `guest-ws-${demoSlug(workspace.name)}`;
@@ -5417,44 +5432,40 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
       ],
     });
 
-    if (item.run) {
+    if (item.sent) {
       runsSoFar += 1;
       const runId = demoId(DEMO_RUN, runsSoFar);
-      const agentId = agentIds.get(item.run.agent)!;
-      // Started a little before the Item was last touched, so it never
-      // predates the Item and never falls after midnight.
+      // Sent a little before the Item was last touched, so it never predates
+      // the Item and never falls after midnight. A Run Claude has reported on
+      // names its session, a demo address the app opens as its own page; one
+      // only sent has none yet. No Agent: a sent Run names none.
       const startedAt = hoursBefore(runsSoFar + 1);
+      const session = item.sent.stage === 'sent' ? null : demoAddress('session', runId);
       statements.push({
-        sql: `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, session_url, started_at, settled_at)
-                SELECT ?, ?, ?, ?, ?, 'working', ?, ?, ?
+        sql: `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, session_url, started_at,
+                                      destination, folder, stage, result_url, note)
+                SELECT ?, ?, ?, ?, '', 'working', ?, ?, ?, ?, ?, ?, ?
                 WHERE EXISTS (SELECT 1 FROM items WHERE id = ? AND tenant_id = ?)
-                  AND EXISTS (SELECT 1 FROM agents WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL)
-                  AND NOT EXISTS (SELECT 1 FROM agent_runs WHERE id = ?)`,
+                  AND NOT EXISTS (SELECT 1 FROM agent_runs WHERE id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM agent_runs WHERE item_id = ? AND ended_at IS NULL)`,
         params: [
           runId,
           accountId,
           workspaceId,
           itemId,
-          agentId,
-          demoAddress('session', runId),
+          session,
           startedAt,
-          startedAt,
+          item.sent.to,
+          item.sent.folder ?? null,
+          item.sent.stage,
+          item.sent.stage === 'ready' ? session : null,
+          item.sent.note ?? null,
           itemId,
           accountId,
-          agentId,
-          accountId,
           runId,
+          itemId,
         ],
       });
-      if (item.run.state === 'waiting') {
-        statements.push({
-          sql: `INSERT INTO agent_run_activity (run_id, tenant_id, waiting, reported_at)
-                  SELECT ?, ?, 1, ?
-                  WHERE EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND tenant_id = ?)
-                    AND NOT EXISTS (SELECT 1 FROM agent_run_activity WHERE run_id = ?)`,
-          params: [runId, accountId, startedAt, runId, accountId, runId],
-        });
-      }
     }
 
     for (const association of demoAssociations(item, dashboard)) {

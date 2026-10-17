@@ -24,7 +24,7 @@ import {
 import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
-import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
+import type { AccountSnapshot, Answer } from './answer.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
@@ -310,28 +310,12 @@ export interface Account {
   sealedCredential(
     sourceAccountId: string,
   ): Promise<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>;
-  /**
-   * The sealed credential of one Claude Code connection this Workspace holds,
-   * for the test route about to fire it ("Connect a workspace to Claude
-   * Code", issue 569). Throws `SourceAccountNotFoundError` where the row is
-   * not there, is not this Workspace's, or is not Claude Code's.
-   */
-  claudeCodeCredential(
-    workspaceId: string,
-    sourceAccountId: string,
-  ): Promise<{ sealedCredential: string; credentialNonce: string }>;
-  /** What a run just recorded as starting is fired with (issue 571). */
-  agentRunToFire(workspaceId: string, runId: string): Promise<AgentRunToFire>;
-  /** A Claude Code hook reaching one of this Workspace's connections (issue 572). */
-  claudeCodeHookArrived(workspaceId: string, sourceAccountId: string, at: string): Promise<'admitted' | 'too-many'>;
   /** An app connected to this account calling `create_item`, under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
   /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
   sentenceCallArrived(kind: 'offer' | 'remember', at: string): Promise<'admitted' | 'too-many'>;
-  /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
-  claudeCodeHookArrival(workspaceId: string, sourceAccountId: string): Promise<{ lastArrivedAt: string | null }>;
   /** One connection of this Workspace's history, newest line first (issue 1140). */
   connectionHistory(workspaceId: string, sourceAccountId: string): Promise<ConnectionHistory>;
   /** A delivery a source pushed to one of this account's connections, filed with its history line (issue 1144). */
@@ -463,17 +447,9 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.connectionUnder(accountName, workspaceId, connectorId, externalAccountKey)),
     sealedCredential: async (sourceAccountId) =>
       unwrap(await store.sealedCredential(accountName, sourceAccountId)),
-    claudeCodeCredential: async (workspaceId, sourceAccountId) =>
-      unwrap(await store.claudeCodeCredential(accountName, workspaceId, sourceAccountId)),
-    agentRunToFire: async (workspaceId, runId) =>
-      unwrap(await store.agentRunToFire(accountName, workspaceId, runId)),
-    claudeCodeHookArrived: async (workspaceId, sourceAccountId, at) =>
-      unwrap(await store.claudeCodeHookArrived(accountName, workspaceId, sourceAccountId, at)),
     appCaptureArrived: async (grantId, at) => store.appCaptureArrived(grantId, at),
     transcriptionArrived: async (at) => store.transcriptionArrived(at),
     sentenceCallArrived: async (kind, at) => store.sentenceCallArrived(kind, at),
-    claudeCodeHookArrival: async (workspaceId, sourceAccountId) =>
-      unwrap(await store.claudeCodeHookArrival(accountName, workspaceId, sourceAccountId)),
     connectionHistory: async (workspaceId, sourceAccountId) =>
       unwrap(await store.connectionHistory(accountName, workspaceId, sourceAccountId)),
     capturePushed: async (sourceAccountId, capture) =>

@@ -80,13 +80,15 @@ function perStack(name: string, url: string): string {
  * exist - it is in the git history of a public repository either way.
  *
  * The first two went with the list of names ("Sign in with Google, and retire
- * the list of names", issue 196); the rest are the read and the five commands
+ * the list of names", issue 196); the next six are the read and the five commands
  * behind the two learning settings screens ("Remove the two learning settings
- * screens, and the commands that write to them", issue 452); the last four are
+ * screens, and the commands that write to them", issue 452); the next four are
  * the commands that made and removed Screen sizes and Layouts ("Convert every
- * Dashboard to its widest Layout and retire Screen sizes", issue 713). A
- * retired address is kept here until no browser can plausibly still be holding
- * a build that asks for it.
+ * Dashboard to its widest Layout and retire Screen sizes", issue 713); the
+ * five after them made, changed and hid the dock's Agents ("Retire the agents'
+ * dock and routines, keeping what each agent knew", issue 1165). A retired
+ * address is kept here until no browser can plausibly still be holding a build
+ * that asks for it.
  */
 export const RETIRED_PATHS: readonly string[] = [
   '/v1/users',
@@ -101,6 +103,11 @@ export const RETIRED_PATHS: readonly string[] = [
   '/v1/commands/rename_screen_size',
   '/v1/commands/delete_screen_size',
   '/v1/commands/delete_layout',
+  '/v1/commands/create_agent',
+  '/v1/commands/update_agent',
+  '/v1/commands/delete_agent',
+  '/v1/commands/hide_agent_on_dashboard',
+  '/v1/commands/show_agent_on_dashboard',
 ];
 
 /**

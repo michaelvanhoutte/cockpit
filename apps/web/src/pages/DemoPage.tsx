@@ -24,11 +24,11 @@ const WORDS: Record<DemoPageName, { heading: string; body: string }> = {
     heading: "This is where Microsoft Teams would open",
     body: "In your own Cockpit, Open ↗ takes you to the message in Microsoft Teams. This demo is not connected to a real Microsoft Teams account, so it stops here.",
   },
-  // A simulated run's link ("Show agents at work in the guest demo, with
-  // simulated runs", issue 774).
+  // A seeded send's link ("Retire the agents' dock and routines, keeping
+  // what each agent knew", issue 1165).
   session: {
-    heading: "This is where the Claude Code session would be",
-    body: "In your own Cockpit, a run's ↗ takes you to its Claude Code session. In this demo the run is played out for you and never reaches Claude, so it stops here.",
+    heading: "This is where the Claude session would be",
+    body: "In your own Cockpit, the ↗ on an item sent to Claude takes you to its session in Cowork or Claude Code. This demo never reaches Claude, so it stops here.",
   },
 };
 

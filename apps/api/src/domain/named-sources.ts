@@ -7,10 +7,12 @@
  */
 
 /**
- * A workspace's routine trigger - one Claude Code session started and
- * reported back, rather than an account signed in to (issue 569). It still
- * fills the same row a source account does: the store keys on `connectorId`
- * alone, not on what kind of thing is connected.
+ * A workspace's Claude Code routine trigger (issue 569), retired with the
+ * agents' dock ("Retire the agents' dock and routines, keeping what each agent
+ * knew", issue 1165). Named still because rows of it are what the retirement
+ * disconnects (`retireAgents`), and one not yet disconnected is listed by its
+ * name. It fills the same row a source account does: the store keys on
+ * `connectorId` alone, not on what kind of thing is connected.
  */
 export const CLAUDE_CODE = 'claude-code';
 

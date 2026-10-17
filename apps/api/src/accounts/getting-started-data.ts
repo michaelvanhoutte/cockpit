@@ -87,17 +87,16 @@ Open **Settings › Connections** from the circle at the top right, and connect 
 Open **Settings › Connections** from the circle at the top right, and connect Microsoft Teams. Then save a message in Teams and it arrives in your Inbox.`,
   },
   {
-    title: 'Create a Cockpit Agent',
-    description: `An **agent** hands an item to Claude to work on, with instructions you write once and reuse. For example:
-- **Draft a reply** — write an answer to this mail for me to check.
-- **Research** — find out what I need to know about this and summarise it.
-- **Plan it** — break this into the steps it takes.
-- **Fix it** — make the change this bug report describes, in our code.
-- **Scope it** — work out what this feature idea would take, before anybody builds it.
-- **Build it** — take this feature from idea to working code: scope it, design it, build it.
-- **Log a bug** — file this as a bug report, with what goes wrong and how to see it happen.
+    title: 'Hand an item to Claude',
+    description: `Some items are work Claude can do for you — draft the reply, research the question, plan the steps, make the change in your code. Cockpit hands such an item over with the task already typed.
 
-Agents live in the dock at the bottom of the screen. Make one with **+ New agent**, connect Claude Code to this workspace under **Settings › Agent settings**, then drag the agent onto any item to start it. The item shows how it is getting on.`,
+Choose **Send to Claude…** from an item's own menu (the three dots). A window opens with what Cockpit proposes:
+- **Cowork** or **Code** — which of Claude's desktop apps does it. Code is for work in a folder of code, such as a repository.
+- The **folder** it opens in, and the **prompt** it is given, both yours to change.
+
+Press **Open in Cowork ↗** (or Code), and Claude's desktop app opens with that prompt typed. Press send there. Where you changed the proposal, Cockpit offers to remember how you like it done, and you find what it remembers under **Settings › What Cockpit remembers**.
+
+Connect Claude under **Settings › MCP** too, and the item's row follows the work: *Sent*, then *on it*, then *Ready* or *Needs you*.`,
   },
   {
     title: 'Name your workspace',

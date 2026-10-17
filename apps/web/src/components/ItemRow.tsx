@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
@@ -14,11 +14,8 @@ import {
   type Item,
   type PanelFit,
   type Priority,
-  type Agent,
 } from '@cockpit/shared';
-import { CommandRefused } from '../api/client';
 import { useCommand, useSendCommand } from '../api/queries';
-import { AGENT_BEING_DRAGGED, landAgent, useAgentInTheAir } from '../agentInTheAir';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
@@ -51,10 +48,6 @@ type MenuPrimitive = Pick<
 
 /** The Status submenu's width, which on a phone it also steps back from the menu's edge by. */
 const SUBMENU_WIDTH_PX = 144;
-
-// Out of the initial bundle, the same boundary AgentDock and ManageConnections
-// draw around themselves: two windows a row mounts only once asked for.
-const AgentPromptBox = lazy(() => import('./AgentPromptBox'));
 
 /**
  * The flag's label at each level ("Show and edit an item's priority", issue
@@ -95,7 +88,6 @@ export function ItemRow({
   onSettleNotADuplicate,
   selecting,
   alsoIn = EMPTY_ALSO_IN,
-  agentsHere,
   openRun,
   onSendToClaude,
 }: {
@@ -245,24 +237,10 @@ export function ItemRow({
    */
   alsoIn?: readonly string[];
   /**
-   * The Agents this row can be started with, its open run, and the start
-   * itself ("Drop an agent on an item to start a Claude Code session on it",
-   * issue 571). Absent in the Inbox, where no Agent starts: an Inbox row is
-   * neither outlined nor offered one.
-   *
-   * `start` throws what the start was refused with, which the row shows -
-   * in the prompt box where one is open, beside the row otherwise.
-   */
-  agentsHere?: {
-    offered: readonly Agent[];
-    run: AgentRun | undefined;
-    start: (agent: Agent, prompt?: string) => Promise<void>;
-  };
-  /**
-   * This Item's open run wherever it is drawn, the Inbox's included, which
-   * `agentsHere` is not: an Item sent to Claude shows its chip there too
-   * ("Send an item to Cowork or Claude Code with its prompt reviewed first",
-   * issue 1159). `agentsHere.run` is the same run where both are given.
+   * This Item's open run wherever it is drawn, the Inbox's included: an Item
+   * sent to Claude ("Send an item to Cowork or Claude Code with its prompt
+   * reviewed first", issue 1159), or one an Agent started before Agents were
+   * retired (issue 1165), which still names it.
    */
   openRun?: AgentRun | undefined;
   /**
@@ -326,13 +304,9 @@ export function ItemRow({
     command.mutate({ name: 'set_started', payload: { ...envelope(), started } });
   };
 
-  /** The Agent whose prompt box is open over this row, if any. */
-  const [asking, setAsking] = useState<Agent | null>(null);
-  /** That a start is on its way to Claude, so it cannot be sent twice. */
-  const [sending, setSending] = useState(false);
-  /** Why the last start from this row was refused, shown beside it until the next one. */
-  const [startRefusal, setStartRefusal] = useState<string | null>(null);
-  const run = agentsHere?.run ?? openRun;
+  /** What a key pressed on this row could not do, said beside it until the next key (issue 1111). */
+  const [rowNotice, setRowNotice] = useState<string | null>(null);
+  const run = openRun;
   /**
    * Redrawn once a run still starting reaches the moment the row stops
    * believing it, rather than whenever something else happens to redraw the
@@ -348,40 +322,6 @@ export function ItemRow({
   }, [run?.status, run?.startedAt]);
   const chip = run ? runChipFor(run, Date.now()) : null;
   const sessionHref = run && chip ? sessionHrefFor(run, chip) : null;
-  /** Whether this row takes an Agent right now: on a dashboard, with nothing already running on it. */
-  const takesAnAgent = agentsHere !== undefined && !runBlocksAStart(run);
-  const lifted = useAgentInTheAir();
-  const outlined = takesAnAgent && lifted !== null && agentsHere.offered.some((agent) => agent.id === lifted);
-  /** Whether the Agent in the air is over this row - the one row lit, where `outlined` only tints. */
-  const [agentOver, setAgentOver] = useState(false);
-  useEffect(() => {
-    // A drag that ends off the row never says so to it: clear on the Agent landing.
-    if (lifted === null) setAgentOver(false);
-  }, [lifted]);
-  const agentTarget = outlined && agentOver;
-
-  const sendToClaude = async (agent: Agent, prompt?: string) => {
-    if (!agentsHere || sending) return;
-    setSending(true);
-    setStartRefusal(null);
-    try {
-      await agentsHere.start(agent, prompt);
-      setAsking(null);
-    } catch (failure) {
-      setStartRefusal(
-        failure instanceof CommandRefused ? failure.message : 'That did not reach the server. Try again.',
-      );
-    } finally {
-      setSending(false);
-    }
-  };
-  /** An Agent that asks for a prompt opens the box first; any other starts at once. */
-  const startWith = (agent: Agent) => {
-    setStartRefusal(null);
-    if (agent.asksForPrompt) setAsking(agent);
-    else void sendToClaude(agent);
-  };
-
   /**
    * Finishing with it, and the way back offered for as long as the bar lasts
    * ("Undo what just happened", issue 144).
@@ -786,13 +726,10 @@ export function ItemRow({
           </M.Item>
         ),
       ],
-      // Agent. The run's own ways on, while it is open ("Drop an agent on an
-      // item to start a Claude Code session on it", issue 571): the session
-      // itself, a real link in a new tab as "Open in …" above is - the Status
-      // ends the run, so there is nothing to say about it here. Then every
-      // Agent this dashboard shows, where nothing is already running on the
-      // row - the way a keyboard starts one, since it has no drag. The
-      // ellipsis says a box opens first; the tag says it is an agent.
+      // Claude. *Send to Claude…* where nothing is already running on the row,
+      // then the run's own way on while it is open: the session itself, a real
+      // link in a new tab as "Open in …" above is - the Status ends the run,
+      // so there is nothing to say about it here.
       [
         onSendToClaude && roomBesideTheMenu && !runBlocksAStart(run) && (
           <M.Item
@@ -814,25 +751,6 @@ export function ItemRow({
             </a>
           </M.Item>
         ),
-        ...(takesAnAgent
-          ? agentsHere.offered.map((agent) => (
-              <M.Item
-                key={agent.id}
-                className={flexItemClass}
-                onSelect={() => {
-                  // The prompt box takes the focus itself, like the pickers.
-                  if (agent.asksForPrompt) opening.current = true;
-                  startWith(agent);
-                }}
-              >
-                <span>
-                  {agent.name}
-                  {agent.asksForPrompt ? '…' : ''}
-                </span>{' '}
-                <span className="rounded bg-shade/5 px-1.5 text-xs text-ink-faint">Agent</span>
-              </M.Item>
-            ))
-          : []),
       ],
       // Status: one row showing where the item stands, a submenu offering all
       // three. Choosing the state it is already in changes nothing.
@@ -1047,7 +965,7 @@ export function ItemRow({
       // keeps its own Enter, and the menu's entries reach here from a portal.
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
-        setStartRefusal(null);
+        setRowNotice(null);
         // At a desk, an Inbox row takes a key for each thing triage does, and
         // Enter files in place of opening ("Act on the focused Inbox row with
         // one key, and move on", issue 1111). Not while a selection is held,
@@ -1074,7 +992,7 @@ export function ItemRow({
           import('../inboxTriage').then(
             (follow) =>
               follow.triageGroup(press, row, onFileGroup ?? onAcceptRouting, show, () =>
-                setStartRefusal('No Panel was proposed. M moves it.'),
+                setRowNotice('No Panel was proposed. M moves it.'),
               ),
             () => undefined,
           );
@@ -1104,7 +1022,7 @@ export function ItemRow({
                 row,
                 { accept: onAcceptRouting, move: onMoveTo, done: markDone, dismiss, open: onOpen },
                 show,
-                () => setStartRefusal('No Panel was proposed. M moves it.'),
+                () => setRowNotice('No Panel was proposed. M moves it.'),
               ),
             () => undefined,
           );
@@ -1149,39 +1067,6 @@ export function ItemRow({
         liftItem(item.id, liftedFrom ?? null);
       }}
       onDragEnd={landItem}
-      // An Agent dropped here starts on this Item ("Drop an agent on an item
-      // to start a Claude Code session on it", issue 571). Said yes to only
-      // where the row takes the Agent in the air - the one the outline below
-      // promises - and kept from the list under it, which files Items and
-      // has nothing to do with an Agent.
-      onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes(AGENT_BEING_DRAGGED)) return;
-        if (!outlined) return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.dataTransfer.dropEffect = 'copy';
-        setAgentOver(true);
-      }}
-      onDragLeave={(event) => {
-        // Moving between the row's own children is not leaving it.
-        if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-        // Nor is a leave from one child to another where the browser names no
-        // related target: the pointer is still inside the row (issue 1128).
-        const row = event.currentTarget.getBoundingClientRect();
-        const { clientX: x, clientY: y } = event;
-        if (x > row.left && x < row.right && y > row.top && y < row.bottom) return;
-        setAgentOver(false);
-      }}
-      onDrop={(event) => {
-        if (!event.dataTransfer.types.includes(AGENT_BEING_DRAGGED)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setAgentOver(false);
-        const agentId = event.dataTransfer.getData(AGENT_BEING_DRAGGED);
-        landAgent();
-        const agent = takesAnAgent ? agentsHere.offered.find((offered) => offered.id === agentId) : undefined;
-        if (agent) startWith(agent);
-      }}
       // `touch-action: pan-y` leaves vertical scrolling to the browser and
       // gives this the horizontal component. `select-none` stops a long press
       // turning the row into selected text mid-swipe, and is
@@ -1202,18 +1087,7 @@ export function ItemRow({
       aria-current={dock.openId === item.id ? 'true' : undefined}
       className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
-      }${selecting?.picked ? 'bg-accent-tint ' : ''}${
-        // Every row that will take the Agent in the air is faintly tinted the
-        // moment it is lifted (issue 571); only the one under the pointer is
-        // lit, so it stands out on a long dashboard.
-        agentTarget
-          ? 'bg-accent-tint outline-2 -outline-offset-2 outline-solid outline-accent'
-          : outlined && !selecting?.picked
-            ? 'bg-accent-tint/30'
-            : ''
-      }`}
-      data-takes-agent={outlined ? '' : undefined}
-      data-agent-target={agentTarget ? '' : undefined}
+      }${selecting?.picked ? 'bg-accent-tint ' : ''}`}
     >
       <WhatLettingGoWouldDo across={gone} />
       {/* The row itself, which is what moves: the band above has to stay where
@@ -1352,10 +1226,11 @@ export function ItemRow({
                 In progress
               </span>
             )}
-            {/* The run on this Item, and who started it ("Drop an agent on an
-                item to start a Claude Code session on it", issue 571) - a
-                link to the session where there is one, a control of the row's
-                own that its handlers step aside for, as "Open ↗" below is. */}
+            {/* The run on this Item, and the Agent that started it where one
+                did ("Drop an agent on an item to start a Claude Code session
+                on it", issue 571) - a link to the session where there is one,
+                a control of the row's own that its handlers step aside for, as
+                "Open ↗" below is. */}
             {chip &&
               (chip.href ? (
                 <a
@@ -1452,12 +1327,11 @@ export function ItemRow({
               </button>
             )}
           </span>
-          {/* A start refused from a drop or the menu, in the words it was
-              refused with - kept to this row, and gone with the next start.
-              One refused from the prompt box is said there instead. */}
-          {startRefusal && !asking && (
+          {/* What a key pressed on this row could not do - kept to this row,
+              and gone with the next key. */}
+          {rowNotice && (
             <span role="alert" className="block text-xs text-over-ink">
-              {startRefusal}
+              {rowNotice}
             </span>
           )}
         </span>
@@ -1521,29 +1395,6 @@ export function ItemRow({
       </div>
     </li>
       </ContextMenu.Trigger>
-      {/* Beside the row rather than inside it, so a right-click in the dialog
-          (a paste, say) does not bubble through the React tree to the row's own
-          context menu. Mounted only once opened, unlike the account-wide window a shell
-          keeps mounted between openings - a row is instantiated once per
-          item in the list, and a `useQuery` on every one of them (even
-          disabled) is a query registered per row for a feature few rows
-          will ever open. */}
-      {asking && (
-        <Suspense fallback={null}>
-        <AgentPromptBox
-          agentName={asking.name}
-          about={label}
-          sending={sending}
-          refusal={startRefusal}
-          returnFocusTo={trigger.current}
-          onCancel={() => {
-            setAsking(null);
-            setStartRefusal(null);
-          }}
-          onSend={(prompt) => void sendToClaude(asking, prompt)}
-        />
-        </Suspense>
-      )}
       <ContextMenuContent label="Item menu" onCloseAutoFocus={keepFocusIfSomethingOpened}>
         {menuEntries(ContextMenu)}
       </ContextMenuContent>

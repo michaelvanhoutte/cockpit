@@ -5,14 +5,12 @@ import type {
   ClientCommandName,
   CommandPayload,
   CommandResult,
-  StartAgent,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import {
   CommandRefused,
   addUser,
   changeUser,
-  connectClaudeCode,
   deleteUser,
   fetchAccountHoldings,
   fetchMe,
@@ -24,9 +22,7 @@ import {
   fetchWorkspaces,
   sendCommand,
   setAccess,
-  startAgent,
   checkConnectionNow,
-  testClaudeCodeConnection,
 } from './client';
 
 /**
@@ -215,23 +211,6 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<ClientCommandName>([
 ]);
 
 /**
- * The changes after which the dock is not what it was, account-wide: making,
- * editing or deleting an Agent. Every one of them
- * carries `ACCOUNT_WIDE` as its envelope's `workspaceId` - an id no snapshot
- * is ever cached under - so these re-read
- * every workspace's own snapshot rather than one that id would never match.
- *
- * Hiding or showing an Agent on one Dashboard is not here: its envelope names
- * that Dashboard's real Workspace, so the generic per-workspace re-read below
- * already reaches it.
- */
-const CHANGES_ALL_AGENTS = new Set<ClientCommandName>([
-  'create_agent',
-  'update_agent',
-  'delete_agent',
-]);
-
-/**
  * The changes that are not finished until the workspace has been read again,
  * because **what happens next is built on what this one left behind**.
  *
@@ -392,15 +371,10 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     return;
   }
 
-  if (CHANGES_ALL_AGENTS.has(args.name)) {
-    return queryClient.invalidateQueries({ queryKey: ['snapshot'] });
-  }
-
   if (args.name === 'set_item_form_presentation') {
-    // Every workspace, the same reason `CHANGES_ALL_AGENTS` above reads
-    // `['snapshot']` unprefixed rather than by the envelope's own
-    // `workspaceId` - which for this command is `ACCOUNT_WIDE`, an id no
-    // snapshot is ever actually cached under (found in review: the generic
+    // Every workspace, reading `['snapshot']` unprefixed rather than by the
+    // envelope's own `workspaceId` - which for this command is
+    // `ACCOUNT_WIDE`, an id no snapshot is ever actually cached under (found in review: the generic
     // branch below would otherwise invalidate a key nothing matches, and the
     // presentation would read stale in this tab until the SSE echo caught
     // up).
@@ -447,62 +421,6 @@ export function useCommand() {
     // already has this change in it and `isPending` covers the re-read; for the
     // rest it is `undefined` and nothing waits.
     onSuccess: (_result, args) => afterChanging(queryClient, args),
-  });
-}
-
-/**
- * Connecting, or editing with a new token, a workspace's Claude Code routine
- * ("Connect a workspace to Claude Code", issue 569). The list is re-read only
- * where Claude actually accepted the test - a refusal changes nothing stored,
- * so there is nothing to invalidate for.
- */
-export function useConnectClaudeCode(workspaceId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: Parameters<typeof connectClaudeCode>[1]) =>
-      connectClaudeCode(workspaceId, body),
-    onSuccess: (outcome) => {
-      if (outcome.accepted) {
-        return queryClient.invalidateQueries({ queryKey: ['sourceAccounts', workspaceId] });
-      }
-    },
-  });
-}
-
-/**
- * Starting an Agent on an Item ("Drop an agent on an item to start a Claude
- * Code session on it", issue 571). Re-reads the Workspace whatever the answer,
- * refusal included: the run's chip and the dock's counts are drawn from it,
- * and a refusal can have been another tab's run landing first. The
- * connection's own row is re-read too, since a refused start marks it failing.
- */
-export function useStartAgent(workspaceId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ itemId, start }: { itemId: string; start: StartAgent }) =>
-      startAgent(workspaceId, itemId, start),
-    onSettled: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] }),
-        queryClient.invalidateQueries({ queryKey: ['sourceAccounts', workspaceId] }),
-      ]),
-  });
-}
-
-/**
- * Testing a Claude Code connection already held, without changing what it
- * holds (issue 569, "Test again") - re-reads the list on acceptance, the same
- * as `useConnectClaudeCode` above, so the row's "last worked" catches up.
- */
-export function useTestClaudeCodeConnection(workspaceId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (sourceAccountId: string) => testClaudeCodeConnection(workspaceId, sourceAccountId),
-    onSuccess: (outcome) => {
-      if (outcome.accepted) {
-        return queryClient.invalidateQueries({ queryKey: ['sourceAccounts', workspaceId] });
-      }
-    },
   });
 }
 

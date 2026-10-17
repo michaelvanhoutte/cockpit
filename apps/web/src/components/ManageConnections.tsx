@@ -14,12 +14,9 @@ import {
   snapshotQuery,
   useCheckConnectionNow,
   useCommand,
-  useConnectClaudeCode,
-  useTestClaudeCodeConnection,
 } from '../api/queries';
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { sourceNamed, type SourceNames } from '../itemSource';
-import { ConnectEngine } from './engines';
 import { ChangeConnectionChoice, ConnectWithChoice, type ConnectAnswer, type ConnectorChoice, type ConnectorNames } from './ConnectionChoice';
 import { ConnectionHistory } from './ConnectionHistory';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -93,22 +90,6 @@ function connectPath(workspaceId: string, connectorId: string, answer: ConnectAn
   return query ? `${path}?${query}` : path;
 }
 
-/**
- * The one source the registry does not hold, named here and nowhere else in
- * this app: Claude Code, until "Decide how Claude Code and other outbound
- * integrations sit behind a boundary" (issue 879). Every other card comes from
- * the registry ("List the registry's connectors in the Connections window",
- * issue 894), and every name a row says from the Workspace's snapshot ("Take
- * source names out of the shared contract", issue 927), so adding a source
- * touches no file in this app.
- */
-const CLAUDE_CODE = 'claude-code';
-const CLAUDE_CODE_CARD: Card = {
-  id: CLAUDE_CODE,
-  name: 'Claude Code',
-  text: 'A routine that starts a Claude Code session on this workspace’s items.',
-};
-
 /** One connector Add a connection offers. */
 interface Card {
   id: string;
@@ -170,16 +151,9 @@ export default function ManageConnections({
   open,
   onClose,
   returnFocusTo,
-  section,
   picker,
   guest = false,
 }: {
-  /**
-   * Which cards and rows: the sources under Connections (what the registry
-   * holds), Claude Code under Agent settings (Settings,
-   * `SettingsWindow.tsx`). Absent, every kind is shown.
-   */
-  section?: 'sources' | 'agents' | undefined;
   /**
    * The shared guest, who connects nothing: the server refuses it anyway
    * (`auth/guest-connections.ts`), so this offers the way to connect one's own
@@ -218,13 +192,9 @@ export default function ManageConnections({
   const registry = useQuery({
     queryKey: ['registeredConnectors'],
     queryFn: fetchRegisteredConnectors,
-    // Only Connections draws from it.
-    enabled: open && section !== 'agents',
+    enabled: open,
   });
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
-  const [claudeCodeForm, setClaudeCodeForm] = useState(false);
-  const [claudeCodeFormPending, setClaudeCodeFormPending] = useState(false);
-  const [claudeCodeMessage, setClaudeCodeMessage] = useState<string | null>(null);
   /**
    * The card whose connector's question is being asked before Connect leaves
    * (issue 942) - and the option to start at, where a row is being reconnected.
@@ -237,22 +207,17 @@ export default function ManageConnections({
   const [historyOf, setHistoryOf] = useState<SourceAccount | null>(null);
   const choiceOpenedFrom = useRef<HTMLElement | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
-  const claudeCodeOpenedFrom = useRef<HTMLElement | null>(null);
   /**
    * The window itself, which the focus goes back to once a disconnect has
    * taken the row's menu with the row.
    */
   const list = useRef<HTMLDivElement>(null);
   const command = useCommand();
-  const testClaudeCode = useTestClaudeCodeConnection(workspaceId);
   const checkNow = useCheckConnectionNow(workspaceId);
   /** What pressing *Check now* last came to, said where the person is looking (issue 1143). */
   const [checkNowNote, setCheckNowNote] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const registered = (registry.data?.connectors ?? [])
-    // The named card wins over a registered connector of the same id.
-    .filter((connector) => connector.id !== CLAUDE_CODE)
-    .map((connector): Card => ({
+  const registered = (registry.data?.connectors ?? []).map((connector): Card => ({
       id: connector.id,
       name: connector.displayName,
       text: connector.cardText,
@@ -265,14 +230,8 @@ export default function ManageConnections({
         registry.data?.connectors.find((connector) => connector.id === because.connectorId)?.refusals ?? {},
       ).find(([code]) => code === because.code)?.[1]
     : undefined;
-  const cards = [
-    ...(section !== 'agents' ? registered : []),
-    ...(section !== 'sources' ? [CLAUDE_CODE_CARD] : []),
-  ];
-  const connected = (data?.sourceAccounts ?? []).filter(
-    (account) =>
-      !section || (section === 'agents') === (account.connectorId === CLAUDE_CODE),
-  );
+  const cards = registered;
+  const connected = data?.sourceAccounts ?? [];
   /**
    * Saying "nothing connected" is a claim about what this Workspace holds, so
    * it needs an answer to have arrived: `?? []` would make a failed read look
@@ -281,7 +240,6 @@ export default function ManageConnections({
   const answered = data !== undefined;
   const listFailed = Boolean(error) && !answered;
   const beingDisconnected = connected.find((account) => account.id === disconnecting);
-  const claudeCodeConnected = connected.find((account) => account.connectorId === CLAUDE_CODE);
 
   const startDisconnecting = (account: SourceAccount, openedFrom: HTMLElement | null) => {
     command.reset();
@@ -309,20 +267,12 @@ export default function ManageConnections({
     command.reset();
   };
 
-  const openClaudeCodeForm = (openedFrom: HTMLElement | null) => {
-    claudeCodeOpenedFrom.current = openedFrom;
-    setClaudeCodeMessage(null);
-    setClaudeCodeForm(true);
-  };
-
   /**
-   * Closing drops the disconnect being asked about and the Claude Code form,
-   * as well as shutting the window, so what the tabs unmount is never a
-   * question or a form left half-answered.
+   * Closing drops the disconnect being asked about as well as shutting the
+   * window, so what the tabs unmount is never a question left half-answered.
    */
   const close = () => {
     stopAsking();
-    setClaudeCodeForm(false);
     setAsking(null);
     setChangingChoice(null);
     setHistoryOf(null);
@@ -368,7 +318,7 @@ export default function ManageConnections({
       title={`Connections of ${workspaceName}`}
       open={open}
       onClose={close}
-      canClose={!command.isPending && !testClaudeCode.isPending && !claudeCodeFormPending}
+      canClose={!command.isPending}
       returnFocusTo={returnFocusTo}
       ref={list}
     >
@@ -414,9 +364,6 @@ export default function ManageConnections({
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm">{account.displayName}</p>
                       <p className="text-sm text-ink-faint">{rowDetail(account, names, namesOf(account.connectorId)?.noun)}</p>
-                      {/* Why Claude last refused to start a session through it,
-                          until one starts again ("Drop an agent on an item to
-                          start a Claude Code session on it", issue 571). */}
                       {/* A connection that keeps a history opens it from here,
                           where its checks say when it began failing (issue 1140). */}
                       {account.failingBecause &&
@@ -435,35 +382,6 @@ export default function ManageConnections({
                     {!guest && <RowMenu
                       label={`Actions for ${account.displayName}`}
                       entries={[
-                        ...(account.connectorId === CLAUDE_CODE
-                          ? [
-                              {
-                                label: 'Test again',
-                                keepsFocus: true,
-                                onSelect: () => {
-                                  setClaudeCodeMessage(null);
-                                  testClaudeCode.mutate(account.id, {
-                                    onSuccess: (result) => {
-                                      if (!result.accepted) setClaudeCodeMessage(result.message);
-                                    },
-                                    // The request itself failing (offline, a 5xx,
-                                    // the row having just been disconnected
-                                    // elsewhere) is not the same as Claude
-                                    // refusing the test, but both leave the row
-                                    // exactly as it was - so both get the same
-                                    // one line rather than one of them getting
-                                    // none at all (found in review).
-                                    onError: () =>
-                                      setClaudeCodeMessage('That did not reach the server. Try again.'),
-                                  });
-                                },
-                              },
-                              {
-                                label: 'Edit…',
-                                onSelect: (openedFrom: HTMLElement | null) => openClaudeCodeForm(openedFrom),
-                              },
-                            ]
-                          : []),
                         // A failing row of a connector this environment can sign
                         // in to: signing in again is what ends it (issue 944).
                         ...(account.failingBecause && registered.some((card) => card.id === account.connectorId)
@@ -484,7 +402,7 @@ export default function ManageConnections({
                           : []),
                         // The connector's own choice, changed without signing in
                         // again (issue 942).
-                        ...(account.connectorId !== CLAUDE_CODE && (choiceOf(account.connectorId) || namesOf(account.connectorId))
+                        ...(choiceOf(account.connectorId) || namesOf(account.connectorId)
                           ? [
                               {
                                 label: 'Change…',
@@ -509,11 +427,7 @@ export default function ManageConnections({
             {beingDisconnected && (
               <DeleteQuestion
                 open
-                question={`Disconnect ${beingDisconnected.displayName}? Cockpit forgets ${
-                  beingDisconnected.connectorId === CLAUDE_CODE
-                    ? 'the routine trigger it was connected with'
-                    : 'the sign-in it was connected with'
-                }.`}
+                question={`Disconnect ${beingDisconnected.displayName}? Cockpit forgets the sign-in it was connected with.`}
                 confirmLabel={`Yes, disconnect ${beingDisconnected.displayName}`}
                 confirmText="Disconnect"
                 canConfirm={!command.isPending}
@@ -552,11 +466,6 @@ export default function ManageConnections({
                 {checkNowNote.text}
               </p>
             )}
-            {claudeCodeMessage && (
-              <p role="alert" className="px-4 py-2 text-sm text-over-ink">
-                {claudeCodeMessage}
-              </p>
-            )}
           </section>
 
           <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
@@ -574,8 +483,6 @@ export default function ManageConnections({
                 </div>
                 {guest ? (
                   <span className="shrink-0 text-sm text-ink-faint">{GUEST_SENTENCE}</span>
-                ) : card.id === CLAUDE_CODE && claudeCodeConnected ? (
-                  <span className="shrink-0 text-sm text-ink-faint">Connected - one per workspace</span>
                 ) : (
                   <button
                     type="button"
@@ -583,13 +490,12 @@ export default function ManageConnections({
                     // not reading them side by side - a screen reader, or a test.
                     aria-label={`Connect ${card.name}`}
                     onClick={(event) => {
-                      if (card.id === CLAUDE_CODE) openClaudeCodeForm(event.currentTarget);
-                      else if (card.choice || card.names) {
+                      if (card.choice || card.names) {
                         askingOpenedFrom.current = event.currentTarget;
                         setAsking({ ...card });
                       } else connectRegistered(card.id);
                     }}
-                    disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending}
+                    disabled={command.isPending}
                     className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
                   >
                     Connect
@@ -600,15 +506,6 @@ export default function ManageConnections({
           </div>
         </>
       )}
-
-      <ConnectEngine
-        open={claudeCodeForm}
-        workspaceId={workspaceId}
-        connectionId={claudeCodeConnected?.id}
-        returnFocusTo={claudeCodeOpenedFrom.current}
-        onClose={() => setClaudeCodeForm(false)}
-        onPendingChange={setClaudeCodeFormPending}
-      />
 
       <ConnectWithChoice
         connector={
@@ -636,7 +533,7 @@ export default function ManageConnections({
         onClose={() => setChangingChoice(null)}
       />
 
-      <CloseWindow disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending} />
+      <CloseWindow disabled={command.isPending} />
     </ManageWindow>
   );
 }

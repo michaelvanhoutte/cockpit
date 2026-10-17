@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { AGENT_BEING_DRAGGED } from './agentInTheAir';
 import { ITEM_BEING_DRAGGED } from './dropAt';
 
 /**
@@ -218,18 +217,16 @@ export function scrollWhileDragging(options: {
 
 /**
  * Whether a native drag carrying these types scrolls the boxes it is held at
- * the edge of: an Item, and an Agent off the dock, which is aimed at a row
- * exactly as an Item is ("Drop an agent on an item to start a Claude Code
- * session on it", issue 571). Pure, so it is provable without a browser -
+ * the edge of: an Item's. Pure, so it is provable without a browser -
  * Chromium scrolls a native drag itself, so a walk there passes whether or
  * not this says yes.
  */
 export function scrollsForADragOf(types: readonly string[]): boolean {
-  return types.includes(ITEM_BEING_DRAGGED) || types.includes(AGENT_BEING_DRAGGED);
+  return types.includes(ITEM_BEING_DRAGGED);
 }
 
 /**
- * Scrolls for every item or agent drag the shell sees. Native drags fire no pointer
+ * Scrolls for every item drag the shell sees. Native drags fire no pointer
  * events, so the pointer is followed through `dragover`, which the page fires
  * whether or not anything accepts the drop.
  */

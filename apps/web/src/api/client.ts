@@ -3,19 +3,13 @@ import type { AppType } from '@cockpit/api';
 import {
   accountHoldingsSchema,
   attachmentAddress,
-  claudeCodeOutcomeSchema,
   checkedNowSchema,
-  startAgentOutcomeSchema,
   registeredUserListSchema,
   usageSchema,
   rewriteHistoryResponseSchema,
   userDeletedSchema,
   type AccountHoldings,
   type CheckedNow,
-  type ClaudeCodeOutcome,
-  type ConnectClaudeCode,
-  type StartAgent,
-  type StartAgentOutcome,
   signedInSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
@@ -287,41 +281,6 @@ export async function fetchRewriteHistoryForItem(itemId: string): Promise<Rewrit
 }
 
 /**
- * Connects, or edits with a new token, a workspace's Claude Code routine -
- * tested before anything is stored or changed ("Connect a workspace to
- * Claude Code", issue 569). Its own function rather than a `commandSenders`
- * entry: what it posts is a bare routine address and token on their way to
- * being sealed, never a command payload a client may send as-is.
- */
-export async function connectClaudeCode(
-  workspaceId: string,
-  body: ConnectClaudeCode,
-): Promise<ClaudeCodeOutcome> {
-  const res = await api.v1.workspaces[':workspaceId'].connections['claude-code'].connect.$post({
-    param: { workspaceId },
-    json: body,
-  });
-  if (!res.ok) throw refusal('connecting Claude Code', res.status);
-  return claudeCodeOutcomeSchema.parse(await res.json());
-}
-
-/**
- * Tests a Claude Code connection already held, without changing what it
- * holds (issue 569, "Test again"). The credential it fires with is read and
- * opened server-side; nothing here ever sees it.
- */
-export async function testClaudeCodeConnection(
-  workspaceId: string,
-  sourceAccountId: string,
-): Promise<ClaudeCodeOutcome> {
-  const res = await api.v1.workspaces[':workspaceId'].connections['claude-code'][
-    ':sourceAccountId'
-  ].test.$post({ param: { workspaceId, sourceAccountId } });
-  if (!res.ok) throw refusal('testing Claude Code', res.status);
-  return claudeCodeOutcomeSchema.parse(await res.json());
-}
-
-/**
  * *Check now* on a pulled connection ("Check a pulled connection now, from its
  * row or its history", issue 1143): its check made due at once. Its own
  * function rather than a `commandSenders` entry - it changes no Item or
@@ -333,28 +292,6 @@ export async function checkConnectionNow(workspaceId: string, sourceAccountId: s
   });
   if (!res.ok) throw refusal('checking the connection', res.status);
   return checkedNowSchema.parse(await res.json());
-}
-
-/**
- * Starts an Agent on an Item ("Drop an agent on an item to start a Claude
- * Code session on it", issue 571) - the drop and the row's own menu alike.
- * Its own function rather than a `commandSenders` entry: the route calls
- * Claude, and a refusal comes back as a `CommandRefused` carrying the words
- * the row shows.
- */
-export async function startAgent(
-  workspaceId: string,
-  itemId: string,
-  body: StartAgent,
-): Promise<StartAgentOutcome> {
-  const res = await api.v1.workspaces[':workspaceId'].items[':itemId']['agent-runs'].$post({
-    param: { workspaceId, itemId },
-    json: body,
-  });
-  if (!res.ok) {
-    throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `starting the agent failed: ${res.status}`);
-  }
-  return startAgentOutcomeSchema.parse(await res.json());
 }
 
 /** One sender per command; adding a command extends this map and nothing else. */
@@ -413,13 +350,6 @@ const commandSenders = {
     api.v1.commands.add_item_to_panel.$post({ json: p }, o),
   remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>, o?: ClientRequestOptions) =>
     api.v1.commands.remove_item_from_panel.$post({ json: p }, o),
-  create_agent: (p: CommandPayload<'create_agent'>, o?: ClientRequestOptions) => api.v1.commands.create_agent.$post({ json: p }, o),
-  update_agent: (p: CommandPayload<'update_agent'>, o?: ClientRequestOptions) => api.v1.commands.update_agent.$post({ json: p }, o),
-  delete_agent: (p: CommandPayload<'delete_agent'>, o?: ClientRequestOptions) => api.v1.commands.delete_agent.$post({ json: p }, o),
-  hide_agent_on_dashboard: (p: CommandPayload<'hide_agent_on_dashboard'>, o?: ClientRequestOptions) =>
-    api.v1.commands.hide_agent_on_dashboard.$post({ json: p }, o),
-  show_agent_on_dashboard: (p: CommandPayload<'show_agent_on_dashboard'>, o?: ClientRequestOptions) =>
-    api.v1.commands.show_agent_on_dashboard.$post({ json: p }, o),
   set_done: (p: CommandPayload<'set_done'>, o?: ClientRequestOptions) => api.v1.commands.set_done.$post({ json: p }, o),
   set_started: (p: CommandPayload<'set_started'>, o?: ClientRequestOptions) => api.v1.commands.set_started.$post({ json: p }, o),
   send_item_to_claude: (p: CommandPayload<'send_item_to_claude'>, o?: ClientRequestOptions) =>

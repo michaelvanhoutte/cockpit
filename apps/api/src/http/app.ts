@@ -10,21 +10,13 @@ import {
   attachmentContentTypeSchema,
   changeUserSchema,
   userDeletedSchema,
-  agentMessageFor,
   attachmentLinksRequestSchema,
   attachmentLinksSchema,
   rememberOfferAnswerSchema,
   rememberedSentenceListSchema,
   ACCOUNT_WIDE,
-  claudeCodeHooksSchema,
-  claudeCodeOutcomeSchema,
-  REMOTE_SESSION_HEADER,
-  startAgentOutcomeSchema,
-  startAgentSchema,
   commandResultSchema,
   commandSchemas,
-  connectClaudeCodeSchema,
-  demoAddress,
   MAX_ATTACHMENT_SIZE,
   MAX_RECORDING_BYTES,
   TRANSCRIPTION_PATH,
@@ -47,7 +39,6 @@ import {
   type CommandPayload,
   type CommandResult,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, CLAUDE_CODE_NAME } from '../domain/named-sources.js';
 import {
   accountBackupSchema,
   accountNameSchema,
@@ -102,10 +93,8 @@ import {
   enqueueReadingItsMeaning,
   enqueueRepropose,
   enqueueGuestArrivals,
-  enqueueSimulatedRunWaiting,
   readWhatTheseNotesMean,
 } from '../jobs/index.js';
-import { startingPauseMs } from '../jobs/simulated-run.js';
 import { offerToRemember } from '../jobs/offer-to-remember.js';
 import { onOneLine } from '../domain/remembered-sentences.js';
 import { readUsage } from '../accounts/usage.js';
@@ -149,8 +138,7 @@ import {
   signInOf,
 } from '../connectors/sign-in.js';
 import { revokeAfterDisconnect } from '../connectors/revoke.js';
-import { guestConnectionGate, isTheGuest } from '../auth/guest-connections.js';
-import { providerCallsIn } from '../gateway/record.js';
+import { guestConnectionGate } from '../auth/guest-connections.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import {
@@ -160,16 +148,7 @@ import {
 } from '../auth/register.js';
 import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
-import { connectionsFor, forgetConnection, rememberConnection } from '../connectors/directory.js';
-import {
-  HOOK_BODY_LIMIT_BYTES,
-  HOOK_PATH_PREFIX,
-  fireRoutine,
-  hookSecretFor,
-  isHookSecret,
-  testClaudeCodeConnection,
-  waitingFrom,
-} from '../engines/list.js';
+import { rememberConnection } from '../connectors/directory.js';
 import type { Env } from '../env.js';
 
 type AppEnv = GatedEnv;
@@ -894,135 +873,6 @@ const disconnectAppRoute = createRoute({
   },
 });
 
-/** What every Claude Code route answers where this deployment has no `CONNECTOR_CREDENTIAL_KEY` to seal or open a credential with at all. */
-const NO_SEALING_KEY_MESSAGE = 'This environment cannot connect a source account.';
-
-/**
- * Connecting, or editing with a new token, a workspace's Claude Code routine
- * ("Connect a workspace to Claude Code", issue 569). One route for both: a
- * routine already connected is refreshed rather than duplicated, exactly as
- * reconnecting a Teams account is (`connect_source_account`,
- * command-service.ts) - so pressing Connect again with a new token *is*
- * editing.
- *
- * **A request the browser makes, not a navigation** - unlike Teams, there is
- * no third party to visit and come back from, so what the OAuth pair above
- * is to Teams, this one route is to Claude Code.
- */
-const claudeCodeConnectRoute = createRoute({
-  method: 'post',
-  path: '/v1/workspaces/{workspaceId}/connections/claude-code/connect',
-  request: {
-    params: z.object({ workspaceId: z.string() }),
-    body: {
-      required: true,
-      content: { 'application/json': { schema: connectClaudeCodeSchema } },
-    },
-  },
-  responses: {
-    200: {
-      description: 'Whether Claude accepted the test session',
-      content: { 'application/json': { schema: claudeCodeOutcomeSchema } },
-    },
-    404: {
-      description: 'Unknown workspace',
-      content: { 'application/json': { schema: errorSchema } },
-    },
-  },
-});
-
-/**
- * Testing a Claude Code connection this Workspace already holds, without
- * changing what it holds ("Connect a workspace to Claude Code", issue 569,
- * "Test again"). The credential this fires with is read and opened here,
- * server-side, and never sent by the browser - the same standing rule 3
- * ("the token never leaves the server once stored") gives every other read
- * of this connection.
- */
-const claudeCodeTestRoute = createRoute({
-  method: 'post',
-  path: '/v1/workspaces/{workspaceId}/connections/claude-code/{sourceAccountId}/test',
-  request: {
-    params: z.object({ workspaceId: z.string(), sourceAccountId: z.string() }),
-  },
-  responses: {
-    200: {
-      description: 'Whether Claude accepted the test session',
-      content: { 'application/json': { schema: claudeCodeOutcomeSchema } },
-    },
-    404: {
-      description: 'Unknown workspace or connection',
-      content: { 'application/json': { schema: errorSchema } },
-    },
-  },
-});
-
-/**
- * What the repository needs for its sessions to say when Claude is waiting
- * on you ("See on the item when Claude is waiting on you", issue 572): the
- * address its hooks post to, the connection's secret, the domain to allow,
- * and when a hook last arrived.
- *
- * **A POST, though it reads**: it also records where the connection lives in
- * the register's directory, which is how a hook - arriving with no sign-in -
- * finds the account to open. Asking again rewrites the same row.
- */
-const claudeCodeHooksRoute = createRoute({
-  method: 'post',
-  path: '/v1/workspaces/{workspaceId}/connections/claude-code/{sourceAccountId}/hooks',
-  request: {
-    params: z.object({ workspaceId: z.string(), sourceAccountId: z.string() }),
-  },
-  responses: {
-    200: {
-      description: 'The hooks to add to the repository',
-      content: { 'application/json': { schema: claudeCodeHooksSchema } },
-    },
-    404: {
-      description: 'Unknown workspace or connection',
-      content: { 'application/json': { schema: errorSchema } },
-    },
-    503: {
-      description: 'This environment holds no key to issue a secret with',
-      content: { 'application/json': { schema: errorSchema } },
-    },
-  },
-});
-
-/** Where a Claude Code connection's hooks are looked up in the register's directory, apart from any real source's own keys (issue 572). */
-const HOOKS_DIRECTORY = 'claude-code-hooks';
-
-/**
- * A request body as text, or null where it runs past `limit` bytes - read a
- * chunk at a time, so a body that says nothing of its length is still cut off
- * rather than read whole first.
- */
-async function bodyWithin(request: Request, limit: number): Promise<string | null> {
-  const declared = Number(request.headers.get('content-length') ?? '0');
-  if (declared > limit) return null;
-  if (!request.body) return '';
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const whole = new Uint8Array(size);
-  let at = 0;
-  for (const chunk of chunks) {
-    whole.set(chunk, at);
-    at += chunk.byteLength;
-  }
-  return new TextDecoder().decode(whole);
-}
-
 /**
  * A request body as bytes, or null where it runs past `limit` - read a chunk at
  * a time, so a body that says nothing of its length is still cut off rather than
@@ -1053,43 +903,6 @@ async function bytesWithin(request: Request, limit: number): Promise<Uint8Array 
   }
   return whole;
 }
-
-/**
- * Starting an Agent on an Item: a run recorded as starting, one call to
- * Claude, and the answer written back to the run ("Drop an agent on an item
- * to start a Claude Code session on it", issue 571). The drop and the row's
- * own menu both come here.
- *
- * **In the request, never on a queue**, because a queue retries on its own
- * and every retry is another session. The same start sent twice is one run
- * and one call: `begin_agent_run` carries the start's own `commandId`, and a
- * replay of it is answered without calling Claude again.
- */
-const startAgentRoute = createRoute({
-  method: 'post',
-  path: '/v1/workspaces/{workspaceId}/items/{itemId}/agent-runs',
-  request: {
-    params: z.object({ workspaceId: z.string(), itemId: z.string() }),
-    body: {
-      required: true,
-      content: { 'application/json': { schema: startAgentSchema } },
-    },
-  },
-  responses: {
-    200: {
-      description: 'How the run stands once Claude has answered, or that this start was already made',
-      content: { 'application/json': { schema: startAgentOutcomeSchema } },
-    },
-    404: {
-      description: 'Unknown workspace, item or dashboard',
-      content: { 'application/json': { schema: errorSchema } },
-    },
-    409: {
-      description: 'This agent may not start on this item, in words',
-      content: { 'application/json': { schema: errorSchema } },
-    },
-  },
-});
 
 /**
  * Every rewrite attempt for one item, most recent first - the table opened
@@ -1486,276 +1299,6 @@ const routes = app
     }
     return c.json({ disconnected: true as const }, 200);
   })
-  // --- connecting a Claude Code routine: one request, tested before stored ---
-  //
-  // Kept among the `.openapi()` routes rather than beside Teams's own
-  // connect/callback pair further down: those are plain `.get()` navigations
-  // (`app.get`, not `app.openapi`), and TypeScript stops carrying the
-  // `OpenAPIHono` route-map type through the chain the moment a plain method
-  // call appears in it - every `.openapi()` call after one silently types its
-  // handler's `c` as `any` instead of failing loudly. Found by the cascade of
-  // `Parameter 'c' implicitly has an 'any' type` errors this produced when
-  // these two were first written in after that pair, one for every command
-  // route already past them.
-  .openapi(claudeCodeConnectRoute, async (c) => {
-    const { workspaceId } = c.req.valid('param');
-    const { routineUrl, token } = c.req.valid('json');
-    const account = await openAccount(c.env, c.get('visitor').accountName);
-    if (!(await account.workspaces()).some((workspace) => workspace.id === workspaceId)) {
-      return c.json({ error: `no such workspace: ${workspaceId}` }, 404);
-    }
-
-    const key = await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY);
-    if (!key) {
-      return c.json({ accepted: false, message: NO_SEALING_KEY_MESSAGE }, 200);
-    }
-
-    const outcome = await testClaudeCodeConnection(routineUrl, token, c.env.CLAUDE_CODE_ROUTINES_ORIGIN, {
-      record: providerCallsIn(c.env),
-      accountName: c.get('visitor').accountName,
-    });
-    if (!outcome.accepted) return c.json(outcome, 200);
-
-    // Both halves sealed together, so the routine's own address is exactly as
-    // unreadable from the row as the token is - there is nowhere else this
-    // application would keep it (rule 3, "the token never leaves the server
-    // once stored").
-    const sealed = await seal(JSON.stringify({ routineUrl, token }), key);
-    await change(c, 'connect_source_account', {
-      commandId: uuidv7(),
-      issuedAt: new Date().toISOString(),
-      workspaceId,
-      sourceAccountId: uuidv7(),
-      connectorId: CLAUDE_CODE,
-      // A constant rather than something read off the reply, unlike Teams's
-      // own identity key: there is nothing here that names an account at a
-      // source, and a fixed key is what makes the unique index
-      // (`connector_accounts_one_per_account`, accounts/schema.ts) enforce
-      // "one Claude Code connection per workspace" - pressing Connect again
-      // upserts onto this same key rather than ever adding a second row.
-      externalAccountKey: 'connection',
-      displayName: CLAUDE_CODE_NAME,
-      ...sealed,
-    });
-    return c.json({ accepted: true }, 200);
-  })
-  // --- testing a Claude Code connection already held -------------------------
-  .openapi(claudeCodeTestRoute, async (c) => {
-    const { workspaceId, sourceAccountId } = c.req.valid('param');
-    const account = await openAccount(c.env, c.get('visitor').accountName);
-    // Throws where the row is not there, is not this Workspace's, or is not
-    // Claude Code's - `onError` turns that into the same 404
-    // `disconnect_source_account` gives for a mismatched Workspace.
-    const sealed = await account.claudeCodeCredential(workspaceId, sourceAccountId);
-
-    const key = await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY);
-    if (!key) {
-      return c.json({ accepted: false, message: NO_SEALING_KEY_MESSAGE }, 200);
-    }
-    // A distinct message from the one above: the environment can seal and
-    // open credentials just fine, but this one row's own bytes will not
-    // open under the key it has - a rotated `CONNECTOR_CREDENTIAL_KEY` being
-    // the likely cause, not something wrong with connecting in general
-    // (found in review - the two used to share one message).
-    const opened = await open(sealed, key);
-    if (!opened) {
-      return c.json(
-        { accepted: false, message: 'This connection could not be read. Reconnect it.' },
-        200,
-      );
-    }
-
-    const { routineUrl, token } = JSON.parse(opened) as { routineUrl: string; token: string };
-    const outcome = await testClaudeCodeConnection(routineUrl, token, c.env.CLAUDE_CODE_ROUTINES_ORIGIN, {
-      record: providerCallsIn(c.env),
-      accountName: c.get('visitor').accountName,
-    });
-    if (!outcome.accepted) return c.json(outcome, 200);
-
-    await change(c, 'mark_source_account_tested', {
-      commandId: uuidv7(),
-      issuedAt: new Date().toISOString(),
-      workspaceId,
-      sourceAccountId,
-    });
-    return c.json({ accepted: true }, 200);
-  })
-  // --- what a repository's hooks need to report back -------------------------
-  .openapi(claudeCodeHooksRoute, async (c) => {
-    const { workspaceId, sourceAccountId } = c.req.valid('param');
-    const accountName = c.get('visitor').accountName;
-    const account = await openAccount(c.env, accountName);
-    // Throws where the row is not this Workspace's Claude Code connection,
-    // which `onError` answers with the 404 the test route gives.
-    const { lastArrivedAt } = await account.claudeCodeHookArrival(workspaceId, sourceAccountId);
-    const secret = await hookSecretFor(c.env.CONNECTOR_CREDENTIAL_KEY, sourceAccountId);
-    if (!secret) return c.json({ error: NO_SEALING_KEY_MESSAGE }, 503);
-    await rememberConnection(
-      c.env,
-      { accountName, workspaceId },
-      HOOKS_DIRECTORY,
-      sourceAccountId,
-      new Date().toISOString(),
-    );
-    const origin = new URL(c.env.APP_ORIGIN);
-    return c.json(
-      {
-        url: `${origin.origin}${HOOK_PATH_PREFIX}${encodeURIComponent(sourceAccountId)}`,
-        secret,
-        domain: origin.hostname,
-        lastArrivedAt,
-      },
-      200,
-    );
-  })
-  // --- starting an agent on an item: recorded, then Claude called once -------
-  .openapi(startAgentRoute, async (c) => {
-    const { workspaceId, itemId } = c.req.valid('param');
-    const start = c.req.valid('json');
-    const account = await openAccount(c.env, c.get('visitor').accountName);
-
-    // Recorded as starting before Claude is called, so a request that dies
-    // after the call still leaves a run saying a session may exist. Every
-    // refusal is this call's: it throws, and `onError` answers it.
-    const begun = await account.applyChange('begin_agent_run', {
-      commandId: start.commandId,
-      issuedAt: start.issuedAt,
-      workspaceId,
-      runId: start.runId,
-      itemId,
-      agentId: start.agentId,
-      dashboardId: start.dashboardId,
-    });
-    if (!begun.applied) return c.json({ alreadyStarted: true }, 200);
-
-    /** Writes Claude's answer onto the run - true where it was stored. */
-    const settle = async (
-      outcome: Pick<CommandPayload<'settle_agent_run'>, 'status' | 'sessionUrl' | 'reason' | 'connectionFailing'>,
-    ): Promise<boolean> => {
-      try {
-        await account.applyChange('settle_agent_run', {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          runId: start.runId,
-          itemId,
-          ...outcome,
-        });
-        return true;
-      } catch (error) {
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            message: `run ${start.runId} could not be settled as ${outcome.status}`,
-            cause: error instanceof Error ? error.message : String(error),
-          }),
-        );
-        return false;
-      }
-    };
-
-    // The shared guest never calls Claude ("Show agents at work in the guest
-    // demo, with simulated runs", issue 774): its connection is a placeholder
-    // that is never opened, and the run is played out instead - starting for
-    // a moment, then working on a demo session, then waiting on you from the
-    // queue. Decided by the account, so an Agent the guest made is simulated
-    // too, and checked before anything below reads the connection.
-    if (isTheGuest(c.get('visitor'))) {
-      await new Promise((resolve) => setTimeout(resolve, startingPauseMs(c.env.SIMULATED_START_MS)));
-      if (!(await settle({ status: 'working', sessionUrl: demoAddress('session', start.runId) }))) {
-        await settle({ status: 'link_lost' });
-        return c.json({ alreadyStarted: false, status: 'link_lost' }, 200);
-      }
-      await enqueueSimulatedRunWaiting(c.env, c.get('visitor').accountName, workspaceId, start.runId);
-      return c.json({ alreadyStarted: false, status: 'working' }, 200);
-    }
-
-    // Read straight after the start was recorded. Whatever stops it - the
-    // connection disconnected in another tab in between, or the read itself
-    // failing - Claude has not been called, so the run says it did not start
-    // rather than sitting on "starting" as though a session might exist.
-    let toFire: Awaited<ReturnType<typeof account.agentRunToFire>>;
-    try {
-      toFire = await account.agentRunToFire(workspaceId, start.runId);
-    } catch {
-      await settle({ status: 'failed', reason: 'Claude was not asked - try again.' });
-      return c.json({ alreadyStarted: false, status: 'failed' }, 200);
-    }
-    const key = await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY);
-    const opened = key ? await open(toFire, key) : null;
-    if (!opened) {
-      // Nothing was sent, so Claude cannot have started anything.
-      const reason = key ? 'This connection could not be read. Reconnect it.' : NO_SEALING_KEY_MESSAGE;
-      await settle({ status: 'failed', reason, connectionFailing: key !== null });
-      return c.json({ alreadyStarted: false, status: 'failed' }, 200);
-    }
-    const { routineUrl, token } = JSON.parse(opened) as { routineUrl: string; token: string };
-    // A link for each file, since the session cannot sign in to open the
-    // address the app uses (issue 573); which of them the message offers is
-    // `agentMessageFor`'s to decide.
-    const linkKey = await attachmentLinkKey(c.env.CONNECTOR_CREDENTIAL_KEY);
-    const now = new Date();
-    const attachments = await Promise.all(
-      toFire.attachments.map(async (attachment) => ({
-        ...attachment,
-        link: linkKey
-          ? new URL(
-              `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(
-                linkKey,
-                { accountName: c.get('visitor').accountName, attachmentId: attachment.id },
-                now,
-              )}`,
-              c.env.APP_ORIGIN,
-            ).toString()
-          : undefined,
-      })),
-    );
-    const text = agentMessageFor(
-      { name: toFire.name, message: toFire.message },
-      {
-        attachments,
-        title: toFire.item.title,
-        description: toFire.item.description,
-        // Where the Item came from, where it came from anywhere; otherwise
-        // the Dashboard it was started on, which is where it is shown.
-        link:
-          toFire.item.sourceLink ??
-          `${c.env.APP_ORIGIN}/w/${encodeURIComponent(workspaceId)}/d/${encodeURIComponent(start.dashboardId)}`,
-      },
-      start.prompt,
-    );
-
-    const answer = await fireRoutine(
-      routineUrl,
-      token,
-      text,
-      c.env.CLAUDE_CODE_ROUTINES_ORIGIN ? { origin: c.env.CLAUDE_CODE_ROUTINES_ORIGIN } : {},
-      {
-        record: providerCallsIn(c.env),
-        accountName: c.get('visitor').accountName,
-        itemId,
-        operation: 'start-an-agent',
-        triggeredBy: 'agent-started',
-      },
-    );
-    if (answer.answered === 'refused') {
-      await settle({ status: 'failed', reason: answer.message, connectionFailing: answer.connection });
-      return c.json({ alreadyStarted: false, status: 'failed' }, 200);
-    }
-    if (answer.answered === 'unknown') {
-      await settle({ status: 'unknown' });
-      return c.json({ alreadyStarted: false, status: 'unknown' }, 200);
-    }
-    // Accepted: a session exists. Its link is stored where it can be; where
-    // it cannot - a link Claude did not give, or a write that failed - the
-    // run says the session started and its link was lost, never that nothing
-    // started (issue 571, "Stops halfway").
-    if (answer.sessionUrl && (await settle({ status: 'working', sessionUrl: answer.sessionUrl }))) {
-      return c.json({ alreadyStarted: false, status: 'working' }, 200);
-    }
-    await settle({ status: 'link_lost' });
-    return c.json({ alreadyStarted: false, status: 'link_lost' }, 200);
-  })
   .openapi(attachmentLinksRoute, async (c) => {
     const { attachmentIds } = c.req.valid('json');
     const key = await attachmentLinkKey(c.env.CONNECTOR_CREDENTIAL_KEY);
@@ -2005,23 +1548,6 @@ const routes = app
     }
     return c.json(result, 200);
   })
-  .openapi(
-    commandRoute('create_agent', { conflict: 'An agent already has that name' }),
-    async (c) => c.json(await change(c, 'create_agent', c.req.valid('json')), 200),
-  )
-  .openapi(
-    commandRoute('update_agent', { conflict: 'An agent already has that name' }),
-    async (c) => c.json(await change(c, 'update_agent', c.req.valid('json')), 200),
-  )
-  .openapi(commandRoute('delete_agent'), async (c) =>
-    c.json(await change(c, 'delete_agent', c.req.valid('json')), 200),
-  )
-  .openapi(commandRoute('hide_agent_on_dashboard'), async (c) =>
-    c.json(await change(c, 'hide_agent_on_dashboard', c.req.valid('json')), 200),
-  )
-  .openapi(commandRoute('show_agent_on_dashboard'), async (c) =>
-    c.json(await change(c, 'show_agent_on_dashboard', c.req.valid('json')), 200),
-  )
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))
   .openapi(commandRoute('finish_agent_run'), async (c) =>
@@ -2646,72 +2172,6 @@ const routes = app
       },
     ),
   )
-  // --- Claude Code hooks: a session saying it is waiting on you ---------------
-  /**
-   * Where a repository's `Stop` and `UserPromptSubmit` hooks post ("See on
-   * the item when Claude is waiting on you", issue 572).
-   *
-   * **Outside the sign-in gate, under the ingress prefix it waves through**,
-   * so the checks here are the only door, in this order: the connection's
-   * secret, which costs nothing to refuse, then the body's size - both before
-   * any account is opened - then the connection still being there, and how
-   * often it has been heard from.
-   * Registered ahead of the generic ingress below, which would otherwise
-   * take the address as a connector's.
-   *
-   * **204 for everything it accepts**, whether or not a run moved: a hook
-   * from another Claude session in the same repository is ordinary, and
-   * nothing a hook is answered changes what Claude does next.
-   */
-  .post(`${HOOK_PATH_PREFIX}:sourceAccountId`, async (c) => {
-    const sourceAccountId = c.req.param('sourceAccountId');
-    const presented = /^Bearer\s+(\S+)$/i.exec(c.req.header('authorization') ?? '')?.[1] ?? '';
-    if (!(await isHookSecret(c.env.CONNECTOR_CREDENTIAL_KEY, sourceAccountId, presented))) {
-      return c.json({ error: 'unauthorized' }, 401);
-    }
-    const text = await bodyWithin(c.req.raw, HOOK_BODY_LIMIT_BYTES);
-    if (text === null) return c.json({ error: 'too large' }, 413);
-
-    let hook: { session_id?: unknown; hook_event_name?: unknown };
-    try {
-      hook = JSON.parse(text) as typeof hook;
-    } catch {
-      return c.json({ error: 'not JSON' }, 400);
-    }
-    const waiting = waitingFrom(hook?.hook_event_name);
-    const sessionIds = [hook?.session_id, c.req.header(REMOTE_SESSION_HEADER)]
-      .filter((id): id is string => typeof id === 'string' && id.trim() !== '' && id.length <= 200)
-      .map((id) => id.trim());
-
-    for (const pointer of await connectionsFor(c.env, HOOKS_DIRECTORY, sourceAccountId)) {
-      // The shared guest holds no connection of its own to hear from (issue 772).
-      if (pointer.accountName === GUEST_ACCOUNT_NAME) continue;
-      let account: Awaited<ReturnType<typeof openAccount>>;
-      let arrival: 'admitted' | 'too-many';
-      try {
-        account = await openAccount(c.env, pointer.accountName);
-        arrival = await account.claudeCodeHookArrived(pointer.workspaceId, sourceAccountId, new Date().toISOString());
-      } catch (error) {
-        // The row and the store disagree: disconnected, or the account gone.
-        // Swept, as a push's own lookup sweeps (connectors/push-host.ts).
-        if (!(error instanceof NotFoundInAccountError || error instanceof AccountNotInRegisterError)) throw error;
-        await forgetConnection(c.env, pointer, HOOKS_DIRECTORY, sourceAccountId);
-        continue;
-      }
-      if (arrival === 'too-many') return c.json({ error: 'too many' }, 429);
-      if (waiting !== null && sessionIds.length > 0) {
-        await account.applyChange('report_agent_run_activity', {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId: pointer.workspaceId,
-          sessionIds,
-          waiting,
-        });
-      }
-      return c.body(null, 204);
-    }
-    return c.json({ error: 'no such connection' }, 404);
-  })
   // --- generic webhook ingress: no source-specific routes here ---------------
   /**
    * Where a source pushes ("Save a Teams message to Cockpit", issue 486).

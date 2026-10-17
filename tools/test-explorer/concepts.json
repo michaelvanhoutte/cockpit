@@ -398,7 +398,7 @@
     {
       "key": "Agents",
       "label": "Agents",
-      "browserWalks": 8,
+      "browserWalks": 5,
       "parent": "Workspaces",
       "sourcePatterns": [
         "packages/shared/src/domain/agent.ts",
@@ -409,11 +409,8 @@
         "apps/api/src/domain/claude-sends.ts",
         "apps/web/src/openClaude.ts",
         "apps/web/src/components/SendToClaudeWindow.tsx",
-        "apps/api/src/engines/claude-code.ts",
         "apps/api/src/http/app.ts",
-        "apps/web/src/agentInTheAir.ts",
         "apps/web/src/agentRunChip.ts",
-        "apps/web/src/components/AgentPromptBox.tsx",
         "apps/web/src/components/ItemRow.tsx",
         "apps/web/src/components/ItemList.tsx",
         "apps/web/src/dragScroll.ts",
@@ -423,10 +420,9 @@
         "apps/api/src/accounts/schema.ts",
         "apps/api/src/accounts/changes.ts",
         "apps/api/src/accounts/store.ts",
-        "apps/web/src/components/AgentDock.tsx",
-        "apps/web/src/components/AgentForm.tsx",
-        "apps/web/src/agentDockHidden.ts",
-        "apps/web/src/pages/Layout.tsx"
+        "apps/web/src/pages/Layout.tsx",
+        "apps/api/src/accounts/retire-agents.ts",
+        "apps/api/src/domain/agent-sentence.ts"
       ]
     },
     {

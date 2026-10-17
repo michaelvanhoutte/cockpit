@@ -140,9 +140,13 @@ test.describe('Sign-in', () => {
    * What the register ends up holding - one account however many press it - is
    * settled far more cheaply at
    * apps/api/tests/integration/http/sign-in.test.ts and is not re-proved here.
+   * Which Items the demonstration has with Claude is
+   * apps/api/tests/integration/http/guest-runs.test.ts's; that the person
+   * landing sees one is this walk's ("Retire the agents' dock and routines,
+   * keeping what each agent knew", issue 1165).
    */
   test.describe('you can continue as a guest, with no account of your own', () => {
-    test('goes straight from one press into a workspace', async ({ page, isMobile }) => {
+    test('goes straight from one press into a workspace, with items already sent to Claude and no dock', async ({ page, isMobile }) => {
       await page.goto('/signin');
 
       await press(page.getByRole('link', { name: 'Continue as guest' }), isMobile);
@@ -156,6 +160,9 @@ test.describe('Sign-in', () => {
         .first()
         .waitFor({ state: 'visible' });
       await pastCapture(page, isMobile);
+
+      await expect(itemRow(page, 'Reply to Mum about the weekend').getByText('Needs you ↗')).toBeVisible();
+      await expect(page.getByRole('toolbar', { name: 'Agents' })).toHaveCount(0);
 
       await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText('Signed in as Guest')).toBeVisible();

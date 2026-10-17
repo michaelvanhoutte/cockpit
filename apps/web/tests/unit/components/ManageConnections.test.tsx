@@ -5,19 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SourceAccount } from '@cockpit/shared';
 import ManageConnections from '../../../src/components/ManageConnections';
 import type { ConnectOutcome, RefusedBecause } from '../../../src/connections';
-import {
-  useCheckConnectionNow,
-  useCommand,
-  useConnectClaudeCode,
-  useTestClaudeCodeConnection,
-} from '../../../src/api/queries';
+import { useCheckConnectionNow, useCommand } from '../../../src/api/queries';
 
 /**
  * F1: what this window draws and what it sends, and nothing about what the
  * server stores. Whether a credential is really sealed, deleted or scoped to
  * one Workspace is proved against a real store in
- * apps/api/tests/integration/http/connections.test.ts and
- * apps/api/tests/integration/http/claude-code-connections.test.ts; that a
+ * apps/api/tests/integration/http/connections.test.ts; that a
  * person can connect one and see the row is the browser walk in
  * tests/e2e/connections.test.ts.
  */
@@ -34,10 +28,6 @@ const held = vi.hoisted(() => ({
     refusals?: Record<string, string>;
     choice?: { question: string; options: { value: string; label: string }[] };
   }[],
-  /** What the Claude Code connection's hooks read answers with (issue 572). */
-  hooks: { url: '', secret: '', domain: '', lastArrivedAt: null as string | null },
-  /** The connection each hooks read was for. */
-  hooksAskedFor: [] as string[],
   /** What the Workspace's snapshot calls each source (issue 927). */
   sourceNames: {} as Record<string, string> | undefined,
   /** What a connection's history read answers with, or that it fails (issue 1140). */
@@ -58,8 +48,6 @@ vi.mock('../../../src/itemForm', () => ({
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
-  useConnectClaudeCode: vi.fn(),
-  useTestClaudeCodeConnection: vi.fn(),
   useCheckConnectionNow: vi.fn(),
   refusalFrom: (command: { error: unknown }) =>
     command.error ? 'That did not reach the server. Try again.' : null,
@@ -96,16 +84,6 @@ vi.mock('../../../src/api/client', () => ({
                 },
               },
             },
-            'claude-code': {
-              ':sourceAccountId': {
-                hooks: {
-                  $post: ({ param }: { param: { sourceAccountId: string } }) => {
-                    held.hooksAskedFor.push(param.sourceAccountId);
-                    return Promise.resolve(new Response(JSON.stringify(held.hooks)));
-                  },
-                },
-              },
-            },
           },
         },
       },
@@ -134,43 +112,13 @@ const MICHAEL: SourceAccount = {
   filesByName: false,
 };
 
-const CLAUDE: SourceAccount = {
-  id: 'account-claude-code',
-  connectorId: 'claude-code',
-  displayName: 'Claude Code',
-  connectedAt: '2026-09-18T09:10:00.000Z',
-  lastTestedAt: '2026-09-18T09:10:00.000Z',
-  failingBecause: null,
-  filesByName: false,
-};
-
 let sent: ReturnType<typeof vi.fn>;
-let testedClaudeCode: ReturnType<typeof vi.fn>;
 /** The connections a press on Check now asked for (issue 1143), and whether the request reaches the server. */
 let checkedNow: string[] = [];
 let checkNowReaches = true;
 
-/**
- * What `useTestClaudeCodeConnection`'s `mutate` does when "Test again" is
- * pressed, for the one case that needs its callbacks to actually fire:
- * `'network-failure'` invokes `onError`, anything else invokes `onSuccess`
- * with itself as the result.
- */
-type TestOutcome = { accepted: true } | { accepted: false; message: string } | 'network-failure';
-
-function showWindow(
-  outcome?: ConnectOutcome,
-  testOutcome: TestOutcome = { accepted: true },
-  guest = false,
-  because?: RefusedBecause,
-) {
+function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBecause) {
   sent = vi.fn();
-  testedClaudeCode = vi.fn(
-    (_sourceAccountId: string, opts: { onSuccess?: (r: unknown) => void; onError?: () => void }) => {
-      if (testOutcome === 'network-failure') opts.onError?.();
-      else opts.onSuccess?.(testOutcome);
-    },
-  );
   // Cast through `unknown`: the window reads a few of a mutation's fields and
   // a whole `UseMutationResult` would be thirty lines of stand-in for the
   // ones it never touches.
@@ -185,17 +133,6 @@ function showWindow(
     error: null,
     variables: undefined,
   } as unknown as ReturnType<typeof useCommand>);
-  vi.mocked(useConnectClaudeCode).mockReturnValue({
-    mutate: vi.fn(),
-    isPending: false,
-    error: null,
-    data: undefined,
-    reset: vi.fn(),
-  } as unknown as ReturnType<typeof useConnectClaudeCode>);
-  vi.mocked(useTestClaudeCodeConnection).mockReturnValue({
-    mutate: testedClaudeCode,
-    isPending: false,
-  } as unknown as ReturnType<typeof useTestClaudeCodeConnection>);
   vi.mocked(useCheckConnectionNow).mockReturnValue({
     mutate: (id: string, opts: { onSuccess?: () => void; onError?: () => void }) => {
       checkedNow.push(id);
@@ -230,14 +167,13 @@ const TEAMS_CARD = {
 beforeEach(() => {
   held.sourceAccounts = [];
   held.registry = [TEAMS_CARD];
-  held.hooksAskedFor = [];
   held.history = [];
   held.olderRemain = false;
   held.historyAskedFor = [];
   held.opened = [];
   checkedNow = [];
   checkNowReaches = true;
-  held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail', 'claude-code': 'Claude Code' };
+  held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail' };
   vi.restoreAllMocks();
 });
 
@@ -371,7 +307,7 @@ describe('Connector management', () => {
       held.registry = [
         { id: 'notion', displayName: 'Notion', cardText: 'Pages.', asksFirst: false, refusals: { 'no-offline': 'Notion did not let Cockpit stay signed in. Nothing was stored.' } },
       ];
-      showWindow('refused', undefined, false, because);
+      showWindow('refused', false, because);
 
       expect(await screen.findByText(says)).toBeInTheDocument();
     });
@@ -809,7 +745,6 @@ describe('Connector management', () => {
     it.each([
       { situation: 'a row that is not failing', account: { ...ANNA, failingBecause: null } },
       { situation: 'a failing row of a source this environment cannot sign in to', account: { ...ANNA, connectorId: 'outlook' } },
-      { situation: 'a failing Claude Code row, which is edited rather than signed in to', account: { ...CLAUDE, failingBecause: 'Claude refused.' } },
     ])('offers no Reconnect on $situation', async ({ account }) => {
       held.sourceAccounts = [account];
       showWindow();
@@ -849,37 +784,21 @@ describe('Connector management', () => {
         payload: { workspaceId: 'ws-work', sourceAccountId: 'account-ada' },
       });
     });
-
-    /**
-     * Disconnecting Teams forgets a sign-in; disconnecting Claude Code
-     * forgets a routine trigger, never a sign-in - a Claude Code connection
-     * never signed anybody in (found in review).
-     */
-    it('says what is forgotten in the connector’s own terms, not always "sign-in"', async () => {
-      held.sourceAccounts = [CLAUDE];
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Claude Code' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Disconnect' }));
-
-      expect(await screen.findByText(/the routine trigger it was connected with/)).toBeInTheDocument();
-      expect(screen.queryByText(/the sign-in it was connected with/)).toBeNull();
-    });
   });
 
   describe('the guest is offered no way to connect, disconnect or test, only how to connect their own', () => {
-    it('says to sign in with Google in place of every Connect, on Connections and Agent settings alike', async () => {
-      showWindow(undefined, undefined, true);
+    it('says to sign in with Google in place of every Connect', async () => {
+      showWindow(undefined, true);
 
       await screen.findByText(/Nothing connected yet/);
-      expect(screen.getAllByText('Sign in with Google to connect your own')).toHaveLength(2);
+      expect(screen.getAllByText('Sign in with Google to connect your own')).toHaveLength(1);
       expect(screen.queryByRole('button', { name: /^Connect / })).toBeNull();
     });
 
     it('offers nothing to do to a connection the guest is shown', async () => {
-      held.sourceAccounts = [ADA, CLAUDE];
+      held.sourceAccounts = [ADA];
 
-      showWindow(undefined, undefined, true);
+      showWindow(undefined, true);
 
       expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^Actions for / })).toBeNull();
@@ -894,16 +813,15 @@ describe('Connector management', () => {
   });
 
   describe('the window lists what is connected, then what can be added', () => {
-    it('offers Teams and Claude Code to add when nothing is connected', async () => {
+    it('offers Teams to add when nothing is connected, and no Claude Code routine', async () => {
       showWindow();
 
       expect(await screen.findByText(/Nothing connected yet/)).toBeInTheDocument();
       // Nothing is connected, so each connector's name appears exactly once -
       // on its own Add-a-connection row.
       expect(await screen.findByText('Microsoft Teams')).toBeInTheDocument();
-      expect(screen.getByText('Claude Code')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Connect Claude Code' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Connect Claude Code' })).toBeNull();
     });
 
     it('draws one card per registered connector, named and described as its manifest gives, and none for one the registry lacks', async () => {
@@ -914,8 +832,7 @@ describe('Connector management', () => {
       expect(await screen.findByRole('button', { name: 'Connect Notion' })).toBeInTheDocument();
       expect(screen.getByText('Pages arrive as items.')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Connect Microsoft Teams' })).toBeNull();
-      // The one named card stays, and no source is drawn that the registry does not hold.
-      expect(screen.getByRole('button', { name: 'Connect Claude Code' })).toBeInTheDocument();
+      // No source is drawn that the registry does not hold.
       expect(screen.queryByRole('button', { name: 'Connect Gmail' })).toBeNull();
     });
 
@@ -923,137 +840,6 @@ describe('Connector management', () => {
       showWindow();
 
       expect(await screen.findByText(TEAMS_CARD.cardText)).toBeInTheDocument();
-    });
-
-    it('shows a connected Claude Code under Connected with when it last worked, and offers no more Connect for it', async () => {
-      held.sourceAccounts = [CLAUDE];
-
-      showWindow();
-
-      expect(await screen.findByText(/last worked/)).toBeInTheDocument();
-      expect(screen.getByText('Connected - one per workspace')).toBeInTheDocument();
-      // Teams is still offered - only Claude Code is capped at one.
-      expect(await screen.findByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Connect Claude Code' })).toBeNull();
-    });
-  });
-
-  describe('a connected Claude Code can be tested, edited and disconnected', () => {
-    it('offers Test again, Edit… and Disconnect, where a Teams row offers only Disconnect', async () => {
-      held.sourceAccounts = [ADA, CLAUDE];
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada Lovelace' }));
-      expect(screen.queryByRole('menuitem', { name: 'Test again' })).toBeNull();
-      expect(screen.queryByRole('menuitem', { name: 'Edit…' })).toBeNull();
-      expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
-      await userEvent.keyboard('{Escape}');
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Claude Code' }));
-      expect(screen.getByRole('menuitem', { name: 'Test again' })).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: 'Edit…' })).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
-    });
-
-    it('tests the row it was chosen from', async () => {
-      held.sourceAccounts = [CLAUDE];
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Claude Code' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Test again' }));
-
-      expect(testedClaudeCode).toHaveBeenCalledWith('account-claude-code', expect.anything());
-    });
-
-    it('shows why, when Claude refuses the test', async () => {
-      held.sourceAccounts = [CLAUDE];
-      showWindow(undefined, { accepted: false, message: 'The token is wrong or was revoked.' });
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Claude Code' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Test again' }));
-
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        'The token is wrong or was revoked.',
-      );
-    });
-
-    /**
-     * A test that never reached the server is not the same as Claude
-     * refusing it, but both leave the connection exactly as it was - so
-     * both get a line rather than one of them getting none at all (found
-     * in review).
-     */
-    it('says so, rather than nothing, when the test request fails to reach the server', async () => {
-      held.sourceAccounts = [CLAUDE];
-      showWindow(undefined, 'network-failure');
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Claude Code' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Test again' }));
-
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        'That did not reach the server. Try again.',
-      );
-    });
-
-    it('opens the connect form to edit, prefilled with nothing', async () => {
-      held.sourceAccounts = [CLAUDE];
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Claude Code' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit…' }));
-
-      expect(await screen.findByRole('dialog', { name: 'Connect Claude Code' })).toBeInTheDocument();
-      expect(screen.getByRole('textbox', { name: 'Routine trigger URL' })).toHaveValue('');
-    });
-  });
-});
-
-describe('Agents', () => {
-  describe('a connection Claude refused says so on its row until a start works', () => {
-    it.each([
-      { situation: 'failing', failingBecause: 'The token is wrong or was revoked.', says: 'Failing: The token is wrong or was revoked.' },
-      { situation: 'working', failingBecause: null, says: null },
-    ])('a Claude Code connection $situation', async ({ failingBecause, says }) => {
-      held.sourceAccounts = [{ ...CLAUDE, failingBecause }];
-
-      showWindow();
-
-      await screen.findByText(/last worked/);
-      expect(screen.queryByText(/^Failing:/)?.textContent ?? null).toBe(says);
-    });
-  });
-});
-
-describe('Agents', () => {
-  describe('the connection’s form gives what the repository needs to say Claude is waiting', () => {
-    it.each([
-      { situation: 'a hook has arrived', lastArrivedAt: '2026-09-29T08:00:00.000Z', says: /^A hook last arrived / },
-      { situation: 'no hook has arrived', lastArrivedAt: null, says: /^No hook has arrived yet\.$/ },
-    ])('when $situation', async ({ lastArrivedAt, says }) => {
-      held.sourceAccounts = [CLAUDE];
-      held.hooks = {
-        url: 'https://cockpit.example/ingress/claude-code/hooks/account-claude-code',
-        secret: 'the-connections-secret',
-        domain: 'cockpit.example',
-        lastArrivedAt,
-      };
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Claude Code' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit…' }));
-
-      const snippet = JSON.parse((await screen.findByLabelText('Hooks for .claude/settings.json')).textContent!);
-      const hook = snippet.hooks.Stop[0].hooks[0];
-      expect(hook).toMatchObject({
-        type: 'http',
-        url: 'https://cockpit.example/ingress/claude-code/hooks/account-claude-code',
-        headers: { Authorization: 'Bearer the-connections-secret' },
-      });
-      expect(snippet.hooks.UserPromptSubmit[0].hooks[0]).toEqual(hook);
-      // The domain to allow is the form's step 2, shown before any connection
-      // exists (ConnectClaudeCode.test.tsx), so it is not repeated here.
-      expect(screen.getByText(says)).toBeInTheDocument();
-      expect(held.hooksAskedFor).toEqual(['account-claude-code']);
     });
   });
 });
@@ -1101,7 +887,6 @@ describe('Connector management', () => {
     it.each([
       { situation: 'a connected Gmail row', account: ANNA, offered: true },
       { situation: 'a connected Outlook row', account: { ...ANNA, connectorId: 'outlook' }, offered: true },
-      { situation: 'the Claude Code row', account: CLAUDE, offered: false },
       { situation: 'a Teams row, which pushes and keeps a history', account: PUSHED, offered: true },
       { situation: 'a row of a connector that keeps none', account: ADA, offered: false },
     ])('$situation', async ({ account, offered }) => {
@@ -1142,7 +927,6 @@ describe('Connector management', () => {
     it.each([
       { situation: 'a connected Gmail row', account: ANNA, offered: true },
       { situation: 'a connected Outlook row', account: { ...ANNA, connectorId: 'outlook' }, offered: true },
-      { situation: 'the Claude Code row', account: CLAUDE, offered: false },
       { situation: 'a Teams row, which is pushed to and has nothing to check', account: PUSHED, offered: false },
       { situation: 'a row of a connector that keeps no history', account: ADA, offered: false },
     ])('$situation', async ({ account, offered }) => {

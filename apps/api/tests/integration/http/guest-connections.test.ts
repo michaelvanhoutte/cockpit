@@ -31,7 +31,6 @@ import {
  */
 
 const AT = '2026-10-05T10:00:00.000Z';
-const ROUTINE_URL = 'https://api.anthropic.com/v1/claude_code/routines/trig_workspace/fire';
 
 let seq = 0;
 const nextId = () => {
@@ -93,23 +92,6 @@ async function guestRows(): Promise<{ id: string; display_name: string; updated_
     ),
   ]);
 }
-
-/** The Claude Code connection the demo seeds in one Workspace. */
-async function seededClaudeCode(workspaceId: string): Promise<Planted> {
-  const [row] = await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => [
-    ...sql.exec<{ id: string }>(
-      "SELECT id FROM connector_accounts WHERE connector_id = 'claude-code' AND workspace_id = ?",
-      workspaceId,
-    ),
-  ]);
-  return { id: row!.id, connectorId: 'claude-code' };
-}
-
-/** Every Claude Code row the guest holds, as stored - what a refused change must leave exactly as it was. */
-const claudeCodeRows = () =>
-  inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => [
-    ...sql.exec("SELECT * FROM connector_accounts WHERE connector_id = 'claude-code' ORDER BY id"),
-  ]);
 
 /** The Teams items the guest holds that came from a message saved to Cockpit rather than from the demo. */
 const savedFromTeams = (sql: SqlStorage) => [
@@ -188,36 +170,6 @@ describe('Connector management', () => {
       expect(await guestRows()).toEqual(before);
     });
 
-    it('stores no Claude Code connection a guest creates, and leaves one already there as it was', async () => {
-      const cookie = await continueAsGuest();
-      const workspaceId = await guestWorkspace(cookie);
-      const reached = vi.fn();
-      vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
-        reached(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
-        throw new Error('nothing in a test may reach out');
-      });
-      const connect = `/v1/workspaces/${workspaceId}/connections/claude-code/connect`;
-
-      const created = await asGuest(cookie, connect, post({ routineUrl: ROUTINE_URL, token: 'a-routine-token' }));
-      expect(created.status).toBe(403);
-      expect(await guestRows()).toEqual([]);
-
-      // Seeded in every Workspace ("Show agents at work in the guest demo", issue 774), with a placeholder credential.
-      const planted = await seededClaudeCode(workspaceId);
-      const before = await claudeCodeRows();
-
-      const edited = await asGuest(cookie, connect, post({ routineUrl: ROUTINE_URL, token: 'another-token' }));
-      const tested = await asGuest(
-        cookie,
-        `/v1/workspaces/${workspaceId}/connections/claude-code/${planted.id}/test`,
-        { method: 'POST' },
-      );
-
-      expect([edited.status, tested.status]).toEqual([403, 403]);
-      expect(await claudeCodeRows()).toEqual(before);
-      expect(reached).not.toHaveBeenCalled();
-    });
-
     it('still lets a named person start a Gmail connect', async () => {
       const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/gmail/connect?choice=label`, {
         redirect: 'manual',
@@ -249,28 +201,6 @@ describe('Connector management', () => {
       expect(answer.status).toBeLessThan(500);
       const saved = await inStoreAsItIs(GUEST_ACCOUNT_NAME, savedFromTeams);
       expect(saved).toEqual([]);
-    });
-
-    it('answers a Claude Code hook carrying the secret of a guest connection as having no such connection', async () => {
-      const cookie = await continueAsGuest();
-      const workspaceId = await guestWorkspace(cookie);
-      const planted = await seededClaudeCode(workspaceId);
-      await env.DB.prepare(
-        `INSERT INTO connector_directory (connector_id, external_account_key, account_id, workspace_id, connected_at)
-         VALUES ('claude-code-hooks', ?, ?, ?, ?)`,
-      )
-        .bind(planted.id, GUEST_ACCOUNT_NAME, workspaceId, AT)
-        .run();
-      const { hookSecretFor } = await import('../../../src/engines/claude-code-hooks.js');
-      const secret = await hookSecretFor(env.CONNECTOR_CREDENTIAL_KEY, planted.id);
-
-      const answer = await SELF.fetch(`http://cockpit.test/ingress/claude-code/hooks/${planted.id}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
-        body: JSON.stringify({ session_id: 'session_01EXAMPLE', hook_event_name: 'Stop' }),
-      });
-
-      expect(answer.status).toBe(404);
     });
   });
 });

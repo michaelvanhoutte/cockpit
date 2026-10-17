@@ -1,4 +1,3 @@
-import type { AttachmentForAgent } from './agent.js';
 import { attachmentAddress, isReadableByClaude } from './attachment.js';
 import type { ClaudeDestination } from './claude-send.js';
 
@@ -9,18 +8,30 @@ import type { ClaudeDestination } from './claude-send.js';
  */
 
 /**
+ * One of the Item's attachments as a prompt names it: `link` is where the
+ * session downloads it without signing in, and is only used for a file Claude
+ * can read (`isReadableByClaude`).
+ */
+export interface AttachmentForClaude {
+  id: string;
+  filename: string;
+  contentType: string;
+  link?: string | undefined;
+}
+
+/**
  * What an Item's words and files become for a Claude session, which cannot
  * sign in to the app: the description with an inline file's signed-in address
  * swapped for its link, and the section listing every file ("Send an item's
- * attachments along when an agent starts", issue 573). Shared by an Agent's
- * message and by the prompt sent to Cowork or Claude Code.
+ * attachments along when an agent starts", issue 573), for the prompt sent to
+ * Cowork or Claude Code.
  */
 export function attachmentsForClaude(
   rawDescription: string | null,
-  attachments: readonly AttachmentForAgent[],
+  attachments: readonly AttachmentForClaude[],
 ): { description: string; section: string } {
   const readable = attachments.filter(
-    (attachment): attachment is AttachmentForAgent & { link: string } =>
+    (attachment): attachment is AttachmentForClaude & { link: string } =>
       attachment.link !== undefined && isReadableByClaude(attachment.contentType),
   );
   const links = new Map(readable.map((attachment) => [attachmentAddress(attachment.id), attachment.link]));
@@ -34,8 +45,8 @@ export function attachmentsForClaude(
 }
 
 function attachmentsSection(
-  attachments: readonly AttachmentForAgent[],
-  readable: readonly (AttachmentForAgent & { link: string })[],
+  attachments: readonly AttachmentForClaude[],
+  readable: readonly (AttachmentForClaude & { link: string })[],
 ): string {
   if (attachments.length === 0) return '';
   const lines = attachments.map((attachment) => {
@@ -96,7 +107,7 @@ export function claudeClosingFor(runId: string): string {
 export function plainPromptFor(item: {
   title: string;
   description: string | null;
-  attachments: readonly AttachmentForAgent[];
+  attachments: readonly AttachmentForClaude[];
   runId: string;
   from?: ProposedFrom | null;
 }): string {
@@ -119,7 +130,7 @@ export function plainPromptFor(item: {
  */
 export function proposedPromptFor(proposal: {
   prompt: string;
-  attachments: readonly AttachmentForAgent[];
+  attachments: readonly AttachmentForClaude[];
   runId: string;
   from: ProposedFrom | null;
 }): string {
