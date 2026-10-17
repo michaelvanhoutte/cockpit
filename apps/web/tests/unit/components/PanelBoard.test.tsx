@@ -338,6 +338,12 @@ async function choose(user: ReturnType<typeof userEvent.setup>, panel: string, e
   await user.click(await screen.findByRole('menuitem', { name: entry }));
 }
 
+/** Opens the Panel settings form from a panel's menu, and returns it. */
+async function openSettings(user: ReturnType<typeof userEvent.setup>, panel: string) {
+  await choose(user, panel, 'Settings…');
+  return screen.findByRole('dialog', { name: 'Panel settings' });
+}
+
 /** The visible "..." button on a panel's header, its own way into the same menu. */
 function menuButtonOf(panelName: string) {
   return screen.getByRole('button', { name: `Actions for ${panelName}` });
@@ -586,7 +592,39 @@ describe('Panels', () => {
 
       openMenu('Project Falcon');
 
-      expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Settings…' })).toBeVisible();
+    });
+
+    it.each([
+      {
+        situation: 'a panel of items',
+        panel: aPanel('falcon', 'Project Falcon'),
+        offers: ['Settings…', 'Sort…'],
+        never: ['Rename', 'Never propose'],
+      },
+      {
+        situation: 'a filter',
+        panel: aFilter('due', 'Due soon'),
+        offers: ['Settings…', 'Filter…', 'Sort…'],
+        never: ['Rename'],
+      },
+      {
+        situation: 'a panel of text',
+        panel: aPanelOfText('words', 'What matters'),
+        offers: ['Settings…'],
+        never: ['Rename', 'Make read-only', 'Allow editing', 'Use rich text', 'Use plain text'],
+      },
+    ])('offers Settings… in place of Rename and the toggles on $situation', async ({ panel, offers, never }) => {
+      showBoard({ panels: [panel] });
+
+      openMenu(panel.name);
+
+      await screen.findByRole('menuitem', { name: 'Settings…' });
+      for (const entry of offers) expect(screen.getByRole('menuitem', { name: entry })).toBeVisible();
+      for (const entry of never) {
+        expect(screen.queryByRole('menuitem', { name: entry })).toBeNull();
+        expect(screen.queryByRole('menuitemcheckbox', { name: entry })).toBeNull();
+      }
     });
 
     it('can be reached by keyboard, so the browser’s own menu key has something to open it from', () => {
@@ -605,35 +643,9 @@ describe('Panels', () => {
         showBoard();
 
         fireEvent.keyDown(handleOf('Project Falcon'), { key });
-        expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+        expect(screen.getByRole('menuitem', { name: 'Settings…' })).toBeVisible();
       },
     );
-
-    it('stays shut on Enter while the name is being edited in place, the same as a right-click', async () => {
-      const { user } = showBoard();
-
-      await choose(user, 'Project Falcon', 'Rename');
-      fireEvent.keyDown(handleOf('Project Falcon'), { key: 'Enter' });
-
-      expect(screen.queryByRole('menuitem')).toBeNull();
-    });
-
-    it('drops out of the tab order while the name is being edited in place, where the input already is', async () => {
-      const { user } = showBoard();
-
-      await choose(user, 'Project Falcon', 'Rename');
-
-      expect(handleOf('Project Falcon')).toHaveAttribute('tabindex', '-1');
-    });
-
-    it('stays shut on a right-click while the name is being edited in place', async () => {
-      const { user } = showBoard();
-
-      await choose(user, 'Project Falcon', 'Rename');
-      openMenu('Project Falcon');
-
-      expect(screen.queryByRole('menuitem')).toBeNull();
-    });
 
     it('leaves a plain click on the header as the drag it is, opening nothing', async () => {
       // `userEvent`, not bare `fireEvent.click`: a real mouse click carries
@@ -657,7 +669,7 @@ describe('Panels', () => {
 
       fireEvent.click(handleOf('Project Falcon'), { detail: 0 });
 
-      expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Settings…' })).toBeVisible();
     });
 
     it('leaves a touch on the header for Radix’s own long press, not the drag', () => {
@@ -707,16 +719,6 @@ describe('Panels', () => {
       expect(screen.getByText('read-only')).toBeVisible();
     });
 
-    it('drops the header’s own name for what it opens while the input already carries one', async () => {
-      const { user } = showBoard();
-
-      await choose(user, 'Project Falcon', 'Rename');
-
-      const header = handleOf('Project Falcon');
-      expect(header).not.toHaveAttribute('role');
-      expect(header).not.toHaveAttribute('aria-label');
-      expect(header).not.toHaveAttribute('aria-haspopup');
-    });
   });
 
   describe('a panel also carries a visible button for the same menu, unlike a tab', () => {
@@ -729,7 +731,7 @@ describe('Panels', () => {
       // `fireEvent.contextMenu`, `user.click` runs across several
       // microtasks, so the portalled menu content is not guaranteed mounted
       // in the same tick the click resolves in (found in review).
-      expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeVisible();
+      expect(await screen.findByRole('menuitem', { name: 'Settings…' })).toBeVisible();
     });
 
     it('names itself for what it opens, the same name the header carries', () => {
@@ -785,30 +787,15 @@ describe('Panels', () => {
       expect(lifted()).not.toContain('opacity-40');
     });
 
-    it('is gone while the name is being edited in place, the same as the rest of the menu', async () => {
-      const { user } = showBoard();
-
-      await choose(user, 'Project Falcon', 'Rename');
-
-      expect(screen.queryByRole('button', { name: 'Actions for Project Falcon' })).toBeNull();
-    });
   });
 
   describe('what a panel offers is in the panel’s own menu, and none of it needs a pointer', () => {
-    it('renames it from the title, starting from the one it has', async () => {
-      const { user, mutate } = showBoard();
+    it('opens the Panel settings form from Settings…, on the name it has', async () => {
+      const { user } = showBoard();
 
-      await choose(user, 'Project Falcon', 'Rename');
-      const box = screen.getByLabelText('New name for Project Falcon');
-      expect(box).toHaveValue('Project Falcon');
-      await user.clear(box);
-      await user.type(box, '  Falcon  ');
-      await user.click(screen.getByRole('button', { name: 'Save' }));
+      await openSettings(user, 'Project Falcon');
 
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('rename_panel');
-      expect(asked.payload.name).toBe('Falcon');
-      expect(asked.payload.panelId).toBe('falcon');
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Project Falcon');
     });
 
     it('asks before deleting it, and says what it takes with it', async () => {
@@ -1594,26 +1581,28 @@ describe('Panels', () => {
       {
         situation: 'a title another panel already holds',
         error: new CommandRefused(409, 'a panel called To read is already on this dashboard'),
-        variables: { name: 'rename_panel', payload: { panelId: 'falcon' } },
+        variables: { name: 'set_panel_settings', payload: { panelId: 'falcon' } },
         act: async (user: ReturnType<typeof userEvent.setup>) => {
-          await choose(user, 'Project Falcon', 'Rename');
+          await openSettings(user, 'Project Falcon');
+          await user.type(screen.getByRole('textbox', { name: 'Name' }), ' 2');
           await user.click(screen.getByRole('button', { name: 'Save' }));
         },
         says: 'a panel called To read is already on this dashboard',
-        stillOpen: 'New name for Project Falcon',
-        holding: 'Project Falcon',
+        stillOpen: 'Name',
+        holding: 'Project Falcon 2',
       },
       {
         situation: 'a request that never reached the server',
         error: new Error('Failed to fetch'),
-        variables: { name: 'rename_panel', payload: { panelId: 'falcon' } },
+        variables: { name: 'set_panel_settings', payload: { panelId: 'falcon' } },
         act: async (user: ReturnType<typeof userEvent.setup>) => {
-          await choose(user, 'Project Falcon', 'Rename');
+          await openSettings(user, 'Project Falcon');
+          await user.type(screen.getByRole('textbox', { name: 'Name' }), ' 2');
           await user.click(screen.getByRole('button', { name: 'Save' }));
         },
         says: 'That did not reach the server. Try again.',
-        stillOpen: 'New name for Project Falcon',
-        holding: 'Project Falcon',
+        stillOpen: 'Name',
+        holding: 'Project Falcon 2',
       },
     ])('$situation', async ({ error, variables, act, says, stillOpen, holding }) => {
       const { user } = showBoard({ error, variables });
@@ -1621,9 +1610,11 @@ describe('Panels', () => {
       await act(user);
 
       expect(screen.getByRole('alert')).toHaveTextContent(says);
-      // Still there to be corrected: the box does not close over a refusal, and
-      // it still holds what was typed into it.
-      expect(screen.getByLabelText(stillOpen)).toHaveValue(holding);
+      // Said once, by the form: the panel behind it does not say it again.
+      expect(screen.getAllByRole('alert', { hidden: true })).toHaveLength(1);
+      // Still there to be corrected: the form does not close over a refusal,
+      // and it still holds what was typed into it.
+      expect(screen.getByRole('textbox', { name: stillOpen })).toHaveValue(holding);
     });
 
     it('puts a refused arrangement back, rather than leaving it under the message', async () => {
@@ -1737,61 +1728,86 @@ describe('Panels', () => {
   });
 
   describe('a panel of text is read-only until somebody says otherwise', () => {
+    it('opens on what the panel holds now', async () => {
+      const { user } = showBoard({
+        panels: [aPanelOfText('words', 'What matters', { readOnly: true, format: 'rich' })],
+      });
+
+      await openSettings(user, 'What matters');
+
+      expect(screen.getByRole('checkbox', { name: 'Read-only' })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Show formatting' })).toBeChecked();
+    });
+
     it.each([
-      { situation: 'locking one that is open', readOnly: false, entry: 'Make read-only', sends: true },
-      { situation: 'opening one that is locked', readOnly: true, entry: 'Allow editing', sends: false },
-    ])('$situation', async ({ readOnly, entry, sends }) => {
+      { situation: 'locking one that is open', readOnly: false, sends: true },
+      { situation: 'opening one that is locked', readOnly: true, sends: false },
+    ])('$situation, sending nothing but that', async ({ readOnly, sends }) => {
       const { mutate, user } = showBoard({
         panels: [aPanelOfText('words', 'What matters', { readOnly })],
       });
 
-      await choose(user, 'What matters', entry);
+      await openSettings(user, 'What matters');
+      await user.click(screen.getByRole('checkbox', { name: 'Read-only' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(mutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'set_panel_read_only',
-          payload: expect.objectContaining({ panelId: 'words', readOnly: sends }),
-        }),
-      );
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('set_panel_settings');
+      expect(asked.payload).toEqual(expect.objectContaining({ panelId: 'words', readOnly: sends }));
+      expect(asked.payload).not.toHaveProperty('name');
+      expect(asked.payload).not.toHaveProperty('format');
     });
 
     it.each([
-      { situation: 'asking for formatting', format: 'plain' as const, entry: 'Use rich text', sends: 'rich' },
-      { situation: 'asking for the characters back', format: 'rich' as const, entry: 'Use plain text', sends: 'plain' },
-    ])('$situation', async ({ format, entry, sends }) => {
+      { situation: 'asking for formatting', format: 'plain' as const, sends: 'rich' },
+      { situation: 'asking for the characters back', format: 'rich' as const, sends: 'plain' },
+    ])('$situation', async ({ format, sends }) => {
       const { mutate, user } = showBoard({
         panels: [aPanelOfText('words', 'What matters', { format })],
       });
 
-      await choose(user, 'What matters', entry);
+      await openSettings(user, 'What matters');
+      await user.click(screen.getByRole('checkbox', { name: 'Show formatting' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(mutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'set_panel_format',
-          payload: expect.objectContaining({ panelId: 'words', format: sends }),
-        }),
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('set_panel_settings');
+      expect(asked.payload).toEqual(expect.objectContaining({ panelId: 'words', format: sends }));
+    });
+
+    it('carries the name and both text settings together when all three changed', async () => {
+      const { mutate, user } = showBoard({
+        panels: [aPanelOfText('words', 'What matters')],
+      });
+
+      await openSettings(user, 'What matters');
+      await user.type(screen.getByRole('textbox', { name: 'Name' }), '!');
+      await user.click(screen.getByRole('checkbox', { name: 'Read-only' }));
+      await user.click(screen.getByRole('checkbox', { name: 'Show formatting' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.payload).toEqual(
+        expect.objectContaining({ name: 'What matters!', readOnly: true, format: 'rich' }),
       );
     });
 
     /**
-     * A panel of items has no text to lock and none to draw, and an entry that
-     * means nothing where it is offered is worse than one that is not there -
-     * which is why these are absent rather than unavailable, unlike the moves
-     * beside them.
+     * A panel of items has no text to lock and none to draw, so the form does
+     * not ask: the Text section is absent rather than disabled.
      */
-    it('offers the choice on a panel of text and on no other', async () => {
+    it('asks about text on a panel of text and on no other', async () => {
       const { user } = showBoard({
         panels: [aPanel('falcon', 'Project Falcon'), aPanelOfText('words', 'What matters')],
       });
 
-      openMenu('Project Falcon');
-      expect(screen.queryByRole('menuitem', { name: /read-only|Allow editing/ })).toBeNull();
-      expect(screen.queryByRole('menuitem', { name: /rich text|plain text/ })).toBeNull();
-      await user.keyboard('{Escape}');
+      await openSettings(user, 'Project Falcon');
+      expect(screen.queryByRole('checkbox', { name: /Read-only|Show formatting/ })).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
-      openMenu('What matters');
-      expect(await screen.findByRole('menuitem', { name: 'Make read-only' })).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: 'Use rich text' })).toBeInTheDocument();
+      await openSettings(user, 'What matters');
+      expect(screen.getByRole('checkbox', { name: 'Read-only' })).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: 'Show formatting' })).toBeInTheDocument();
     });
   });
 
@@ -1834,7 +1850,7 @@ describe('Panels', () => {
 
       expect(screen.queryByRole('button', { name: /Add an item to/ })).toBeNull();
       openMenu('What matters');
-      expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'Settings…' })).toBeInTheDocument();
       expect(screen.queryByRole('menuitem', { name: 'Add an item…' })).toBeNull();
     });
 
@@ -1846,44 +1862,181 @@ describe('Panels', () => {
     });
   });
 
-  describe('Never propose is offered on a panel of items, ticked while it is set', () => {
+  describe('Inbox suggestions are offered on a panel of items, ticked unless Never propose is set', () => {
     it.each([
-      { situation: 'setting it', set: false, sends: true },
-      { situation: 'clearing it', set: true, sends: false },
-    ])('$situation from the menu, which says whether it is on', async ({ set, sends }) => {
-      const { mutate, user } = showBoard({
-        panels: [{ ...aPanel('falcon', 'Project Falcon'), neverPropose: set }],
+      { situation: 'a panel not set to Never propose', neverPropose: false, ticked: true },
+      { situation: 'a panel set to Never propose', neverPropose: true, ticked: false },
+    ])('opens on $situation with the suggestion ticked as it is', async ({ neverPropose, ticked }) => {
+      const { user } = showBoard({
+        panels: [{ ...aPanel('falcon', 'Project Falcon'), neverPropose }],
       });
 
-      openMenu('Project Falcon');
-      const entry = await screen.findByRole('menuitemcheckbox', { name: 'Never propose' });
-      expect(entry).toHaveAttribute('aria-checked', String(set));
-      await user.click(entry);
+      await openSettings(user, 'Project Falcon');
 
-      expect(mutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'set_panel_never_propose',
-          payload: expect.objectContaining({ panelId: 'falcon', neverPropose: sends }),
-        }),
+      const box = screen.getByRole('checkbox', {
+        name: 'Suggest Project Falcon for new items in the Inbox',
+      });
+      if (ticked) expect(box).toBeChecked();
+      else expect(box).not.toBeChecked();
+    });
+
+    it.each([
+      { situation: 'setting it', neverPropose: false, sends: true },
+      { situation: 'clearing it', neverPropose: true, sends: false },
+    ])('$situation sends the inverse of the tick, and nothing else', async ({ neverPropose, sends }) => {
+      const { mutate, user } = showBoard({
+        panels: [{ ...aPanel('falcon', 'Project Falcon'), neverPropose }],
+      });
+
+      await openSettings(user, 'Project Falcon');
+      await user.click(
+        screen.getByRole('checkbox', { name: 'Suggest Project Falcon for new items in the Inbox' }),
       );
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('set_panel_settings');
+      expect(asked.payload).toEqual(expect.objectContaining({ panelId: 'falcon', neverPropose: sends }));
+      expect(asked.payload).not.toHaveProperty('name');
     });
 
     it.each([
       { situation: 'a panel of text', panel: aPanelOfText('words', 'What matters') },
+      { situation: 'a filter', panel: aFilter('due', 'What matters') },
+    ])('is not offered on $situation', async ({ panel }) => {
+      const { user } = showBoard({ panels: [panel] });
+
+      await openSettings(user, 'What matters');
+
+      expect(screen.queryByRole('checkbox', { name: /Suggest/ })).toBeNull();
+    });
+  });
+
+  describe('the Panel settings form says what kind of Panel it is, and asks only what applies', () => {
+    it.each([
+      {
+        situation: 'a panel of items',
+        panel: aPanel('falcon', 'Project Falcon'),
+        says: 'A panel of items: it holds what you file onto it.',
+        headings: ['Name', 'Inbox suggestions'],
+      },
       {
         situation: 'a filter',
-        panel: {
-          ...aPanel('due', 'What matters'),
-          kind: 'filter' as const,
-          filter: { rows: [], groupBy: 'none' as const },
+        panel: aFilter('due', 'Due soon'),
+        says: 'A filter panel: it collects items from every panel in this workspace that match its rules.',
+        headings: ['Name'],
+      },
+      {
+        situation: 'a panel of text',
+        panel: aPanelOfText('words', 'What matters'),
+        says: 'A text panel: words written straight onto the dashboard.',
+        headings: ['Name', 'Text'],
+      },
+    ])('$situation', async ({ panel, says, headings }) => {
+      const { user } = showBoard({ panels: [panel] });
+
+      const form = await openSettings(user, panel.name);
+
+      expect(within(form).getByText(says)).toBeVisible();
+      expect(
+        within(form)
+          .getAllByRole('heading', { level: 3 })
+          .map((one) => one.textContent),
+      ).toEqual(headings);
+    });
+
+    it('sends nothing when nothing changed, and closes', async () => {
+      const { mutate, user } = showBoard();
+
+      await openSettings(user, 'Project Falcon');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('closes once the save has landed', async () => {
+      const { user } = showBoard();
+
+      await openSettings(user, 'Project Falcon');
+      await user.type(screen.getByRole('textbox', { name: 'Name' }), ' 2');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('stays open, unable to save again or be dismissed, while a save is on its way', async () => {
+      const { mutate, user } = showBoard({ pending: true });
+
+      await openSettings(user, 'Project Falcon');
+      await user.type(screen.getByRole('textbox', { name: 'Name' }), ' 2');
+      await user.keyboard('{Escape}');
+
+      expect(screen.getByRole('dialog', { name: 'Panel settings' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('sends only the formatting when that is all that changed on a panel of text', async () => {
+      const { mutate, user } = showBoard({ panels: [aPanelOfText('words', 'What matters')] });
+
+      await openSettings(user, 'What matters');
+      await user.click(screen.getByRole('checkbox', { name: 'Show formatting' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.payload).not.toHaveProperty('readOnly');
+      expect(asked.payload).not.toHaveProperty('name');
+      expect(asked.payload).toEqual(expect.objectContaining({ panelId: 'words', format: 'rich' }));
+    });
+
+    it('trims the name it sends', async () => {
+      const { mutate, user } = showBoard();
+
+      await openSettings(user, 'Project Falcon');
+      const box = screen.getByRole('textbox', { name: 'Name' });
+      await user.clear(box);
+      await user.type(box, '  Falcon  ');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('set_panel_settings');
+      expect(asked.payload).toEqual(expect.objectContaining({ panelId: 'falcon', name: 'Falcon' }));
+    });
+
+    it('does not offer to save a name with nothing in it', async () => {
+      const { user } = showBoard();
+
+      await openSettings(user, 'Project Falcon');
+      await user.clear(screen.getByRole('textbox', { name: 'Name' }));
+
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    });
+
+    it.each([
+      {
+        way: 'Cancel',
+        leave: async (user: ReturnType<typeof userEvent.setup>) => {
+          await user.click(screen.getByRole('button', { name: 'Cancel' }));
         },
       },
-    ])('is not offered on $situation', async ({ panel }) => {
-      showBoard({ panels: [panel] });
+      {
+        way: 'Escape',
+        leave: async (user: ReturnType<typeof userEvent.setup>) => {
+          await user.keyboard('{Escape}');
+        },
+      },
+    ])('discards what was typed on $way, so reopening shows the old name', async ({ leave }) => {
+      const { mutate, user } = showBoard();
 
-      openMenu('What matters');
-      expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeInTheDocument();
-      expect(screen.queryByRole('menuitemcheckbox', { name: 'Never propose' })).toBeNull();
+      await openSettings(user, 'Project Falcon');
+      await user.type(screen.getByRole('textbox', { name: 'Name' }), ' changed');
+      await leave(user);
+      expect(screen.queryByRole('dialog')).toBeNull();
+      await openSettings(user, 'Project Falcon');
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Project Falcon');
     });
   });
 
@@ -2039,7 +2192,7 @@ describe('Panels', () => {
       }
 
       openMenu('Words');
-      await screen.findByRole('menuitem', { name: 'Rename' });
+      await screen.findByRole('menuitem', { name: 'Settings…' });
       expect(screen.queryByRole('menuitem', { name: 'Sort…' })).toBeNull();
       fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     });
@@ -2775,7 +2928,7 @@ describe('Onboarding', () => {
 
       for (const panel of ['Project Falcon', 'What matters']) {
         openMenu(panel);
-        expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeVisible();
+        expect(await screen.findByRole('menuitem', { name: 'Settings…' })).toBeVisible();
         expect(screen.queryByRole('menuitem', { name: 'Filter…' })).toBeNull();
         await user.keyboard('{Escape}');
       }
@@ -4037,7 +4190,7 @@ describe('Panels', () => {
 
       tap(button, 5000);
       fireEvent.click(button, { detail: 1 });
-      await screen.findByRole('menuitem', { name: 'Rename' });
+      await screen.findByRole('menuitem', { name: 'Settings…' });
 
       everyPanelIsItsHeaderAlone();
     });
@@ -4048,7 +4201,7 @@ describe('Panels', () => {
 
       fireEvent.contextMenu(handleOf('To read'));
 
-      expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeVisible();
+      expect(await screen.findByRole('menuitem', { name: 'Settings…' })).toBeVisible();
       everyPanelIsItsHeaderAlone();
     });
 

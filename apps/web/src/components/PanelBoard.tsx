@@ -61,6 +61,7 @@ import { SectionBand } from './SectionBand';
 import { dashboardTabAt } from '../panels/dashboardDrop';
 import type { TabRect } from '../panels/dashboardDrop';
 import { DeleteQuestion } from './DeleteQuestion';
+import type { PanelSettingsChanges } from './PanelSettingsQuestion';
 import { anchored } from '../panels/anchoring';
 import {
   arrangedWith,
@@ -108,6 +109,7 @@ const FilterQuestion = lazy(() => import('./FilterQuestion'));
 
 /** A Panel's Sort question, fetched only once *Sort…* is chosen, for the reason the Filter question is. */
 const SortQuestion = lazy(() => import('./SortQuestion'));
+const PanelSettingsQuestion = lazy(() => import('./PanelSettingsQuestion'));
 
 /** The dashboard *Move to dashboard…* picks, fetched only once it is chosen, for the reason the Filter question is. */
 const MovePanelToDashboardPicker = lazy(() => import('./MovePanelToDashboardPicker'));
@@ -228,7 +230,8 @@ export function PanelBoard({
    * every panel already being where it was asked to go, and be dropped.
    */
   const sent = useRef<LayoutRow[] | null>(null);
-  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  /** Which Panel's settings form is open, if any. */
+  const [settling, setSettling] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   /** The panel a "Move to another dashboard" picker is open for. */
   const [movingPanel, setMovingPanel] = useState<string | null>(null);
@@ -421,6 +424,7 @@ export function PanelBoard({
   const beingMoved = panels.find((panel) => panel.id === movingPanel);
   const beingFiltered = panels.find((panel) => panel.id === filtering);
   const beingSorted = panels.find((panel) => panel.id === sorting);
+  const beingSet = panels.find((panel) => panel.id === settling);
 
   /**
    * The day it is where this person is looking, read once for the whole board
@@ -486,12 +490,9 @@ export function PanelBoard({
   /** The refusal belongs to the control that asked for it. */
   const refusalFor = (
     what:
-      | 'rename_panel'
+      | 'set_panel_settings'
       | 'delete_panel'
       | 'save_layout'
-      | 'set_panel_read_only'
-      | 'set_panel_never_propose'
-      | 'set_panel_format'
       | 'set_panel_filter'
       | 'set_panel_sort'
       | 'move_panel_to_dashboard',
@@ -681,7 +682,7 @@ export function PanelBoard({
     event.preventDefault();
     event.stopPropagation();
     command.reset();
-    setRenaming(null);
+    setSettling(null);
     setDeleting(null);
     setMovingPanel(null);
     setFiltering(null);
@@ -1050,7 +1051,7 @@ export function PanelBoard({
   const pickUp = (panelId: string, pointerId: number, whole = false, section: number | null = null) => {
     anchorOn(panelId);
     command.reset();
-    setRenaming(null);
+    setSettling(null);
     // A Section is named by its place, which this drag moves.
     setRenamingSection(null);
     sectionInHand.current = section === null ? null : { from: section, at: section };
@@ -1260,79 +1261,25 @@ export function PanelBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sizing]);
 
-  const renamePanel = () => {
-    if (!renaming) return;
-    const trimmed = renaming.name.trim();
-    if (!trimmed) return;
+  /**
+   * What the Panel settings form changed, written as one command ("Change a
+   * Panel's name and settings in one Panel settings form", issue 1206). Closed
+   * only once it lands: a refusal leaves the form up with the edits in it.
+   */
+  const saveSettings = (panelId: string, changes: PanelSettingsChanges) => {
     command.mutate(
       {
-        name: 'rename_panel',
+        name: 'set_panel_settings',
         payload: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId,
-          panelId: renaming.id,
-          name: trimmed,
+          panelId,
+          ...changes,
         },
       },
-      { onSuccess: () => setRenaming(null) },
+      { onSuccess: () => setSettling(null) },
     );
-  };
-
-  /**
-   * Lock a panel of text's prose, or hand it back.
-   *
-   * No `onSuccess`: nothing closes and nothing is emptied, so what the change
-   * lands on is the re-read snapshot redrawing the panel - which is also what
-   * makes the choice hold for everybody rather than for this tab.
-   */
-  const setReadOnly = (panelId: string, readOnly: boolean) => {
-    command.mutate({
-      name: 'set_panel_read_only',
-      payload: {
-        commandId: uuidv7(),
-        issuedAt: new Date().toISOString(),
-        workspaceId,
-        panelId,
-        readOnly,
-      },
-    });
-  };
-
-  /**
-   * Keep a panel of items out of routing proposals, or let it back in ("Keep
-   * a Panel out of proposals with Never propose", issue 848). No `onSuccess`,
-   * for `setReadOnly`'s reason: the re-read snapshot is what redraws the tick,
-   * and what hides an Inbox chip naming this panel.
-   */
-  const setNeverPropose = (panelId: string, neverPropose: boolean) => {
-    command.mutate({
-      name: 'set_panel_never_propose',
-      payload: {
-        commandId: uuidv7(),
-        issuedAt: new Date().toISOString(),
-        workspaceId,
-        panelId,
-        neverPropose,
-      },
-    });
-  };
-
-  /**
-   * What a panel of text's words are drawn as. Nothing is converted: the same
-   * Markdown is stored either way, so this only changes how it is read.
-   */
-  const setFormat = (panelId: string, format: 'plain' | 'rich') => {
-    command.mutate({
-      name: 'set_panel_format',
-      payload: {
-        commandId: uuidv7(),
-        issuedAt: new Date().toISOString(),
-        workspaceId,
-        panelId,
-        format,
-      },
-    });
   };
 
   /**
@@ -1518,7 +1465,7 @@ export function PanelBoard({
                       onRenamingChange={(next) => setRenamingSection({ nth, title: next })}
                       onStartRenaming={() => {
                         command.reset();
-                        setRenaming(null);
+                        setSettling(null);
                         setDeleting(null);
                         setRenamingSection({ nth, title });
                       }}
@@ -1626,24 +1573,18 @@ export function PanelBoard({
                           groups={groupsOf(panel)}
                           panelsInWorkspace={panelsInWorkspace}
                           dashboards={dashboards}
-                          renaming={renaming?.id === panel.id ? renaming.name : null}
-                          onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
-                          onStartRenaming={() => {
+                          onSettings={(openedFrom) => {
                             command.reset();
                             setDeleting(null);
                             setMovingPanel(null);
                             setFiltering(null);
                             setSorting(null);
-                            setRenaming({ id: panel.id, name: panel.name });
-                          }}
-                          onRename={renamePanel}
-                          onStopRenaming={() => {
-                            setRenaming(null);
-                            command.reset();
+                            askedFrom.current = openedFrom;
+                            setSettling(panel.id);
                           }}
                           onDelete={(openedFrom) => {
                             command.reset();
-                            setRenaming(null);
+                            setSettling(null);
                             setMovingPanel(null);
                             setFiltering(null);
                             setSorting(null);
@@ -1653,19 +1594,16 @@ export function PanelBoard({
                           canMoveToAnotherDashboard={otherDashboards.length > 0}
                           onMoveToAnotherDashboard={(openedFrom) => {
                             command.reset();
-                            setRenaming(null);
+                            setSettling(null);
                             setDeleting(null);
                             setFiltering(null);
                             setSorting(null);
                             askedFrom.current = openedFrom;
                             setMovingPanel(panel.id);
                           }}
-                          onReadOnlyChange={(readOnly) => setReadOnly(panel.id, readOnly)}
-                          onNeverProposeChange={(neverPropose) => setNeverPropose(panel.id, neverPropose)}
-                          onFormatChange={(format) => setFormat(panel.id, format)}
                           onFilter={(openedFrom) => {
                             command.reset();
-                            setRenaming(null);
+                            setSettling(null);
                             setDeleting(null);
                             setMovingPanel(null);
                             setSorting(null);
@@ -1674,7 +1612,7 @@ export function PanelBoard({
                           }}
                           onSort={(openedFrom) => {
                             command.reset();
-                            setRenaming(null);
+                            setSettling(null);
                             setDeleting(null);
                             setMovingPanel(null);
                             setFiltering(null);
@@ -1690,11 +1628,11 @@ export function PanelBoard({
                           onTap={phone ? (at) => tappedHeader(panel.id, at) : null}
                           onPickUp={arrangeable ? (pointerId) => pickUp(panel.id, pointerId) : null}
                           refusal={
-                            refusalFor('rename_panel', panel.id) ??
+                            // Only where the form is shut, for the same reason.
+                            (settling === panel.id
+                              ? null
+                              : refusalFor('set_panel_settings', panel.id)) ??
                             refusalFor('delete_panel', panel.id) ??
-                            refusalFor('set_panel_read_only', panel.id) ??
-                            refusalFor('set_panel_never_propose', panel.id) ??
-                            refusalFor('set_panel_format', panel.id) ??
                             refusalFor('move_panel_to_dashboard', panel.id) ??
                             // Only where the question is shut: while it is
                             // open it says its own, which is where somebody
@@ -1704,7 +1642,6 @@ export function PanelBoard({
                               : refusalFor('set_panel_filter', panel.id)) ??
                             (sorting === panel.id ? null : refusalFor('set_panel_sort', panel.id))
                           }
-                          busy={command.isPending}
                         />
                       </Fragment>
                     );
@@ -1765,6 +1702,27 @@ export function PanelBoard({
                 command.reset();
               }}
               refusal={refusalFor('set_panel_filter', beingFiltered.id)}
+              busy={command.isPending}
+              returnFocusTo={askedFrom.current}
+            />
+          </Suspense>
+        </WhateverTheQuestionDoes>
+      )}
+
+      {beingSet && (
+        <WhateverTheQuestionDoes onFailure={() => setSettling(null)}>
+          <Suspense fallback={null}>
+            <PanelSettingsQuestion
+              // Keyed on the Panel, for the reason the Filter question is.
+              key={beingSet.id}
+              open
+              panel={beingSet}
+              onSave={(changes) => saveSettings(beingSet.id, changes)}
+              onCancel={() => {
+                setSettling(null);
+                command.reset();
+              }}
+              refusal={refusalFor('set_panel_settings', beingSet.id)}
               busy={command.isPending}
               returnFocusTo={askedFrom.current}
             />

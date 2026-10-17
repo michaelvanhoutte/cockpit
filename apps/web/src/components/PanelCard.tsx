@@ -87,31 +87,17 @@ export interface PanelCardProps {
   panelsInWorkspace: readonly Panel[];
   /** The Workspace's Dashboards, which name a Filter's Dashboard condition in its funnel sentence. */
   dashboards: readonly Dashboard[];
-  /** True while this panel is the one being renamed, which happens in its own header. */
-  renaming: string | null;
-  onRenamingChange: (name: string) => void;
-  onStartRenaming: () => void;
-  onRename: () => void;
-  onStopRenaming: () => void;
+  /**
+   * Asked to open the form that holds this Panel's name and settings ("Change a
+   * Panel's name and settings in one Panel settings form", issue 1206).
+   */
+  onSettings: (openedFrom: HTMLElement | null) => void;
   onDelete: (openedFrom: HTMLElement | null) => void;
   /** Whether the workspace has anywhere else to move this panel to. */
   canMoveToAnotherDashboard: boolean;
   /** POC: the dashboard is filtered. */
   dashboardFiltered?: boolean;
   onMoveToAnotherDashboard: (openedFrom: HTMLElement | null) => void;
-  /**
-   * Lock a panel of text's prose, or hand it back. Never called for a panel of
-   * items, which is not offered the choice.
-   */
-  onReadOnlyChange: (readOnly: boolean) => void;
-  /**
-   * Keep a Panel of items out of routing proposals, or let it back in ("Keep a
-   * Panel out of proposals with Never propose", issue 848). Never called for a
-   * panel of text or a Filter, which is not offered the choice.
-   */
-  onNeverProposeChange: (neverPropose: boolean) => void;
-  /** Draw a panel of text's words as what they mean, or as the characters typed. */
-  onFormatChange: (format: 'plain' | 'rich') => void;
   /**
    * Asked to open the question that says what this Filter shows. Never called
    * for any other panel, which is not offered the entry.
@@ -157,7 +143,6 @@ export interface PanelCardProps {
   onTap?: ((at: number) => void) | null;
   /** Why the last change to this panel did not happen, if it did not. */
   refusal: string | null;
-  busy: boolean;
 }
 
 export function PanelCard({
@@ -167,18 +152,11 @@ export function PanelCard({
   groups,
   panelsInWorkspace,
   dashboards,
-  renaming,
-  onRenamingChange,
-  onStartRenaming,
-  onRename,
-  onStopRenaming,
+  onSettings,
   onDelete,
   canMoveToAnotherDashboard,
   dashboardFiltered = false,
   onMoveToAnotherDashboard,
-  onReadOnlyChange,
-  onNeverProposeChange,
-  onFormatChange,
   onFilter,
   onSort,
   lifted,
@@ -186,7 +164,6 @@ export function PanelCard({
   onPickUp,
   onTap = null,
   refusal,
-  busy,
 }: PanelCardProps) {
   // What this panel is made of, and so what its well holds, what its header
   // says beside its name and what its menu offers.
@@ -212,10 +189,6 @@ export function PanelCard({
    */
   const sort = sortOf(panel);
   const sortedAs = sort ? saysHowItIsSorted(sort) : null;
-  // Read once, said the many ways it is asked below: whether the menu is
-  // open to being asked at all, whether the header is a tab stop or a name
-  // and a role, whether a plain click starts a drag or does nothing.
-  const isRenaming = renaming !== null;
   /** Where and when the press on this header that might be a tap began. */
   const pressed = useRef<{ at: number; x: number; y: number } | null>(null);
 
@@ -254,98 +227,49 @@ export function PanelCard({
       <div className="@container">
         <SurfaceMenu
           label={`Actions for ${panel.name}`}
-          // Shut while the name is being edited in place, on this same header:
-          // a right-click or the menu key would otherwise fight the rename box
-          // for them instead of letting you select or paste into it.
-          disabled={isRenaming}
-          // Nothing to build while the menu is shut for it: the entries below
-          // are closures over this render's props, allocated for a menu that
-          // cannot open until the rename that disabled it ends and this
-          // component renders again anyway.
-          entries={
-            isRenaming
-              ? []
-              : [
-                  // The header's + by another door, for a keyboard and a long press.
-                  ...(addHere ? [{ label: 'Add an item…', onSelect: addHere }] : []),
-                  // Every row this Panel shows, added to what is picked on the
-                  // Dashboard ("Select across every panel of a dashboard",
-                  // issue 863). Always there on a Panel with rows to pick, and
-                  // saying why when it has none; not on a panel of text, which
-                  // has no rows. Its own group, so Rename keeps its place under
-                  // a line.
-                  ...(panelTakesItems(panel) || filter
-                    ? [
-                        {
-                          label: 'Select all',
-                          keepsFocus: true,
-                          unavailable: items.length === 0 ? 'This panel has no items' : undefined,
-                          onSelect: () =>
-                            pickAll(
-                              dashboardScope(panel.dashboardId),
-                              items.map((item) => item.id),
-                            ),
-                        },
-                      ]
-                    : []),
-                  { label: 'Rename', separatorBefore: true, onSelect: onStartRenaming },
-                  // Only on a panel of text. A panel of items has no text to
-                  // lock, and an entry that means nothing where it is offered is
-                  // worse than one that is not there - the menu's own rule keeps
-                  // an *unavailable* entry visible, and this one is not
-                  // unavailable, it is about something else entirely.
-                  //
-                  // Named for what choosing it gives you rather than for the
-                  // state it leaves behind, which is how every other entry here
-                  // reads.
-                  ...(text
-                    ? [
-                        {
-                          label: panel.readOnly ? 'Allow editing' : 'Make read-only',
-                          keepsFocus: true,
-                          onSelect: () => onReadOnlyChange(!panel.readOnly),
-                        },
-                        {
-                          // What the same characters are drawn as. Named for what
-                          // choosing it gives you, like the entry above it.
-                          label: panel.format === 'rich' ? 'Use plain text' : 'Use rich text',
-                          keepsFocus: true,
-                          onSelect: () =>
-                            onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
-                        },
-                      ]
-                    : []),
-                  // Only on a Filter, for the reason the two entries above are
-                  // only on a panel of text: a panel with nothing to gather has
-                  // no conditions for this to be about.
-                  ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
-                  // Not on a Panel of text, which has no rows.
-                  ...(panelTakesItems(panel) || filter ? [{ label: 'Sort…', onSelect: onSort }] : []),
-                  // Only on a Panel of items: nothing is filed onto a text
-                  // Panel or a Filter, so nothing proposes one. A setting rather
-                  // than an action, so it says whether it is on.
-                  ...(panelTakesItems(panel)
-                    ? [
-                        {
-                          label: 'Never propose',
-                          checked: panel.neverPropose,
-                          keepsFocus: true,
-                          onSelect: () => onNeverProposeChange(!panel.neverPropose),
-                        },
-                      ]
-                    : []),
+          entries={[
+            // The header's + by another door, for a keyboard and a long press.
+            ...(addHere ? [{ label: 'Add an item…', onSelect: addHere }] : []),
+            // Every row this Panel shows, added to what is picked on the
+            // Dashboard ("Select across every panel of a dashboard",
+            // issue 863). Always there on a Panel with rows to pick, and
+            // saying why when it has none; not on a panel of text, which
+            // has no rows. Its own group, so Settings keeps its place under
+            // a line.
+            ...(panelTakesItems(panel) || filter
+              ? [
                   {
-                    label: 'Move to another dashboard',
-                    unavailable: dashboardFiltered
-                      ? 'Clear the dashboard filter to move a panel'
-                      : canMoveToAnotherDashboard
-                        ? undefined
-                        : 'This workspace has no other dashboard',
-                    onSelect: onMoveToAnotherDashboard,
+                    label: 'Select all',
+                    keepsFocus: true,
+                    unavailable: items.length === 0 ? 'This panel has no items' : undefined,
+                    onSelect: () =>
+                      pickAll(
+                        dashboardScope(panel.dashboardId),
+                        items.map((item) => item.id),
+                      ),
                   },
-                  { label: 'Delete', destructive: true, onSelect: onDelete },
                 ]
-          }
+              : []),
+            // The name and every setting of the Panel, in one form: nothing
+            // else here changes them ("Change a Panel's name and settings in
+            // one Panel settings form", issue 1206).
+            { label: 'Settings…', separatorBefore: true, onSelect: onSettings },
+            // Only on a Filter: a panel with nothing to gather has no
+            // conditions for this to be about.
+            ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
+            // Not on a Panel of text, which has no rows.
+            ...(panelTakesItems(panel) || filter ? [{ label: 'Sort…', onSelect: onSort }] : []),
+            {
+              label: 'Move to another dashboard',
+              unavailable: dashboardFiltered
+                ? 'Clear the dashboard filter to move a panel'
+                : canMoveToAnotherDashboard
+                  ? undefined
+                  : 'This workspace has no other dashboard',
+              onSelect: onMoveToAnotherDashboard,
+            },
+            { label: 'Delete', destructive: true, onSelect: onDelete },
+          ]}
         >
           <header
             // The handle, and a pointer gesture rather than the browser's own
@@ -361,7 +285,7 @@ export function PanelCard({
             // be mistaken for each other.
             onPointerDown={(event) => {
               pressed.current =
-                onTap && !isRenaming && event.button === 0 && !onControl(event)
+                onTap && event.button === 0 && !onControl(event)
                   ? { at: event.timeStamp, x: event.clientX, y: event.clientY }
                   : null;
               // The primary button of a mouse only, the same guard `tabDrag.ts`
@@ -373,11 +297,8 @@ export function PanelCard({
               // composes them in, and its `preventDefault` would reach Radix's
               // long-press timer already told the gesture was spoken for.
               if (!onPickUp || event.button !== 0 || event.pointerType !== 'mouse') return;
-              // Not while it is being renamed, and not on the rename form's own
-              // controls: an emptied rename box is still an open one, and
-              // selecting what you typed, or pressing Save or Cancel, must not
-              // carry the panel off.
-              if (isRenaming) return;
+              // Not on the header's own controls: pressing one must not carry
+              // the panel off.
               if ((event.target as Element).closest?.('button, input, form')) return;
               // **And only for a press that really landed in this header.** A
               // chosen menu entry is drawn in a portal on the body, but a React
@@ -400,7 +321,7 @@ export function PanelCard({
             onPointerUp={(event) => {
               const press = pressed.current;
               pressed.current = null;
-              if (!onTap || !press || isRenaming || onControl(event)) return;
+              if (!onTap || !press || onControl(event)) return;
               if (event.timeStamp - press.at > TAP_MS) return;
               if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > TAP_SLOP) return;
               onTap(event.timeStamp);
@@ -411,8 +332,7 @@ export function PanelCard({
             // Reachable by keyboard whenever the menu might open from it, so the
             // browser's own menu key has a target to fire on - the same reason
             // a tab's own `Link` needs no such thing itself: it is focusable
-            // already. Taken back out of the tab order during a rename, when
-            // the input inside already is the thing to reach.
+            // already.
             //
             // The menu key that gives every other keyboard a way in does not
             // exist on macOS, and this header activates nothing on Enter the
@@ -423,9 +343,9 @@ export function PanelCard({
             // which sends no `keydown` `opensOnKey` could read - needs
             // `opensOnActivate` to reach the same menu (found in review, on
             // the first fix).
-            tabIndex={isRenaming ? -1 : 0}
-            onKeyDown={opensOnKey(isRenaming)}
-            onClick={opensOnActivate(isRenaming)}
+            tabIndex={0}
+            onKeyDown={opensOnKey(false)}
+            onClick={opensOnActivate(false)}
             // A tab's own accessible name and role are its `Link`'s, free; a
             // header has neither on its own. The visible button below now
             // carries an `aria-label` of its own, but the header is still its
@@ -439,11 +359,10 @@ export function PanelCard({
             // whatever carries it: the heading, the count and the read-only
             // word below would all have gone the same way the name was
             // dropped before. `group` names the header without hiding what is
-            // inside it. All three go with the tab order, for the same reason:
-            // a control a rename box is standing in for is not one.
-            role={isRenaming ? undefined : 'group'}
-            aria-haspopup={isRenaming ? undefined : 'menu'}
-            aria-label={isRenaming ? undefined : `Actions for ${panel.name}`}
+            // inside it.
+            role="group"
+            aria-haspopup="menu"
+            aria-label={`Actions for ${panel.name}`}
             // On the sheet rather than on the list: no fill, no rule under it, and
             // the space above it is what separates one panel from the one above.
             //
@@ -484,44 +403,9 @@ export function PanelCard({
             // a finger still scrolls the page and still rests to open the menu.
             // `select-none` there too, since a double-tap on a title selects it.
             className={`group relative flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
-              isRenaming || !onPickUp ? '' : 'cursor-grab active:cursor-grabbing'
-            } ${onTap && !isRenaming ? 'touch-manipulation select-none' : ''}`}
+              !onPickUp ? '' : 'cursor-grab active:cursor-grabbing'
+            } ${onTap ? 'touch-manipulation select-none' : ''}`}
           >
-            {isRenaming ? (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  onRename();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') onStopRenaming();
-                }}
-                className="flex min-w-0 flex-1 items-center gap-2"
-              >
-                <input
-                  value={renaming}
-                  onChange={(e) => onRenamingChange(e.target.value)}
-                  aria-label={`New name for ${panel.name}`}
-                  maxLength={60}
-                  autoFocus
-                  className="min-w-0 flex-1 rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-                />
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={onStopRenaming}
-                  className="shrink-0 rounded-md border border-shade/10 px-2 py-1 text-xs hover:bg-accent-tint hover:text-accent-deep"
-                >
-                  Cancel
-                </button>
-              </form>
-            ) : (
               <>
                 <div className={`flex min-w-0 flex-1 items-center gap-2 ${addHere ? 'pr-20 @max-[200px]:pr-11' : 'pr-11'}`}>
                   {/* The same heading the Inbox's carries in the band above it
@@ -661,7 +545,6 @@ export function PanelCard({
                   </button>
                 )}
               </>
-            )}
           </header>
         </SurfaceMenu>
       </div>

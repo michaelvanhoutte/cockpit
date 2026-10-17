@@ -1371,6 +1371,10 @@ const routes = app
     commandRoute('rename_panel', { conflict: 'The dashboard already has a panel by that name' }),
     async (c) => c.json(await change(c, 'rename_panel', c.req.valid('json')), 200),
   )
+  .openapi(
+    commandRoute('set_panel_settings', { conflict: 'The dashboard already has a panel by that name' }),
+    async (c) => c.json(await change(c, 'set_panel_settings', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('delete_panel'), async (c) => c.json(await change(c, 'delete_panel', c.req.valid('json')), 200))
   .openapi(commandRoute('move_panel_to_dashboard'), async (c) => c.json(await change(c, 'move_panel_to_dashboard', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_text'), async (c) => c.json(await change(c, 'set_panel_text', c.req.valid('json')), 200))

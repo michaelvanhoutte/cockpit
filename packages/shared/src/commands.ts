@@ -172,6 +172,35 @@ export const renamePanelSchema = commandEnvelopeSchema.extend({
 });
 export type RenamePanelCommand = z.infer<typeof renamePanelSchema>;
 
+/**
+ * set_panel_settings — what the Panel settings form changed, all of it or none
+ * ("Change a Panel's name and settings in one Panel settings form", issue 1206).
+ *
+ * Only the fields the form changed travel, so a second tab's change to a field
+ * this form never touched is not written over. The single-setting commands stay
+ * beside it for a tab still on the previous release.
+ */
+export const setPanelSettingsSchema = commandEnvelopeSchema
+  .extend({
+    panelId: z.uuid(),
+    name: panelNameSchema.optional(),
+    /** A Panel of items only. */
+    neverPropose: z.boolean().optional(),
+    /** A Panel of text only. */
+    readOnly: z.boolean().optional(),
+    /** A Panel of text only. */
+    format: panelFormatSchema.optional(),
+  })
+  .refine(
+    (cmd) =>
+      cmd.name !== undefined ||
+      cmd.neverPropose !== undefined ||
+      cmd.readOnly !== undefined ||
+      cmd.format !== undefined,
+    { message: 'a save with nothing changed is not a command', path: ['name'] },
+  );
+export type SetPanelSettingsCommand = z.infer<typeof setPanelSettingsSchema>;
+
 /** delete_panel (architecture.md §4.4). */
 export const deletePanelSchema = commandEnvelopeSchema.extend({
   panelId: z.uuid(),
@@ -883,6 +912,7 @@ export const commandSchemas = {
   reorder_dashboards: reorderDashboardsSchema,
   add_panel: addPanelSchema,
   rename_panel: renamePanelSchema,
+  set_panel_settings: setPanelSettingsSchema,
   delete_panel: deletePanelSchema,
   move_panel_to_dashboard: movePanelToDashboardSchema,
   set_panel_text: setPanelTextSchema,

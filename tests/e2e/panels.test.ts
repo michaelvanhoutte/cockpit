@@ -15,6 +15,7 @@ import {
   itemRow,
   itemsOn,
   openDashboard,
+  openPanelSettings,
   pastCapture,
   press,
   setFormDueDate,
@@ -265,12 +266,14 @@ test.describe('Panels', () => {
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
 
-      // Renaming happens in the panel's own header, from its own menu, which is
-      // the same two gestures every row of a management window takes.
+      // Renaming happens in the Panel settings form, from the panel's own
+      // menu, which is the same two gestures every row of a management window
+      // takes.
       const renamed = uniqueTitle('Falcon');
-      await choosePanelAction(page, falcon, 'Rename', isMobile);
-      await page.getByLabel(`New name for ${falcon}`).fill(renamed);
-      await press(page.getByRole('button', { name: 'Save' }), isMobile);
+      const form = await openPanelSettings(page, falcon, isMobile);
+      await form.getByRole('textbox', { name: 'Name' }).fill(renamed);
+      await press(form.getByRole('button', { name: 'Save' }), isMobile);
+      await expect(form).toHaveCount(0);
       await expect(page.getByRole('region', { name: renamed })).toBeVisible();
 
       await choosePanelAction(page, reading, 'Delete', isMobile);
@@ -524,8 +527,10 @@ test.describe('Panels', () => {
       await page.reload();
       await expect(page.getByRole('textbox', { name })).toHaveValue('**Pricing** for Atlas Copco');
 
-      const formatted = answerTo(page, 'set_panel_format');
-      await choosePanelAction(page, name, 'Use rich text', isMobile);
+      const formatted = answerTo(page, 'set_panel_settings');
+      const richForm = await openPanelSettings(page, name, isMobile);
+      await richForm.getByRole('checkbox', { name: 'Show formatting' }).check();
+      await press(richForm.getByRole('button', { name: 'Save' }), isMobile);
       expect((await formatted).status()).toBe(200);
       await expect(panel.getByRole('strong')).toHaveText('Pricing');
 
@@ -540,8 +545,10 @@ test.describe('Panels', () => {
       await page.getByRole('button', { name: 'Add a dashboard' }).focus();
       await expect(panel.getByRole('toolbar', { name: 'Formatting' })).toHaveCount(0);
 
-      const plain = answerTo(page, 'set_panel_format');
-      await choosePanelAction(page, name, 'Use plain text', isMobile);
+      const plain = answerTo(page, 'set_panel_settings');
+      const plainForm = await openPanelSettings(page, name, isMobile);
+      await plainForm.getByRole('checkbox', { name: 'Show formatting' }).uncheck();
+      await press(plainForm.getByRole('button', { name: 'Save' }), isMobile);
       expect((await plain).status()).toBe(200);
       // The plain box specifically, not whatever is playing a textbox: the
       // editor is still mounted for the moment between the change landing and
@@ -550,8 +557,10 @@ test.describe('Panels', () => {
       // To the character, because how it is drawn was never what it is.
       await expect(panel.locator('textarea')).toHaveValue('**Pricing** for Atlas Copco');
 
-      const locked = answerTo(page, 'set_panel_read_only');
-      await choosePanelAction(page, name, 'Make read-only', isMobile);
+      const locked = answerTo(page, 'set_panel_settings');
+      const lockForm = await openPanelSettings(page, name, isMobile);
+      await lockForm.getByRole('checkbox', { name: 'Read-only' }).check();
+      await press(lockForm.getByRole('button', { name: 'Save' }), isMobile);
       expect((await locked).status()).toBe(200);
 
       // No box left to type in, and the words still there to read.
@@ -1143,7 +1152,7 @@ test.describe('Panels', () => {
    * model is never reached in this tier. Each project flags a different panel,
    * so the two running at once on one account never meet. What is proposed,
    * learned from and refused is apps/api/tests/integration/http/note-cleanup.test.ts;
-   * that the chip is hidden from the snapshot, and the menu entry, are
+   * that the chip is hidden from the snapshot, and the settings form, are
    * apps/web/tests/unit/components/{ItemList,PanelBoard}.test.tsx.
    */
   test.describe('a panel flagged Never propose is no longer suggested in the Inbox', () => {
@@ -1161,9 +1170,17 @@ test.describe('Panels', () => {
       await expect(inbox(page).getByRole('listitem').filter({ hasText: row })).toContainText(suggestion);
 
       if (isMobile) await openDashboard(page, 'Day to day', isMobile);
-      const answered = answerTo(page, 'set_panel_never_propose');
-      await choosePanelAction(page, panel, 'Never propose', isMobile);
+      // Renamed and unticked in one save: the header takes the new name and no
+      // Inbox row names the Panel any more ("Change a Panel's name and
+      // settings in one Panel settings form", issue 1206).
+      const renamed = uniqueTitle(panel);
+      const answered = answerTo(page, 'set_panel_settings');
+      const form = await openPanelSettings(page, panel, isMobile);
+      await form.getByRole('textbox', { name: 'Name' }).fill(renamed);
+      await form.getByRole('checkbox', { name: `Suggest ${panel} for new items in the Inbox` }).uncheck();
+      await press(form.getByRole('button', { name: 'Save' }), isMobile);
       expect((await answered).status()).toBe(200);
+      await expect(page.getByRole('region', { name: renamed })).toBeVisible();
 
       if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
       const stillThere = inbox(page).getByRole('listitem').filter({ hasText: row });
