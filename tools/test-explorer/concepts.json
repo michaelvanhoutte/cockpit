@@ -104,7 +104,7 @@
     {
       "key": "Capture",
       "label": "Capture",
-      "browserWalks": 9,
+      "browserWalks": 16,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -210,7 +210,7 @@
     {
       "key": "Panels",
       "label": "Panels",
-      "browserWalks": 17,
+      "browserWalks": 21,
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/api/src/domain/panels.ts",
@@ -373,7 +373,7 @@
     {
       "key": "Connector management",
       "label": "Connector management",
-      "browserWalks": 3,
+      "browserWalks": 7,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/connectors/credential-crypto.ts",
@@ -398,7 +398,7 @@
     {
       "key": "Agents",
       "label": "Agents",
-      "browserWalks": 3,
+      "browserWalks": 6,
       "parent": "Workspaces",
       "sourcePatterns": [
         "packages/shared/src/domain/agent.ts",
@@ -478,7 +478,7 @@
     {
       "key": "Selection",
       "label": "Selection",
-      "browserWalks": 5,
+      "browserWalks": 10,
       "parent": "Across the app",
       "sourcePatterns": [
         "apps/web/src/selection.ts",

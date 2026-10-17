@@ -1,8 +1,7 @@
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE, TRANSCRIPTION_PATH } from '@cockpit/shared';
 import {
-  backToTheInbox,
   captureBox,
   capturedLine,
   closeCapture,
@@ -11,6 +10,7 @@ import {
   inbox,
   itemRow,
   openCapture,
+  openFirstWorkspace,
   openInbox,
   openTheFiles,
   press,
@@ -80,6 +80,50 @@ test.use({
 /** What the stand-in transcriber answers, whatever it was given (apps/api/src/transcription/index.ts). */
 const STAND_IN_WORDS = 'This is the stand-in transcription.';
 
+/** The Car view's list of what was captured on this screen. */
+const capturedHere = (page: Page) => page.getByRole('list', { name: 'Captured here' });
+
+/** Signs in and opens Capture's Car view by its address, answering with its one round button. */
+async function openTheCarView(page: Page, isMobile: boolean): Promise<Locator> {
+  await openFirstWorkspace(page, isMobile);
+  await page.goto('/capture');
+  await press(page.getByRole('link', { name: 'Car' }), isMobile);
+  const drive = page.getByRole('button', { name: 'Speak a note' });
+  await expect(drive).toBeInViewport();
+  return drive;
+}
+
+/**
+ * Moves every note spoken in the Car view into the first workspace. A note
+ * without a workspace waits in every Inbox of the one account all specs share,
+ * and would turn up in their counts. Every Car walk speaks the same words, so
+ * each row still waiting is moved, and one an earlier walk already moved is
+ * left be - which makes at least one moved here the proof that this walk's
+ * own note landed as an Item.
+ */
+async function putTheSpokenNotesAway(page: Page, isMobile: boolean): Promise<void> {
+  await openInbox(page, isMobile);
+  const spoken = page.getByRole('listitem').filter({ has: page.getByText(STAND_IN_WORDS, { exact: true }) });
+  const move = page.getByRole('menuitem', { name: 'Move to this workspace' });
+  await expect(spoken.first()).toBeVisible();
+  let moved = 0;
+  for (let at = (await spoken.count()) - 1; at >= 0; at--) {
+    await press(spoken.nth(at).getByRole('button', { name: 'Item actions' }), isMobile);
+    if (await move.isVisible()) {
+      await press(move, isMobile);
+      moved += 1;
+    } else {
+      await page.keyboard.press('Escape');
+    }
+  }
+  expect(moved, 'this walk’s spoken note never landed in the Inbox').toBeGreaterThanOrEqual(1);
+  // Moved once no row that belongs here offers to be moved here.
+  await press(spoken.first().getByRole('button', { name: 'Item actions' }), isMobile);
+  await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
+  await expect(move).toHaveCount(0);
+  await page.keyboard.press('Escape');
+}
+
 test.describe('Capture', () => {
   test.describe('a captured thought appears in the inbox, on a phone screen as on a desktop', () => {
     test('lists the thought to process, reachable without scrolling sideways', async ({
@@ -102,6 +146,22 @@ test.describe('Capture', () => {
       await captureBox(page).fill(thought);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
+      await closeCapture(page, isMobile);
+
+      await expect(inbox(page).getByText(thought)).toBeVisible();
+      await expectNoSidewaysScroll(page);
+    });
+
+    test('takes a capture back into the box with Undo, and captured again it is one row', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      await openCapture(page, isMobile);
+      const thought = uniqueTitle('Buy oat milk');
+      await captureBox(page).fill(thought);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(capturedLine(page, thought)).toBeVisible();
 
       // Undo takes it back into the box, and nothing of it stays in the Inbox;
       // captured again it is the one row there.
@@ -110,12 +170,22 @@ test.describe('Capture', () => {
       await expect(capturedLine(page, thought)).toHaveCount(0);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
+      await closeCapture(page, isMobile);
 
-      // A note captured twice says so above the Captured line, once the server
-      // has paired them, with Undo still beside the line; the next capture clears it
-      // ("Warn at Capture when the note just captured repeats another", issue 1115).
-      // Words nothing else on this shared account says, so the pair is this walk's own
-      // (the stack reads words rather than meaning: `EMBEDDINGS_STAND_IN`, scripts/e2e-stack.mjs).
+      await expect(itemRow(page, thought)).toHaveCount(1);
+    });
+
+    test('says when the note just captured repeats another, until the next capture', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      await openCapture(page, isMobile);
+      // Said above the Captured line once the server has paired the two, with
+      // Undo still beside the line ("Warn at Capture when the note just captured
+      // repeats another", issue 1115). Words nothing else on this shared account
+      // says, so the pair is this walk's own (the stack reads words rather than
+      // meaning: `EMBEDDINGS_STAND_IN`, scripts/e2e-stack.mjs).
       const words = `Renew the ${crypto.randomUUID()} support contract for the ${crypto.randomUUID()} line`;
       await captureBox(page).fill(uniqueTitle(words));
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
@@ -130,11 +200,14 @@ test.describe('Capture', () => {
       await captureBox(page).fill(uniqueTitle('Shopping list'));
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
       await expect(warning).toHaveCount(0);
+    });
 
-      // The same box, spoken into: the mic sits in the strip under the note,
-      // reachable on this screen. Tapped, it records with a running timer;
-      // tapped again, the recording is transcribed and the words land at the
-      // end of what was typed, to be captured like anything typed. Only a
+    test('takes dictated words into the note, captured like anything typed', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+      await openCapture(page, isMobile);
+      // The mic sits in the strip under the note, reachable on this screen.
+      // Tapped, it records with a running timer; tapped again, the recording is
+      // transcribed and the words land at the end of what was typed. Only a
       // browser records, and only a browser proves it reaches an Item.
       const mic = page.getByRole('button', { name: 'Dictate' });
       await expect(mic).toBeInViewport();
@@ -179,19 +252,41 @@ test.describe('Capture', () => {
       await expect(capturedLine(page, typed)).toBeVisible();
       await closeCapture(page, isMobile);
 
-      await expect(itemRow(page, thought)).toHaveCount(1);
-      await expect(inbox(page).getByText(thought)).toBeVisible();
       await expect(itemRow(page, typed)).toBeVisible();
-      await expectNoSidewaysScroll(page);
+    });
 
-      // The Car view of the same page: one round button, tapped to listen and
-      // tapped again to capture, with nothing to read in between. Reached by the
-      // address, because at a desk the Capture tab opens a window with no switch,
-      // and only a browser proves what it captures reaches the Inbox.
+    test('keeps a recording whose words did not come back, through a reload, until Retry lands them', async ({
+      page,
+      isMobile,
+    }) => {
+      // The transcriber is made to fail by turning its requests away ("Keep a
+      // recording Write could not transcribe, with Retry", issue 1044). Only a
+      // browser keeps a real recording in IndexedDB across a real reload.
+      await openFirstWorkspace(page, isMobile);
       await page.goto('/capture');
-      await press(page.getByRole('link', { name: 'Car' }), isMobile);
-      const drive = page.getByRole('button', { name: 'Speak a note' });
-      await expect(drive).toBeInViewport();
+      await page.route(`**${TRANSCRIPTION_PATH}`, (route) => route.fulfill({ status: 503, body: '' }));
+      const mic = page.getByRole('button', { name: 'Dictate' });
+      await press(mic, isMobile);
+      await expect(page.getByText('Listening · 0:01')).toBeVisible();
+      await press(mic, isMobile);
+      await expect(page.getByText('The recording is kept here to retry.', { exact: false })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+      await page.unroute(`**${TRANSCRIPTION_PATH}`);
+      await page.reload();
+      await expect(captureBox(page)).toHaveValue('');
+      await press(page.getByRole('button', { name: 'Retry' }), isMobile);
+      await expect(captureBox(page)).toHaveValue(STAND_IN_WORDS);
+      await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+      // Not captured: the walk's point is the words reaching the note.
+      await captureBox(page).fill('');
+    });
+
+    test('captures by voice in the Car view, dark at night and remembered so', async ({ page, isMobile }) => {
+      // One round button, tapped to listen and tapped again to capture, with
+      // nothing to read in between. Reached by the address, because at a desk
+      // the Capture tab opens a window with no switch, and only a browser proves
+      // what it captures reaches the Inbox.
+      const drive = await openTheCarView(page, isMobile);
       await expectNoSidewaysScroll(page);
 
       // Dark, for capturing at night: the whole screen under the top bar - the
@@ -218,68 +313,40 @@ test.describe('Capture', () => {
       await expect.poll(() => colour('body')).toBe(NIGHT);
       await expect(page.getByRole('button', { name: 'Dark view' })).toHaveAttribute('aria-pressed', 'true');
 
-      // Spoken into the same fake microphone as Write's, with no connection:
-      // the Car view's capture with one is CarCapture.test.tsx's, and the
-      // recorder and the transcriber are Write's walk above, so what only
-      // this one adds is the kept recording. It still captures at once: the
-      // recording waits on the phone for its words, and once the server can be reached it is
-      // transcribed and lands as an Item ("Capture in the Car view without a
-      // connection, from the recording", issue 1045). Only a browser keeps a
-      // real recording in IndexedDB and hears the connection come back.
+      // Spoken into the same fake microphone as Write's: tap, a second of
+      // sound, tap, and the Item holds the stand-in's words. It is not the
+      // phrase of this run, so the row is found by being exactly those words.
+      await press(drive, isMobile);
+      await expect(page.getByText('Listening — tap to capture')).toBeVisible();
+      await expect(page.getByLabel('Recording')).toContainText('Listening · 0:01');
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
+      await expect(page.getByText('Captured', { exact: true })).toBeVisible();
+      await expect(capturedHere(page).getByText(STAND_IN_WORDS)).toBeVisible();
+      await putTheSpokenNotesAway(page, isMobile);
+    });
+
+    test('captures in the Car view with no connection, landing once it is back', async ({ page, isMobile }) => {
+      // The recording waits on the phone for its words, and once the server can
+      // be reached it is transcribed and lands as an Item ("Capture in the Car
+      // view without a connection, from the recording", issue 1045). Only a
+      // browser keeps a real recording in IndexedDB and hears the connection
+      // come back.
+      const drive = await openTheCarView(page, isMobile);
       await page.route('**/v1/**', (route) => route.abort('internetdisconnected'));
-      const capturedHere = page.getByRole('list', { name: 'Captured here' });
       await press(drive, isMobile);
       await expect(page.getByLabel('Recording')).toContainText('Listening · 0:01');
       await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(page.getByText('Captured', { exact: true })).toBeVisible();
-      await expect(capturedHere.getByText('Waiting for its words')).toBeVisible();
+      await expect(capturedHere(page).getByText('Waiting for its words')).toBeVisible();
       await page.unroute('**/v1/**');
       await page.context().setOffline(true);
       await page.context().setOffline(false);
-      await expect(capturedHere.getByText('Waiting for its words')).toHaveCount(0, { timeout: 15_000 });
-      await expect(capturedHere.getByText(STAND_IN_WORDS)).toHaveCount(1);
-      await backToTheInbox(page, isMobile);
-      const spoken = page.getByRole('listitem').filter({ has: page.getByText(STAND_IN_WORDS, { exact: true }) });
-      await expect(spoken.first()).toBeVisible();
-      await expect.poll(() => spoken.count()).toBeGreaterThanOrEqual(1);
-      // Put somewhere, because a note without a workspace waits in every Inbox
-      // of the one account all specs share, and would turn up in their counts.
-      // Every run of this walk speaks the same words, so each row still
-      // waiting is moved, and one an earlier run already moved is left be.
-      for (let at = (await spoken.count()) - 1; at >= 0; at--) {
-        await press(spoken.nth(at).getByRole('button', { name: 'Item actions' }), isMobile);
-        const move = page.getByRole('menuitem', { name: 'Move to this workspace' });
-        if (await move.isVisible()) await press(move, isMobile);
-        else await page.keyboard.press('Escape');
-      }
-      // Moved once no row that belongs here offers to be moved here.
-      await press(spoken.first().getByRole('button', { name: 'Item actions' }), isMobile);
-      await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
-      await expect(page.getByRole('menuitem', { name: 'Move to this workspace' })).toHaveCount(0);
-      await page.keyboard.press('Escape');
+      await expect(capturedHere(page).getByText('Waiting for its words')).toHaveCount(0, { timeout: 15_000 });
+      await expect(capturedHere(page).getByText(STAND_IN_WORDS)).toBeVisible();
+      await putTheSpokenNotesAway(page, isMobile);
+    });
 
-      // A recording whose words do not come back waits on the device with
-      // Retry, through a reload, and lands in the note once retried ("Keep a
-      // recording Write could not transcribe, with Retry", issue 1044). The
-      // transcriber is made to fail by turning its requests away. Only a
-      // browser keeps a real recording in IndexedDB across a real reload.
-      await page.goto('/capture');
-      await page.route(`**${TRANSCRIPTION_PATH}`, (route) => route.fulfill({ status: 503, body: '' }));
-      const again = page.getByRole('button', { name: 'Dictate' });
-      await press(again, isMobile);
-      await expect(page.getByText('Listening · 0:01')).toBeVisible();
-      await press(again, isMobile);
-      await expect(page.getByText('The recording is kept here to retry.', { exact: false })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
-      await page.unroute(`**${TRANSCRIPTION_PATH}`);
-      await page.reload();
-      await expect(captureBox(page)).toHaveValue('');
-      await press(page.getByRole('button', { name: 'Retry' }), isMobile);
-      await expect(captureBox(page)).toHaveValue(STAND_IN_WORDS);
-      await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
-      // Not captured: the walk's point is the words reaching the note.
-      await captureBox(page).fill('');
-
+    test('lands what the phone shared with the app, its photo attached', async ({ page, isMobile }) => {
       // What the phone's share sheet handed to the installed app ("Share photos,
       // files and links into Cockpit from Android's share sheet", issue 789).
       // The sheet is outside any browser and this stack's Vite registers no
@@ -287,6 +354,8 @@ test.describe('Capture', () => {
       // worker's script writes it, and Capture opened as the worker opens it.
       // Only a browser proves the page claims it, queues the file and sends it
       // through to an Item with the photo as its Attachment.
+      await openFirstWorkspace(page, isMobile);
+      await page.goto('/capture');
       const shared = uniqueTitle('Shared from the gallery');
       await page.evaluate(
         ({ note, png, database, store }) =>
@@ -334,7 +403,7 @@ test.describe('Capture', () => {
       await expect(captureBox(page)).toHaveValue('');
       await expect(page.getByText('sunset.png')).toHaveCount(0);
 
-      await backToTheInbox(page, isMobile);
+      await openInbox(page, isMobile);
       await press(itemRow(page, shared).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
       await press(itemRow(page, shared).getByRole('button', { name: 'Item actions' }), isMobile);

@@ -594,20 +594,6 @@ export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
 }
 
 /**
- * The Inbox again, for a walk already signed in: the bare address is opened
- * again rather than the sign-in gone through again, which costs a round trip
- * to the issuer and two screens each time.
- */
-export async function backToTheInbox(page: Page, isMobile: boolean): Promise<void> {
-  await page.goto('/');
-  // Either landing first, as signing in waits, so `pastCapture` asks a page that is drawn.
-  await dashboardBar(page).or(captureBox(page)).first().waitFor({ state: 'visible' });
-  await pastCapture(page, isMobile);
-  if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
-  await expect(inbox(page)).toBeVisible();
-}
-
-/**
  * Makes a workspace from the `+` at the end of the strip, and waits for its
  * tab. Arrangement for every walk that needs a workspace of its own; the walk
  * about *making* one asserts its own way through the question rather than
