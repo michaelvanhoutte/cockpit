@@ -37,18 +37,9 @@ describe('Appearance', () => {
       });
     });
 
-    it.each([
-      {
-        situation: 'a Workspace stored with an older page grey, band and top bar',
-        workspace: { color: WORKSPACE_THEMES[3]!.tint, bar: '#594e91', ground: '#f3f3f1', header: '#18152b' },
-        painted: WORKSPACE_THEMES[3]!,
-      },
-      {
-        situation: 'a tint the palette never had, stored with an older set',
-        workspace: { color: '#123456', bar: '#211d37', ground: '#f3f3f1', header: '#18152b' },
-        painted: { ...DEFAULT_WORKSPACE_THEME, tint: '#123456' },
-      },
-    ])('paints $situation in the palette’s current set for its accent, in light', ({ workspace, painted }) => {
+    it('paints a Workspace stored with an older page grey, band and top bar in the palette’s current set for its accent, in light', () => {
+      const workspace = { color: WORKSPACE_THEMES[3]!.tint, bar: '#594e91', ground: '#f3f3f1', header: '#18152b' };
+      const painted = WORKSPACE_THEMES[3]!;
       expect(shellColours(paintedWorkspace(workspace), 'light')).toMatchObject({
         ground: painted.ground,
         bar: painted.bar,

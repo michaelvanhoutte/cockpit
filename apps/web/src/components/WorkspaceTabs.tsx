@@ -178,8 +178,8 @@ export function WorkspaceTabs({
         await send({
           name: 'set_workspace_theme',
           payload: {
-            // All four, because all four are what a workspace stores. The
-            // server still checks they are a theme from the palette.
+            // All four, because the command still carries them. The server
+            // checks only the tint is a palette accent, and stores its theme.
             ...envelope(),
             color: editing.theme.tint,
             bar: editing.theme.bar,

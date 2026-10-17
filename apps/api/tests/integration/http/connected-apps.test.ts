@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
-import type { AgentRun, Item, WorkspaceSnapshot } from '@cockpit/shared';
+import { NEUTRAL_GROUND, type AgentRun, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   OTHER_USER_ID,
@@ -983,7 +983,7 @@ describe('Appearance', () => {
       const { path } = await attempt(app);
       const shown = await SELF.fetch(`${ORIGIN}${path}`, { headers: { cookie: await signInAs(USER_ID) } });
 
-      expect(await shown.text()).toContain('background: #e2e2df;');
+      expect(await shown.text()).toContain(`background: ${NEUTRAL_GROUND};`);
     });
   });
 });

@@ -245,12 +245,10 @@ export const workspaces = sqliteTable(
      * top, `bar` is the strip the dashboard tabs sit on one step lighter than
      * it, and `ground` is the page behind the panels.
      *
-     * Only `color` is read back to paint a workspace (the shell looks the rest
-     * up from the theme it names).
-     *
-     * All four are stored rather than the name of a theme, so the palette is a
-     * picker and not a storage format - mixing your own colors later writes the
-     * same four columns instead of needing a migration.
+     * Only `color` is read back: a workspace is painted from the theme it
+     * names, so a palette change rewrites no row. The other three are written
+     * with the palette's own values and read by nothing, until a contract step
+     * drops them.
      *
      * The defaults are the first theme's, and they are what a workspace whose
      * tint is not in the palette keeps: an unfamiliar color is one thing that
