@@ -138,6 +138,7 @@ export default defineConfig({
           EMBEDDINGS_STAND_IN: '',
           /** Empty for the same reason: a case that wants a transcriber sets the stand-in on `env` itself. */
           TRANSCRIPTION_STAND_IN: '',
+          REMEMBER_OFFER_STAND_IN: '',
           /**
            * No debounce window, so a refresh queued by a filing or a
            * correction is delivered as soon as the real queue would deliver

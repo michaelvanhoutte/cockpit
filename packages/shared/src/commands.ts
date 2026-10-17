@@ -23,6 +23,11 @@ import {
   agentEngineSchema,
 } from './domain/agent.js';
 import {
+  REMEMBERED_ACTION_LIMIT,
+  REMEMBERED_SENTENCE_LIMIT,
+  REMEMBERED_SENTENCES_SHOWN,
+} from './domain/remembered-sentence.js';
+import {
   CLAUDE_PROMPT_LIMIT,
   CLAUDE_REPORTED_STAGES,
   REPORT_NOTE_LIMIT,
@@ -779,6 +784,8 @@ export const proposeItemForClaudeSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   proposals: claudeProposalsSchema,
   madeFrom: z.iso.datetime(),
+  /** The remembered sentences this proposal was made with, each counted as used once the proposal is written (issue 1163). */
+  usedSentenceIds: z.array(z.uuid()).max(REMEMBERED_SENTENCES_SHOWN).optional(),
 });
 export type ProposeItemForClaudeCommand = z.infer<typeof proposeItemForClaudeSchema>;
 /** The most Panels one note is filed on; the job sends no more, so a long answer never fails the whole reading (issue 1116). */
@@ -941,6 +948,23 @@ export const setDuplicateSettledSchema = commandEnvelopeSchema
 export type SetDuplicateSettledCommand = z.infer<typeof setDuplicateSettledSchema>;
 
 /**
+ * remember_sentence - a sentence the person pressed *Remember* on, offered
+ * after an edit made before Open ("Remember an edit as a sentence you
+ * confirm", issue 1163). `sentence` is as they left it, reworded or not.
+ * The envelope's `workspaceId` is the Workspace the sentence names, or
+ * `ACCOUNT_WIDE` for one that applies to every Workspace. `sourceKind` is
+ * where the Item the edit was on came from, which is how a later proposal knows
+ * the kind of action it fits. The same `sentenceId` again is the same sentence.
+ */
+export const rememberSentenceSchema = commandEnvelopeSchema.extend({
+  sentenceId: z.uuid(),
+  sentence: z.string().trim().min(1).max(REMEMBERED_SENTENCE_LIMIT),
+  action: z.string().trim().min(1).max(REMEMBERED_ACTION_LIMIT),
+  sourceKind: z.string().min(1).max(100),
+});
+export type RememberSentenceCommand = z.infer<typeof rememberSentenceSchema>;
+
+/**
  * The command registry: name → payload schema. The API mounts one POST route
  * per entry; the client gets a typed sender per entry. Adding a command means
  * adding it here and writing its domain handler; no other wiring.
@@ -1003,6 +1027,7 @@ export const commandSchemas = {
   set_connection_files_by_name: setConnectionFilesByNameSchema,
   mark_source_account_tested: markSourceAccountTestedSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
+  remember_sentence: rememberSentenceSchema,
 } as const;
 
 export type CommandName = keyof typeof commandSchemas;

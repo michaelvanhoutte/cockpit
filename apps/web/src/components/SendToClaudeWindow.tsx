@@ -8,6 +8,7 @@ import {
   attachmentLinksSchema,
   CLAUDE_DESTINATION_NAMES,
   claudeLinkFor,
+  editedTheProposal,
   isClaudeAction,
   messageFrom,
   plainPromptFor,
@@ -21,6 +22,7 @@ import {
 import { CommandRefused, api, refusal } from '../api/client';
 import { useSendCommand } from '../api/queries';
 import { openClaude } from '../openClaude';
+import { RememberASentence } from './RememberASentence';
 import { connectedAppsQuery } from './ManageConnectedApps';
 import { capturingApp, sourceNamed, type SourceNames } from '../itemSource';
 
@@ -110,6 +112,9 @@ export function SendToClaudeWindow({
   const [edited, setEdited] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  // Set once Claude has been opened on an edited proposal: the window then waits
+  // for the offer to remember a sentence instead of closing (issue 1163).
+  const [offering, setOffering] = useState(false);
 
   const links = useQuery({
     queryKey: ['attachmentLinks', item.id, attachments.map((attachment) => attachment.id)],
@@ -185,14 +190,23 @@ export function SendToClaudeWindow({
     // with no proposal yet still opens on.
     if (chosen !== '' || proposals.length === 0) rememberFolder(chosen);
     openClaude(claudeLinkFor(destination, prompt.trim(), chosen));
-    onClose();
+    // An edit to a proposal is asked about; anything else closes as it always did.
+    const edit = action
+      ? editedTheProposal(
+          { destination: action.destination, folder: action.folder, prompt: plain },
+          { destination, folder: chosen, prompt },
+        )
+      : false;
+    if (!edit) return onClose();
+    setSending(false);
+    setOffering(true);
   };
 
   return (
     <Dialog.Root
       open
       onOpenChange={(stillOpen) => {
-        if (!stillOpen && !sending) onClose();
+        if (!stillOpen && (!sending || offering)) onClose();
       }}
     >
       <Dialog.Portal>
@@ -208,6 +222,9 @@ export function SendToClaudeWindow({
         >
           <Dialog.Title className="truncate text-base font-semibold">Send “{item.title}” to Claude</Dialog.Title>
 
+          {offering ? (
+            <RememberASentence runId={runId} workspaceId={workspaceId} destinationName={name} onClose={onClose} />
+          ) : (
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -339,6 +356,7 @@ export function SendToClaudeWindow({
               </button>
             </div>
           </form>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

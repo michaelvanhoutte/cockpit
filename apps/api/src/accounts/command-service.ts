@@ -50,6 +50,8 @@ import {
   listHiddenAgents,
   openAgentRunOn,
   recordClaudeSend,
+  rememberSentence,
+  countSentencesUsed,
   openRunsWithSessions,
   listFilingsOnPanel,
   listLayoutIds,
@@ -1845,6 +1847,9 @@ export function runCommand<N extends CommandName>(
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
+          // Counted only for a proposal that was written, so a replay or a
+          // proposal discarded for a later change uses nothing (issue 1163).
+          countSentencesUsed(tx, tenantId, cmd.usedSentenceIds ?? [], cmd.issuedAt);
           tx.insert(commands).values(commandRow).run();
         });
       }
@@ -1929,6 +1934,27 @@ export function runCommand<N extends CommandName>(
 
       db.transaction((tx) => {
         settleDuplicate(tx, tenantId, pairOf(cmd.itemId, cmd.otherItemId), cmd.settled, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'remember_sentence': {
+      const cmd = payload as CommandPayload<'remember_sentence'>;
+      const workspaceId = cmd.workspaceId === ACCOUNT_WIDE ? null : cmd.workspaceId;
+      // A sentence naming a Workspace that is gone has nothing to apply to.
+      if (workspaceId !== null && !getWorkspace(db, tenantId, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+      // A sentence is for every Workspace's proposals unless it names one, and
+      // what it changes is proposals, which no tab draws from the stream.
+      everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        rememberSentence(tx, tenantId, {
+          id: cmd.sentenceId,
+          workspaceId,
+          sourceKind: cmd.sourceKind,
+          action: cmd.action,
+          sentence: cmd.sentence,
+          createdAt: cmd.issuedAt,
+        });
         tx.insert(commands).values(commandRow).run();
       });
       break;

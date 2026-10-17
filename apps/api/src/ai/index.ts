@@ -5,7 +5,10 @@ import { providerCallsIn } from '../gateway/record.js';
 import { buildCleanUpANote } from './prompts/clean-up-a-note.v16.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v3.js';
 import { buildResolveAPlace } from './prompts/resolve-a-place.v1.js';
-import { buildProposeForClaude, type ItemToPropose } from './prompts/propose-for-claude.v3.js';
+import { buildProposeForClaude, type ItemToPropose } from './prompts/propose-for-claude.v4.js';
+import { buildRememberASentence, type EditToRemember } from './prompts/remember-a-sentence.v1.js';
+import { readSentenceOffer, type SentenceOfferRead } from './sentence-offers.js';
+import type { RememberedSentence } from '../domain/remembered-sentences.js';
 import { readClaudeProposals, type ClaudeProposalsRead } from './claude-proposals.js';
 import { readPanelChoice, readPlace, readProposal, type PanelRead, type PlaceRead, type ProposalRead } from './note-texts.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
@@ -16,7 +19,9 @@ import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.
 
 export type { NoteTexts, PanelRead, PlaceRead, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
 export type { ItemToPlace } from './prompts/choose-a-panel.v3.js';
-export type { ItemToPropose } from './prompts/propose-for-claude.v3.js';
+export type { ItemToPropose } from './prompts/propose-for-claude.v4.js';
+export type { EditToRemember } from './prompts/remember-a-sentence.v1.js';
+export type { SentenceOfferRead } from './sentence-offers.js';
 export type { ClaudeProposalsRead } from './claude-proposals.js';
 
 /**
@@ -26,7 +31,8 @@ export type { ClaudeProposalsRead } from './claude-proposals.js';
 const CLEAN_UP_A_NOTE = 'clean-up-a-note.v16';
 const CHOOSE_A_PANEL = 'choose-a-panel.v3';
 const RESOLVE_A_PLACE = 'resolve-a-place.v1';
-const PROPOSE_FOR_CLAUDE = 'propose-for-claude.v3';
+const PROPOSE_FOR_CLAUDE = 'propose-for-claude.v4';
+const REMEMBER_A_SENTENCE = 'remember-a-sentence.v1';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
 export interface CallFor {
@@ -149,7 +155,22 @@ export interface AiService {
    * ("Propose what to do with each item before you look", issue 1161).
    * Refuses and throws on the same terms as `cleanUpNote`.
    */
-  proposeForClaude(item: ItemToPropose, folders: readonly string[], pastSends: readonly PastSend[], callFor: CallFor): Promise<ClaudeProposalsRead>;
+  proposeForClaude(
+    item: ItemToPropose,
+    folders: readonly string[],
+    pastSends: readonly PastSend[],
+    remembered: readonly Pick<RememberedSentence, 'sentence' | 'action'>[],
+    callFor: CallFor,
+  ): Promise<ClaudeProposalsRead>;
+
+  /**
+   * One sentence worth remembering from what the person changed in a proposal
+   * before Open, or none ("Remember an edit as a sentence you confirm", issue
+   * 1163). `workspaces` are the account's live ones, which a sentence may name.
+   * The sentence is shown to the person to keep or drop, and never kept here.
+   * Refuses and throws on the same terms as `cleanUpNote`.
+   */
+  offerSentence(edit: EditToRemember, workspaces: readonly { id: string; name: string }[], callFor: CallFor): Promise<SentenceOfferRead>;
 }
 
 /**
@@ -286,13 +307,26 @@ export class ClaudeAiService implements AiService {
     return 'refused' in answer ? { discarded: answer.refused } : readPlace(answer.text);
   }
 
-  async proposeForClaude(item: ItemToPropose, folders: readonly string[], pastSends: readonly PastSend[], callFor: CallFor): Promise<ClaudeProposalsRead> {
-    const prompt = buildProposeForClaude(item, folders, pastSends);
+  async offerSentence(edit: EditToRemember, workspaces: readonly { id: string; name: string }[], callFor: CallFor): Promise<SentenceOfferRead> {
+    const prompt = buildRememberASentence(edit);
+    const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'remember-a-sentence', promptVersion: REMEMBER_A_SENTENCE });
+    return 'refused' in answer ? { none: answer.refused } : readSentenceOffer(answer.text, workspaces);
+  }
+
+  async proposeForClaude(
+    item: ItemToPropose,
+    folders: readonly string[],
+    pastSends: readonly PastSend[],
+    remembered: readonly Pick<RememberedSentence, 'sentence' | 'action'>[],
+    callFor: CallFor,
+  ): Promise<ClaudeProposalsRead> {
+    const prompt = buildProposeForClaude(item, folders, pastSends, remembered);
     const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'propose-for-claude', promptVersion: PROPOSE_FOR_CLAUDE });
     // A past send was written out of an earlier Item that may have come from a
-    // stranger, so an Item shaped by any is held to the output checks of one
-    // someone else sent, even where it is the person's own note (issue 1162).
-    const heldToTheirChecks = item.source !== null || pastSends.length > 0;
+    // stranger, and a remembered sentence out of an edit made to one, so an
+    // Item shaped by any is held to the output checks of one someone else sent,
+    // even where it is the person's own note (issues 1162, 1163).
+    const heldToTheirChecks = item.source !== null || pastSends.length > 0 || remembered.length > 0;
     return 'refused' in answer ? { discarded: answer.refused } : readClaudeProposals(answer.text, folders, heldToTheirChecks);
   }
 

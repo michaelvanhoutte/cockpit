@@ -35,6 +35,10 @@ export type Trigger =
   | 'panel-settled'
   /** An Item's words or filing changed, so what to do with it is proposed again (issue 1161). */
   | 'item-changed'
+  /** An Item was opened in Claude after an edit, so a sentence to remember is offered (issue 1163). */
+  | 'edit-sent-to-claude'
+  /** A sentence was remembered, so the open Items it may fit are proposed again (issue 1163). */
+  | 'sentence-remembered'
   | 'backfill'
   | 'agent-started'
   | 'connection-test'

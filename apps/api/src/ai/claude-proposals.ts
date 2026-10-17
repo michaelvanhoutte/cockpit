@@ -53,7 +53,7 @@ export function readClaudeProposals(
   if (!answer.success) return { discarded: 'the answer was not a list of proposals' };
 
   // A folder is named by its number in the list offered, never by its path
-  // (`propose-for-claude.v3`), and empty for none.
+  // (`propose-for-claude.v4`), and empty for none.
   const folders = answer.data.proposals.map((one) => folderNumbered(one.folder, offeredFolders));
   if (folders.includes(undefined)) return { discarded: 'the answer named a folder it was not offered' };
 
@@ -79,7 +79,7 @@ export function readClaudeProposals(
 }
 
 /** Compatibility forms folded, so a fullwidth `＠` or `．` reads as the `@` or `.` it shows. */
-function folded(text: string): string {
+export function folded(text: string): string {
   return text.normalize('NFKC');
 }
 
@@ -87,7 +87,7 @@ function folded(text: string): string {
  * An `@`, a scheme, a `www.`, a domain with a path or a common ending, or a
  * phone number - what a reason would need to point anybody anywhere.
  */
-function pointsSomewhere(text: string): boolean {
+export function pointsSomewhere(text: string): boolean {
   const said = folded(text);
   if (ADDRESS_OR_LINK.test(said) || BARE_DOMAIN.test(said)) return true;
   return (said.match(PHONE_LIKE) ?? []).some((run) => run.replace(/\D/g, '').length >= 9);
@@ -103,7 +103,7 @@ const BARE_DOMAIN =
 const PHONE_LIKE = /\+?\d[\d\s().\/-]{6,}\d/g;
 
 /** A scheme, a `www.`, or the opening of a download-and-run or an install. */
-const LINK_OR_COMMAND =
+export const LINK_OR_COMMAND =
   /[a-z][a-z0-9+.-]*:\/\/|\bwww\.|\bcurl\s|\bwget\s|\|\s*(?:ba|z)?sh\b|\bnpm\s+(?:i|install)\b|\bpip3?\s+install\b|\biex\b|\binvoke-expression\b/i;
 
 /** The folder a number names, counting from 1; the empty string for none, and undefined for a number not offered. */

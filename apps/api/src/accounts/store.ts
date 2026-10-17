@@ -124,7 +124,10 @@ import {
   hasClaudeCodeConnection,
   isItemFiled,
   claudeProposalContext,
+  sendToOfferOn,
+  openItemsASentenceMayFit,
   type ClaudeProposalContext,
+  type SendToOfferOn,
   itemsToRead,
   judgeableItemsForAccount,
   listAgents,
@@ -527,6 +530,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /** Where an Item stands, for proposing what to do with it ("Propose what to do with each item before you look", issue 1161). */
   claudeProposalContext(accountName: string, itemId: string, model: string): Answer<ClaudeProposalContext> {
     return this.#answer(accountName, (db) => claudeProposalContext(db, accountName, itemId, model));
+  }
+
+  /** What an offer to remember a sentence is made from ("Remember an edit as a sentence you confirm", issue 1163). */
+  sendToOfferOn(accountName: string, runId: string): Answer<SendToOfferOn | null> {
+    return this.#answer(accountName, (db) => sendToOfferOn(db, accountName, runId));
+  }
+
+  /** The open Items a newly remembered sentence may fit, to be proposed for again (issue 1163). */
+  openItemsASentenceMayFit(accountName: string, sourceKind: string, workspaceId: string | null): Answer<string[]> {
+    return this.#answer(accountName, (db) => openItemsASentenceMayFit(db, accountName, sourceKind, workspaceId));
   }
 
   /** Whether the Item is on a live Panel already ("File a note on Panels from Capture, skipping the Inbox", issue 1101). */
