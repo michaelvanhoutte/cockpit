@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { CannotBeLoadedOffline } from '../offline';
+import { savedReadUnusable } from '../persistence';
 import {
   diagnose,
   goToLogonPage,
@@ -44,7 +46,49 @@ const WORDING: Record<FailureReason, Wording> = {
  * "Something went wrong!" box — which printed the raw `TypeError` and left
  * every failure looking identical.
  */
-export function LoadFailure({ error, onRetry, surroundings }: Props) {
+export function LoadFailure(props: Props) {
+  // The app already knows it is offline, so there is nothing to work out.
+  if (props.error instanceof CannotBeLoadedOffline) {
+    return <NothingToShowOffline queryKey={props.error.queryKey} onRetry={props.onRetry} />;
+  }
+  return <WorkedOut {...props} />;
+}
+
+/** Offline, and the route's read is neither held nor saved here in a shape this version can read. */
+function NothingToShowOffline({
+  queryKey,
+  onRetry,
+}: {
+  queryKey: readonly unknown[];
+  onRetry: Props['onRetry'];
+}) {
+  const unreadable = savedReadUnusable(queryKey);
+  return (
+    <div role="alert" className="rounded-lg bg-surface p-4 shadow-panel" data-failure="offline">
+      <h2 className="text-base font-semibold text-over-ink">{WORDING.offline.headline}</h2>
+      <p className="mt-1 text-sm text-ink-soft">
+        {unreadable
+          ? "This device looks offline, and what's saved here was saved in a shape this version can't read, so it can't be shown. It will be again once you've been online with this version."
+          : "This device looks offline, and nothing is saved here to show."}
+      </p>
+      {onRetry && <TryAgain onRetry={onRetry} />}
+    </div>
+  );
+}
+
+function TryAgain({ onRetry }: { onRetry: () => void }) {
+  return (
+    <button
+      type="button"
+      className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent"
+      onClick={onRetry}
+    >
+      Try again
+    </button>
+  );
+}
+
+function WorkedOut({ error, onRetry, surroundings }: Props) {
   const [reason, setReason] = useState<FailureReason | null>(null);
 
   // Re-diagnosed on every fresh failure, because the reason genuinely moves: a
@@ -90,15 +134,7 @@ export function LoadFailure({ error, onRetry, surroundings }: Props) {
           Sign in
         </button>
       )}
-      {action === 'retry' && onRetry && (
-        <button
-          type="button"
-          className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent"
-          onClick={onRetry}
-        >
-          Try again
-        </button>
-      )}
+      {action === 'retry' && onRetry && <TryAgain onRetry={onRetry} />}
     </div>
   );
 }

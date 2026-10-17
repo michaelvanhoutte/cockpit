@@ -1,4 +1,4 @@
-import { expect, test } from './support/app';
+import { expect, openFirstWorkspace, test, whatTheBrowserStillHolds } from './support/app';
 
 /**
  * F3, and deliberately one walk: what nothing below can prove is that this
@@ -34,6 +34,26 @@ test.describe('Offline', () => {
       // The failure the whole change exists to remove.
       await expect(page.getByText('Something went wrong!')).toHaveCount(0);
       await expect(page.getByText('Failed to fetch')).toHaveCount(0);
+    });
+  });
+
+  test.describe('opening with the server out of reach draws what this device saved', () => {
+    /**
+     * The one thing nothing below can prove: the Workspace opened while the
+     * server answered is drawn on a reload that cannot reach it - the paused
+     * queries, the service worker's shell and the real IndexedDB all in play.
+     */
+    test('draws the Workspace opened before, on a reload the server does not answer', async ({ page, isMobile }) => {
+      await openFirstWorkspace(page, isMobile);
+      await expect
+        .poll(async () => (await whatTheBrowserStillHolds(page)).storedQueries.some((key) => key.includes('snapshot')))
+        .toBe(true);
+
+      await page.route('**/v1/**', (route) => route.abort());
+      await page.reload();
+
+      await expect(page.getByRole('navigation', { name: 'Dashboards' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: "Cockpit can't be reached" })).toHaveCount(0);
     });
   });
 });

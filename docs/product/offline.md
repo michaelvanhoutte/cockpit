@@ -1,9 +1,11 @@
 # Offline / local-first behavior
 
-The local copy serves **instant rendering**: the app opens and renders from a persisted local snapshot before any network call completes, and revalidates against the server once it can.
+**Opening draws from the server**, never from the copy this device saved. Nothing shows for 300 ms, then a quiet "Loading…" line. If the server has not answered in 3 s, the request fails outright or the device says it is offline, Cockpit is offline: it draws what was saved, and an answer that comes later replaces it. Capture and the Car view open at once and send when the server answers.
 
-- **Reads offline:** current status, already-synced items, dashboards — the app opens and works from what it already has without a connection.
-- New incoming messages only arrive when online; offline means the app still works with what it already has.
+- **Reads offline:** what was saved, where this version can still read it — the Workspaces, Dashboards and Items you have opened, and an Item's history once opened. Files are never saved.
+- **Nothing to show** says "Cockpit can't be reached" with *Try again*, and either that nothing is saved here to show, or that what is saved was saved in a shape this version can't read and will be again once you've been online with this version.
+- **While offline, every change except a capture is refused** with "You're working offline"; a capture waits in the outbox.
+- New incoming messages only arrive when online.
 
 **Capturing never waits on the connection.** Pressing Capture keeps the note, its files and the time it was captured on this device and empties the box at once; Cockpit sends it in the background, oldest first, as soon as a connection gets through — on opening, on reconnecting, on coming back to the tab, on the next capture, after anything else reaches the server, and every half-minute to a minute in between. The Item says when it was captured, not when it arrived.
 

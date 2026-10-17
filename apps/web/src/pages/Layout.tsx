@@ -489,12 +489,10 @@ function TheShell() {
   /**
    * Who is signed in - and, when it comes back refused, that nobody is.
    *
-   * **Nothing waits for it.** The screen below paints from the stored copy
-   * first and this settles behind it, which is the standing never-block-paint
-   * rule (architecture, "Performance budgets and the standing rules"): opening
-   * the app on a train should show your work, not a spinner over an
-   * unanswerable question. The cost of that is a moment where a sign-in that
-   * has gone is not known to have gone, and the moment ends here.
+   * **Nothing waits for it.** The open has already had the server answer (or
+   * not) by the time this mounts (`opening.tsx`), and the screen below does not
+   * hold on this read: a sign-in that has gone is refused by the Workspace list
+   * that open waited on, and by this one behind the screen, where it ends here.
    */
   const { data: me, error: sessionFailure } = useQuery(meQuery);
   const signedOut = sessionFailure instanceof NotSignedIn;
@@ -526,8 +524,8 @@ function TheShell() {
    * The capture outbox is sent for as long as somebody is signed in, and its
    * entries are theirs: whoever signs in next sees and sends none of them
    * ("Keep a capture made offline, and send it once a connection gets
-   * through", issue 610). Who that is comes from the stored copy offline,
-   * which is when it matters most.
+   * through", issue 610). Who that is comes from the saved read offline, which
+   * is when it matters most.
    */
   useSendingCaptures(signedOut ? null : (me?.user.id ?? null));
   const outbox = useOutbox();
@@ -560,7 +558,7 @@ function TheShell() {
    * Costs no request: it is the same query key those three already subscribe
    * to, so this is another reader of a cache entry rather than another fetch.
    *
-   * **Only where there is a stored copy behind it.** With nothing to paint, the
+   * **Only where there is a read held behind it.** With nothing to draw, the
    * route itself could not resolve and the failure screen already has the page
    * (router.tsx, `defaultErrorComponent`); adding this would be the duplicate
    * all over again, one column to its left.
@@ -644,7 +642,7 @@ function TheShell() {
     // Still the tab you are on when the font finally lands. Without this the
     // second pass scrolls to whichever tab was current when it was registered:
     // switch workspace inside that window - a few hundred milliseconds, and
-    // the stored copy paints instantly - and the strip jumps back to the tab
+    // the held snapshot draws at once - and the strip jumps back to the tab
     // you just left. The cleanup runs when this stops being the current tab,
     // which is exactly when the pending pass should stop meaning anything.
     let current = true;

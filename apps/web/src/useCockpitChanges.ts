@@ -4,6 +4,7 @@ import type { Item } from '@cockpit/shared';
 import { rewriteHistoryForItemQuery } from './api/queries';
 import { changesOn, latestTextChange, noteFor, rememberSeenChange, seenChangeIn } from './cockpitChanges';
 import { browserStore } from './lastVisited';
+import { useIsOffline } from './offline';
 import { savedReadUnusable } from './persistence';
 
 /**
@@ -20,6 +21,10 @@ import { savedReadUnusable } from './persistence';
 export function useCockpitChanges(itemId: string, item: Item | undefined) {
   const history = useQuery(rewriteHistoryForItemQuery(itemId));
   const { refetch } = history;
+  const offline = useIsOffline();
+  // Offline with nothing held: the read is paused, not failed, so it is said
+  // here rather than left "looking" for good.
+  const unavailableOffline = offline && history.data === undefined;
 
   const changed = item
     ? `${item.updatedAt}|${item.title}|${item.description ?? ''}|${item.proposedPanelId ?? ''}`
@@ -56,10 +61,11 @@ export function useCockpitChanges(itemId: string, item: Item | undefined) {
     error: history.error,
     /** Saved here by an older version, and not read since: it can't be loaded offline. */
     savedByAnOlderVersion:
-      history.data === undefined &&
-      (history.error !== null || history.fetchStatus === 'paused') &&
-      savedReadUnusable(rewriteHistoryForItemQuery(itemId).queryKey),
-    loading: history.data === undefined && history.error === null,
+      unavailableOffline && savedReadUnusable(rewriteHistoryForItemQuery(itemId).queryKey),
+    /** Offline, and never opened here: it can't be loaded offline. */
+    unavailableOffline:
+      unavailableOffline && !savedReadUnusable(rewriteHistoryForItemQuery(itemId).queryKey),
+    loading: !offline && history.data === undefined && history.error === null,
     retry: () => void refetch(),
   };
 }

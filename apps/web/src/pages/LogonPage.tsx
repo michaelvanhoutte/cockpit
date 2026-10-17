@@ -41,7 +41,7 @@ export function LogonPage() {
    * queries are observed, and React Query re-creates a removed query the moment
    * an observer that wants it renders. The stored copy was therefore written
    * straight back out, and a workspace of the last person's survived in
-   * IndexedDB for the next one to paint from. Here nothing of the app is
+   * IndexedDB for the next one to be offline in. Here nothing of the app is
    * mounted at all, so there is nothing to put it back.
    */
   useEffect(() => {

@@ -32,7 +32,7 @@ import {
  * `captureOutbox.ts`'s.
  *
  * **Its own IndexedDB database, never the query cache's**, because the two have
- * opposite owners: the stored copy is wiped whenever the logon page opens
+ * opposite owners: the saved reads are wiped whenever the logon page opens
  * (`session/forget.ts`), and a capture survives that - it belongs to whoever
  * made it, and only their own explicit sign-out deletes it (`Layout.tsx`).
  */

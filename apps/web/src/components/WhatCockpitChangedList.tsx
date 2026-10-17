@@ -148,6 +148,7 @@ export function WhatCockpitChangedOnAnItem({
   loading,
   onRetry,
   savedByAnOlderVersion = false,
+  unavailableOffline = false,
 }: {
   changes: RewriteHistoryEntry[];
   error: unknown;
@@ -155,13 +156,17 @@ export function WhatCockpitChangedOnAnItem({
   onRetry: () => void;
   /** This device saved the history in a shape this version can't read, and the server has not answered. */
   savedByAnOlderVersion?: boolean;
+  /** Offline, and this history was never opened here to be saved. */
+  unavailableOffline?: boolean;
 }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
-  if (savedByAnOlderVersion) {
+  if (savedByAnOlderVersion || unavailableOffline) {
     return (
       <div role="status">
         <p className="text-ink-soft">
-          What Cockpit changed was saved by an older version and can't be loaded offline.
+          {savedByAnOlderVersion
+            ? "What Cockpit changed was saved by an older version and can't be loaded offline."
+            : "What Cockpit changed can't be loaded offline."}
         </p>
         <button type="button" onClick={onRetry} className="mt-2 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
           Try again

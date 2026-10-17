@@ -1,5 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { IsRestoringProvider, QueryClientProvider, hashKey, type Query, type QueryClient } from '@tanstack/react-query';
+import { hashKey, type Query, type QueryClient } from '@tanstack/react-query';
 import { clear, createStore, del, entries, set, type UseStore } from 'idb-keyval';
 import { checkSavedRead, hasCheck } from './savedReads';
 
@@ -61,14 +60,10 @@ export function savedReadUnusable(queryKey: readonly unknown[]): boolean {
 }
 
 /**
- * Puts every saved read that converts into `client`, at the time it was saved.
- * Expired reads are deleted, as is the old single record. A read that does not
- * convert is left on disk to be replaced by its next answer, and remembered as
- * unusable for the screens that say so.
+ * The saved reads still worth reading. The old single record and everything
+ * expired or in a shape this version never writes is deleted on the way.
  */
-export async function restoreSavedReads(client: QueryClient, now = Date.now()): Promise<void> {
-  restored.leftOut.clear();
-  restored.unusable.clear();
+async function readSaved(now: number): Promise<SavedRead[]> {
   try {
     await del(OLD_SINGLE_RECORD);
   } catch {
@@ -78,8 +73,9 @@ export async function restoreSavedReads(client: QueryClient, now = Date.now()): 
   try {
     found = await entries<IDBValidKey, SavedRead>(savedReads());
   } catch {
-    return;
+    return [];
   }
+  const reads: SavedRead[] = [];
   for (const [hash, read] of found) {
     // A record not in the shape this version writes - one a later version
     // wrote before a rollback - is deleted like an expired one, not read.
@@ -87,12 +83,38 @@ export async function restoreSavedReads(client: QueryClient, now = Date.now()): 
       void del(hash, savedReads()).catch(() => {});
       continue;
     }
+    reads.push(read);
+  }
+  return reads;
+}
+
+/**
+ * Deletes what is no longer readable without drawing anything: what an open
+ * that went to the server does, since it restores nothing (`opening.tsx`).
+ */
+export async function tidySavedReads(now = Date.now()): Promise<void> {
+  await readSaved(now);
+}
+
+/**
+ * Puts every saved read that converts into `client`, at the time it was saved:
+ * the offline half of the open (`opening.tsx`). A read that does not convert is
+ * left on disk to be replaced by its next answer, and remembered as unusable for
+ * the screens that say so.
+ *
+ * **Memory is fresher**, so a read the client already holds is left as it is.
+ */
+export async function restoreSavedReads(client: QueryClient, now = Date.now()): Promise<void> {
+  restored.leftOut.clear();
+  restored.unusable.clear();
+  for (const read of await readSaved(now)) {
     const checked = checkSavedRead(read.queryKey, read.data);
     if (checked === 'unchecked') continue;
     if (checked === 'unusable') {
-      restored.unusable.add(String(hash));
+      restored.unusable.add(hashKey(read.queryKey));
       continue;
     }
+    if (client.getQueryState(read.queryKey)?.data !== undefined) continue;
     client.setQueryData(read.queryKey, checked.data, { updatedAt: read.savedAt });
     if (read.queryKey[0] === 'snapshot' && checked.itemsLeftOut > 0) {
       restored.leftOut.set(String(read.queryKey[1]), { savedAt: read.savedAt, count: checked.itemsLeftOut });
@@ -138,50 +160,3 @@ export async function forgetEverySavedRead(): Promise<void> {
   await clear(savedReads());
 }
 
-/**
- * The app, drawn from the checked saved reads and re-read behind them - both
- * halves of architecture, "The read model: persisted snapshot, revalidate,
- * push".
- *
- * **Held back for the one read of IndexedDB**, which is local and takes
- * milliseconds: the router reads the cache the moment it mounts (`beforeLoad`
- * in `router.tsx`), and mounted ahead of the restore it finds nothing and goes
- * to a network that may not be there.
- *
- * **Everything restored is invalidated on the way out.** A restored read keeps
- * the time it was saved, so `staleTime` would call one saved a second before a
- * reload fresh and re-read nothing - and a change the server took, whose own
- * re-read had not landed when the page went away, would stay missing.
- */
-export function PaintedFromTheStoredCopy({
-  client,
-  children,
-}: {
-  client: QueryClient;
-  children: ReactNode;
-}) {
-  const [restoring, setRestoring] = useState(true);
-  useEffect(() => {
-    let current = true;
-    let stop: (() => void) | undefined;
-    // A restore that throws still opens the app, from the server alone, rather
-    // than leaving it blank on every load.
-    void restoreSavedReads(client)
-      .catch(() => {})
-      .then(() => {
-        if (!current) return;
-        stop = saveReadsAsTheyAnswer(client);
-        setRestoring(false);
-        void client.invalidateQueries();
-      });
-    return () => {
-      current = false;
-      stop?.();
-    };
-  }, [client]);
-  return (
-    <QueryClientProvider client={client}>
-      <IsRestoringProvider value={restoring}>{restoring ? null : children}</IsRestoringProvider>
-    </QueryClientProvider>
-  );
-}

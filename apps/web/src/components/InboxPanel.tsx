@@ -206,7 +206,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   /**
    * **The column never says the workspace could not be read**, however badly
    * it went. The shell says it once for the whole window (pages/Layout.tsx)
-   * where there is a stored copy to keep painting behind it, and the screen
+   * where there is a read held to keep drawing behind it, and the screen
    * beside this column says it where there is not - and the Inbox adding a
    * second voice is what put the same notice on screen twice, in two different
    * widths, for one failed read.
