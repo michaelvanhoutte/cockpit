@@ -1381,8 +1381,9 @@ export async function proposeForClaude(env: Env, job: ProposeForClaudeJob): Prom
     return say(job.itemId, 'nothing was written: a later change queued the proposal that will');
   }
 
+  let written;
   try {
-    const written = await account.applyChange('propose_item_for_claude', {
+    written = await account.applyChange('propose_item_for_claude', {
       commandId: crypto.randomUUID(),
       issuedAt: new Date().toISOString(),
       workspaceId: item.workspaceId,
@@ -1390,18 +1391,19 @@ export async function proposeForClaude(env: Env, job: ProposeForClaudeJob): Prom
       proposals: read.proposals,
       madeFrom: item.updatedAt,
     });
-    say(
-      job.itemId,
-      written.applied
-        ? `proposed ${read.proposals.map((one) => one.destination).join(', ')}`
-        : 'nothing was written: the item changed while it was being read',
-    );
   } catch (error) {
     if (error instanceof NotFoundInAccountError) {
       return say(job.itemId, 'nothing was written: the item went while it was being read');
     }
     throw error;
   }
+  if (written.applied) return say(job.itemId, `proposed ${read.proposals.map((one) => one.destination).join(', ')}`);
+  // Asked again, because most changes that move `updatedAt` - a priority, a
+  // due date, a start - queue no proposal of their own, and the Item would
+  // otherwise keep none. One finished with or dismissed since ends the next
+  // run before the model is called.
+  say(job.itemId, 'nothing was written: the item changed while it was being read, so it is asked again');
+  await enqueueProposalForClaude(env, job.accountName, job.itemId, job.triggeredBy);
 }
 
 /**

@@ -167,7 +167,9 @@ export function SendToClaudeWindow({
       setSending(false);
       return;
     }
-    rememberFolder(chosen);
+    // A proposal sent with no folder keeps the one remembered, which an Item
+    // with no proposal still opens on.
+    if (chosen !== '' || !action) rememberFolder(chosen);
     openClaude(claudeLinkFor(destination, prompt.trim(), chosen));
     onClose();
   };

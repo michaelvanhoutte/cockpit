@@ -468,8 +468,8 @@ export function applyProposedPanel(item: Item, cmd: ProposeItemPanelCommand): It
 /**
  * What Cockpit proposes doing with this Item, replacing what it proposed before
  * ("Propose what to do with each item before you look", issue 1161) - or null,
- * leaving it as it is, where the proposal was made from words or a filing that
- * have since changed (`madeFrom` is not the Item's `updatedAt` any more), or for
+ * leaving it as it is, where the proposal was made from an Item that has since
+ * changed (`madeFrom` is not its `updatedAt` any more), or for
  * an Item finished with or dismissed, which nobody will send anywhere.
  *
  * Leaves `updatedAt` alone, as the Panel proposal does: Cockpit's own reading is

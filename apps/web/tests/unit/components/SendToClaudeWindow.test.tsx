@@ -245,13 +245,19 @@ describe('Agents', () => {
       expect((await prompt()).value).toMatch(/^Draft a reply to the supplier saying it is paid\./);
     });
 
-    it('leaves the folder empty where the proposal names none, rather than the folder last sent to', async () => {
+    it('leaves the folder empty where the proposal names none, and still offers the folder last sent to on an item with no proposal', async () => {
       window.localStorage.setItem('cockpit.claudeFolder', 'C:\\GitHub\\Cockpit');
+      const user = userEvent.setup();
 
       showWindow([PNG], { ...ITEM, claudeProposals: [REPLY] });
       await prompt();
-
       expect(screen.getByLabelText('Folder')).toHaveValue('');
+      await user.click(screen.getByRole('button', { name: /Open in Cowork/ }));
+      await waitFor(() => expect(held.opened).toHaveLength(1));
+
+      showWindow();
+
+      expect((await screen.findAllByLabelText('Folder')).at(-1)).toHaveValue('C:\\GitHub\\Cockpit');
     });
 
     it('says when nothing is proposed, with the plain prompt still there to send', async () => {

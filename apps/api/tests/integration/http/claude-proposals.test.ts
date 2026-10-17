@@ -248,6 +248,30 @@ describe('Agents', () => {
       expect(await proposalsOn(itemId)).toEqual(AS_KEPT);
     });
 
+    it('proposes again where it was changed some other way while the proposal was being made', async () => {
+      const itemId = await aSettledNote();
+      proposing.answer = TO_CODE;
+      proposing.during = async () => {
+        proposing.during = null;
+        // A priority, which asks for no proposal of its own.
+        const changed = await postChange('set_priority', {
+          commandId: nextId(),
+          issuedAt: '2026-09-09T10:05:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId,
+          priority: 'high',
+        });
+        expect(changed.status).toBe(200);
+      };
+
+      await handleQueue(aProposalJob(itemId), env);
+
+      expect(await proposalsOn(itemId)).toEqual(NOTHING_KEPT);
+      await untilQueued('propose-for-claude', itemId);
+      await delivered();
+      expect(await proposalsOn(itemId)).toEqual(AS_KEPT);
+    });
+
     it.each([
       { situation: 'done', command: 'set_done' as const, field: { done: true } },
       { situation: 'dismissed', command: 'set_dismissed' as const, field: { dismissed: true } },

@@ -758,8 +758,8 @@ export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
  * propose_item_for_claude - what Cockpit proposes doing with an Item, sent by
  * the enrichment job ("Propose what to do with each item before you look",
  * issue 1161), replacing whatever the Item carried. `madeFrom` is the Item's
- * `updatedAt` as the job read it: an Item changed since is left alone, since
- * its own change queued the proposal that will replace this one.
+ * `updatedAt` as the job read it: an Item changed since is left alone, and the
+ * job asks for its proposal again.
  */
 export const proposeItemForClaudeSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
