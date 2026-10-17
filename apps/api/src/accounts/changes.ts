@@ -167,6 +167,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     CONNECTION_HISTORY_DID,
     AGENT_RUNS_SENT_TO_CLAUDE,
     AGENT_RUNS_NOTE,
+    CONNECTION_HISTORY_STATUS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -750,6 +751,33 @@ const AGENT_RUNS_SENT_TO_CLAUDE: Change = {
 const AGENT_RUNS_NOTE: Change = {
   name: '0081-agent-runs-note',
   statements: [{ sql: 'ALTER TABLE `agent_runs` ADD COLUMN `note` text' }],
+};
+
+/**
+ * The source's HTTP status on a failed check ("Show the source's HTTP status
+ * on a connection's failed check", issue 1142) - one nullable column on
+ * `connection_history`; `schema.ts` says what it holds.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, no statement that reads or writes a row.
+ * - **If it stops halfway:** one change is one transaction, so the column is
+ *   added or it is not, and the next open applies it.
+ * - **The second time it runs:** it does not re-run once recorded.
+ * - **Rows that predate it:** every line reads `status` NULL, which is a
+ *   failure that gave no status - what none of them recorded. Nothing is
+ *   backfilled, and alike failures already folded stay folded.
+ * - **What is in each environment:** staging and production keep every line
+ *   whole, each now reading NULL.
+ * - **Rolled back after it has run:** an older release never names the column;
+ *   its lines record no status, and the column stays.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTION_HISTORY_STATUS: Change = {
+  name: '0082-connection-history-status',
+  statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `status` integer' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

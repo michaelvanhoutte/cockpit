@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env, runDurableObjectAlarm } from 'cloudflare:test';
-import type { Connector, ConnectorHost, SyncAnswer } from '@cockpit/connector-sdk';
+import { SourceError, type Connector, type ConnectorHost, type SyncAnswer } from '@cockpit/connector-sdk';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import { HISTORY_MOST_LINES } from '../../../src/domain/connection-history.js';
@@ -127,6 +127,7 @@ interface Line {
   reason: string;
   message: string | null;
   messageCut: boolean;
+  status: number | null;
   count: number;
   firstAt: string;
   lastAt: string;
@@ -192,6 +193,48 @@ describe('Connector management', () => {
         expect.objectContaining({ outcome: 'failed', message: 'the source stopped answering', messageCut: false }),
       ]);
       expect((await rowOf(id)).failingBecause).toBe('the source stopped answering');
+    });
+
+    it.each([
+      {
+        situation: 'the status error a connector throws',
+        thrown: () => new SourceError('Graph answered 503 to /messages', 503),
+        line: { status: 503, message: 'Graph answered 503 to /messages' },
+      },
+      {
+        situation: 'a plain error',
+        thrown: () => new Error('the source stopped answering'),
+        line: { status: null, message: 'the source stopped answering' },
+      },
+      {
+        situation: 'something that is not an error',
+        thrown: () => 'a bare string',
+        line: { status: null, message: 'a bare string' },
+      },
+    ])('a failure thrown as $situation records the status where it carried one', async ({ thrown, line }) => {
+      runsIn(async () => {
+        throw thrown();
+      });
+      const id = await connect();
+      await firstCheckRuns();
+
+      expect((await historyOf(id)).lines).toEqual([expect.objectContaining({ outcome: 'failed', ...line })]);
+    });
+
+    it('failures with one message fold only while the status is the same', async () => {
+      const unavailable = (status: number) => async () => {
+        throw new SourceError('unavailable', status);
+      };
+      runsIn(unavailable(503), unavailable(503), unavailable(500));
+      const id = await connect();
+      await firstCheckRuns();
+      await nextChecksRun();
+      await nextChecksRun();
+
+      expect((await historyOf(id)).lines.map(({ status, count }) => ({ status, count }))).toEqual([
+        { status: 500, count: 1 },
+        { status: 503, count: 2 },
+      ]);
     });
 
     it('a check whose connection another run took writes no line and ends nothing', async () => {

@@ -1956,6 +1956,8 @@ export const connectionHistory = sqliteTable(
      * folded. Items are named by their title on read, never stored by title.
      */
     did: text('did'),
+    /** The HTTP status the source answered a failed check with (issue 1142); NULL where it gave none, and on every line that worked or predates it. */
+    status: integer('status'),
   },
   (t) => [
     index('connection_history_newest').on(t.tenantId, t.sourceAccountId, t.lastAt),
