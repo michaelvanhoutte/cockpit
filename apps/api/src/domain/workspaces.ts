@@ -1,4 +1,4 @@
-import { DEFAULT_WORKSPACE_THEME, WORKSPACE_THEMES, themeOf } from '@cockpit/shared';
+import { DEFAULT_WORKSPACE_THEME, WORKSPACE_THEMES } from '@cockpit/shared';
 import type { CreateWorkspaceCommand, Workspace } from '@cockpit/shared';
 import { foldName, namedTheSame } from './names.js';
 
@@ -89,9 +89,8 @@ export function workspaceNamed(
  * There was a `slug` here until migration 0006 dropped the column. Nothing
  * ever read it, and uniqueness moved to the name, where a person can see it.
  *
- * The whole theme goes in, not just the tint it was handed: a new workspace has
- * all four of its colors from the moment it exists, so it is never a workspace
- * wearing somebody else's page.
+ * Only the tint is stored: the band, top bar and page grey are the palette's,
+ * found by that tint whenever the workspace is read.
  *
  * `position` arrives the way `color` does, for the same reason: it is a function
  * of every workspace the account already has, and only the server can see that
@@ -102,22 +101,18 @@ export function workspaceFromCommand(
   tenantId: string,
   color: string,
   position: number,
-): Workspace & {
+): Pick<Workspace, 'id' | 'tenantId' | 'name' | 'color'> & {
   foldedName: string;
   position: number;
   createdAt: string;
   deletedAt: string | null;
 } {
-  const theme = themeOf(color);
   return {
     id: cmd.workspaceId,
     tenantId,
     name: cmd.name,
     foldedName: foldName(cmd.name),
     color,
-    bar: theme.bar,
-    ground: theme.ground,
-    header: theme.header,
     position,
     createdAt: cmd.issuedAt,
     deletedAt: null,

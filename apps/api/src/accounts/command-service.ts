@@ -36,6 +36,7 @@ import {
   getPanel,
   getSourceAccount,
   getWorkspace,
+  insertWorkspace,
   isItemFiled,
   lastDashboardPosition,
   lastWorkspacePosition,
@@ -63,7 +64,6 @@ import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
 import {
   ACCOUNT_WIDE,
   isPaletteTint,
-  themeOf,
   panelFilterAsStored,
   panelSortAsStored,
   panelGathers,
@@ -966,8 +966,9 @@ export function runCommand<N extends CommandName>(
       // A retried create whose command ID was lost still may not make a second
       // workspace: the id is the client's, so the replay carries the same one.
       //
-      // `target` is load-bearing, and this is the one table where leaving it
-      // off is dangerous. Bare `onConflictDoNothing()` means *any* conflict,
+      // The conflict target (`ON CONFLICT (id)` in `insertWorkspace`) is
+      // load-bearing, and this is the one table where leaving it off is
+      // dangerous. A bare `DO NOTHING` means *any* conflict,
       // and workspaces now carry a second unique index - the one on the name.
       // Two creates of the same name racing past the check above would then
       // both answer "done" while the second wrote nothing at all: the box
@@ -977,7 +978,7 @@ export function runCommand<N extends CommandName>(
       // `associations` have no second unique index, so their bare calls below
       // mean only what they say.)
       db.transaction((tx) => {
-        tx.insert(workspaces).values(workspace).onConflictDoNothing({ target: workspaces.id }).run();
+        insertWorkspace(tx, workspace);
         // Its first dashboard, in the same act, so "every workspace has at
         // least one dashboard" holds from the moment the workspace exists
         // rather than from the next time somebody adds one ("Add and switch
@@ -1539,15 +1540,15 @@ export function runCommand<N extends CommandName>(
       // stored, which is how "picked from designed options" holds once a wire
       // format can carry anything. The other three colours are not trusted - a
       // tab opened before the palette changed, or a pick replayed from the
-      // offline queue, carries an older set - so the palette's own are stored
-      // for it. The day mixing your own is wanted, this check is what relaxes.
+      // offline queue, carries an older set - so they are ignored, and only the
+      // accent is stored: the rest is the palette's, found by it on every read.
+      // The day mixing your own is wanted, this check is what relaxes.
       if (!isPaletteTint(cmd.color)) {
         throw new UnknownThemeError();
       }
-      const theme = themeOf(cmd.color);
       db.transaction((tx) => {
         tx.update(workspaces)
-          .set({ color: theme.tint, bar: theme.bar, ground: theme.ground, header: theme.header })
+          .set({ color: cmd.color })
           .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId)))
           .run();
         tx.insert(commands).values(commandRow).run();

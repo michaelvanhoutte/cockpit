@@ -38,7 +38,7 @@ The palette is eight designed sets, handed out to new Workspaces in this order. 
 | Cyan | `#4f8fa8` | `#3f7286` | `#3b6b7e` | ink |
 | Olive | `#7d8f3f` | `#637132` | `#5d6a2f` | ink |
 
-A Workspace is never assigned colours outside this table, and is drawn in the row its tint names whatever else it stored, or the default (Violet) where the tint is not in the table. A theme pick is accepted by its tint alone and stores that row's four colours. Nothing stored is rewritten.
+A Workspace is never assigned colours outside this table, and is drawn in the row its tint names whatever else it stored, or the default (Violet) where the tint is not in the table. A theme pick is accepted by its tint alone, and only the tint is stored. Nothing stored is rewritten.
 
 ## Chrome
 

@@ -126,15 +126,8 @@ describe('Workspace management', () => {
         // that makes the same is proved through the interface, in
         // tests/integration/http/workspace-management.test.ts.
         foldedName: 'personal',
-        // The whole theme its tint belongs to, not just the tint: a workspace
-        // has all four of its colors from the moment it is made.
+        // The tint alone: the rest of its theme is found by it when read.
         color: '#3f8f78',
-        // Read off the palette rather than written out: the four are one set,
-        // and a copy of three of them here would only ever say that somebody
-        // remembered to update this file when the palette moved.
-        bar: themeOf('#3f8f78').bar,
-        ground: themeOf('#3f8f78').ground,
-        header: themeOf('#3f8f78').header,
         // Where it sits in the tabs, handed to it the way the color is: both
         // are answers about every workspace the account has, which only the
         // caller with the account in front of it can give.

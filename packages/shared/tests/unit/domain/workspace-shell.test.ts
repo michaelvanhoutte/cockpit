@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DARK_GROUND, paintedWorkspace, shellColours } from '../../../src/domain/workspace-shell.js';
 import { DEFAULT_WORKSPACE_THEME, ON_ACCENT_LIGHT, WORKSPACE_THEMES } from '../../../src/domain/workspace-themes.js';
 
-/** A Workspace as the shell receives it: the four colours it stores, which are its theme's. */
+/** A Workspace as the shell receives it: the four colours it arrives with, which are its theme's. */
 const stored = (theme: (typeof WORKSPACE_THEMES)[number]) => ({
   color: theme.tint,
   bar: theme.bar,
