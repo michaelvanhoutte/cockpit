@@ -204,6 +204,11 @@ export function useSelection(scope: string): Selection {
   );
 }
 
+/** What `scope` holds right now, read outside a render - by a drop, which acts on what is held when it lands. */
+export function pickedNow(scope: string): ReadonlySet<string> {
+  return selectionIn(held, scope).picked;
+}
+
 /** Changes what `scope` holds; see `afterUpdating`. */
 export function updateSelection(scope: string, update: (was: Selection) => Selection) {
   set(afterUpdating(held, scope, update));

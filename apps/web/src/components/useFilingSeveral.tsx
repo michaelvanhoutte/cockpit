@@ -7,6 +7,7 @@ import { CommandRefused } from '../api/client';
 import {
   filedOrderOnPanel,
   howToFileSelected,
+  type HowToFileSelected,
   orderPuttingBack,
   ordersForFilingSeveral,
 } from '../filing';
@@ -17,6 +18,12 @@ import { updateSelection } from '../selection';
 import { askToShow } from '../showItem';
 import { useUndo, type Undoable } from '../undo';
 import { FetchedPicker } from './FetchedPicker';
+
+/**
+ * That a filing of several is going, in this tab: a drop is handled by the Panel
+ * it lands on, so a second drop on another Panel is a different hook asking.
+ */
+let running = false;
 
 /**
  * Filing everything a selection holds onto one panel, and the questions around
@@ -179,27 +186,58 @@ export function useFilingSeveral({
    * what did not stays picked, so asking again files exactly the remainder. The
    * way back offers what happened rather than what was asked for.
    */
-  const fileSeveral = async (target: string | null) => {
-    const chosen = picked;
-    if (filing || chosen.length === 0) return;
+  const fileSeveral = (target: string | null) => fileOnto(picked, target);
+
+  /**
+   * Files `chosen` onto `target`, which is what `fileSeveral` does for the
+   * rows picked and what a *drop* of a selection does for the rows it carried
+   * ("Drag a selection, and drop it on the Dashboard it was picked on", issue
+   * 1217) - one path, so the two cannot come to different answers.
+   *
+   * `landing` is only a drop's: `at` is where the block goes among what the
+   * Panel holds without it (the top, for the bar's Move to…), `alsoShow` is the
+   * answer *Add it here as well*, which leaves every source, and `scope` is
+   * where the rows were picked, when that is not this list's own (an Inbox
+   * selection dropped on a Panel).
+   */
+  const fileOnto = async (
+    chosen: readonly Item[],
+    target: string | null,
+    landing?: { at: number; alsoShow?: boolean; scope?: string },
+  ) => {
+    // The module's own flag as well as the state: a drop is handled by the
+    // Panel it lands on, whose hook is not the one a run began in.
+    if (filing || running || chosen.length === 0) return;
 
     // Read before anything moves, because afterwards it is gone - and read for
     // all of them at once, so every order below describes the same moment.
     const wasOn = new Map(chosen.map((item) => [item.id, whereItIs(item)] as const));
     // What each one is taken off is decided now too, from the same moment.
-    const how = new Map(
+    const held = target ? filedOrderOnPanel(data?.filings ?? [], target) : [];
+    // A drop of rows every one of which the Panel already holds is a reorder:
+    // they gather at the landing line and leave every other Panel alone.
+    const reordering =
+      landing !== undefined && target !== null && chosen.every((item) => held.includes(item.id));
+    const how = new Map<string, HowToFileSelected>(
       chosen.map((item) => [
         item.id,
-        howToFileSelected(data?.filings ?? [], data?.panels ?? [], openDashboardId, target, item.id),
+        landing?.alsoShow || reordering
+          ? { how: 'add' }
+          : howToFileSelected(data?.filings ?? [], data?.panels ?? [], openDashboardId, target, item.id),
       ]),
     );
     const orders = target
       ? ordersForFilingSeveral(
-          filedOrderOnPanel(data?.filings ?? [], target),
+          held,
           chosen.map((item) => item.id),
+          landing?.at,
         )
       : [];
+    // Dropped where they already sit together: a reorder that changes nothing,
+    // which must not offer an undo of nothing.
+    if (reordering && orders[orders.length - 1]!.join() === held.join()) return;
 
+    running = true;
     setFiling(true);
     setRefusal(null);
     const moved: Item[] = [];
@@ -240,6 +278,7 @@ export function useFilingSeveral({
           : 'These could not all be moved. Try again.',
       );
     } finally {
+      running = false;
       setFiling(false);
       // **The question is answered either way, so it closes either way.** A
       // picker left open over a refusal seemed friendlier - the reason where
@@ -258,7 +297,7 @@ export function useFilingSeveral({
     // Only what moved leaves the selection, so a filing that stopped leaves the
     // remainder in front of you with the reason above it.
     const filed = new Set(moved.map((item) => item.id));
-    updateSelection(scope, (was) => ({
+    updateSelection(landing?.scope ?? scope, (was) => ({
       picked: new Set([...was.picked].filter((id) => !filed.has(id))),
       reachingFrom: null,
     }));
@@ -278,12 +317,15 @@ export function useFilingSeveral({
     if (decides && target === null) return;
     const single = moved.length === 1 && chosen.length === 1;
     offerToUndo({
-      what: whatMoved(moved, chosen.length, nameOf(target)),
+      what: reordering
+        ? whatMovedIn(moved, chosen.length, nameOf(target))
+        : whatMoved(moved, chosen.length, nameOf(target)),
       ...(single
         ? { split: { title: `“${itemLabel(moved[0]!)}”`, rest: ` moved to ${nameOf(target)}` } }
         : {}),
       ...(decides ? {} : { undo: () => putSeveralBack(moved, wasOn) }),
-      ...(target ? nextSteps(moved, target) : {}),
+      // A reorder shows nothing new and adds to no other Panel: Undo alone.
+      ...(target && !reordering ? nextSteps(moved, target) : {}),
     });
   };
 
@@ -492,6 +534,8 @@ export function useFilingSeveral({
     filing,
     /** Why the last filing stopped, if it did. */
     refusal,
+    /** Files what a drop carried (`fileOnto`). */
+    dropOnto: fileOnto,
     /** Opens the Move to… question for what is picked. */
     ask: () => {
       setRefusal(null);
@@ -524,6 +568,12 @@ function whatMoved(moved: readonly Item[], asked: number, target: string): strin
   }
   const how = moved.length === asked ? `${asked} items` : `${moved.length} of ${asked} items`;
   return `${how} moved to ${target}`;
+}
+
+/** What the way back says a reorder of several did: they moved within one Panel, nowhere else. */
+function whatMovedIn(moved: readonly Item[], asked: number, target: string): string {
+  const how = moved.length === asked ? `${asked} items` : `${moved.length} of ${asked} items`;
+  return `${how} moved in ${target}`;
 }
 
 /** The ids found in every one of the lists. */

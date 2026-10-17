@@ -14,7 +14,8 @@ import type {
 } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
-import { landItem, liftItem } from '../../../src/itemInTheAir';
+import { landItem, liftItem, selectionCarried } from '../../../src/itemInTheAir';
+import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection } from '../../../src/selection';
 import { ItemList } from '../../../src/components/ItemList';
 import type { FilterGroup } from '../../../src/filterGroups';
 import { UndoWhatJustHappened } from '../../../src/undo';
@@ -3355,6 +3356,397 @@ describe('Triage', () => {
       await showInbox([proposedFor('Fal1', 'p-falcon'), proposedFor('Fal2', 'p-falcon'), proposedFor('Ann1', 'p-anna')]);
 
       expect(screen.getByRole('button', { name: /^Today ▸ Anna/ })).toHaveTextContent('→ Today ▸ Anna');
+    });
+  });
+});
+
+describe('Selection', () => {
+  describe('dragging a picked row carries every picked row, and dragging an unpicked one ends the selection', () => {
+    // Nothing carried or picked between cases, whatever the last one left.
+    beforeEach(() => {
+      landItem();
+      endSelection();
+    });
+    afterEach(() => {
+      landItem();
+      endSelection();
+    });
+
+    const rowOf = (item: Item) => screen.getByText(item.title).closest('li')!;
+    /** The drag begun on a row, with the transfer a browser would hand over. */
+    function grab(item: Item) {
+      const dataTransfer = { setData: vi.fn(), setDragImage: vi.fn(), effectAllowed: '' };
+      fireEvent.dragStart(rowOf(item), { dataTransfer });
+      return dataTransfer;
+    }
+
+    it.each([
+      { situation: 'two picked, the grabbed one the later', picks: [BART, CHASE], grabbed: CHASE },
+      { situation: 'two picked, the grabbed one the earlier', picks: [BART, CHASE], grabbed: BART },
+      // Picked last, drawn first: the order is the list's, not the clicks'.
+      { situation: 'picked in the order opposite to the one drawn', picks: [CHASE, BART], grabbed: CHASE },
+    ])('carries both picked rows, as the list draws them: $situation', async ({ picks, grabbed }) => {
+      const user = await showList({ items: THREE });
+      for (const item of picks) await tick(user, item);
+
+      grab(grabbed);
+
+      expect(selectionCarried()?.ids).toEqual([BART.id, CHASE.id]);
+    });
+
+    it('carries one row alone, as a drag always has, when none is picked', async () => {
+      await showList({ items: THREE });
+
+      grab(BART);
+
+      expect(selectionCarried()).toBeNull();
+    });
+
+    it('carries one picked row alone and leaves it picked', async () => {
+      const user = await showList({ items: THREE });
+      await tick(user, BART);
+
+      grab(BART);
+
+      expect(selectionCarried()).toBeNull();
+      expect(screen.getByText('1 selected')).toBeVisible();
+    });
+
+    it('ends the selection and carries the row alone when the one grabbed is not picked', async () => {
+      const user = await showList({ items: THREE });
+      await tick(user, BART);
+      await tick(user, CHASE);
+
+      grab(RENEW);
+
+      expect(selectionCarried()).toBeNull();
+      await waitFor(() => expect(screen.queryByText('2 selected')).not.toBeInTheDocument());
+    });
+
+    it('says how many the grabbed row stands for, under the pointer', async () => {
+      const user = await showList({ items: THREE });
+      for (const item of THREE) await tick(user, item);
+      const said: string[] = [];
+      const dataTransfer = {
+        setData: vi.fn(),
+        setDragImage: (el: HTMLElement) => said.push(el.textContent ?? ''),
+        effectAllowed: '',
+      };
+
+      fireEvent.dragStart(rowOf(RENEW), { dataTransfer });
+
+      expect(said).toEqual(['3 items']);
+    });
+
+    it('fades the picked rows where they stand, and clears it when the drag ends', async () => {
+      const user = await showList({ items: THREE });
+      await tick(user, BART);
+      await tick(user, CHASE);
+      const faded = (item: Item) => rowOf(item).classList.contains('opacity-40');
+
+      grab(BART);
+
+      await waitFor(() => expect(faded(BART)).toBe(true));
+      expect(faded(CHASE)).toBe(true);
+      expect(faded(RENEW)).toBe(false);
+      fireEvent.dragEnd(rowOf(BART));
+      await waitFor(() => expect(faded(BART)).toBe(false));
+      expect(faded(CHASE)).toBe(false);
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('a selection dropped on a panel is filed as the bar’s Move to… files it, where it was dropped', () => {
+    beforeEach(() => {
+      landItem();
+      endSelection();
+    });
+    afterEach(() => {
+      landItem();
+      endSelection();
+    });
+
+    const dashboardOfTheDrag = () => dashboardScope(TODAY.id);
+    /** What is picked, and the drag of one of them in the air - which the row's own drag start does, proved above. */
+    function carry(grabbed: Item, picked: Item[], scope: string = dashboardOfTheDrag()) {
+      act(() => {
+        updateSelection(scope, () => ({ picked: new Set(picked.map((item) => item.id)), reachingFrom: null }));
+        liftItem(grabbed.id, null, { ids: picked.map((item) => item.id), scope });
+      });
+    }
+    const OTHER = anItem('11111111-1111-7111-8111-0000000000a1', 'Order the sample');
+    const sentCalls = () =>
+      (held.send.mock.calls as unknown as [{ name: string; payload: Record<string, unknown> }][]).map(
+        ([call]) => [call.name, call.payload.itemId, call.payload.fromPanelIds ?? null],
+      );
+
+    // **The place cannot be aimed at here**, for the reason `dropOnto` gives: a
+    // drop in jsdom is always above every row. Which gap a position picks out is
+    // tests/unit/dropAt.test.ts's rule (`placeSeveralAmongHeld`) and the walk's.
+    it('lands rows from the Inbox together at the landing line, in the order the list showed them, asking nothing', async () => {
+      held.items = [...THREE, OTHER];
+      held.filings = [{ panelId: 'p-falcon', itemId: OTHER.id, position: 0 }];
+      sendThatFiles();
+      await showList({ items: [OTHER], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      carry(CHASE, [BART, CHASE], inboxScope('ws-work'));
+
+      await dropOnto(CHASE.id);
+
+      await waitFor(() => expect(nowOn('p-falcon')).toEqual([BART.id, CHASE.id, OTHER.id]));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('asks nothing of rows already on the panel, gathers them at the landing line, and offers Undo alone', async () => {
+      held.items = THREE;
+      held.filings = THREE.map((item, position) => ({ panelId: 'p-falcon', itemId: item.id, position }));
+      sendThatFiles();
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      carry(BART, [BART, CHASE]);
+
+      await dropOnto(BART.id);
+
+      await waitFor(() => expect(nowOn('p-falcon')).toEqual([BART.id, CHASE.id, RENEW.id]));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(await screen.findByText('2 items moved in Falcon')).toBeVisible();
+      expect(within(screen.getByRole('status')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Undo']);
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(nowOn('p-falcon')).toEqual([BART.id, RENEW.id, CHASE.id]));
+    });
+
+    it('sends nothing when they are dropped where they already sit together', async () => {
+      held.items = THREE;
+      const inOrder = [CHASE, BART, RENEW];
+      held.filings = inOrder.map((item, position) => ({ panelId: 'p-falcon', itemId: item.id, position }));
+      sendThatFiles();
+      await showList({ items: inOrder, openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      carry(CHASE, [CHASE, BART]);
+
+      await dropOnto(CHASE.id);
+
+      expect(held.send).not.toHaveBeenCalled();
+      expect(held.mutate).not.toHaveBeenCalled();
+    });
+
+    describe('with some picked rows on other panels, it asks once, for all of them', () => {
+      const ON_ANNA = { panelId: 'p-anna', itemId: BART.id, position: 0 };
+      // Another Dashboard's Panel, which a move from this Dashboard leaves alone.
+      const ON_READING = { panelId: 'p-reading', itemId: CHASE.id, position: 0 };
+
+      async function droppedOnFalcon() {
+        held.items = THREE;
+        held.filings = [ON_ANNA, ON_READING];
+        sendThatFiles();
+        const user = await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+        carry(BART, THREE);
+        await dropOnto(BART.id);
+        return user;
+      }
+
+      it('asks one question naming how many and where, and files nothing yet', async () => {
+        await droppedOnFalcon();
+
+        expect(await screen.findAllByRole('alertdialog')).toHaveLength(1);
+        expect(screen.getByRole('alertdialog')).toHaveTextContent(
+          'Move these 3 items to Falcon, or add them there as well?',
+        );
+        expect(held.send).not.toHaveBeenCalled();
+      });
+
+      it('takes each off the panels of this dashboard on Move, and leaves other dashboards’ alone', async () => {
+        const user = await droppedOnFalcon();
+
+        await user.click(await screen.findByRole('button', { name: 'Move them here' }));
+
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(3));
+        expect(sentCalls()).toEqual([
+          ['move_item_to_panel', BART.id, ['p-anna']],
+          // From the Inbox: nothing to leave.
+          ['move_item_to_panel', RENEW.id, null],
+          // Only on another dashboard: nothing here to leave, so it is added.
+          ['add_item_to_panel', CHASE.id, null],
+        ]);
+        expect(nowOn('p-falcon')).toEqual([BART.id, RENEW.id, CHASE.id]);
+        expect(nowOn('p-anna')).toEqual([]);
+        expect(nowOn('p-reading')).toEqual([CHASE.id]);
+      });
+
+      it('leaves every source on Add it here as well', async () => {
+        const user = await droppedOnFalcon();
+
+        await user.click(await screen.findByRole('button', { name: 'Add them here as well' }));
+
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(3));
+        expect(sentCalls().map(([name]) => name)).toEqual(Array(3).fill('add_item_to_panel'));
+        expect(nowOn('p-anna')).toEqual([BART.id]);
+        expect(nowOn('p-reading')).toEqual([CHASE.id]);
+      });
+
+      it('files only what is still picked when it is answered, not what was picked when it was asked', async () => {
+        const user = await droppedOnFalcon();
+        await screen.findByRole('alertdialog');
+        act(() =>
+          updateSelection(dashboardOfTheDrag(), () => ({
+            picked: new Set([BART.id, RENEW.id]),
+            reachingFrom: null,
+          })),
+        );
+
+        await user.click(await screen.findByRole('button', { name: 'Move them here' }));
+
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(2));
+        expect(sentCalls().map(([, itemId]) => itemId)).toEqual([BART.id, RENEW.id]);
+      });
+
+      it('files nothing when cancelled, and the selection is still held', async () => {
+        const user = await droppedOnFalcon();
+
+        await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+        expect(held.send).not.toHaveBeenCalled();
+        expect(pickedNow(dashboardOfTheDrag()).size).toBe(3);
+      });
+    });
+
+    it('puts them at the top of the order a sorted panel is set in, wherever they were let go', async () => {
+      held.items = [BART, CHASE, OTHER];
+      held.filings = [{ panelId: 'p-falcon', itemId: OTHER.id, position: 0 }];
+      sendThatFiles();
+      await showList({ items: [OTHER], openDashboardId: TODAY.id, panelId: 'p-falcon', sorted: true });
+      carry(CHASE, [BART, CHASE], inboxScope('ws-work'));
+
+      await dropOnto(CHASE.id);
+
+      await waitFor(() => expect(nowOn('p-falcon')).toEqual([BART.id, CHASE.id, OTHER.id]));
+    });
+
+    it('takes every one off every panel when dropped on the Inbox, leaving one that is in it already', async () => {
+      held.items = THREE;
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-anna', itemId: BART.id, position: 0 },
+        { panelId: 'p-anna', itemId: CHASE.id, position: 1 },
+      ];
+      sendThatFiles();
+      await showList({ items: [RENEW], openDashboardId: null, panelId: null });
+      carry(BART, THREE);
+
+      await dropOnto(BART.id);
+
+      await waitFor(() => expect(filingsSent()).toHaveLength(2));
+      expect(filingsSent()).toEqual([
+        { itemId: BART.id, panelId: null, order: [] },
+        { itemId: CHASE.id, panelId: null, order: [] },
+      ]);
+      expect(nowOn('p-falcon')).toEqual([]);
+      expect(nowOn('p-anna')).toEqual([]);
+      expect(await screen.findByText('2 items moved to the Inbox')).toBeVisible();
+      expect(within(screen.getByRole('status')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Undo']);
+    });
+
+    it('takes no drop on a Filter panel', async () => {
+      held.items = THREE;
+      await showList({ items: [OTHER], openDashboardId: TODAY.id, panelId: 'p-falcon', gathered: true });
+      carry(CHASE, [BART, CHASE], inboxScope('ws-work'));
+
+      const refused = fireEvent.dragOver(theListBox(), {
+        dataTransfer: { types: [ITEM_BEING_DRAGGED], getData: () => CHASE.id, setData: vi.fn(), dropEffect: '' },
+      });
+      await dropOnto(CHASE.id);
+
+      // Not prevented is the pointer saying no.
+      expect(refused).toBe(true);
+      expect(held.send).not.toHaveBeenCalled();
+    });
+
+    describe('filing runs one row at a time and stops at the first refusal', () => {
+      it('leaves what did not move picked, and says what did and why the rest did not', async () => {
+        held.items = THREE;
+        refusesAfter(1);
+        await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+        carry(BART, THREE, inboxScope('ws-work'));
+
+        await dropOnto(BART.id);
+
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(2));
+        expect(await screen.findByText('1 of 3 items moved to Falcon')).toBeVisible();
+        expect([...pickedNow(inboxScope('ws-work'))]).toEqual([RENEW.id, CHASE.id]);
+        expect(screen.getByText('this panel changed while you were looking at it')).toBeVisible();
+      });
+
+      it('sends nothing for a second drop while the run is still going', async () => {
+        held.items = THREE;
+        let finish: () => void = () => {};
+        // Only the first is held, so letting it go lets the whole run finish.
+        let first = true;
+        held.send = vi.fn(() => {
+          if (!first) return Promise.resolve();
+          first = false;
+          return new Promise<void>((resolve) => (finish = resolve));
+        });
+        await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+        carry(BART, THREE, inboxScope('ws-work'));
+        await dropOnto(BART.id);
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
+
+        carry(BART, THREE, inboxScope('ws-work'));
+        await dropOnto(BART.id);
+
+        expect(held.send).toHaveBeenCalledTimes(1);
+        await act(async () => finish());
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(3));
+      });
+
+      it('counts the run in the bar, however many were picked', async () => {
+        const fifty = Array.from({ length: 50 }, (_, at) =>
+          anItem(`11111111-1111-7111-8111-${String(at + 100).padStart(12, '0')}`, `Row ${at}`),
+        );
+        held.items = fifty;
+        sendThatFiles();
+        await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+        carry(fifty[0]!, fifty, inboxScope('ws-work'));
+
+        await dropOnto(fifty[0]!.id);
+
+        expect(await screen.findByText('50 items moved to Falcon', {}, { timeout: 4000 })).toBeVisible();
+      });
+    });
+
+    it('offers Show, Also show on… and Undo for all of them, and Undo puts each back', async () => {
+      held.items = THREE;
+      sendThatFiles();
+      const user = await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      carry(BART, THREE, inboxScope('ws-work'));
+
+      await dropOnto(BART.id);
+
+      expect(await screen.findByText('3 items moved to Falcon')).toBeVisible();
+      expect(within(screen.getByRole('status')).getAllByRole('button').map((b) => b.textContent)).toEqual([
+        'Show',
+        'Also show on…',
+        'Undo',
+      ]);
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(nowOn('p-falcon')).toEqual([]));
+    });
+
+    it('leaves out a row filed elsewhere while the drag was in the air, and the count follows', async () => {
+      held.items = THREE;
+      sendThatFiles();
+      await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      carry(BART, THREE, inboxScope('ws-work'));
+      // Another tab files it, so no list shows it and the selection lets it go.
+      act(() =>
+        updateSelection(inboxScope('ws-work'), (was) => ({
+          picked: new Set([...was.picked].filter((id) => id !== RENEW.id)),
+          reachingFrom: null,
+        })),
+      );
+
+      await dropOnto(BART.id);
+
+      expect(await screen.findByText('2 items moved to Falcon')).toBeVisible();
+      expect(nowOn('p-falcon')).toEqual([BART.id, CHASE.id]);
     });
   });
 });

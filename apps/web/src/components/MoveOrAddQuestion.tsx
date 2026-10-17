@@ -30,7 +30,10 @@ export function MoveOrAddQuestion({
   refusal,
   busy = false,
   leaves,
+  several,
 }: {
+  /** How many rows were let go together, where it is a selection: one answer for all of them (issue 1217). */
+  several?: number;
   /** The Panel the row was dropped from, which moving it takes it off and adding it leaves. Absent where that is not known. */
   leaves?: string;
   itemTitle: string;
@@ -53,12 +56,16 @@ export function MoveOrAddQuestion({
           className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <AlertDialog.Title className="text-base font-semibold">
-            Move “{itemTitle}” to {panelName}, or add it there as well?
+            {several
+              ? `Move these ${several} items to ${panelName}, or add them there as well?`
+              : `Move “${itemTitle}” to ${panelName}, or add it there as well?`}
           </AlertDialog.Title>
           <p className="pt-2 text-sm text-ink-soft">
-            {leaves
-              ? `Moving it takes it off ${leaves}; adding it leaves it there.`
-              : 'Adding it leaves it on the panels it is on now.'}
+            {several
+              ? 'Moving them takes each off the other panels of this dashboard; adding them leaves them where they are.'
+              : leaves
+                ? `Moving it takes it off ${leaves}; adding it leaves it there.`
+                : 'Adding it leaves it on the panels it is on now.'}
           </p>
 
           {refusal && (
@@ -80,7 +87,7 @@ export function MoveOrAddQuestion({
               onClick={onAdd}
               className="shrink-0 rounded-md border border-accent px-3 py-1.5 text-sm font-medium text-accent-deep hover:bg-accent-tint disabled:opacity-50"
             >
-              Add it here as well
+              {several ? 'Add them here as well' : 'Add it here as well'}
             </button>
             <button
               type="button"
@@ -88,7 +95,7 @@ export function MoveOrAddQuestion({
               onClick={onMove}
               className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
             >
-              Move it here
+              {several ? 'Move them here' : 'Move it here'}
             </button>
           </div>
         </AlertDialog.Content>

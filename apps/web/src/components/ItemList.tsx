@@ -18,12 +18,19 @@ import {
 } from '../api/queries';
 import { CommandRefused } from '../api/client';
 import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
-import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
-import { itemInTheAir, panelLiftedFrom } from '../itemInTheAir';
+import {
+  ITEM_BEING_DRAGGED,
+  placeAfterMoving,
+  placeAmongHeld,
+  placeSeveralAmongHeld,
+  whereItWouldLand,
+} from '../dropAt';
+import { itemInTheAir, landItem, panelLiftedFrom, selectionCarried, type SelectionInTheAir } from '../itemInTheAir';
 import { columnsStyle, landingOnRow } from '../panelColumns';
 import {
   filedOrderOnPanel,
   filingsThatFile,
+  stillOpen,
   itemsOnPanel,
   orderPuttingBack,
   ordersForFilingSeveral,
@@ -41,6 +48,7 @@ import {
   endSelection,
   inboxScope,
   pickedInTheList,
+  pickedNow,
   updateSelection,
   useHeldTo,
   useSelection,
@@ -732,6 +740,14 @@ export function ItemList({
    * panel or add it to one", issue 142).
    */
   const [asking, setAsking] = useState<{ item: Item; at: number; from: string | null } | null>(null);
+  /**
+   * A selection let go over this Panel with rows on other Panels, waiting for
+   * the one answer for all of them (issue 1217). `at` is where they land among
+   * what the Panel holds without them; `scope` is where they were picked.
+   */
+  const [askingSeveral, setAskingSeveral] = useState<{ items: Item[]; at: number; scope: string } | null>(
+    null,
+  );
   const rows = useRef<HTMLUListElement>(null);
   /**
    * That a sorted Panel already holds the row in the air, from whichever list
@@ -739,6 +755,9 @@ export function ItemList({
    * put it. An Item from elsewhere is still filed onto it.
    */
   const alreadyHeldWhileSorted = () => {
+    // A selection is held when it holds every one of its rows already.
+    const selection = selectionCarried();
+    if (sorted && selection) return selection.ids.every((id) => items.some((item) => item.id === id));
     const carried = itemInTheAir();
     if (!sorted || carried === null || !items.some((item) => item.id === carried)) return false;
     // One lifted from another Panel is asked, move or add, so it is taken.
@@ -775,6 +794,64 @@ export function ItemList({
   const gapUnder = (x: number, y: number): number => landingUnder(x, y).gap;
 
   /**
+   * A selection let go over this list ("Drag a selection, and drop it on the
+   * Dashboard it was picked on", issue 1217): the bar's Move to…, onto the gap
+   * the pointer is over.
+   *
+   * **It files what is still picked, not what was picked up**: a row filed
+   * elsewhere meanwhile has left the selection (another tab files it, the lists
+   * stop showing it), and is not dropped. Read from the snapshot at the moment
+   * of the drop, for the same reason.
+   */
+  const dropSelection = (carrying: SelectionInTheAir, x: number, y: number) => {
+    // The drop is the end of the drag, and the source row may be gone by now -
+    // filed off the screen - so its `dragend` cannot be counted on to say so.
+    landItem();
+    const stillPicked = pickedNow(carrying.scope);
+    const byId = new Map((data?.items ?? []).filter(stillOpen).map((item) => [item.id, item]));
+    let chosen = carrying.ids.filter((id) => stillPicked.has(id)).flatMap((id) => byId.get(id) ?? []);
+    const panelsOf = new Map<string, string[]>();
+    for (const filing of filed) panelsOf.set(filing.itemId, [...(panelsOf.get(filing.itemId) ?? []), filing.panelId]);
+    const filedOn = (item: Item) => panelsOf.get(item.id) ?? [];
+
+    if (panelId === null) {
+      // Off every Panel; one already in the Inbox has nothing to leave.
+      void filingSeveral.dropOnto(
+        chosen.filter((item) => filedOn(item).length > 0),
+        null,
+        { at: 0, scope: carrying.scope },
+      );
+      return;
+    }
+    // A sorted Panel keeps what it holds where the sort puts it, and takes the
+    // rest at the top of the order you set.
+    if (sorted) chosen = chosen.filter((item) => !items.some((row) => row.id === item.id));
+    if (chosen.length === 0) return;
+
+    const ids = chosen.map((item) => item.id);
+    const held = filedOrderOnPanel(data?.filings ?? [], panelId);
+    const drawn = items.map((item) => item.id);
+    const at = sorted ? 0 : placeSeveralAmongHeld(held, drawn, ids, gapUnder(x, y));
+    // Asked only of rows with a Panel to leave that this one does not hold: an
+    // Inbox row has no answer that leaves it there, and a row already here is
+    // being reordered.
+    const arriving = (item: Item) => !held.includes(item.id) && filedOn(item).length > 0;
+    if (chosen.some(arriving)) {
+      command.reset();
+      setAskingSeveral({ items: chosen, at, scope: carrying.scope });
+      return;
+    }
+    void filingSeveral.dropOnto(chosen, panelId, { at, scope: carrying.scope });
+  };
+
+  /** What of a question's rows is still picked and open when it is answered, not when it was asked. */
+  const stillPickedOf = (asked: { items: Item[]; scope: string }) => {
+    const stillPicked = pickedNow(asked.scope);
+    const open = new Set((data?.items ?? []).filter(stillOpen).map((item) => item.id));
+    return asked.items.filter((item) => stillPicked.has(item.id) && open.has(item.id));
+  };
+
+  /**
    * A row let go over this list.
    *
    * The order sent is the panel's whole arrangement with the item put in the
@@ -786,6 +863,11 @@ export function ItemList({
     const itemId = event.dataTransfer.getData(ITEM_BEING_DRAGGED);
     setLandingAt(null);
     if (!itemId) return;
+    const carrying = selectionCarried();
+    if (carrying?.ids.includes(itemId)) {
+      dropSelection(carrying, event.clientX, event.clientY);
+      return;
+    }
 
     // Counted among the rows on the screen, which is where the pointer was, and
     // compared against the row's place among those same rows. The mapping into
@@ -879,6 +961,7 @@ export function ItemList({
       selecting={{
         picked: selection.picked.has(item.id),
         revealed: selection.picked.size > 0,
+        scope,
         onPick: (withShift) => pick(item, withShift),
         onEndSelection: stopSelecting,
       }}
@@ -993,6 +1076,13 @@ export function ItemList({
       {/* A refusal from a gesture that opened nothing: a drop, or a step move.
           The picker says its own, so this is only for the changes made without
           one - which used to fail in silence. */}
+      {/* Where a drop of a selection was refused part way: the bar that would
+          say so is the Dashboard's, or another list's. */}
+      {filingSeveral.refusal && (onDashboard || picked.length === 0) && (
+        <p role="alert" className="px-4 py-2 text-sm text-over-ink">
+          {filingSeveral.refusal}
+        </p>
+      )}
       {refusal && !moving && !adding && !asking && (
         <p role="alert" className="px-4 py-2 text-sm text-over-ink">
           {refusal}
@@ -1174,6 +1264,33 @@ export function ItemList({
       )}
 
       {filingSeveral.pickers}
+
+      {askingSeveral && panelId && (
+        <WhateverTheQuestionDoes onFailure={() => setAskingSeveral(null)}>
+          <Suspense fallback={null}>
+            <MoveOrAddQuestion
+              open
+              several={askingSeveral.items.length}
+              itemTitle=""
+              panelName={nameOf(panelId)}
+              // Closed on the press: the filing says why it stopped in its own
+              // line above the rows that are still picked.
+              onMove={() => {
+                void filingSeveral.dropOnto(stillPickedOf(askingSeveral), panelId, askingSeveral);
+                setAskingSeveral(null);
+              }}
+              onAdd={() => {
+                void filingSeveral.dropOnto(stillPickedOf(askingSeveral), panelId, {
+                  ...askingSeveral,
+                  alsoShow: true,
+                });
+                setAskingSeveral(null);
+              }}
+              onCancel={() => setAskingSeveral(null)}
+            />
+          </Suspense>
+        </WhateverTheQuestionDoes>
+      )}
 
       {asking && panelId && (
         <WhateverTheQuestionDoes onFailure={() => setAsking(null)}>

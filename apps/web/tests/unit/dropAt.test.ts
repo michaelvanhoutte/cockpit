@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../../src/dropAt';
+import { placeAfterMoving, placeAmongHeld, placeSeveralAmongHeld, whereItWouldLand } from '../../src/dropAt';
 
 /**
  * F1, and this is where the arithmetic lives rather than in the handler that
@@ -81,6 +81,33 @@ describe('Panels', () => {
 
     it('lands last rather than nowhere when the two lists have come apart', () => {
       expect(placeAmongHeld(['a'], ['a', 'a stranger'], 'arriving', 1)).toBe(1);
+    });
+  });
+
+  describe('a selection dropped on a panel lands together at the gap the pointer is over', () => {
+    // The panel holds and draws the same four rows, so a gap is a place.
+    const held = ['a', 'b', 'c', 'd'];
+
+    it.each([
+      { situation: 'from elsewhere, above the first row', carried: ['x', 'y'], gap: 0, at: 0 },
+      { situation: 'from elsewhere, between the second and the third', carried: ['x', 'y'], gap: 2, at: 2 },
+      { situation: 'from elsewhere, past the last row', carried: ['x', 'y'], gap: 4, at: 4 },
+      // Taken out first, so the gaps they leave are not passed.
+      { situation: 'all on the panel, dragged downwards', carried: ['a', 'b'], gap: 3, at: 1 },
+      { situation: 'all on the panel, dragged upwards', carried: ['c', 'd'], gap: 1, at: 1 },
+      { situation: 'all on the panel, to the very end', carried: ['a', 'c'], gap: 4, at: 2 },
+      { situation: 'with the landing line inside the run they are picked from', carried: ['b', 'c'], gap: 2, at: 1 },
+      { situation: 'some on the panel and some from elsewhere', carried: ['b', 'x'], gap: 3, at: 2 },
+    ])('$situation', ({ carried, gap, at }) => {
+      expect(placeSeveralAmongHeld(held, held, carried, gap)).toBe(at);
+    });
+
+    it('anchors on the row it was dropped above, among what the panel holds and does not draw', () => {
+      expect(placeSeveralAmongHeld(['finished', 'a', 'b'], ['a', 'b'], ['x', 'y'], 0)).toBe(1);
+    });
+
+    it('lands last when the panel draws nothing', () => {
+      expect(placeSeveralAmongHeld(['finished'], [], ['x', 'y'], 0)).toBe(1);
     });
   });
 });
