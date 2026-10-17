@@ -1096,9 +1096,9 @@ export function ItemRow({
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
       }${selecting?.picked ? 'bg-accent-tint ' : ''}${
         landing === 'before'
-          ? 'shadow-[inset_3px_0_0_0_var(--color-accent)] '
+          ? 'shadow-landing-before '
           : landing === 'after'
-            ? 'shadow-[inset_-3px_0_0_0_var(--color-accent)] '
+            ? 'shadow-landing-after '
             : ''
       }`}
     >
