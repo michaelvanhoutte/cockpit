@@ -13,7 +13,7 @@ test.describe('Appearance', () => {
     test.use({ colorScheme: 'dark' });
 
     // The dark page and the dark surface, as styles.css gives them.
-    const PAGE = 'rgb(27, 28, 33)';
+    const PAGE = 'rgb(35, 36, 42)';
     const SURFACE = 'rgb(36, 37, 43)';
     // The Car view's night ground, as styles.css gives it.
     const NIGHT = 'rgb(17, 18, 22)';
