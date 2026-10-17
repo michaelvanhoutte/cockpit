@@ -1395,12 +1395,30 @@ describe('Connector management', () => {
       line({ firstAt: at(day, 0, 0), lastAt: at(day, 8, 55), count: 85 }),
     ];
     const failed = { outcome: 'failed', message: 'unavailable', did: didNothing };
+    const hhmm = (moment: string) => new Date(moment).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    /** Yesterday's quiet day, its first quiet checks folded on from the evening before. */
+    const begunTheEveningBefore = aQuietDay(15).map((one, index, all) =>
+      index === all.length - 1 ? { ...one, firstAt: at(14, 20, 0) } : one,
+    );
 
     it.each([
       { situation: 'yesterday, every check worked', lines: aQuietDay(15), day: 'Yesterday', folds: true },
+      {
+        situation: 'yesterday, its first quiet checks begun the evening before',
+        lines: begunTheEveningBefore,
+        day: 'Yesterday',
+        folds: true,
+      },
       { situation: 'yesterday, with one failure', lines: aQuietDay(15, failed), day: 'Yesterday', folds: false },
       { situation: 'today, every check worked', lines: aQuietDay(16), day: 'Today', folds: false },
       { situation: 'yesterday, a single line', lines: aQuietDay(15).slice(0, 1), day: 'Yesterday', folds: false },
+      {
+        situation: 'yesterday, the oldest day shown, where older lines remain than the history shows',
+        lines: aQuietDay(15),
+        day: 'Yesterday',
+        folds: false,
+        olderRemain: true,
+      },
       {
         situation: 'yesterday, a pushed connection’s deliveries',
         lines: aQuietDay(15).slice(1, 4).map((one) => ({ ...one, reason: 'delivery' })),
@@ -1408,16 +1426,20 @@ describe('Connector management', () => {
         folds: false,
         account: PUSHED,
       },
-    ])('$situation', async ({ lines, day, folds, account = ANNA }) => {
+    ])('$situation', async ({ lines, day, folds, account = ANNA, olderRemain = false }) => {
       held.sourceAccounts = [account];
       held.history = lines;
+      held.olderRemain = olderRemain;
       showWindow();
       const history = await openHistory(account);
 
       const shown = within(await within(history).findByRole('region', { name: day })).getAllByRole('listitem');
       if (folds) {
         expect(shown).toHaveLength(1);
-        expect(shown[0]!.textContent).toContain('Checked 288 times · 3 brought something in · show them');
+        // The span is the day's own, from its midnight however early its first quiet checks began.
+        expect(shown[0]!.textContent).toBe(
+          `${hhmm(at(15, 0, 0))}–${hhmm(at(15, 23, 55))}Checked 288 times · 3 brought something in · show them`,
+        );
       } else {
         expect(shown).toHaveLength(lines.length);
         expect(within(history).queryByRole('button', { name: 'show them' })).toBeNull();

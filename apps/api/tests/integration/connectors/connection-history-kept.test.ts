@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { handleScheduled } from '../../../src/jobs/index.js';
+import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
 import {
   ACCOUNT_NAME,
   OTHER_ACCOUNT_NAME,
+  WORKSPACE_ID,
   inStoreAsItIs,
   inTheStore,
   seedRegister,
@@ -37,17 +39,42 @@ async function inStoreOf<T>(accountName: string, work: (sql: SqlStorage) => T): 
 }
 
 /** A line of one connection's history, from `firstAt` to `lastAt`. */
-async function aLine(accountName: string, id: string, firstAt: string, lastAt: string): Promise<void> {
+async function aLine(
+  accountName: string,
+  sourceAccountId: string,
+  id: string,
+  firstAt: string,
+  lastAt: string,
+): Promise<void> {
   await inStoreOf(accountName, (sql) =>
     sql.exec(
       `INSERT INTO connection_history (id, tenant_id, source_account_id, outcome, reason, message, message_cut, count, first_at, last_at)
-       VALUES (?, ?, 'a-connection', 'worked', 'scheduled', NULL, 0, 2, ?, ?)`,
+       VALUES (?, ?, ?, 'worked', 'scheduled', NULL, 0, 2, ?, ?)`,
       id,
       accountName,
+      sourceAccountId,
       firstAt,
       lastAt,
     ),
   );
+}
+
+/** A Workspace of Michael's account connected to a Teams account, as the connect route's own change does. */
+async function aConnection(): Promise<string> {
+  const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
+  const sourceAccountId = crypto.randomUUID();
+  const answer = await storeNamed(ACCOUNT_NAME).applyChange(ACCOUNT_NAME, 'connect_source_account', {
+    commandId: crypto.randomUUID(),
+    issuedAt: new Date().toISOString(),
+    workspaceId: WORKSPACE_ID,
+    sourceAccountId,
+    connectorId: 'teams',
+    externalAccountKey: 'michael-at-teams',
+    displayName: 'Michael at Teams',
+    ...(await seal('a-credential', key!)),
+  });
+  expect(answer.status).toBe('ok');
+  return sourceAccountId;
 }
 
 async function linesOf(accountName: string): Promise<string[]> {
@@ -74,11 +101,11 @@ async function everythingElseIn(accountName: string): Promise<Record<string, unk
 }
 
 /** The same four lines in an account: past keeping, kept, and folded across the boundary. */
-async function aMonthOfHistory(accountName: string): Promise<void> {
-  await aLine(accountName, 'ended-31-days-ago', daysAgo(31.2), daysAgo(31));
-  await aLine(accountName, 'ended-29-days-ago', daysAgo(29.2), daysAgo(29));
-  await aLine(accountName, 'begun-31-ended-29-days-ago', daysAgo(31), daysAgo(29));
-  await aLine(accountName, 'ended-today', daysAgo(0.1), daysAgo(0));
+async function aMonthOfHistory(accountName: string, sourceAccountId = 'a-connection'): Promise<void> {
+  await aLine(accountName, sourceAccountId, 'ended-31-days-ago', daysAgo(31.2), daysAgo(31));
+  await aLine(accountName, sourceAccountId, 'ended-29-days-ago', daysAgo(29.2), daysAgo(29));
+  await aLine(accountName, sourceAccountId, 'begun-31-ended-29-days-ago', daysAgo(31), daysAgo(29));
+  await aLine(accountName, sourceAccountId, 'ended-today', daysAgo(0.1), daysAgo(0));
 }
 
 const KEPT = ['begun-31-ended-29-days-ago', 'ended-29-days-ago', 'ended-today'];
@@ -99,7 +126,7 @@ afterEach(() => {
 describe('Connector management', () => {
   describe('the nightly run deletes every account’s history lines older than 30 days, and nothing else', () => {
     it('keeps a line by when it last ran, in every account, and leaves everything else as it was', async () => {
-      await aMonthOfHistory(ACCOUNT_NAME);
+      await aMonthOfHistory(ACCOUNT_NAME, await aConnection());
       await aMonthOfHistory(OTHER_ACCOUNT_NAME);
       const before = await everythingElseIn(ACCOUNT_NAME);
 
@@ -107,6 +134,9 @@ describe('Connector management', () => {
 
       expect(await linesOf(ACCOUNT_NAME)).toEqual(KEPT);
       expect(await linesOf(OTHER_ACCOUNT_NAME)).toEqual(KEPT);
+      // The connection whose old lines went, and the Items, are as they were.
+      expect(before['connector_accounts']).toHaveLength(1);
+      expect(before['items']?.length).toBeGreaterThan(0);
       expect(await everythingElseIn(ACCOUNT_NAME)).toEqual(before);
     });
   });

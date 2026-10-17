@@ -146,9 +146,11 @@ export function lineShown(line: ConnectionHistoryLine): HistoryLineShown {
  * The history's lines, newest first, under the day each last ran on. A day
  * before today whose checks all worked folds into one line (issue 1145); today,
  * a day with a failure, a day of one line and a day of deliveries - each of
- * which is something a source sent - are drawn in full.
+ * which is something a source sent - are drawn in full. So is the oldest day
+ * shown where `olderRemain`, since the read stopped partway through it and a
+ * failure it did not carry could be that day's.
  */
-export function historyDays(lines: readonly ConnectionHistoryLine[], now: Date): HistoryDay[] {
+export function historyDays(lines: readonly ConnectionHistoryLine[], now: Date, olderRemain: boolean): HistoryDay[] {
   const days: { key: string; at: Date; held: ConnectionHistoryLine[] }[] = [];
   for (const line of lines) {
     const at = new Date(line.lastAt);
@@ -156,16 +158,16 @@ export function historyDays(lines: readonly ConnectionHistoryLine[], now: Date):
     days.at(-1)!.held.push(line);
   }
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return days.map(({ key, at, held }) => ({
+  return days.map(({ key, at, held }, index) => ({
     key,
     heading: headingFor(at, now),
     lines: held.map(lineShown),
-    folded: at < today ? foldedDay(held) : null,
+    folded: at < today && !(olderRemain && index === days.length - 1) ? foldedDay(held, at) : null,
   }));
 }
 
 /** A past day's lines, newest first, as the one line they fold into; null where the day is drawn in full. */
-function foldedDay(lines: readonly ConnectionHistoryLine[]): FoldedDay | null {
+function foldedDay(lines: readonly ConnectionHistoryLine[], day: Date): FoldedDay | null {
   if (lines.length < 2) return null;
   if (lines.some((line) => line.outcome === 'failed' || line.reason === 'delivery')) return null;
   const checks = lines.reduce((sum, line) => sum + line.count, 0);
@@ -173,8 +175,12 @@ function foldedDay(lines: readonly ConnectionHistoryLine[]): FoldedDay | null {
     const checksThatDid = lines.filter((line) => line.did[kind].count > 0).length;
     return checksThatDid > 0 ? [`${checksThatDid} ${says}`] : [];
   });
+  // Quiet checks fold across midnight, so the day's oldest line can have begun
+  // the day before; the span starts no earlier than the day itself.
+  const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const earliest = Math.min(...lines.map((line) => new Date(line.firstAt).getTime()));
   return {
-    when: `${time(lines.at(-1)!.firstAt)}–${time(lines[0]!.lastAt)}`,
+    when: `${time(new Date(Math.max(dayStart, earliest)).toISOString())}–${time(lines[0]!.lastAt)}`,
     says: did.length > 0 ? [`Checked ${checks} times`, ...did].join(' · ') : `Checked ${checks} times, nothing new`,
   };
 }

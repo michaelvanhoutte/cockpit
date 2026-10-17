@@ -98,7 +98,7 @@ export function ConnectionHistory({
         {error && !data && <LoadFailure error={error} onRetry={() => void refetch()} />}
         {data && data.lines.length === 0 && <p className="py-2 text-sm text-ink-faint">{account.pulled ? 'No checks yet.' : 'Nothing delivered yet.'}</p>}
         {data &&
-          historyDays(data.lines, now).map((day) => (
+          historyDays(data.lines, now, data.olderRemain).map((day) => (
             <section key={day.key} aria-label={day.heading} className="mt-3 first:mt-0">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">{day.heading}</h4>
               <ul className="mt-1">
