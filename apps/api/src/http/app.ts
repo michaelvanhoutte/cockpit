@@ -33,6 +33,7 @@ import {
   registeredConnectorListSchema,
   sourceAccountListSchema,
   connectionHistorySchema,
+  checkedNowSchema,
   uuidv7,
   userAddedSchema,
   userChangedSchema,
@@ -757,6 +758,29 @@ const connectionHistoryRoute = createRoute({
 });
 
 /**
+ * *Check now* on one pulled connection ("Check a pulled connection now, from
+ * its row or its history", issue 1143): its check made due at once through the
+ * path a person's change takes, labelled *Check now*. A POST to the
+ * connection and not a command - it changes no Item or setting, only when the
+ * next check runs, and pressing it twice makes one check.
+ */
+const checkConnectionNowRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/connections/{sourceAccountId}/check-now',
+  request: { params: z.object({ workspaceId: z.string(), sourceAccountId: z.string() }) },
+  responses: {
+    200: {
+      description: 'What pressing it did to the connection’s check',
+      content: { 'application/json': { schema: checkedNowSchema } },
+    },
+    404: {
+      description: 'Unknown workspace, or not a pulled connection of it',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * The connectors this environment's registry holds that a person can sign in
  * to ("List the registry's connectors in the Connections window", issue 894):
  * what the Connections window draws a card from, so adding a source adds its
@@ -1352,6 +1376,13 @@ const routes = app
     // Throws where the row is not a live connection of this Workspace, which
     // `onError` answers with the 404 every connection route gives.
     return c.json({ lines: await account.connectionHistory(workspaceId, sourceAccountId) }, 200);
+  })
+  .openapi(checkConnectionNowRoute, async (c) => {
+    const { workspaceId, sourceAccountId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    // Throws where it is not a live pulled connection of this Workspace,
+    // which `onError` answers with the 404 every connection route gives.
+    return c.json({ status: await account.checkNow(workspaceId, sourceAccountId) }, 200);
   })
   .openapi(registeredConnectorsRoute, async (c) => {
     // Listed only where Connect would go through: the sign-in, client and

@@ -1928,7 +1928,7 @@ export const pulledConnections = sqliteTable(
  *   and `message_cut` where it was longer, null where the source said nothing.
  * - `reason` is why the line's first check ran (`CheckReason`). **No CHECK on
  *   its values**, since SQLite cannot widen one without rebuilding the table,
- *   and *Check now* adds one ("Check a pulled connection now, from its row or
+ *   and *Check now* added one ("Check a pulled connection now, from its row or
  *   its history", issue 1143).
  *
  * **No foreign key**, for the reason `connectionFailures` gives: a disconnect
@@ -1961,6 +1961,9 @@ export const connectionHistory = sqliteTable(
   },
   (t) => [
     index('connection_history_newest').on(t.tenantId, t.sourceAccountId, t.lastAt),
+    // What the live-updates poll asks every few seconds: the lines a check
+    // has written since its cursor, across the account's connections (issue 1143).
+    index('connection_history_written').on(t.tenantId, t.lastAt),
     check('connection_history_outcome_is_known', oneOf('outcome', ['worked', 'failed'])),
     check('connection_history_message_cut_is_flag', sql.raw('message_cut IN (0, 1)')),
     check('connection_history_count_is_positive', sql.raw('count >= 1')),

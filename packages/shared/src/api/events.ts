@@ -12,6 +12,17 @@ export const serverEventSchema = z.discriminatedUnion('type', [
     /** POC (own-event refetch): when the newest change this event covers was taken, compared against a held snapshot's `upTo` (architecture.md §4.4). Optional so an older client stays listening rather than going deaf to every event. */
     at: z.iso.datetime().optional(),
   }),
+  /**
+   * A check of a pulled connection ended and wrote its line of the history
+   * ("Check a pulled connection now, from its row or its history", issue
+   * 1143): an open history view of that connection reads again. Not a change
+   * to the snapshot, so a tab does not read that for it.
+   */
+  z.object({
+    type: z.literal('connection_history_changed'),
+    workspaceId: z.string(),
+    sourceAccountId: z.string(),
+  }),
   z.object({
     type: z.literal('sync_completed'),
     connectorId: z.string(),

@@ -33,6 +33,7 @@ vi.mock('../../../src/api/queries', () => ({
   useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
   useConnectClaudeCode: () => ({ mutate: () => undefined, isPending: false, error: null, data: undefined, reset: () => undefined }),
   useTestClaudeCodeConnection: () => ({ mutate: () => undefined, isPending: false }),
+  useCheckConnectionNow: () => ({ mutate: () => undefined, isPending: false }),
   refusalFrom: () => null,
   workspacesQuery: {
     queryKey: ['workspaces'],

@@ -64,6 +64,14 @@ export function useServerEvents() {
       stream.addEventListener('change', (message) => {
         const parsed = serverEventSchema.safeParse(JSON.parse(message.data));
         if (!parsed.success) return;
+        // A check's end moves the history of one connection and nothing in the
+        // snapshot: only that connection's open view reads again (issue 1143).
+        if (parsed.data.type === 'connection_history_changed') {
+          void queryClient.invalidateQueries({
+            queryKey: ['connectionHistory', parsed.data.workspaceId, parsed.data.sourceAccountId],
+          });
+          return;
+        }
         // POC (own-event refetch): a tab that already read this change does not
         // read it again. Measured before this: one change made in this tab cost
         // two full snapshots - one from `afterChanging` at +67ms, one from this

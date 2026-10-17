@@ -5,7 +5,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SourceAccount } from '@cockpit/shared';
 import ManageConnections from '../../../src/components/ManageConnections';
 import type { ConnectOutcome, RefusedBecause } from '../../../src/connections';
-import { useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../../../src/api/queries';
+import {
+  useCheckConnectionNow,
+  useCommand,
+  useConnectClaudeCode,
+  useTestClaudeCodeConnection,
+} from '../../../src/api/queries';
 
 /**
  * F1: what this window draws and what it sends, and nothing about what the
@@ -53,6 +58,7 @@ vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   useConnectClaudeCode: vi.fn(),
   useTestClaudeCodeConnection: vi.fn(),
+  useCheckConnectionNow: vi.fn(),
   refusalFrom: (command: { error: unknown }) =>
     command.error ? 'That did not reach the server. Try again.' : null,
   // The Workspace's snapshot, of which the window reads only what each source is called.
@@ -138,6 +144,9 @@ const CLAUDE: SourceAccount = {
 
 let sent: ReturnType<typeof vi.fn>;
 let testedClaudeCode: ReturnType<typeof vi.fn>;
+/** The connections a press on Check now asked for (issue 1143), and whether the request reaches the server. */
+let checkedNow: string[] = [];
+let checkNowReaches = true;
 
 /**
  * What `useTestClaudeCodeConnection`'s `mutate` does when "Test again" is
@@ -185,6 +194,14 @@ function showWindow(
     mutate: testedClaudeCode,
     isPending: false,
   } as unknown as ReturnType<typeof useTestClaudeCodeConnection>);
+  vi.mocked(useCheckConnectionNow).mockReturnValue({
+    mutate: (id: string, opts: { onSuccess?: () => void; onError?: () => void }) => {
+      checkedNow.push(id);
+      if (checkNowReaches) opts.onSuccess?.();
+      else opts.onError?.();
+    },
+    isPending: false,
+  } as unknown as ReturnType<typeof useCheckConnectionNow>);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -215,6 +232,8 @@ beforeEach(() => {
   held.history = [];
   held.historyAskedFor = [];
   held.opened = [];
+  checkedNow = [];
+  checkNowReaches = true;
   held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail', 'claude-code': 'Claude Code' };
   vi.restoreAllMocks();
 });
@@ -1112,6 +1131,56 @@ describe('Connector management', () => {
     });
   });
 
+  describe('Check now is on the menu and at the head of the history of a connection that keeps one, and nowhere else', () => {
+    it.each([
+      { situation: 'a connected Gmail row', account: ANNA, offered: true },
+      { situation: 'a connected Outlook row', account: { ...ANNA, connectorId: 'outlook' }, offered: true },
+      { situation: 'the Claude Code row', account: CLAUDE, offered: false },
+      { situation: 'a Teams row, which keeps no history', account: ADA, offered: false },
+    ])('$situation', async ({ account, offered }) => {
+      held.sourceAccounts = [account];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: `Actions for ${account.displayName}` }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Check now' }) !== null).toBe(offered);
+    });
+
+    it('asks for the check of the row it was pressed on, and says so on the list', async () => {
+      held.sourceAccounts = [ANNA];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for anna@example.com' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Check now' }));
+
+      expect(checkedNow).toEqual(['account-anna']);
+      expect(await screen.findByRole('status')).toHaveTextContent('Checking anna@example.com now.');
+    });
+
+    it('asks for the check from the head of the history it is open on, and says so there', async () => {
+      held.sourceAccounts = [ANNA];
+      showWindow();
+      const history = await openHistory();
+
+      await userEvent.click(within(history).getByRole('button', { name: 'Check now' }));
+
+      expect(checkedNow).toEqual(['account-anna']);
+      expect(await within(history).findByRole('status')).toHaveTextContent('Checking anna@example.com now.');
+    });
+
+    it('says when the request did not reach the server', async () => {
+      checkNowReaches = false;
+      held.sourceAccounts = [ANNA];
+      showWindow();
+      const history = await openHistory();
+
+      await userEvent.click(within(history).getByRole('button', { name: 'Check now' }));
+
+      expect(await within(history).findByRole('alert')).toHaveTextContent('That did not reach the server. Try again.');
+    });
+  });
+
   describe('a connection’s history is grouped by day, newest first, and says each outcome in words', () => {
     beforeEach(() => {
       // Only the clock, so the reads still settle on their own.
@@ -1154,6 +1223,12 @@ describe('Connector management', () => {
         held: line({ reason: 'follow-up' }),
         says: 'Worked',
         detail: ' · Follow-up',
+      },
+      {
+        situation: 'a single check a person asked for',
+        held: line({ reason: 'check-now' }),
+        says: 'Worked',
+        detail: ' · Check now',
       },
       {
         situation: 'a folded quiet line, with its span',
