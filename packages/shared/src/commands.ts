@@ -965,6 +965,24 @@ export const rememberSentenceSchema = commandEnvelopeSchema.extend({
 export type RememberSentenceCommand = z.infer<typeof rememberSentenceSchema>;
 
 /**
+ * edit_remembered_sentence - a remembered sentence reworded in Settings ("See
+ * and change what Cockpit remembers", issue 1164). Only the words change: what
+ * it applies to stays, and a different kind of action is a new sentence. The
+ * envelope's `workspaceId` is `ACCOUNT_WIDE`, since a sentence is the account's.
+ */
+export const editRememberedSentenceSchema = commandEnvelopeSchema.extend({
+  sentenceId: z.uuid(),
+  sentence: z.string().trim().min(1).max(REMEMBERED_SENTENCE_LIMIT),
+});
+export type EditRememberedSentenceCommand = z.infer<typeof editRememberedSentenceSchema>;
+
+/** delete_remembered_sentence - a remembered sentence forgotten; already gone is as good as done. */
+export const deleteRememberedSentenceSchema = commandEnvelopeSchema.extend({
+  sentenceId: z.uuid(),
+});
+export type DeleteRememberedSentenceCommand = z.infer<typeof deleteRememberedSentenceSchema>;
+
+/**
  * The command registry: name → payload schema. The API mounts one POST route
  * per entry; the client gets a typed sender per entry. Adding a command means
  * adding it here and writing its domain handler; no other wiring.
@@ -1028,6 +1046,8 @@ export const commandSchemas = {
   mark_source_account_tested: markSourceAccountTestedSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
   remember_sentence: rememberSentenceSchema,
+  edit_remembered_sentence: editRememberedSentenceSchema,
+  delete_remembered_sentence: deleteRememberedSentenceSchema,
 } as const;
 
 export type CommandName = keyof typeof commandSchemas;

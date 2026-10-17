@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { claudeFolderSchema } from './claude-send.js';
+import { REMEMBERED_SENTENCES_SHOWN } from './remembered-sentence.js';
 
 /**
  * What Cockpit proposes doing with an Item before anybody looks ("Propose what
@@ -27,6 +28,13 @@ export const claudeActionProposalSchema = z.object({
   label: z.string().trim().min(1).max(CLAUDE_PROPOSAL_LABEL_LIMIT),
   folder: claudeFolderSchema,
   prompt: z.string().trim().min(1).max(CLAUDE_PROPOSAL_PROMPT_LIMIT),
+  /**
+   * The remembered sentences it was made with ("See and change what Cockpit
+   * remembers", issue 1164), named by the window as *Learned from you*. Ids
+   * only: the window reads the sentences as they are now, and one since
+   * deleted names nothing.
+   */
+  learnedFrom: z.array(z.uuid()).max(REMEMBERED_SENTENCES_SHOWN).optional(),
 });
 
 /** Nothing to do - a quote, a saved idea - and why, in a sentence. */

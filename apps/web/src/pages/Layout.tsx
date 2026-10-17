@@ -56,6 +56,7 @@ import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useLanding } from '../landOnItem';
 import { usePanelListCollapsed, usePanelListing } from '../panelList';
 import { useConnections } from '../connections';
+import { SettingsOpener } from '../settingsOpener';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
@@ -525,11 +526,21 @@ function TheShell() {
   /** The section Settings opens on, and how a trip out to Microsoft ended where that is what opened it. */
   const [settingsOn, setSettingsOn] = useState<SettingsKey>('connections');
   const [connectOutcome, setConnectOutcome] = useState<ConnectOutcomeFor | undefined>(undefined);
+  /** The remembered sentence Settings opens for editing, where a window that used it sent the person there. */
+  const [settingsSentence, setSettingsSentence] = useState<string | undefined>(undefined);
   /** The profile control, which the focus returns to when Settings closes. */
   const profileControl = useRef<HTMLButtonElement>(null);
   const openSettings = useCallback((on: SettingsKey, outcome?: ConnectOutcomeFor) => {
     setSettingsOn(on);
     setConnectOutcome(outcome);
+    setSettingsSentence(undefined);
+    setManaging('settings');
+  }, []);
+  /** Settings on one remembered sentence, over the window that used it (issue 1164). */
+  const openSentence = useCallback((_on: SettingsKey, sentenceId?: string) => {
+    setSettingsOn('remembered');
+    setConnectOutcome(undefined);
+    setSettingsSentence(sentenceId);
     setManaging('settings');
   }, []);
 
@@ -731,6 +742,7 @@ function TheShell() {
 
   return (
     <CaptureOpenerContext.Provider value={openCaptureOn}>
+    <SettingsOpener.Provider value={openSentence}>
     <div
       className="flex h-dvh flex-col"
       // A click anywhere in the shell, asked whether it landed on a control
@@ -1252,6 +1264,7 @@ function TheShell() {
             startsIn={params.workspaceId}
             outcome={connectOutcome}
             guest={me?.user.id === GUEST_USER_ID}
+            sentenceId={settingsSentence}
             onlyAppearance={!roomForTheInbox}
             onClose={() => setManaging(null)}
             returnFocusTo={profileControl.current}
@@ -1297,6 +1310,7 @@ function TheShell() {
         </Suspense>
       )}
     </div>
+    </SettingsOpener.Provider>
     </CaptureOpenerContext.Provider>
   );
 }

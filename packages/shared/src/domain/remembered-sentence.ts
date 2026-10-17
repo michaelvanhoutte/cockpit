@@ -53,3 +53,25 @@ export function editedTheProposal(
     proposed.prompt.trim() !== sent.prompt.trim()
   );
 }
+
+/** One remembered sentence as Settings lists it ("See and change what Cockpit remembers", issue 1164). */
+export const rememberedSentenceViewSchema = z.object({
+  id: z.uuid(),
+  sentence: z.string(),
+  /** The kind of action it applies to, as the model named it. */
+  action: z.string(),
+  /** Where the Items it applies to came from: a connector or kind of source, as the Item names it. */
+  sourceKind: z.string(),
+  /** The Workspace it names, or null for every Workspace. */
+  workspaceId: z.uuid().nullable(),
+  /** That Workspace's name, null where it names none or the Workspace is gone. */
+  workspaceName: z.string().nullable(),
+  useCount: z.number().int().nonnegative(),
+  lastUsedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type RememberedSentenceView = z.infer<typeof rememberedSentenceViewSchema>;
+
+/** The account's remembered sentences, the newest first. */
+export const rememberedSentenceListSchema = z.object({ sentences: z.array(rememberedSentenceViewSchema) });
+export type RememberedSentenceList = z.infer<typeof rememberedSentenceListSchema>;

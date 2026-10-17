@@ -34,7 +34,7 @@ import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
-import { REMEMBERED_SENTENCES_KEPT } from '@cockpit/shared';
+import { REMEMBERED_SENTENCES_KEPT, type RememberedSentenceView } from '@cockpit/shared';
 import { sentencesThatFit, ITEMS_PROPOSED_AGAIN, type RememberedSentence } from '../domain/remembered-sentences.js';
 import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } from '../domain/claude-send-records.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
@@ -1822,6 +1822,44 @@ export function rememberSentence(
   if (held.length >= REMEMBERED_SENTENCES_KEPT) return 'full';
   db.insert(rememberedSentences).values({ ...one, tenantId }).onConflictDoNothing().run();
   return 'kept';
+}
+
+/** The account's remembered sentences, the newest first, with the name of the Workspace each names (issue 1164). */
+export function listRememberedSentences(db: AccountDb, tenantId: string): RememberedSentenceView[] {
+  const names = new Map(listWorkspaces(db, tenantId).map((one) => [one.id, one.name]));
+  return db
+    .select()
+    .from(rememberedSentences)
+    .where(eq(rememberedSentences.tenantId, tenantId))
+    .orderBy(desc(rememberedSentences.createdAt), desc(rememberedSentences.id))
+    .all()
+    .map((row) => ({
+      id: row.id,
+      sentence: row.sentence,
+      action: row.action,
+      sourceKind: row.sourceKind,
+      workspaceId: row.workspaceId,
+      workspaceName: row.workspaceId === null ? null : (names.get(row.workspaceId) ?? null),
+      useCount: row.useCount,
+      lastUsedAt: row.lastUsedAt,
+      createdAt: row.createdAt,
+    }));
+}
+
+/** Rewords a sentence; false where the account has none by that id. */
+export function editRememberedSentence(db: InTheStore, tenantId: string, id: string, sentence: string): boolean {
+  const changed = db
+    .update(rememberedSentences)
+    .set({ sentence })
+    .where(and(eq(rememberedSentences.tenantId, tenantId), eq(rememberedSentences.id, id)))
+    .returning({ id: rememberedSentences.id })
+    .all();
+  return changed.length > 0;
+}
+
+/** Forgets a sentence; nothing happens where the account has none by that id. */
+export function deleteRememberedSentence(db: InTheStore, tenantId: string, id: string): void {
+  db.delete(rememberedSentences).where(and(eq(rememberedSentences.tenantId, tenantId), eq(rememberedSentences.id, id))).run();
 }
 
 /** Counts a use of each of these sentences: a proposal was written with them (issue 1163). */

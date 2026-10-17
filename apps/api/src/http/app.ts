@@ -14,6 +14,7 @@ import {
   attachmentLinksRequestSchema,
   attachmentLinksSchema,
   rememberOfferAnswerSchema,
+  rememberedSentenceListSchema,
   ACCOUNT_WIDE,
   claudeCodeHooksSchema,
   claudeCodeOutcomeSchema,
@@ -106,6 +107,7 @@ import {
 } from '../jobs/index.js';
 import { startingPauseMs } from '../jobs/simulated-run.js';
 import { offerToRemember } from '../jobs/offer-to-remember.js';
+import { onOneLine } from '../domain/remembered-sentences.js';
 import { readUsage } from '../accounts/usage.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
@@ -822,6 +824,21 @@ const connectedAppsRoute = createRoute({
 });
 
 /**
+ * What Settings lists under *What Cockpit remembers* ("See and change what
+ * Cockpit remembers", issue 1164): this account's sentences, the newest first.
+ */
+const rememberedSentencesRoute = createRoute({
+  method: 'get',
+  path: '/v1/remembered-sentences',
+  responses: {
+    200: {
+      description: 'The remembered sentences, newest first',
+      content: { 'application/json': { schema: rememberedSentenceListSchema } },
+    },
+  },
+});
+
+/**
  * The address each of these files opens at for a Claude session that cannot
  * sign in ("Send an item to Cowork or Claude Code with its prompt reviewed
  * first", issue 1159). Made for this account only, and checked when opened
@@ -1441,6 +1458,10 @@ const routes = app
       200,
     );
   })
+  .openapi(rememberedSentencesRoute, async (c) => {
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ sentences: await account.rememberedSentences() }, 200);
+  })
   .openapi(connectedAppsRoute, async (c) => {
     return c.json({ apps: await connectedAppsOf(c.env, c.get('visitor').userId) }, 200);
   })
@@ -1885,6 +1906,37 @@ const routes = app
       c.executionCtx.waitUntil(
         enqueueProposalsForSentence(c.env, c.get('visitor').accountName, cmd.sourceKind, cmd.workspaceId === ACCOUNT_WIDE ? null : cmd.workspaceId),
       );
+    }
+    return c.json(result, 200);
+  })
+  .openapi(commandRoute('edit_remembered_sentence', { conflict: 'The sentence is refused: it points somewhere, or too many were changed in a minute' }), async (c) => {
+    const cmd = c.req.valid('json');
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    const before = (await account.rememberedSentences()).find((one) => one.id === cmd.sentenceId);
+    // Held to the same minute as Remember: each change asks for Items to be proposed again.
+    if ((await account.sentenceCallArrived('remember', new Date().toISOString())) === 'too-many') {
+      throw new ConflictInAccountError('Too many sentences were changed in the last minute. Try again shortly.');
+    }
+    const result = await change(c, 'edit_remembered_sentence', cmd);
+    // Proposed again with the sentence as it now reads, unless it reads as it did.
+    if (result.applied && before && before.sentence !== onOneLine(cmd.sentence)) {
+      c.executionCtx.waitUntil(enqueueProposalsForSentence(c.env, accountName, before.sourceKind, before.workspaceId));
+    }
+    return c.json(result, 200);
+  })
+  .openapi(commandRoute('delete_remembered_sentence', { conflict: 'Too many sentences were changed in a minute' }), async (c) => {
+    const cmd = c.req.valid('json');
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    const before = (await account.rememberedSentences()).find((one) => one.id === cmd.sentenceId);
+    if ((await account.sentenceCallArrived('remember', new Date().toISOString())) === 'too-many') {
+      throw new ConflictInAccountError('Too many sentences were changed in the last minute. Try again shortly.');
+    }
+    const result = await change(c, 'delete_remembered_sentence', cmd);
+    // The Items it shaped are proposed again without it; already gone asks for nothing.
+    if (result.applied && before) {
+      c.executionCtx.waitUntil(enqueueProposalsForSentence(c.env, accountName, before.sourceKind, before.workspaceId));
     }
     return c.json(result, 200);
   })

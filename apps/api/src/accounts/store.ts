@@ -11,7 +11,7 @@ import type {
   Workspace,
 } from '@cockpit/shared';
 import { CLAUDE_CODE } from '../domain/named-sources.js';
-import { itemLabel, panelTakesItems } from '@cockpit/shared';
+import { itemLabel, panelTakesItems, type RememberedSentenceView } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -92,6 +92,7 @@ import {
   ItemNotFoundError,
   LastDashboardError,
   SentenceRefusedError,
+  SentenceNotFoundError,
   LayoutNotFoundError,
   PanelAlreadyOnDashboardError,
   PanelHoldsSomethingElseError,
@@ -128,6 +129,7 @@ import {
   isItemFiled,
   claudeProposalContext,
   sendToOfferOn,
+  listRememberedSentences,
   openItemsASentenceMayFit,
   type ClaudeProposalContext,
   type SendToOfferOn,
@@ -540,6 +542,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /** What an offer to remember a sentence is made from ("Remember an edit as a sentence you confirm", issue 1163). */
   sendToOfferOn(accountName: string, runId: string): Answer<SendToOfferOn | null> {
     return this.#answer(accountName, (db) => sendToOfferOn(db, accountName, runId));
+  }
+
+  /** What Settings lists under What Cockpit remembers (issue 1164). */
+  rememberedSentences(accountName: string): Answer<RememberedSentenceView[]> {
+    return this.#answer(accountName, (db) => listRememberedSentences(db, accountName));
   }
 
   /** The open Items a newly remembered sentence may fit, to be proposed for again (issue 1163). */
@@ -1559,6 +1566,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     } catch (error) {
       if (
         error instanceof ItemNotFoundError ||
+        error instanceof SentenceNotFoundError ||
         error instanceof AgentNotFoundError ||
         error instanceof AgentRunNotFoundError ||
         error instanceof WorkspaceNotFoundError ||

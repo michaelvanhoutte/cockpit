@@ -9,6 +9,7 @@ import type {
   ServerEvent,
   SourceAccount,
   Workspace,
+  RememberedSentenceView,
 } from '@cockpit/shared';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
@@ -126,6 +127,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   itemIsFiled(accountName: string, itemId: string): Awaitable<Answer<boolean>>;
   claudeProposalContext(accountName: string, itemId: string, model: string): Awaitable<Answer<ClaudeProposalContext>>;
   sendToOfferOn(accountName: string, runId: string): Awaitable<Answer<SendToOfferOn | null>>;
+  rememberedSentences(accountName: string): Awaitable<Answer<RememberedSentenceView[]>>;
   openItemsASentenceMayFit(accountName: string, sourceKind: string, workspaceId: string | null): Awaitable<Answer<string[]>>;
   /**
    * What a title or description proposal reads about how this account

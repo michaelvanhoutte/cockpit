@@ -2,7 +2,7 @@ import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-or
 import { CLAUDE_REPORTED_STAGES, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, hookNamesSession, REMEMBERED_SENTENCES_KEPT } from '@cockpit/shared';
 import { CLAUDE_CODE } from '../domain/named-sources.js';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
-import { LINK_OR_COMMAND, folded, pointsSomewhere } from '../domain/pointing.js';
+import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
 import {
@@ -52,6 +52,8 @@ import {
   openAgentRunOn,
   recordClaudeSend,
   rememberSentence,
+  editRememberedSentence,
+  deleteRememberedSentence,
   countSentencesUsed,
   openRunsWithSessions,
   listFilingsOnPanel,
@@ -205,6 +207,14 @@ export class SentenceRefusedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'SentenceRefusedError';
+  }
+}
+
+/** A remembered sentence that is not in the account, most likely deleted from another tab (issue 1164). */
+export class SentenceNotFoundError extends Error {
+  constructor(sentenceId: string) {
+    super(`remembered sentence ${sentenceId} not found`);
+    this.name = 'SentenceNotFoundError';
   }
 }
 
@@ -1864,6 +1874,28 @@ export function runCommand<N extends CommandName>(
       }
       break;
     }
+    case 'edit_remembered_sentence': {
+      const cmd = payload as CommandPayload<'edit_remembered_sentence'>;
+      everyWorkspaceSees(commandRow);
+      // The checks a sentence is kept under, again: what is typed here may have been pasted.
+      const sentence = onOneLine(cmd.sentence);
+      if (!sentenceMayBeKept(sentence)) throw new SentenceRefusedError(SENTENCE_POINTS_SOMEWHERE);
+      db.transaction((tx) => {
+        if (!editRememberedSentence(tx, tenantId, cmd.sentenceId, sentence)) throw new SentenceNotFoundError(cmd.sentenceId);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_remembered_sentence': {
+      const cmd = payload as CommandPayload<'delete_remembered_sentence'>;
+      everyWorkspaceSees(commandRow);
+      // Gone already - another tab, or a replay under a new id - is as good as done.
+      db.transaction((tx) => {
+        deleteRememberedSentence(tx, tenantId, cmd.sentenceId);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'propose_item_fields': {
       const cmd = payload as CommandPayload<'propose_item_fields'>;
       const existing = getItem(db, tenantId, cmd.itemId);
@@ -1957,11 +1989,9 @@ export function runCommand<N extends CommandName>(
       everyWorkspaceSees(commandRow);
       // Read as an offer is read, though the person confirmed it: it is shown
       // to every later proposal, and what they confirm may have been pasted.
-      const sentence = cmd.sentence.replace(/\s+/g, ' ').trim();
-      const action = cmd.action.replace(/\s+/g, ' ').trim();
-      if (sentence === '' || pointsSomewhere(sentence) || pointsSomewhere(action) || LINK_OR_COMMAND.test(folded(sentence))) {
-        throw new SentenceRefusedError('Cockpit cannot remember a sentence that names an address, a link, a phone number or a command.');
-      }
+      const sentence = onOneLine(cmd.sentence);
+      const action = onOneLine(cmd.action);
+      if (!sentenceMayBeKept(sentence, action)) throw new SentenceRefusedError(SENTENCE_POINTS_SOMEWHERE);
       db.transaction((tx) => {
         const kept = rememberSentence(tx, tenantId, {
           id: cmd.sentenceId,
