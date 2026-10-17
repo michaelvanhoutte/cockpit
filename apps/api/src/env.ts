@@ -105,7 +105,7 @@ export interface Env {
   TRANSCRIPTION_STAND_IN?: string;
   /**
    * Offers the same sentence to remember for any edit, rather than asking a
-   * model for one (`src/ai/offer-to-remember.ts`, "Remember an edit as a
+   * model for one (`src/jobs/offer-to-remember.ts`, "Remember an edit as a
    * sentence you confirm", issue 1163). Set by the browser tier's stack
    * (scripts/e2e-stack.mjs) and by nothing else, because that stack has no model
    * key on purpose; compared to the literal 'true' as `EMBEDDINGS_STAND_IN` is.

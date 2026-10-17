@@ -1,6 +1,6 @@
 import { REMEMBERED_ACTION_LIMIT, REMEMBERED_SENTENCE_LIMIT } from '@cockpit/shared';
 import { z } from 'zod';
-import { LINK_OR_COMMAND, folded, pointsSomewhere } from './claude-proposals.js';
+import { LINK_OR_COMMAND, folded, pointsSomewhere } from '../domain/pointing.js';
 
 /**
  * Reading what the model offered to remember from an edit ("Remember an edit as

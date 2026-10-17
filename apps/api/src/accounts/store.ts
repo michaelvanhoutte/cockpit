@@ -35,6 +35,8 @@ import {
   APP_CAPTURES_PER_MINUTE,
   HOOK_CALLS_PER_MINUTE,
   TRANSCRIPTIONS_PER_MINUTE,
+  REMEMBER_OFFERS_PER_MINUTE,
+  SENTENCES_REMEMBERED_PER_MINUTE,
   admittedCalls,
   countedCalls,
 } from './call-window.js';
@@ -89,6 +91,7 @@ import {
   DashboardOrderStaleError,
   ItemNotFoundError,
   LastDashboardError,
+  SentenceRefusedError,
   LayoutNotFoundError,
   PanelAlreadyOnDashboardError,
   PanelHoldsSomethingElseError,
@@ -226,6 +229,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   #appCaptures = new Map<string, number[]>();
   /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
   #transcriptions: number[] = [];
+  /** The offers to remember and the Remember presses this account made, refused ones included, newest last - see `sentenceCallArrived`. */
+  #sentenceCalls: Record<'offer' | 'remember', number[]> = { offer: [], remember: [] };
 
   /** All workspaces of the account. */
   workspaces(accountName: string): Answer<Workspace[]> {
@@ -874,6 +879,19 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   transcriptionArrived(at: string): 'admitted' | 'too-many' {
     const { admitted, calls } = countedCalls(this.#transcriptions, Date.parse(at), TRANSCRIPTIONS_PER_MINUTE);
     this.#transcriptions = calls;
+    return admitted ? 'admitted' : 'too-many';
+  }
+
+  /**
+   * An offer to remember a sentence being asked for, or Remember pressed
+   * ("Remember an edit as a sentence you confirm", issue 1163): admitted, or
+   * refused as one of too many from this account in a minute, and counted
+   * either way. Counted in memory for the reason `transcriptionArrived` is.
+   */
+  sentenceCallArrived(kind: 'offer' | 'remember', at: string): 'admitted' | 'too-many' {
+    const limit = kind === 'offer' ? REMEMBER_OFFERS_PER_MINUTE : SENTENCES_REMEMBERED_PER_MINUTE;
+    const { admitted, calls } = countedCalls(this.#sentenceCalls[kind], Date.parse(at), limit);
+    this.#sentenceCalls[kind] = calls;
     return admitted ? 'admitted' : 'too-many';
   }
 
@@ -1552,6 +1570,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         return { status: 'missing', what: error.message };
       }
       if (
+        error instanceof SentenceRefusedError ||
         error instanceof WorkspaceNameTakenError ||
         error instanceof DashboardNameTakenError ||
         error instanceof PanelNameTakenError ||

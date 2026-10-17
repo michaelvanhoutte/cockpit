@@ -14,6 +14,9 @@ export const REMEMBERED_SENTENCE_LIMIT = 240;
 /** The longest the kind of action it applies to is named: a few words, "reply to a mail". */
 export const REMEMBERED_ACTION_LIMIT = 60;
 
+/** The most sentences one account keeps: past it, Remember is refused with words, so what every proposal reads from stays small. */
+export const REMEMBERED_SENTENCES_KEPT = 100;
+
 /** The most remembered sentences one proposal is shown: the few that fit, most used first. */
 export const REMEMBERED_SENTENCES_SHOWN = 8;
 

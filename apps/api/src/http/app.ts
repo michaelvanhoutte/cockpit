@@ -105,7 +105,7 @@ import {
   readWhatTheseNotesMean,
 } from '../jobs/index.js';
 import { startingPauseMs } from '../jobs/simulated-run.js';
-import { offerToRemember } from '../ai/offer-to-remember.js';
+import { offerToRemember } from '../jobs/offer-to-remember.js';
 import { readUsage } from '../accounts/usage.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
@@ -1861,11 +1861,23 @@ const routes = app
     commandRoute('send_item_to_claude', { conflict: 'The item is done, dismissed, or Claude is already on it' }),
     async (c) => c.json(await change(c, 'send_item_to_claude', c.req.valid('json')), 200),
   )
-  .openapi(rememberOfferRoute, async (c) =>
-    c.json({ offer: await offerToRemember(c.env, c.get('visitor').accountName, c.req.valid('param').runId) }, 200),
-  )
-  .openapi(commandRoute('remember_sentence'), async (c) => {
+  .openapi(rememberOfferRoute, async (c) => {
+    // Counted before the model is reached, and every ask is counted: each is a
+    // call that is paid for. Over the rate is no offer, as any other reason is.
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    if ((await account.sentenceCallArrived('offer', new Date().toISOString())) === 'too-many') return c.json({ offer: null }, 200);
+    return c.json({ offer: await offerToRemember(c.env, c.get('visitor').accountName, c.req.valid('param').runId) }, 200);
+  })
+  .openapi(commandRoute('remember_sentence', { conflict: 'The sentence is refused: it points somewhere, the account keeps too many, or too many were remembered in a minute' }), async (c) => {
     const cmd = c.req.valid('json');
+    // The kinds of source Cockpit names, and the two front doors it does not.
+    if (![...Object.keys(sourceNames(c.env)), 'internal', 'mcp'].includes(cmd.sourceKind)) {
+      throw new ConflictInAccountError('Cockpit does not know that kind of source, so it cannot remember a sentence for it.');
+    }
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    if ((await account.sentenceCallArrived('remember', new Date().toISOString())) === 'too-many') {
+      throw new ConflictInAccountError('Too many sentences were remembered in the last minute. Try again shortly.');
+    }
     const result = await change(c, 'remember_sentence', cmd);
     // The open Items it may fit are proposed for again behind the work already
     // queued; a replay of the same Remember asks for nothing twice.

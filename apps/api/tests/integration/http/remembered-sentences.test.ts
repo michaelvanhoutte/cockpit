@@ -138,7 +138,7 @@ async function sentForProposalOf(itemId: string): Promise<string> {
     env,
   );
   expect(proposing.asked).toHaveLength(1);
-  return proposing.asked[0]!.system;
+  return proposing.asked[0]!.item;
 }
 
 describe('Agents', () => {
@@ -258,7 +258,7 @@ describe('Agents', () => {
       proposing.asked.length = 0;
       await handleQueue(batchOf(queued), env);
       expect(proposing.asked).toHaveLength(1);
-      expect(proposing.asked[0]!.system).toContain(JSON.stringify('In this workspace: reply in Dutch.'));
+      expect(proposing.asked[0]!.item).toContain(JSON.stringify('In this workspace: reply in Dutch.'));
     });
 
     it('counts each time it shaped a proposal that was written, and no other', async () => {

@@ -34,6 +34,7 @@ import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import { REMEMBERED_SENTENCES_KEPT } from '@cockpit/shared';
 import { sentencesThatFit, ITEMS_PROPOSED_AGAIN, type RememberedSentence } from '../domain/remembered-sentences.js';
 import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } from '../domain/claude-send-records.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
@@ -1807,13 +1808,20 @@ function rememberedForSource(db: AccountDb, tenantId: string, sourceKind: string
     .all();
 }
 
-/** Keeps a sentence, once: the same id again is left as it is (issue 1163). */
+/**
+ * Keeps a sentence, once: the same id again is left as it is, and a new one
+ * past `REMEMBERED_SENTENCES_KEPT` is not kept (issue 1163).
+ */
 export function rememberSentence(
   db: InTheStore,
   tenantId: string,
   one: { id: string; workspaceId: string | null; sourceKind: string; action: string; sentence: string; createdAt: string },
-): void {
+): 'kept' | 'full' {
+  const held = db.select({ id: rememberedSentences.id }).from(rememberedSentences).where(eq(rememberedSentences.tenantId, tenantId)).all();
+  if (held.some((row) => row.id === one.id)) return 'kept';
+  if (held.length >= REMEMBERED_SENTENCES_KEPT) return 'full';
   db.insert(rememberedSentences).values({ ...one, tenantId }).onConflictDoNothing().run();
+  return 'kept';
 }
 
 /** Counts a use of each of these sentences: a proposal was written with them (issue 1163). */

@@ -3,8 +3,8 @@ import type { Env } from '../env.js';
 import { openAccount } from '../accounts/index.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import { sourceNames } from '../connectors/registry.js';
-import { aiFor, type SentenceOfferRead } from './index.js';
-import { readSentenceOffer } from './sentence-offers.js';
+import { aiFor, type SentenceOfferRead } from '../ai/index.js';
+import { readSentenceOffer } from '../ai/sentence-offers.js';
 
 /**
  * How long the offer is waited for. The link has opened already, so the person

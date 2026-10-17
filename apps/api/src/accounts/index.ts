@@ -325,6 +325,8 @@ export interface Account {
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
   /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
+  /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
+  sentenceCallArrived(kind: 'offer' | 'remember', at: string): Promise<'admitted' | 'too-many'>;
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(workspaceId: string, sourceAccountId: string): Promise<{ lastArrivedAt: string | null }>;
   /** One connection of this Workspace's history, newest line first (issue 1140). */
@@ -465,6 +467,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.claudeCodeHookArrived(accountName, workspaceId, sourceAccountId, at)),
     appCaptureArrived: async (grantId, at) => store.appCaptureArrived(grantId, at),
     transcriptionArrived: async (at) => store.transcriptionArrived(at),
+    sentenceCallArrived: async (kind, at) => store.sentenceCallArrived(kind, at),
     claudeCodeHookArrival: async (workspaceId, sourceAccountId) =>
       unwrap(await store.claudeCodeHookArrival(accountName, workspaceId, sourceAccountId)),
     connectionHistory: async (workspaceId, sourceAccountId) =>

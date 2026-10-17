@@ -57,6 +57,8 @@ describe('Agents', () => {
       { situation: 'a folder by its path rather than its number', text: answer(said({ folder: 'C:\\GitHub\\Cockpit' })) },
       { situation: 'a field left out', text: JSON.stringify({ proposals: [{ destination: 'cowork', prompt: 'Do it.' }] }) },
       { situation: 'a reason for nothing naming an address', text: answer(said({ destination: 'nothing', prompt: '', why: 'Reply to help@desk.example first.' })) },
+      { situation: 'a label naming a domain written with brackets', text: answer(said({ label: 'Check evil[.]com' })) },
+      { situation: 'a label with a zero-width character in it', text: answer(said({ label: 'Reply to Els\u200b' })) },
       { situation: 'a reason for nothing carrying a link', text: answer(said({ destination: 'nothing', prompt: '', why: 'Verify at https://evil.example/login.' })) },
       { situation: 'a label carrying a link', text: answer(said({ label: 'Pay at www.pay-now.example' })) },
       { situation: 'a label carrying a bare domain with a path', text: answer(said({ label: 'Pay at evilpay.com/inv' })) },

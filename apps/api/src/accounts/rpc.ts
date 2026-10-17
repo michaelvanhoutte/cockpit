@@ -309,6 +309,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   appCaptureArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many'>;
   /** A recording sent to be transcribed ("Hold each account to 20 transcriptions a minute", issue 1043) - admitted, or one of too many from this account. */
   transcriptionArrived(at: string): Awaitable<'admitted' | 'too-many'>;
+  /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
+  sentenceCallArrived(kind: 'offer' | 'remember', at: string): Awaitable<'admitted' | 'too-many'>;
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(
     accountName: string,

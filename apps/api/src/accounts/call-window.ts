@@ -22,6 +22,20 @@ export const APP_CAPTURES_PER_MINUTE = 60;
 export const TRANSCRIPTIONS_PER_MINUTE = 20;
 
 /**
+ * How many offers to remember one account is asked for in a minute, refused
+ * ones included ("Remember an edit as a sentence you confirm", issue 1163):
+ * each is a call to the model, and ten is far above a person editing sends by
+ * hand.
+ */
+export const REMEMBER_OFFERS_PER_MINUTE = 10;
+
+/**
+ * How many sentences one account may press Remember on in a minute, refused
+ * ones included (issue 1163): each one queues up to twenty proposals again.
+ */
+export const SENTENCES_REMEMBERED_PER_MINUTE = 10;
+
+/**
  * `admittedCalls` (below), except that a call refused as one too many is counted too:
  * the window then stays full for as long as the caller keeps asking, which is
  * what holds a loop off. `calls` is the count to keep either way.
