@@ -124,7 +124,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * nothing else.
    */
   itemIsFiled(accountName: string, itemId: string): Awaitable<Answer<boolean>>;
-  claudeProposalContext(accountName: string, itemId: string): Awaitable<Answer<ClaudeProposalContext>>;
+  claudeProposalContext(accountName: string, itemId: string, model: string): Awaitable<Answer<ClaudeProposalContext>>;
   /**
    * What a title or description proposal reads about how this account
    * writes ("Learn how you write from the titles you correct", issue 394). Per

@@ -52,7 +52,7 @@ export function readClaudeProposals(
   if (!answer.success) return { discarded: 'the answer was not a list of proposals' };
 
   // A folder is named by its number in the list offered, never by its path
-  // (`propose-for-claude.v2`), and empty for none.
+  // (`propose-for-claude.v3`), and empty for none.
   const folders = answer.data.proposals.map((one) => folderNumbered(one.folder, offeredFolders));
   if (folders.includes(undefined)) return { discarded: 'the answer named a folder it was not offered' };
 

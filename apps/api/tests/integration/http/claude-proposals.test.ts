@@ -21,7 +21,7 @@ import {
  * before you look", issue 1161) through the real Worker, the real consumer and
  * the real store, with the model faked at the network boundary - as
  * note-cleanup.test.ts does. Whether the real model proposes well is the
- * contract tier's (tests/contract/propose-for-claude.v2.test.ts); which answers
+ * contract tier's (tests/contract/propose-for-claude.v3.test.ts); which answers
  * are kept is apps/api/tests/unit/ai/claude-proposals.test.ts.
  *
  * **The queue is held, and drained by hand** (`delivered`), as
@@ -321,6 +321,126 @@ describe('Agents', () => {
 
       expect(sent.mock.calls.filter(([job]) => (job as { kind: string }).kind === 'propose-for-claude')).toEqual([]);
       expect(someSeeded.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('a proposal is shaped by the closest past sends, and only the account’s own', () => {
+    const MODEL = '@cf/baai/bge-m3';
+    /** What the Item being proposed for means; past sends are placed by how near their Item's meaning is to it. */
+    const THIS_ITEM = [1, 0, 0];
+
+    async function readAs(itemId: string, reading: number[]): Promise<void> {
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO item_meanings (item_id, tenant_id, model, reading, read_at) VALUES (?, ?, ?, ?, '2026-09-09T10:00:00.000Z')
+             ON CONFLICT(item_id) DO UPDATE SET reading = excluded.reading, model = excluded.model`,
+          itemId,
+          ACCOUNT_NAME,
+          MODEL,
+          JSON.stringify(reading),
+        );
+      });
+    }
+
+    /** A send for another Item, which means `reading`, with the words that make it findable in what is sent. */
+    async function aPastSend(
+      reading: number[],
+      words: string,
+      options: { tenant?: string; workspaceId?: string; sentAt?: string; folder?: string } = {},
+    ): Promise<void> {
+      const itemId = await captureANote({ itemId: nextId() });
+      await readAs(itemId, reading);
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO claude_sends (id, tenant_id, workspace_id, item_id, item_title, item_description,
+                                     proposed_destination, proposed_folder, proposed_prompt,
+                                     sent_destination, sent_folder, sent_prompt, sent_at)
+           VALUES (?, ?, ?, ?, ?, NULL, 'cowork', '', ?, 'code', ?, ?, ?)`,
+          nextId(),
+          options.tenant ?? ACCOUNT_NAME,
+          options.workspaceId ?? WORKSPACE_ID,
+          itemId,
+          words,
+          `proposed ${words}`,
+          options.folder ?? '',
+          `sent ${words}`,
+          options.sentAt ?? '2026-09-09T11:00:00.000Z',
+        );
+      });
+    }
+
+    /** What the model is sent for an Item that means THIS_ITEM. */
+    async function sentForANewItem(): Promise<string> {
+      const itemId = await aSettledNote();
+      await readAs(itemId, THIS_ITEM);
+      proposing.asked.length = 0;
+      await handleQueue(aProposalJob(itemId), env);
+      expect(proposing.asked).toHaveLength(1);
+      return proposing.asked[0]!.system;
+    }
+
+    it('shows a past send for a similar Item, with what was proposed and what was sent', async () => {
+      await aPastSend([0.9, 0.1, 0], 'conselit contact form', { folder: 'C:\\GitHub\\conselit' });
+
+      const sent = await sentForANewItem();
+
+      expect(sent).toContain('conselit contact form');
+      expect(sent).toContain('proposed conselit contact form');
+      expect(sent).toContain('sent conselit contact form');
+    });
+
+    it('leaves out a past send for an unrelated Item', async () => {
+      await aPastSend([0, 1, 0], 'volleyball club fees');
+
+      expect(await sentForANewItem()).not.toContain('volleyball club fees');
+    });
+
+    it('is made as before where nothing was ever sent', async () => {
+      const sent = await sentForANewItem();
+
+      expect(sent).not.toContain('Past sends from this account');
+    });
+
+    it.each([
+      { situation: 'another account’s', options: { tenant: 'someone-else' } },
+      { situation: 'another workspace’s, for an Item that is in one', options: { workspaceId: 'ws-atlas' } },
+    ])('never shows $situation sends', async ({ options }) => {
+      await alsoWorkspaces();
+      await aPastSend([1, 0, 0], 'somebody else’s send', options);
+
+      expect(await sentForANewItem()).not.toContain('somebody else’s send');
+    });
+
+    it('shows only the closest, up to the bound, closest first', async () => {
+      for (const at of [5, 1, 4, 2, 3]) await aPastSend([1, at * 0.15, 0], `send number ${at}`);
+
+      const sent = await sentForANewItem();
+
+      expect([1, 2, 3].map((at) => sent.indexOf(`send number ${at}`)).every((where) => where >= 0)).toBe(true);
+      expect(sent.indexOf('send number 1')).toBeLessThan(sent.indexOf('send number 2'));
+      expect(sent.indexOf('send number 2')).toBeLessThan(sent.indexOf('send number 3'));
+      expect(sent).not.toContain('send number 4');
+      expect(sent).not.toContain('send number 5');
+    });
+
+    it('names a folder sent to by its number in the list offered, never by its path alone', async () => {
+      const itemId = await aSettledNote();
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, started_at, ended_at, destination, folder)
+           VALUES ('run-conselit', ?, ?, ?, 'claude', 'working', '2026-09-09T10:00:00.000Z', '2026-09-09T10:01:00.000Z', 'code', 'C:\\GitHub\\conselit')`,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          itemId,
+        );
+      });
+      await aPastSend([0.9, 0.1, 0], 'conselit contact form', { folder: 'C:\\GitHub\\conselit' });
+      await readAs(itemId, THIS_ITEM);
+      proposing.asked.length = 0;
+
+      await handleQueue(aProposalJob(itemId), env);
+
+      expect(proposing.asked[0]!.system).toMatch(/Sent: code, folder 1, prompt "sent conselit contact form"/);
     });
   });
 });

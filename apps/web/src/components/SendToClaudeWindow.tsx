@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery } from '@tanstack/react-query';
 import {
   CLAUDE_DESTINATIONS,
+  CLAUDE_PROMPT_LIMIT,
   MAX_CLAUDE_LINK_LENGTH,
   attachmentLinksSchema,
   CLAUDE_DESTINATION_NAMES,
@@ -104,7 +105,8 @@ export function SendToClaudeWindow({
   // A proposal's own folder, empty included - it decided none fits, so Claude
   // asks; empty too where it proposed nothing to do, and the folder last sent
   // to only where nothing has been proposed yet.
-  const [folder, setFolder] = useState(() => (actions[0] ? actions[0].folder : nothing ? '' : lastFolder()));
+  const [startingFolder] = useState(() => (actions[0] ? actions[0].folder : nothing ? '' : lastFolder()));
+  const [folder, setFolder] = useState(startingFolder);
   const [edited, setEdited] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -162,6 +164,14 @@ export function SendToClaudeWindow({
           runId,
           destination,
           folder: chosen,
+          // Kept apart as an example for later proposals (issue 1162): what the
+          // window opened on, and what it sent.
+          prompt: prompt.slice(0, CLAUDE_PROMPT_LIMIT),
+          proposed: {
+            destination: action?.destination ?? 'cowork',
+            folder: action ? action.folder : startingFolder,
+            prompt: plain.slice(0, CLAUDE_PROMPT_LIMIT),
+          },
         },
       });
     } catch (failure) {

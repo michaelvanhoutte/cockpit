@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
+import { claudeClosingFor, plainPromptFor } from '@cockpit/shared';
 import type { AgentRun, CommandName, CommandPayload, WorkspaceSnapshot } from '@cockpit/shared';
 import {
   DASHBOARD_ID,
@@ -85,6 +86,8 @@ function send(
     runId?: string;
     destination?: 'cowork' | 'code';
     folder?: string;
+    prompt?: string;
+    proposed?: { destination: 'cowork' | 'code'; folder: string; prompt: string };
     workspaceId?: string;
     issuedAt?: string;
   } = {},
@@ -98,6 +101,8 @@ function send(
       runId: options.runId ?? nextId(),
       destination: options.destination ?? 'cowork',
       folder: options.folder ?? '',
+      ...(options.prompt === undefined ? {} : { prompt: options.prompt }),
+      ...(options.proposed === undefined ? {} : { proposed: options.proposed }),
     },
     USER_ID,
     options.issuedAt ?? AT,
@@ -319,6 +324,150 @@ describe('Agents', () => {
       });
 
       expect({ status: res.status, body: await res.json() }).toEqual({ status: 200, body: { links: {} } });
+    });
+  });
+
+  describe('every Open keeps exactly what was proposed and what was sent', () => {
+    const PROPOSED = 'Draft a reply to Els Maes about the release notes.';
+
+    /** Every record kept, with the Run it belongs to. */
+    async function recordsOn(itemId: string) {
+      return inTheStore((sql) => [
+        ...sql.exec<{
+          id: string;
+          item_title: string;
+          proposed_destination: string;
+          proposed_folder: string;
+          proposed_prompt: string;
+          sent_destination: string;
+          sent_folder: string;
+          sent_prompt: string;
+        }>(
+          `SELECT id, item_title, proposed_destination, proposed_folder, proposed_prompt, sent_destination, sent_folder, sent_prompt
+             FROM claude_sends WHERE item_id = ? ORDER BY sent_at, id`,
+          itemId,
+        ),
+      ]);
+    }
+
+    /** A prompt as the window sends it: the task, the files' links, the closing naming the Run. */
+    const asWindowSends = (task: string, runId: string) =>
+      [
+        task,
+        'Attachments - download each link and read the file. A link works for an hour, without signing in.\n- invoice.pdf: https://files.example/a',
+        claudeClosingFor(runId),
+      ].join('\n\n');
+
+    it('keeps one record, the proposal and the send equal, where the proposal was sent as it was', async () => {
+      const itemId = await anItem('Release notes for Els');
+      const runId = nextId();
+      const prompt = asWindowSends(PROPOSED, runId);
+
+      const res = await send(itemId, {
+        runId,
+        destination: 'cowork',
+        prompt,
+        proposed: { destination: 'cowork', folder: '', prompt },
+      });
+
+      expect(res.status).toBe(200);
+      expect(await recordsOn(itemId)).toEqual([
+        {
+          id: runId,
+          item_title: 'Release notes for Els',
+          proposed_destination: 'cowork',
+          proposed_folder: '',
+          proposed_prompt: PROPOSED,
+          sent_destination: 'cowork',
+          sent_folder: '',
+          sent_prompt: PROPOSED,
+        },
+      ]);
+    });
+
+    it('keeps the edited prompt, the changed folder and the flipped switch as sent, beside what was proposed', async () => {
+      const itemId = await anItem('Release notes for Els');
+      const runId = nextId();
+
+      await send(itemId, {
+        runId,
+        destination: 'code',
+        folder: 'C:\\GitHub\\conselit',
+        prompt: asWindowSends('In the conselit repository, write the release notes.', runId),
+        proposed: { destination: 'cowork', folder: '', prompt: asWindowSends(PROPOSED, runId) },
+      });
+
+      expect(await recordsOn(itemId)).toEqual([
+        expect.objectContaining({
+          proposed_destination: 'cowork',
+          proposed_folder: '',
+          proposed_prompt: PROPOSED,
+          sent_destination: 'code',
+          sent_folder: 'C:\\GitHub\\conselit',
+          sent_prompt: 'In the conselit repository, write the release notes.',
+        }),
+      ]);
+    });
+
+    it('records the plain prompt as the proposal where none had been made yet', async () => {
+      const itemId = await anItem('Chase the invoice');
+      const runId = nextId();
+      const plain = plainPromptFor({ title: 'Chase the invoice', description: null, attachments: [], runId });
+
+      await send(itemId, { runId, prompt: plain, proposed: { destination: 'cowork', folder: '', prompt: plain } });
+
+      expect(await recordsOn(itemId)).toEqual([
+        expect.objectContaining({ proposed_prompt: 'Chase the invoice', sent_prompt: 'Chase the invoice' }),
+      ]);
+    });
+
+    it('keeps one record for the same Open sent twice', async () => {
+      const itemId = await anItem('Chase the invoice');
+      const runId = nextId();
+      const asked = { runId, prompt: 'Chase it.', proposed: { destination: 'cowork' as const, folder: '', prompt: 'Chase it.' } };
+
+      await send(itemId, asked);
+      await send(itemId, asked);
+
+      expect(await recordsOn(itemId)).toHaveLength(1);
+    });
+
+    it.each([
+      { situation: 'a tab from before sends were kept, which sends no prompt', options: {} },
+      { situation: 'a prompt of nothing but what Cockpit writes itself', options: { closingOnly: true } },
+    ])('keeps no record for $situation', async ({ options }) => {
+      const itemId = await anItem('Chase the invoice');
+      const runId = nextId();
+      const prompt = 'closingOnly' in options ? claudeClosingFor(runId) : undefined;
+
+      await send(itemId, {
+        runId,
+        ...(prompt === undefined ? {} : { prompt, proposed: { destination: 'cowork' as const, folder: '', prompt } }),
+      });
+
+      expect(await recordsOn(itemId)).toEqual([]);
+      expect(await allRuns(itemId)).toHaveLength(1);
+    });
+
+    it('keeps no record of a send the server refused, and none of the prompts in the log of changes', async () => {
+      const itemId = await anItem('Chase the invoice');
+      const first = nextId();
+      await send(itemId, { runId: first, prompt: 'First task.', proposed: { destination: 'cowork', folder: '', prompt: 'First task.' } });
+      await inTheStore((sql) => {
+        sql.exec("UPDATE agent_runs SET status = 'working' WHERE id = ?", first);
+      });
+
+      const second = nextId();
+      const refused = await send(itemId, {
+        runId: second,
+        prompt: 'Second task, secret words.',
+        proposed: { destination: 'cowork', folder: '', prompt: 'Second task, secret words.' },
+      });
+
+      expect(refused.status).toBe(409);
+      expect((await recordsOn(itemId)).map((one) => one.id)).toEqual([first]);
+      const logged = await inTheStore((sql) => [...sql.exec<{ payload: string }>("SELECT payload FROM commands WHERE name = 'send_item_to_claude'")]);
+      expect(logged.map((one) => one.payload).join('')).not.toMatch(/First task|secret words/);
     });
   });
 });

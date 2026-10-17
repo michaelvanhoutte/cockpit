@@ -58,5 +58,8 @@ function httpsLink(value: unknown): URL | null {
   return url.protocol === 'https:' && url.username === '' && url.password === '' ? url : null;
 }
 
+/** The longest prompt the window sends, which its text box also holds to. */
+export const CLAUDE_PROMPT_LIMIT = 100_000;
+
 /** A folder path, as typed: any length a path takes. Empty means none chosen. */
 export const claudeFolderSchema = z.string().trim().max(1000);

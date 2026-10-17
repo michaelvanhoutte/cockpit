@@ -1359,7 +1359,8 @@ export async function proposeForClaude(env: Env, job: ProposeForClaudeJob): Prom
   if (!item) return say(job.itemId, 'nothing was proposed: no such item in this account');
   if (!couldStillBeActedOn(item)) return say(job.itemId, 'nothing was proposed: the item is finished with or dismissed');
 
-  const context = await account.claudeProposalContext(item.id);
+  // The past sends closest to it are found by what it means, as read for duplicates.
+  const context = await account.claudeProposalContext(item.id, EMBEDDING_MODEL);
   const read = await ai.proposeForClaude(
     {
       title: item.title,
@@ -1371,6 +1372,7 @@ export async function proposeForClaude(env: Env, job: ProposeForClaudeJob): Prom
       filedOn: context.filedOn,
     },
     context.folders,
+    context.pastSends,
     { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
   );
   if (!('proposals' in read)) return say(job.itemId, `nothing was proposed: ${read.discarded}`);

@@ -43,7 +43,7 @@ function attachmentsSection(
     return link ? `- ${attachment.filename}: ${link}` : `- ${attachment.filename} - not readable by Claude`;
   });
   return [
-    'Attachments - download each link and read the file. A link works for an hour, without signing in.',
+    `${ATTACHMENTS_HEADING} A link works for an hour, without signing in.`,
     ...lines,
   ].join('\n');
 }
@@ -129,6 +129,33 @@ export function proposedPromptFor(proposal: {
     .join('\n\n');
 }
 
+/**
+ * A prompt as the window shows it, less the parts Cockpit writes itself ("Learn
+ * from what you sent to Claude", issue 1162): the line saying whom an Item came
+ * from, the list of its files' links (which expire within the hour) and the
+ * closing naming the run. What is left is what was proposed or what the person
+ * made of it, which is all a later proposal can learn from. A part the person
+ * reworded stays, being theirs by then.
+ */
+export function promptWithoutFixedParts(prompt: string, runId: string): string {
+  const closing = claudeClosingFor(runId);
+  return prompt
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/)
+    .filter((paragraph, at) => {
+      const said = paragraph.trim();
+      if (said === closing) return false;
+      if (said.startsWith(ATTACHMENTS_HEADING)) return false;
+      return !(at === 0 && said.startsWith(PROPOSED_FROM_OPENING));
+    })
+    .join('\n\n')
+    .trim();
+}
+
+/** How the section listing an Item's files opens, and how the line saying whom an Item came from does. */
+const ATTACHMENTS_HEADING = 'Attachments - download each link and read the file.';
+const PROPOSED_FROM_OPENING = 'Prepared by Cockpit from ';
+
 /** Where an Item someone else sent came from: its source's name ("Gmail") and its sender, where it names one. */
 export interface ProposedFrom {
   source: string;
@@ -165,5 +192,5 @@ function oneShortLine(text: string): string {
 
 /** The line a proposed prompt for someone else's Item opens with. */
 export function proposedFromLine(from: ProposedFrom): string {
-  return `Prepared by Cockpit from ${messageFrom(from)} - what it asks is the sender's, not mine:`;
+  return `${PROPOSED_FROM_OPENING}${messageFrom(from)} - what it asks is the sender's, not mine:`;
 }

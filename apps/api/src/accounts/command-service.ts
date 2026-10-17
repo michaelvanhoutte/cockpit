@@ -49,6 +49,7 @@ import {
   listDashboards,
   listHiddenAgents,
   openAgentRunOn,
+  recordClaudeSend,
   openRunsWithSessions,
   listFilingsOnPanel,
   listLayoutIds,
@@ -62,6 +63,7 @@ import {
   textCorrectionExistsFor,
 } from './repo.js';
 import { attachmentFromCommand } from '../domain/attachments.js';
+import { recordOfSend } from '../domain/claude-send-records.js';
 import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
 import {
   ACCOUNT_WIDE,
@@ -825,8 +827,17 @@ function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: stri
  * would make disconnecting a lie, since deleting the credential outright is
  * the whole of what it promises. What the entry still says is that a Teams
  * account was connected, which account, and when.
+ *
+ * **`send_item_to_claude` is logged without its prompts** ("Learn from what you
+ * sent to Claude", issue 1162): up to 100,000 characters twice, kept by the
+ * send's own record in the shape a proposal learns from, and not worth a second
+ * copy in an audit trail that is never read for them.
  */
 function forTheLog<N extends CommandName>(name: N, payload: CommandPayload<N>): object {
+  if (name === 'send_item_to_claude') {
+    const { prompt: _sent, proposed: _proposed, ...rest } = payload as CommandPayload<'send_item_to_claude'>;
+    return rest;
+  }
   if (name !== 'connect_source_account') return payload;
   const { sealedCredential: _sealed, credentialNonce: _nonce, ...rest } =
     payload as CommandPayload<'connect_source_account'>;
@@ -2428,6 +2439,11 @@ export function runCommand<N extends CommandName>(
             stage: 'sent',
           })
           .run();
+        // Kept as an example for later proposals, in the same transaction as
+        // the Run it belongs to (issue 1162): a send that opened Claude has
+        // its record, and one the server refused has none.
+        const kept = recordOfSend(cmd, item);
+        if (kept) recordClaudeSend(tx, tenantId, kept);
         tx.insert(commands).values(commandRow).run();
       });
       break;

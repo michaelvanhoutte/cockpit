@@ -515,6 +515,15 @@ const rowsFor: {
     params: (name) => [name, AT, LATER],
   },
   {
+    // The table `0084-claude-sends` creates (issue 1162): a send kept as an
+    // example, for the next update to meet.
+    table: 'claude_sends',
+    sql: `INSERT INTO claude_sends (id, tenant_id, workspace_id, item_id, item_title, item_description, proposed_destination,
+                                 proposed_folder, proposed_prompt, sent_destination, sent_folder, sent_prompt, sent_at)
+          VALUES ('cs-before', ?, 'ws-before', 'it-before', 'Chase it', NULL, 'cowork', '', 'Chase it.', 'code', '/app', 'Chase it in the app.', ?)`,
+    params: (name) => [name, AT],
+  },
+  {
     table: 'pulled_links',
     sql: `INSERT INTO pulled_links (tenant_id, workspace_id, connector_id, external_account_key, source_id, item_id, linked_at)
           VALUES (?, 'ws-before', 'teams', 'a-tenant:somebody', 'source-before', 'it-done-before', ?)`,
