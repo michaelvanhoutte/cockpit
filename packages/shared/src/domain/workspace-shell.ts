@@ -14,7 +14,7 @@ export type Appearance = 'light' | 'dark';
  * counterpart: a near-black, dimmed rather than inverted. The stylesheet's
  * dark `--color-ground` is this, and a test holds the two together.
  */
-export const DARK_GROUND = '#1b1c21';
+export const DARK_GROUND = '#23242a';
 
 /** The colours a Workspace is dressed in: the four it stores, and the two its theme gives them. */
 export interface PaintedWorkspace {

@@ -301,7 +301,7 @@ html[data-app-dark] {
   --color-ink-soft: #9a9eaa;
   --color-ink-faint: #8a8e9a;
   --color-surface: #24252b;
-  --color-ground: #1b1c21;
+  --color-ground: #23242a;
   --color-field: #141519;
   --color-shade: #e4e5ea;
   --color-scrim: #000000;
@@ -321,7 +321,7 @@ html[data-app-dark] {
   --color-cat-grey-tint: #2a2c31;
 
   --color-accent-deep: #b0a9d6;
-  --color-accent-tint: #2d2b42;
+  --color-accent-tint: #343249;
   --color-due-soft: #4a3519;
   --color-due-ink: #e8c08a;
   --color-over-ink: #e0867f;
@@ -332,17 +332,18 @@ html[data-app-dark] {
   --shadow-raised: 0 0 0 1px rgb(255 255 255 / 0.1), 0 12px 28px rgb(0 0 0 / 0.55);
   --shadow-field: inset 0 1px 2px rgb(0 0 0 / 0.35);
 }
+/* The wells are shares of the page (56% and 66% of it), so they follow `--ground`; on the default page they land on #141418 and #17181c, a step the eye can see by tone alone. */
 html[data-app-dark] .well {
-  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 72%, black);
+  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 56%, black);
   box-shadow:
     inset 0 1px 3px rgb(0 0 0 / 0.5),
     inset 0 0 0 1px rgb(255 255 255 / 0.04);
 }
 html[data-app-dark] .well-fill {
-  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 72%, black);
+  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 56%, black);
 }
 html[data-app-dark] .well-inbox {
-  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 82%, black);
+  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 66%, black);
   box-shadow:
     inset 0 1px 3px rgb(0 0 0 / 0.55),
     inset 0 0 0 1px rgb(255 255 255 / 0.06);

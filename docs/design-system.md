@@ -70,10 +70,10 @@ The whole app, logon page included, when the device is set to dark or the choice
 
 | Name | Dark value |
 |---|---|
-| `ground` (page; the logon page and the shell) | `#1b1c21`, the same in every Workspace |
+| `ground` (page; the logon page and the shell) | `#23242a`, the same in every Workspace |
 | `surface` (dialogs, menus, cards) | `#24252b` |
 | `field` (inputs, opaque white in light) | `#141519` |
-| wells | the page mixed towards black: 72% for a list (`well`), 82% for the Inbox (`well-inbox`), the edge a faint white ring in place of the dark one |
+| wells | the page mixed towards black, parted from it by tone alone: 56% of the page for a list (`well`, `#141418`), 66% for the Inbox (`well-inbox`, `#17181c`), the edge a faint white ring in place of the dark one |
 | `ink-strong`, `ink`, `ink-soft`, `ink-faint` | `#e4e5ea`, `#c2c5cd`, `#9a9eaa`, `#8a8e9a` |
 | `shade` (hairlines, hover fills) | `#e4e5ea`, used at low alpha as in light |
 | `scrim` (behind a dialog) | black, where light is `#16181d`; `bg-shade` is never a scrim |
