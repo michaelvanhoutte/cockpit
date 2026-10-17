@@ -496,3 +496,114 @@ describe('Selection', () => {
     });
   });
 });
+
+/** "File a proposal group in one action, and offer Show and Also show on… after it" (issue 1167). */
+describe('Triage', () => {
+  const moves = () => sent().filter((command) => command.name === 'move_item_to_panel');
+  const shiftEnter = (user: Awaited<ReturnType<typeof showInbox>>) => user.keyboard('{Shift>}{Enter}{/Shift}');
+
+  describe('Shift+Enter on an Inbox row files its group, or the row alone outside one, and moves the focus past it', () => {
+    it('files both rows of a group of two and focuses the first row after the group', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('Lone', HARBOR.id), anItem('B', FALCON.id), anItem('Plain')]);
+      const [a, b] = [idOf('A'), idOf('B')];
+      act(() => rowOfTitle('A').focus());
+
+      await shiftEnter(user);
+
+      await waitFor(() => expect(moves()).toHaveLength(2));
+      expect(moves().map((move) => [move.payload.itemId, move.payload.panelId])).toEqual([
+        [a, FALCON.id],
+        [b, FALCON.id],
+      ]);
+      await waitFor(() => expect(rowOfTitle('Lone')).toHaveFocus());
+    });
+
+    it('focuses the row before the group when nothing comes after the last group', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', FALCON.id), anItem('C', HARBOR.id), anItem('D', HARBOR.id)]);
+      act(() => rowOfTitle('D').focus());
+
+      await shiftEnter(user);
+
+      await waitFor(() => expect(moves()).toHaveLength(2));
+      expect(moves().map((move) => move.payload.panelId)).toEqual([HARBOR.id, HARBOR.id]);
+      await waitFor(() => expect(rowOfTitle('B')).toHaveFocus());
+    });
+
+    it('files just that row when it is outside a group, and focuses the row before the last', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', HARBOR.id)]);
+      const b = idOf('B');
+      act(() => rowOfTitle('B').focus());
+
+      await shiftEnter(user);
+
+      await waitFor(() => expect(moves()).toHaveLength(1));
+      expect(moves()[0]!.payload).toMatchObject({ itemId: b, panelId: HARBOR.id });
+      await waitFor(() => expect(rowOfTitle('A')).toHaveFocus());
+    });
+
+    it('files nothing and says no Panel was proposed under a row with none', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('Plain')]);
+      act(() => rowOfTitle('Plain').focus());
+
+      await shiftEnter(user);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('No Panel was proposed');
+      expect(sent()).toHaveLength(0);
+      expect(rowOfTitle('Plain')).toHaveFocus();
+    });
+
+    it.each([
+      { situation: 'a selection is held', press: '{Shift>}{Enter}{/Shift}', selecting: true },
+      { situation: 'Ctrl is also held', press: '{Control>}{Shift>}{Enter}{/Shift}{/Control}', selecting: false },
+      { situation: 'Alt is also held', press: '{Alt>}{Shift>}{Enter}{/Shift}{/Alt}', selecting: false },
+      { situation: '⌘ is also held', press: '{Meta>}{Shift>}{Enter}{/Shift}{/Meta}', selecting: false },
+    ])('files nothing when $situation', async ({ press, selecting }) => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', FALCON.id), anItem('C')]);
+      act(() => rowOfTitle('A').focus());
+      if (selecting) await user.keyboard('{Shift>}J{/Shift}');
+
+      await user.keyboard(press);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(sent()).toHaveLength(0);
+    });
+
+    it('files nothing from a field', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', FALCON.id)]);
+      const field = document.createElement('input');
+      document.body.append(field);
+      field.focus();
+
+      await shiftEnter(user);
+
+      expect(sent()).toHaveLength(0);
+      field.remove();
+    });
+  });
+
+  describe('filing by proposal offers Show and Also show on… when everything landed on one Panel, and Undo alone when it did not', () => {
+    const select = async (user: Awaited<ReturnType<typeof showInbox>>, from: string, rows: number) => {
+      act(() => rowOfTitle(from).focus());
+      for (let at = 1; at < rows; at++) await user.keyboard('{Shift>}J{/Shift}');
+      await user.keyboard('{Enter}');
+    };
+    const barOffers = async () =>
+      within(await screen.findByRole('status'))
+        .getAllByRole('button')
+        .map((button) => button.textContent);
+
+    it.each([
+      { situation: 'Enter on a selection all proposed for one Panel', panels: [FALCON.id, FALCON.id], undecided: false, offers: ['Show', 'Also show on…', 'Undo'] },
+      { situation: 'Enter on a selection proposed for two Panels', panels: [FALCON.id, HARBOR.id], undecided: false, offers: ['Undo'] },
+      { situation: 'Enter on a selection of one Panel when one belonged to no Workspace', panels: [FALCON.id, FALCON.id], undecided: true, offers: ['Show', 'Also show on…'] },
+    ])('$situation', async ({ panels, undecided, offers }) => {
+      const [first, second] = panels.map((panel, at) => anItem(at === 0 ? 'A' : 'B', panel));
+      const user = await showInbox([first!, undecided ? { ...second!, workspaceDecided: false } : second!]);
+
+      await select(user, 'A', 2);
+
+      await waitFor(() => expect(moves()).toHaveLength(2));
+      expect(await barOffers()).toEqual(offers);
+    });
+  });
+});

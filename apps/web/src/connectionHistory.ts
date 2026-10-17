@@ -101,7 +101,9 @@ export function lineShown(line: ConnectionHistoryLine): HistoryLineShown {
       text: item.title === null ? GONE : item.dismissed ? `${item.title}${DISMISSED}` : item.title,
     })),
   }));
-  const parts = [folded ? null : (REASONS[line.reason] ?? null), summary || null, message].filter(
+  // The source's status stands before its message, as given (issue 1142).
+  const answered = failed && line.status !== null ? [`HTTP ${line.status}`, message].filter((part) => part !== null).join(' · ') : message;
+  const parts = [folded ? null : (REASONS[line.reason] ?? null), summary || null, answered].filter(
     (part) => part !== null,
   );
   return {

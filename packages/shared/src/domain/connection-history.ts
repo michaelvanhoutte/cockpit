@@ -10,6 +10,8 @@ import { z } from 'zod';
  *   still parses the line, and says nothing of why.
  * - `message` is a failure's, as the source gave it and kept to 2 KB, with
  *   `messageCut` where it ran longer; null where it said nothing.
+ * - `status` is the HTTP status the source answered a failure with, as given
+ *   (issue 1142); null where it gave none.
  * - `did` is what the check did ("Say what each check of a connection brought
  *   in, closed and sent back", issue 1141): per kind the exact `count` and the
  *   first Items by `id`, each named by its title now - `title` null only where
@@ -33,6 +35,7 @@ export const connectionHistoryLineSchema = z.object({
   reason: z.string(),
   message: z.string().nullable(),
   messageCut: z.boolean(),
+  status: z.number().int().nullable(),
   count: z.number().int().min(1),
   firstAt: z.iso.datetime(),
   lastAt: z.iso.datetime(),

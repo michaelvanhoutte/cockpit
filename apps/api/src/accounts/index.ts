@@ -372,8 +372,9 @@ export interface PulledRun {
   /**
    * `moreToDo` asks for the next check soon, and is ignored where the run failed (issue 957).
    * `did` is what the run did, which its line of the history keeps (issue 1141).
+   * `status` is the HTTP status the source answered a failure with, kept beside its message (issue 1142).
    */
-  end(failing: string | null, moreToDo?: boolean, did?: CheckDid): Promise<null>;
+  end(failing: string | null, moreToDo?: boolean, did?: CheckDid, status?: number): Promise<null>;
 }
 
 /**
@@ -476,8 +477,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       openStatesWaiting: async () => unwrap(await store.pulledOpenStatesWaiting(accountName, sourceAccountId, runId)),
       confirmOpenStates: async (confirmed) =>
         unwrap(await store.confirmPulledOpenStates(accountName, sourceAccountId, runId, confirmed)),
-      end: async (failing, moreToDo, did) =>
-        unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo, did)),
+      end: async (failing, moreToDo, did, status) =>
+        unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo, did, status)),
     }),
   };
 }

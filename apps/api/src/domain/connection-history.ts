@@ -19,7 +19,7 @@ export interface CheckDid {
 /** How a check ended, as its line records it. */
 export type CheckEnded =
   | { outcome: 'worked' }
-  | { outcome: 'failed'; message: string | null; messageCut: boolean };
+  | { outcome: 'failed'; message: string | null; messageCut: boolean; status: number | null };
 
 /** How a check ended, and whether it did anything. */
 export type CheckOutcome = CheckEnded & { did: boolean };
@@ -29,6 +29,8 @@ export interface LineAsHeld {
   outcome: 'worked' | 'failed';
   message: string | null;
   messageCut: boolean;
+  /** The HTTP status the source answered a failure with (issue 1142); null where it gave none, or the line worked. */
+  status: number | null;
   /** Whether the line's check did anything - such a line is a line of its own. */
   did: boolean;
 }
@@ -103,13 +105,14 @@ function isQuiet(line: { outcome: 'worked' | 'failed'; did: boolean }): boolean 
 
 /**
  * What a check's end does to the history: extends the line before it where
- * both are quiet, or both failed with the same message and neither did
- * anything; inserts a line of its own otherwise - a check that did anything is
+ * both are quiet, or both failed with the same status and message and neither
+ * did anything; inserts a line of its own otherwise - a check that did anything is
  * never folded, and never extended.
  */
 export function whatACheckWrites(previous: LineAsHeld | null, ended: CheckOutcome): 'extend' | 'insert' {
   if (previous === null || ended.did || previous.did) return 'insert';
   if (isQuiet(ended)) return isQuiet(previous) ? 'extend' : 'insert';
   if (ended.outcome !== 'failed' || previous.outcome !== 'failed') return 'insert';
-  return previous.message === ended.message && previous.messageCut === ended.messageCut ? 'extend' : 'insert';
+  const alike = previous.status === ended.status && previous.message === ended.message;
+  return alike && previous.messageCut === ended.messageCut ? 'extend' : 'insert';
 }

@@ -54,22 +54,49 @@ export function triage(
   act();
 }
 
+/**
+ * Shift+Enter on a row ("File a proposal group in one action, and offer Show and
+ * Also show on… after it", issue 1167): files the row's whole proposal group
+ * (`act` is the group's filing), or the row alone outside one, the focus moving
+ * to the first row after the group. Where Cockpit proposed no Panel it files
+ * nothing and says so.
+ */
+export function triageGroup(
+  event: Press,
+  row: HTMLElement,
+  act: (() => void) | undefined,
+  show: ShowItem,
+  saysNoProposal: () => void,
+): void {
+  if (!event.shiftKey || plainKey(event, document, true) !== 'Enter') return;
+  if (!act) {
+    saysNoProposal();
+    return;
+  }
+  const group = row.closest('[data-proposal-group]');
+  moveOnFrom(row, false, show, group ? [...group.querySelectorAll<HTMLElement>('li[data-item-row]')] : [row]);
+  act();
+}
+
 /** The Item last acted on by a key, which Z brings back and focuses. */
 let lastActedOn: string | null = null;
 
 /**
  * Waits for `row` to leave the list - filed, done or dismissed - and focuses the
  * row that was after it (the one before, for the last), the docked form
- * following. Gives up when the row stays: after a few seconds, or for Move to…
- * once its picker has closed without the row going.
+ * following. For a `group` of rows filed together, `row` is the one pressed and
+ * the focus goes to the row after the group, or the one before it. Gives up
+ * when the row stays: after a few seconds, or for Move to… once its picker has
+ * closed without the row going.
  */
-export function moveOnFrom(row: HTMLElement, asksFirst: boolean, show: ShowItem): void {
+export function moveOnFrom(row: HTMLElement, asksFirst: boolean, show: ShowItem, group: readonly HTMLElement[] = [row]): void {
   const list = row.closest('[data-inbox]');
   if (!list) return;
   const rows = [...list.querySelectorAll<HTMLElement>('li[data-item-row]')];
-  const at = rows.indexOf(row);
-  const next = rows[at + 1] ?? rows[at - 1];
-  lastActedOn = row.dataset.itemId ?? null;
+  const first = rows.indexOf(group[0]!);
+  const last = rows.indexOf(group[group.length - 1]!);
+  const next = rows[last + 1] ?? rows[first - 1];
+  lastActedOn = group[0]!.dataset.itemId ?? null;
   if (!next) return;
   let sawPicker = false;
   let timer: ReturnType<typeof setTimeout>;
@@ -169,6 +196,8 @@ export interface AcceptingSelection {
   nameOf: (panelId: string | null) => string;
   putSeveralBack: (moved: readonly Item[], wasOn: ReadonlyMap<string, { panelId: string; order: string[] }[]>) => Promise<void>;
   offerToUndo: (change: Undoable) => void;
+  /** Show and Also show on… for what moved, offered where it all went to one Panel. */
+  nextSteps: (moved: Item[], panelId: string) => Pick<Undoable, 'show' | 'alsoShowOn'>;
 }
 
 let accepting = false;
@@ -247,5 +276,8 @@ export async function acceptSelection(d: AcceptingSelection): Promise<void> {
     what,
     ...(split ? { split } : {}),
     ...(moved.length === 0 || decides ? {} : { undo: () => d.putSeveralBack(moved, wasOn) }),
+    // Only when everything that moved went to one Panel: with several, there is
+    // no one Panel to show or to also show them on.
+    ...(moved.length > 0 && panels.size === 1 ? d.nextSteps(moved, [...panels][0]!) : {}),
   });
 }

@@ -469,6 +469,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     failing: string | null,
     moreToDo?: boolean,
     did?: CheckDid,
+    status?: number,
   ): Awaitable<Answer<null>>;
 }
 

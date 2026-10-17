@@ -3034,7 +3034,7 @@ describe('Triage', () => {
     proposedPanelFit: panelId ? fit : null,
   });
   const showInbox = (items: Item[]) => showList({ items, groupByProposal: true });
-  const headers = () => screen.queryAllByRole('heading', { level: 4 }).map((heading) => heading.textContent);
+  const headers = () => screen.queryAllByRole('heading', { level: 4 }).map((heading) => within(heading).getByTitle('Select this group').textContent);
   const titlesInOrder = () =>
     [...document.querySelectorAll('li[data-item-row]')].map((row) => row.textContent!.replace(/^\W+/, '').slice(0, 3));
 
@@ -3178,6 +3178,97 @@ describe('Triage', () => {
 
       expect(screen.getByText('2 selected')).toBeVisible();
       expect(isPicked(items[1]!)).toBe(false);
+    });
+  });
+
+  describe('File all on a group header files every Item of the group on its Panel, with one Undo', () => {
+    const barOffers = () =>
+      within(screen.getByRole('status'))
+        .getAllByRole('button')
+        .map((button) => button.textContent);
+    const group = () => [proposedFor('Fal1', 'p-falcon'), proposedFor('Fal2', 'p-falcon', 'closest'), proposedFor('Fal3', 'p-falcon')];
+
+    it('files all three, the closest too, and the bar says so and offers the way on', async () => {
+      const items = [...group(), proposedFor('Ann1', 'p-anna')];
+      held.items = items;
+      sendThatFiles();
+      const user = await showInbox(items);
+
+      await user.click(screen.getByRole('button', { name: 'File all' }));
+
+      await screen.findByText('3 items moved to Falcon');
+      expect(nowOn('p-falcon').sort()).toEqual(items.slice(0, 3).map((item) => item.id).sort());
+      expect(nowOn('p-anna')).toEqual([]);
+      expect(barOffers()).toEqual(['Show', 'Also show on…', 'Undo']);
+    });
+
+    it('puts all three back with Undo', async () => {
+      const items = group();
+      held.items = items;
+      sendThatFiles();
+      const user = await showInbox(items);
+      await user.click(screen.getByRole('button', { name: 'File all' }));
+      await screen.findByText('3 items moved to Falcon');
+
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      await waitFor(() =>
+        expect(
+          (held.send.mock.calls as unknown as [{ name: string; payload: { panelId: string | null } }][]).filter(
+            ([args]) => args.name === 'move_item_to_panel' && args.payload.panelId === null,
+          ),
+        ).toHaveLength(3),
+      );
+    });
+
+    it('sends nothing more when pressed again while the first is still filing', async () => {
+      const items = group();
+      held.items = items;
+      const filing = Promise.withResolvers<void>();
+      held.send = vi.fn(() => filing.promise);
+      const user = await showInbox(items);
+      const fileAll = screen.getByRole('button', { name: 'File all' });
+
+      await user.click(fileAll);
+      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
+      await user.click(fileAll);
+      await user.click(fileAll);
+      filing.resolve();
+
+      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(3));
+      await screen.findByText('3 items moved to Falcon');
+      expect(held.send).toHaveBeenCalledTimes(3);
+    });
+
+    it('adds every moved Item to the Panel chosen in Also show on…, with one Undo of the add', async () => {
+      const items = group();
+      held.items = items;
+      sendThatFiles();
+      const user = await showInbox(items);
+      await user.click(screen.getByRole('button', { name: 'File all' }));
+      await screen.findByText('3 items moved to Falcon');
+
+      await user.click(screen.getByRole('button', { name: 'Also show on…' }));
+      const picker = await screen.findByRole('dialog');
+      expect(picker).toHaveTextContent('Also show 3 items on');
+      await user.click(within(picker).getByRole('button', { name: 'Anna' }));
+
+      expect(await screen.findByText('3 items added to Anna')).toBeVisible();
+      expect(nowOn('p-anna').sort()).toEqual(items.map((item) => item.id).sort());
+      expect(barOffers()).toEqual(['Undo']);
+    });
+
+    it('offers Show and Also show on… without Undo when one of them belonged to no Workspace', async () => {
+      const items = group();
+      items[1] = { ...items[1]!, workspaceDecided: false };
+      held.items = items;
+      sendThatFiles();
+      const user = await showInbox(items);
+
+      await user.click(screen.getByRole('button', { name: 'File all' }));
+
+      await screen.findByText('3 items moved to Falcon');
+      expect(barOffers()).toEqual(['Show', 'Also show on…']);
     });
   });
 
