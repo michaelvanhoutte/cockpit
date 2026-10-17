@@ -2539,6 +2539,21 @@ describe('Agents', () => {
       expect(marked()).toBe(false);
     });
 
+    it('keeps the mark when a child is left with no related target while the pointer is still in the row', () => {
+      offering();
+      act(() => liftAgent(SCOPE_IT.id));
+      fireEvent.dragOver(rowOf(), { dataTransfer: agentDrag });
+      rowOf().getBoundingClientRect = () => ({ left: 0, right: 400, top: 0, bottom: 40 }) as DOMRect;
+      const leaveAt = (clientX: number, clientY: number) =>
+        act(() => void rowOf().dispatchEvent(new MouseEvent('dragleave', { bubbles: true, clientX, clientY })));
+
+      leaveAt(380, 20);
+      expect(marked()).toBe(true);
+
+      leaveAt(380, 60);
+      expect(marked()).toBe(false);
+    });
+
     it('clears the mark on a drop', () => {
       offering();
       dropOnTheRow(SCOPE_IT.id);

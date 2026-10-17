@@ -1165,6 +1165,11 @@ export function ItemRow({
       onDragLeave={(event) => {
         // Moving between the row's own children is not leaving it.
         if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+        // Nor is a leave from one child to another where the browser names no
+        // related target: the pointer is still inside the row (issue 1128).
+        const row = event.currentTarget.getBoundingClientRect();
+        const { clientX: x, clientY: y } = event;
+        if (x > row.left && x < row.right && y > row.top && y < row.bottom) return;
         setAgentOver(false);
       }}
       onDrop={(event) => {
