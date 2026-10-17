@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { connectionHistorySchema, type ConnectionHistory as History, type SourceAccount } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
-import { historyDays } from '../connectionHistory';
+import { historyDays, olderDaysNote } from '../connectionHistory';
 import { useOpenItem } from '../itemForm';
 import { LoadFailure } from './LoadFailure';
 
@@ -48,6 +48,16 @@ export function ConnectionHistory({
   });
   const back = useRef<HTMLButtonElement>(null);
   const openItem = useOpenItem();
+  // The quiet past days whose lines were asked for (issue 1145).
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (day: string) =>
+    setUnfolded((held) => {
+      const next = new Set(held);
+      if (!next.delete(day)) next.add(day);
+      return next;
+    });
+  const now = new Date();
+  const older = data ? olderDaysNote(data.olderRemain, now) : null;
   // Opened from a menu that has gone with the list, so the focus starts on the way back.
   useEffect(() => back.current?.focus(), []);
 
@@ -88,11 +98,28 @@ export function ConnectionHistory({
         {error && !data && <LoadFailure error={error} onRetry={() => void refetch()} />}
         {data && data.lines.length === 0 && <p className="py-2 text-sm text-ink-faint">{account.pulled ? 'No checks yet.' : 'Nothing delivered yet.'}</p>}
         {data &&
-          historyDays(data.lines, new Date()).map((day) => (
+          historyDays(data.lines, now).map((day) => (
             <section key={day.key} aria-label={day.heading} className="mt-3 first:mt-0">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">{day.heading}</h4>
               <ul className="mt-1">
-                {day.lines.map((line) => (
+                {day.folded && (
+                  <li className="flex gap-3 border-b border-shade/5 py-1.5 text-sm last:border-b-0">
+                    <span className="w-28 shrink-0 tabular-nums text-ink-faint">{day.folded.when}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="text-ink-soft">{day.folded.says}</span>
+                      <span className="text-ink-faint"> · </span>
+                      <button
+                        type="button"
+                        aria-expanded={unfolded.has(day.key)}
+                        onClick={() => toggle(day.key)}
+                        className="rounded-sm text-ink-soft underline decoration-shade/30 hover:decoration-ink"
+                      >
+                        {unfolded.has(day.key) ? 'hide them' : 'show them'}
+                      </button>
+                    </span>
+                  </li>
+                )}
+                {(day.folded === null || unfolded.has(day.key)) && day.lines.map((line) => (
                   <li key={line.id} className="flex gap-3 border-b border-shade/5 py-1.5 text-sm last:border-b-0">
                     <span className="w-28 shrink-0 tabular-nums text-ink-faint">{line.when}</span>
                     <span className="min-w-0 flex-1">
@@ -126,6 +153,7 @@ export function ConnectionHistory({
               </ul>
             </section>
           ))}
+        {older && <p className="mt-3 text-sm text-ink-faint">{older}</p>}
       </div>
     </section>
   );

@@ -341,10 +341,13 @@ describe('Connector management', () => {
     });
   });
 
-  describe('a connection’s history read carries its newest lines, up to a fixed most', () => {
-    it('answers only the newest lines of a history longer than the read carries', async () => {
+  describe('a connection’s history read carries its newest lines, up to a fixed most, and says where older ones remain', () => {
+    it.each([
+      { situation: 'one line more than the read carries', lines: HISTORY_MOST_LINES + 1, olderRemain: true },
+      { situation: 'exactly as many lines as the read carries', lines: HISTORY_MOST_LINES, olderRemain: false },
+    ])('answers the newest lines of $situation', async ({ lines: held, olderRemain }) => {
       const id = await connect();
-      // One line more than the read carries, a minute apart, each its own.
+      // A minute apart, each its own.
       await inTheStore((sql) =>
         sql.exec(
           `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
@@ -353,17 +356,19 @@ describe('Connector management', () => {
                   strftime('%Y-%m-%dT%H:%M:%fZ', '2026-10-01T00:00:00.000Z', '+' || i || ' minutes'),
                   strftime('%Y-%m-%dT%H:%M:%fZ', '2026-10-01T00:00:00.000Z', '+' || i || ' minutes')
            FROM n`,
-          HISTORY_MOST_LINES,
+          held - 1,
           ACCOUNT_NAME,
           id,
         ),
       );
 
-      const { lines } = await historyOf(id);
+      const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/${id}/history`);
+      const read = (await res.json()) as { lines: Line[]; olderRemain: boolean };
 
-      expect(lines).toHaveLength(HISTORY_MOST_LINES);
-      expect(lines[0]!.message).toBe(`failure ${HISTORY_MOST_LINES}`);
-      expect(lines.at(-1)!.message).toBe('failure 1');
+      expect(read.lines).toHaveLength(HISTORY_MOST_LINES);
+      expect(read.lines[0]!.message).toBe(`failure ${held - 1}`);
+      expect(read.lines.at(-1)!.message).toBe(`failure ${held - HISTORY_MOST_LINES}`);
+      expect(read.olderRemain).toBe(olderRemain);
     });
   });
 });

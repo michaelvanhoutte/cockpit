@@ -1384,7 +1384,7 @@ const routes = app
     const account = await openAccount(c.env, c.get('visitor').accountName);
     // Throws where the row is not a live connection of this Workspace, which
     // `onError` answers with the 404 every connection route gives.
-    return c.json({ lines: await account.connectionHistory(workspaceId, sourceAccountId) }, 200);
+    return c.json(await account.connectionHistory(workspaceId, sourceAccountId), 200);
   })
   .openapi(checkConnectionNowRoute, async (c) => {
     const { workspaceId, sourceAccountId } = c.req.valid('param');
