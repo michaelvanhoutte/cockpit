@@ -23,12 +23,12 @@ import {
   type NameOutcome,
   type NamedTarget,
 } from '../domain/filing-by-name.js';
-
-/** The forms of name a connection that declared none reads. */
-const NO_FORMS: NameForms = { byDashboard: false };
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
 import { keptMessage, type CheckDid, type NamedOn } from '../domain/connection-history.js';
 import { recordCheck } from './connection-history.js';
+
+/** The forms of name a connection that declared none reads. */
+const NO_FORMS: NameForms = { byDashboard: false };
 
 /**
  * The store's half of checking a pulled connection through the generic host

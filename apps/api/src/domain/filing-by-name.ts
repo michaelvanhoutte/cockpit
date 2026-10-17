@@ -22,7 +22,7 @@ export interface NamedTarget {
 
 /**
  * A name as matching compares it: case folded as every name in Cockpit is,
- * accents dropped, `&` read as `and`, and runs of whitespace as one space, so
+ * accents dropped (Latin combining marks only, so kana and Indic marks keep their letters apart), `&` read as `and`, and runs of whitespace as one space, so
  * "admin and money" names *Admin & money* and `prive` names *Privé*. Nothing
  * else is loosened.
  *
@@ -30,7 +30,7 @@ export interface NamedTarget {
  * names are the same name across the app, and *Privé* and *Prive* stay two.
  */
 export function matchKey(name: string): string {
-  return nameKey(name.normalize('NFD').replace(/\p{M}/gu, ''));
+  return nameKey(name.normalize('NFD').replace(/[̀-ͯ]/g, ''));
 }
 
 /**

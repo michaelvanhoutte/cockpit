@@ -180,6 +180,11 @@ describe('Connector management', () => {
       expect(whatNamesDid(['prive-tasks'], [target], { skipAll: null, alreadyOn: new Set(), forms }).panelIds).toEqual(['p']);
     });
 
+    it('drops Latin accents only: kana that differ by a voicing mark stay two names', () => {
+      const target: NamedTarget = { id: 'p', name: 'か', kind: 'items', dashboardId: 'd', dashboardName: 'Home' };
+      expect(whatNamesDid(['が'], [target], { skipAll: null, alreadyOn: new Set() }).panelIds).toEqual([]);
+    });
+
     it('leaves the names Cockpit keeps unique alone: foldName still tells Privé from Prive', () => {
       expect(foldName('Privé')).not.toBe(foldName('Prive'));
     });
