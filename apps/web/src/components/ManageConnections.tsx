@@ -9,7 +9,14 @@ import {
   type SourceAccountList,
 } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
-import { refusalFrom, snapshotQuery, useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../api/queries';
+import {
+  refusalFrom,
+  snapshotQuery,
+  useCheckConnectionNow,
+  useCommand,
+  useConnectClaudeCode,
+  useTestClaudeCodeConnection,
+} from '../api/queries';
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { ConnectEngine } from './engines';
@@ -238,6 +245,9 @@ export default function ManageConnections({
   const list = useRef<HTMLDivElement>(null);
   const command = useCommand();
   const testClaudeCode = useTestClaudeCodeConnection(workspaceId);
+  const checkNow = useCheckConnectionNow(workspaceId);
+  /** What pressing *Check now* last came to, said where the person is looking (issue 1143). */
+  const [checkNowNote, setCheckNowNote] = useState<{ ok: boolean; text: string } | null>(null);
 
   const registered = (registry.data?.connectors ?? [])
     // The named card wins over a registered connector of the same id.
@@ -279,6 +289,21 @@ export default function ManageConnections({
     setDisconnecting(account.id);
   };
 
+  const openHistory = (account: SourceAccount) => {
+    setCheckNowNote(null);
+    setHistoryOf(account);
+  };
+
+  /** Asks for the connection's check at once; the line it writes arrives over the stream, so nothing here waits for it. */
+  const pressCheckNow = (account: SourceAccount) => {
+    setCheckNowNote(null);
+    checkNow.mutate(account.id, {
+      onSuccess: () =>
+        setCheckNowNote({ ok: true, text: `Checking ${account.displayName} now.` }),
+      onError: () => setCheckNowNote({ ok: false, text: 'That did not reach the server. Try again.' }),
+    });
+  };
+
   const stopAsking = () => {
     setDisconnecting(null);
     command.reset();
@@ -301,6 +326,7 @@ export default function ManageConnections({
     setAsking(null);
     setChangingChoice(null);
     setHistoryOf(null);
+    setCheckNowNote(null);
     onClose();
   };
 
@@ -350,8 +376,12 @@ export default function ManageConnections({
         <ConnectionHistory
           workspaceId={workspaceId}
           account={historyOf}
+          onCheckNow={() => pressCheckNow(historyOf)}
+          checkNowPending={checkNow.isPending}
+          checkNowNote={checkNowNote}
           onBack={() => {
             setHistoryOf(null);
+            setCheckNowNote(null);
             list.current?.focus();
           }}
         />
@@ -393,7 +423,7 @@ export default function ManageConnections({
                         (account.keepsHistory ? (
                           <button
                             type="button"
-                            onClick={() => setHistoryOf(account)}
+                            onClick={() => openHistory(account)}
                             className="block text-left text-sm text-over-ink underline-offset-2 hover:underline"
                           >
                             Failing: {account.failingBecause}
@@ -444,9 +474,13 @@ export default function ManageConnections({
                               },
                             ]
                           : []),
-                        // When it was checked and why it failed (issue 1140).
+                        // Its check made due at once, and when it was checked and
+                        // why it failed (issues 1143, 1140).
                         ...(account.keepsHistory
-                          ? [{ label: 'History…', onSelect: () => setHistoryOf(account) }]
+                          ? [
+                              { label: 'Check now', onSelect: () => pressCheckNow(account) },
+                              { label: 'History…', onSelect: () => openHistory(account) },
+                            ]
                           : []),
                         // The connector's own choice, changed without signing in
                         // again (issue 942).
@@ -509,6 +543,14 @@ export default function ManageConnections({
             )}
             {answered && connected.length === 0 && !isFetching && (
               <p className="px-4 py-4 text-sm text-ink-faint">Nothing connected yet. Add one below.</p>
+            )}
+            {checkNowNote && (
+              <p
+                role={checkNowNote.ok ? 'status' : 'alert'}
+                className={`px-4 py-2 text-sm ${checkNowNote.ok ? 'text-ink-soft' : 'text-over-ink'}`}
+              >
+                {checkNowNote.text}
+              </p>
             )}
             {claudeCodeMessage && (
               <p role="alert" className="px-4 py-2 text-sm text-over-ink">

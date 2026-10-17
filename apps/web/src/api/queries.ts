@@ -25,6 +25,7 @@ import {
   sendCommand,
   setAccess,
   startAgent,
+  checkConnectionNow,
   testClaudeCodeConnection,
 } from './client';
 
@@ -502,5 +503,16 @@ export function useTestClaudeCodeConnection(workspaceId: string) {
         return queryClient.invalidateQueries({ queryKey: ['sourceAccounts', workspaceId] });
       }
     },
+  });
+}
+
+/**
+ * *Check now* on a pulled connection ("Check a pulled connection now, from its
+ * row or its history", issue 1143). Re-reads nothing: it stores no line. The
+ * check's end announces its own line over the stream (`useServerEvents`).
+ */
+export function useCheckConnectionNow(workspaceId: string) {
+  return useMutation({
+    mutationFn: (sourceAccountId: string) => checkConnectionNow(workspaceId, sourceAccountId),
   });
 }

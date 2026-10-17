@@ -57,6 +57,8 @@ import {
   resealPulledCredential,
   savePulledState,
   schedulePulledChecks,
+  checkPulledConnectionNow,
+  type CheckedNow,
   type PulledRunBegun,
 } from './pulled.js';
 import type {
@@ -941,6 +943,23 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     if ((await this.ctx.storage.getAlarm()) !== null) return { status: 'ok', value: 'already armed' };
     await this.#arm(accountName);
     return { status: 'ok', value: 'armed' };
+  }
+
+  /**
+   * *Check now* on one pulled connection (issue 1143): its check made due at
+   * once and the alarm armed - or, with a check already queued or running, no
+   * more than that check relabelled or left, since the alarm is armed for it.
+   */
+  async checkPulledConnectionNow(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Promise<Answer<CheckedNow>> {
+    const answer = this.#answer(accountName, (db) =>
+      checkPulledConnectionNow(db, accountName, workspaceId, sourceAccountId, this.pulledConnectorIds(), new Date()),
+    );
+    if (answer.status === 'ok' && answer.value === 'queued') await this.#arm(accountName);
+    return answer;
   }
 
   /**

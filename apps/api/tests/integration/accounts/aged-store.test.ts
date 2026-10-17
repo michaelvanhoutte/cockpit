@@ -515,7 +515,7 @@ const rowsFor: {
     params: (name) => [name, AT, LATER],
   },
   {
-    // The table `0084-claude-sends` creates (issue 1162): a send kept as an
+    // The table `0085-claude-sends` creates (issue 1162): a send kept as an
     // example, for the next update to meet.
     table: 'claude_sends',
     sql: `INSERT INTO claude_sends (id, tenant_id, workspace_id, item_id, item_title, item_description, proposed_destination,
@@ -1972,6 +1972,28 @@ describe('Connector management', () => {
 
       expect(await linesIn()).toEqual(before.map((row) => ({ ...row, status: null })));
       expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ count: 2, status: null })]);
+    });
+  });
+
+  /**
+   * `0084-connection-history-written` ("Check a pulled connection now, from its
+   * row or its history", issue 1143) meets a history from before it: it adds an
+   * index and rewrites no line.
+   */
+  describe('a history stored before the live-updates index keeps every line whole', () => {
+    it('leaves the lines as they were and reads them back', async () => {
+      const name = 'aged-store-before-connection-history-written';
+      await agedTo(name, justBefore('0084-connection-history-written'));
+      await fillWithWhatIsAlreadyThere(name);
+      const linesIn = () =>
+        inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM connection_history ORDER BY id').toArray());
+      const before = await linesIn();
+      expect(before).toHaveLength(1);
+
+      const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
+
+      expect(await linesIn()).toEqual(before);
+      expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ count: 2 })]);
     });
   });
 

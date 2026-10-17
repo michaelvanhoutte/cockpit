@@ -1,7 +1,7 @@
-import { and, desc, eq, gt } from 'drizzle-orm';
+import { and, desc, eq, gt, max } from 'drizzle-orm';
 import { ACCOUNT_WIDE, type ServerEvent } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import { commands, itemMeanings, items } from './schema.js';
+import { commands, connectionHistory, connectorAccounts, itemMeanings, items } from './schema.js';
 
 /**
  * SSE invalidation source (architecture, "The read model", amended by
@@ -69,7 +69,43 @@ export function collectInvalidations(
     workspaceId,
     at,
   }));
+
+  /**
+   * **A check's end writes no command**, and the line it writes moves what an
+   * open history draws ("Check a pulled connection now, from its row or its
+   * history", issue 1143). So the lines are a source of their own event, naming
+   * the connection and not the snapshot, which they do not change.
+   */
+  for (const line of historyWrittenSince(db, tenantId, since).all()) {
+    events.push({ type: 'connection_history_changed', workspaceId: line.workspaceId, sourceAccountId: line.sourceAccountId });
+    if (line.lastAt > cursor) cursor = line.lastAt;
+  }
   return { events, cursor };
+}
+
+/**
+ * The connections of a live Workspace whose history a check wrote to after a
+ * cursor, each once with the newest time - a line a quiet check extends moves
+ * its `last_at`, so it counts as written too. Unrun, so the test that proves a
+ * poll with nothing new reads no line can plan this very statement.
+ */
+export function historyWrittenSince(db: AccountDb, tenantId: string, since: string) {
+  return db
+    .select({
+      workspaceId: connectorAccounts.workspaceId,
+      sourceAccountId: connectionHistory.sourceAccountId,
+      lastAt: max(connectionHistory.lastAt).mapWith(String),
+    })
+    .from(connectionHistory)
+    .innerJoin(connectorAccounts, eq(connectorAccounts.id, connectionHistory.sourceAccountId))
+    .where(
+      and(
+        eq(connectionHistory.tenantId, tenantId),
+        eq(connectorAccounts.tenantId, tenantId),
+        gt(connectionHistory.lastAt, since),
+      ),
+    )
+    .groupBy(connectorAccounts.workspaceId, connectionHistory.sourceAccountId);
 }
 
 /**

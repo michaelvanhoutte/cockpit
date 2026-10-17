@@ -48,3 +48,14 @@ export const connectionHistorySchema = z.object({
   lines: connectionHistoryLineSchema.array(),
 });
 export type ConnectionHistory = z.infer<typeof connectionHistorySchema>;
+
+/**
+ * What pressing *Check now* did ("Check a pulled connection now, from its row
+ * or its history", issue 1143): `queued` a check due at once; `already queued`
+ * one that was, now labelled *Check now*; `running` one under way, which keeps
+ * its own reason. Each leaves exactly one check.
+ */
+export const checkedNowSchema = z.object({
+  status: z.enum(['queued', 'already queued', 'running']),
+});
+export type CheckedNow = z.infer<typeof checkedNowSchema>;
