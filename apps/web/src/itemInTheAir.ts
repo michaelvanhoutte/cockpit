@@ -57,7 +57,20 @@ export function landItem(): void {
   selectionInTheAir = null;
   crossedFrom = null;
   keepAcrossSwitch(null);
+  stopListeningForTheEnd();
   tell();
+}
+
+/**
+ * The drag ended - `dragend` on a row still on the page, or the pointer speaking
+ * again where none is. One that crossed a Dashboard switch and was not dropped
+ * was cancelled, and its selection ends with it; a drop has already landed it
+ * (`landItem`), so this finds nothing to end.
+ */
+export function dragEnded(): void {
+  const from = crossedFrom;
+  landItem();
+  if (from !== null) endSelection(from);
 }
 
 /** The Panel the Item in the air was picked up from, or null if none, or if it is not this Item. */
@@ -104,19 +117,13 @@ export function carryAcrossSwitch(from: string): void {
   if (selectionInTheAir?.scope !== from) return;
   crossedFrom = from;
   keepAcrossSwitch(from);
-  for (const event of DRAG_IS_OVER) document.addEventListener(event, theDragIsOver);
+  for (const event of DRAG_IS_OVER) document.addEventListener(event, dragEnded);
 }
 
 const DRAG_IS_OVER = ['dragend', 'pointermove', 'pointerdown'] as const;
 
-function theDragIsOver() {
-  for (const event of DRAG_IS_OVER) document.removeEventListener(event, theDragIsOver);
-  // Already landed - dropped on a Panel, which has filed what it had to - and
-  // that drop ended the selection itself.
-  const from = crossedFrom;
-  if (from === null) return;
-  landItem();
-  endSelection(from);
+function stopListeningForTheEnd() {
+  for (const event of DRAG_IS_OVER) document.removeEventListener(event, dragEnded);
 }
 
 // ---------------------------------------------------------------------------
