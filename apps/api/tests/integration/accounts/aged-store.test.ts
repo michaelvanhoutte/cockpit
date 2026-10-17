@@ -74,6 +74,7 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
     captured_time_zone: _capturedTimeZone,
     due_date_chosen_at: _dueDateChosenAt,
     proposed_panel_fit: _proposedPanelFit,
+    claude_proposals: _claudeProposals,
     ...rest
   } = row;
   return rest;
@@ -1966,14 +1967,14 @@ describe('Connector management', () => {
   });
 
   /**
-   * `0083-connection-history-written` ("Check a pulled connection now, from its
+   * `0084-connection-history-written` ("Check a pulled connection now, from its
    * row or its history", issue 1143) meets a history from before it: it adds an
    * index and rewrites no line.
    */
   describe('a history stored before the live-updates index keeps every line whole', () => {
     it('leaves the lines as they were and reads them back', async () => {
       const name = 'aged-store-before-connection-history-written';
-      await agedTo(name, justBefore('0083-connection-history-written'));
+      await agedTo(name, justBefore('0084-connection-history-written'));
       await fillWithWhatIsAlreadyThere(name);
       const linesIn = () =>
         inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM connection_history ORDER BY id').toArray());

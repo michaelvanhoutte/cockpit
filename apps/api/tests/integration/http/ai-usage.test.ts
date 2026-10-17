@@ -19,6 +19,7 @@ import {
 import { handleQueue, handleScheduled } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { PURGE_BATCH } from '../../../src/gateway/record.js';
+import { heldProposals, proposeWhatWasHeld } from '../../held-proposals.js';
 
 /**
  * Integration level: each record is a row of the register's own D1, written
@@ -55,11 +56,25 @@ function theModelIsOnTheNetwork(): void {
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     if (url.hostname !== 'api.anthropic.com') throw new Error(`the suite tried to reach ${url.origin}`);
-    calls += 1;
     const sent = JSON.parse(input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}')) as {
       model: string;
       output_config: { format: { schema: { properties: Record<string, unknown> } } };
     };
+    // A proposal for Claude, which the case about those delivers (issue 1161):
+    // answered apart, so it neither takes a scripted attempt nor counts as one
+    // of the calls a case is about.
+    if ('proposals' in sent.output_config.format.schema.properties) {
+      return Response.json({
+        id: 'msg_1',
+        type: 'message',
+        role: 'assistant',
+        model: sent.model,
+        content: [{ type: 'text', text: JSON.stringify({ proposals: [{ destination: 'nothing', label: '', folder: '', prompt: '', why: 'Nothing to do.' }] }) }],
+        stop_reason: 'end_turn',
+        usage: SPENT,
+      });
+    }
+    calls += 1;
     const attempt = script.shift() ?? 'answers';
     if (attempt === 'times out') {
       // What the SDK's own timer does to the request once its minute is up.
@@ -106,7 +121,12 @@ interface Row {
   tokens_out: number | null;
 }
 
+/** Every record but a proposal for Claude's, which the case below about those reads alone. */
 async function records(): Promise<Row[]> {
+  return (await everyRecord()).filter((record) => record.operation !== 'propose-for-claude');
+}
+
+async function everyRecord(): Promise<Row[]> {
   return (await env.DB.prepare('SELECT * FROM provider_calls ORDER BY id').all<Row>()).results;
 }
 
@@ -278,6 +298,26 @@ describe('AI usage', () => {
           tokens_out: 78,
         });
       }
+    });
+
+    it('records what to do with a captured note being proposed, on the cheapest model', async () => {
+      const itemId = await captureANote();
+      // Held for every case (`held-proposals.ts`), and delivered here once queued.
+      await vi.waitFor(() => expect(heldProposals.some((job) => job.itemId === itemId)).toBe(true), {
+        timeout: 15_000,
+        interval: 25,
+      });
+
+      await proposeWhatWasHeld(env);
+
+      expect((await everyRecord()).find((record) => record.operation === 'propose-for-claude')).toMatchObject({
+        prompt_version: 'propose-for-claude.v2',
+        triggered_by: 'captured-in-app',
+        account_name: ACCOUNT_NAME,
+        item_id: itemId,
+        model: 'claude-haiku-5-5',
+        outcome: 'ok',
+      });
     });
 
     it('records nothing, and calls nothing, where no key is configured', async () => {

@@ -33,6 +33,8 @@ export type Trigger =
   | 'dictated-in-app'
   | 'mcp'
   | 'panel-settled'
+  /** An Item's words or filing changed, so what to do with it is proposed again (issue 1161). */
+  | 'item-changed'
   | 'backfill'
   | 'agent-started'
   | 'connection-test'

@@ -75,6 +75,7 @@ function anItem(
     proposedPanelId: null,
     proposedPanelReason: null,
     proposedPanelFit: null,
+    claudeProposals: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: holding.completedAt ?? null,

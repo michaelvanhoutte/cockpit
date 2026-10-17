@@ -486,9 +486,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0077-rewrite-history-panels-filed-on` adds the names a refinement filed
-    // a note on; the guest's demonstration adds rows only, and only to the guest.
-    rewrite_history: ['panels_filed_on'],
+    // `0082-item-claude-proposals` adds what Cockpit proposes doing with an
+    // Item; the guest's demonstration adds rows only, and only to the guest.
+    items: ['claude_proposals'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

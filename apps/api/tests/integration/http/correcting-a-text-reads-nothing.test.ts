@@ -230,7 +230,7 @@ describe('Triage', () => {
             description: 'Ring Jan about the outstanding invoice',
           }),
       },
-    ])('$situation leaves every other item as it is, asks the model nothing and adds nothing to What Cockpit changed', async ({ correct }) => {
+    ])('$situation leaves every other item as it is, asks the model only what to do with the corrected item and adds nothing to What Cockpit changed', async ({ correct }) => {
       const waiting = await captureANote('a note about validation');
       const correcting = await anItemAlreadyProposedFor('call jan about the invoice', 'Call jan');
       // The capture records, without a key, why nothing was enriched; that
@@ -245,7 +245,10 @@ describe('Triage', () => {
       expect((await correct(correcting)).status).toBe(200);
 
       await drainTheQueue();
-      expect(asked).toEqual([]);
+      // The one call left is the corrected item's own proposal for Claude
+      // ("Propose what to do with each item before you look", issue 1161):
+      // no other item is read again, and no text is rewritten.
+      expect(asked).toEqual([expect.stringMatching(/^Title: "(Call Jan about the invoice|Call jan)"/)]);
       expect(await titleOf(waiting)).toBe('a note about validation');
       expect(await rowsOfWhatCockpitChanged()).toBe(rowsBefore);
     });

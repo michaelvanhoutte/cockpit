@@ -21,6 +21,7 @@ import {
   EMBEDDING_MODEL,
 } from '../embeddings/index.js';
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
+import { sourceNames } from '../connectors/registry.js';
 import { itemsToReadAgain } from '../domain/panel-refresh.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
 import { debounceSecondsFor, isSuperseded, type RefreshAsk } from '../accounts/debounce.js';
@@ -76,7 +77,23 @@ export type EnrichmentJob =
   | ReadWhatItMeansJob
   | SimulatedRunWaitsJob
   | GuestArrivalJob
-  | CheckPulledConnectionJob;
+  | CheckPulledConnectionJob
+  | ProposeForClaudeJob;
+
+/**
+ * Asks for what to do with one Item to be proposed - Cowork, Claude Code, or
+ * nothing ("Propose what to do with each item before you look", issue 1161).
+ * An Item and not its words, for `CleanUpJob`'s reasons, and debounced per Item
+ * the way a Workspace's refresh is, so a capture whose clean-up rewrites its
+ * title, or a burst of edits, costs one call on the words it ends with.
+ */
+export interface ProposeForClaudeJob {
+  kind: 'propose-for-claude';
+  accountName: string;
+  itemId: string;
+  ask: RefreshAsk;
+  triggeredBy?: Trigger | undefined;
+}
 
 export interface CleanUpJob {
   kind: 'clean-up-a-note';
@@ -204,7 +221,7 @@ export interface CheckPulledConnectionJob {
 const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 const triggerSchema = z.union([
-  z.enum(['captured-in-app', 'mcp', 'panel-settled', 'backfill', 'agent-started', 'connection-test']),
+  z.enum(['captured-in-app', 'mcp', 'panel-settled', 'item-changed', 'backfill', 'agent-started', 'connection-test']),
   z.templateLiteral(['connector:', z.string().min(1).max(64)]),
 ]);
 
@@ -251,6 +268,13 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     kind: z.literal('check-a-pulled-connection'),
     accountName: z.string().min(1),
     sourceAccountId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('propose-for-claude'),
+    accountName: z.string().min(1),
+    itemId: z.uuid(),
+    ask: refreshAskSchema,
+    triggeredBy: triggerSchema.optional(),
   }),
 ]);
 
@@ -693,6 +717,14 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // an Item's texts - and only where the write actually landed, so a
   // redelivered job whose proposal the store refused costs no second reading.
   if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, job.itemId, job.triggeredBy);
+  // What to do with it is proposed again from the words, Workspace and Panels
+  // it now has, taking the place of the ask capture made (issue 1161) - asked
+  // once everything below has landed, so the Panel proposal is never held up
+  // behind it.
+  const proposeAgain = async () => {
+    const moved = fieldsSet.workspaceId !== undefined || (fieldsSet.filedOnPanelIds ?? []).length > 0;
+    if (written.applied || moved) await enqueueProposalForClaude(env, job.accountName, job.itemId, job.triggeredBy);
+  };
 
   // Filed where the note said, as the person's own filing: the routing has
   // settled, so no Panel is proposed (the store withdrew any), and the rest of
@@ -714,6 +746,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
         proposedPanelReason: null,
       }),
     );
+    await proposeAgain();
     return;
   }
 
@@ -771,6 +804,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       proposedPanelReason: routed === 'routed' ? (proposedPanel?.reason ?? null) : null,
     }),
   );
+  await proposeAgain();
 }
 
 /**
@@ -1264,6 +1298,112 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
     }
   }
   if (!aCallFailed) await recordThatItRan();
+}
+
+/**
+ * Asks for what to do with one Item to be proposed again, without making
+ * whatever changed it wait ("Propose what to do with each item before you
+ * look", issue 1161): on capture, when its words are rewritten - by the person
+ * or by the clean-up - and when it is filed. Debounced per Item by
+ * `askForRefresh`, which also queues nothing without a key or for the guest.
+ */
+export async function enqueueProposalForClaude(
+  env: Env,
+  accountName: string,
+  itemId: string,
+  triggeredBy?: Trigger | undefined,
+): Promise<void> {
+  await askForRefresh(
+    env,
+    accountName,
+    claudeProposalRefresh(itemId),
+    (ask) => ({ kind: 'propose-for-claude', accountName, itemId, ask, triggeredBy }),
+    `the proposal for item ${itemId}`,
+  );
+}
+
+/** Which refresh an Item's proposal is, to the record of asks: one per Item. */
+function claudeProposalRefresh(itemId: string): string {
+  return `propose-for-claude:${itemId}`;
+}
+
+/**
+ * Proposes what to do with one Item and writes it onto the Item, replacing what
+ * it carried ("Propose what to do with each item before you look", issue 1161).
+ *
+ * **A decision is a return and a failure is a throw**, as `cleanUpACapturedNote`
+ * splits them: the guest, no key, a later ask, an Item gone, finished with or
+ * dismissed, and an answer that will not validate all end quietly with the Item
+ * keeping what it had; only the call itself is left to throw and be retried.
+ */
+export async function proposeForClaude(env: Env, job: ProposeForClaudeJob): Promise<void> {
+  if (job.accountName === GUEST_ACCOUNT_NAME) return say(job.itemId, `nothing was proposed: ${GUEST_NEVER_CALLS_THE_MODEL}`);
+  const ai = aiFor(env);
+  if (!ai) return say(job.itemId, 'nothing was proposed: this environment has no ANTHROPIC_API_KEY');
+
+  let account;
+  try {
+    account = await openAccount(env, job.accountName);
+  } catch (error) {
+    if (error instanceof AccountNotInRegisterError) {
+      return say(job.itemId, 'nothing was proposed: the account is no longer in the register');
+    }
+    throw error;
+  }
+  if (await aLaterAskTookItsPlace(account, claudeProposalRefresh(job.itemId), job.ask)) {
+    return say(job.itemId, 'nothing was proposed yet: a later change queued the proposal that will');
+  }
+
+  // Read as it stands now, so a change made while this waited is what is read.
+  const item = await account.item(job.itemId);
+  if (!item) return say(job.itemId, 'nothing was proposed: no such item in this account');
+  if (!couldStillBeActedOn(item)) return say(job.itemId, 'nothing was proposed: the item is finished with or dismissed');
+
+  const context = await account.claudeProposalContext(item.id);
+  const read = await ai.proposeForClaude(
+    {
+      title: item.title,
+      description: item.description,
+      // Where it came from by the name the row shows; a note captured here is from nowhere.
+      source: item.source === 'internal' ? null : (sourceNames(env)[item.source] ?? item.source),
+      sender: item.sender,
+      workspace: context.workspace,
+      filedOn: context.filedOn,
+    },
+    context.folders,
+    { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
+  );
+  if (!('proposals' in read)) return say(job.itemId, `nothing was proposed: ${read.discarded}`);
+  // Asked again once the answer is in, because `madeFrom` cannot tell: the
+  // clean-up's rewrite and a filing leave `updatedAt` alone, so a later ask
+  // that ran while this one waited on the model would be written over.
+  if (await aLaterAskTookItsPlace(account, claudeProposalRefresh(job.itemId), job.ask)) {
+    return say(job.itemId, 'nothing was written: a later change queued the proposal that will');
+  }
+
+  let written;
+  try {
+    written = await account.applyChange('propose_item_for_claude', {
+      commandId: crypto.randomUUID(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: item.workspaceId,
+      itemId: item.id,
+      proposals: read.proposals,
+      madeFrom: item.updatedAt,
+    });
+  } catch (error) {
+    if (error instanceof NotFoundInAccountError) {
+      return say(job.itemId, 'nothing was written: the item went while it was being read');
+    }
+    throw error;
+  }
+  if (written.applied) return say(job.itemId, `proposed ${read.proposals.map((one) => one.destination).join(', ')}`);
+  // Asked again, because most changes that move `updatedAt` - a priority, a
+  // due date, a start - queue no proposal of their own, and the Item would
+  // otherwise keep none. One finished with or dismissed since ends the next
+  // run before the model is called.
+  say(job.itemId, 'nothing was written: the item changed while it was being read, so it is asked again');
+  await enqueueProposalForClaude(env, job.accountName, job.itemId, job.triggeredBy);
 }
 
 /**
