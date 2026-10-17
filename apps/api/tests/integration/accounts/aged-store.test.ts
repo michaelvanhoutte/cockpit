@@ -1966,7 +1966,13 @@ describe('Connector management', () => {
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([
         expect.objectContaining({
           count: 2,
-          did: { broughtIn: nothing, closed: nothing, sentBack: nothing, refused: nothing },
+          did: {
+            broughtIn: nothing,
+            closed: nothing,
+            sentBack: nothing,
+            refused: nothing,
+            named: { count: 0, messages: [] },
+          },
         }),
       ]);
     });

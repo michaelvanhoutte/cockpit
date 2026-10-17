@@ -15,6 +15,7 @@ import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
+import type { NamedOn } from '../domain/connection-history.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
@@ -438,13 +439,13 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     runId: string,
     item: SourceItem & { sourceId: string },
     ids: { itemId: string; commandId: string },
-  ): Awaitable<Answer<EmittedItem | 'disconnected'>>;
+  ): Awaitable<Answer<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }>>;
   reportPulledNames(
     accountName: string,
     sourceAccountId: string,
     runId: string,
     report: NamesReport,
-  ): Awaitable<Answer<'recorded' | 'unknown' | 'disconnected'>>;
+  ): Awaitable<Answer<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }>>;
   applyPulledSourceChange(
     accountName: string,
     sourceAccountId: string,

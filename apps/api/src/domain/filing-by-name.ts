@@ -17,6 +17,7 @@ export interface NamedTarget {
   name: string;
   kind: PanelKind;
   dashboardId: string;
+  dashboardName: string;
 }
 
 /**
@@ -35,16 +36,80 @@ export function matchKey(name: string): string {
  * Each Panel once, in the order of the names.
  */
 export function panelsNamedBy(names: readonly string[], panels: readonly NamedTarget[]): string[] {
+  return whatNamesDid(names, panels, { skipAll: null, alreadyOn: new Set() }).panelIds;
+}
+
+/**
+ * Why a name filed nothing ("Name each category a check read, and whether it
+ * filed or why it skipped", issue 1197): no Panel carries it; Panels of Items
+ * carry it (`dashboards` of them hold one); it is the mark the connection
+ * follows; it was on the Item before filing was ticked; filing by name is
+ * off; or the Item is on the Panel it names already.
+ */
+export type SkipWhy = 'no-panel' | 'several' | 'followed' | 'baseline' | 'off' | 'already-there';
+
+/**
+ * What one name did, as a check's line keeps it: filed on `panel` (of
+ * `dashboard`), or skipped for `why`. Panel and Dashboard are named as they
+ * were when it happened, since the line is a record of that moment.
+ */
+export interface NameOutcome {
+  name: string;
+  panel: string | null;
+  dashboard: string | null;
+  why: SkipWhy | null;
+  /** How many Dashboards hold a Panel the name matches, where it matched several. */
+  dashboards: number | null;
+}
+
+/**
+ * Settles each name against the Workspace's Panels, in order: what it did, and
+ * the Panels (each once) the Item is to be added to. `skipAll` is a reason that
+ * holds whatever the name matches (filing off, no baseline); `alreadyOn` the
+ * Panels the Item is on, which a name is not filed on again.
+ */
+export function whatNamesDid(
+  names: readonly string[],
+  panels: readonly NamedTarget[],
+  how: { skipAll: 'off' | 'baseline' | null; alreadyOn: ReadonlySet<string> },
+): { outcomes: NameOutcome[]; panelIds: string[] } {
   const takers = panels.filter((panel) => panelTakesItems(panel));
-  const chosen: string[] = [];
+  const outcomes: NameOutcome[] = [];
+  const panelIds: string[] = [];
+  const skipped = (name: string, why: SkipWhy, dashboards: number | null = null): NameOutcome => ({
+    name,
+    panel: null,
+    dashboard: null,
+    why,
+    dashboards,
+  });
   for (const name of names) {
+    if (how.skipAll) {
+      outcomes.push(skipped(name, how.skipAll));
+      continue;
+    }
     const key = matchKey(name);
     const matching = takers.filter((panel) => matchKey(panel.name) === key);
-    if (matching.length !== 1) continue;
-    const panelId = matching[0]!.id;
-    if (!chosen.includes(panelId)) chosen.push(panelId);
+    if (matching.length === 0) {
+      outcomes.push(skipped(name, 'no-panel'));
+      continue;
+    }
+    if (matching.length > 1) {
+      outcomes.push(skipped(name, 'several', new Set(matching.map((panel) => panel.dashboardId)).size));
+      continue;
+    }
+    const panel = matching[0]!;
+    const there = how.alreadyOn.has(panel.id);
+    outcomes.push({
+      name,
+      panel: panel.name,
+      dashboard: panel.dashboardName,
+      why: there ? 'already-there' : null,
+      dashboards: null,
+    });
+    if (!there && !panelIds.includes(panel.id)) panelIds.push(panel.id);
   }
-  return chosen;
+  return { outcomes, panelIds };
 }
 
 /**

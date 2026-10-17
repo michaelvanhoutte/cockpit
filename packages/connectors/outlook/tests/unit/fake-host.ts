@@ -73,7 +73,7 @@ export class FakeHost implements ConnectorHost {
   }
 
   async reportNames(report: NamesReport): Promise<void> {
-    this.namesReported.push({ sourceId: report.sourceId, names: [...report.names] });
+    this.namesReported.push({ ...report, names: [...report.names] });
   }
 
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {

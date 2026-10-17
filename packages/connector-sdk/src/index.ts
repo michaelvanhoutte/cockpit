@@ -205,6 +205,14 @@ export type SourceItem = Pick<
    * Absent: nothing is known of its names.
    */
   names?: readonly string[];
+  /**
+   * The mark the connection follows, in the source's own spelling, where this
+   * Item carries it among its names and the connector left it out of 
+ames
+   * (Outlook's Cockpit category). Only for the host to say, on a check's
+   * line, that it was not filed by (issue 1197).
+   */
+  followed?: string;
 };
 
 /**
@@ -216,6 +224,8 @@ export type SourceItem = Pick<
 export interface NamesReport {
   sourceId: string;
   names: readonly string[];
+  /** As SourceItem.followed, for an Item already emitted. */
+  followed?: string;
 }
 
 /**

@@ -17,12 +17,13 @@ import { applySourceStateChange } from './source-state.js';
 import {
   namesNewSince,
   namesToRecord,
-  panelsNamedBy,
   recordedNames,
+  whatNamesDid,
+  type NameOutcome,
   type NamedTarget,
 } from '../domain/filing-by-name.js';
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
-import { keptMessage, type CheckDid } from '../domain/connection-history.js';
+import { keptMessage, type CheckDid, type NamedOn } from '../domain/connection-history.js';
 import { recordCheck } from './connection-history.js';
 
 /**
@@ -326,28 +327,30 @@ export function filePulledItem(
   item: SourceItem & { sourceId: string },
   ids: { itemId: string; commandId: string },
   at: string,
-): EmittedItem | 'disconnected' {
+): { answer: EmittedItem | 'disconnected'; named: NamedOn | null } {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
-  if (!holds) return 'disconnected';
+  if (!holds) return { answer: 'disconnected', named: null };
   // One transaction for the Item, its filings and its link, so a check that
   // fails partway leaves no Item and the next one makes and files it once
-  // (issue 1146).
-  return db.transaction((): EmittedItem => {
+  // (issue 1146). What each name did is decided in it, and answered with it
+  // (issue 1197).
+  return db.transaction((): { answer: EmittedItem; named: NamedOn | null } => {
     const link = linkOf(db, accountName, holds, item.sourceId);
     if (link) {
       // An Item emitted again still says what its names are now.
-      if (item.names) recordNames(db, accountName, holds, link, item.names, at);
-      return 'already-known';
+      const outcomes = item.names ? recordNames(db, accountName, holds, link, item.names, item.followed, at) : [];
+      return { answer: 'already-known', named: namedOn(link.itemId, outcomes) };
     }
     const message = item.capturedMessage ?? item.title;
     if (!message) throw new Error('a pulled item carries neither a message nor a title');
     const names = item.names ? namesToRecord(item.names) : null;
     // Every name is new on an Item just made, so each names its Panel - while
     // the connection files by name, and recorded either way.
-    const panelIds =
-      names && names.length > 0 && holds.filesByName
-        ? panelsNamedBy(names, panelsOf(db, accountName, holds.workspaceId))
-        : [];
+    const decided = whatNamesDid(names ?? [], names && holds.filesByName ? panelsOf(db, accountName, holds.workspaceId) : [], {
+      skipAll: holds.filesByName ? null : 'off',
+      alreadyOn: new Set(),
+    });
+    const panelIds = decided.panelIds;
     runCommand(
       db,
       accountName,
@@ -390,8 +393,13 @@ export function filePulledItem(
       })
       .onConflictDoNothing()
       .run();
-    return 'filed';
+    return { answer: 'filed', named: namedOn(ids.itemId, outcomesWithMark(decided.outcomes, item.followed)) };
   });
+}
+
+/** An Item's outcomes for a check's line, or null where it has none to say. */
+function namedOn(itemId: string, names: NameOutcome[]): NamedOn | null {
+  return names.length === 0 ? null : { itemId, names };
 }
 
 /**
@@ -407,14 +415,14 @@ export function reportPulledNames(
   runId: string,
   report: NamesReport,
   at: string,
-): 'recorded' | 'unknown' | 'disconnected' {
+): { answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null } {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
-  if (!holds) return 'disconnected';
-  return db.transaction(() => {
+  if (!holds) return { answer: 'disconnected', named: null };
+  return db.transaction((): { answer: 'recorded' | 'unknown'; named: NamedOn | null } => {
     const link = linkOf(db, accountName, holds, report.sourceId);
-    if (!link) return 'unknown';
-    recordNames(db, accountName, holds, link, report.names, at);
-    return 'recorded';
+    if (!link) return { answer: 'unknown', named: null };
+    const outcomes = recordNames(db, accountName, holds, link, report.names, report.followed, at);
+    return { answer: 'recorded', named: namedOn(link.itemId, outcomes) };
   });
 }
 
@@ -430,10 +438,12 @@ function recordNames(
   holds: { workspaceId: string; filesByName: boolean },
   link: { itemId: string; names: string | null; workspaceId: string; connectorId: string; externalAccountKey: string; sourceId: string },
   reported: readonly string[],
+  followed: string | undefined,
   at: string,
-): void {
+): NameOutcome[] {
   const names = namesToRecord(reported);
-  const fresh = namesNewSince(recordedNames(link.names), names);
+  const baseline = recordedNames(link.names);
+  const fresh = namesNewSince(baseline, names);
   db.update(pulledLinks)
     .set({ names: JSON.stringify(names) })
     .where(
@@ -446,13 +456,24 @@ function recordNames(
       ),
     )
     .run();
-  if (!holds.filesByName || fresh.length === 0) return;
+  // What a check's line says: the names read for the first time on this Item,
+  // or those new since the last report (issue 1197) - none where they are unchanged.
+  const changed = baseline === null ? names : fresh;
+  if (changed.length === 0) return [];
+  const skipAll = !holds.filesByName ? 'off' : baseline === null ? 'baseline' : null;
+  if (skipAll) return outcomesWithMark(whatNamesDid(changed, [], { skipAll, alreadyOn: new Set() }).outcomes, followed);
   const item = getItem(db, accountName, link.itemId);
   // An Item moved to another Workspace is filed only by a person there.
-  if (!item || item.workspaceId !== holds.workspaceId) return;
-  for (const panelId of panelsNamedBy(fresh, panelsOf(db, accountName, holds.workspaceId))) {
-    const held = listFilingsOnPanel(db, accountName, panelId);
-    if (held.some((filing) => filing.itemId === link.itemId)) continue;
+  if (!item || item.workspaceId !== holds.workspaceId) return [];
+  const panels = panelsOf(db, accountName, holds.workspaceId);
+  const wouldFile = whatNamesDid(changed, panels, { skipAll: null, alreadyOn: new Set() }).panelIds;
+  const filedBefore = new Map(wouldFile.map((panelId) => [panelId, listFilingsOnPanel(db, accountName, panelId)]));
+  const alreadyOn = new Set(
+    wouldFile.filter((panelId) => filedBefore.get(panelId)!.some((filing) => filing.itemId === link.itemId)),
+  );
+  const decided = whatNamesDid(changed, panels, { skipAll: null, alreadyOn });
+  for (const panelId of decided.panelIds) {
+    const held = filedBefore.get(panelId)!;
     runCommand(
       db,
       accountName,
@@ -469,6 +490,17 @@ function recordNames(
       { fromTheSource: true },
     );
   }
+  return outcomesWithMark(decided.outcomes, followed);
+}
+
+/**
+ * The outcomes of the names read, with the mark the connection follows put
+ * before them where the connector said the Item carries it. Said only beside
+ * another name: a message with nothing but the mark has nothing to report.
+ */
+function outcomesWithMark(outcomes: NameOutcome[], followed: string | undefined): NameOutcome[] {
+  if (outcomes.length === 0 || !followed) return outcomes;
+  return [{ name: followed, panel: null, dashboard: null, why: 'followed', dashboards: null }, ...outcomes];
 }
 
 /** Every live Panel of the Workspace, with the Dashboard it is on - what names are matched against. */
@@ -479,6 +511,7 @@ function panelsOf(db: AccountDb, accountName: string, workspaceId: string): Name
       name: panel.name,
       kind: panel.kind,
       dashboardId: dashboard.id,
+      dashboardName: dashboard.name,
     })),
   );
 }

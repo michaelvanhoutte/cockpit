@@ -15,7 +15,7 @@ import {
   type CheckEnded,
   type CheckOutcome,
   type CheckReason,
-  type DidKept,
+  type DidStored,
 } from '../domain/connection-history.js';
 
 /**
@@ -25,8 +25,6 @@ import {
  */
 
 type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
-
-type DidAsStored = Record<DidKind, DidKept>;
 
 const KINDS = ['broughtIn', 'closed', 'sentBack', 'refused'] as const;
 
@@ -189,12 +187,14 @@ export function connectionHistoryOf(
     .all();
   const olderRemain = read.length > HISTORY_MOST_LINES;
   const lines = read.slice(0, HISTORY_MOST_LINES);
-  const stored = lines.map((line) => (line.did === null ? null : (JSON.parse(line.did) as DidAsStored)));
+  const stored = lines.map((line) => (line.did === null ? null : (JSON.parse(line.did) as DidStored)));
   const titles = titlesOf(
     db,
     accountName,
     workspaceId,
-    stored.flatMap((did) => (did ? KINDS.flatMap((kind) => did[kind].ids) : [])),
+    stored.flatMap((did) =>
+      did ? [...KINDS.flatMap((kind) => did[kind].ids), ...(did.named?.messages.map((one) => one.itemId) ?? [])] : [],
+    ),
   );
   return {
     lines: lines.map(({ did: _did, ...line }, index) => ({ ...line, did: shown(stored[index] ?? null, titles) })),
@@ -221,7 +221,7 @@ export function pruneConnectionHistory(db: AccountDb, accountName: string, keptF
 type ItemNamed = { title: string | null; dismissed: boolean };
 
 /** What a line did, with each Item named; nothing where it did nothing. */
-function shown(did: DidAsStored | null, titles: Map<string, ItemNamed>): CheckDidShown {
+function shown(did: DidStored | null, titles: Map<string, ItemNamed>): CheckDidShown {
   const kind = (which: DidKind) => ({
     count: did?.[which].count ?? 0,
     items: (did?.[which].ids ?? []).flatMap((id) => {
@@ -229,7 +229,19 @@ function shown(did: DidAsStored | null, titles: Map<string, ItemNamed>): CheckDi
       return named ? [{ id, ...named }] : [];
     }),
   });
-  return { broughtIn: kind('broughtIn'), closed: kind('closed'), sentBack: kind('sentBack'), refused: kind('refused') };
+  return {
+    broughtIn: kind('broughtIn'),
+    closed: kind('closed'),
+    sentBack: kind('sentBack'),
+    refused: kind('refused'),
+    named: {
+      count: did?.named?.count ?? 0,
+      messages: (did?.named?.messages ?? []).flatMap(({ itemId, names }) => {
+        const named = titles.get(itemId);
+        return named ? [{ id: itemId, ...named, names }] : [];
+      }),
+    },
+  };
 }
 
 /**

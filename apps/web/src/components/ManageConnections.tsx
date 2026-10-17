@@ -326,6 +326,7 @@ export default function ManageConnections({
         <ConnectionHistory
           workspaceId={workspaceId}
           account={historyOf}
+          namesNoun={namesOf(historyOf.connectorId)?.noun}
           onCheckNow={() => pressCheckNow(historyOf)}
           checkNowPending={checkNow.isPending}
           checkNowNote={checkNowNote}

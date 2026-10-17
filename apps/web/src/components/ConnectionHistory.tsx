@@ -25,6 +25,7 @@ async function fetchHistory(workspaceId: string, sourceAccountId: string): Promi
 export function ConnectionHistory({
   workspaceId,
   account,
+  namesNoun,
   onCheckNow,
   checkNowPending,
   checkNowNote,
@@ -32,6 +33,8 @@ export function ConnectionHistory({
 }: {
   workspaceId: string;
   account: SourceAccount;
+  /** What the connector calls a name a person gives an Item there (*category*), where it reports them (issue 1197). */
+  namesNoun?: string | undefined;
   /** Asks for the connection's check at once (issue 1143); its line arrives here when the check ends. */
   onCheckNow: () => void;
   checkNowPending: boolean;
@@ -98,7 +101,7 @@ export function ConnectionHistory({
         {error && !data && <LoadFailure error={error} onRetry={() => void refetch()} />}
         {data && data.lines.length === 0 && <p className="py-2 text-sm text-ink-faint">{account.pulled ? 'No checks yet.' : 'Nothing delivered yet.'}</p>}
         {data &&
-          historyDays(data.lines, now, data.olderRemain, account.followsListed).map((day) => (
+          historyDays(data.lines, now, data.olderRemain, account.followsListed, namesNoun).map((day) => (
             <section key={day.key} aria-label={day.heading} className="mt-3 first:mt-0">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">{day.heading}</h4>
               <ul className="mt-1">
@@ -147,6 +150,24 @@ export function ConnectionHistory({
                           {list.more > 0 && <span className="text-ink-faint"> and {list.more} more</span>}
                         </p>
                       ))}
+                      {line.named.map((message) => (
+                        <p key={`named-${message.key}`} className="mt-0.5 break-words text-ink-soft">
+                          {message.id === null ? (
+                            <span className="italic text-ink-faint">{message.text}</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openItem(message.id!)}
+                              className="rounded-sm text-left underline decoration-shade/30 hover:decoration-ink"
+                            >
+                              {message.text}
+                            </button>
+                          )}
+                          <span className="text-ink-faint"> · </span>
+                          {message.outcomes.join('; ')}
+                        </p>
+                      ))}
+                      {line.namedMore > 0 && <p className="mt-0.5 text-ink-faint">and {line.namedMore} more</p>}
                     </span>
                   </li>
                 ))}
