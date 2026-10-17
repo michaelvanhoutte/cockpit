@@ -1163,6 +1163,20 @@ async function change<N extends CommandName>(
 }
 
 /**
+ * A remembered sentence as it stands before it is reworded or deleted
+ * (issue 1164), undefined where there is none. **Held to the same minute as
+ * Remember**, since each change asks for Items to be proposed again.
+ */
+async function sentenceBeforeItChanges(env: Env, accountName: string, sentenceId: string) {
+  const account = await openAccount(env, accountName);
+  const before = (await account.rememberedSentences()).find((one) => one.id === sentenceId);
+  if ((await account.sentenceCallArrived('remember', new Date().toISOString())) === 'too-many') {
+    throw new ConflictInAccountError('Too many sentences were changed in the last minute. Try again shortly.');
+  }
+  return before;
+}
+
+/**
  * `move_item_to_panel` and `add_item_to_panel`, either of which may settle a
  * routing - landing an Item on a real Panel for the first time - which is
  * the moment a refresh of the rest of its Workspace's Inbox is worth firing
@@ -1912,12 +1926,7 @@ const routes = app
   .openapi(commandRoute('edit_remembered_sentence', { conflict: 'The sentence is refused: it points somewhere, or too many were changed in a minute' }), async (c) => {
     const cmd = c.req.valid('json');
     const accountName = c.get('visitor').accountName;
-    const account = await openAccount(c.env, accountName);
-    const before = (await account.rememberedSentences()).find((one) => one.id === cmd.sentenceId);
-    // Held to the same minute as Remember: each change asks for Items to be proposed again.
-    if ((await account.sentenceCallArrived('remember', new Date().toISOString())) === 'too-many') {
-      throw new ConflictInAccountError('Too many sentences were changed in the last minute. Try again shortly.');
-    }
+    const before = await sentenceBeforeItChanges(c.env, accountName, cmd.sentenceId);
     const result = await change(c, 'edit_remembered_sentence', cmd);
     // Proposed again with the sentence as it now reads, unless it reads as it did.
     if (result.applied && before && before.sentence !== onOneLine(cmd.sentence)) {
@@ -1928,11 +1937,7 @@ const routes = app
   .openapi(commandRoute('delete_remembered_sentence', { conflict: 'Too many sentences were changed in a minute' }), async (c) => {
     const cmd = c.req.valid('json');
     const accountName = c.get('visitor').accountName;
-    const account = await openAccount(c.env, accountName);
-    const before = (await account.rememberedSentences()).find((one) => one.id === cmd.sentenceId);
-    if ((await account.sentenceCallArrived('remember', new Date().toISOString())) === 'too-many') {
-      throw new ConflictInAccountError('Too many sentences were changed in the last minute. Try again shortly.');
-    }
+    const before = await sentenceBeforeItChanges(c.env, accountName, cmd.sentenceId);
     const result = await change(c, 'delete_remembered_sentence', cmd);
     // The Items it shaped are proposed again without it; already gone asks for nothing.
     if (result.applied && before) {

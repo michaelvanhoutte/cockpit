@@ -28,7 +28,7 @@ const held = vi.hoisted(() => ({
   /** The remembered sentences the account holds, as Settings lists them, and how often they were read. */
   sentences: [] as unknown[],
   sentencesRead: 0,
-  /** Where *change* was pressed: the section and the sentence. */
+  /** The sentences *change* was pressed on. */
   settingsOpened: [] as unknown[][],
 }));
 
@@ -527,7 +527,7 @@ describe('Agents', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Change \u201cMails to the supplier: Dutch.\u201d' }));
 
-      expect(held.settingsOpened).toEqual([['remembered', FIRST]]);
+      expect(held.settingsOpened).toEqual([[FIRST]]);
       expect(onClose).not.toHaveBeenCalled();
     });
 

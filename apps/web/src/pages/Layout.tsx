@@ -537,7 +537,7 @@ function TheShell() {
     setManaging('settings');
   }, []);
   /** Settings on one remembered sentence, over the window that used it (issue 1164). */
-  const openSentence = useCallback((_on: SettingsKey, sentenceId?: string) => {
+  const openSentence = useCallback((sentenceId: string) => {
     setSettingsOn('remembered');
     setConnectOutcome(undefined);
     setSettingsSentence(sentenceId);

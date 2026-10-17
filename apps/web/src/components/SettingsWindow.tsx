@@ -24,7 +24,7 @@ export interface ConnectOutcomeFor {
 
 /**
  * Settings: the account's Gmail and Teams connections, the Claude Code
- * connection and the MCP apps, each the content of the window it used to have
+ * connection, the MCP apps and the sentences Cockpit remembers, each the content of the window it used to have
  * ("Open Settings from the profile menu, with connections, agent
  * settings and MCP as its sections", issue 693).
  */

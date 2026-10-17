@@ -177,9 +177,9 @@ export interface Account {
   claudeProposalContext(itemId: string, model: string): Promise<ClaudeProposalContext>;
   /** The send kept under a Run, with what an offer to remember a sentence is made from (issue 1163); null where none was kept. */
   sendToOfferOn(runId: string): Promise<SendToOfferOn | null>;
-  /** The open Items a sentence for this kind of source, in this Workspace or in any, may fit (issue 1163). */
   /** The account's remembered sentences, newest first (issue 1164). */
   rememberedSentences(): Promise<RememberedSentenceView[]>;
+  /** The open Items a sentence for this kind of source, in this Workspace or in any, may fit (issue 1163). */
   openItemsASentenceMayFit(sourceKind: string, workspaceId: string | null): Promise<string[]>;
   /**
    * What a title or description proposal reads about how this account

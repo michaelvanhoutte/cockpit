@@ -278,7 +278,7 @@ export function SendToClaudeWindow({
                           type="button"
                           disabled={sending}
                           aria-label={`Change “${one.sentence}”`}
-                          onClick={() => openSettings('remembered', one.id)}
+                          onClick={() => openSettings(one.id)}
                           className="shrink-0 rounded px-1.5 text-accent-deep underline hover:bg-accent-tint disabled:opacity-50"
                         >
                           change

@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import { ACCOUNT_NAME, OTHER_ACCOUNT_NAME, WORKSPACE_ID, asUser, inStoreAsItIs, inTheStore } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
-import { ACCOUNT_WIDE } from '@cockpit/shared';
+import { ACCOUNT_WIDE, rememberedSentenceListSchema } from '@cockpit/shared';
 import { aModelThatReads, batchOf, captureANote, nextId, postChange, proposing } from './note-cleanup.support.js';
 
 /**
@@ -69,7 +69,8 @@ async function kept(
 async function listed() {
   const res = await asUser('http://cockpit.test/v1/remembered-sentences');
   expect(res.status).toBe(200);
-  return ((await res.json()) as { sentences: Record<string, unknown>[] }).sentences;
+  // Read as the Settings section reads it: a body its schema refuses lists nothing there.
+  return rememberedSentenceListSchema.parse(await res.json()).sentences;
 }
 
 async function editTo(sentenceId: string, sentence: string, commandId = nextId()) {

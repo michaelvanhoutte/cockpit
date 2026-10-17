@@ -62,8 +62,12 @@ export const rememberedSentenceViewSchema = z.object({
   action: z.string(),
   /** Where the Items it applies to came from: a connector or kind of source, as the Item names it. */
   sourceKind: z.string(),
-  /** The Workspace it names, or null for every Workspace. */
-  workspaceId: z.uuid().nullable(),
+  /**
+   * The Workspace it names, or null for every Workspace. Not a uuid: an
+   * account's first Workspace is `ws-1`, and a list that would not parse for
+   * a sentence naming it would show none of the others either.
+   */
+  workspaceId: z.string().nullable(),
   /** That Workspace's name, null where it names none or the Workspace is gone. */
   workspaceName: z.string().nullable(),
   useCount: z.number().int().nonnegative(),
