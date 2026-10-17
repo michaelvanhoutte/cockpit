@@ -66,6 +66,7 @@ function aPanel(id: string, dashboardId: string, kind: Panel['kind'] = 'items'):
     neverPropose: false,
     filter: null,
     sort: null,
+    columns: null,
   };
 }
 

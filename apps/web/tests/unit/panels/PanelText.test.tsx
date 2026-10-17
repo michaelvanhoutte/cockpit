@@ -39,6 +39,7 @@ function aPanelOfText(holding: Partial<Panel> = {}): Panel {
     neverPropose: false,
     filter: null,
     sort: null,
+    columns: null,
     ...holding,
   };
 }

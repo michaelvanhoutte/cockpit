@@ -70,6 +70,8 @@ export function firstPanelFor(
     filterConditions: null,
     // Manual: a Panel is drawn in the order its Items were filed until somebody sorts it.
     sortCriteria: null,
+    // One list until somebody splits it.
+    columns: null,
     createdAt: dashboard.createdAt,
     deletedAt: null,
   };
@@ -152,6 +154,8 @@ export interface PanelRow {
   filterConditions: string | null;
   /** How the Panel's rows are sorted, as `panelSortAsStored` writes it, or null for Manual. */
   sortCriteria: string | null;
+  /** The narrowest a column may be, by name, or null for one list. */
+  columns: string | null;
   createdAt: string;
   deletedAt: string | null;
 }
@@ -186,6 +190,7 @@ export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelR
     kind: cmd.kind === 'filter' ? 'items' : cmd.kind,
     filterConditions: cmd.kind === 'filter' ? panelFilterAsStored([]) : null,
     sortCriteria: null,
+    columns: null,
     // The characters as typed, until somebody asks for formatting: it is what
     // costs nothing to draw, and a panel with nothing in it has nothing to
     // format anyway.

@@ -106,6 +106,7 @@ function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
     neverPropose: false,
     filter: kind === 'filter' ? { rows: [], groupBy: 'none' } : null,
     sort: null,
+    columns: null,
   };
 }
 

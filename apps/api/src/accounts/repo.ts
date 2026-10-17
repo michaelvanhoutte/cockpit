@@ -6,6 +6,7 @@ import {
   DEFAULT_ITEM_FORM_PRESENTATION,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
+  panelColumnsSchema,
   panelSortFrom,
   type AgentRun,
   type Association,
@@ -284,6 +285,8 @@ const panelColumns = {
   filterConditions: panels.filterConditions,
   // How a panel of items is sorted, or null for Manual.
   sortCriteria: panels.sortCriteria,
+  // The narrowest a column may be, or null for one list.
+  columns: panels.columns,
 };
 
 /**
@@ -296,19 +299,22 @@ const panelColumns = {
  * remember that the stored kind and the read kind are not the same question.
  */
 function panelAsRead(row: PanelRowRead): Panel {
-  const { filterConditions, sortCriteria, ...rest } = row;
+  const { filterConditions, sortCriteria, columns: storedColumns, ...rest } = row;
   const filter = panelFilterFrom(filterConditions);
   const sort = panelSortFrom(sortCriteria);
+  // A name this release cannot read is one list, as a sort it cannot read is Manual.
+  const columns = panelColumnsSchema.safeParse(storedColumns).data ?? null;
   return filter === null
-    ? { ...rest, filter: null, sort }
-    : { ...rest, kind: 'filter', filter, sort };
+    ? { ...rest, filter: null, sort, columns }
+    : { ...rest, kind: 'filter', filter, sort, columns };
 }
 
 /** What `panelColumns` selects, before `panelAsRead` turns it into a `Panel`. */
-type PanelRowRead = Omit<Panel, 'kind' | 'filter' | 'sort'> & {
+type PanelRowRead = Omit<Panel, 'kind' | 'filter' | 'sort' | 'columns'> & {
   kind: StoredPanelKind;
   filterConditions: string | null;
   sortCriteria: string | null;
+  columns: string | null;
 };
 
 /**

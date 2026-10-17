@@ -1797,6 +1797,26 @@ describe('Panels', () => {
     });
   });
 
+  describe('every panel an account already had is drawn as one list', () => {
+    /**
+     * `0089-panel-columns`' direction that matters: every panel that already
+     * existed takes NULL, so none of them starts splitting into columns.
+     */
+    it('reads every panel back with no columns', async () => {
+      const name = 'aged-store-before-columns';
+      await agedTo(name, justBefore('0089-panel-columns'));
+      await fillWithWhatIsAlreadyThere(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok' });
+      const panels = snapshot.status === 'ok' ? snapshot.value.panels : [];
+      expect(panels.length).toBeGreaterThan(0);
+      expect(panels.map((panel) => panel.columns)).toEqual(panels.map(() => null));
+    });
+  });
+
   describe('every panel an account already had is still proposed', () => {
     /**
      * `0057-panel-never-propose`'s direction that matters: every panel that
