@@ -1291,7 +1291,8 @@ test.describe('Panels', () => {
       const answered = answerTo(page, 'set_panel_settings');
       const form = await openPanelSettings(page, panel, isMobile);
       await form.getByRole('textbox', { name: 'Name' }).fill(renamed);
-      await form.getByRole('checkbox', { name: `Suggest ${panel} for new items in the Inbox` }).uncheck();
+      // The box names the Panel as it is now typed.
+      await form.getByRole('checkbox', { name: `Suggest ${renamed} for new items in the Inbox` }).uncheck();
       await press(form.getByRole('button', { name: 'Save' }), isMobile);
       expect((await answered).status()).toBe(200);
       await expect(page.getByRole('region', { name: renamed })).toBeVisible();

@@ -105,7 +105,7 @@ function PanelSettingsQuestion({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem)] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto rounded-lg border border-shade/10 bg-surface p-6 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh_-_2rem_-_var(--edge-top))] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto rounded-lg border border-shade/10 bg-surface p-6 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">Panel settings</Dialog.Title>
           <Dialog.Description className="pt-1 text-sm text-ink-soft">{kindLine(panel)}</Dialog.Description>
@@ -161,11 +161,12 @@ function PanelSettingsQuestion({
                             name={`${ids}-width`}
                             checked={columnWidth === choice.value}
                             onChange={() => setColumnWidth(choice.value)}
+                            aria-labelledby={`${ids}-${choice.value}-label`}
                             aria-describedby={`${ids}-${choice.value}`}
                             className="peer sr-only"
                           />
                           <span className="flex flex-col items-center rounded-md border border-shade/15 px-2 py-1.5 peer-checked:border-accent peer-checked:bg-accent-tint peer-checked:font-medium peer-focus-visible:ring-2 peer-focus-visible:ring-accent-soft/40">
-                            {choice.label}
+                            <span id={`${ids}-${choice.value}-label`}>{choice.label}</span>
                             <span id={`${ids}-${choice.value}`} className="text-[11px] font-normal text-ink-faint">
                               {choice.suits}
                             </span>
