@@ -130,7 +130,7 @@ Good: *A panel shows exactly the actions assigned to it.* *A change replayed aft
 
 Prefer a rule whose **table grows as the product grows**: one "a change to an item that no longer exists is refused" with a row per change, not one rule per endpoint. On the frontend, "a change that fails puts the screen back" absorbs all of them.
 
-**Frontend rules are about the UI's own behaviour and its wiring, never a restatement of a backend rule.** Bad: a browser test for "removing an action from a panel leaves it on the other panels". Good: "the remove control sends a remove for this panel", plus one browser walk per capability.
+**Frontend rules are about the UI's own behaviour and its wiring, never a restatement of a backend rule.** Bad: a browser test for "removing an action from a panel leaves it on the other panels". Good: "the remove control sends a remove for this panel", plus a browser walk per behaviour.
 
 The shape — one body, tables as data, so adding a situation is one line:
 
@@ -171,9 +171,10 @@ If step 3 reveals a failure the tests missed, add the missing test before finish
 
 **Budget.** The fast tiers stay under 5 minutes locally, L1+F1 in seconds. Exceeding it makes restoring it priority work (push tests down the pyramid, delete redundant ones, parallelize), never resolved by skipping runs. Keep L3/F3 few and thin: before adding one, ask what it proves that nothing below can.
 
-**A capability gets one browser walk; a second needs different setup, not a different assertion.** That question alone did not hold the tier, because it asks whether a walk needs a browser and the answer is usually yes — F3 reached 110 walks, `item-editing` making 115 setup calls for its 33. So:
+**A browser walk proves one behaviour, and typically takes at most 15 seconds on CI** (`docs/testing-strategy.md`, "Run-time budget"):
 
-- **Before adding a `test()` under `tests/e2e/`, extend the walk in that `describe` which already reaches the state you need.** Start a new one only where getting there costs as many steps as starting over.
+- **Extend a walk under `tests/e2e/` only with assertions on the behaviour its title names.** A new behaviour gets its own `test()`, under the `describe` of the behaviour it builds on, or its own `describe` where it builds on none.
+- **Split a walk past 15 seconds; never give it a longer timeout** (`test.slow()`, a raised `timeout`). One near Playwright's 30 seconds fails on a slow runner with nothing broken, and the test explorer lists a walk's title, not its steps.
 - **Before adding any walk, read the F1 rules for that area.** Where the proposition is already stated there, the walk is duplication — and where only part of it is, the rest belongs on a walk that is already standing, not on one of its own.
 - **Each product area has a ceiling**, `browserWalks` in `tools/test-explorer/concepts.json`, held by `pnpm test:e2e:ceilings` in CI's `E2E (F3)` job and counted from `playwright test --list`. Passing it fails the run until a walk goes or the ceiling is raised in the same pull request; an area sitting under its ceiling is reported, which is the prompt to bring the ceiling down.
 - **A walk with no rule around it has no statement to review**, so keep the shape "Name it after the product, not the mechanism" gives above with nothing skipped — an area straight to a case is a missing `describe`, not a badly named one.

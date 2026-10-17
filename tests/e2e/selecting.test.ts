@@ -85,6 +85,36 @@ async function goToTheDashboard(page: Page, dashboard: string, isMobile: boolean
 }
 
 /**
+ * A dashboard of this walk's own with three panels - Falcon holding two rows,
+ * Reading one and Done none - and a fourth row left in the Inbox, with the
+ * dashboard on screen. Falcon's two are filed together, as one selection, so
+ * they hold the order every walk after it reads them back in.
+ */
+async function picksOnTwoPanels(page: Page, isMobile: boolean) {
+  const { dashboard, panel: falcon } = await ownDashboardWithAPanel(page, isMobile);
+  const reading = await addPanel(page, 'Reading', isMobile);
+  const done = await addPanel(page, 'Done', isMobile);
+  const [first, second, third, inInbox] = [
+    uniqueTitle('Reply to Bart'),
+    uniqueTitle('Renew the domain'),
+    uniqueTitle('Chase the purchase order'),
+    uniqueTitle('Left in the Inbox'),
+  ] as const;
+  await goToTheInbox(page, isMobile);
+  for (const title of [first, second, third, inInbox]) await capture(page, title, isMobile);
+  await startSelecting(page, first, isMobile);
+  await addToSelection(page, second, isMobile);
+  await page.getByRole('button', { name: 'Move to…' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: falcon, exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await fileOnto(page, third, reading, isMobile);
+  await goToTheDashboard(page, dashboard, isMobile);
+  await expect.poll(() => itemsOn(page, falcon)).toEqual([first, second]);
+  await expect.poll(() => itemsOn(page, reading)).toEqual([third]);
+  return { dashboard, falcon, reading, done, first, second, third, inInbox };
+}
+
+/**
  * The first row picked, by whichever door this device has: a finger rests on
  * the row to start a selection, a pointer ctrl/cmd-clicks it - from anywhere on
  * the row, since the checkbox that used to carry this is gone.
@@ -268,36 +298,11 @@ test.describe('Selection', () => {
   });
 
   test.describe('rows picked across a dashboard’s panels share one selection and one bar', () => {
-    test('picks on two panels, selects all, ends it from the Inbox, files and edits every pick together', async ({
+    test('picks on two panels, under one bar at the foot of the dashboard and clear of the Inbox', async ({
       page,
       isMobile,
     }) => {
-      // The longest walk here: it reaches the state every step after the first
-      // needs, so what Edit adds is extended onto it rather than set up again.
-      test.slow();
-      const { dashboard, panel: falcon } = await ownDashboardWithAPanel(page, isMobile);
-      const reading = await addPanel(page, 'Reading', isMobile);
-      const done = await addPanel(page, 'Done', isMobile);
-      const [first, second, third, inInbox] = [
-        uniqueTitle('Reply to Bart'),
-        uniqueTitle('Renew the domain'),
-        uniqueTitle('Chase the purchase order'),
-        uniqueTitle('Left in the Inbox'),
-      ] as const;
-      await goToTheInbox(page, isMobile);
-      for (const title of [first, second, third, inInbox]) await capture(page, title, isMobile);
-      await startSelecting(page, first, isMobile);
-      await addToSelection(page, second, isMobile);
-      await page.getByRole('button', { name: 'Move to…' }).click();
-      await page.getByRole('dialog').getByRole('button', { name: falcon, exact: true }).click();
-      await expect(page.getByRole('dialog')).toHaveCount(0);
-      await fileOnto(page, third, reading, isMobile);
-      await goToTheDashboard(page, dashboard, isMobile);
-      await expect.poll(() => itemsOn(page, falcon)).toEqual([first, second]);
-      await expect.poll(() => itemsOn(page, reading)).toEqual([third]);
-
-      // Picks on two panels are one selection under one bar - at the foot of
-      // the dashboard, in view, and not over the Inbox beside it.
+      const { first, third } = await picksOnTwoPanels(page, isMobile);
       await startSelecting(page, first, isMobile);
       await addToSelection(page, third, isMobile);
       await expect(page.getByText('2 selected')).toHaveCount(1);
@@ -308,7 +313,12 @@ test.describe('Selection', () => {
         const column = (await inbox(page).boundingBox())!;
         expect(bar.x + bar.width <= column.x || column.x + column.width <= bar.x).toBe(true);
       }
+    });
 
+    test('selects all of a panel, and all of the dashboard from its own menu', async ({ page, isMobile }) => {
+      const { dashboard, falcon, first, third } = await picksOnTwoPanels(page, isMobile);
+      await startSelecting(page, first, isMobile);
+      await addToSelection(page, third, isMobile);
       // Select all on a panel adds its rows to what the other holds.
       await choosePanelAction(page, falcon, 'Select all', isMobile);
       await expect(page.getByText('3 selected')).toBeVisible();
@@ -319,19 +329,23 @@ test.describe('Selection', () => {
       await press(page.getByRole('button', { name: `Actions for ${dashboard}` }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Select all items' }), isMobile);
       await expect(page.getByText('3 selected')).toBeVisible();
+    });
 
-      // The Inbox keeps a selection of its own: starting one ends this. (A
-      // phone shows one or the other, so there is nothing beside it to end.)
-      if (!isMobile) {
-        await startSelecting(page, inInbox, isMobile);
-        await expect(inbox(page).getByText('1 selected')).toBeVisible();
-        await expect(page.getByText(/ selected$/)).toHaveCount(1);
-      }
+    test('ends the dashboard’s selection when one starts in the Inbox beside it', async ({ page, isMobile }) => {
+      // A phone shows one or the other, so there is nothing beside it to end.
+      test.skip(isMobile, 'a phone shows the Inbox or the dashboard, never both');
+      const { first, third, inInbox } = await picksOnTwoPanels(page, isMobile);
+      await startSelecting(page, first, isMobile);
+      await addToSelection(page, third, isMobile);
+      await startSelecting(page, inInbox, isMobile);
+      await expect(inbox(page).getByText('1 selected')).toBeVisible();
+      await expect(page.getByText(/ selected$/)).toHaveCount(1);
       await page.getByRole('button', { name: 'Clear' }).click();
       await expect(page.getByText(/ selected$/)).toHaveCount(0);
+    });
 
-      // Move to… files every pick, from whichever panel, and one Undo puts
-      // them all back where each was.
+    test('moves every pick with Move to…, and one Undo puts each back where it was', async ({ page, isMobile }) => {
+      const { falcon, reading, done, first, second, third } = await picksOnTwoPanels(page, isMobile);
       await startSelecting(page, first, isMobile);
       await addToSelection(page, third, isMobile);
       await page.getByRole('button', { name: 'Move to…' }).click();
@@ -348,10 +362,15 @@ test.describe('Selection', () => {
       await expect.poll(() => itemsOn(page, done)).toEqual([]);
       await expect.poll(() => itemsOn(page, falcon)).toEqual([first, second]);
       await expect.poll(() => itemsOn(page, reading)).toEqual([third]);
+    });
 
-      // Edit sets a field on every pick, from whichever panel: both rows take
-      // the priority, the selection is still held, and the field now reads
-      // what both share.
+    test('edits a field on every pick, the offer clear of the bar, and one Undo puts both back', async ({
+      page,
+      isMobile,
+    }) => {
+      const { first, third } = await picksOnTwoPanels(page, isMobile);
+      // Both rows take the priority, the selection is still held, and the
+      // field now reads what both share.
       const high = (title: string) => itemRow(page, title).getByRole('img', { name: 'High priority' });
       await startSelecting(page, first, isMobile);
       await addToSelection(page, third, isMobile);
@@ -379,13 +398,16 @@ test.describe('Selection', () => {
       await page.getByRole('button', { name: 'Undo' }).click();
       await expect(high(first)).toHaveCount(0);
       await expect(high(third)).toHaveCount(0);
-      await page.getByRole('button', { name: 'Clear' }).click();
+    });
 
-      // The Inbox's bar offers the same Edit.
+    test('offers the same Edit from the Inbox’s bar', async ({ page, isMobile }) => {
+      await signIn(page, ADA, isMobile);
+      const inInbox = uniqueTitle('Left in the Inbox');
       await goToTheInbox(page, isMobile);
+      await capture(page, inInbox, isMobile);
       await startSelecting(page, inInbox, isMobile);
       await chooseFromEdit(page, 'Priority', 'High', isMobile);
-      await expect(high(inInbox)).toBeVisible();
+      await expect(itemRow(page, inInbox).getByRole('img', { name: 'High priority' })).toBeVisible();
     });
   });
 
