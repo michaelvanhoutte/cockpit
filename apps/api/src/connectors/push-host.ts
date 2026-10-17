@@ -1,8 +1,10 @@
-import type {
-  ConnectedAccountHost,
-  EmittedItem,
-  PushHost,
-  SourceItem,
+import {
+  SourceError,
+  type Connector,
+  type ConnectedAccountHost,
+  type EmittedItem,
+  type PushHost,
+  type SourceItem,
 } from '@cockpit/connector-sdk';
 import type { Env } from '../env.js';
 import { AccountNotInRegisterError, openAccount, type Account } from '../accounts/index.js';
@@ -38,7 +40,51 @@ export interface PushSurroundings {
   readonly filed: (accountName: string, itemId: string, connectorId: string) => void;
 }
 
-export function pushHostFor(connectorId: string, around: PushSurroundings): PushHost {
+/** What a failed delivery's line says where the error was not one a connector worded for the person. */
+export const DELIVERY_FAILED = 'Cockpit could not file this delivery.';
+
+/**
+ * Hands a connector the push (`handleWebhook`) and writes the *Failed* line of
+ * one that throws once it has been attributed to a connection ("See what each
+ * Teams save became, in its connection's history", issue 1144), then lets the
+ * error go on - Teams redelivers an action it got no 200 for. **Before
+ * attribution there is no connection to write to**: a call refused, or naming
+ * an account nothing has connected, stays in the Worker's logs only.
+ *
+ * The message is the connector's own where it threw the SDK's `SourceError`,
+ * whose contract keeps credentials and URLs out of it, with its status; any
+ * other error says only that the delivery could not be filed, since its text is
+ * the platform's and may carry what was delivered.
+ */
+export async function handlePush(
+  connector: Connector,
+  request: Request,
+  around: PushSurroundings,
+): Promise<Response> {
+  const attributed: { to: { account: Account; sourceAccountId: string } | null } = { to: null };
+  const host = pushHostFor(connector.manifest.id, around, (account, sourceAccountId) => {
+    attributed.to = { account, sourceAccountId };
+  });
+  try {
+    return await connector.handleWebhook!(request, host);
+  } catch (error) {
+    if (attributed.to) {
+      const failure =
+        error instanceof SourceError
+          ? { message: error.message, status: error.status ?? null }
+          : { message: DELIVERY_FAILED, status: null };
+      // A line that cannot be written must not hide the error that caused it.
+      await attributed.to.account.pushFailed(attributed.to.sourceAccountId, failure).catch(() => {});
+    }
+    throw error;
+  }
+}
+
+export function pushHostFor(
+  connectorId: string,
+  around: PushSurroundings,
+  attributedTo: (account: Account, sourceAccountId: string) => void = () => {},
+): PushHost {
   return {
     log: (level, message, data) => logged(connectorId, level, message, data),
 
@@ -60,6 +106,7 @@ export function pushHostFor(connectorId: string, around: PushSurroundings): Push
           await forgetConnection(around.env, pointer, connectorId, externalAccountKey);
           continue;
         }
+        attributedTo(account!, connection.id);
         return connectedHost(connectorId, around, pointer, account!, connection.id);
       }
       return null;
@@ -135,7 +182,8 @@ function connectedHost(
         throw new Error(`the ${connectorId} connector emitted an item its source does not name`);
       }
       const itemId = await derivedUuid(`item:${connectorId}:${sourceId}`);
-      const result = await account.applyChange('capture_item', {
+      // With the line naming the Item it became, in the same transaction.
+      const result = await account.capturePushed(sourceAccountId, {
         commandId: await derivedUuid(`capture:${connectorId}:${sourceId}`),
         issuedAt: new Date().toISOString(),
         workspaceId: pointer.workspaceId,

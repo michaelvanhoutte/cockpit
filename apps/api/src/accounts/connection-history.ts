@@ -1,13 +1,15 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { CheckDidShown, ConnectionHistoryLine } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import { SourceAccountNotFoundError } from './command-service.js';
+import type { CommandPayload, CommandResult } from '@cockpit/shared';
+import { SourceAccountNotFoundError, runCommand } from './command-service.js';
 import { getSourceAccount } from './repo.js';
 import { connectionHistory, items } from './schema.js';
 import {
   HISTORY_MOST_LINES,
   didAnything,
   keptDid,
+  keptMessage,
   whatACheckWrites,
   type CheckDid,
   type CheckEnded,
@@ -86,6 +88,64 @@ export function recordCheck(
       did: kept === null ? null : JSON.stringify(kept),
     })
     .run();
+}
+
+/**
+ * Files a delivery a source pushed, attributed to one connection ("See what
+ * each Teams save became, in its connection's history", issue 1144): the
+ * capture and the line naming the Item it made are one transaction, so neither
+ * lands without the other. A delivery whose capture made nothing new - the same
+ * click delivered again - writes no second line, and one whose connection has
+ * gone since it was attributed writes no line to nobody.
+ */
+export function capturePushed(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  capture: CommandPayload<'capture_item'>,
+  at: string,
+): CommandResult {
+  return db.transaction((tx) => {
+    const result = runCommand(db, accountName, 'capture_item', capture);
+    if (result.applied && getSourceAccount(db, accountName, sourceAccountId)) {
+      recordCheck(
+        tx,
+        accountName,
+        sourceAccountId,
+        'delivery',
+        { outcome: 'worked' },
+        { broughtIn: [capture.itemId], closed: [], sentBack: [], refused: [] },
+        at,
+      );
+    }
+    return result;
+  });
+}
+
+/**
+ * Writes the *Failed* line of a delivery that failed after it was attributed
+ * to a connection (issue 1144). The message is kept to 2 KB like a pulled
+ * check's; nothing happens where the connection has gone.
+ */
+export function recordPushFailed(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  failure: { message: string; status: number | null },
+  at: string,
+): void {
+  if (!getSourceAccount(db, accountName, sourceAccountId)) return;
+  db.transaction((tx) =>
+    recordCheck(
+      tx,
+      accountName,
+      sourceAccountId,
+      'delivery',
+      { outcome: 'failed', ...keptMessage(failure.message), status: failure.status },
+      { broughtIn: [], closed: [], sentBack: [], refused: [] },
+      at,
+    ),
+  );
 }
 
 /**

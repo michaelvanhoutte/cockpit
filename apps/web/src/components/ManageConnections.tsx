@@ -476,11 +476,11 @@ export default function ManageConnections({
                           : []),
                         // Its check made due at once, and when it was checked and
                         // why it failed (issues 1143, 1140).
+                        ...(account.pulled
+                          ? [{ label: 'Check now', onSelect: () => pressCheckNow(account) }]
+                          : []),
                         ...(account.keepsHistory
-                          ? [
-                              { label: 'Check now', onSelect: () => pressCheckNow(account) },
-                              { label: 'History…', onSelect: () => openHistory(account) },
-                            ]
+                          ? [{ label: 'History…', onSelect: () => openHistory(account) }]
                           : []),
                         // The connector's own choice, changed without signing in
                         // again (issue 942).

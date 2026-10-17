@@ -56,7 +56,12 @@ export interface HistoryDay {
 }
 
 /** Why a check ran, in words; a reason this release does not know says nothing. */
-const REASONS: Record<string, string> = { scheduled: 'Scheduled', 'follow-up': 'Follow-up', 'check-now': 'Check now' };
+const REASONS: Record<string, string> = {
+  scheduled: 'Scheduled',
+  'follow-up': 'Follow-up',
+  'check-now': 'Check now',
+  delivery: 'Delivered',
+};
 
 const time = (at: string) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 

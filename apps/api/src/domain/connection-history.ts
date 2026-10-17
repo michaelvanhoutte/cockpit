@@ -6,10 +6,12 @@
  */
 
 /**
- * Why a check ran: on the connection's cadence, soon after one that said there
- * was more to do, or because a person pressed *Check now* (issue 1143).
+ * Why a line was written: a check on the connection's cadence, soon after one
+ * that said there was more to do, because a person pressed *Check now* (issue
+ * 1143) - or, for a connection the source pushes to, a `delivery` it made
+ * ("See what each Teams save became, in its connection's history", issue 1144).
  */
-export type CheckReason = 'scheduled' | 'follow-up' | 'check-now';
+export type CheckReason = 'scheduled' | 'follow-up' | 'check-now' | 'delivery';
 
 /** What a check did, by Item id: brought in, closed, sent back to the source, refused by it for good. */
 export interface CheckDid {
@@ -114,9 +116,12 @@ function isQuiet(line: { outcome: 'worked' | 'failed'; did: boolean }): boolean 
  * did anything; inserts a line of its own otherwise - a check that did anything is
  * never folded, and never extended. Nor is a *Check now* (issue 1143): a person
  * pressed it to see its line, which a later quiet check would bury in a count.
+ * Nor is a delivery (issue 1144): each is one save, and a failed one is one
+ * click Teams will redeliver.
  */
 export function whatACheckWrites(previous: LineAsHeld | null, ended: CheckOutcome): 'extend' | 'insert' {
   if (previous === null || ended.did || previous.did) return 'insert';
+  if (ended.reason === 'delivery' || previous.reason === 'delivery') return 'insert';
   if (ended.reason === 'check-now' || previous.reason === 'check-now') return 'insert';
   if (isQuiet(ended)) return isQuiet(previous) ? 'extend' : 'insert';
   if (ended.outcome !== 'failed' || previous.outcome !== 'failed') return 'insert';

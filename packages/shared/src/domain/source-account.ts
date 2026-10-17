@@ -58,9 +58,16 @@ export const sourceAccountSchema = z.object({
   filesByName: z.boolean().default(false),
   /**
    * Whether the connection keeps a history its row's *History…* opens - a
-   * connection Cockpit pulls from, today (issue 1140). Absent reads as none.
+   * connection Cockpit pulls from (issue 1140) or one its source pushes to
+   * (issue 1144). Absent reads as none.
    */
   keepsHistory: z.boolean().optional(),
+  /**
+   * Whether Cockpit pulls from the source, which is what *Check now* asks of
+   * it - a pushed connection has a history and nothing to check (issue 1144).
+   * Absent reads as not pulled.
+   */
+  pulled: z.boolean().optional(),
 });
 export type SourceAccount = z.infer<typeof sourceAccountSchema>;
 
