@@ -6,6 +6,7 @@ import {
   uuidv7,
   workspaceIsDecided,
   type Item,
+  type PanelColumns,
   type PanelFit,
 } from '@cockpit/shared';
 import {
@@ -19,6 +20,7 @@ import { CommandRefused } from '../api/client';
 import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
 import { itemInTheAir, panelLiftedFrom } from '../itemInTheAir';
+import { columnsStyle, landingAmongColumns } from '../panelColumns';
 import {
   filedOrderOnPanel,
   filingsThatFile,
@@ -93,7 +95,16 @@ export function ItemList({
   emptyMessage,
   fillsTheRestOfItsColumn = false,
   groupByProposal = false,
+  columns = null,
 }: {
+  /**
+   * That the rows are drawn in columns of at least this width, when the Panel
+   * is wide enough ("Split a wide Panel's rows into columns, at a minimum width
+   * set in its settings", issue 1207). Rows still fill across, then down, in
+   * the order given; a drop lands by the half of the row under the pointer, and
+   * is shown as an edge on that row rather than a line between two.
+   */
+  columns?: PanelColumns | null;
   /**
    * Draws the rows under a header per Panel proposed for two or more of them
    * ("Group the Inbox's rows under a header per proposed Panel", issue 1166).
@@ -741,15 +752,20 @@ export function ItemList({
    * shorter than its neighbours, is where it looks like it is and not where an
    * index would put it.
    */
-  const gapUnder = (y: number): number => {
+  const gapUnder = (x: number, y: number): number => {
     // The rows themselves, not the line drawn between them: a landing line is
     // a child of the same list, and counting it would move the midpoints under
     // the pointer as the line follows it about.
-    const drawn = [...(rows.current?.querySelectorAll('[data-item-row]') ?? [])].map((row) => {
-      const box = row.getBoundingClientRect();
-      return box.top + box.height / 2;
-    });
-    return whereItWouldLand(drawn, y);
+    const boxes = [...(rows.current?.querySelectorAll('[data-item-row]') ?? [])].map((row) =>
+      row.getBoundingClientRect(),
+    );
+    // In columns a row has a left and a right half to aim at, and the line it
+    // is on; in one column only its height says anything.
+    if (columns !== null) return landingAmongColumns(boxes, x, y);
+    return whereItWouldLand(
+      boxes.map((box) => box.top + box.height / 2),
+      y,
+    );
   };
 
   /**
@@ -779,7 +795,7 @@ export function ItemList({
     const cameFrom = panelLiftedFrom(itemId);
     const fromAnotherPanel = panelId !== null && cameFrom !== null && cameFrom !== panelId;
     if (sorted && wasAt !== -1 && !fromAnotherPanel) return;
-    const gap = sorted ? 0 : placeAfterMoving(gapUnder(event.clientY), wasAt === -1 ? null : wasAt);
+    const gap = sorted ? 0 : placeAfterMoving(gapUnder(event.clientX, event.clientY), wasAt === -1 ? null : wasAt);
 
     // Dropped exactly where it started changes nothing, and sending it would
     // put a change in the undo bar that undoes to the same place.
@@ -839,9 +855,15 @@ export function ItemList({
    * which the row has no need to say it is also in ("Group a Filter panel's items
    * by the Dashboard or Panel they are filed on", issue 805).
    */
-  const rowFor = (item: Item, alsoNotIn: string | null = null, group?: readonly Item[]) => (
+  const rowFor = (
+    item: Item,
+    alsoNotIn: string | null = null,
+    group?: readonly Item[],
+    landing?: 'before' | 'after',
+  ) => (
     <ItemRow
       item={item}
+      {...(landing ? { landing } : {})}
       inProposalGroup={group !== undefined}
       {...(group ? { onFileGroup: () => acceptEach(group) } : {})}
       sourceNames={data?.sourceNames}
@@ -1000,7 +1022,7 @@ export function ItemList({
           // cannot happen. A drop is still accepted here, because arriving
           // from a panel means being taken off it. None on a sorted Panel
           // either, for the same reason.
-          if (panelId && !sorted) setLandingAt(gapUnder(event.clientY));
+          if (panelId && !sorted) setLandingAt(gapUnder(event.clientX, event.clientY));
         }}
         // Only when the pointer has left this list rather than moved onto a row
         // inside it, which fires the same event.
@@ -1090,7 +1112,7 @@ export function ItemList({
                   </span>
                   <span className="shrink-0 tabular-nums">{group.items.length}</span>
                 </h4>
-                <ul>
+                <ul style={columnsStyle(columns)}>
                   {group.items.map((item) => (
                     <Fragment key={item.id}>{rowFor(item, group.panelId)}</Fragment>
                   ))}
@@ -1099,14 +1121,27 @@ export function ItemList({
             ))}
           </ul>
         ) : (
-          <ul ref={rows}>
+          <ul ref={rows} style={columnsStyle(columns)}>
             {items.map((item, at) => (
               <Fragment key={item.id}>
-                {landingAt === at && <Landing />}
-                {rowFor(item)}
+                {/* A line takes a grid cell of its own in columns, so there the
+                    row it lands before wears an edge instead. */}
+                {landingAt === at && columns === null && <Landing />}
+                {rowFor(
+                  item,
+                  null,
+                  undefined,
+                  columns === null
+                    ? undefined
+                    : landingAt === at
+                      ? 'before'
+                      : landingAt === items.length && at === items.length - 1
+                        ? 'after'
+                        : undefined,
+                )}
               </Fragment>
             ))}
-            {landingAt === items.length && <Landing />}
+            {landingAt === items.length && columns === null && <Landing />}
           </ul>
         )}
       </div>

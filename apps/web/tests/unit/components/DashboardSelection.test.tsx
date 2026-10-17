@@ -51,6 +51,7 @@ function aPanel(id: string, name: string, over: Partial<Panel> = {}, dashboardId
     neverPropose: false,
     filter: null,
     sort: null,
+    columns: null,
     ...over,
   };
 }

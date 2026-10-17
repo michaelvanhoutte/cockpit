@@ -1303,6 +1303,10 @@ export function runCommand<N extends CommandName>(
       // field writes none of the others.
       if (cmd.neverPropose !== undefined) refuseAPanelNothingIsFiledOn(panel);
       if (cmd.readOnly !== undefined || cmd.format !== undefined) refuseUnlessPanelOfText(panel);
+      // A Panel of text has no rows to split; items and Filters both draw some.
+      if (cmd.columns !== undefined && panelHoldsText(panel)) {
+        throw new PanelHoldsSomethingElseError(`${panel.name} holds text, so it has no rows to split into columns`);
+      }
       if (cmd.name !== undefined) {
         const alreadyCalledThat = panelNamed(
           listPanels(db, tenantId, panel.dashboardId),
@@ -1319,6 +1323,7 @@ export function runCommand<N extends CommandName>(
             ...(cmd.neverPropose !== undefined ? { neverPropose: cmd.neverPropose } : {}),
             ...(cmd.readOnly !== undefined ? { readOnly: cmd.readOnly } : {}),
             ...(cmd.format !== undefined ? { format: cmd.format } : {}),
+            ...(cmd.columns !== undefined ? { columns: cmd.columns } : {}),
           })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();

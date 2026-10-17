@@ -498,6 +498,18 @@ export function panelSortAsStored(sort: readonly SortCriterion[] | null): string
 }
 
 /**
+ * How narrow a column of a Panel's rows may be made, by the name the form gives
+ * it ("Split a wide Panel's rows into columns, at a minimum width set in its
+ * settings", issue 1207). The name is what is stored, the pixels are what it
+ * means: tuning a width is then a release, and no stored Panel changes.
+ */
+export const PANEL_COLUMN_WIDTHS = { narrow: 320, medium: 420, wide: 560 } as const;
+export const panelColumnsSchema = z.enum(['narrow', 'medium', 'wide']);
+export type PanelColumns = z.infer<typeof panelColumnsSchema>;
+/** The gap between two columns, in pixels. */
+export const PANEL_COLUMN_GAP = 24;
+
+/**
  * A Panel, as it is read back. What a Panel *holds* is not here — a filing is
  * its own shape (`filingSchema` below), because an Item can be filed on
  * several Panels at once ("Panels hold the items filed into them, and the
@@ -536,6 +548,13 @@ export const panelSchema = z.object({
    * cannot read, is a Panel in the order you set.
    */
   sort: panelSortSchema.nullable().catch(null).default(null),
+  /**
+   * The narrowest a column of this Panel's rows may be, and null for one list
+   * ("Split a wide Panel's rows into columns, at a minimum width set in its
+   * settings", issue 1207). Permissive like `sort`: a copy from before this
+   * existed, or a width this release has never heard of, reads as one list.
+   */
+  columns: panelColumnsSchema.nullable().catch(null).default(null),
 });
 export type Panel = z.infer<typeof panelSchema>;
 

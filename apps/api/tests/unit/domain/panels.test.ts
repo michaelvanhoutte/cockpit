@@ -39,6 +39,7 @@ function aPanel(id: string): Panel {
     neverPropose: false,
     filter: null,
     sort: null,
+    columns: null,
   };
 }
 
@@ -62,6 +63,7 @@ describe('Panels', () => {
         neverPropose: false,
         filterConditions: null,
         sortCriteria: null,
+        columns: null,
         createdAt: AT,
         deletedAt: null,
       });

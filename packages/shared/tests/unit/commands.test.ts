@@ -354,6 +354,10 @@ describe('Panels', () => {
       { situation: 'Never propose alone', changes: { neverPropose: false }, accepted: true },
       { situation: 'read-only and formatting alone', changes: { readOnly: true, format: 'rich' }, accepted: true },
       { situation: 'a way of drawing nothing knows about', changes: { format: 'html' }, accepted: false },
+      { situation: 'a column width the product offers', changes: { columns: 'wide' }, accepted: true },
+      { situation: 'one list, said as null', changes: { columns: null }, accepted: true },
+      { situation: 'a column width nothing offers', changes: { columns: 'huge' }, accepted: false },
+      { situation: 'a column width in pixels', changes: { columns: 420 }, accepted: false },
       { situation: 'nothing at all', changes: {}, accepted: false },
     ])('$situation', ({ changes, accepted }) => {
       expect(setPanelSettingsSchema.safeParse({ ...base, ...changes }).success).toBe(accepted);

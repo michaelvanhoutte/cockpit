@@ -36,6 +36,7 @@ import {
   filterConditionSchema,
   filterGroupingSchema,
   panelSortSchema,
+  panelColumnsSchema,
   panelFormatSchema,
   panelKindSchema,
   panelNameSchema,
@@ -190,13 +191,16 @@ export const setPanelSettingsSchema = commandEnvelopeSchema
     readOnly: z.boolean().optional(),
     /** A Panel of text only. */
     format: panelFormatSchema.optional(),
+    /** A Panel of items or a Filter; null is one list. */
+    columns: panelColumnsSchema.nullable().optional(),
   })
   .refine(
     (cmd) =>
       cmd.name !== undefined ||
       cmd.neverPropose !== undefined ||
       cmd.readOnly !== undefined ||
-      cmd.format !== undefined,
+      cmd.format !== undefined ||
+      cmd.columns !== undefined,
     { message: 'a save with nothing changed is not a command', path: ['name'] },
   );
 export type SetPanelSettingsCommand = z.infer<typeof setPanelSettingsSchema>;

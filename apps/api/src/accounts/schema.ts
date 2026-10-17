@@ -503,6 +503,16 @@ export const panels = sqliteTable(
      * may name is the product's to extend.
      */
     sortCriteria: text('sort_criteria'),
+    /**
+     * The narrowest a column of a Panel's rows may be, as the name the form
+     * gives it (`narrow`, `medium` or `wide`), and NULL for one list ("Split a
+     * wide Panel's rows into columns, at a minimum width set in its settings",
+     * issue 1207). **No CHECK**: what widths the product offers is its to tune
+     * (architecture.md, "A CHECK for what is true by definition, never for what
+     * the product tunes"), so the contract's `panelColumnsSchema` is the lock
+     * and a name this release cannot read is drawn as one list.
+     */
+    columns: text('columns'),
     createdAt: text('created_at').notNull(),
     deletedAt: text('deleted_at'),
   },

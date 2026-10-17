@@ -76,6 +76,7 @@ import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { forgetPanelsCollapsed, usePanelsCollapsed } from '../panelsCollapsed';
 import { DashboardSelection } from './DashboardSelection';
 import { PANEL_GAP, PanelCard } from './PanelCard';
+import { drawnWidthOf } from '../panelColumns';
 import { publishPanelList, withdrawPanelList } from '../panelList';
 import type { PanelListRow } from '../panelList';
 import { rowOf, settleLanding, useLanding, useLandingStep } from '../landOnItem';
@@ -232,6 +233,8 @@ export function PanelBoard({
   const sent = useRef<LayoutRow[] | null>(null);
   /** Which Panel's settings form is open, if any. */
   const [settling, setSettling] = useState<string | null>(null);
+  /** How wide the Panel being set draws its list, read when its form opened: what the form's columns line is worked out from. */
+  const [settlingWidth, setSettlingWidth] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   /** The panel a "Move to another dashboard" picker is open for. */
   const [movingPanel, setMovingPanel] = useState<string | null>(null);
@@ -1580,6 +1583,7 @@ export function PanelBoard({
                             setFiltering(null);
                             setSorting(null);
                             askedFrom.current = openedFrom;
+                            setSettlingWidth(drawnWidthOf(panel.id));
                             setSettling(panel.id);
                           }}
                           onDelete={(openedFrom) => {
@@ -1725,6 +1729,7 @@ export function PanelBoard({
               refusal={refusalFor('set_panel_settings', beingSet.id)}
               busy={command.isPending}
               returnFocusTo={askedFrom.current}
+              drawnWidth={settlingWidth}
             />
           </Suspense>
         </WhateverTheQuestionDoes>

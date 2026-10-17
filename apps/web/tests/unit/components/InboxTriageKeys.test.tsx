@@ -132,7 +132,7 @@ function anItem(title: string, proposedPanelId: string | null = null): Item {
 }
 
 const TODAY: Dashboard = { id: 'd-today', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Today' };
-const FALCON: Panel = { id: 'p-falcon', tenantId: 'tenant', dashboardId: TODAY.id, name: 'Falcon', kind: 'items', format: 'plain', body: '', readOnly: false, neverPropose: false, filter: null, sort: null };
+const FALCON: Panel = { id: 'p-falcon', tenantId: 'tenant', dashboardId: TODAY.id, name: 'Falcon', kind: 'items', format: 'plain', body: '', readOnly: false, neverPropose: false, filter: null, sort: null, columns: null };
 
 const HARBOR: Panel = { ...FALCON, id: 'p-harbor', name: 'Harbor' };
 

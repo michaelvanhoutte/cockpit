@@ -99,6 +99,7 @@ function aPanel(id: string, name: string): Panel {
     neverPropose: false,
     filter: null,
     sort: null,
+    columns: null,
   };
 }
 
@@ -1912,19 +1913,121 @@ describe('Panels', () => {
     });
   });
 
+  describe('the How it looks section offers one list or columns, opening on what the Panel holds', () => {
+    /** The well of every Panel is 1532 wide, which jsdom would otherwise report as nothing. */
+    let width: PropertyDescriptor | undefined;
+    beforeEach(() => {
+      width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+        configurable: true,
+        get() {
+          return (this as HTMLElement).dataset.dragScroll === 'panel' ? 1532 : 0;
+        },
+      });
+    });
+    afterEach(() => {
+      if (width) Object.defineProperty(HTMLElement.prototype, 'clientWidth', width);
+      else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+    });
+
+    it('opens on Keep one list for a Panel never set, with no widths shown', async () => {
+      const { user } = showBoard();
+
+      const form = await openSettings(user, 'Project Falcon');
+
+      expect(within(form).getByRole('radio', { name: 'Keep one list' })).toBeChecked();
+      expect(within(form).queryByRole('radio', { name: /Medium/ })).toBeNull();
+    });
+
+    it('shows the widths with Medium chosen once Split into columns is chosen', async () => {
+      const { user } = showBoard();
+      const form = await openSettings(user, 'Project Falcon');
+
+      await user.click(within(form).getByRole('radio', { name: 'Split into columns' }));
+
+      expect(within(form).getByRole('radio', { name: /^Narrow/ })).not.toBeChecked();
+      expect(within(form).getByRole('radio', { name: /^Medium/ })).toBeChecked();
+      expect(within(form).getByRole('radio', { name: /^Wide/ })).not.toBeChecked();
+    });
+
+    it('opens on Split into columns and Wide for a Panel set to Wide', async () => {
+      const { user } = showBoard({ panels: [{ ...aPanel('falcon', 'Project Falcon'), columns: 'wide' }] });
+
+      const form = await openSettings(user, 'Project Falcon');
+
+      expect(within(form).getByRole('radio', { name: 'Split into columns' })).toBeChecked();
+      expect(within(form).getByRole('radio', { name: /^Wide/ })).toBeChecked();
+    });
+
+    it('says how many columns the width chosen gives in the width the Panel is drawn at', async () => {
+      const { user } = showBoard();
+      const form = await openSettings(user, 'Project Falcon');
+      await user.click(within(form).getByRole('radio', { name: 'Split into columns' }));
+
+      expect(within(form).getByText(/^Here that gives 3 columns\./)).toBeVisible();
+      await user.click(within(form).getByRole('radio', { name: /^Wide/ }));
+      expect(within(form).getByText(/^Here that gives 2 columns\./)).toBeVisible();
+    });
+
+    it('sends only the columns when that is all that changed, and one list as null', async () => {
+      const { mutate, user } = showBoard({ panels: [{ ...aPanel('falcon', 'Project Falcon'), columns: 'narrow' }] });
+      const form = await openSettings(user, 'Project Falcon');
+
+      await user.click(within(form).getByRole('radio', { name: /^Wide/ }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      const [widened] = mutate.mock.calls[0]!;
+      expect(widened.payload).toEqual(expect.objectContaining({ panelId: 'falcon', columns: 'wide' }));
+      expect(widened.payload).not.toHaveProperty('name');
+
+      const again = await openSettings(user, 'Project Falcon');
+      await user.click(within(again).getByRole('radio', { name: 'Keep one list' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      const [back] = mutate.mock.calls[1]!;
+      expect(back.payload).toEqual(expect.objectContaining({ panelId: 'falcon', columns: null }));
+    });
+
+    it('sends nothing for a choice that was made and unmade', async () => {
+      const { mutate, user } = showBoard();
+      const form = await openSettings(user, 'Project Falcon');
+
+      await user.click(within(form).getByRole('radio', { name: 'Split into columns' }));
+      await user.click(within(form).getByRole('radio', { name: 'Keep one list' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('offers a Filter the same choice', async () => {
+      const { user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+
+      const form = await openSettings(user, 'Due soon');
+
+      expect(within(form).getByRole('radio', { name: 'Keep one list' })).toBeChecked();
+    });
+
+    it('offers a Panel of text no such section', async () => {
+      const { user } = showBoard({ panels: [aPanelOfText('words', 'What matters')] });
+
+      const form = await openSettings(user, 'What matters');
+
+      expect(within(form).queryByText('How it looks')).toBeNull();
+      expect(within(form).queryByRole('radio')).toBeNull();
+    });
+  });
+
   describe('the Panel settings form says what kind of Panel it is, and asks only what applies', () => {
     it.each([
       {
         situation: 'a panel of items',
         panel: aPanel('falcon', 'Project Falcon'),
         says: 'A panel of items: it holds what you file onto it.',
-        headings: ['Name', 'Inbox suggestions'],
+        headings: ['Name', 'Inbox suggestions', 'How it looks'],
       },
       {
         situation: 'a filter',
         panel: aFilter('due', 'Due soon'),
         says: 'A filter panel: it collects items from every panel in this workspace that match its rules.',
-        headings: ['Name'],
+        headings: ['Name', 'How it looks'],
       },
       {
         situation: 'a panel of text',
