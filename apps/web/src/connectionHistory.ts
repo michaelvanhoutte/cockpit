@@ -178,6 +178,7 @@ function outcomeIn(one: NameOutcomeShown, noun: string): string {
     'no-panel': 'no Panel by that name',
     several:
       one.dashboards !== null && one.dashboards > 1 ? `Panels on ${one.dashboards} Dashboards` : 'more than one Panel by that name',
+    pairs: one.panels !== null && one.panels > 1 ? `matches ${one.panels} Panels` : 'matches more than one Panel',
     followed: `the ${noun} followed`,
     baseline: 'already on it when filing was ticked',
     off: `filing by ${noun} is off`,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { whatNamesDid, type NamedTarget } from '../../../src/domain/filing-by-name.js';
+import { foldName } from '../../../src/domain/names.js';
+import { namesNewSince, namesToRecord, whatNamesDid, type NamedTarget } from '../../../src/domain/filing-by-name.js';
 
 /**
  * L1: which Panels a label or category names is a pure match over the names
@@ -100,6 +101,98 @@ describe('Connector management', () => {
       });
       expect(decided.panelIds).toEqual(['admin']);
       expect(decided.outcomes.map((one) => one.why)).toEqual(['already-there', null]);
+    });
+  });
+
+  describe('a name may qualify a Panel by the Dashboard it lives on, where the connector declares it (issue 1198)', () => {
+    const pair = (id: string, dashboardName: string, name: string, kind: NamedTarget['kind'] = 'items'): NamedTarget => ({
+      id,
+      name,
+      kind,
+      dashboardId: `d-${dashboardName}`,
+      dashboardName,
+    });
+    const TASKS = { cubico: pair('t-cubico', 'Cubico', 'Tasks'), prive: pair('t-prive', 'Privé', 'Tasks'), conseilt: pair('t-conseilt', 'conseilt.be', 'Tasks') };
+    const byDashboard = { byDashboard: true };
+    const said = (names: string[], panels: NamedTarget[], forms = byDashboard) =>
+      whatNamesDid(names, panels, { skipAll: null, alreadyOn: new Set(), forms }).outcomes.map((one) =>
+        one.why === null ? `${one.panel}@${one.dashboard}` : `skipped:${one.why}${one.panels === null ? '' : `:${one.panels}`}${one.dashboards === null ? '' : `:${one.dashboards}`}`,
+      );
+
+    it.each([
+      { situation: 'a Dashboard and its Panel', names: ['Cubico-Tasks'], panels: Object.values(TASKS), says: ['Tasks@Cubico'] },
+      { situation: 'a Dashboard named with a dot', names: ['conseilt.be-Tasks'], panels: Object.values(TASKS), says: ['Tasks@conseilt.be'] },
+      { situation: 'spaces around the hyphen and in the names', names: ['day to  day - TASKS'], panels: [pair('d', 'Day to day', 'Tasks')], says: ['Tasks@Day to day'] },
+      { situation: '"&" against a Panel written with "and"', names: ['Cubico-Admin & money'], panels: [pair('a', 'Cubico', 'Admin and money')], says: ['Admin and money@Cubico'] },
+      { situation: 'no Panel of that name on that Dashboard', names: ['Cubico-Tasks'], panels: [TASKS.prive], says: ['skipped:no-panel'] },
+      {
+        situation: 'a Dashboard that only shows the Panel, which lives on another',
+        names: ['Day to day-Tasks'],
+        panels: [TASKS.prive],
+        says: ['skipped:no-panel'],
+      },
+      { situation: 'a Filter of that name on that Dashboard', names: ['Cubico-Tasks'], panels: [pair('f', 'Cubico', 'Tasks', 'filter')], says: ['skipped:no-panel'] },
+    ])('$situation', ({ names, panels, says }) => {
+      expect(said(names, panels)).toEqual(says);
+    });
+
+    it.each([
+      {
+        situation: 'a Dashboard-Panel split two ways',
+        names: ['A-B-C'],
+        panels: [pair('x', 'A-B', 'C'), pair('y', 'A', 'B-C')],
+        says: ['skipped:pairs:2'],
+      },
+      {
+        situation: 'a plain name and a Dashboard-qualified reading of it hitting different Panels',
+        names: ['Cubico-Tasks'],
+        panels: [pair('x', 'Home', 'Cubico-Tasks'), pair('y', 'Cubico', 'Tasks')],
+        says: ['skipped:pairs:2'],
+      },
+      { situation: 'a plain name on three Dashboards, as before', names: ['Tasks'], panels: Object.values(TASKS), says: ['skipped:several:3'] },
+    ])('files nothing, and says why, for $situation', ({ names, panels, says }) => {
+      expect(said(names, panels)).toEqual(says);
+    });
+
+    it('files on the Panel called by the whole name when no Dashboard-qualified reading hits another', () => {
+      expect(said(['Cubico-Tasks'], [pair('x', 'Home', 'Cubico-Tasks')])).toEqual(['Cubico-Tasks@Home']);
+    });
+
+    it('reads no Dashboard-qualified name where the connector declares none', () => {
+      expect(said(['Cubico-Tasks'], Object.values(TASKS), { byDashboard: false })).toEqual(['skipped:no-panel']);
+      expect(whatNamesDid(['Cubico-Tasks'], Object.values(TASKS), { skipAll: null, alreadyOn: new Set() }).panelIds).toEqual([]);
+    });
+  });
+
+  describe('matching ignores accents, for every name (issue 1198)', () => {
+    it.each([
+      { situation: 'a name without the accent against a Panel with it', name: 'Prive', panel: 'Privé' },
+      { situation: 'a name with the accent against a Panel without it', name: 'Privé', panel: 'Prive' },
+      { situation: 'a decomposed accent', name: 'Privé', panel: 'Privé' },
+    ])('$situation', ({ name, panel }) => {
+      const target: NamedTarget = { id: 'p', name: panel, kind: 'items', dashboardId: 'd', dashboardName: 'Home' };
+      expect(whatNamesDid([name], [target], { skipAll: null, alreadyOn: new Set() }).panelIds).toEqual(['p']);
+    });
+
+    it('matches a Dashboard-qualified name written without the accents', () => {
+      const target: NamedTarget = { id: 'p', name: 'Tasks', kind: 'items', dashboardId: 'd', dashboardName: 'Privé' };
+      const forms = { byDashboard: true };
+      expect(whatNamesDid(['prive-tasks'], [target], { skipAll: null, alreadyOn: new Set(), forms }).panelIds).toEqual(['p']);
+    });
+
+    it('drops Latin accents only: kana that differ by a voicing mark stay two names', () => {
+      const target: NamedTarget = { id: 'p', name: 'か', kind: 'items', dashboardId: 'd', dashboardName: 'Home' };
+      expect(whatNamesDid(['が'], [target], { skipAll: null, alreadyOn: new Set() }).panelIds).toEqual([]);
+    });
+
+    it('leaves the names Cockpit keeps unique alone: foldName still tells Privé from Prive', () => {
+      expect(foldName('Privé')).not.toBe(foldName('Prive'));
+    });
+
+    it('still counts a name differing from a recorded one by an accent as new, and records both', () => {
+      expect(namesNewSince(['Prive'], ['Privé'])).toEqual(['Privé']);
+      expect(namesToRecord(['Prive', 'Privé'])).toEqual(['Prive', 'Privé']);
+      expect(namesNewSince(['Prive'], ['PRIVE'])).toEqual([]);
     });
   });
 });

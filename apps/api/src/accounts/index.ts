@@ -42,6 +42,7 @@ import type {
 } from '@cockpit/connector-sdk';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid, NamedOn } from '../domain/connection-history.js';
+import type { NameForms } from '../domain/filing-by-name.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -356,9 +357,10 @@ export interface PulledRun {
   fileItem(
     item: SourceItem & { sourceId: string },
     ids: { itemId: string; commandId: string },
+    forms: NameForms,
   ): Promise<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }>;
   /** Records an Item's names as the source reported them, filing it by the new ones (issue 1146), and answers what each name did (issue 1197). */
-  reportNames(report: NamesReport): Promise<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }>;
+  reportNames(report: NamesReport, forms: NameForms): Promise<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }>;
   applySourceChange(change: SourceStateChange): Promise<{ changed: string } | 'unchanged' | 'disconnected'>;
   /** Closes the Items the connection filed under the listing's choice that it did not see, answering their ids (issues 938, 1141). */
   closeItemsNotListed(listing: CompleteListing): Promise<string[] | 'disconnected'>;
@@ -469,10 +471,10 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
         unwrap(await store.pulledSealedCredential(accountName, sourceAccountId, runId)),
       reseal: async (was, sealed) =>
         unwrap(await store.resealPulledCredential(accountName, sourceAccountId, runId, was, sealed)),
-      fileItem: async (item, ids) =>
-        unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids)),
-      reportNames: async (report) =>
-        unwrap(await store.reportPulledNames(accountName, sourceAccountId, runId, report)),
+      fileItem: async (item, ids, forms) =>
+        unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids, forms)),
+      reportNames: async (report, forms) =>
+        unwrap(await store.reportPulledNames(accountName, sourceAccountId, runId, report, forms)),
       applySourceChange: async (change) =>
         unwrap(await store.applyPulledSourceChange(accountName, sourceAccountId, runId, change)),
       closeItemsNotListed: async (listing) =>

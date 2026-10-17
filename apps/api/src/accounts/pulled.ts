@@ -19,12 +19,16 @@ import {
   namesToRecord,
   recordedNames,
   whatNamesDid,
+  type NameForms,
   type NameOutcome,
   type NamedTarget,
 } from '../domain/filing-by-name.js';
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
 import { keptMessage, type CheckDid, type NamedOn } from '../domain/connection-history.js';
 import { recordCheck } from './connection-history.js';
+
+/** The forms of name a connection that declared none reads. */
+const NO_FORMS: NameForms = { byDashboard: false };
 
 /**
  * The store's half of checking a pulled connection through the generic host
@@ -327,6 +331,7 @@ export function filePulledItem(
   item: SourceItem & { sourceId: string },
   ids: { itemId: string; commandId: string },
   at: string,
+  forms: NameForms = NO_FORMS,
 ): { answer: EmittedItem | 'disconnected'; named: NamedOn | null } {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return { answer: 'disconnected', named: null };
@@ -338,7 +343,7 @@ export function filePulledItem(
     const link = linkOf(db, accountName, holds, item.sourceId);
     if (link) {
       // An Item emitted again still says what its names are now.
-      const outcomes = item.names ? recordNames(db, accountName, holds, link, item.names, item.followed, at) : [];
+      const outcomes = item.names ? recordNames(db, accountName, holds, link, item.names, item.followed, at, forms) : [];
       return { answer: 'already-known', named: namedOn(link.itemId, outcomes) };
     }
     const message = item.capturedMessage ?? item.title;
@@ -349,6 +354,7 @@ export function filePulledItem(
     const decided = whatNamesDid(names ?? [], names && holds.filesByName ? panelsOf(db, accountName, holds.workspaceId) : [], {
       skipAll: holds.filesByName ? null : 'off',
       alreadyOn: new Set(),
+      forms,
     });
     const panelIds = decided.panelIds;
     runCommand(
@@ -415,13 +421,14 @@ export function reportPulledNames(
   runId: string,
   report: NamesReport,
   at: string,
+  forms: NameForms = NO_FORMS,
 ): { answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null } {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return { answer: 'disconnected', named: null };
   return db.transaction((): { answer: 'recorded' | 'unknown'; named: NamedOn | null } => {
     const link = linkOf(db, accountName, holds, report.sourceId);
     if (!link) return { answer: 'unknown', named: null };
-    const outcomes = recordNames(db, accountName, holds, link, report.names, report.followed, at);
+    const outcomes = recordNames(db, accountName, holds, link, report.names, report.followed, at, forms);
     return { answer: 'recorded', named: namedOn(link.itemId, outcomes) };
   });
 }
@@ -440,6 +447,7 @@ function recordNames(
   reported: readonly string[],
   followed: string | undefined,
   at: string,
+  forms: NameForms,
 ): NameOutcome[] {
   const names = namesToRecord(reported);
   const baseline = recordedNames(link.names);
@@ -466,12 +474,12 @@ function recordNames(
   // An Item moved to another Workspace is filed only by a person there.
   if (!item || item.workspaceId !== holds.workspaceId) return [];
   const panels = panelsOf(db, accountName, holds.workspaceId);
-  const wouldFile = whatNamesDid(changed, panels, { skipAll: null, alreadyOn: new Set() }).panelIds;
+  const wouldFile = whatNamesDid(changed, panels, { skipAll: null, alreadyOn: new Set(), forms }).panelIds;
   const filedBefore = new Map(wouldFile.map((panelId) => [panelId, listFilingsOnPanel(db, accountName, panelId)]));
   const alreadyOn = new Set(
     wouldFile.filter((panelId) => filedBefore.get(panelId)!.some((filing) => filing.itemId === link.itemId)),
   );
-  const decided = whatNamesDid(changed, panels, { skipAll: null, alreadyOn });
+  const decided = whatNamesDid(changed, panels, { skipAll: null, alreadyOn, forms });
   for (const panelId of decided.panelIds) {
     const held = filedBefore.get(panelId)!;
     runCommand(
@@ -500,7 +508,7 @@ function recordNames(
  */
 function outcomesWithMark(outcomes: NameOutcome[], followed: string | undefined): NameOutcome[] {
   if (outcomes.length === 0 || !followed) return outcomes;
-  return [{ name: followed, panel: null, dashboard: null, why: 'followed', dashboards: null }, ...outcomes];
+  return [{ name: followed, panel: null, dashboard: null, why: 'followed', dashboards: null, panels: null }, ...outcomes];
 }
 
 /** Every live Panel of the Workspace, with the Dashboard it is on - what names are matched against. */

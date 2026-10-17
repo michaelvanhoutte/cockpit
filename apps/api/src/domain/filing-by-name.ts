@@ -22,11 +22,36 @@ export interface NamedTarget {
 
 /**
  * A name as matching compares it: case folded as every name in Cockpit is,
- * `&` read as `and`, and runs of whitespace as one space, so "admin and money"
- * names *Admin & money*. Nothing else is loosened.
+ * accents dropped (Latin combining marks only, so kana and Indic marks keep their letters apart), `&` read as `and`, and runs of whitespace as one space, so
+ * "admin and money" names *Admin & money* and `prive` names *Privé*. Nothing
+ * else is loosened.
+ *
+ * The accent fold is a rule of matching alone: `foldName` decides whether two
+ * names are the same name across the app, and *Privé* and *Prive* stay two.
  */
 export function matchKey(name: string): string {
+  return nameKey(name.normalize('NFD').replace(/[̀-ͯ]/g, ''));
+}
+
+/**
+ * A name as a link's recorded names are compared: matching without the accent
+ * fold. A name differing from a recorded one by an accent alone is still new,
+ * so correcting `Prive` to `Privé` on an Item files it, as it did before
+ * matching ignored accents.
+ */
+function nameKey(name: string): string {
   return foldName(name.replace(/&/g, ' and ').replace(/\s+/g, ' '));
+}
+
+/** A matching key with the spaces around its hyphens dropped, which is how a Dashboard and a Panel are joined: `Cubico - Tasks` is `Cubico-Tasks`. */
+function tight(key: string): string {
+  return key.replace(/\s*-\s*/g, '-');
+}
+
+/** The ways a connector's names may read, as its manifest declares them. */
+export interface NameForms {
+  /** A name may qualify a Panel by the Dashboard it lives on: `Cubico-Tasks`. */
+  byDashboard: boolean;
 }
 
 /**
@@ -34,9 +59,10 @@ export function matchKey(name: string): string {
  * filed or why it skipped", issue 1197): no Panel carries it; Panels of Items
  * carry it (`dashboards` of them hold one); it is the mark the connection
  * follows; it was on the Item before filing was ticked; filing by name is
- * off; or the Item is on the Panel it names already.
+ * off; or the Item is on the Panel it names already. `pairs`: the name reads
+ * as more than one Panel once a Dashboard may qualify it (`panels` of them).
  */
-export type SkipWhy = 'no-panel' | 'several' | 'followed' | 'baseline' | 'off' | 'already-there';
+export type SkipWhy = 'no-panel' | 'several' | 'pairs' | 'followed' | 'baseline' | 'off' | 'already-there';
 
 /**
  * What one name did, as a check's line keeps it: filed on `panel` (of
@@ -50,6 +76,8 @@ export interface NameOutcome {
   why: SkipWhy | null;
   /** How many Dashboards hold a Panel the name matches, where it matched several. */
   dashboards: number | null;
+  /** How many Panels the name matched, where it matched several as Dashboard-qualified. */
+  panels: number | null;
 }
 
 /**
@@ -61,17 +89,18 @@ export interface NameOutcome {
 export function whatNamesDid(
   names: readonly string[],
   panels: readonly NamedTarget[],
-  how: { skipAll: 'off' | 'baseline' | null; alreadyOn: ReadonlySet<string> },
+  how: { skipAll: 'off' | 'baseline' | null; alreadyOn: ReadonlySet<string>; forms?: NameForms },
 ): { outcomes: NameOutcome[]; panelIds: string[] } {
   const takers = panels.filter((panel) => panelTakesItems(panel));
   const outcomes: NameOutcome[] = [];
   const panelIds: string[] = [];
-  const skipped = (name: string, why: SkipWhy, dashboards: number | null = null): NameOutcome => ({
+  const skipped = (name: string, why: SkipWhy, dashboards: number | null = null, panels: number | null = null): NameOutcome => ({
     name,
     panel: null,
     dashboard: null,
     why,
     dashboards,
+    panels,
   });
   for (const name of names) {
     if (how.skipAll) {
@@ -79,13 +108,22 @@ export function whatNamesDid(
       continue;
     }
     const key = matchKey(name);
-    const matching = takers.filter((panel) => matchKey(panel.name) === key);
+    const plain = takers.filter((panel) => matchKey(panel.name) === key);
+    // Only the Dashboard a Panel lives on qualifies it, not one that shows it.
+    const qualified = how.forms?.byDashboard
+      ? takers.filter((panel) => `${tight(matchKey(panel.dashboardName))}-${tight(matchKey(panel.name))}` === tight(key))
+      : [];
+    const matching = [...new Map([...plain, ...qualified].map((panel) => [panel.id, panel])).values()];
     if (matching.length === 0) {
       outcomes.push(skipped(name, 'no-panel'));
       continue;
     }
     if (matching.length > 1) {
-      outcomes.push(skipped(name, 'several', new Set(matching.map((panel) => panel.dashboardId)).size));
+      outcomes.push(
+        qualified.length > 0
+          ? skipped(name, 'pairs', null, matching.length)
+          : skipped(name, 'several', new Set(matching.map((panel) => panel.dashboardId)).size),
+      );
       continue;
     }
     const panel = matching[0]!;
@@ -96,6 +134,7 @@ export function whatNamesDid(
       dashboard: panel.dashboardName,
       why: there ? 'already-there' : null,
       dashboards: null,
+      panels: null,
     });
     if (!there && !panelIds.includes(panel.id)) panelIds.push(panel.id);
   }
@@ -110,8 +149,8 @@ export function whatNamesDid(
  */
 export function namesNewSince(recorded: readonly string[] | null, reported: readonly string[]): string[] {
   if (recorded === null) return [];
-  const before = new Set(recorded.map(matchKey));
-  return reported.filter((name) => !before.has(matchKey(name)));
+  const before = new Set(recorded.map(nameKey));
+  return reported.filter((name) => !before.has(nameKey(name)));
 }
 
 /** The names as a link keeps them: trimmed, the empty ones dropped, each once. */
@@ -120,8 +159,8 @@ export function namesToRecord(reported: readonly string[]): string[] {
   const seen = new Set<string>();
   for (const raw of reported) {
     const name = raw.trim();
-    if (!name || seen.has(matchKey(name))) continue;
-    seen.add(matchKey(name));
+    if (!name || seen.has(nameKey(name))) continue;
+    seen.add(nameKey(name));
     kept.push(name);
   }
   return kept;
