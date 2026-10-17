@@ -768,8 +768,15 @@ test.describe('Panels', () => {
       expect((await moved).status()).toBe(200);
       await expect.poll(() => itemsOn(page, panel)).toEqual([fourth, first, second, third, fifth, sixth]);
 
+      // And on the right half of a row on the first line, from the second line:
+      // after it, which no reading of the pointer's height alone can say.
+      const movedAgain = answerTo(page, 'add_item_to_panel');
+      await dragRowOnto(page, sixth, second, 'right');
+      expect((await movedAgain).status()).toBe(200);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([fourth, first, second, sixth, third, fifth]);
+
       await page.reload();
-      await expect.poll(() => itemsOn(page, panel)).toEqual([fourth, first, second, third, fifth, sixth]);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([fourth, first, second, sixth, third, fifth]);
       const [x, y] = await Promise.all([fourth, first].map(async (title) => itemRow(page, title).boundingBox()));
       expect(x!.y).toBe(y!.y);
 
