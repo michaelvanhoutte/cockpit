@@ -223,7 +223,7 @@ export function SendToClaudeWindow({
           <Dialog.Title className="truncate text-base font-semibold">Send “{item.title}” to Claude</Dialog.Title>
 
           {offering ? (
-            <RememberASentence runId={runId} workspaceId={workspaceId} destinationName={name} onClose={onClose} />
+            <RememberASentence runId={runId} destinationName={name} onClose={onClose} />
           ) : (
           <form
             onSubmit={(event) => {

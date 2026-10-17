@@ -41,6 +41,16 @@ describe('Agents', () => {
       expect(shown.map((one) => one.id)).toEqual(['used', 'new', 'old']);
     });
 
+    it('shows a sentence remembered twice once, the more used of the two', () => {
+      const shown = sentencesThatFit({ sourceKind: 'gmail', workspaceId: null }, [
+        sentence({ id: 'again', sentence: 'Mails: Dutch,  short.', createdAt: '2026-10-12T10:00:00.000Z' }),
+        sentence({ id: 'first', sentence: 'mails: dutch, short.', useCount: 2 }),
+        sentence({ id: 'other' }),
+      ]);
+
+      expect(shown.map((one) => one.id)).toEqual(['first', 'other']);
+    });
+
     it('shows no more than the bound', () => {
       const many = Array.from({ length: REMEMBERED_SENTENCES_SHOWN + 5 }, (_, at) => sentence({ id: String(at) }));
 

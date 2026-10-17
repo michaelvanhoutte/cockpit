@@ -38,12 +38,10 @@ async function fetchOffer(runId: string, signal: AbortSignal): Promise<RememberO
  */
 export function RememberASentence({
   runId,
-  workspaceId,
   destinationName,
   onClose,
 }: {
   runId: string;
-  workspaceId: string;
   destinationName: string;
   onClose: () => void;
 }) {

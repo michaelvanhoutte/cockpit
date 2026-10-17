@@ -37,13 +37,22 @@ export function sentenceFits(sentence: Pick<RememberedSentence, 'sourceKind' | '
  * The sentences a proposal for this Item is shown: only those that fit, the
  * most used first and a tie to the newer, at most `REMEMBERED_SENTENCES_SHOWN`.
  * **Only the sentences that fit**: a sentence about mail is no use to a LinkedIn
- * post, and one naming a Workspace is none to another's Items.
+ * post, and one naming a Workspace is none to another's Items. **A sentence
+ * remembered twice is shown once** (the one ranked first): the model offers the
+ * same sentence for like edits, and each Remember is a row of its own, so the
+ * copies would take the places of the others.
  */
 export function sentencesThatFit(item: ItemASentenceMayFit, all: readonly RememberedSentence[]): RememberedSentence[] {
   return all
     .filter((one) => sentenceFits(one, item))
     .sort((one, other) => other.useCount - one.useCount || other.createdAt.localeCompare(one.createdAt) || one.id.localeCompare(other.id))
+    .filter((one, at, ranked) => ranked.findIndex((first) => saidAs(first) === saidAs(one)) === at)
     .slice(0, REMEMBERED_SENTENCES_SHOWN);
+}
+
+/** A sentence's words with case and spacing taken out, so the same sentence reworded only in those is one. */
+function saidAs(one: Pick<RememberedSentence, 'sentence'>): string {
+  return one.sentence.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /** The most open Items a newly remembered sentence has proposed again at once: the newest, so a long Inbox is not all re-read together. */
