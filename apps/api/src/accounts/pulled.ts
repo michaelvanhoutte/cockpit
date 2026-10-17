@@ -177,16 +177,16 @@ export function checkPulledConnectionNow(
     .values({ sourceAccountId, tenantId: accountName, dueAt: now.toISOString() })
     .onConflictDoNothing()
     .run();
-  const row = db
-    .select({ queuedAt: pulledConnections.queuedAt, runId: pulledConnections.runId })
-    .from(pulledConnections)
-    .where(and(eq(pulledConnections.tenantId, accountName), eq(pulledConnections.sourceAccountId, sourceAccountId)))
-    .get()!;
-  if (row.runId !== null) return 'running';
   const where = and(
     eq(pulledConnections.tenantId, accountName),
     eq(pulledConnections.sourceAccountId, sourceAccountId),
   );
+  const row = db
+    .select({ queuedAt: pulledConnections.queuedAt, runId: pulledConnections.runId })
+    .from(pulledConnections)
+    .where(where)
+    .get()!;
+  if (row.runId !== null) return 'running';
   if (row.queuedAt !== null) {
     db.update(pulledConnections).set({ checkReason: 'check-now' }).where(where).run();
     return 'already queued';
