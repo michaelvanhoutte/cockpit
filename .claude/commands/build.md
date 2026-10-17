@@ -18,9 +18,9 @@ CLAUDE.md is already loaded into this session and governs how this repository is
 7. **Review yourself before pushing, against the commit that's actually about to be pushed**: `/code-review` inline and `/security-review` as its own `Agent` subagent call, both at the level Review findings' own table maps `node scripts/local-changes.mjs`'s answer to, unless that table rules the security review out entirely — both on the diff, both on whichever of the calling session's own model and the unit's recommended one is stronger, even where steps 4–6 ran delegated — a `haiku` unit still gets the session's own review rather than being trusted to catch what a weaker model misses, and an `opus` unit — recommended precisely because the session default was too weak for it — keeps that strength for review too. After a round of fixes, recheck per Review findings' own recheck rule rather than re-running either review whole, and don't mark ready until its findings are fixed or declined. The security subagent's prompt tells it to run `node scripts/session-record.mjs mark review-end security-review <level> <count>` as its last step before reporting, and this session marks its own `/code-review`'s end when that returns, so each review's own length is recorded. `<count>` is how many findings the review reported, 0 for none; a review-end without one reads as unknown.
 
    **Stop before the push if `node scripts/local-changes.mjs` names a change to `docs/architecture.md` that the issue's Technical design did not decide**, and ask the engineer, naming which rule and why, since code grows on whatever the document licenses. Where they agree, the pull request body names the change under a heading of its own, `## Architecture change`.
-8. **Ship**, per **Review findings**: draft, ready, wait for checks, refreshing the record on the body after every push; reply to every thread naming the fixing commit, then resolve it. Then, per the answer from step 2: merge it yourself, or say plainly that it's ready and waiting for a human to merge. **A unit isn't finished until its pull request is actually merged** — checks green and threads resolved is not the finish line.
+8. **Ship**, per **Review findings**: draft, ready, wait for checks, refreshing the record on the body after every push; reply to every thread naming the fixing commit, then resolve it. Then, per the answer from step 2: merge it yourself, or say plainly that it's ready and waiting for a human to merge. **A unit isn't finished until its pull request is actually merged** — checks green and threads resolved is not the finish line. Once it has merged, **close the parent** per the section of that name below; a parent's own children reach it here too, so only this step runs it.
 9. **Where engineering-plan sized this as several units** — whether each is its own filed issue or stays internal to this run — the next one's build doesn't start until this one is merged into `main`: build it against the merged result, not a stacked branch. Before starting it: check what changed in `CLAUDE.md` and `.claude/` between the commit this run started from and the merged tip — the read named in **Review findings**, since a rule that changed mid-run is otherwise invisible — and repeat step 1 against whichever issue number that unit now has, since real time passed while the previous unit shipped and it needs re-confirming live and unclaimed. Steps 2 and 3 don't repeat: step 2's answer already carries forward, and the unit is already scoped.
-10. **Report honestly.** Test results as they actually came out; anything skipped or narrowed, and why.
+10. **Report honestly.** Test results as they actually came out; anything skipped or narrowed, and why. Where step 2 held a lone child that is its parent's last open sub-issue, say that merging this pull request finishes parent #N and the parent should be closed then.
 
 Mark a chapter at each phase boundary, per **Working in parallel**.
 
@@ -63,5 +63,22 @@ gh api graphql -F n=<number> -f query='query($n:Int!){repository(owner:"michaelv
 
 A child's reviews run on its own model, overriding step 7's stronger-of rule: a parent's children are where that cost multiplies. The security review is spawned from this session because a subagent can't spawn one of its own, and running it inline there ends that subagent on the report. Likewise a subagent returning never ends this session's turn: read its report and start the next phase.
 
-- **Report once every child is done**, per step 10, one line per child naming its pull request. Leave the parent open: closing it, and whatever its body says follows the last child, is the user's call.
+- **Report once every child is done**, per step 10, one line per child naming its pull request. Step 8 has already closed the parent after the last child merged, per **Close the parent**.
+
+## Close the parent
+
+A parent holds no work of its own, so once its last child has merged it is finished. After a merged pull request, find the issue's parent; an issue with no parent changes nothing.
+
+```bash
+gh api graphql -F n=<number> -f query='query($n:Int!){repository(owner:"michaelvanhoutte",name:"cockpit"){issue(number:$n){parent{number subIssues(first:50){nodes{number title state stateReason closedByPullRequestsReferences(first:5,includeClosedPrs:true){nodes{number merged}}}}}}}}' --jq '.data.repository.issue.parent'
+```
+
+- **Count the child just merged as closed** whatever its `state` says, since GitHub closes it from the pull request's closing keyword a little after the merge.
+- **A sibling still open** leaves the parent untouched.
+- **Otherwise every sub-issue is closed, for any reason** (completed, not planned, duplicate): comment once on the parent listing each child with the merged pull request from its `closedByPullRequestsReferences` (the one just merged for this child), or its close reason where none merged, then close it as completed.
+
+```bash
+gh issue comment <parent> --body-file <file>
+gh issue close <parent> --reason completed
+```
 
