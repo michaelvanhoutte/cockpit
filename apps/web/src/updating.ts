@@ -29,9 +29,15 @@ import { statusOf } from './api/loadFailure';
  * asks for, which is what left an open tab with "Formatting could not be
  * loaded". So a new worker installs and waits, every open page keeps serving
  * from the worker it started with, and a page learns a new version is out when
- * it finds one waiting (`checkOnOpening`, `Workers`). The click sends the
+ * it finds one waiting (`checkOnOpening`, `Workers`). The click asks the server
+ * for anything newer, waits for it to finish downloading, sends the latest
  * waiting worker a `SKIP_WAITING` message and reloads once it is active: one
- * click, one reload, no hard reload.
+ * click, one reload, no hard reload, and never the older of two versions
+ * (`activateLatest`).
+ *
+ * **A reload never depends on the stored copy being whole.** The start page is
+ * precached under `/`, so a navigation the precache cannot answer is fetched
+ * from the network rather than failing (apps/web/vite.config.ts says why `/`).
  *
  * The gate below, which takes the version unasked, awaits its check before
  * reloading, because a navigation is answered from the old precache before a
@@ -149,10 +155,13 @@ export const realVersions: Versions = {
    *
    * Anything at all going wrong is null rather than a guess - a refusal, a
    * connection that is not there, a page with no module script in it.
+   *
+   * Asked of `/`, the address the precache keeps the start page under
+   * (vite.config.ts); `/index.html` is not in it.
    */
   servedBuild: async () => {
     try {
-      const answer = await fetch('/index.html', { cache: 'no-store' });
+      const answer = await fetch('/', { cache: 'no-store' });
       if (!answer.ok) return null;
       return buildOf(new DOMParser().parseFromString(await answer.text(), 'text/html'));
     } catch {
@@ -174,19 +183,22 @@ const ACTIVATION_WAIT_MS = 5_000;
  * finished: `update()` resolves when a new script is found, not when it has
  * installed.
  */
-async function waitingIn(registration: ServiceWorkerRegistration): Promise<ServiceWorker | null> {
+async function waitingIn(registration: RegistrationLike): Promise<WorkerLike | null> {
   const installing = registration.installing;
-  if (installing) await settled(installing);
+  if (installing) await leftInstalling(installing);
   return registration.waiting;
 }
 
-/** Resolves once the worker is past installing, whichever way it went. */
-function settled(worker: ServiceWorker): Promise<void> {
+/**
+ * Resolves once the worker is past installing, with the state it went to:
+ * `installed` for a download that finished, `redundant` for one that failed.
+ */
+function leftInstalling(worker: WorkerLike): Promise<ServiceWorkerState> {
   return new Promise((resolve) => {
     const check = () => {
       if (worker.state === 'parsed' || worker.state === 'installing') return;
       worker.removeEventListener('statechange', check);
-      resolve();
+      resolve(worker.state);
     };
     worker.addEventListener('statechange', check);
     check();
@@ -199,7 +211,7 @@ function settled(worker: ServiceWorker): Promise<void> {
  * once active, false on a timeout or a worker that went redundant. Nothing
  * waiting (another tab already activated it) is true at once.
  */
-async function activateWaiting(registration: ServiceWorkerRegistration): Promise<boolean> {
+async function activateWaiting(registration: RegistrationLike): Promise<boolean> {
   const waiting = registration.waiting;
   if (!waiting) return true;
   return new Promise<boolean>((resolve) => {
@@ -373,34 +385,108 @@ export interface Workers {
    * and waiting. Rejects where the question could not be asked.
    */
   check(): Promise<boolean>;
-  /** Tells the waiting worker to take over; true once it has (or none waits), false if it did not. */
+  /**
+   * Tells the latest worker to take over once it has fully downloaded; true
+   * once it has (or none waits), false if it did not or could not.
+   */
   activate(): Promise<boolean>;
   /** The worker serving this page changed under it - another tab's click. */
   onTakenOver(listener: () => void): () => void;
 }
 
-export const realWorkers: Workers = {
-  supported: () => Boolean(globalThis.navigator?.serviceWorker),
-  waiting: async () => Boolean((await registered())?.waiting),
-  check: async () => {
-    const registration = await registered();
-    if (!registration) return false;
-    await registration.update();
-    return Boolean(await waitingIn(registration));
-  },
-  activate: async () => {
-    const registration = await registered();
-    return registration ? activateWaiting(registration) : true;
-  },
-  onTakenOver: (listener) => {
-    const container = globalThis.navigator?.serviceWorker;
-    container?.addEventListener('controllerchange', listener);
-    return () => container?.removeEventListener('controllerchange', listener);
-  },
-};
+/**
+ * As much of the browser's service worker objects as the page uses, so a test
+ * can stand in for them: the browser's own satisfy these as they are.
+ */
+export interface WorkerLike {
+  readonly state: ServiceWorkerState;
+  postMessage(message: unknown): void;
+  addEventListener(type: 'statechange', listener: () => void): void;
+  removeEventListener(type: 'statechange', listener: () => void): void;
+}
 
-async function registered(): Promise<ServiceWorkerRegistration | undefined> {
-  return globalThis.navigator?.serviceWorker?.getRegistration();
+export interface RegistrationLike {
+  readonly installing: WorkerLike | null;
+  readonly waiting: WorkerLike | null;
+  update(): Promise<unknown>;
+}
+
+export interface ContainerLike {
+  getRegistration(): Promise<RegistrationLike | undefined>;
+  addEventListener(type: 'controllerchange', listener: () => void): void;
+  removeEventListener(type: 'controllerchange', listener: () => void): void;
+}
+
+/** The longest a click waits to ask for a newer version and for it to download. */
+const DOWNLOAD_WAIT_MS = 30_000;
+
+/** `Workers` over a container, asked for afresh each time since the browser's is a property, not a value. */
+export function serviceWorkers(container: () => ContainerLike | undefined): Workers {
+  const registered = async () => container()?.getRegistration();
+  return {
+    supported: () => Boolean(container()),
+    waiting: async () => Boolean((await registered())?.waiting),
+    check: async () => {
+      const registration = await registered();
+      if (!registration) return false;
+      await registration.update();
+      return Boolean(await waitingIn(registration));
+    },
+    activate: async () => {
+      const registration = await registered();
+      return registration ? activateLatest(registration) : true;
+    },
+    onTakenOver: (listener) => {
+      const watched = container();
+      watched?.addEventListener('controllerchange', listener);
+      return () => watched?.removeEventListener('controllerchange', listener);
+    },
+  };
+}
+
+export const realWorkers: Workers = serviceWorkers(() => globalThis.navigator?.serviceWorker);
+
+/**
+ * The click: activate the latest version, and only once it has fully
+ * downloaded. False, with nothing activated, where that cannot be done.
+ *
+ * **Never the older of two.** A version found waiting at opening may have been
+ * overtaken by a deploy since, so the click asks the server first and waits for
+ * whatever is still downloading. Activating the older one while the newer
+ * downloads would strand the browser: every version keeps its files in the one
+ * shared precache, and a version taking over deletes every entry outside its own
+ * list, the newer one's start page included, so the newer one would later take
+ * over with no start page to answer a reload with.
+ *
+ * **A newest download that fails, or never finishes, activates nothing**, and so does
+ * a server that cannot be asked: the click says it could not load the new
+ * version, and the current one keeps working.
+ */
+async function activateLatest(registration: RegistrationLike): Promise<boolean> {
+  const downloads = new Map<WorkerLike, Promise<ServiceWorkerState>>();
+  const watch = (worker: WorkerLike | null) => {
+    // Watched from the moment it is seen, so what is kept is the state it
+    // finished downloading in, not one a later version gave it.
+    if (worker && !downloads.has(worker)) downloads.set(worker, leftInstalling(worker));
+  };
+  watch(registration.installing);
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<'late'>((resolve) => {
+    timer = setTimeout(() => resolve('late'), DOWNLOAD_WAIT_MS);
+  });
+  try {
+    if ((await Promise.race([registration.update(), late])) === 'late') return false;
+    watch(registration.installing);
+    const finished = await Promise.race([Promise.all(downloads.values()), late]);
+    // Only the newest counts: a download that failed before it is superseded.
+    if (finished === 'late' || finished[finished.length - 1] === 'redundant') return false;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+  return activateWaiting(registration);
 }
 
 /**
@@ -420,7 +506,8 @@ export interface Opening {
 
 /**
  * Decide what opening shows. A worker already waiting from an earlier visit is
- * answered with no network at all; otherwise the browser is asked for a newer
+ * answered with no network at all - one deployed since is the click's to find,
+ * so it is still one message - and otherwise the browser is asked for a newer
  * one, for at most `boundMs`. An answer that does not come in time, an error,
  * and being offline all open the old version - a gate that cannot be tested
  * must not block offline use - and the same question is asked again at the next
@@ -446,9 +533,9 @@ export async function checkOnOpening(
 }
 
 /**
- * The click: activate the waiting worker, then reload once onto it. Resolves
- * false, with no reload, when the worker did not activate: reloading would land
- * on the old version with the same worker still waiting.
+ * The click: activate the latest worker, then reload once onto it. Resolves
+ * false, with no reload, when it did not activate: reloading would land on the
+ * old version with the same worker still waiting.
  *
  * Marked with the same tab memory as the gate, so a version that is *still*
  * behind after the click is not taken a second time automatically (the gate

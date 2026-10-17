@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -10,8 +10,11 @@ import {
   continueToNewVersion,
   pickUpTheNewVersion,
   realVersions,
+  serviceWorkers,
   takeTheNewVersion,
+  type ContainerLike,
   type Versions,
+  type WorkerLike,
   type Workers,
 } from '../../../src/updating';
 
@@ -705,6 +708,181 @@ describe('a new version is announced, and loaded on a click', () => {
       // Back on the same build and still out of date: the gate has no second attempt.
       await expect(pickUpTheNewVersion(versions, memory)).resolves.toBe('nothing-new');
       expect(reload).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+/**
+ * What the click does with the browser's own workers, which are replaced here
+ * by a stand-in that downloads and takes over when told: `serviceWorkers` is
+ * the real code, so the decision of which version to activate, and when, is
+ * the one the page makes. That the precache survives it is the F3 walk.
+ */
+describe('Continue loads the latest version, once it has fully downloaded', () => {
+  /** The browser's workers: v1 is running, and the rest are as given. */
+  function aBrowser(start: {
+    waiting: string;
+    downloading?: string;
+    deployedSince?: string;
+    unreachable?: boolean;
+  }) {
+    const activated: string[] = [];
+    type Version = WorkerLike & { name: string; state: ServiceWorkerState; listeners: Set<() => void> };
+    const turn = (worker: Version, state: ServiceWorkerState) => {
+      worker.state = state;
+      if (state === 'activated') activated.push(worker.name);
+      [...worker.listeners].forEach((listener) => listener());
+    };
+    const version = (name: string, state: ServiceWorkerState): Version => {
+      const worker: Version = {
+        name,
+        state,
+        listeners: new Set(),
+        addEventListener: (_type, listener) => void worker.listeners.add(listener),
+        removeEventListener: (_type, listener) => void worker.listeners.delete(listener),
+        postMessage: (message) => {
+          if ((message as { type?: string }).type !== 'SKIP_WAITING' || registration.waiting !== worker) return;
+          registration.waiting = null;
+          turn(worker, 'activating');
+          turn(worker, 'activated');
+        },
+      };
+      return worker;
+    };
+    let deployedSince = start.deployedSince;
+    const registration: { installing: Version | null; waiting: Version | null; update(): Promise<void> } = {
+      installing: start.downloading ? version(start.downloading, 'installing') : null,
+      waiting: version(start.waiting, 'installed'),
+      update: async () => {
+        if (start.unreachable) throw new TypeError('Failed to update a ServiceWorker');
+        // The browser's own order: an update waits for the download under way.
+        const underWay = registration.installing;
+        if (underWay) {
+          await new Promise<void>((resolve) => {
+            const done = () => {
+              if (underWay.state === 'installing') return;
+              underWay.listeners.delete(done);
+              resolve();
+            };
+            underWay.listeners.add(done);
+          });
+        }
+        if (deployedSince) registration.installing = version(deployedSince, 'installing');
+        deployedSince = undefined;
+      },
+    };
+    const container: ContainerLike = {
+      getRegistration: () => Promise.resolve(registration),
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    };
+    return {
+      workers: serviceWorkers(() => container),
+      /** Every version that has ever taken over, in order. */
+      activated,
+      finishDownload() {
+        const worker = registration.installing!;
+        registration.installing = null;
+        // The browser's own order: the version it overtakes is dropped first.
+        if (registration.waiting) turn(registration.waiting, 'redundant');
+        registration.waiting = worker;
+        turn(worker, 'installed');
+      },
+      failDownload() {
+        const worker = registration.installing!;
+        registration.installing = null;
+        turn(worker, 'redundant');
+      },
+    };
+  }
+
+  /** Opens on the message, presses Continue, lets `meanwhile` happen, and settles. */
+  async function pressContinue(browser: ReturnType<typeof aBrowser>, meanwhile: () => unknown) {
+    const reload = vi.fn();
+    const versions: Versions = {
+      newVersionWaiting: () => Promise.resolve(false),
+      thisBuild: () => 'build-1',
+      servedBuild: () => Promise.resolve('build-1'),
+      reload,
+    };
+    render(
+      <QueryClientProvider client={newClient()}>
+        <Updating workers={browser.workers} versions={versions} memory={scratchMemory()}>
+          <p>Your workspace</p>
+        </Updating>
+      </QueryClientProvider>,
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await meanwhile();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    return reload;
+  }
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  describe('however many versions have stacked up, the click takes the latest', () => {
+    it.each([
+      {
+        situation: 'a newer version is still downloading when Continue is pressed',
+        start: { waiting: 'v2', downloading: 'v3' },
+      },
+      {
+        situation: 'a newer version was deployed since the one waiting was found',
+        start: { waiting: 'v2', deployedSince: 'v3' },
+      },
+    ])('$situation', async ({ start }) => {
+      const browser = aBrowser(start);
+
+      const reload = await pressContinue(browser, () => browser.finishDownload());
+
+      expect(browser.activated).toEqual(['v3']);
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes the newer version when the download before it failed', async () => {
+      const browser = aBrowser({ waiting: 'v2', downloading: 'v3', deployedSince: 'v4' });
+
+      const reload = await pressContinue(browser, async () => {
+        browser.failDownload();
+        await vi.advanceTimersByTimeAsync(0);
+        browser.finishDownload();
+      });
+
+      expect(browser.activated).toEqual(['v4']);
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('a click that cannot load the latest version says so, and keeps the current one', () => {
+    it.each([
+      {
+        situation: "the newer version's download fails",
+        start: { waiting: 'v2', downloading: 'v3' },
+        meanwhile: (browser: ReturnType<typeof aBrowser>) => browser.failDownload(),
+      },
+      {
+        situation: "the newer version's download never finishes",
+        start: { waiting: 'v2', downloading: 'v3' },
+        meanwhile: () => vi.advanceTimersByTimeAsync(30_000),
+      },
+      {
+        situation: 'the server cannot be asked for a newer version',
+        start: { waiting: 'v2', unreachable: true },
+        meanwhile: () => undefined,
+      },
+    ])('$situation', async ({ start, meanwhile }) => {
+      const browser = aBrowser(start);
+
+      const reload = await pressContinue(browser, () => meanwhile(browser));
+
+      expect(screen.getByText('Could not load the new version. Try again.')).toBeVisible();
+      expect(browser.activated).toEqual([]);
+      expect(reload).not.toHaveBeenCalled();
     });
   });
 });

@@ -49,6 +49,14 @@ function buildOf(page: Page): Promise<string | null> {
   return page.evaluate(() => document.querySelector('script[type="module"][src]')?.getAttribute('src') ?? null);
 }
 
+/** Waits until the page in this tab is running `entry`'s build, across however many reloads that takes. */
+async function onBuild(page: Page, entry: string): Promise<void> {
+  await page.waitForFunction(
+    (wanted) => document.querySelector('script[type="module"][src]')?.getAttribute('src') === wanted,
+    entry,
+  );
+}
+
 /** The tab coming back into view, the trigger a deploy is noticed on. */
 async function comeBackIntoView(page: Page): Promise<void> {
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -121,6 +129,70 @@ test.describe('Updating', () => {
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
       await expect(page.locator('#root > *')).not.toHaveCount(0);
       await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(0);
+    });
+  });
+
+  test.describe('however many versions have stacked up, there is one message and Continue loads the latest', () => {
+    test('lands on the newest when a version waits from an earlier visit and a newer one was deployed since', async ({ page, deployed }) => {
+      await open(page, deployed);
+      deployed.deploy();
+      await comeBackIntoView(page);
+      await expect(page.getByRole('alertdialog', MESSAGE)).toBeVisible();
+      const newest = deployed.deploy();
+
+      await page.reload();
+      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(1);
+      await page.getByRole('button', { name: 'Continue' }).click();
+
+      await onBuild(page, deployed.entryOf(newest));
+      await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      await expect(page.locator('#root > *')).not.toHaveCount(0);
+      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(0);
+    });
+  });
+
+  test.describe('a plain reload always loads Cockpit', () => {
+    test('loads the newest after Continue while that version was still downloading', async ({ page, deployed }) => {
+      await open(page, deployed);
+      deployed.deploy();
+      await comeBackIntoView(page);
+      await expect(page.getByRole('alertdialog', MESSAGE)).toBeVisible();
+      const newest = deployed.deploy();
+      const download = deployed.hold();
+      await comeBackIntoView(page);
+      await download.asked;
+
+      const reloaded = page.waitForEvent('load');
+      await page.getByRole('button', { name: 'Continue' }).click();
+      download.release();
+      await reloaded;
+      // Whichever version the click loaded, a second message is answered the same way.
+      const message = page.getByRole('alertdialog', MESSAGE);
+      await Promise.race([onBuild(page, deployed.entryOf(newest)), message.waitFor()]);
+      if (await message.isVisible()) await page.getByRole('button', { name: 'Continue' }).click();
+      await onBuild(page, deployed.entryOf(newest));
+
+      await page.reload();
+
+      expect(await buildOf(page)).toBe(deployed.entryOf(newest));
+      await expect(page.locator('#root > *')).not.toHaveCount(0);
+    });
+
+    test('loads from the network when the stored copy is missing its start page', async ({ page, deployed }) => {
+      await open(page, deployed);
+      await page.evaluate(async () => {
+        for (const name of await caches.keys()) {
+          const cache = await caches.open(name);
+          for (const request of await cache.keys()) {
+            if (new URL(request.url).pathname.match(/^\/(index\.html)?$/)) await cache.delete(request);
+          }
+        }
+      });
+
+      await page.reload();
+
+      expect(await buildOf(page)).toBe(deployed.entryOf(1));
+      await expect(page.locator('#root > *')).not.toHaveCount(0);
     });
   });
 
