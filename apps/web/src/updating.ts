@@ -458,7 +458,7 @@ export const realWorkers: Workers = serviceWorkers(() => globalThis.navigator?.s
  * list, the newer one's start page included, so the newer one would later take
  * over with no start page to answer a reload with.
  *
- * **A download that fails, or never finishes, activates nothing**, and so does
+ * **A newest download that fails, or never finishes, activates nothing**, and so does
  * a server that cannot be asked: the click says it could not load the new
  * version, and the current one keeps working.
  */
@@ -479,7 +479,8 @@ async function activateLatest(registration: RegistrationLike): Promise<boolean> 
     if ((await Promise.race([registration.update(), late])) === 'late') return false;
     watch(registration.installing);
     const finished = await Promise.race([Promise.all(downloads.values()), late]);
-    if (finished === 'late' || finished.includes('redundant')) return false;
+    // Only the newest counts: a download that failed before it is superseded.
+    if (finished === 'late' || finished[finished.length - 1] === 'redundant') return false;
   } catch {
     return false;
   } finally {

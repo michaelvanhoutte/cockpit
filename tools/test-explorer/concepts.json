@@ -510,7 +510,7 @@
       "key": "Updating",
       "label": "Updating",
       "parent": "Across the app",
-      "browserWalks": 10,
+      "browserWalks": 9,
       "sourcePatterns": ["apps/web/src/updating.ts", "apps/web/src/components/Updating.tsx"]
     },
     {

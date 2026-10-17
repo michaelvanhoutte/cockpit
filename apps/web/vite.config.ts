@@ -78,11 +78,18 @@ export default defineConfig({
         // navigation, so the page would fail on every plain reload until a hard
         // one.
         navigateFallback: '/',
+        // Fails the build if the entry is not found: a worker whose fallback is
+        // not precached throws on start, so no new version could ever install.
         manifestTransforms: [
-          (entries) => ({
-            manifest: entries.map((entry) => (entry.url === 'index.html' ? { ...entry, url: '/' } : entry)),
-            warnings: [],
-          }),
+          (entries) => {
+            if (!entries.some((entry) => entry.url === 'index.html')) {
+              throw new Error('No index.html in the precache manifest to store under `/`');
+            }
+            return {
+              manifest: entries.map((entry) => (entry.url === 'index.html' ? { ...entry, url: '/' } : entry)),
+              warnings: [],
+            };
+          },
         ],
         // Prefixes the shell must never answer for. All but the last two are
         // this service's own: they are requests for data, or the consent page

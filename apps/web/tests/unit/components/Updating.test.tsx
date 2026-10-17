@@ -755,7 +755,19 @@ describe('Continue loads the latest version, once it has fully downloaded', () =
       waiting: version(start.waiting, 'installed'),
       update: async () => {
         if (start.unreachable) throw new TypeError('Failed to update a ServiceWorker');
-        if (deployedSince && !registration.installing) registration.installing = version(deployedSince, 'installing');
+        // The browser's own order: an update waits for the download under way.
+        const underWay = registration.installing;
+        if (underWay) {
+          await new Promise<void>((resolve) => {
+            const done = () => {
+              if (underWay.state === 'installing') return;
+              underWay.listeners.delete(done);
+              resolve();
+            };
+            underWay.listeners.add(done);
+          });
+        }
+        if (deployedSince) registration.installing = version(deployedSince, 'installing');
         deployedSince = undefined;
       },
     };
@@ -829,6 +841,19 @@ describe('Continue loads the latest version, once it has fully downloaded', () =
       const reload = await pressContinue(browser, () => browser.finishDownload());
 
       expect(browser.activated).toEqual(['v3']);
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes the newer version when the download before it failed', async () => {
+      const browser = aBrowser({ waiting: 'v2', downloading: 'v3', deployedSince: 'v4' });
+
+      const reload = await pressContinue(browser, async () => {
+        browser.failDownload();
+        await vi.advanceTimersByTimeAsync(0);
+        browser.finishDownload();
+      });
+
+      expect(browser.activated).toEqual(['v4']);
       expect(reload).toHaveBeenCalledTimes(1);
     });
   });

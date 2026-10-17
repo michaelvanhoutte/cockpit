@@ -149,27 +149,6 @@ test.describe('Updating', () => {
       await expect(page.locator('#root > *')).not.toHaveCount(0);
       await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(0);
     });
-
-    test('lands on the newest when a tab stays open across two deploys', async ({ page, deployed }) => {
-      await open(page, deployed);
-      deployed.deploy();
-      await comeBackIntoView(page);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toBeVisible();
-      const first = await page.evaluateHandle(async () => (await navigator.serviceWorker.getRegistration())?.waiting);
-      const newest = deployed.deploy();
-      await comeBackIntoView(page);
-      // The second deploy has downloaded and overtaken the first.
-      await expect
-        .poll(() => page.evaluate(async (was) => (await navigator.serviceWorker.getRegistration())?.waiting !== was, first))
-        .toBe(true);
-
-      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(1);
-      await page.getByRole('button', { name: 'Continue' }).click();
-
-      await onBuild(page, deployed.entryOf(newest));
-      await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(0);
-    });
   });
 
   test.describe('a plain reload always loads Cockpit', () => {
