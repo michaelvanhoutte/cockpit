@@ -15,7 +15,7 @@ export type Appearance = 'light' | 'dark';
  */
 export const DARK_GROUND = '#23242a';
 
-/** The colours a Workspace is dressed in: the four it stores, and the two its theme gives them. */
+/** The colours a Workspace is dressed in: the four it arrives with, and the two its theme gives them. */
 export interface PaintedWorkspace {
   color: string;
   bar: string;

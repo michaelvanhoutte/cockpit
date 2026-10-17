@@ -84,7 +84,7 @@ export function themeOf(tint: string): WorkspaceTheme {
   return WORKSPACE_THEMES.find((theme) => theme.tint === tint) ?? DEFAULT_WORKSPACE_THEME;
 }
 
-/** Whether this accent is one the palette has: the only thing a theme pick has to get right, since the palette's own four are what is stored for it. */
+/** Whether this accent is one the palette has: the only thing a theme pick has to get right, since the accent alone is what is stored for it. */
 export function isPaletteTint(tint: string): boolean {
   return WORKSPACE_THEMES.some((theme) => theme.tint === tint);
 }

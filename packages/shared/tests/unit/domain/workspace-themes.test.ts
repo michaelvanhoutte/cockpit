@@ -134,7 +134,7 @@ describe('Workspace management', () => {
   });
 
   describe('a theme is picked by its accent alone', () => {
-    // L1: a pure lookup. That the server stores the palette's own four for a
+    // L1: a pure lookup. That the server stores the accent alone for a
     // pick, whatever the other three say, is proved against a real store in
     // apps/api/tests/integration.
     it.each([
