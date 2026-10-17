@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PANEL_COLUMN_WIDTHS } from '@cockpit/shared';
-import { columnsStyle, columnsThatFit, drawnWidthOf, landingAmongColumns, type RowBox } from '../../src/panelColumns';
+import { columnsStyle, columnsThatFit, drawnWidthOf, landingAmongColumns, landingOnRow, type RowBox } from '../../src/panelColumns';
 
 /**
  * F1, and pure, for the reason tests/unit/dropAt.test.ts is: jsdom lays
@@ -80,6 +80,16 @@ describe('Panels', () => {
       { situation: 'below every row', x: 450, y: 700, lands: 7 },
     ])('$situation', ({ x, y, lands }) => {
       expect(landingAmongColumns(rows, x, y)).toBe(lands);
+    });
+
+    it.each([
+      { situation: 'the left half of a row', x: 424 + 50, y: 20, after: false },
+      { situation: 'the right half of the middle row of a line, before the row along', x: 424 + 350, y: 20, after: false },
+      { situation: 'the right half of the last row of a full line, drawn on that row', x: 2 * 424 + 350, y: 20, after: true },
+      { situation: 'the right half of the last row of a short line', x: 350, y: 2 * 48 + 20, after: true },
+      { situation: 'the gap between two lines', x: 450, y: 44, after: false },
+    ])('draws the edge after the row it is over only at the end of a line: $situation', ({ x, y, after }) => {
+      expect(landingOnRow(rows, x, y).after).toBe(after);
     });
 
     it('lands at the only place there is in an empty list', () => {

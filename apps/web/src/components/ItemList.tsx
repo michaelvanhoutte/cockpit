@@ -20,7 +20,7 @@ import { CommandRefused } from '../api/client';
 import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
 import { itemInTheAir, panelLiftedFrom } from '../itemInTheAir';
-import { columnsStyle, landingAmongColumns } from '../panelColumns';
+import { columnsStyle, landingOnRow } from '../panelColumns';
 import {
   filedOrderOnPanel,
   filingsThatFile,
@@ -724,6 +724,8 @@ export function ItemList({
    * dragged across this list. Drawn as a line between two rows.
    */
   const [landingAt, setLandingAt] = useState<number | null>(null);
+  /** In columns: that the gap is drawn as the trailing edge of the row before it, the one under the pointer at the end of a line. */
+  const [landingAfter, setLandingAfter] = useState(false);
   /**
    * A row let go over this panel that is on a panel already, waiting for the
    * answer to which of the two was meant ("Ask whether to move an item to a
@@ -752,7 +754,7 @@ export function ItemList({
    * shorter than its neighbours, is where it looks like it is and not where an
    * index would put it.
    */
-  const gapUnder = (x: number, y: number): number => {
+  const landingUnder = (x: number, y: number): { gap: number; after: boolean } => {
     // The rows themselves, not the line drawn between them: a landing line is
     // a child of the same list, and counting it would move the midpoints under
     // the pointer as the line follows it about.
@@ -761,12 +763,16 @@ export function ItemList({
     );
     // In columns a row has a left and a right half to aim at, and the line it
     // is on; in one column only its height says anything.
-    if (columns !== null) return landingAmongColumns(boxes, x, y);
-    return whereItWouldLand(
-      boxes.map((box) => box.top + box.height / 2),
-      y,
-    );
+    if (columns !== null) return landingOnRow(boxes, x, y);
+    return {
+      gap: whereItWouldLand(
+        boxes.map((box) => box.top + box.height / 2),
+        y,
+      ),
+      after: false,
+    };
   };
+  const gapUnder = (x: number, y: number): number => landingUnder(x, y).gap;
 
   /**
    * A row let go over this list.
@@ -1022,7 +1028,11 @@ export function ItemList({
           // cannot happen. A drop is still accepted here, because arriving
           // from a panel means being taken off it. None on a sorted Panel
           // either, for the same reason.
-          if (panelId && !sorted) setLandingAt(gapUnder(event.clientX, event.clientY));
+          if (panelId && !sorted) {
+            const over = landingUnder(event.clientX, event.clientY);
+            setLandingAt(over.gap);
+            setLandingAfter(over.after);
+          }
         }}
         // Only when the pointer has left this list rather than moved onto a row
         // inside it, which fires the same event.
@@ -1112,7 +1122,7 @@ export function ItemList({
                   </span>
                   <span className="shrink-0 tabular-nums">{group.items.length}</span>
                 </h4>
-                <ul style={columnsStyle(columns)}>
+                <ul style={columnsStyle(columns)} role="list">
                   {group.items.map((item) => (
                     <Fragment key={item.id}>{rowFor(item, group.panelId)}</Fragment>
                   ))}
@@ -1121,7 +1131,7 @@ export function ItemList({
             ))}
           </ul>
         ) : (
-          <ul ref={rows} style={columnsStyle(columns)}>
+          <ul ref={rows} style={columnsStyle(columns)} role="list">
             {items.map((item, at) => (
               <Fragment key={item.id}>
                 {/* A line takes a grid cell of its own in columns, so there the
@@ -1133,11 +1143,13 @@ export function ItemList({
                   undefined,
                   columns === null
                     ? undefined
-                    : landingAt === at
-                      ? 'before'
-                      : landingAt === items.length && at === items.length - 1
-                        ? 'after'
-                        : undefined,
+                    : landingAfter && landingAt === at + 1
+                      ? 'after'
+                      : landingAt === at && !landingAfter
+                        ? 'before'
+                        : landingAt === items.length && at === items.length - 1
+                          ? 'after'
+                          : undefined,
                 )}
               </Fragment>
             ))}

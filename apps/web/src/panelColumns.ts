@@ -62,15 +62,28 @@ export interface RowBox {
  * a pointer in the gap lands at the start of the line below it.
  */
 export function landingAmongColumns(rows: readonly RowBox[], x: number, y: number): number {
+  return landingOnRow(rows, x, y).gap;
+}
+
+/**
+ * The same landing place, and whether it is drawn as the trailing edge of the
+ * row before it: true on the right half of the last row of a line, where the
+ * gap is the first row of the next line's but the pointer is over this one.
+ */
+export function landingOnRow(rows: readonly RowBox[], x: number, y: number): { gap: number; after: boolean } {
   const onThisLine = rows
     .map((box, at) => ({ box, at }))
     .filter(({ box }) => y >= box.top && y < box.top + box.height);
   if (onThisLine.length > 0) {
     const next = onThisLine.find(({ box }) => x < box.left + box.width / 2);
-    return next ? next.at : onThisLine[onThisLine.length - 1]!.at + 1;
+    if (next) return { gap: next.at, after: false };
+    return { gap: onThisLine[onThisLine.length - 1]!.at + 1, after: true };
   }
-  return whereItWouldLand(
-    rows.map((box) => box.top + box.height / 2),
-    y,
-  );
+  return {
+    gap: whereItWouldLand(
+      rows.map((box) => box.top + box.height / 2),
+      y,
+    ),
+    after: false,
+  };
 }
