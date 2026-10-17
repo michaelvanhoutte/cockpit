@@ -58,10 +58,10 @@ export function readClaudeProposals(raw: unknown, offeredFolders: readonly strin
     ),
   );
   if (!proposals.success) return { discarded: 'the answer did not hold to what a proposal is' };
-  // A reason is shown in the window as the model's, but beside Cockpit's own
-  // words, so it may not carry an address or a link an item could plant there.
-  if (proposals.data.some((one) => one.destination === 'nothing' && ADDRESS_OR_LINK.test(one.why))) {
-    return { discarded: 'the reason for proposing nothing named an address or a link' };
+  // A reason and a label are shown in the window beside Cockpit's own words, so
+  // neither may carry an address or a link an item could plant there.
+  if (proposals.data.some((one) => ADDRESS_OR_LINK.test(one.destination === 'nothing' ? one.why : one.label))) {
+    return { discarded: 'a reason or a label named an address or a link' };
   }
   return { proposals: proposals.data };
 }

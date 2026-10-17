@@ -55,6 +55,7 @@ describe('Agents', () => {
       { situation: 'a field left out', text: JSON.stringify({ proposals: [{ destination: 'cowork', prompt: 'Do it.' }] }) },
       { situation: 'a reason for nothing naming an address', text: answer(said({ destination: 'nothing', prompt: '', why: 'Reply to help@desk.example first.' })) },
       { situation: 'a reason for nothing carrying a link', text: answer(said({ destination: 'nothing', prompt: '', why: 'Verify at https://evil.example/login.' })) },
+      { situation: 'a label carrying a link', text: answer(said({ label: 'Pay at www.pay-now.example' })) },
       { situation: 'text that is not JSON', text: 'I would send this to Cowork.' },
       { situation: 'no text at all', text: undefined },
     ])('keeps none for $situation', ({ text }) => {

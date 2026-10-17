@@ -130,9 +130,22 @@ export interface ProposedFrom {
   sender: string | null;
 }
 
-/** "a Gmail message by Els Maes" - the source and sender, as the window and the prompt both say them. */
+/**
+ * "a Gmail message by Els Maes" - the source and sender, as the window and the
+ * prompt both say them. Each on one line and cut short, since a sender's name
+ * is the sender's to choose and must not end the line that names it.
+ */
 export function messageFrom(from: ProposedFrom): string {
-  return `a ${from.source} message${from.sender ? ` by ${from.sender}` : ''}`;
+  const sender = from.sender ? oneShortLine(from.sender) : '';
+  return `a ${oneShortLine(from.source)} message${sender ? ` by ${sender}` : ''}`;
+}
+
+/** The longest source or sender name the line carries. */
+const NAME_SHOWN = 80;
+
+function oneShortLine(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length <= NAME_SHOWN ? flat : `${flat.slice(0, NAME_SHOWN)}…`;
 }
 
 /** The line a proposed prompt for someone else's Item opens with. */
