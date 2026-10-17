@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { PANEL_COLUMN_WIDTHS } from '@cockpit/shared';
-import { columnsStyle, columnsThatFit, landingAmongColumns, type RowBox } from '../../src/panelColumns';
+import { columnsStyle, columnsThatFit, drawnWidthOf, landingAmongColumns, type RowBox } from '../../src/panelColumns';
 
 /**
  * F1, and pure, for the reason tests/unit/dropAt.test.ts is: jsdom lays
@@ -23,6 +23,22 @@ describe('Panels', () => {
       { situation: 'a Panel with no width yet', width: 0, minimum: PANEL_COLUMN_WIDTHS.medium, columns: 1 },
     ])('$situation', ({ width, minimum, columns }) => {
       expect(columnsThatFit(width, minimum)).toBe(columns);
+    });
+  });
+
+  describe('a Panel with no width to measure says none, so the form does not promise one column', () => {
+    afterEach(() => {
+      document.body.innerHTML = '';
+    });
+
+    it('is none for a Panel that is not on the screen', () => {
+      expect(drawnWidthOf('nowhere')).toBeNull();
+    });
+
+    it('is none for a Panel drawn at no width, as a collapsed one is', () => {
+      document.body.innerHTML = '<section data-panel-cell="falcon"><div data-drag-scroll="panel"></div></section>';
+
+      expect(drawnWidthOf('falcon')).toBeNull();
     });
   });
 

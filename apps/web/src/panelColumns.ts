@@ -35,12 +35,12 @@ export function columnsStyle(columns: PanelColumns | null): React.CSSProperties 
 
 /**
  * How wide a Panel draws its list, in pixels, or null when it is not on the
- * screen - measured, because a Panel's width is a share of its row and no
+ * screen or draws at no width (a collapsed one) - measured, because a Panel's width is a share of its row and no
  * number the app holds.
  */
 export function drawnWidthOf(panelId: string): number | null {
   const well = document.querySelector<HTMLElement>(`[data-panel-cell="${panelId}"] [data-drag-scroll="panel"]`);
-  return well ? well.clientWidth : null;
+  return well && well.clientWidth > 0 ? well.clientWidth : null;
 }
 
 /** A row's box on the screen. */
