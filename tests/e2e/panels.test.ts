@@ -892,27 +892,14 @@ test.describe('Panels', () => {
     // of with a pointer, which a finger spends on scrolling the page.
     test.skip(({ isMobile }) => !!isMobile, 'sizing a row is a pointer gesture');
 
-    test('keeps the height and the shares a drag sets across a reload, shrinks and scrolls a panel to fit a row dragged short, and shows everything again once the row is let back', async ({
-      page,
-      isMobile,
-    }) => {
-      await ownDashboard(page, isMobile);
-      const first = uniqueTitle('Project Falcon');
-      const second = uniqueTitle('To read');
-      await addPanel(page, first, isMobile);
-      await addPanel(page, second, isMobile);
-      // Two fit across a desktop board, so both land on one row without a
-      // drag - the row this walk goes on to size.
-      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
-
-      const row = page.locator('main [style*="grid-template-columns"]').first();
+    test('keeps the height and the shares a drag sets across a reload', async ({ page, isMobile }) => {
+      const { first, second, row, under } = await twoPanelsInARow(page, isMobile);
       const wasTall = (await row.boundingBox())!.height;
 
       // Waited for from before the gesture, because the board draws the size
       // under the hand and sends it only when the hand stops.
       let saved = answerTo(page, 'save_layout');
-      const under = page.getByTestId('row-line').first();
-      let [lineX, lineY] = await centreOf(under);
+      const [lineX, lineY] = await centreOf(under);
       await page.mouse.move(lineX, lineY);
       await page.mouse.down();
       await page.mouse.move(lineX, lineY + 120, { steps: 8 });
@@ -940,43 +927,22 @@ test.describe('Panels', () => {
       await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
       await expect.poll(async () => (await row.boundingBox())!.height).toBe(wasTall + 120);
       await expect.poll(() => shareOfTheRow(page, first, second)).toBeCloseTo(2, 1);
+    });
 
-      // **And nothing shows more than its row gives it.** Whether a panel's
-      // own box, and the well inside it, really stay inside the row drawn
-      // around them is the half of this no arithmetic below the tier can
-      // check.
-      //
+    test('shrinks and scrolls a panel to fit a row dragged short, and fits the row again on a double-click', async ({
+      page,
+      isMobile,
+    }) => {
+      const { first, second, row, under } = await twoPanelsInARow(page, isMobile);
       // Enough items that the row's own natural height is well past the floor
       // a drag can shrink it to - otherwise shrinking it would prove nothing.
-      // Filled here rather than at the top, because the drags above are
-      // written against the row two empty panels make and a taller one would
-      // put the line they take hold of off the bottom of the screen.
-      const items = Array.from({ length: 8 }, (_, at) => uniqueTitle(`Item ${at}`));
-      for (const title of items) await capture(page, title, isMobile);
+      const items = await itemsFiledOn(page, first, 8);
 
-      // Filed as one selected range rather than one at a time ("Select
-      // several items, and file them all in one go", issue 169): a move per
-      // item leaves its own Undo bar up at the foot of the screen
-      // (`undo.tsx`), and eight of them in a row never leaves a moment for it
-      // to clear before the next item's own row needs clicking - one filing
-      // of all eight leaves one bar, once, after everything has landed. A
-      // ctrl-click starts it and a shift-click reaches the rest ("Pick a row
-      // by ctrl/shift-click instead of aiming for a checkbox, and suspend
-      // single-row actions while a selection is held", issue 438).
-      await itemRow(page, items[0]!).click({ modifiers: ['ControlOrMeta'] });
-      await itemRow(page, items[items.length - 1]!).click({ modifiers: ['Shift'] });
-      await page.getByRole('button', { name: 'Move to…' }).click();
-      const picker = page.getByRole('dialog');
-      await expect(picker).toBeVisible();
-      await picker.getByRole('button', { name: first, exact: true }).click();
-      await expect(picker).toHaveCount(0);
-      // Filing several keeps the Inbox's own order, oldest first - unlike
-      // filing one at a time, which lands each on top of the one before - so
-      // the last item captured is the last on the panel too.
-      await expect.poll(() => itemsOn(page, first)).toEqual(items);
-
-      // The first panel is the busy one from here on, holding all eight; the
-      // second has nothing in it, which is what makes the pair a comparison.
+      // **Nothing shows more than its row gives it.** Whether a panel's own
+      // box, and the well inside it, really stay inside the row drawn around
+      // them is the half of this no arithmetic below the tier can check. The
+      // first panel is the busy one, holding all eight; the second has nothing
+      // in it, which is what makes the pair a comparison.
       const busyWell = page.getByRole('region', { name: first }).locator('.well');
       const bareWell = page.getByRole('region', { name: second }).locator('.well');
       expect(
@@ -987,8 +953,8 @@ test.describe('Panels', () => {
       // Dragged far past the floor rather than to it exactly, so the result
       // does not depend on how tall this checkout's items happen to measure:
       // `withRowHeight` clamps whatever the pointer says.
-      saved = answerTo(page, 'save_layout');
-      [lineX, lineY] = await centreOf(under);
+      let saved = answerTo(page, 'save_layout');
+      const [lineX, lineY] = await centreOf(under);
       await page.mouse.move(lineX, lineY);
       await page.mouse.down();
       await page.mouse.move(lineX, lineY - 1000, { steps: 8 });
@@ -996,19 +962,16 @@ test.describe('Panels', () => {
       expect((await saved).status()).toBe(200);
       await expect.poll(async () => (await row.boundingBox())!.height).toBe(MIN_ROW_HEIGHT);
 
-      // Neither panel's own box reaches past the row around it - the claim
-      // the issue makes, and the one no arithmetic below this tier can check.
-      let rowBox = (await row.boundingBox())!;
+      // Neither panel's own box reaches past the row around it.
+      const rowBox = (await row.boundingBox())!;
       const busyBox = (await page.getByRole('region', { name: first }).boundingBox())!;
       const bareBox = (await page.getByRole('region', { name: second }).boundingBox())!;
-      expect(
-        busyBox.y + busyBox.height,
-        'the busy panel spills past its row',
-      ).toBeLessThanOrEqual(rowBox.y + rowBox.height + 2);
-      expect(
-        bareBox.y + bareBox.height,
-        'the bare panel spills past its row',
-      ).toBeLessThanOrEqual(rowBox.y + rowBox.height + 2);
+      expect(busyBox.y + busyBox.height, 'the busy panel spills past its row').toBeLessThanOrEqual(
+        rowBox.y + rowBox.height + 2,
+      );
+      expect(bareBox.y + bareBox.height, 'the bare panel spills past its row').toBeLessThanOrEqual(
+        rowBox.y + rowBox.height + 2,
+      );
 
       // The busy panel is clipped rather than merely squeezed - there is
       // more in it than the well now shows, and it is reachable by scroll
@@ -1022,13 +985,10 @@ test.describe('Panels', () => {
       });
       const scrolledWellBox = (await busyWell.boundingBox())!;
       const lastBox = (await lastOnThePanel.boundingBox())!;
-      expect(
-        lastBox.y,
-        'scrolling the well should bring the last item into it',
-      ).toBeGreaterThanOrEqual(scrolledWellBox.y - 2);
-      expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(
-        scrolledWellBox.y + scrolledWellBox.height + 2,
+      expect(lastBox.y, 'scrolling the well should bring the last item into it').toBeGreaterThanOrEqual(
+        scrolledWellBox.y - 2,
       );
+      expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(scrolledWellBox.y + scrolledWellBox.height + 2);
 
       // The bare panel has nothing to clip, so it shows nothing to scroll - a
       // scrollbar here would be its own kind of wrong, drawn over a well with
@@ -1040,22 +1000,24 @@ test.describe('Panels', () => {
       saved = answerTo(page, 'save_layout');
       await under.dblclick();
       expect((await saved).status()).toBe(200);
-      const atFit = MIN_ROW_HEIGHT;
-      await expect.poll(async () => (await row.boundingBox())!.height).toBeGreaterThan(atFit);
+      await expect.poll(async () => (await row.boundingBox())!.height).toBeGreaterThan(MIN_ROW_HEIGHT);
       expect(await busyWell.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+    });
 
-      // The bar from filing the eight items above is still up, and ten
-      // seconds after a batch move lands closer to where this line now sits
-      // than it did before this row held anything - clear of it before
-      // taking hold of the line, or the drag closes over the Undo button
-      // instead of the row.
-      await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0, { timeout: 11_000 });
+    test('fills a row dragged taller than its panels need, every well to the row’s foot', async ({
+      page,
+      isMobile,
+    }) => {
+      const { first, second, row, under } = await twoPanelsInARow(page, isMobile);
+      // Two, so the row stays short enough that its line is clear of the Undo
+      // bar the filing leaves at the foot of the screen.
+      await itemsFiledOn(page, first, 2);
+      const busyWell = page.getByRole('region', { name: first }).locator('.well');
+      const bareWell = page.getByRole('region', { name: second }).locator('.well');
 
-      // Dragged taller than either panel needs, which still works the way it
-      // always has: both wells fill the row exactly, with nothing left over.
       const fitHeight = (await row.boundingBox())!.height;
-      saved = answerTo(page, 'save_layout');
-      [lineX, lineY] = await centreOf(under);
+      const saved = answerTo(page, 'save_layout');
+      const [lineX, lineY] = await centreOf(under);
       await page.mouse.move(lineX, lineY);
       await page.mouse.down();
       await page.mouse.move(lineX, lineY + 300, { steps: 8 });
@@ -1063,7 +1025,7 @@ test.describe('Panels', () => {
       expect((await saved).status()).toBe(200);
       await expect.poll(async () => (await row.boundingBox())!.height).toBeGreaterThan(fitHeight);
 
-      rowBox = (await row.boundingBox())!;
+      const rowBox = (await row.boundingBox())!;
       const grownBusyWellBox = (await busyWell.boundingBox())!;
       const grownBareWellBox = (await bareWell.boundingBox())!;
       // Each panel's frame is a 1px line and its list is inset 4px inside it, so
@@ -1078,31 +1040,30 @@ test.describe('Panels', () => {
         'the bare well should fill the taller row',
       ).toBeLessThanOrEqual(2);
       expect(await busyWell.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+    });
 
-      // **And a Dashboard filter fits the row to what is left, and rearranges
-      // nothing.** The row above is as tall as a drag made it and the busy
-      // panel holds eight items - narrowed to one, the row has to shrink to
-      // it, below the floor a drag can reach, which only a layout engine can
-      // say. The bare panel has nothing matching, so it goes while the filter
-      // is on. What is shown for which condition is
-      // apps/web/tests/unit/components/PanelBoard.test.tsx's.
+    test('fits a row to what a Dashboard filter leaves, and writes and rearranges nothing', async ({
+      page,
+      isMobile,
+    }) => {
+      // Narrowed to one item, the row has to shrink to it, below the floor a
+      // drag can reach, which only a layout engine can say. The bare panel has
+      // nothing matching, so it goes while the filter is on. What is shown for
+      // which condition is apps/web/tests/unit/components/PanelBoard.test.tsx's.
+      const { first, second, row } = await twoPanelsInARow(page, isMobile);
+      const items = await itemsFiledOn(page, first, 3);
       const storedHeight = (await row.boundingBox())!.height;
       const storedShare = await shareOfTheRow(page, first, second);
       let layoutsSent = 0;
       page.on('request', (request) => {
-        if (
-          request.method() === 'POST' &&
-          new URL(request.url()).pathname === '/v1/commands/save_layout'
-        ) {
+        if (request.method() === 'POST' && new URL(request.url()).pathname === '/v1/commands/save_layout') {
           layoutsSent += 1;
         }
       });
       await page.getByRole('button', { name: 'Filter this dashboard' }).click();
-      await page.getByRole('searchbox', { name: 'Containing' }).fill(items[3]!);
-      await expect.poll(() => itemsOn(page, first)).toEqual([items[3]]);
-      await expect
-        .poll(async () => (await row.boundingBox())!.height)
-        .toBeLessThan(MIN_ROW_HEIGHT);
+      await page.getByRole('searchbox', { name: 'Containing' }).fill(items[1]!);
+      await expect.poll(() => itemsOn(page, first)).toEqual([items[1]]);
+      await expect.poll(async () => (await row.boundingBox())!.height).toBeLessThan(MIN_ROW_HEIGHT);
 
       // No line to take hold of, so nothing to drag or double-click. The
       // panel with nothing matching is not drawn, the bar says so, and the one
@@ -1132,11 +1093,16 @@ test.describe('Panels', () => {
       await expect(page.getByText(/panels? hidden/)).toHaveCount(0);
       await expect.poll(() => shareOfTheRow(page, first, second)).toBeCloseTo(storedShare, 1);
       expect(layoutsSent, 'a filtered board must not write a layout').toBe(0);
+      await expectNoSidewaysScroll(page);
+      await expectTheDashboardFits(page);
+    });
 
-      // **And a person can narrow the dashboard to what is in progress.** One
-      // item is started from its row's menu, then the filter's Status group
+    test('narrows the dashboard to what is in progress', async ({ page, isMobile }) => {
+      // One item is started from its row's menu, then the filter's Status group
       // keeps only it. Which statuses match is
       // apps/web/tests/unit/dashboardFilter.test.ts's.
+      const { first } = await twoPanelsInARow(page, isMobile);
+      const items = await itemsFiledOn(page, first, 2);
       const started = items[1]!;
       await press(itemRow(page, started).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: /^Status/ }), isMobile);
@@ -1147,9 +1113,6 @@ test.describe('Panels', () => {
       await expect.poll(() => itemsOn(page, first)).toEqual([started]);
       await page.getByRole('button', { name: 'Clear the filter and close it' }).click();
       await expect.poll(() => itemsOn(page, first)).toEqual(items);
-
-      await expectNoSidewaysScroll(page);
-      await expectTheDashboardFits(page);
     });
   });
 });
@@ -1450,4 +1413,44 @@ async function centreOf(what: Locator): Promise<[number, number]> {
   const box = await what.boundingBox();
   if (!box) throw new Error('nothing to aim at');
   return [box.x + box.width / 2, box.y + box.height / 2];
+}
+
+/**
+ * A dashboard of this walk's own holding two empty panels on one row - two fit
+ * across a desktop board, so both land on it without a drag - with the row and
+ * the line under it that sizes it.
+ */
+async function twoPanelsInARow(page: Page, isMobile: boolean) {
+  await ownDashboard(page, isMobile);
+  const first = uniqueTitle('Project Falcon');
+  const second = uniqueTitle('To read');
+  await addPanel(page, first, isMobile);
+  await addPanel(page, second, isMobile);
+  await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
+  const row = page.locator('main [style*="grid-template-columns"]').first();
+  const under = page.getByTestId('row-line').first();
+  return { first, second, row, under };
+}
+
+/**
+ * Captures `count` items and files them on a panel as one selected range, in
+ * the order captured: a move per item would leave its own Undo bar up at the
+ * foot of the screen (`undo.tsx`) over the next row to be clicked, where one
+ * filing leaves one bar, once, after everything has landed. A ctrl-click
+ * starts the range and a shift-click reaches the rest ("Pick a row by
+ * ctrl/shift-click instead of aiming for a checkbox", issue 438).
+ */
+async function itemsFiledOn(page: Page, panel: string, count: number): Promise<string[]> {
+  const items = Array.from({ length: count }, (_, at) => uniqueTitle(`Item ${at}`));
+  for (const title of items) await capture(page, title, false);
+  await itemRow(page, items[0]!).click({ modifiers: ['ControlOrMeta'] });
+  await itemRow(page, items.at(-1)!).click({ modifiers: ['Shift'] });
+  await page.getByRole('button', { name: 'Move to…' }).click();
+  const picker = page.getByRole('dialog');
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: panel, exact: true }).click();
+  await expect(picker).toHaveCount(0);
+  // Filing several keeps the Inbox's own order, oldest first.
+  await expect.poll(() => itemsOn(page, panel)).toEqual(items);
+  return items;
 }

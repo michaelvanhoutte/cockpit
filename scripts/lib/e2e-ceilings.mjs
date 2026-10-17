@@ -142,7 +142,7 @@ export function asReport(review) {
   const problems = [];
   for (const { area, ceiling, count } of review.over) {
     problems.push(
-      `${area} holds ${count} walks, past its ceiling of ${ceiling}. Extend a walk that already reaches that state instead, or raise the ceiling in ${THE_REGISTRY} in this same pull request.`,
+      `${area} holds ${count} walks, past its ceiling of ${ceiling}. Remove a walk whose behaviour a lower tier already proves, or raise the ceiling in ${THE_REGISTRY} in this same pull request.`,
     );
   }
   for (const { area, ceiling } of review.empty) {
