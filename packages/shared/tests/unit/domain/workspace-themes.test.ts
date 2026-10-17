@@ -35,8 +35,8 @@ const towardsBlack = (hex: string, black: number) =>
 
 /** The dark appearance's surface and sunk wells (styles.css, `html[data-app-dark]`). */
 const DARK_SURFACE = '#24252b';
-const DARK_WELL = towardsBlack(DARK_GROUND, 0.28);
-const DARK_INBOX_WELL = towardsBlack(DARK_GROUND, 0.18);
+const DARK_WELL = towardsBlack(DARK_GROUND, 0.44);
+const DARK_INBOX_WELL = towardsBlack(DARK_GROUND, 0.34);
 
 /** What text drawn on the band is: styles.css's `--color-chrome-ink`. */
 const NEAR_WHITE = '#f2f1f8';

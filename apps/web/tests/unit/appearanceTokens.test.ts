@@ -110,5 +110,14 @@ describe('Appearance', () => {
       expect(inbox).toBeLessThan(page);
       expect(list).not.toBe(inbox);
     });
+    it('parts a list at least 1.18:1 and the Inbox at least 1.14:1 below the page, the Inbox lighter than the list', () => {
+      const ground = dark('ground');
+      const list = towardsBlack(ground, wellShare('well'));
+      const inbox = towardsBlack(ground, wellShare('well-inbox'));
+
+      expect(contrast(ground, list)).toBeGreaterThanOrEqual(1.18);
+      expect(contrast(ground, inbox)).toBeGreaterThanOrEqual(1.14);
+      expect(contrast(inbox, '#000000')).toBeGreaterThan(contrast(list, '#000000'));
+    });
   });
 });

@@ -66,14 +66,14 @@ On an Item's phone page the fields are one wrapping row of pill chips, 36px tall
 
 ## The dark appearance
 
-The whole app, logon page included, when the device is set to dark or the choice stored on this device (`cockpit.appearance`: `light` or `dark`, absent for Match device) says so. **Dimmed, not inverted**, like the Car view's night: a near-black page, grey ink, each surface one notch lighter, the wells sunk below the page. The top bar is graphite already and unchanged. The same names take a second set of values under `html[data-app-dark]` in `styles.css`; **a new colour is light until it is given a value there**. Every text below is at least 4.5:1 on what it is drawn on, held by `workspace-themes.test.ts` (the accent) and `appearanceTokens.test.ts` (the rest).
+The whole app, logon page included, when the device is set to dark or the choice stored on this device (`cockpit.appearance`: `light` or `dark`, absent for Match device) says so. **Dimmed, not inverted**, like the Car view's night: a near-black page, grey ink, a dialog or card set apart by its ring and shadow rather than by its tone, and the wells sunk far enough below the page to show by tone alone. The top bar is graphite already and unchanged. The same names take a second set of values under `html[data-app-dark]` in `styles.css`; **a new colour is light until it is given a value there**. Every text below is at least 4.5:1 on what it is drawn on, held by `workspace-themes.test.ts` (the accent) and `appearanceTokens.test.ts` (the rest).
 
 | Name | Dark value |
 |---|---|
-| `ground` (page; the logon page and the shell) | `#1b1c21`, the same in every Workspace |
+| `ground` (page; the logon page and the shell) | `#23242a`, the same in every Workspace |
 | `surface` (dialogs, menus, cards) | `#24252b` |
 | `field` (inputs, opaque white in light) | `#141519` |
-| wells | the page mixed towards black: 72% for a list (`well`), 82% for the Inbox (`well-inbox`), the edge a faint white ring in place of the dark one |
+| wells | the page mixed towards black, parted from it by tone alone: 56% of the page for a list (`well`, `#141418`), 66% for the Inbox (`well-inbox`, `#17181c`), the edge a faint white ring in place of the dark one |
 | `ink-strong`, `ink`, `ink-soft`, `ink-faint` | `#e4e5ea`, `#c2c5cd`, `#9a9eaa`, `#8a8e9a` |
 | `shade` (hairlines, hover fills) | `#e4e5ea`, used at low alpha as in light |
 | `scrim` (behind a dialog) | black, where light is `#16181d`; `bg-shade` is never a scrim |
