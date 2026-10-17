@@ -104,7 +104,19 @@ export async function tidySavedReads(now = Date.now()): Promise<void> {
  *
  * **Memory is fresher**, so a read the client already holds is left as it is.
  */
-export async function restoreSavedReads(client: QueryClient, now = Date.now()): Promise<void> {
+export function restoreSavedReads(client: QueryClient, now = Date.now()): Promise<void> {
+  // One restore at a time per client: a second would clear what the first
+  // recorded, then skip every read the first had already put in memory.
+  const running = restoring.get(client);
+  if (running) return running;
+  const restore = restoreOnce(client, now).finally(() => restoring.delete(client));
+  restoring.set(client, restore);
+  return restore;
+}
+
+const restoring = new WeakMap<QueryClient, Promise<void>>();
+
+async function restoreOnce(client: QueryClient, now: number): Promise<void> {
   restored.leftOut.clear();
   restored.unusable.clear();
   for (const read of await readSaved(now)) {

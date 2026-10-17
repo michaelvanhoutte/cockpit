@@ -99,6 +99,18 @@ describe('Offline', () => {
       expect(client.getQueryData<WorkspaceSnapshot>(WORK)?.items[0]?.title).toBe('four panels');
     });
 
+    it('restores once when asked twice at the same time, so the second does not clear what the first recorded', async () => {
+      await saveRead({ queryKey: WORK, data: titled('three panels'), savedAt: Date.now() });
+      const client = new QueryClient();
+
+      const first = restoreSavedReads(client);
+      const second = restoreSavedReads(client);
+
+      expect(second).toBe(first);
+      await first;
+      expect(client.getQueryData<WorkspaceSnapshot>(WORK)?.items[0]?.title).toBe('three panels');
+    });
+
     it('draws nothing from a saved read this version cannot convert', async () => {
       await saveRead({ queryKey: WORK, data: { ...titled('three panels'), layouts: 'old' }, savedAt: Date.now() });
 

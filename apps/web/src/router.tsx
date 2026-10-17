@@ -22,7 +22,7 @@ import {
   viewToOpen,
   workspaceToCaptureFrom,
 } from './lastVisited';
-import { CannotBeLoadedOffline, isOffline } from './offline';
+import { CannotBeLoadedOffline, isOffline, onStandingChange } from './offline';
 import { tryTheServer } from './opening';
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
@@ -425,7 +425,7 @@ function RouteFailure({ error, reset }: { error: unknown; reset: () => void }) {
 }
 
 export function createAppRouter(queryClient: QueryClient) {
-  return createRouter({
+  const router = createRouter({
     routeTree,
     context: { queryClient },
     defaultPreload: 'intent',
@@ -436,6 +436,19 @@ export function createAppRouter(queryClient: QueryClient) {
     // draw from, so it may take the screen over.
     defaultErrorComponent: RouteFailure,
   });
+  // An answer that comes after the failure screen is up (the late answer, or a
+  // Try again that outlasted its race) ends offline, and the route is read again
+  // by itself rather than left on a screen that is no longer true. Once per
+  // transition, from here and not from the screen: a screen that invalidated on
+  // mount would cancel the read it started.
+  let wasOffline = isOffline();
+  onStandingChange(() => {
+    const now = isOffline();
+    const failedOffline = router.state.matches.some((match) => match.error instanceof CannotBeLoadedOffline);
+    if (wasOffline && !now && failedOffline) void router.invalidate();
+    wasOffline = now;
+  });
+  return router;
 }
 
 declare module '@tanstack/react-router' {

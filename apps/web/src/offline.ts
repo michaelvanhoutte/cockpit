@@ -49,6 +49,9 @@ export const currentStanding = (): Standing => standing;
 /** Whether reads are paused and changes refused, found or chosen alike. */
 export const isOffline = (): boolean => standing.found || standing.chosen;
 
+/** Called after every change of standing; returns what stops it. */
+export const onStandingChange = subscribe;
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

@@ -85,6 +85,9 @@ export async function tryTheServer(client: QueryClient, seams: Seams = {}): Prom
   if (surroundings.isDefinitelyOffline()) return false;
   const late = outcomeOf(ask(client));
   const first = await Promise.race([late, after(giveUpAfterMs)]);
+  // Ended before the caller reads the route again, not left to the handler's
+  // turn; an answer after the limit ends it from there.
+  if (first === 'answered') cameOnline(client);
   void late.then((outcome) => outcome === 'answered' && cameOnline(client));
   return first === 'answered';
 }

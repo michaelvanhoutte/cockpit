@@ -375,6 +375,16 @@ describe('Offline', () => {
       ).toBeVisible();
       expect(fetchSnapshot).not.toHaveBeenCalled();
     });
+
+    it('reads the route again by itself when the server answers after the failure is up', async () => {
+      offlineAt('/w/ws-work/d/d1', (client) => client.setQueryData(['workspaces'], savedList));
+      await screen.findByText('This device looks offline, and nothing is saved here to show.', {}, { timeout: 5_000 });
+      vi.mocked(fetchSnapshot).mockResolvedValue(snapshot);
+
+      act(() => stand({ found: false }));
+
+      expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+    });
   });
 
   describe('while offline was found, changes are refused with "You\'re working offline"', () => {
