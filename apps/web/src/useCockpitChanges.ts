@@ -4,6 +4,7 @@ import type { Item } from '@cockpit/shared';
 import { rewriteHistoryForItemQuery } from './api/queries';
 import { changesOn, latestTextChange, noteFor, rememberSeenChange, seenChangeIn } from './cockpitChanges';
 import { browserStore } from './lastVisited';
+import { savedReadUnusable } from './persistence';
 
 /**
  * What Cockpit changed on one item, for its form: the times it did, the note
@@ -53,6 +54,11 @@ export function useCockpitChanges(itemId: string, item: Item | undefined) {
     note,
     markSeen,
     error: history.error,
+    /** Saved here by an older version, and not read since: it can't be loaded offline. */
+    savedByAnOlderVersion:
+      history.data === undefined &&
+      (history.error !== null || history.fetchStatus === 'paused') &&
+      savedReadUnusable(rewriteHistoryForItemQuery(itemId).queryKey),
     loading: history.data === undefined && history.error === null,
     retry: () => void refetch(),
   };

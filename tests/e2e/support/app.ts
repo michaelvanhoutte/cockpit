@@ -854,8 +854,7 @@ export async function expectNothingSpillsOutOfTheInbox(page: Page): Promise<void
 
 /**
  * What this browser is still holding of whoever was signed in: the query keys
- * in the stored copy of the read model (IndexedDB, written by
- * `apps/web/src/persistence.tsx`) and the keys the app has written to
+ * of the reads saved in IndexedDB (written by `apps/web/src/persistence.tsx`) and the keys the app has written to
  * localStorage.
  *
  * Read straight out of the browser rather than off the screen, because that is
@@ -868,20 +867,17 @@ export async function whatTheBrowserStillHolds(
   page: Page,
 ): Promise<{ storedQueries: string[]; localKeys: string[] }> {
   return page.evaluate(async () => {
-    const stored = await new Promise<unknown>((resolve) => {
-      const open = indexedDB.open('keyval-store');
+    const queries = await new Promise<{ queryKey: unknown[] }[]>((resolve) => {
+      const open = indexedDB.open('cockpit-saved-reads');
       open.onsuccess = () => {
         const db = open.result;
-        if (!db.objectStoreNames.contains('keyval')) return resolve(undefined);
-        const read = db.transaction('keyval').objectStore('keyval').get('cockpit-query-cache-v1');
+        if (!db.objectStoreNames.contains('reads')) return resolve([]);
+        const read = db.transaction('reads').objectStore('reads').getAll();
         read.onsuccess = () => resolve(read.result);
-        read.onerror = () => resolve(undefined);
+        read.onerror = () => resolve([]);
       };
-      open.onerror = () => resolve(undefined);
+      open.onerror = () => resolve([]);
     });
-    const queries =
-      (stored as { clientState?: { queries?: { queryKey: unknown[] }[] } } | undefined)?.clientState
-        ?.queries ?? [];
     return {
       storedQueries: queries.map((q) => JSON.stringify(q.queryKey)),
       localKeys: Object.keys(localStorage),

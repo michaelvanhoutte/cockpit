@@ -30,11 +30,9 @@ import { panelGathers, type Filing, type Item, type Panel } from '@cockpit/share
  * work without a round trip.
  */
 export function stillOpen(item: Item): boolean {
-  // Falsy rather than `=== null`, because a copy restored from IndexedDB is
-  // never parsed again (main.tsx) - so an item stored before this field existed
-  // has `undefined` here, and comparing to null would hide every one of them
-  // from both lists. The buster moves with this shape change as well, which is
-  // the fix; this is what makes the week of stored copies in between harmless.
+  // Falsy rather than `=== null`: a guard kept from before saved reads were
+  // checked on the way back in (`savedReads.ts`), when an item saved before this
+  // field existed answered `undefined` here.
   return !item.completedAt;
 }
 

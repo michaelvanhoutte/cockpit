@@ -147,13 +147,28 @@ export function WhatCockpitChangedOnAnItem({
   error,
   loading,
   onRetry,
+  savedByAnOlderVersion = false,
 }: {
   changes: RewriteHistoryEntry[];
   error: unknown;
   loading: boolean;
   onRetry: () => void;
+  /** This device saved the history in a shape this version can't read, and the server has not answered. */
+  savedByAnOlderVersion?: boolean;
 }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  if (savedByAnOlderVersion) {
+    return (
+      <div role="status">
+        <p className="text-ink-soft">
+          What Cockpit changed was saved by an older version and can't be loaded offline.
+        </p>
+        <button type="button" onClick={onRetry} className="mt-2 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
+          Try again
+        </button>
+      </div>
+    );
+  }
   if (error) return <LoadFailure error={error} onRetry={onRetry} />;
   if (loading) return <p className="text-ink-faint">Looking for what Cockpit changed…</p>;
   if (changes.length === 0) {

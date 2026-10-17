@@ -10,7 +10,7 @@ import { forgetEveryDashboardFilter } from '../dashboardFilter';
 import { forgetEveryAllItemsTab } from '../allItemsTab';
 import { forgetEverySeenChange } from '../cockpitChanges';
 import { forgetWhatJustHappened } from '../undo';
-import { persister } from '../persistence';
+import { forgetEverySavedRead } from '../persistence';
 
 /**
  * Everything this browser is holding about the person who was signed in.
@@ -25,8 +25,10 @@ import { persister } from '../persistence';
  * person uses the same browser:
  *
  * - the in-memory cache, which is what is on screen;
- * - the copy of it in IndexedDB, which is what the *next* cold open would paint
- *   from, a week later if need be (`persistence.tsx`);
+ * - every read saved in IndexedDB, which is what the *next* cold open would
+ *   paint from, a week later if need be (`persistence.tsx`) - and only those:
+ *   the capture outbox, kept recordings and held shares are each in a database
+ *   of their own and stay;
  * - which view each workspace was last on, which panels were last filed into,
  *   the size a drag last left the item form at, the width a drag last left it
  *   docked to, the size a drag last left the Inbox column and the Panel list at, whether the
@@ -39,7 +41,7 @@ import { persister } from '../persistence';
  *   whatever screen comes next.
  *
  * Order matters for the first two. Emptying the cache first and removing the
- * stored copy second means the persister cannot write the old contents back out
+ * saved reads second means nothing can write the old contents back out
  * in between.
  */
 export async function forgetEverything(queryClient: QueryClient): Promise<void> {
@@ -50,7 +52,7 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   // observer left for a removed query to strand.
   queryClient.removeQueries();
   try {
-    await persister.removeClient();
+    await forgetEverySavedRead();
   } catch {
     // A browser with no usable IndexedDB - a private window, storage refused,
     // or a test environment that has none - stored nothing to remove. Failing

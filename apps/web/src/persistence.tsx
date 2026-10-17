@@ -1,177 +1,157 @@
-import type { ReactNode } from 'react';
-import type { QueryClient } from '@tanstack/react-query';
-import { useIsRestoring } from '@tanstack/react-query';
-import { PersistQueryClientProvider, type Persister } from '@tanstack/react-query-persist-client';
-import { del, get, set } from 'idb-keyval';
+import { useEffect, useState, type ReactNode } from 'react';
+import { IsRestoringProvider, QueryClientProvider, hashKey, type Query, type QueryClient } from '@tanstack/react-query';
+import { clear, createStore, del, entries, set, type UseStore } from 'idb-keyval';
+import { checkSavedRead, hasCheck } from './savedReads';
 
 /**
- * Where the read model's stored copy lives between visits (architecture, "The
- * read model: persisted snapshot, revalidate, push"): the query cache is
- * written to IndexedDB, so a cold open paints from the last snapshot with zero
- * blocking network requests.
+ * Where the reads this device saved live between visits (architecture, "The
+ * read model: persisted snapshot, revalidate, push"): **one IndexedDB record
+ * per read**, each with the time it was saved, replaced only when that same
+ * read answers again. A Workspace opened last week is still there after a
+ * visit that opened only another one.
  *
- * It is a module of its own rather than a few lines inside `main.tsx` because
- * signing out has to be able to *remove* it. What is stored here is one
- * person's workspaces and items, and leaving it behind for whoever signs in
- * next is the leak the whole account boundary exists to prevent - and it is a
- * leak no test below a real browser can see, because it lives in the browser's
- * own storage.
+ * Its own database, apart from the capture outbox, kept recordings and held
+ * shares, so wiping it at sign-out or on a new version never reaches a capture
+ * still waiting to send.
  */
-const CACHE_KEY = 'cockpit-query-cache-v1';
+const DATABASE = 'cockpit-saved-reads';
+const STORE = 'reads';
 
-export const persister: Persister = {
-  persistClient: (client) => set(CACHE_KEY, client),
-  restoreClient: () => get(CACHE_KEY),
-  removeClient: () => del(CACHE_KEY),
-};
+let store: UseStore | undefined;
+const savedReads = () => (store ??= createStore(DATABASE, STORE));
 
-/** How long a stored copy stays readable offline. */
+/** The single whole-cache record earlier builds wrote, in idb-keyval's own default database. */
+const OLD_SINGLE_RECORD = 'cockpit-query-cache-v1';
+
+/** How long a saved read stays readable offline, counted from when it was saved. */
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/**
- * `v15` because a Filter panel's conditions became rows ("Store every Filter
- * as rows, and save the All / Any choice as rows", issue 1081). A restored
- * Filter from before it holds `conditions` and `match` and no `rows`, which
- * matching and the funnel read directly.
- *
- * `v14` because a connection's row gained `followsLabel` and a snapshot its
- * `sourceNames`, while a Gmail Item's source became `gmail` ("Take source
- * names out of the shared contract", issue 927). A restored copy from before
- * it names every source by its id, Gmail Items as `mail`.
- *
- * `v13` because a Filter panel gained its grouping ("Group a Filter panel's
- * items by the Dashboard or Panel they are filed on", issue 805). A restored
- * Filter from before it would answer `undefined` where the type says a
- * grouping, and the Filter question opens on what it is handed.
- *
- * `v12` because a Dashboard keeps one Layout and the account no Screen sizes
- * ("Convert every Dashboard to its widest Layout and retire Screen sizes",
- * issue 713). A copy from before it holds every Layout a Dashboard had, and the
- * board, which now draws the one it finds, would draw whichever came first
- * until the snapshot was read again.
- *
- * `v11` because the text-learning status a stored copy may still hold is the
- * account's own rules and pinned examples, which nothing reads or clears now
- * ("Remove the two learning settings screens, and the commands that write to
- * them", issue 452).
- *
- * `v10` because a Panel gained its sort ("Sort a panel of items by the fields
- * you choose", issue 526). A restored Panel from before it would answer
- * `undefined` where the type says a sort or `null`, and the Sort question opens
- * on what it is handed.
- *
- * `v9` because a snapshot gained the account's item-form presentation ("Let
- * the item's form dock to the side of the screen instead of opening as a
- * dialog", issue 481). A restored snapshot from before this moved would
- * answer `undefined` where the type says `'centered'` or `'docked'`, which
- * `ItemForm.tsx` reads directly rather than through the schema's own default.
- *
- * `v8` because an Item gained `textsProposedAt`, when Cockpit proposed its two
- * texts ("Learn how you write from the titles you correct", issue 394).
- * Nothing reads it from a restored snapshot yet, which is exactly why this
- * moves now rather than with the release that does: by then the stale copy is
- * already in browsers, and a restored Item would answer `undefined` where the
- * type says a timestamp or `null`.
- *
- * `v7` because a snapshot gained the account's screen sizes and a layout gained
- * the one it is for ("Give the account a list of screen sizes, before anything
- * reads it", issue 262). Nothing reads either field yet, which is exactly why
- * this moves now rather than with the release that does: by then the stale copy
- * is already in browsers, and a restored snapshot would answer `undefined`
- * where the type says a list.
- *
- * `v5` because a layout gained a name ("Pick the layout you are on, by name",
- * issue 192) and this was not moved with it: a copy from before it holds
- * layouts with no name at all, and the menu that picks one read that name and
- * took the workspace off the screen.
- *
- * `v4` because an item's one text became three: `preview` is gone and a captured
- * message and a description are in its place, and a title can now be empty
- * ("Edit an item's title and description on a form of its own", issue 159). A
- * copy from before it draws rows labelled by a title that is no longer the only
- * label there is, with nothing behind the disclosure and no mark where a
- * description would be. `v3` was an item losing its status and gaining a
- * completion time and a type ("An item is either yours to deal with or finished
- * with", issue 154; "Capture a thought or an action, and see which it is", issue
- * 155), and a workspace's stored copy gaining the account's types beside its
- * items. `v2` was a workspace's fourth colour ("Modernise the app shell", issue
- * 125).
- *
- * **The buster has to move whenever the shape of what is stored does.** What is
- * restored here is never re-validated - the schemas parse responses on the way
- * in from the network (api/client.ts), not the copy read back out of IndexedDB
- * - so a stale shape is not rejected, it is rendered. Three-colour workspaces
- * paint a shell with no bar: the tab you are on stops being filled and stops
- * joining the strip, and the strip itself has no colour at all. Revalidation
- * fixes it a moment later online, and never fixes it offline, which is the case
- * the stored copy exists for in the first place.
- *
- * The cost is that everyone's stored copy is dropped once on the deploy that
- * ships a move, and the first open after it has to reach the network. That is
- * the right way round: a cold open is a moment, a shell painted from a shape
- * the code no longer expects is a week.
- */
-export const CACHE_BUSTER = 'v15';
+export interface SavedRead {
+  queryKey: readonly unknown[];
+  data: unknown;
+  savedAt: number;
+}
+
+/** Saved only where `savedReads.ts` names the check it is restored through. */
+function worthSaving(query: Query): boolean {
+  return hasCheck(query.queryKey) && query.state.status === 'success';
+}
+
+/** What the last restore found, for the screens that say so. */
+const restored = {
+  /** By Workspace: when its drawn copy was saved, and how many Items it left out. */
+  leftOut: new Map<string, { savedAt: number; count: number }>(),
+  /** Query hashes of saved reads this version cannot convert. */
+  unusable: new Set<string>(),
+};
 
 /**
- * What is worth keeping on disk, which is everything the app paints itself from
- * and nothing else.
- *
- * **The register is an exception, and deliberately.** The admin page's list is
- * every person's name, address, role and account, and writing it into one
- * admin's browser would keep other people's addresses there for a week, on a
- * machine that is not theirs, for a page the admin opens now and then. It is
- * also the one list whose whole point is being current - somebody removed from
- * the register must not go on being drawn from a copy - and there is nothing to
- * paint offline, since the page cannot act without the server anyway.
- *
- * **So is a connection's history** ("See when a pulled connection was checked,
- * and why it failed, from its row's History…", issue 1140): read each time
- * *History…* opens, it is hundreds of lines of a source's failure messages
- * that nothing paints from, and a copy drawn offline would read as current.
- *
- * Written as what is kept out rather than what is let in, so a query added
- * later is stored like every other unless somebody decides otherwise.
+ * How many Items the Workspace's copy on screen left out, as saved by an older
+ * version - zero once the server has answered, since `dataUpdatedAt` then
+ * moves past the saved time.
  */
-const NOT_STORED: readonly string[] = ['registeredUsers', 'connectionHistory'];
+export function itemsLeftOut(workspaceId: string, dataUpdatedAt: number): number {
+  const found = restored.leftOut.get(workspaceId);
+  return found && found.savedAt === dataUpdatedAt ? found.count : 0;
+}
 
-function worthStoring(query: { queryKey: readonly unknown[]; state: { status: string } }): boolean {
-  if (NOT_STORED.includes(String(query.queryKey[0]))) return false;
-  return query.state.status === 'success';
+/** Whether this read was saved here but in a shape this version cannot draw. */
+export function savedReadUnusable(queryKey: readonly unknown[]): boolean {
+  return restored.unusable.has(hashKey(queryKey));
 }
 
 /**
- * Holds the app back for the one read of IndexedDB, which is local and takes
- * milliseconds.
- *
- * **The router reads the cache the moment it mounts** (`beforeLoad` in
- * `router.tsx`). Mounted ahead of the restore it finds an empty cache and goes
- * to the network, and with no connection the whole screen is "Cockpit can't be
- * reached" over a stored copy that arrives a moment later and is never looked
- * at again. Behind the restore it takes the stored copy and the re-read below
- * runs behind it.
+ * Puts every saved read that converts into `client`, at the time it was saved.
+ * Expired reads are deleted, as is the old single record. A read that does not
+ * convert is left on disk to be replaced by its next answer, and remembered as
+ * unusable for the screens that say so.
  */
-function OnceRestored({ children }: { children: ReactNode }) {
-  return useIsRestoring() ? null : <>{children}</>;
+export async function restoreSavedReads(client: QueryClient, now = Date.now()): Promise<void> {
+  restored.leftOut.clear();
+  restored.unusable.clear();
+  try {
+    await del(OLD_SINGLE_RECORD);
+  } catch {
+    // No usable IndexedDB: nothing was saved, so nothing to remove.
+  }
+  let found: [IDBValidKey, SavedRead][];
+  try {
+    found = await entries<IDBValidKey, SavedRead>(savedReads());
+  } catch {
+    return;
+  }
+  for (const [hash, read] of found) {
+    // A record not in the shape this version writes - one a later version
+    // wrote before a rollback - is deleted like an expired one, not read.
+    if (!isSavedRead(read) || now - read.savedAt > CACHE_MAX_AGE_MS) {
+      void del(hash, savedReads()).catch(() => {});
+      continue;
+    }
+    const checked = checkSavedRead(read.queryKey, read.data);
+    if (checked === 'unchecked') continue;
+    if (checked === 'unusable') {
+      restored.unusable.add(String(hash));
+      continue;
+    }
+    client.setQueryData(read.queryKey, checked.data, { updatedAt: read.savedAt });
+    if (read.queryKey[0] === 'snapshot' && checked.itemsLeftOut > 0) {
+      restored.leftOut.set(String(read.queryKey[1]), { savedAt: read.savedAt, count: checked.itemsLeftOut });
+    }
+  }
+}
+
+function isSavedRead(read: unknown): read is SavedRead {
+  if (typeof read !== 'object' || read === null) return false;
+  const { queryKey, savedAt } = read as Partial<SavedRead>;
+  return Array.isArray(queryKey) && typeof savedAt === 'number' && Number.isFinite(savedAt);
 }
 
 /**
- * The app, painted from the copy the last visit left behind and re-read behind
- * it - both halves of the promise in architecture, "The read model: persisted
- * snapshot, revalidate, push".
+ * Saves each read as it answers, and deletes a read's record when it leaves
+ * the cache - a deleted Workspace's copy, or sign-out emptying it. Returns the
+ * unsubscribe.
+ */
+export function saveReadsAsTheyAnswer(client: QueryClient): () => void {
+  return client.getQueryCache().subscribe((event) => {
+    if (event.type === 'removed') {
+      void del(event.query.queryHash, savedReads()).catch(() => {});
+      return;
+    }
+    if (event.type !== 'updated' || event.action.type !== 'success') return;
+    const { query } = event;
+    if (!worthSaving(query)) return;
+    void saveRead({ queryKey: query.queryKey, data: query.state.data, savedAt: query.state.dataUpdatedAt }).catch(
+      () => {},
+    );
+  });
+}
+
+/** Saves one read over whatever was saved for the same query. */
+export function saveRead(read: SavedRead): Promise<void> {
+  return set(hashKey(read.queryKey), read, savedReads());
+}
+
+/** Deletes every saved read, and nothing else this device keeps. */
+export async function forgetEverySavedRead(): Promise<void> {
+  restored.leftOut.clear();
+  restored.unusable.clear();
+  await clear(savedReads());
+}
+
+/**
+ * The app, drawn from the checked saved reads and re-read behind them - both
+ * halves of architecture, "The read model: persisted snapshot, revalidate,
+ * push".
  *
- * **`onSuccess` is the second half.** A restored query keeps the
- * `dataUpdatedAt` of the visit that wrote it, so `staleTime` calls a copy
- * written a second before a reload fresh and re-reads nothing - and a change
- * the server took, whose own re-read had not landed when the page went away, is
- * then missing from what is drawn and stays missing. A panel dragged to a new
- * size comes back the size it was. Invalidating on the way out of the restore
- * is what stops the copy being taken for an answer.
+ * **Held back for the one read of IndexedDB**, which is local and takes
+ * milliseconds: the router reads the cache the moment it mounts (`beforeLoad`
+ * in `router.tsx`), and mounted ahead of the restore it finds nothing and goes
+ * to a network that may not be there.
  *
- * Nothing waits on the network: the children render, once the restore has been
- * read, from what it holds, and the re-read arrives behind them, so a cold open
- * makes no blocking request.
- * Offline it fails and the copy stays on screen, which is what it is kept for.
+ * **Everything restored is invalidated on the way out.** A restored read keeps
+ * the time it was saved, so `staleTime` would call one saved a second before a
+ * reload fresh and re-read nothing - and a change the server took, whose own
+ * re-read had not landed when the page went away, would stay missing.
  */
 export function PaintedFromTheStoredCopy({
   client,
@@ -180,18 +160,28 @@ export function PaintedFromTheStoredCopy({
   client: QueryClient;
   children: ReactNode;
 }) {
+  const [restoring, setRestoring] = useState(true);
+  useEffect(() => {
+    let current = true;
+    let stop: (() => void) | undefined;
+    // A restore that throws still opens the app, from the server alone, rather
+    // than leaving it blank on every load.
+    void restoreSavedReads(client)
+      .catch(() => {})
+      .then(() => {
+        if (!current) return;
+        stop = saveReadsAsTheyAnswer(client);
+        setRestoring(false);
+        void client.invalidateQueries();
+      });
+    return () => {
+      current = false;
+      stop?.();
+    };
+  }, [client]);
   return (
-    <PersistQueryClientProvider
-      client={client}
-      persistOptions={{
-        persister,
-        maxAge: CACHE_MAX_AGE_MS,
-        buster: CACHE_BUSTER,
-        dehydrateOptions: { shouldDehydrateQuery: worthStoring },
-      }}
-      onSuccess={() => client.invalidateQueries()}
-    >
-      <OnceRestored>{children}</OnceRestored>
-    </PersistQueryClientProvider>
+    <QueryClientProvider client={client}>
+      <IsRestoringProvider value={restoring}>{restoring ? null : children}</IsRestoringProvider>
+    </QueryClientProvider>
   );
 }
