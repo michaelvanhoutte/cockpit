@@ -66,7 +66,7 @@ export function retireAgents(
       everyAgentRetired = false;
       log('error', 'an Agent could not be retired, and will be tried again', {
         agentId: agent.id,
-        cause: error instanceof Error ? error.message : String(error),
+        cause: whyItFailed(error),
       });
     }
   }
@@ -137,6 +137,17 @@ function retireOne(
 
 function heldSentences(db: Pick<AccountDb, 'select'>, tenantId: string): number {
   return db.select({ n: count() }).from(rememberedSentences).where(eq(rememberedSentences.tenantId, tenantId)).get()?.n ?? 0;
+}
+
+/**
+ * Why a retirement step failed, without the person's words: a failed query's
+ * message carries its SQL and parameters - a sentence, an Agent's template -
+ * so only the error's name and the database's own reason are kept.
+ */
+export function whyItFailed(error: unknown): string {
+  if (!(error instanceof Error)) return 'unknown';
+  const reason = error.cause instanceof Error ? error.cause.message : error.message;
+  return `${error.name}: ${reason.split(/\n|Failed query:/)[0]!.trim() || 'no reason given'}`;
 }
 
 function log(level: 'info' | 'warn' | 'error', message: string, data: Record<string, string>): void {

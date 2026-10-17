@@ -161,7 +161,7 @@ import {
   type WhatStood,
 } from '../domain/text-corrections.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
-import { retireAgents } from './retire-agents.js';
+import { retireAgents, whyItFailed } from './retire-agents.js';
 
 /** R2's own limit on how many keys one `delete()` call accepts ("Attach a file to an item", issue 441). */
 const R2_DELETE_BATCH = 1000;
@@ -1528,7 +1528,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         JSON.stringify({
           level: 'error',
           message: 'retiring the Agents stopped, and will be tried again',
-          cause: error instanceof Error ? error.message : String(error),
+          cause: whyItFailed(error),
         }),
       );
     }
