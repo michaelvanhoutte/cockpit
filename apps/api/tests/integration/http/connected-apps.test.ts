@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
-import type { AgentRun, Item, WorkspaceSnapshot } from '@cockpit/shared';
+import { NEUTRAL_GROUND, type AgentRun, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   OTHER_USER_ID,
@@ -972,6 +972,18 @@ describe('Agents', () => {
 
       vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 61_000 });
       expect((await reportRun(token, { run: runId, stage: 'ready' })).isError).toBeFalsy();
+    });
+  });
+});
+
+describe('Appearance', () => {
+  describe('in light, the page is one grey wherever it is drawn', () => {
+    it('draws the page an app is asked to be allowed on the one light page grey', async () => {
+      const app = await registerApp('Claude');
+      const { path } = await attempt(app);
+      const shown = await SELF.fetch(`${ORIGIN}${path}`, { headers: { cookie: await signInAs(USER_ID) } });
+
+      expect(await shown.text()).toContain(`background: ${NEUTRAL_GROUND};`);
     });
   });
 });

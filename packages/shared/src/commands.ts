@@ -99,8 +99,9 @@ export type ReorderWorkspacesCommand = z.infer<typeof reorderWorkspacesSchema>;
 
 /**
  * set_workspace_theme — all four colors together (architecture.md §4.4). The
- * server refuses a set that is not one of the eight palette entries
- * (`hexColorSchema` only validates `#rrggbb` shape, not membership).
+ * server refuses a `color` that is not one of the eight palette accents
+ * (`hexColorSchema` only validates `#rrggbb` shape, not membership), and
+ * stores the palette's own four for it, whatever the other three say.
  */
 export const setWorkspaceThemeSchema = commandEnvelopeSchema.extend({
   color: hexColorSchema,

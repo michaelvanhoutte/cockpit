@@ -12,7 +12,7 @@ import { z } from 'zod';
 export const hexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/, 'a color is #rrggbb, lower case');
 
 /** The neutral page every workspace shares: its lists' wells are mixed from it, so no hollow carries a hue. */
-export const NEUTRAL_GROUND = '#f3f3f1';
+export const NEUTRAL_GROUND = '#e2e2df';
 
 /** The top of the soft graphite gradient the top bar and the agents' dock wear in every workspace. */
 export const NEUTRAL_HEADER = '#2d2e35';
@@ -25,8 +25,8 @@ export const NEUTRAL_HEADER = '#2d2e35';
  * - `bar` is the dashboard band, a deep shade of the tint that near-white text
  *   reads on, chosen per theme rather than mixed.
  * - `ground` and `header` are the same two neutrals in every theme - the page,
- *   and the top of the graphite chrome. They stay in the stored colors so a
- *   later step can drop the columns without this changing.
+ *   and the top of the graphite chrome. A Workspace still stores them, but only
+ *   the tint is read back: the rest are looked up from the theme it names.
  * - `deep` is the tint where it is text: dark enough to read on the page and on
  *   a list's well and on the selected chip's fill. Not stored; found by tint
  *   like the rest.
@@ -58,14 +58,14 @@ export const ON_ACCENT_INK = '#16181d';
  * workspaces.
  */
 export const WORKSPACE_THEMES = [
-  { name: 'Violet', tint: '#6f62b5', bar: '#594e91', ground: GROUND, header: HEADER, deep: '#6b5eae', onAccent: ON_ACCENT_LIGHT },
-  { name: 'Blue', tint: '#3a72c8', bar: '#2e5ba0', ground: GROUND, header: HEADER, deep: '#3568b7', onAccent: ON_ACCENT_LIGHT },
-  { name: 'Terracotta', tint: '#c06a45', bar: '#9a5537', ground: GROUND, header: HEADER, deep: '#9e5739', onAccent: ON_ACCENT_INK },
-  { name: 'Teal', tint: '#3f8f78', bar: '#327260', ground: GROUND, header: HEADER, deep: '#347663', onAccent: ON_ACCENT_INK },
-  { name: 'Magenta', tint: '#a8548c', bar: '#864370', ground: GROUND, header: HEADER, deep: '#9b4e81', onAccent: ON_ACCENT_LIGHT },
-  { name: 'Amber', tint: '#b58a2f', bar: '#866623', ground: GROUND, header: HEADER, deep: '#886823', onAccent: ON_ACCENT_INK },
-  { name: 'Cyan', tint: '#4f8fa8', bar: '#3f7286', ground: GROUND, header: HEADER, deep: '#3f7286', onAccent: ON_ACCENT_INK },
-  { name: 'Olive', tint: '#7d8f3f', bar: '#637132', ground: GROUND, header: HEADER, deep: '#647232', onAccent: ON_ACCENT_INK },
+  { name: 'Violet', tint: '#6f62b5', bar: '#594e91', ground: GROUND, header: HEADER, deep: '#665aa6', onAccent: ON_ACCENT_LIGHT },
+  { name: 'Blue', tint: '#3a72c8', bar: '#2e5ba0', ground: GROUND, header: HEADER, deep: '#3364b0', onAccent: ON_ACCENT_LIGHT },
+  { name: 'Terracotta', tint: '#c06a45', bar: '#9a5537', ground: GROUND, header: HEADER, deep: '#965336', onAccent: ON_ACCENT_INK },
+  { name: 'Teal', tint: '#3f8f78', bar: '#327260', ground: GROUND, header: HEADER, deep: '#316f5d', onAccent: ON_ACCENT_INK },
+  { name: 'Magenta', tint: '#a8548c', bar: '#864370', ground: GROUND, header: HEADER, deep: '#954b7c', onAccent: ON_ACCENT_LIGHT },
+  { name: 'Amber', tint: '#b58a2f', bar: '#866623', ground: GROUND, header: HEADER, deep: '#7e6020', onAccent: ON_ACCENT_INK },
+  { name: 'Cyan', tint: '#4f8fa8', bar: '#3f7286', ground: GROUND, header: HEADER, deep: '#3b6b7e', onAccent: ON_ACCENT_INK },
+  { name: 'Olive', tint: '#7d8f3f', bar: '#637132', ground: GROUND, header: HEADER, deep: '#5d6a2f', onAccent: ON_ACCENT_INK },
 ] as const satisfies readonly WorkspaceTheme[];
 
 /**
@@ -84,18 +84,7 @@ export function themeOf(tint: string): WorkspaceTheme {
   return WORKSPACE_THEMES.find((theme) => theme.tint === tint) ?? DEFAULT_WORKSPACE_THEME;
 }
 
-/** Whether these four colors are a theme from the palette, exactly. */
-export function isPaletteTheme(colors: {
-  tint: string;
-  bar: string;
-  ground: string;
-  header: string;
-}): boolean {
-  return WORKSPACE_THEMES.some(
-    (theme) =>
-      theme.tint === colors.tint &&
-      theme.bar === colors.bar &&
-      theme.ground === colors.ground &&
-      theme.header === colors.header,
-  );
+/** Whether this accent is one the palette has: the only thing a theme pick has to get right, since the palette's own four are what is stored for it. */
+export function isPaletteTint(tint: string): boolean {
+  return WORKSPACE_THEMES.some((theme) => theme.tint === tint);
 }

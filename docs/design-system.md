@@ -10,8 +10,8 @@ How Cockpit looks, as against what it does (`docs/product/`). Everything here is
 
 The page, the top bar and every list's well are the same in every Workspace. Only the dashboard band, the accent and the logo's dot follow one (below), which is what lets a Workspace's colour be chosen freely without touching legibility anywhere else.
 
-- **Ink** — the Conselit brand's: `ink-strong` `#16181d` (headings), `ink` `#3a3f4b` (body), `ink-soft`, `ink-faint`, on the neutral surfaces. `shade`, the same `#16181d`, is what hairlines, dimming and shadows are at low alpha; nothing is black.
-- **Neutral surfaces** — `surface`, and `ground`: the page is warm grey `#f3f3f1` inside a Workspace (stored with it), and `ground` `#f4f4f2` where no Workspace paints it, such as the logon page.
+- **Ink** — the Conselit brand's: `ink-strong` `#16181d` (headings), `ink` `#3a3f4b` (body), `ink-soft` `#555b68`, `ink-faint` `#5a5f6d`, on the neutral surfaces. `over-ink`, an error as text, is `#9d4d46`. Every text is at least 4.5:1 on the page and both wells, held by `appearanceTokens.test.ts`. `shade`, the same `#16181d`, is what hairlines, dimming and shadows are at low alpha; nothing is black.
+- **Neutral surfaces** — `surface`, and `ground`: the page is warm grey `#e2e2df` everywhere: inside a Workspace, on the logon page, the MCP consent page and the installed app's splash. `ground` is one value: the consent page reads the palette's, and the stylesheet and the manifest state it, held to the palette's by `appearanceTokens.test.ts`.
 - **Category colours** — the brand's six (`cat-slate`, `cat-teal`, `cat-amber`, `cat-green`, `cat-violet`, `cat-grey`), each with a `-tint` for hover and selected fills and a `-light` for use on the chrome. Status colours map onto them where the hue is close rather than keeping near-duplicates.
 - **Accent** — `accent`, `accent-deep`, `accent-soft`, `accent-tint`: headings, buttons, focus rings and type labels. `on-accent` is the text on a fill of `accent`, and `accent-hover` that fill under the pointer. The shell sets them from the Workspace, so menus and windows opened over the page follow it too; outside a Workspace they are the default theme's.
 - **Due / overdue** — `due`, `due-soft`, `due-ink`, `due-deep`, `over`, `over-deep`: the amber and red of a deadline pill, never of a whole row. The pill steps up as the date closes — an outline in `due` with `due-ink` text, a `due-soft` fill, solid `due` with `due-deep` text, then `over-deep` with white text once passed — each at least 4.5:1 on what it is written on. `over-deep` exists because the swipe reveal also fills a band with `over` and writes a word inside it, and white on `over` itself falls short of readable at that size.
@@ -21,24 +21,24 @@ The page, the top bar and every list's well are the same in every Workspace. Onl
 
 A Workspace theme is designed as a set: **tint** (the saturated colour: the accent, the tab dot, the logo's dot), **bar** (the dashboard band, a deep shade of the tint), **deep** (the tint where it is text), **onAccent** (the text on a fill of the tint) and the two neutrals **ground** and **header**, which are the same in all eight. Near-white text (`chrome-ink`) is what is drawn on the band, never themed.
 
-**Every band and deep shade is designed per theme, not mixed**, and held by a test to: near-white text on the band at least 4.5:1, `deep` as text on the page and on a well at least 4.5:1, `deep` on the selected chip's fill (the tint at 14% over white) at least 4.5:1, `onAccent` on the tint at least 4.5:1, and the tint lifted 30% towards white at least 3:1 as the logo's dot on the top bar. A band is the tint darkened 20% where that already reads, and further where it does not (Amber, Olive, Cyan).
+**Every band and deep shade is designed per theme, not mixed**, and held by a test to: near-white text on the band at least 4.5:1, `deep` as text on the page and on both wells at least 4.5:1, `deep` on the selected chip's fill (the tint at 14% over white) at least 4.5:1, `onAccent` on the tint at least 4.5:1, and the tint lifted 30% towards white at least 3:1 as the logo's dot on the top bar. A band is the tint darkened 20% where that already reads, and further where it does not (Amber, Olive, Cyan).
 
 **Text on an accent fill is dark ink (`#16181d`) on the five light themes (Terracotta, Teal, Amber, Cyan, Olive) and white on Violet, Blue and Magenta**, because white on those five falls under 4.5:1. Every filled button writes `text-on-accent`, never `text-white`. **A pressed toggle (a filter option) is filled with `accent` and written `text-on-accent`; an unpressed one has no fill, so on and off differ by fill, not tint. A field holding a value wears a 2px `accent` border.** On the five, the hover fill is the tint mixed 15% towards white, since `deep` is darker than ink can be read on. `deep` and `onAccent` are not stored, so changing either rewrites no Workspace.
 
-The palette is eight designed sets, handed out to new Workspaces in this order. `header` and `ground` are `#2d2e35` and `#f3f3f1` in every row:
+The palette is eight designed sets, handed out to new Workspaces in this order. `header` and `ground` are `#2d2e35` and `#e2e2df` in every row:
 
 | Theme | Tint | Bar | Deep | On accent |
 |---|---|---|---|---|
-| Violet | `#6f62b5` | `#594e91` | `#6b5eae` | white |
-| Blue | `#3a72c8` | `#2e5ba0` | `#3568b7` | white |
-| Terracotta | `#c06a45` | `#9a5537` | `#9e5739` | ink |
-| Teal | `#3f8f78` | `#327260` | `#347663` | ink |
-| Magenta | `#a8548c` | `#864370` | `#9b4e81` | white |
-| Amber | `#b58a2f` | `#866623` | `#886823` | ink |
-| Cyan | `#4f8fa8` | `#3f7286` | `#3f7286` | ink |
-| Olive | `#7d8f3f` | `#637132` | `#647232` | ink |
+| Violet | `#6f62b5` | `#594e91` | `#665aa6` | white |
+| Blue | `#3a72c8` | `#2e5ba0` | `#3364b0` | white |
+| Terracotta | `#c06a45` | `#9a5537` | `#965336` | ink |
+| Teal | `#3f8f78` | `#327260` | `#316f5d` | ink |
+| Magenta | `#a8548c` | `#864370` | `#954b7c` | white |
+| Amber | `#b58a2f` | `#866623` | `#7e6020` | ink |
+| Cyan | `#4f8fa8` | `#3f7286` | `#3b6b7e` | ink |
+| Olive | `#7d8f3f` | `#637132` | `#5d6a2f` | ink |
 
-A Workspace is never assigned colours outside this table: a stored set that is not exactly a row of it, including every set stored before the page went neutral, is drawn in the theme its tint belongs to, or the default (Violet) where the tint is not in the table. Nothing stored is rewritten.
+A Workspace is never assigned colours outside this table, and is drawn in the row its tint names whatever else it stored, or the default (Violet) where the tint is not in the table. A theme pick is accepted by its tint alone and stores that row's four colours. Nothing stored is rewritten.
 
 ## Chrome
 
@@ -50,8 +50,8 @@ A Workspace is never assigned colours outside this table: a stored set that is n
 
 ## Surfaces
 
-- **Well** — a list sunk into the sheet: no radius, no border, a shallow inner shadow along the top edge, mixed from the page's `ground` lifted towards white. The sheet stays one surface and the list is a hollow in it rather than a card on it; a header above it sits up on the sheet, and only the list goes down.
-- **Well (Inbox)** — the same hollow lifted a little further towards white, marking the one column that is the same on every screen of a Workspace. Neutral like the rest: no hollow carries a hue.
+- **Well** — a list sunk into the sheet: no radius, no border, a shallow inner shadow along the top edge, mixed from the page's `ground` lifted towards white: 40% of the page for a list (about `#f3f3f2`, 1.17:1 above the page), parted from it by tone alone. The sheet stays one surface and the list is a hollow in it rather than a card on it; a header above it sits up on the sheet, and only the list goes down.
+- **Well (Inbox)** — the same hollow, 62% of the page (about `#ededeb`, 1.11:1 above it), marking the one column that is the same on every screen of a Workspace. Neutral like the rest: no hollow carries a hue.
 - **Well (Go to panel)** — the plain well, as a full-height column at the right of a Dashboard (224px, `w-56`, dragged wider by its left edge up to a third of the row, as the Inbox column is; a double-click on the edge resets it) or its strip (w-8, two halves, each « over its name written vertically over its key caps: *Go to panel* with `G` and `⇧G`, then *Find item* with `F` and `⇧F`, a hairline between). In its second mode, Find item, the heading reads *Find item* with an `F` key cap and an entry is the Item's label over its place in `text-[11px]` ink-faint; "and n more — keep typing" closes a full list. The legend names all four keys. Its heading is the Inbox's (`text-xs` uppercase semibold in `accent-deep`, a `G` key cap and » in ink-faint), then a search box, then the list on its own scroll, then a legend of the keys at its foot (`text-[10px]` ink-faint). Entries are Inbox-row type with hairlines (`border-shade/10`) between a Dashboard's rows; `accent-tint` on hover, and solid on the entry the keys have highlighted. A Panel the Dashboard filter hides reads faint with *filtered* in place of its count. Under the search sits the scope switch, three plain text buttons *Dashboard · Workspace · All* in `text-xs` (the first two name the mode's key, `G` or `F`, and its `Shift` form in their tooltips; *All* is unavailable in Find item): the chosen one `bg-accent-tint font-semibold text-accent-deep` with `rounded px-1.5 py-0.5`, the rest `text-ink-faint` (`hover:text-ink`), one that adds nothing `text-ink-faint/40` with its reason as the tooltip. In the wider scopes a Dashboard is a pinned `text-xs font-semibold text-accent-deep` sub-heading over its indented Panels, and in *All* a Workspace is a pinned uppercase heading with its colour dot above its Dashboards, both drawn in the well's own colour so entries scroll under them. A Section is a `text-[11px]` semibold uppercase `tracking-[0.08em]` `ink-faint` sub-heading (`px-4 pt-1.5 pb-0.5`, truncated, not pinned) standing in place of the hairline between rows, and in the wider scopes inside its Dashboard's group; it is no entry, so the keys never land on it. The Panel gone to is outlined in the accent for a moment.
 - **Section band** — a Section on a Dashboard: a full-width strip in `accent-tint`, `rounded-md`, `px-3 py-2`, its title in `text-sm` semibold uppercase `tracking-[0.11em]` `accent-deep` (the Panel heading's letterform one size up), its menu button at the right as on a Panel's header. No count, no border, no well; renamed in place in the strip.
 - **Milled** — a control that reads as a surface rather than a filled rectangle: a faint vertical gradient over whatever background colour it already has, and a one-pixel highlight along its top edge. Additive: it paints over a control's own Tailwind background colour rather than replacing it, meant to be felt rather than seen.

@@ -1,7 +1,6 @@
 import {
   DEFAULT_WORKSPACE_THEME,
   ON_ACCENT_LIGHT,
-  isPaletteTheme,
   themeOf,
   type WorkspaceTheme,
 } from './workspace-themes.js';
@@ -99,28 +98,22 @@ export function shellColours(painted: PaintedWorkspace, appearance: Appearance):
 }
 
 /**
- * What to paint a Workspace in: its own four colours where they are a theme the
- * palette actually has, and otherwise the theme its tint belongs to (or the
- * default), so a copy stored before the palette changed never draws a bar its
- * own text cannot be read on. Nothing at all is the default theme.
+ * What to paint a Workspace in: the theme its accent names, whatever else it
+ * stored, so a copy stored before the palette changed is drawn in today's band,
+ * top bar, page and text shades. An accent the palette does not have, or no
+ * Workspace at all, is the default theme.
  *
- * The tint is never overridden: it is the one colour a person recognises in the
- * tabs, and it is what the fallback is looked up by.
+ * The accent is never overridden: it is the one colour a person recognises in
+ * the tabs, and it is what the theme is looked up by.
  */
-export function paintedWorkspace(
-  workspace: { color: string; bar: string; ground: string; header: string } | undefined,
-): PaintedWorkspace {
-  const fallback = (theme: WorkspaceTheme): PaintedWorkspace => ({
-    color: theme.tint,
+export function paintedWorkspace(workspace: { color: string } | undefined): PaintedWorkspace {
+  const theme = workspace ? themeOf(workspace.color) : DEFAULT_WORKSPACE_THEME;
+  return {
+    color: workspace?.color ?? theme.tint,
     bar: theme.bar,
     ground: theme.ground,
     header: theme.header,
     deep: theme.deep,
     onAccent: theme.onAccent,
-  });
-  if (!workspace) return fallback(DEFAULT_WORKSPACE_THEME);
-  const { color, bar, ground, header } = workspace;
-  const theme = themeOf(color);
-  if (isPaletteTheme({ tint: color, bar, ground, header })) return { ...workspace, deep: theme.deep, onAccent: theme.onAccent };
-  return { ...fallback(theme), color };
+  };
 }

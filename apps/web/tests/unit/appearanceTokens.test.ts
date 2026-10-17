@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DARK_GROUND, WORKSPACE_THEMES, paintedWorkspace, shellColours } from '@cockpit/shared';
+import { DARK_GROUND, NEUTRAL_GROUND, WORKSPACE_THEMES, paintedWorkspace, shellColours } from '@cockpit/shared';
 import styles from '../../src/styles.css?raw';
+import { manifest } from '../../manifest';
 
 /** WCAG contrast ratio of two `#rrggbb`. */
 function contrast(a: string, b: string): number {
@@ -33,6 +34,27 @@ function dark(name: string): string {
   const found = own ?? light;
   if (!found) throw new Error(`no --color-${name} in styles.css`);
   return found;
+}
+/** A colour as the light appearance has it: the stylesheet's own value, which the dark block overrides. */
+function light(name: string): string {
+  const found = new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6});`).exec(styles)?.[1];
+  if (!found) throw new Error(`no --color-${name} in styles.css`);
+  return found;
+}
+/** `#rrggbb` of `colour` mixed with white, `share` percent of it being the colour, as the stylesheet's light wells are. */
+function towardsWhite(hex: string, share: number): string {
+  return (
+    '#' +
+    [1, 3, 5]
+      .map((i) => Math.round(Number.parseInt(hex.slice(i, i + 2), 16) * (share / 100) + 255 * (1 - share / 100)).toString(16).padStart(2, '0'))
+      .join('')
+  );
+}
+/** How much of the page the light well of a given class is, the rest being white. */
+function lightWellShare(utility: string): number {
+  const share = new RegExp(`@utility ${utility} \\{\\s*background-color: color-mix\\(in srgb, var\\(--ground, var\\(--color-ground\\)\\) (\\d+)%, white\\)`).exec(styles)?.[1];
+  if (!share) throw new Error(`no light @utility ${utility} in styles.css`);
+  return Number(share);
 }
 /** How far the dark well of a given class is mixed towards black. */
 function wellShare(selector: string): number {
@@ -95,7 +117,7 @@ describe('Appearance', () => {
     });
 
     it('gives the default theme’s accent outside the shell the values the shell gives it inside', () => {
-      const violet = shellColours(paintedWorkspace({ color: WORKSPACE_THEMES[0].tint, bar: WORKSPACE_THEMES[0].bar, ground: WORKSPACE_THEMES[0].ground, header: WORKSPACE_THEMES[0].header }), 'dark');
+      const violet = shellColours(paintedWorkspace({ color: WORKSPACE_THEMES[0].tint }), 'dark');
 
       expect({ deep: dark('accent-deep'), tint: dark('accent-tint') }).toEqual({ deep: violet.accentDeep, tint: violet.accentTint });
     });
@@ -118,6 +140,43 @@ describe('Appearance', () => {
       expect(contrast(ground, list)).toBeGreaterThanOrEqual(1.18);
       expect(contrast(ground, inbox)).toBeGreaterThanOrEqual(1.14);
       expect(contrast(inbox, '#000000')).toBeGreaterThan(contrast(list, '#000000'));
+    });
+  });
+
+  describe('in light, a Panel’s list and the Inbox stand out from the page by tone alone', () => {
+    const page = light('ground');
+    const list = towardsWhite(page, lightWellShare('well'));
+    const inbox = towardsWhite(page, lightWellShare('well-inbox'));
+
+    it('parts a list at least 1.16:1 and the Inbox at least 1.10:1 above the page, the Inbox darker than the list', () => {
+      expect(contrast(list, page)).toBeGreaterThanOrEqual(1.16);
+      expect(contrast(inbox, page)).toBeGreaterThanOrEqual(1.1);
+      expect(contrast(inbox, '#000000')).toBeLessThan(contrast(list, '#000000'));
+    });
+
+    it('draws a pinned heading in the same fill as its list', () => {
+      expect(lightWellShare('well-fill')).toBe(lightWellShare('well'));
+    });
+
+    it.each([
+      { situation: 'the page', behind: page },
+      { situation: 'a list’s well', behind: list },
+      { situation: 'the Inbox’s well', behind: inbox },
+    ])('every text is at least 4.5:1 on $situation', ({ behind }) => {
+      for (const ink of ['ink-strong', 'ink', 'ink-soft', 'ink-faint', 'accent-deep', 'due-ink', 'over-ink', 'over-deep-ink']) {
+        expect(contrast(light(ink), behind), ink).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  });
+
+  describe('in light, the page is one grey wherever it is drawn', () => {
+    const PAGE = '#e2e2df';
+
+    it('is the same on the shell, the logon page and the installed app’s splash', () => {
+      expect(light('ground')).toBe(PAGE);
+      expect(NEUTRAL_GROUND).toBe(PAGE);
+      expect(shellColours(paintedWorkspace(undefined), 'light').ground).toBe(PAGE);
+      expect(manifest.background_color).toBe(PAGE);
     });
   });
 });

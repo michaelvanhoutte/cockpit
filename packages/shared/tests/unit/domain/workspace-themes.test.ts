@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DARK_GROUND, paintedWorkspace, shellColours } from '../../../src/domain/workspace-shell.js';
-import { DEFAULT_WORKSPACE_THEME, WORKSPACE_THEMES, isPaletteTheme, themeOf } from '../../../src/domain/workspace-themes.js';
+import { DEFAULT_WORKSPACE_THEME, WORKSPACE_THEMES, isPaletteTint, themeOf } from '../../../src/domain/workspace-themes.js';
 
 /** WCAG relative luminance of a `#rrggbb`. */
 const luminance = (hex: string) => {
@@ -75,6 +75,10 @@ describe('Workspace management', () => {
         // The well is the page lifted 60% towards white (styles.css, `well`).
         expect(contrast(theme.deep, towardsWhite(theme.ground, 0.6))).toBeGreaterThanOrEqual(4.5);
       });
+      it('as deep-accent text on the Inbox’s well', () => {
+        // The Inbox's well is the page lifted 38% towards white (styles.css, `well-inbox`).
+        expect(contrast(theme.deep, towardsWhite(theme.ground, 0.38))).toBeGreaterThanOrEqual(4.5);
+      });
       it('as selected-chip text on the chip’s own fill', () => {
         // The chip is the tint at 14% over white (Layout.tsx, `--color-accent-tint`).
         expect(contrast(theme.deep, towardsWhite(theme.tint, 0.86))).toBeGreaterThanOrEqual(4.5);
@@ -90,7 +94,7 @@ describe('Workspace management', () => {
 
     // In dark the accent as text and the selected fill are the shell's own
     // computation (shellColours), so what is held is what it sets.
-    describe.each(WORKSPACE_THEMES.map((theme) => [theme.name, shellColours(paintedWorkspace({ color: theme.tint, bar: theme.bar, ground: theme.ground, header: theme.header }), 'dark')] as const))(
+    describe.each(WORKSPACE_THEMES.map((theme) => [theme.name, shellColours(paintedWorkspace({ color: theme.tint }), 'dark')] as const))(
       '%s stays readable in dark',
       (_name, dark) => {
         it.each([
@@ -129,39 +133,15 @@ describe('Workspace management', () => {
     });
   });
 
-  describe('only the palette’s own combinations count as a theme', () => {
+  describe('a theme is picked by its accent alone', () => {
+    // L1: a pure lookup. That the server stores the palette's own four for a
+    // pick, whatever the other three say, is proved against a real store in
+    // apps/api/tests/integration.
     it.each([
-      {
-        situation: 'a theme exactly as the palette has it',
-        colors: {
-          tint: WORKSPACE_THEMES[2]!.tint,
-          bar: WORKSPACE_THEMES[2]!.bar,
-          ground: WORKSPACE_THEMES[2]!.ground,
-          header: WORKSPACE_THEMES[2]!.header,
-        },
-        recognised: true,
-      },
-      {
-        // What every workspace stored before the page went neutral: right tint,
-        // and surfaces from the palette it replaced.
-        situation: 'a set from before the page went neutral',
-        colors: { tint: '#6f62b5', bar: '#211d37', ground: '#edebf7', header: '#18152b' },
-        recognised: false,
-      },
-      {
-        // The case the fourth color exists to make possible to get wrong: three
-        // right and the new one from somewhere else.
-        situation: 'a theme with somebody else’s bar',
-        colors: {
-          tint: WORKSPACE_THEMES[4]!.tint,
-          bar: WORKSPACE_THEMES[5]!.bar,
-          ground: WORKSPACE_THEMES[4]!.ground,
-          header: WORKSPACE_THEMES[4]!.header,
-        },
-        recognised: false,
-      },
-    ])('recognises $situation', ({ colors, recognised }) => {
-      expect(isPaletteTheme(colors)).toBe(recognised);
+      { situation: 'an accent the palette has', tint: WORKSPACE_THEMES[2]!.tint, recognised: true },
+      { situation: 'an accent the palette does not have', tint: '#123456', recognised: false },
+    ])('recognises $situation', ({ tint, recognised }) => {
+      expect(isPaletteTint(tint)).toBe(recognised);
     });
   });
 });

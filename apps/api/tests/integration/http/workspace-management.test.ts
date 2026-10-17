@@ -667,22 +667,27 @@ describe('Workspace management', () => {
       expect(await coloursOf(one.id)).toEqual(await coloursOf(other.id));
     });
 
-    it('refuses the set a tab opened before the page went neutral still holds, and keeps the colours it had', async () => {
+    it('accepts the set a tab opened before the palette changed still holds, and stores the palette’s own', async () => {
       const subject = await aWorkspace();
-      const before = await coloursOf(subject.id);
+      const chosen = WORKSPACE_THEMES[0]!;
 
       const response = await setTheme(subject.id, {
-        tint: WORKSPACE_THEMES[0]!.tint,
+        tint: chosen.tint,
         bar: '#211d37',
-        ground: '#edebf7',
+        ground: '#f3f3f1',
         header: '#18152b',
       });
 
-      expect(response.status).toBe(400);
-      expect(await coloursOf(subject.id)).toEqual(before);
+      expect(response.status).toBe(200);
+      expect(await coloursOf(subject.id)).toEqual({
+        color: chosen.tint,
+        bar: chosen.bar,
+        ground: chosen.ground,
+        header: chosen.header,
+      });
     });
 
-    it('refuses colors that are not a theme, and keeps the ones it had', async () => {
+    it('refuses an accent that is not in the palette, and keeps the colors it had', async () => {
       // The palette is what keeps every combination legible, and a wire format
       // takes whatever it is given - so the rule has to be enforced here, not
       // only offered by the swatches.
@@ -690,7 +695,7 @@ describe('Workspace management', () => {
       const before = await coloursOf(subject.id);
 
       const response = await setTheme(subject.id, {
-        tint: WORKSPACE_THEMES[1]!.tint,
+        tint: '#123456',
         bar: WORKSPACE_THEMES[2]!.bar,
         ground: WORKSPACE_THEMES[1]!.ground,
         header: WORKSPACE_THEMES[1]!.header,
