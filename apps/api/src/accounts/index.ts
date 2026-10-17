@@ -41,7 +41,7 @@ import type {
   SourceStateChange,
 } from '@cockpit/connector-sdk';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
-import type { CheckDid } from '../domain/connection-history.js';
+import type { CheckDid, NamedOn } from '../domain/connection-history.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -356,9 +356,9 @@ export interface PulledRun {
   fileItem(
     item: SourceItem & { sourceId: string },
     ids: { itemId: string; commandId: string },
-  ): Promise<EmittedItem | 'disconnected'>;
-  /** Records an Item's names as the source reported them, filing it by the new ones (issue 1146). */
-  reportNames(report: NamesReport): Promise<'recorded' | 'unknown' | 'disconnected'>;
+  ): Promise<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }>;
+  /** Records an Item's names as the source reported them, filing it by the new ones (issue 1146), and answers what each name did (issue 1197). */
+  reportNames(report: NamesReport): Promise<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }>;
   applySourceChange(change: SourceStateChange): Promise<{ changed: string } | 'unchanged' | 'disconnected'>;
   /** Closes the Items the connection filed under the listing's choice that it did not see, answering their ids (issues 938, 1141). */
   closeItemsNotListed(listing: CompleteListing): Promise<string[] | 'disconnected'>;

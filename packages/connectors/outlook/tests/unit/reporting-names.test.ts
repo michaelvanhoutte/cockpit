@@ -52,6 +52,22 @@ describe('Connector management', () => {
       expect(second.namesReported).toEqual(reports);
     });
 
+    it.each([
+      { situation: 'following the category, says the mark it left out of the names', choice: 'category', flag: undefined, followed: 'Cockpit' },
+      { situation: 'following the flag, says no mark was left out', choice: 'flag', flag: 'flagged' as const, followed: undefined },
+    ])('$situation, on arrival and at a re-read (issue 1197)', async ({ choice, flag, followed }) => {
+      const world = new GraphWorld();
+      world.arrives('m-1', { categories: ['Customer Atlas', 'Cockpit'], ...(flag ? { flag } : {}) });
+      const first = signedInHost({ choice });
+      await world.connector().sync(first);
+      world.categorise('m-1', 'Admin');
+
+      const second = first.next();
+      await world.connector().sync(second);
+
+      expect([first.filed.get('m-1')?.followed, second.namesReported[0]?.followed]).toEqual([followed, followed]);
+    });
+
     it('reports at most its share of messages already in per run, and the rest at the next', async () => {
       const world = new GraphWorld();
       const ids = Array.from({ length: NAMES_REPORTED_PER_RUN + 1 }, (_, at) => `m-${at}`);

@@ -223,11 +223,17 @@ function pulledHost(
       const named = JSON.stringify([begun.workspaceId, connectorId, begun.externalAccountKey, sourceId]);
       const itemId = await derivedUuid(`pulled-item:${named}`);
       // Names only from a connector that declares it reports them (issue 1146).
-      const { names, ...rest } = item;
-      const answer = await run.fileItem(
-        { ...rest, sourceId, ...(reportsNames && names ? { names: [...names] } : {}) },
+      const { names, followed, ...itemRest } = item;
+      const { answer, named: namedOn } = await run.fileItem(
+        {
+          ...itemRest,
+          sourceId,
+          ...(reportsNames && names ? { names: [...names] } : {}),
+          ...(reportsNames && names && followed ? { followed } : {}),
+        },
         { itemId, commandId: await derivedUuid(`pulled-capture:${named}`) },
       );
+      if (namedOn) (did.named ??= []).push(namedOn);
       // Disconnected meanwhile: nothing was filed, and nothing is asked of
       // the connector - the run ends with whatever it does next.
       if (answer !== 'filed') return 'already-known';
@@ -255,7 +261,12 @@ function pulledHost(
      */
     async reportNames(report: NamesReport): Promise<void> {
       if (!reportsNames) return;
-      await run.reportNames({ sourceId: report.sourceId, names: [...report.names] });
+      const { named } = await run.reportNames({
+        sourceId: report.sourceId,
+        names: [...report.names],
+        ...(report.followed ? { followed: report.followed } : {}),
+      });
+      if (named) (did.named ??= []).push(named);
     },
 
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

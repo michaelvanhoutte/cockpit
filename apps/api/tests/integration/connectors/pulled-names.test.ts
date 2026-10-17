@@ -420,3 +420,196 @@ describe('Connector management', () => {
     });
   });
 });
+
+interface NameSaid {
+  name: string;
+  panel: string | null;
+  dashboard: string | null;
+  why: string | null;
+  dashboards: number | null;
+}
+interface HistoryLine {
+  count: number;
+  did: { named: { count: number; messages: { id: string; title: string | null; dismissed: boolean; names: NameSaid[] }[] } };
+}
+
+async function historyOf(connection: string): Promise<HistoryLine[]> {
+  const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/${connection}/history`);
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { lines: HistoryLine[] }).lines;
+}
+
+/** What the newest line says each message's names did, by the message's title, in short. */
+async function newestSaid(connection: string): Promise<Record<string, string[]>> {
+  const [newest] = await historyOf(connection);
+  return Object.fromEntries(
+    newest!.did.named.messages.map((message) => [
+      message.title,
+      message.names.map((one) =>
+        one.why === null ? `${one.name} -> ${one.panel}` : `${one.name}: ${one.why}${one.dashboards ? ` ${one.dashboards}` : ''}`,
+      ),
+    ]),
+  );
+}
+
+async function addDashboardWithPanel(name: string, panelName: string): Promise<void> {
+  const dashboardId = crypto.randomUUID();
+  expect((await send('add_dashboard', { workspaceId: WORKSPACE_ID, dashboardId, panelId: crypto.randomUUID(), name })).status).toBe(200);
+  await addPanel(panelName, { workspaceId: WORKSPACE_ID, dashboardId });
+}
+
+const arrivesMarked = (sourceId: string, names: string[], followed: string) => (host: ConnectorHost) =>
+  host
+    .emitItem({
+      sourceId,
+      sourceLink: null,
+      sender: null,
+      sourceTimestamp: null,
+      title: `Message ${sourceId}`,
+      capturedMessage: `What message ${sourceId} says`,
+      names,
+      followed,
+    } satisfies SourceItem)
+    .then(() => {});
+
+describe('Connector management', () => {
+  describe('a check’s line names each name it read, and whether it filed or why it skipped (issue 1197)', () => {
+    it.each([
+      {
+        situation: 'a message arriving with a name one Panel carries is filed on it',
+        panels: ['Tasks'],
+        on: true,
+        steps: [arrives('m-1', ['Tasks'])],
+        says: { 'Message m-1': ['Tasks -> Tasks'] },
+      },
+      {
+        situation: 'a name Panels on three Dashboards carry is skipped',
+        panels: ['Tasks', 'Tasks@Privé', 'Tasks@Werk'],
+        on: true,
+        steps: [arrives('m-1', ['Tasks'])],
+        says: { 'Message m-1': ['Tasks: several 3'] },
+      },
+      {
+        situation: 'a name no Panel carries is skipped',
+        panels: ['Tasks'],
+        on: true,
+        steps: [arrives('m-1', ['Red category'])],
+        says: { 'Message m-1': ['Red category: no-panel'] },
+      },
+      {
+        situation: 'every name is skipped while filing by name is off',
+        panels: ['Tasks'],
+        on: false,
+        steps: [arrives('m-1', ['Tasks', 'Red category'])],
+        says: { 'Message m-1': ['Tasks: off', 'Red category: off'] },
+      },
+      {
+        situation: 'the followed mark comes first, and is skipped',
+        panels: ['Tasks'],
+        on: true,
+        steps: [arrivesMarked('m-1', ['Tasks'], 'Cockpit')],
+        says: { 'Message m-1': ['Cockpit: followed', 'Tasks -> Tasks'] },
+      },
+      {
+        situation: 'a message with nothing but the followed mark adds nothing',
+        panels: ['Tasks'],
+        on: true,
+        steps: [arrivesMarked('m-1', [], 'Cockpit')],
+        says: {},
+      },
+      {
+        situation: 'a message already in when filing was ticked, its names first reported, is skipped as already there',
+        panels: ['Tasks'],
+        on: false,
+        steps: [arrives('m-1'), 'switch on', nowNamed('m-1', ['Tasks'])],
+        says: { 'Message m-1': ['Tasks: baseline'] },
+      },
+      {
+        situation: 'a message already in with a name added since says only the added name',
+        panels: ['Tasks'],
+        on: true,
+        steps: [arrives('m-1', ['Red category']), nowNamed('m-1', ['Red category', 'Tasks'])],
+        says: { 'Message m-1': ['Tasks -> Tasks'] },
+      },
+      {
+        situation: 'a message already in whose names are unchanged adds nothing',
+        panels: ['Tasks'],
+        on: true,
+        steps: [arrives('m-1', ['Tasks']), nowNamed('m-1', ['tasks'])],
+        says: {},
+      },
+    ] as const)('$situation', async ({ panels, on, steps, says }) => {
+      for (const panel of panels) {
+        const [name, dashboard] = panel.split('@');
+        if (dashboard) await addDashboardWithPanel(dashboard, name!);
+        else await addPanel(name!);
+      }
+      const connection = await connect();
+      if (on) expect((await filesByName(connection, true)).status).toBe(200);
+
+      for (const step of steps) {
+        if (step === 'switch on') expect((await filesByName(connection, true)).status).toBe(200);
+        else await nextCheck(step);
+      }
+
+      expect(await newestSaid(connection)).toEqual(says);
+    });
+
+    it('names the Panel and the Dashboard it filed on', async () => {
+      await addDashboardWithPanel('Privé', 'Tasks');
+      const connection = await connect();
+      await filesByName(connection, true);
+
+      await nextCheck(arrives('m-1', ['Tasks']));
+
+      const [newest] = await historyOf(connection);
+      expect(newest!.did.named.messages[0]!.names).toEqual([
+        { name: 'Tasks', panel: 'Tasks', dashboard: 'Privé', why: null, dashboards: null },
+      ]);
+    });
+
+    it('is a line of its own between quiet ones, and never folded into them', async () => {
+      await addPanel('Tasks');
+      const connection = await connect();
+      await filesByName(connection, true);
+      await nextCheck(arrives('m-1', []));
+      await nextCheck(async () => {});
+      await nextCheck(nowNamed('m-1', ['Tasks']));
+      await nextCheck(async () => {});
+      await nextCheck(async () => {});
+
+      const lines = await historyOf(connection);
+
+      expect(lines.map((line) => [line.count, line.did.named.count])).toEqual([
+        [2, 0],
+        [1, 1],
+        // The quiet check before it, the message brought in, and the check connecting.
+        [1, 0],
+        [1, 0],
+        [1, 0],
+      ]);
+    });
+
+    it('names the first 50 messages and counts every one beyond', async () => {
+      const connection = await connect();
+      const ids = Array.from({ length: 51 }, (_, i) => `m-${i}`);
+      await nextCheck(async (host) => {
+        for (const id of ids) await arrives(id, ['Red category'])(host);
+      });
+
+      const [newest] = await historyOf(connection);
+
+      expect(newest!.did.named.count).toBe(51);
+      expect(newest!.did.named.messages).toHaveLength(50);
+    });
+
+    it('a check that read no names has no names part', async () => {
+      const connection = await connect();
+      await nextCheck(arrives('m-1'));
+
+      const [newest] = await historyOf(connection);
+
+      expect(newest!.did.named).toEqual({ count: 0, messages: [] });
+    });
+  });
+});

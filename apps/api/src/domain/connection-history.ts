@@ -5,6 +5,7 @@
  * the decision kept here so it is proven without a store.
  */
 import { HISTORY_KEPT_DAYS } from '@cockpit/shared';
+import type { NameOutcome } from './filing-by-name.js';
 
 /**
  * Why a line was written: a check on the connection's cadence, soon after one
@@ -22,10 +23,27 @@ export interface CheckDid {
   refused: string[];
   /** How many source ids the check's complete listing held (issue 1196); absent where it saw none. Not something done, so `didAnything` ignores it. */
   listed?: number;
+  /** What each name read on a message did (issue 1197), per Item; only names new or changed since the last report. A message with none adds nothing. */
+  named?: NamedOn[];
+}
+
+/** One Item's names that a check read, each with what it did. */
+export interface NamedOn {
+  itemId: string;
+  names: NameOutcome[];
 }
 
 /** The kinds of thing a check did, each a list of Item ids. */
-export type DidKind = Exclude<keyof CheckDid, 'listed'>;
+export type DidKind = Exclude<keyof CheckDid, 'listed' | 'named'>;
+
+/** What a line stores of the names a check read: the exact count of messages, and the first by Item id. */
+export interface NamedKept {
+  count: number;
+  messages: NamedOn[];
+}
+
+/** What a line stores of what its check did: `named` is absent on a line from before issue 1197. */
+export type DidStored = Record<DidKind, DidKept> & { named?: NamedKept };
 
 /** How a check ended, as its line records it. */
 export type CheckEnded =
@@ -99,7 +117,25 @@ export function keptMessage(message: string): { message: string | null; messageC
 
 /** Whether a check did anything at all, by what the host counted. */
 export function didAnything(did: CheckDid): boolean {
-  return did.broughtIn.length + did.closed.length + did.sentBack.length + did.refused.length > 0;
+  return did.broughtIn.length + did.closed.length + did.sentBack.length + did.refused.length > 0 || namedKept(did) !== null;
+}
+
+/**
+ * The messages whose names a check read, each Item once with its names in
+ * order, the first `NAMED_MOST_ITEMS` kept and the count exact; null where it
+ * read none - a message with no name adds nothing (issue 1197).
+ */
+function namedKept(did: CheckDid): NamedKept | null {
+  const byItem = new Map<string, NameOutcome[]>();
+  for (const { itemId, names } of did.named ?? []) {
+    if (names.length === 0) continue;
+    byItem.set(itemId, [...(byItem.get(itemId) ?? []), ...names]);
+  }
+  if (byItem.size === 0) return null;
+  return {
+    count: byItem.size,
+    messages: [...byItem].slice(0, NAMED_MOST_ITEMS).map(([itemId, names]) => ({ itemId, names })),
+  };
 }
 
 /**
@@ -107,17 +143,19 @@ export function didAnything(did: CheckDid): boolean {
  * connection brought in, closed and sent back", issue 1141): each kind's exact
  * count and its first Items, each Item once; null where it did nothing.
  */
-export function keptDid(did: CheckDid): Record<DidKind, DidKept> | null {
+export function keptDid(did: CheckDid): DidStored | null {
   if (!didAnything(did)) return null;
   const kept = (ids: readonly string[]): DidKept => {
     const once = [...new Set(ids)];
     return { count: once.length, ids: once.slice(0, NAMED_MOST_ITEMS) };
   };
+  const named = namedKept(did);
   return {
     broughtIn: kept(did.broughtIn),
     closed: kept(did.closed),
     sentBack: kept(did.sentBack),
     refused: kept(did.refused),
+    ...(named ? { named } : {}),
   };
 }
 

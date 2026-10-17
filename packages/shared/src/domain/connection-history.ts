@@ -21,11 +21,29 @@ import { z } from 'zod';
  */
 export const itemDidSchema = z.object({ id: z.string(), title: z.string().nullable(), dismissed: z.boolean() });
 export const didKindSchema = z.object({ count: z.number().int().min(0), items: itemDidSchema.array() });
+/**
+ * What one name a message carried did ("Name each category a check read, and
+ * whether it filed or why it skipped", issue 1197): filed on `panel` of
+ * `dashboard` where `why` is null, otherwise skipped for `why` - a bare string,
+ * so a client built before another reason is added still parses it. `dashboards`
+ * says how many Dashboards hold a Panel the name matched, where it matched several.
+ */
+export const nameOutcomeSchema = z.object({
+  name: z.string(),
+  panel: z.string().nullable().default(null),
+  dashboard: z.string().nullable().default(null),
+  why: z.string().nullable().default(null),
+  dashboards: z.number().int().nullable().default(null),
+});
+export type NameOutcomeShown = z.infer<typeof nameOutcomeSchema>;
+export const messageNamedSchema = itemDidSchema.extend({ names: nameOutcomeSchema.array() });
 export const checkDidSchema = z.object({
   broughtIn: didKindSchema,
   closed: didKindSchema,
   sentBack: didKindSchema,
   refused: didKindSchema,
+  /** The messages whose names the check read, the exact `count` and the first by Item (issue 1197). */
+  named: z.object({ count: z.number().int().min(0), messages: messageNamedSchema.array() }).default({ count: 0, messages: [] }),
 });
 export type CheckDidShown = z.infer<typeof checkDidSchema>;
 

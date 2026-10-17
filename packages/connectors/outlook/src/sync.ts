@@ -1,6 +1,7 @@
 import type { ConnectorHost, SyncAnswer } from '@cockpit/connector-sdk';
 import { NotAnswering, OutOfCalls, mailboxOf, type Mailbox, type OutlookConnectorConfig } from './graph.js';
 import {
+  COCKPIT_CATEGORY,
   LIST_FIELDS,
   READ_FIELDS,
   deletedItemsIn,
@@ -126,7 +127,7 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
       break;
     }
     reports += 1;
-    await host.reportNames({ sourceId: messageId, names });
+    await host.reportNames({ sourceId: messageId, names, ...(mark === 'category' ? { followed: COCKPIT_CATEGORY } : {}) });
     reported[messageId] = names;
   }
   try {
@@ -209,6 +210,7 @@ async function bringIn(
     title: message.title,
     choice: mark,
     names,
+    ...(mark === 'category' ? { followed: COCKPIT_CATEGORY } : {}),
   });
   if (filing === 'already-known') {
     await host.emitSourceStateChange({ sourceId: message.messageId, change: 'reopened', observedAt: now().toISOString() });

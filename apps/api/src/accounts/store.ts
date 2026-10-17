@@ -41,7 +41,7 @@ import {
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import { capturePushed, connectionHistoryOf, pruneConnectionHistory, recordPushFailed } from './connection-history.js';
-import { historyKeptFrom, type CheckDid } from '../domain/connection-history.js';
+import { historyKeptFrom, type CheckDid, type NamedOn } from '../domain/connection-history.js';
 import {
   applyPulledSourceChange,
   closePulledItemsNotListed,
@@ -980,7 +980,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     runId: string,
     item: SourceItem & { sourceId: string },
     ids: { itemId: string; commandId: string },
-  ): Answer<EmittedItem | 'disconnected'> {
+  ): Answer<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }> {
     return this.#answer(accountName, (db) =>
       filePulledItem(db, accountName, sourceAccountId, runId, item, ids, new Date().toISOString()),
     );
@@ -992,7 +992,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     sourceAccountId: string,
     runId: string,
     report: NamesReport,
-  ): Answer<'recorded' | 'unknown' | 'disconnected'> {
+  ): Answer<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }> {
     return this.#answer(accountName, (db) =>
       reportPulledNames(db, accountName, sourceAccountId, runId, report, new Date().toISOString()),
     );

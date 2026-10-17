@@ -1,4 +1,4 @@
-import { HISTORY_KEPT_DAYS, type ConnectionHistoryLine } from '@cockpit/shared';
+import { HISTORY_KEPT_DAYS, type ConnectionHistoryLine, type NameOutcomeShown } from '@cockpit/shared';
 
 /**
  * What a connection's history says, day by day ("See when a pulled connection
@@ -18,6 +18,15 @@ export interface HistoryLineShown {
   detail: string | null;
   /** What the check did, kind by kind, each Item named - empty where it did nothing (issue 1141). */
   did: DidList[];
+  /** The messages whose names the check read, each with what every name did (issue 1197); empty where it read none. */
+  named: NamedMessage[];
+  /** How many more messages the count says than the line names. */
+  namedMore: number;
+}
+
+/** A message whose names a check read: named like an Item of `did`, then what each of its names did in words. */
+export interface NamedMessage extends DidItem {
+  outcomes: string[];
 }
 
 /** One kind of what a check did: *New:*, with the Items it names. */
@@ -106,9 +115,10 @@ function headingFor(at: Date, now: Date): string {
  * One line in words. `listed` is what the connection's mark counts in its
  * connector's words (*flagged*), which a line that worked says beside how many
  * its complete listing returned (issue 1196); without it, or on a line with no
- * count, no count is said.
+ * count, no count is said. `noun` is what the source calls a name (*category*),
+ * for the reasons that speak of it (issue 1197).
  */
-export function lineShown(line: ConnectionHistoryLine, listed?: string): HistoryLineShown {
+export function lineShown(line: ConnectionHistoryLine, listed?: string, noun = 'name'): HistoryLineShown {
   const folded = line.count > 1;
   const failed = line.outcome === 'failed';
   const message = line.message === null ? null : line.messageCut ? `${line.message}…` : line.message;
@@ -120,9 +130,17 @@ export function lineShown(line: ConnectionHistoryLine, listed?: string): History
       ? `Checked ${line.count} times, nothing new`
       : 'Worked';
   // A folded line's checks ran for more than one reason, so it says none.
-  const summary = KINDS.filter(({ kind }) => line.did[kind].count > 0)
-    .map(({ kind, summary }) => `${summary} ${line.did[kind].count}`)
-    .join(', ');
+  const read = line.did.named.count;
+  const summary = [
+    ...KINDS.filter(({ kind }) => line.did[kind].count > 0).map(({ kind, summary }) => `${summary} ${line.did[kind].count}`),
+    ...(read > 0 ? [`Read names of ${read}`] : []),
+  ].join(', ');
+  const named = line.did.named.messages.map((message) => ({
+    key: message.id,
+    id: message.title === null || message.dismissed ? null : message.id,
+    text: message.title === null ? GONE : message.dismissed ? `${message.title}${DISMISSED}` : message.title,
+    outcomes: message.names.map((one) => outcomeIn(one, noun)),
+  }));
   const did = KINDS.filter(({ kind }) => line.did[kind].count > 0).map(({ kind, label }) => ({
     label,
     more: line.did[kind].count - line.did[kind].items.length,
@@ -148,7 +166,25 @@ export function lineShown(line: ConnectionHistoryLine, listed?: string): History
     failed,
     detail: parts.length > 0 ? parts.join(' · ') : null,
     did,
+    named,
+    namedMore: read - named.length,
   };
+}
+
+/** What one name did, in words (issue 1197): `Tasks → filed on Tasks (Privé)`, or `Red: skipped, no Panel by that name`. */
+function outcomeIn(one: NameOutcomeShown, noun: string): string {
+  if (one.why === null) return `${one.name} → filed on ${one.panel} (${one.dashboard})`;
+  const why: Record<string, string> = {
+    'no-panel': 'no Panel by that name',
+    several:
+      one.dashboards !== null && one.dashboards > 1 ? `Panels on ${one.dashboards} Dashboards` : 'more than one Panel by that name',
+    followed: `the ${noun} followed`,
+    baseline: 'already on it when filing was ticked',
+    off: `filing by ${noun} is off`,
+    'already-there': `already on ${one.panel} (${one.dashboard})`,
+  };
+  // A reason this release does not know says only that it was skipped.
+  return `${one.name}: skipped${Object.hasOwn(why, one.why) ? `, ${why[one.why]}` : ''}`;
 }
 
 /**
@@ -164,6 +200,7 @@ export function historyDays(
   now: Date,
   olderRemain: boolean,
   listed?: string,
+  noun?: string,
 ): HistoryDay[] {
   const days: { key: string; at: Date; held: ConnectionHistoryLine[] }[] = [];
   for (const line of lines) {
@@ -175,7 +212,7 @@ export function historyDays(
   return days.map(({ key, at, held }, index) => ({
     key,
     heading: headingFor(at, now),
-    lines: held.map((line) => lineShown(line, listed)),
+    lines: held.map((line) => lineShown(line, listed, noun)),
     folded: at < today && !(olderRemain && index === days.length - 1) ? foldedDay(held, at) : null,
   }));
 }
@@ -189,6 +226,8 @@ function foldedDay(lines: readonly ConnectionHistoryLine[], day: Date): FoldedDa
     const checksThatDid = lines.filter((line) => line.did[kind].count > 0).length;
     return checksThatDid > 0 ? [`${checksThatDid} ${says}`] : [];
   });
+  const checksThatNamed = lines.filter((line) => line.did.named.count > 0).length;
+  if (checksThatNamed > 0) did.push(`${checksThatNamed} read names`);
   // Quiet checks fold across midnight, so the day's oldest line can have begun
   // the day before; the span starts no earlier than the day itself.
   const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();

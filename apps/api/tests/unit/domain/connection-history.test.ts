@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MESSAGE_MOST_BYTES,
   NAMED_MOST_ITEMS,
+  didAnything,
   keptDid,
   keptMessage,
   whatACheckWrites,
@@ -131,6 +132,36 @@ describe('Connector management', () => {
       const kept = keptDid({ ...nothing, closed: many })!;
       expect(kept.closed.count).toBe(many.length);
       expect(kept.closed.ids).toEqual(many.slice(0, NAMED_MOST_ITEMS));
+    });
+  });
+
+  describe('a check that read names is a line of its own (issue 1197)', () => {
+    const nothing = { broughtIn: [], closed: [], sentBack: [], refused: [] };
+    const outcome = { name: 'Tasks', panel: null, dashboard: null, why: 'off' as const, dashboards: null };
+    const readOne = { ...nothing, named: [{ itemId: 'a', names: [outcome] }] };
+
+    it('does not fold into a quiet streak, in either direction', () => {
+      const read: CheckOutcome = { reason: 'scheduled', outcome: 'worked', did: didAnything(readOne) };
+      expect(whatACheckWrites(quiet, read)).toBe('insert');
+      expect(whatACheckWrites({ ...quiet, did: true }, worked)).toBe('insert');
+    });
+
+    it('a message with no name to report adds nothing', () => {
+      expect(didAnything({ ...nothing, named: [{ itemId: 'a', names: [] }] })).toBe(false);
+      expect(keptDid({ ...nothing, named: [{ itemId: 'a', names: [] }] })).toBeNull();
+    });
+
+    it('keeps each message once, its names in order', () => {
+      const other = { ...outcome, name: 'Red' };
+      const kept = keptDid({ ...nothing, named: [{ itemId: 'a', names: [outcome] }, { itemId: 'a', names: [other] }] })!;
+      expect(kept.named).toEqual({ count: 1, messages: [{ itemId: 'a', names: [outcome, other] }] });
+    });
+
+    it('keeps the first 50 messages by name and the exact count beyond', () => {
+      const many = Array.from({ length: NAMED_MOST_ITEMS + 1 }, (_, i) => ({ itemId: `item-${i}`, names: [outcome] }));
+      const kept = keptDid({ ...nothing, named: many })!;
+      expect(kept.named!.count).toBe(NAMED_MOST_ITEMS + 1);
+      expect(kept.named!.messages).toHaveLength(NAMED_MOST_ITEMS);
     });
   });
 
