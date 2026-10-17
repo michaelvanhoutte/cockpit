@@ -81,14 +81,24 @@ describe('Connector management', () => {
       },
       { situation: 'a Check now after a quiet line', previous: quiet, ended: { ...worked, reason: 'check-now' as const }, writes: 'insert' },
       { situation: 'a quiet check after a Check now line', previous: { ...quiet, reason: 'check-now' as const }, ended: worked, writes: 'insert' },
-      { situation: 'a delivery after a quiet line', previous: quiet, ended: { ...worked, reason: 'delivery' as const }, writes: 'insert' },
       {
         situation: 'a delivery that failed alike the one before it',
         previous: { ...unavailable, reason: 'delivery' as const },
         ended: { ...failedAlike, reason: 'delivery' as const },
+        writes: 'extend',
+      },
+      {
+        situation: 'a delivery that failed after a delivery that brought an Item in',
+        previous: { ...broughtSomethingIn, reason: 'delivery' as const },
+        ended: { ...failedAlike, reason: 'delivery' as const },
         writes: 'insert',
       },
-      { situation: 'a quiet check after a delivery line', previous: { ...quiet, reason: 'delivery' as const }, ended: worked, writes: 'insert' },
+      {
+        situation: 'a delivery that brought an Item in after a failed delivery',
+        previous: { ...unavailable, reason: 'delivery' as const },
+        ended: { ...workedAndDidSomething, reason: 'delivery' as const },
+        writes: 'insert',
+      },
       {
         situation: 'a failure alike one that had done something',
         previous: { ...unavailable, did: true },

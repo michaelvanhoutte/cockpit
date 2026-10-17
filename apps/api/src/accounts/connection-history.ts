@@ -1,7 +1,6 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import type { CheckDidShown, ConnectionHistoryLine } from '@cockpit/shared';
+import type { CheckDidShown, CommandPayload, CommandResult, ConnectionHistoryLine } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import type { CommandPayload, CommandResult } from '@cockpit/shared';
 import { SourceAccountNotFoundError, runCommand } from './command-service.js';
 import { getSourceAccount } from './repo.js';
 import { connectionHistory, items } from './schema.js';

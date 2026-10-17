@@ -192,6 +192,22 @@ describe('Connector management', () => {
       });
     });
 
+    it('folds the failures of a click Teams delivers again into one line', async () => {
+      const connection = await connectTeams();
+      const connector = pushing(async (host) => {
+        await host.forAccount(`${TEAMS_TENANT}:${TEAMS_PERSON}`);
+        throw bad();
+      });
+
+      for (let redelivery = 0; redelivery < 3; redelivery++) {
+        await expect(handlePush(connector, delivery(), { env, filed: () => {} })).rejects.toThrow('502');
+      }
+
+      const [line, ...others] = await historyOf(connection);
+      expect(others).toEqual([]);
+      expect(line).toMatchObject({ outcome: 'failed', reason: 'delivery', status: 502, count: 3 });
+    });
+
     it('writes no line anywhere for a delivery attributed to no connection', async () => {
       await connectTeams();
       const connector = pushing(async (host) => {

@@ -1372,7 +1372,7 @@ const routes = app
             ...held,
             ...(label === undefined ? {} : { followsLabel: label }),
             ...(keepsHistory ? { keepsHistory } : {}),
-            ...(isPulled ? { pulled: isPulled } : {}),
+            ...(isPulled ? { pulled: true } : {}),
           };
         }),
       },

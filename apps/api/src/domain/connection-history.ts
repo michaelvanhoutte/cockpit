@@ -116,12 +116,12 @@ function isQuiet(line: { outcome: 'worked' | 'failed'; did: boolean }): boolean 
  * did anything; inserts a line of its own otherwise - a check that did anything is
  * never folded, and never extended. Nor is a *Check now* (issue 1143): a person
  * pressed it to see its line, which a later quiet check would bury in a count.
- * Nor is a delivery (issue 1144): each is one save, and a failed one is one
- * click Teams will redeliver.
+ * A delivery (issue 1144) is one save and always did something, so it never
+ * folds; a failed one folds like any failure, since Teams redelivers a click
+ * it got no 200 for and a failing connection would otherwise write a line each time.
  */
 export function whatACheckWrites(previous: LineAsHeld | null, ended: CheckOutcome): 'extend' | 'insert' {
   if (previous === null || ended.did || previous.did) return 'insert';
-  if (ended.reason === 'delivery' || previous.reason === 'delivery') return 'insert';
   if (ended.reason === 'check-now' || previous.reason === 'check-now') return 'insert';
   if (isQuiet(ended)) return isQuiet(previous) ? 'extend' : 'insert';
   if (ended.outcome !== 'failed' || previous.outcome !== 'failed') return 'insert';
