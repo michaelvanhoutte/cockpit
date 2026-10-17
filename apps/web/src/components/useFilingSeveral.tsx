@@ -14,7 +14,7 @@ import {
 import { useFilteredDashboardIds } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
-import { updateSelection } from '../selection';
+import { dashboardOfScope, updateSelection } from '../selection';
 import { askToShow } from '../showItem';
 import { useUndo, type Undoable } from '../undo';
 import { FetchedPicker } from './FetchedPicker';
@@ -218,12 +218,15 @@ export function useFilingSeveral({
     // they gather at the landing line and leave every other Panel alone.
     const reordering =
       landing !== undefined && target !== null && chosen.every((item) => held.includes(item.id));
+    // A move leaves the Panels of the Dashboard the rows were picked on, which is
+    // not the one on screen when the drag switched Dashboard on the way.
+    const pickedOn = (landing?.scope ? dashboardOfScope(landing.scope) : null) ?? openDashboardId;
     const how = new Map<string, HowToFileSelected>(
       chosen.map((item) => [
         item.id,
         landing?.alsoShow || reordering
           ? { how: 'add' }
-          : howToFileSelected(data?.filings ?? [], data?.panels ?? [], openDashboardId, target, item.id),
+          : howToFileSelected(data?.filings ?? [], data?.panels ?? [], pickedOn, target, item.id),
       ]),
     );
     const orders = target

@@ -25,7 +25,14 @@ import {
   placeSeveralAmongHeld,
   whereItWouldLand,
 } from '../dropAt';
-import { itemInTheAir, landItem, panelLiftedFrom, selectionCarried, type SelectionInTheAir } from '../itemInTheAir';
+import {
+  itemInTheAir,
+  landItem,
+  panelLiftedFrom,
+  selectionCarried,
+  selectionCarriedAcross,
+  type SelectionInTheAir,
+} from '../itemInTheAir';
 import { columnsStyle, landingOnRow } from '../panelColumns';
 import {
   filedOrderOnPanel,
@@ -44,6 +51,7 @@ import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import {
   afterClicking,
+  dashboardOfScope,
   dashboardScope,
   endSelection,
   inboxScope,
@@ -745,9 +753,13 @@ export function ItemList({
    * the one answer for all of them (issue 1217). `at` is where they land among
    * what the Panel holds without them; `scope` is where they were picked.
    */
-  const [askingSeveral, setAskingSeveral] = useState<{ items: Item[]; at: number; scope: string } | null>(
-    null,
-  );
+  const [askingSeveral, setAskingSeveral] = useState<{
+    items: Item[];
+    at: number;
+    scope: string;
+    /** That the drag switched Dashboard on the way, so the selection ends with the answer. */
+    across: boolean;
+  } | null>(null);
   const rows = useRef<HTMLUListElement>(null);
   /**
    * That a sorted Panel already holds the row in the air, from whichever list
@@ -804,6 +816,13 @@ export function ItemList({
    * of the drop, for the same reason.
    */
   const dropSelection = (carrying: SelectionInTheAir, x: number, y: number) => {
+    // Read before the drop ends the drag. A selection that crossed to this
+    // Dashboard is over once the drop is answered: it is on a Dashboard it was
+    // not picked on, where nothing shows what is left of it (issue 1218).
+    const across = selectionCarriedAcross() !== null;
+    const leave = () => {
+      if (across) endSelection(carrying.scope);
+    };
     // The drop is the end of the drag, and the source row may be gone by now -
     // filed off the screen - so its `dragend` cannot be counted on to say so.
     landItem();
@@ -816,17 +835,19 @@ export function ItemList({
 
     if (panelId === null) {
       // Off every Panel; one already in the Inbox has nothing to leave.
-      void filingSeveral.dropOnto(
-        chosen.filter((item) => filedOn(item).length > 0),
-        null,
-        { at: 0, scope: carrying.scope },
-      );
+      void filingSeveral
+        .dropOnto(
+          chosen.filter((item) => filedOn(item).length > 0),
+          null,
+          { at: 0, scope: carrying.scope },
+        )
+        .finally(leave);
       return;
     }
     // A sorted Panel keeps what it holds where the sort puts it, and takes the
     // rest at the top of the order you set.
     if (sorted) chosen = chosen.filter((item) => !items.some((row) => row.id === item.id));
-    if (chosen.length === 0) return;
+    if (chosen.length === 0) return leave();
 
     const ids = chosen.map((item) => item.id);
     const held = filedOrderOnPanel(data?.filings ?? [], panelId);
@@ -838,10 +859,15 @@ export function ItemList({
     const arriving = (item: Item) => !held.includes(item.id) && filedOn(item).length > 0;
     if (chosen.some(arriving)) {
       command.reset();
-      setAskingSeveral({ items: chosen, at, scope: carrying.scope });
+      setAskingSeveral({ items: chosen, at, scope: carrying.scope, across });
       return;
     }
-    void filingSeveral.dropOnto(chosen, panelId, { at, scope: carrying.scope });
+    void filingSeveral.dropOnto(chosen, panelId, { at, scope: carrying.scope }).finally(leave);
+  };
+
+  /** The end of a selection that crossed to this Dashboard, once its question is answered or dismissed. */
+  const leaveAfterAsking = (asked: { scope: string; across: boolean }) => {
+    if (asked.across) endSelection(asked.scope);
   };
 
   /** What of a question's rows is still picked and open when it is answered, not when it was asked. */
@@ -1271,22 +1297,33 @@ export function ItemList({
             <MoveOrAddQuestion
               open
               several={askingSeveral.items.length}
+              // A selection that crossed leaves the Panels of the Dashboard it was
+              // picked on, which is not the one on screen.
+              leaves={
+                askingSeveral.across
+                  ? data?.dashboards.find((d) => d.id === dashboardOfScope(askingSeveral.scope))?.name
+                  : undefined
+              }
               itemTitle=""
               panelName={nameOf(panelId)}
               // Closed on the press: the filing says why it stopped in its own
               // line above the rows that are still picked.
               onMove={() => {
-                void filingSeveral.dropOnto(stillPickedOf(askingSeveral), panelId, askingSeveral);
+                void filingSeveral
+                  .dropOnto(stillPickedOf(askingSeveral), panelId, askingSeveral)
+                  .finally(() => leaveAfterAsking(askingSeveral));
                 setAskingSeveral(null);
               }}
               onAdd={() => {
-                void filingSeveral.dropOnto(stillPickedOf(askingSeveral), panelId, {
-                  ...askingSeveral,
-                  alsoShow: true,
-                });
+                void filingSeveral
+                  .dropOnto(stillPickedOf(askingSeveral), panelId, { ...askingSeveral, alsoShow: true })
+                  .finally(() => leaveAfterAsking(askingSeveral));
                 setAskingSeveral(null);
               }}
-              onCancel={() => setAskingSeveral(null)}
+              onCancel={() => {
+                leaveAfterAsking(askingSeveral);
+                setAskingSeveral(null);
+              }}
             />
           </Suspense>
         </WhateverTheQuestionDoes>
