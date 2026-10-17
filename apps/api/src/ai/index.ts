@@ -288,7 +288,7 @@ export class ClaudeAiService implements AiService {
   async proposeForClaude(item: ItemToPropose, folders: readonly string[], callFor: CallFor): Promise<ClaudeProposalsRead> {
     const prompt = buildProposeForClaude(item, folders);
     const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'propose-for-claude', promptVersion: PROPOSE_FOR_CLAUDE });
-    return 'refused' in answer ? { discarded: answer.refused } : readClaudeProposals(answer.text, folders);
+    return 'refused' in answer ? { discarded: answer.refused } : readClaudeProposals(answer.text, folders, item.source !== null);
   }
 
   /** One call through the gateway, constrained to the prompt's own schema: its text, or that the model declined. */

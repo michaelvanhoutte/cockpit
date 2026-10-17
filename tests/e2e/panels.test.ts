@@ -1225,9 +1225,9 @@ test.describe('Panels', () => {
       // The prompt is filled in once the item's files have loaded: waited for before anything is read.
       // A mail from Els, so the prompt opens on where it came from, then the proposed task.
       await expect(review.getByLabel('Prompt')).toHaveValue(
-        /^Prepared by Cockpit from a Gmail message by Els Maes - [^\n]*\n\nIn the Halcyon booking service, find why logging in/,
+        /^Prepared by Cockpit from a Gmail message by “Els Maes” - [^\n]*\n\nIn the Halcyon booking service, find why logging in/,
       );
-      await expect(review.getByText('Cockpit proposes 2 things to do, from a Gmail message by Els Maes')).toBeVisible();
+      await expect(review.getByText('Cockpit proposes 2 things to do, from a Gmail message by “Els Maes”')).toBeVisible();
       await expect(review.getByRole('radio', { name: 'Code', exact: true })).toHaveAttribute('aria-checked', 'true');
       await expect(review.getByLabel('Folder')).toHaveValue('C:\\Code\\halcyon-booking');
       await expect(review.getByRole('radiogroup', { name: 'Proposed' }).getByRole('radio')).toHaveCount(2);

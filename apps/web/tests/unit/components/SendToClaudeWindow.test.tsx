@@ -275,8 +275,20 @@ describe('Agents', () => {
 
       const text = (await prompt()).value;
 
-      expect(screen.getByText(/Cockpit proposes this from a Gmail message by Els Maes\./)).toBeInTheDocument();
-      expect(text).toMatch(/^Prepared by Cockpit from a Gmail message by Els Maes - .*not mine:\n\nDraft a reply to the supplier/);
+      expect(screen.getByText(/Cockpit proposes this from a Gmail message by “Els Maes”\./)).toBeInTheDocument();
+      expect(text).toMatch(/^Prepared by Cockpit from a Gmail message by “Els Maes” - .*not mine:\n\nDraft a reply to the supplier/);
+    });
+
+    it.each([
+      { situation: 'nothing to do proposed', claudeProposals: [{ destination: 'nothing' as const, why: 'Looks like a phishing mail.' }], folder: '' },
+      { situation: 'nothing proposed yet', claudeProposals: null, folder: 'C:\\GitHub\\Cockpit' },
+    ])('names who sent an item someone else sent at the head of its own words, with $situation', async ({ claudeProposals, folder }) => {
+      window.localStorage.setItem('cockpit.claudeFolder', 'C:\\GitHub\\Cockpit');
+
+      showWindow([PNG], { ...ITEM, source: 'gmail', sender: 'Els Maes', claudeProposals });
+
+      expect((await prompt()).value).toMatch(/^Prepared by Cockpit from a Gmail message by “Els Maes” - .*not mine:\n\nPay the invoice\n\nDue on Friday\./);
+      expect(screen.getByLabelText('Folder')).toHaveValue(folder);
     });
 
     it('starts the proposed prompt on the task itself for an item the person captured', async () => {

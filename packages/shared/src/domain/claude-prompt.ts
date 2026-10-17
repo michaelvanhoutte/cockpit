@@ -89,16 +89,21 @@ export function claudeClosingFor(runId: string): string {
 
 /**
  * The prompt a send starts as: the Item's words, a link to each of its files,
- * and the closing. No empty line is left where there is no description.
+ * and the closing. No empty line is left where there is no description. **An
+ * Item someone else sent opens with where it came from** (`from`), as a
+ * proposed prompt does: its words are the sender's, not the person's.
  */
 export function plainPromptFor(item: {
   title: string;
   description: string | null;
   attachments: readonly AttachmentForAgent[];
   runId: string;
+  from?: ProposedFrom | null;
 }): string {
   const { description, section } = attachmentsForClaude(item.description, item.attachments);
-  return [item.title, description.trim(), section, claudeClosingFor(item.runId)].filter(Boolean).join('\n\n');
+  return [item.from ? proposedFromLine(item.from) : '', item.title, description.trim(), section, claudeClosingFor(item.runId)]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /**
@@ -131,20 +136,30 @@ export interface ProposedFrom {
 }
 
 /**
- * "a Gmail message by Els Maes" - the source and sender, as the window and the
- * prompt both say them. Each on one line and cut short, since a sender's name
- * is the sender's to choose and must not end the line that names it.
+ * "a Gmail message by “Els Maes”" - the source and sender, as the window and
+ * the prompt both say them. Each on one line and cut short, and the sender in
+ * quotes, since a sender's name is the sender's to choose and must neither end
+ * the line that names it nor read as Cockpit's own words.
  */
 export function messageFrom(from: ProposedFrom): string {
-  const sender = from.sender ? oneShortLine(from.sender) : '';
-  return `a ${oneShortLine(from.source)} message${sender ? ` by ${sender}` : ''}`;
+  const sender = from.sender ? oneShortLine(from.sender.replace(/["“”]/g, '')) : '';
+  return `a ${oneShortLine(from.source)} message${sender ? ` by “${sender}”` : ''}`;
 }
 
 /** The longest source or sender name the line carries. */
 const NAME_SHOWN = 80;
 
+/**
+ * One line of at most `NAME_SHOWN` characters, compatibility forms folded and
+ * every format or control character dropped first, so a right-to-left override
+ * or a zero-width joiner cannot make the line read other than it says.
+ */
 function oneShortLine(text: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
+  const flat = text
+    .normalize('NFKC')
+    .replace(/[\p{Cf}\p{Cc}]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   return flat.length <= NAME_SHOWN ? flat : `${flat.slice(0, NAME_SHOWN)}…`;
 }
 

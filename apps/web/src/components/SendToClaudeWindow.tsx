@@ -72,7 +72,8 @@ function rememberFolder(folder: string): void {
  * cannot be made, the files are named instead and the prompt says so.
  *
  * **An Item someone else sent says so beside the proposal, and the prompt opens
- * with it** (`proposedPromptFor`): its task was read out of their words.
+ * with it** (`proposedPromptFor`, `plainPromptFor`), proposed or not: its words
+ * are theirs.
  */
 export function SendToClaudeWindow({
   item,
@@ -101,8 +102,9 @@ export function SendToClaudeWindow({
   const action = actions[chosen];
   const [destination, setDestination] = useState<ClaudeDestination>(actions[0]?.destination ?? 'cowork');
   // A proposal's own folder, empty included - it decided none fits, so Claude
-  // asks; the folder last sent to only where nothing was proposed.
-  const [folder, setFolder] = useState(() => (actions[0] ? actions[0].folder : lastFolder()));
+  // asks; empty too where it proposed nothing to do, and the folder last sent
+  // to only where nothing has been proposed yet.
+  const [folder, setFolder] = useState(() => (actions[0] ? actions[0].folder : nothing ? '' : lastFolder()));
   const [edited, setEdited] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -126,7 +128,7 @@ export function SendToClaudeWindow({
   const linked = attachments.map((attachment) => ({ ...attachment, link: links.data?.[attachment.id] }));
   const plain = action
     ? proposedPromptFor({ prompt: action.prompt, runId, attachments: linked, from })
-    : plainPromptFor({ title: item.title, description: item.description, runId, attachments: linked });
+    : plainPromptFor({ title: item.title, description: item.description, runId, attachments: linked, from });
   const prompt = edited ?? plain;
 
   /** Another proposed action: its destination, its folder and its prompt, in place of what was there. */
@@ -168,8 +170,8 @@ export function SendToClaudeWindow({
       return;
     }
     // A proposal sent with no folder keeps the one remembered, which an Item
-    // with no proposal still opens on.
-    if (chosen !== '' || !action) rememberFolder(chosen);
+    // with no proposal yet still opens on.
+    if (chosen !== '' || proposals.length === 0) rememberFolder(chosen);
     openClaude(claudeLinkFor(destination, prompt.trim(), chosen));
     onClose();
   };

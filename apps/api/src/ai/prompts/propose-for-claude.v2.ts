@@ -131,7 +131,8 @@ export function renderFolders(folders: readonly string[]): string {
 export function renderItem(item: ItemToPropose): string {
   const description = item.description?.trim() ?? '';
   const shown = description.length <= DESCRIPTION_SENT ? description : `${description.slice(0, DESCRIPTION_SENT)}…`;
-  const from = item.source === null ? 'captured in Cockpit' : item.sender ? `${item.source}, from ${item.sender}` : item.source;
+  // The sender quoted as the texts are: a name is the sender's to choose, and may carry a line break.
+  const from = item.source === null ? 'captured in Cockpit' : item.sender ? `${item.source}, from ${JSON.stringify(item.sender)}` : item.source;
   const filed =
     item.filedOn.length === 0 ? 'the inbox, on no panel yet' : item.filedOn.map((one) => `${one.dashboard} › ${one.panel}`).join('; ');
   return [

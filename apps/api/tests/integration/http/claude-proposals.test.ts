@@ -139,7 +139,7 @@ describe('Agents', () => {
 
       await handleQueue(aProposalJob(itemId), env);
 
-      expect(proposing.asked.map((call) => call.item)).toEqual([expect.stringContaining('Came from: Gmail, from Els Maes')]);
+      expect(proposing.asked.map((call) => call.item)).toEqual([expect.stringContaining('Came from: Gmail, from "Els Maes"')]);
     });
 
     it('offers only the folders sent to from its own workspace, and every folder for an item in none yet', async () => {
