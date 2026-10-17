@@ -30,7 +30,17 @@ export interface NamedTarget {
  * names are the same name across the app, and *Privé* and *Prive* stay two.
  */
 export function matchKey(name: string): string {
-  return foldName(name.normalize('NFD').replace(/\p{M}/gu, '').replace(/&/g, ' and ').replace(/\s+/g, ' '));
+  return nameKey(name.normalize('NFD').replace(/\p{M}/gu, ''));
+}
+
+/**
+ * A name as a link's recorded names are compared: matching without the accent
+ * fold. A name differing from a recorded one by an accent alone is still new,
+ * so correcting `Prive` to `Privé` on an Item files it, as it did before
+ * matching ignored accents.
+ */
+function nameKey(name: string): string {
+  return foldName(name.replace(/&/g, ' and ').replace(/\s+/g, ' '));
 }
 
 /** A matching key with the spaces around its hyphens dropped, which is how a Dashboard and a Panel are joined: `Cubico - Tasks` is `Cubico-Tasks`. */
@@ -139,8 +149,8 @@ export function whatNamesDid(
  */
 export function namesNewSince(recorded: readonly string[] | null, reported: readonly string[]): string[] {
   if (recorded === null) return [];
-  const before = new Set(recorded.map(matchKey));
-  return reported.filter((name) => !before.has(matchKey(name)));
+  const before = new Set(recorded.map(nameKey));
+  return reported.filter((name) => !before.has(nameKey(name)));
 }
 
 /** The names as a link keeps them: trimmed, the empty ones dropped, each once. */
@@ -149,8 +159,8 @@ export function namesToRecord(reported: readonly string[]): string[] {
   const seen = new Set<string>();
   for (const raw of reported) {
     const name = raw.trim();
-    if (!name || seen.has(matchKey(name))) continue;
-    seen.add(matchKey(name));
+    if (!name || seen.has(nameKey(name))) continue;
+    seen.add(nameKey(name));
     kept.push(name);
   }
   return kept;

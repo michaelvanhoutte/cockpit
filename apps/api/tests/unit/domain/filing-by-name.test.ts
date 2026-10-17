@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { foldName } from '../../../src/domain/names.js';
-import { whatNamesDid, type NamedTarget } from '../../../src/domain/filing-by-name.js';
+import { namesNewSince, namesToRecord, whatNamesDid, type NamedTarget } from '../../../src/domain/filing-by-name.js';
 
 /**
  * L1: which Panels a label or category names is a pure match over the names
@@ -182,6 +182,12 @@ describe('Connector management', () => {
 
     it('leaves the names Cockpit keeps unique alone: foldName still tells Privé from Prive', () => {
       expect(foldName('Privé')).not.toBe(foldName('Prive'));
+    });
+
+    it('still counts a name differing from a recorded one by an accent as new, and records both', () => {
+      expect(namesNewSince(['Prive'], ['Privé'])).toEqual(['Privé']);
+      expect(namesToRecord(['Prive', 'Privé'])).toEqual(['Prive', 'Privé']);
+      expect(namesNewSince(['Prive'], ['PRIVE'])).toEqual([]);
     });
   });
 });

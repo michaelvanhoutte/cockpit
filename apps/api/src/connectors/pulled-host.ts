@@ -80,7 +80,8 @@ export async function checkPulledConnection(
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
     }
-    const host = pulledHost(env, begun, run, did, connector.manifest.names !== undefined, { byDashboard: connector.manifest.names?.byDashboard === true }, (itemId) =>
+    const forms = { byDashboard: connector.manifest.names?.byDashboard === true };
+    const host = pulledHost(env, begun, run, did, connector.manifest.names !== undefined, forms, (itemId) =>
       filed(job.accountName, itemId, begun.connectorId),
     );
     // Before the source is read, so a change a person made that it has not
