@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { clearDashboardFilter } from '../dashboardFilter';
+import { dayOf } from '../filters';
 import { isTypedInto, somethingIsOpenOverThePage } from '../inboxCollapsed';
 import { browserStore } from '../lastVisited';
 import { findItems, useFindIndex } from '../itemFind';
@@ -169,7 +170,7 @@ export function PanelList({
       ? entriesIn(shownRows).map(onThisDashboard)
       : sections.flatMap((section) => section.groups.flatMap((group) => group.targets));
   // Find item: the open Items matching, over an index built once per snapshot and only while Find is open.
-  const findIndex = useFindIndex(finding ? reach.snapshot : undefined);
+  const findIndex = useFindIndex(finding ? reach.snapshot : undefined, dayOf(new Date()));
   const findScope: FindScope = scope === 2 ? 2 : 1;
   const found = useMemo(
     () =>

@@ -1,7 +1,10 @@
 import { useMemo } from 'react';
-import { itemLabel } from '@cockpit/shared';
+import { itemLabel, NO_CONDITIONS, panelGathers } from '@cockpit/shared';
 import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
+import { itemIdsWithRun } from './dashboardFilter';
 import { filingsThatFile, itemsInTheInbox, stillOpen } from './filing';
+import { dayOf, itemsMatchingFilter } from './filters';
+import type { Day } from './filters';
 
 /**
  * Find item, the column's second mode ("Find an open Item with F and Shift+F,
@@ -18,7 +21,7 @@ import { filingsThatFile, itemsInTheInbox, stillOpen } from './filing';
 /** At most this many rows are drawn, the rest being counted. */
 export const FIND_LIMIT = 50;
 
-/** Where an Item is filed: a Panel, with the Dashboard it is on. */
+/** Where an Item is: a Panel it is filed on, or a Filter panel that gathers it, with the Dashboard it is on. */
 export type FoundPlace = { dashboardId: string; dashboardName: string; panelId: string; panelName: string };
 
 /** One open Item with its search text and where it is, most recently changed first in the index. */
@@ -28,6 +31,12 @@ export type FindEntry = {
   text: string;
   /** The Panels it is filed on, on the Dashboards in tab order; none for an Item in the Inbox. */
   places: readonly FoundPlace[];
+  /**
+   * The Filter panels that gather it, on the Dashboards in tab order and each
+   * Dashboard's Panels in their order. Only *Dashboard* scope reads these:
+   * *Workspace* names where an Item is filed.
+   */
+  gatheredOn: readonly FoundPlace[];
   /** Whether the Item is finished, which only *Include done* lists. */
   done: boolean;
 };
@@ -59,8 +68,11 @@ export function searchTextOf(item: Pick<Item, 'title' | 'description' | 'nextAct
  * Every Item of the Workspace with its search text and places, the open ones
  * first and then the finished, each most recently changed first. **An Item filed on a Filter panel only is in the
  * Inbox**, as the Inbox itself and *All items* read it (`filingsThatFile`).
+ * **What a Filter panel gathers is read the way the board draws it**
+ * (`itemsMatchingFilter`, ignoring the Dashboard's own filter, which landing
+ * clears), so the index follows `today` and the open runs as well as the snapshot.
  */
-export function indexForFind(snapshot: WorkspaceSnapshot): FindIndex {
+export function indexForFind(snapshot: WorkspaceSnapshot, today: Day = dayOf(new Date())): FindIndex {
   const panels = snapshot.panels ?? [];
   const filings = filingsThatFile(snapshot.filings ?? [], panels);
   const dashboardOrder = new Map(snapshot.dashboards.map((dashboard, at) => [dashboard.id, at]));
@@ -75,34 +87,57 @@ export function indexForFind(snapshot: WorkspaceSnapshot): FindIndex {
     places.push({ dashboardId: panel.dashboardId, dashboardName, panelId: panel.id, panelName: panel.name });
     placesOf.set(filing.itemId, places);
   }
+  const withRun = itemIdsWithRun(snapshot.agentRuns ?? []);
+  const gatheredOf = new Map<string, FoundPlace[]>();
+  for (const panel of panels) {
+    const dashboardName = dashboardNames.get(panel.dashboardId);
+    if (!panelGathers(panel) || dashboardName === undefined) continue;
+    const gathered = itemsMatchingFilter(
+      snapshot.items,
+      snapshot.filings ?? [],
+      panels,
+      snapshot.dashboards,
+      panel.filter ?? NO_CONDITIONS,
+      withRun,
+      today,
+    );
+    for (const item of gathered) {
+      const list = gatheredOf.get(item.id) ?? [];
+      list.push({ dashboardId: panel.dashboardId, dashboardName, panelId: panel.id, panelName: panel.name });
+      gatheredOf.set(item.id, list);
+    }
+  }
   const inbox = new Set(itemsInTheInbox(snapshot.items, filings).map((item) => item.id));
   const entries: FindEntry[] = [];
   for (const item of snapshot.items) {
     // A finished Item is on no Dashboard: it has no place, and is listed only by Include done.
     if (!stillOpen(item)) {
-      entries.push({ item, text: searchTextOf(item), places: [], done: true });
+      entries.push({ item, text: searchTextOf(item), places: [], gatheredOn: [], done: true });
       continue;
     }
-    const places = (placesOf.get(item.id) ?? []).toSorted(
-      (a, b) => (dashboardOrder.get(a.dashboardId) ?? 0) - (dashboardOrder.get(b.dashboardId) ?? 0),
-    );
+    const byDashboard = (a: FoundPlace, b: FoundPlace) =>
+      (dashboardOrder.get(a.dashboardId) ?? 0) - (dashboardOrder.get(b.dashboardId) ?? 0);
+    const places = (placesOf.get(item.id) ?? []).toSorted(byDashboard);
+    const gatheredOn = (gatheredOf.get(item.id) ?? []).toSorted(byDashboard);
     // Filed, but on nothing the snapshot names: on no screen at all, so not offered.
-    if (places.length === 0 && !inbox.has(item.id)) continue;
-    entries.push({ item, text: searchTextOf(item), places, done: false });
+    if (places.length === 0 && gatheredOn.length === 0 && !inbox.has(item.id)) continue;
+    entries.push({ item, text: searchTextOf(item), places, gatheredOn, done: false });
   }
   return entries.toSorted((a, b) => Number(a.done) - Number(b.done) || b.item.updatedAt.localeCompare(a.item.updatedAt));
 }
 
-/** The index of a snapshot, rebuilt only when the snapshot is replaced. */
-export function useFindIndex(snapshot: WorkspaceSnapshot | undefined): FindIndex {
-  return useMemo(() => (snapshot ? indexForFind(snapshot) : []), [snapshot]);
+/** The index of a snapshot, rebuilt only when the snapshot is replaced or the day turns. */
+export function useFindIndex(snapshot: WorkspaceSnapshot | undefined, today: Day = dayOf(new Date())): FindIndex {
+  return useMemo(() => (snapshot ? indexForFind(snapshot, today) : []), [snapshot, today]);
 }
 
 /**
  * The open Items matching what is typed, in scope, and how many more there are
  * past the limit. Nothing typed matches nothing. *Dashboard* keeps the Items
- * filed on a Panel of `dashboardId`; *Workspace* keeps every one, the Inbox's
- * included. An Item on several Panels is one row, going to the first Panel -
+ * drawn on `dashboardId` - filed on a Panel of it or gathered by a Filter panel
+ * of it; *Workspace* keeps every one, the Inbox's included. An Item in several
+ * places is one row, going to the first - in *Dashboard* the Panels it is filed
+ * on here, then the Filter panels here; in *Workspace* only where it is filed,
  * the Dashboard on screen's own first, then the others in tab order.
  * `withDone` (*Workspace* only) adds the finished Items matching, after the open ones.
  */
@@ -122,10 +157,11 @@ export function findItems(
     if (!entry.text.includes(needle)) continue;
     if (entry.done && !(withDone && scope === 2)) continue;
     const here = entry.places.filter((place) => place.dashboardId === dashboardId);
-    if (scope === 1 && here.length === 0) continue;
+    const gatheredHere = entry.gatheredOn.filter((place) => place.dashboardId === dashboardId);
+    if (scope === 1 && here.length + gatheredHere.length === 0) continue;
     matched += 1;
     if (rows.length >= limit) continue;
-    const places = scope === 1 ? here : [...here, ...entry.places.filter((place) => place.dashboardId !== dashboardId)];
+    const places = scope === 1 ? [...here, ...gatheredHere] : [...here, ...entry.places.filter((place) => place.dashboardId !== dashboardId)];
     const first = places[0] ?? null;
     if (entry.done) {
       rows.push({ itemId: entry.item.id, title: itemLabel(entry.item), where: 'done', panel: null, done: true });
