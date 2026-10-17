@@ -207,8 +207,7 @@ export type SourceItem = Pick<
   names?: readonly string[];
   /**
    * The mark the connection follows, in the source's own spelling, where this
-   * Item carries it among its names and the connector left it out of 
-ames
+   * Item carries it among its names and the connector left it out of `names`
    * (Outlook's Cockpit category). Only for the host to say, on a check's
    * line, that it was not filed by (issue 1197).
    */

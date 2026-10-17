@@ -184,7 +184,7 @@ function outcomeIn(one: NameOutcomeShown, noun: string): string {
     'already-there': `already on ${one.panel} (${one.dashboard})`,
   };
   // A reason this release does not know says only that it was skipped.
-  return `${one.name}: skipped${why[one.why] ? `, ${why[one.why]}` : ''}`;
+  return `${one.name}: skipped${Object.hasOwn(why, one.why) ? `, ${why[one.why]}` : ''}`;
 }
 
 /**

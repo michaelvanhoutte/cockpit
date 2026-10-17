@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { panelsNamedBy, whatNamesDid, type NamedTarget } from '../../../src/domain/filing-by-name.js';
+import { whatNamesDid, type NamedTarget } from '../../../src/domain/filing-by-name.js';
 
 /**
  * L1: which Panels a label or category names is a pure match over the names
@@ -54,7 +54,7 @@ describe('Connector management', () => {
         files: ['atlas', 'admin'],
       },
     ])('$situation', ({ names, panels, files }) => {
-      expect(panelsNamedBy(names, panels)).toEqual(files);
+      expect(whatNamesDid(names, panels, { skipAll: null, alreadyOn: new Set() }).panelIds).toEqual(files);
     });
   });
 

@@ -223,8 +223,7 @@ function pulledHost(
       const named = JSON.stringify([begun.workspaceId, connectorId, begun.externalAccountKey, sourceId]);
       const itemId = await derivedUuid(`pulled-item:${named}`);
       // Names only from a connector that declares it reports them (issue 1146).
-      const { names, ...rest } = item;
-      const { followed, ...itemRest } = rest;
+      const { names, followed, ...itemRest } = item;
       const { answer, named: namedOn } = await run.fileItem(
         {
           ...itemRest,

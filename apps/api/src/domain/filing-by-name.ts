@@ -30,16 +30,6 @@ export function matchKey(name: string): string {
 }
 
 /**
- * The Panels these names file an Item on: for each name, the one Panel of
- * Items in the Workspace it matches. A name matching none, or Panels on two
- * Dashboards, files nothing. A Filter and a Panel of text are never matched.
- * Each Panel once, in the order of the names.
- */
-export function panelsNamedBy(names: readonly string[], panels: readonly NamedTarget[]): string[] {
-  return whatNamesDid(names, panels, { skipAll: null, alreadyOn: new Set() }).panelIds;
-}
-
-/**
  * Why a name filed nothing ("Name each category a check read, and whether it
  * filed or why it skipped", issue 1197): no Panel carries it; Panels of Items
  * carry it (`dashboards` of them hold one); it is the mark the connection
