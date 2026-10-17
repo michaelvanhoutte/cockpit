@@ -7,13 +7,11 @@ import {
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
   panelSortFrom,
-  type Agent,
   type AgentRun,
   type Association,
   type Attachment,
   type Dashboard,
   type Filing,
-  type HiddenAgent,
   type Item,
   type ItemFormPresentation,
   type Layout,
@@ -29,7 +27,6 @@ import {
   type StoredPanelKind,
   type Workspace,
 } from '@cockpit/shared';
-import { CLAUDE_CODE } from '../domain/named-sources.js';
 import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
@@ -48,14 +45,12 @@ import {
   claudeSends,
   rememberedSentences,
   attachments,
-  claudeCodeHookArrivals,
   commands,
   connectionFailures,
   connectorAccounts,
   dashboards,
   decisionHistory,
   duplicateSettlements,
-  hiddenDashboardAgents,
   itemDuplicates,
   itemMeanings,
   items,
@@ -2040,114 +2035,7 @@ function closestPastSends(
   });
 }
 
-// --- Agents, and what the dock draws (issue 570) ------------------------------
-
-/** Every live Agent of the account, in dock order: position first, createdAt breaks a tie. */
-export function listAgents(db: AccountDb, tenantId: string): Agent[] {
-  return db
-    .select({
-      id: agents.id,
-      tenantId: agents.tenantId,
-      name: agents.name,
-      color: agents.color,
-      engine: agents.engine,
-      message: agents.message,
-      asksForPrompt: agents.asksForPrompt,
-      startsInProgress: agents.startsInProgress,
-      position: agents.position,
-      createdAt: agents.createdAt,
-    })
-    .from(agents)
-    .where(and(eq(agents.tenantId, tenantId), isNull(agents.deletedAt)))
-    .orderBy(agents.position, agents.createdAt)
-    .all();
-}
-
-/** One live Agent, or null - what editing, deleting or hiding one is checked against. */
-export function getAgent(db: AccountDb, tenantId: string, agentId: string): Agent | null {
-  return listAgents(db, tenantId).find((agent) => agent.id === agentId) ?? null;
-}
-
-/** The highest position any of this account's Agents holds, or null - deleted Agents count, the same reason the workspace list does. */
-export function lastAgentPosition(db: AccountDb, tenantId: string): number | null {
-  const row = db
-    .select({ highest: max(agents.position) })
-    .from(agents)
-    .where(eq(agents.tenantId, tenantId))
-    .get();
-  return row?.highest ?? null;
-}
-
-/**
- * Which Agents are hidden on which of one Workspace's Dashboards ("Hiding
- * and showing are per dashboard", issue 570).
- *
- * **Joined against live Dashboards only.** A hide made on a Dashboard since
- * deleted has nothing left to draw it on, and this is what makes "the
- * dashboard deleted → its hidden list goes with it" true of the read rather
- * than needing a delete of its own - see `hiddenDashboardAgents` in
- * `schema.ts`. Joined against live Agents for the same reason, on the other
- * side of the same row: a hide naming a since-deleted Agent is exactly as
- * unreadable as one naming a since-deleted Dashboard.
- */
-export function listHiddenAgents(db: AccountDb, tenantId: string, workspaceId: string): HiddenAgent[] {
-  return db
-    .select({
-      dashboardId: hiddenDashboardAgents.dashboardId,
-      agentId: hiddenDashboardAgents.agentId,
-    })
-    .from(hiddenDashboardAgents)
-    .innerJoin(
-      dashboards,
-      and(eq(dashboards.id, hiddenDashboardAgents.dashboardId), isNull(dashboards.deletedAt)),
-    )
-    .innerJoin(agents, and(eq(agents.id, hiddenDashboardAgents.agentId), isNull(agents.deletedAt)))
-    .where(and(eq(hiddenDashboardAgents.tenantId, tenantId), eq(dashboards.workspaceId, workspaceId)))
-    .all();
-}
-
-/** Whether one Workspace holds a live Claude Code connection. */
-export function hasClaudeCodeConnection(db: AccountDb, tenantId: string, workspaceId: string): boolean {
-  return (
-    db
-      .select({ id: connectorAccounts.id })
-      .from(connectorAccounts)
-      .where(
-        and(
-          eq(connectorAccounts.tenantId, tenantId),
-          eq(connectorAccounts.workspaceId, workspaceId),
-          eq(connectorAccounts.connectorId, CLAUDE_CODE),
-        ),
-      )
-      .limit(1)
-      .all().length > 0
-  );
-}
-
-/**
- * One Workspace's Claude Code connection, and why Claude last refused it
- * where it did ("Drop an agent on an item to start a Claude Code session on
- * it", issue 571) - or undefined where the Workspace holds none.
- */
-export function claudeCodeConnectionOf(
-  db: AccountDb,
-  tenantId: string,
-  workspaceId: string,
-): { id: string; failingBecause: string | null } | undefined {
-  return db
-    .select({ id: connectorAccounts.id, failingBecause: connectionFailures.reason })
-    .from(connectorAccounts)
-    .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
-    .where(
-      and(
-        eq(connectorAccounts.tenantId, tenantId),
-        eq(connectorAccounts.workspaceId, workspaceId),
-        eq(connectorAccounts.connectorId, CLAUDE_CODE),
-      ),
-    )
-    .limit(1)
-    .get();
-}
+// --- Runs: an Item sent to Claude, or one an Agent started -------------------
 
 const runColumns = {
   id: agentRuns.id,
@@ -2233,60 +2121,6 @@ export function listOpenAgentRuns(db: AccountDb, tenantId: string, workspaceId: 
     .orderBy(asc(agentRuns.startedAt), asc(agentRuns.id))
     .all()
     .map(runFrom);
-}
-
-/**
- * Every open run in one Workspace that has a session link, whatever its Item
- * - what a Claude Code hook is matched against ("See on the item when Claude
- * is waiting on you", issue 572). Few by construction: at most one per Item,
- * and only until the Item's Status ends it.
- */
-export function openRunsWithSessions(
-  db: AccountDb,
-  tenantId: string,
-  workspaceId: string,
-): { id: string; sessionUrl: string; waiting: boolean }[] {
-  return db
-    .select({ id: agentRuns.id, sessionUrl: agentRuns.sessionUrl, waiting: agentRunActivity.waiting })
-    .from(agentRuns)
-    .leftJoin(agentRunActivity, eq(agentRunActivity.runId, agentRuns.id))
-    .where(
-      and(
-        eq(agentRuns.tenantId, tenantId),
-        eq(agentRuns.workspaceId, workspaceId),
-        isNull(agentRuns.endedAt),
-        isNotNull(agentRuns.sessionUrl),
-      ),
-    )
-    // Oldest first, so which of two runs naming one session a hook finds is
-    // decided here rather than by whichever index the query is answered from.
-    .orderBy(asc(agentRuns.startedAt), asc(agentRuns.id))
-    .all()
-    .map((row) => ({ id: row.id, sessionUrl: row.sessionUrl!, waiting: row.waiting ?? false }));
-}
-
-/** When a hook last reached one Claude Code connection, or null where none ever has (issue 572). */
-export function lastHookArrival(db: AccountDb, tenantId: string, sourceAccountId: string): string | null {
-  return (
-    db
-      .select({ arrivedAt: claudeCodeHookArrivals.arrivedAt })
-      .from(claudeCodeHookArrivals)
-      .where(
-        and(
-          eq(claudeCodeHookArrivals.tenantId, tenantId),
-          eq(claudeCodeHookArrivals.sourceAccountId, sourceAccountId),
-        ),
-      )
-      .get()?.arrivedAt ?? null
-  );
-}
-
-/** Records that a hook reached one Claude Code connection just now (issue 572). */
-export function recordHookArrival(db: AccountDb, tenantId: string, sourceAccountId: string, at: string): void {
-  db.insert(claudeCodeHookArrivals)
-    .values({ sourceAccountId, tenantId, arrivedAt: at })
-    .onConflictDoUpdate({ target: claudeCodeHookArrivals.sourceAccountId, set: { arrivedAt: at } })
-    .run();
 }
 
 /** One Item's open run, or undefined - what a second start on it is checked against. */

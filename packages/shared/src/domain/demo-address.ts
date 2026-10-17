@@ -26,10 +26,8 @@ export type DemoPage = (typeof DEMO_PAGES)[number];
 /**
  * The stored link for a demo page.
  *
- * **`detail` tells two links to one page apart**: a simulated Claude Code
- * session is `session/<run id>`, so the delayed step that moves one run to
- * *waiting on you* finds that run by the id its own link ends in, the way a
- * real session's hook finds one (`hookNamesSession`).
+ * **`detail` tells two links to one page apart**: a seeded Claude session is
+ * `session/<run id>`, so each Run's link is its own.
  */
 export function demoAddress(page: DemoPage, detail?: string): string {
   return `https://${DEMO_HOST}/${page}${detail ? `/${encodeURIComponent(detail)}` : ""}`;

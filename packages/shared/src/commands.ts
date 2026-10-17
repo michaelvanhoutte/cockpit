@@ -17,12 +17,6 @@ import {
   workspaceNameSchema,
 } from './domain/item.js';
 import {
-  agentColorSchema,
-  agentMessageSchema,
-  agentNameSchema,
-  agentEngineSchema,
-} from './domain/agent.js';
-import {
   REMEMBERED_ACTION_LIMIT,
   REMEMBERED_SENTENCE_LIMIT,
   REMEMBERED_SENTENCES_SHOWN,
@@ -50,7 +44,7 @@ import {
 } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
-/** What a change to the whole account names instead of a workspace: the dock's Agents, the Item form's presentation. */
+/** What a change to the whole account names instead of a workspace: remembered sentences, the Item form's presentation. */
 export const ACCOUNT_WIDE = 'account';
 
 /**
@@ -399,56 +393,6 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 
-/** create_agent — made from the dock's own "+ New agent" ("Keep your agents in a dock, and choose which each dashboard shows", issue 570). */
-export const createAgentSchema = commandEnvelopeSchema.extend({
-  agentId: z.uuid(),
-  name: agentNameSchema,
-  color: agentColorSchema,
-  engine: agentEngineSchema,
-  message: agentMessageSchema,
-  asksForPrompt: z.boolean(),
-  startsInProgress: z.boolean(),
-});
-export type CreateAgentCommand = z.infer<typeof createAgentSchema>;
-
-/**
- * update_agent — every field the dock's own form edits, sent together: unlike
- * a name and colour edited apart, an Agent's fields are all on one form with one Save.
- */
-export const updateAgentSchema = commandEnvelopeSchema.extend({
-  agentId: z.string().min(1),
-  name: agentNameSchema,
-  color: agentColorSchema,
-  message: agentMessageSchema,
-  asksForPrompt: z.boolean(),
-  startsInProgress: z.boolean(),
-});
-export type UpdateAgentCommand = z.infer<typeof updateAgentSchema>;
-
-/** delete_agent — gone from the dock and every dashboard's hidden list with it. */
-export const deleteAgentSchema = commandEnvelopeSchema.extend({
-  agentId: z.string().min(1),
-});
-export type DeleteAgentCommand = z.infer<typeof deleteAgentSchema>;
-
-/**
- * hide_agent_on_dashboard — this Dashboard only ("Hiding and showing are per
- * dashboard", issue 570). The envelope's `workspaceId` is this Dashboard's
- * own Workspace, the same way a Panel or a Layout command's is.
- */
-export const hideAgentOnDashboardSchema = commandEnvelopeSchema.extend({
-  agentId: z.string().min(1),
-  dashboardId: z.string().min(1),
-});
-export type HideAgentOnDashboardCommand = z.infer<typeof hideAgentOnDashboardSchema>;
-
-/** show_agent_on_dashboard — undoes one hide_agent_on_dashboard. */
-export const showAgentOnDashboardSchema = commandEnvelopeSchema.extend({
-  agentId: z.string().min(1),
-  dashboardId: z.string().min(1),
-});
-export type ShowAgentOnDashboardCommand = z.infer<typeof showAgentOnDashboardSchema>;
-
 /**
  * An order names each Item once. Shared by the two commands below that carry
  * one, because it is the same rule (architecture.md §4.4, "a whole order").
@@ -527,21 +471,6 @@ export const setStartedSchema = commandEnvelopeSchema.extend({
 export type SetStartedCommand = z.infer<typeof setStartedSchema>;
 
 /**
- * begin_agent_run — a run recorded as starting, before Claude is called
- * ("Drop an agent on an item to start a Claude Code session on it", issue
- * 571). Sent by the start route alone, never posted as JSON: the call to
- * Claude that follows it is what the route exists for (see
- * `startAgentSchema`).
- */
-export const beginAgentRunSchema = commandEnvelopeSchema.extend({
-  runId: z.uuid(),
-  itemId: z.uuid(),
-  agentId: z.string().min(1),
-  dashboardId: z.string().min(1),
-});
-export type BeginAgentRunCommand = z.infer<typeof beginAgentRunSchema>;
-
-/**
  * send_item_to_claude — an Item sent to Cowork or Claude Code from its row,
  * recorded as a Run that is *Sent* just before the browser opens the
  * `claude://` address ("Send an item to Cowork or Claude Code with its prompt
@@ -594,25 +523,6 @@ export const reportClaudeRunSchema = commandEnvelopeSchema.extend({
 export type ReportClaudeRunCommand = z.infer<typeof reportClaudeRunSchema>;
 
 /**
- * settle_agent_run — how Claude answered a run's start (issue 571). Sent by
- * the start route once Claude has answered or failed to, never by a client.
- *
- * `connectionFailing` is the refusal's reason where Claude refused the
- * connection itself, which the dock and the connection's own row then say
- * until a start works; a refusal that says nothing about the connection - a
- * fault at Claude's end - leaves it untouched.
- */
-export const settleAgentRunSchema = commandEnvelopeSchema.extend({
-  runId: z.uuid(),
-  itemId: z.uuid(),
-  status: z.enum(['working', 'link_lost', 'unknown', 'failed']),
-  sessionUrl: z.url({ protocol: /^https?$/ }).max(2048).optional(),
-  reason: z.string().max(500).optional(),
-  connectionFailing: z.boolean().optional(),
-});
-export type SettleAgentRunCommand = z.infer<typeof settleAgentRunSchema>;
-
-/**
  * finish_agent_run — "Agent finished: Done" or "Agent finished: Still to do"
  * (issue 571). Ends the run, and settles the Item the way marking it done or
  * putting it back to To do would. No longer sent by the app, whose Status ends
@@ -625,19 +535,6 @@ export const finishAgentRunSchema = commandEnvelopeSchema.extend({
   outcome: z.enum(['done', 'still_to_do']),
 });
 export type FinishAgentRunCommand = z.infer<typeof finishAgentRunSchema>;
-
-/**
- * report_agent_run_activity — a Claude Code hook saying its session stopped
- * for you (`waiting`) or took a prompt again ("See on the item when Claude is
- * waiting on you", issue 572). Sent by the hook route alone, once the call's
- * secret has been checked; moves the Workspace's open run whose session one
- * of `sessionIds` names, and nothing where none does.
- */
-export const reportAgentRunActivitySchema = commandEnvelopeSchema.extend({
-  sessionIds: z.array(z.string().min(1).max(200)).min(1).max(2),
-  waiting: z.boolean(),
-});
-export type ReportAgentRunActivityCommand = z.infer<typeof reportAgentRunActivitySchema>;
 
 export const associateSchema = commandEnvelopeSchema.extend({
   associationId: z.uuid(),
@@ -911,19 +808,6 @@ export const setConnectionFilesByNameSchema = commandEnvelopeSchema.extend({
 export type SetConnectionFilesByNameCommand = z.infer<typeof setConnectionFilesByNameSchema>;
 
 /**
- * mark_source_account_tested - a connection proven to still work without
- * changing what it holds ("Connect a workspace to Claude Code", issue 569,
- * "Test again"). Written by the test route once Claude has actually accepted
- * a session, never posted as JSON by a client: the credential that call was
- * made with is never handed back to the browser to prove first (rule 3,
- * "the token never leaves the server once stored").
- */
-export const markSourceAccountTestedSchema = commandEnvelopeSchema.extend({
-  sourceAccountId: z.string().min(1),
-});
-export type MarkSourceAccountTestedCommand = z.infer<typeof markSourceAccountTestedSchema>;
-
-/**
  * set_duplicate_settled — a flagged pair settled as not a duplicate, or that
  * settling taken back ("Say a flagged pair is not a duplicate", issue 408;
  * `docs/routing-learning.md`, "Cockpit may replace what it proposed and never
@@ -1009,22 +893,14 @@ export const commandSchemas = {
   set_panel_sort: setPanelSortSchema,
   save_layout: saveLayoutSchema,
   capture_item: captureItemSchema,
-  create_agent: createAgentSchema,
-  update_agent: updateAgentSchema,
-  delete_agent: deleteAgentSchema,
-  hide_agent_on_dashboard: hideAgentOnDashboardSchema,
-  show_agent_on_dashboard: showAgentOnDashboardSchema,
   move_item_to_panel: moveItemToPanelSchema,
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,
   set_done: setDoneSchema,
   set_started: setStartedSchema,
-  begin_agent_run: beginAgentRunSchema,
   send_item_to_claude: sendItemToClaudeSchema,
   report_claude_run: reportClaudeRunSchema,
-  settle_agent_run: settleAgentRunSchema,
   finish_agent_run: finishAgentRunSchema,
-  report_agent_run_activity: reportAgentRunActivitySchema,
   set_dismissed: setDismissedSchema,
   associate: associateSchema,
   set_next_action: setNextActionSchema,
@@ -1043,7 +919,6 @@ export const commandSchemas = {
   disconnect_source_account: disconnectSourceAccountSchema,
   set_connection_choice: setConnectionChoiceSchema,
   set_connection_files_by_name: setConnectionFilesByNameSchema,
-  mark_source_account_tested: markSourceAccountTestedSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
   remember_sentence: rememberSentenceSchema,
   edit_remembered_sentence: editRememberedSentenceSchema,
@@ -1067,19 +942,8 @@ export type SelfSentCommandName =
   // than a request a page makes - and which carries a sealed credential no
   // browser may ever hand over (see `connectSourceAccountSchema` above).
   | 'connect_source_account'
-  // Sent by the Claude Code connect/test routes once Claude has actually
-  // answered, never posted as JSON directly (see `markSourceAccountTestedSchema`
-  // above).
-  | 'mark_source_account_tested'
-  // Sent by the route that starts an agent, around its one call to Claude
-  // (see `beginAgentRunSchema` above).
-  | 'begin_agent_run'
-  | 'settle_agent_run'
   // Sent by the `report_run` MCP tool (see `reportClaudeRunSchema` above).
-  | 'report_claude_run'
-  // Sent by the Claude Code hook route once the call's secret is checked (see
-  // `reportAgentRunActivitySchema` above).
-  | 'report_agent_run_activity';
+  | 'report_claude_run';
 
 /**
  * The commands a client sends, which is every command with a generic JSON

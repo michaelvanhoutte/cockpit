@@ -11,7 +11,7 @@ import type {
   Workspace,
   RememberedSentenceView,
 } from '@cockpit/shared';
-import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
+import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
@@ -284,41 +284,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
     sourceAccountId: string,
   ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>>;
-  /**
-   * The sealed credential of one Claude Code connection this Workspace holds,
-   * for the test route about to fire it (issue 569) - `missing` where the row
-   * is not there, is not this Workspace's, or is not Claude Code's.
-   */
-  claudeCodeCredential(
-    accountName: string,
-    workspaceId: string,
-    sourceAccountId: string,
-  ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string }>>;
-  /** What a run just recorded as starting is fired with (issue 571) - `missing` where the run is not this Workspace's. */
-  agentRunToFire(
-    accountName: string,
-    workspaceId: string,
-    runId: string,
-  ): Awaitable<Answer<AgentRunToFire>>;
-  /** A Claude Code hook reaching one of this Workspace's connections (issue 572) - `missing` where it is not one. */
-  claudeCodeHookArrived(
-    accountName: string,
-    workspaceId: string,
-    sourceAccountId: string,
-    at: string,
-  ): Awaitable<Answer<'admitted' | 'too-many'>>;
   /** An app connected to this account calling `create_item` ("Connect Claude to Cockpit, and capture an item from it", issue 599) - admitted, or one of too many from that grant. */
   appCaptureArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many'>;
   /** A recording sent to be transcribed ("Hold each account to 20 transcriptions a minute", issue 1043) - admitted, or one of too many from this account. */
   transcriptionArrived(at: string): Awaitable<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
   sentenceCallArrived(kind: 'offer' | 'remember', at: string): Awaitable<'admitted' | 'too-many'>;
-  /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
-  claudeCodeHookArrival(
-    accountName: string,
-    workspaceId: string,
-    sourceAccountId: string,
-  ): Awaitable<Answer<{ lastArrivedAt: string | null }>>;
   /** One connection's history, newest line first (issue 1140). */
   connectionHistory(
     accountName: string,

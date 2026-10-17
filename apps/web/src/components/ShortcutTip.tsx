@@ -1,4 +1,3 @@
-import { AGENT_DOCK_KEY } from '../agentDockHidden';
 import { CAPTURE_KEY } from '../captureShortcut';
 import { INBOX_KEY } from '../inboxCollapsed';
 import { PANEL_LIST_KEY } from '../panelList';
@@ -10,7 +9,6 @@ export const TIPS: Record<TipControl, string> = {
   capture: `Tip: press ${CAPTURE_KEY.toUpperCase()} to capture from anywhere`,
   inbox: `Tip: press ${INBOX_KEY.toUpperCase()} to collapse or open the Inbox`,
   panels: `Tip: press ${PANEL_LIST_KEY.toUpperCase()} to go to a Panel`,
-  dock: `Tip: press ${AGENT_DOCK_KEY.toUpperCase()} to hide or show the agents’ dock`,
 };
 
 /**

@@ -8,7 +8,7 @@ How Cockpit looks, as against what it does (`docs/product/`). Everything here is
 
 ## The fixed palette
 
-The page, the top bar, the agents' dock and every list's well are the same in every Workspace. Only the dashboard band, the accent and the logo's dot follow one (below), which is what lets a Workspace's colour be chosen freely without touching legibility anywhere else.
+The page, the top bar and every list's well are the same in every Workspace. Only the dashboard band, the accent and the logo's dot follow one (below), which is what lets a Workspace's colour be chosen freely without touching legibility anywhere else.
 
 - **Ink** — the Conselit brand's: `ink-strong` `#16181d` (headings), `ink` `#3a3f4b` (body), `ink-soft`, `ink-faint`, on the neutral surfaces. `shade`, the same `#16181d`, is what hairlines, dimming and shadows are at low alpha; nothing is black.
 - **Neutral surfaces** — `surface`, and `ground`: the page is warm grey `#f3f3f1` inside a Workspace (stored with it), and `ground` `#f4f4f2` where no Workspace paints it, such as the logon page.
@@ -42,7 +42,7 @@ A Workspace is never assigned colours outside this table: a stored set that is n
 
 ## Chrome
 
-- **Top bar and agents' dock** — one soft graphite gradient, `#2d2e35` at the top to `#16181d`, in every Workspace. The agents sit in a recessed tray in the dock, each tile with a 10px round dot in its colour. A hide control (▼) leads the dock; while the dock is hidden, a strip as tall as a button (▲ Agents) stays in the same spot at the bottom edge and opens it again. A row that takes an Agent being dragged wears a faint `accent-tint`; the one under the pointer wears a full `accent-tint` and a solid 2px `accent` outline inset on the row.
+- **Top bar** — one soft graphite gradient, `#2d2e35` at the top to `#16181d`, in every Workspace.
 - **Dashboard band** — the Workspace's `bar`. The selected Workspace tab is filled with it and runs down into it; unselected dashboard tabs are near-white; the selected one is filled with the page. The Inbox's heading is a rounded tab in the page's colour with a strip of band above it.
 - **Logo** — four rounded squares in a two-by-two grid, the fourth in the Workspace's tint and the other three in `chrome-ink` (`components/Logo.tsx`), beside the name and gone with it below `sm`. The favicon and installed-app icon are the same mark on a graphite tile with the default violet fourth square. A C is Conselit's own mark and is never drawn.
 - **Credit** — "© 2026 Conselit · conselit.be" (the years run to the current one), linking www.conselit.be in a new tab: faint under the logon page's card, and the last profile-menu entry below a divider.
@@ -66,7 +66,7 @@ On an Item's phone page the fields are one wrapping row of pill chips, 36px tall
 
 ## The dark appearance
 
-The whole app, logon page included, when the device is set to dark or the choice stored on this device (`cockpit.appearance`: `light` or `dark`, absent for Match device) says so. **Dimmed, not inverted**, like the Car view's night: a near-black page, grey ink, each surface one notch lighter, the wells sunk below the page. The top bar and the agents' dock are graphite already and unchanged. The same names take a second set of values under `html[data-app-dark]` in `styles.css`; **a new colour is light until it is given a value there**. Every text below is at least 4.5:1 on what it is drawn on, held by `workspace-themes.test.ts` (the accent) and `appearanceTokens.test.ts` (the rest).
+The whole app, logon page included, when the device is set to dark or the choice stored on this device (`cockpit.appearance`: `light` or `dark`, absent for Match device) says so. **Dimmed, not inverted**, like the Car view's night: a near-black page, grey ink, each surface one notch lighter, the wells sunk below the page. The top bar is graphite already and unchanged. The same names take a second set of values under `html[data-app-dark]` in `styles.css`; **a new colour is light until it is given a value there**. Every text below is at least 4.5:1 on what it is drawn on, held by `workspace-themes.test.ts` (the accent) and `appearanceTokens.test.ts` (the rest).
 
 | Name | Dark value |
 |---|---|
@@ -76,7 +76,7 @@ The whole app, logon page included, when the device is set to dark or the choice
 | wells | the page mixed towards black: 72% for a list (`well`), 82% for the Inbox (`well-inbox`), the edge a faint white ring in place of the dark one |
 | `ink-strong`, `ink`, `ink-soft`, `ink-faint` | `#e4e5ea`, `#c2c5cd`, `#9a9eaa`, `#8a8e9a` |
 | `shade` (hairlines, hover fills) | `#e4e5ea`, used at low alpha as in light |
-| `scrim` (behind a dialog, and the dock's well) | black, where light is `#16181d`; `bg-shade` is never a scrim |
+| `scrim` (behind a dialog) | black, where light is `#16181d`; `bg-shade` is never a scrim |
 | `toast` (undo bar, shortcut tip, white written on it) | `#34363e`, where light is `#3a3f4b` |
 | `over-ink`, `over-deep-ink` (an error as text; a failed chip) | both `#e0867f`; `over` and `over-deep` are unchanged from light, being fills under white |
 | `due-soft`, `due-ink` | `#4a3519`, `#e8c08a`; `due` and `due-deep` unchanged |

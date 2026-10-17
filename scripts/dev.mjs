@@ -193,13 +193,6 @@ if (running.api) {
         'MS_BOT_APP_ID:cockpit-local-bot',
         '--var',
         `BOT_FRAMEWORK_METADATA_URL:${issuer.origin}/botframework/.well-known/openidconfiguration`,
-        // Claude Code routines are fired at the issuer's stand-in rather than
-        // at Anthropic, so starting an agent on an item is drivable here
-        // without a real routine (scripts/lib/stub-issuer.mjs). Connect Claude
-        // Code with `<issuer>/v1/claude_code/routines/trig_local/fire` and any
-        // token; `refused` is answered as a revoked one.
-        '--var',
-        `CLAUDE_CODE_ROUTINES_ORIGIN:${issuer.origin}`,
         // Gmail's API is the issuer's stand-in mailbox ("Bring in the
         // conversations already labelled Cockpit as tasks", issue 725): three
         // conversations labelled Cockpit for any address, and no such label for

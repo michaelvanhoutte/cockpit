@@ -12,7 +12,7 @@ const ManageAppearance = lazy(() => import('./ManageAppearance'));
 const ManageRememberedSentences = lazy(() => import('./ManageRememberedSentences'));
 
 /** The sections of Settings, in the order they are listed. */
-export type SettingsKey = 'connections' | 'agents' | 'mcp' | 'remembered' | 'appearance';
+export type SettingsKey = 'connections' | 'mcp' | 'remembered' | 'appearance';
 
 /** How a trip out to Microsoft or Google ended, and the workspace it was made from. */
 export interface ConnectOutcomeFor {
@@ -23,10 +23,12 @@ export interface ConnectOutcomeFor {
 }
 
 /**
- * Settings: the account's Gmail and Teams connections, the Claude Code
- * connection, the MCP apps and the sentences Cockpit remembers, each the content of the window it used to have
- * ("Open Settings from the profile menu, with connections, agent
- * settings and MCP as its sections", issue 693).
+ * Settings: the account's Gmail and Teams connections, the MCP apps and the
+ * sentences Cockpit remembers, each the content of the window it used to have
+ * ("Open Settings from the profile menu, with connections, agent settings and
+ * MCP as its sections", issue 693). *Agent settings* went with the routines
+ * ("Retire the agents' dock and routines, keeping what each agent knew", issue
+ * 1165), leaving MCP as the only setup Claude needs.
  */
 export default function SettingsWindow({
   on,
@@ -40,7 +42,7 @@ export default function SettingsWindow({
 }: {
   /** The section it opens on. */
   on: SettingsKey;
-  /** The open workspace, which the pickers of Connections and Agent settings start on. */
+  /** The open workspace, which the picker of Connections starts on. */
   startsIn: string | undefined;
   /** How the last connect attempt went, where Settings has been reopened by one. */
   outcome?: ConnectOutcomeFor | undefined;
@@ -64,12 +66,7 @@ export default function SettingsWindow({
         {
           key: 'connections',
           label: 'Connections',
-          content: <ConnectionsOf section="sources" startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
-        },
-        {
-          key: 'agents',
-          label: 'Agent settings',
-          content: <ConnectionsOf section="agents" startsIn={startsIn} guest={guest} onClose={onClose} />,
+          content: <ConnectionsOf startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
         },
         { key: 'mcp', label: 'MCP', content: <ManageConnectedApps open onClose={onClose} /> },
         { key: 'remembered', label: 'What Cockpit remembers', content: <ManageRememberedSentences focus={sentenceId} /> },
@@ -80,19 +77,17 @@ export default function SettingsWindow({
 }
 
 /**
- * The kinds of connection one section holds, for one workspace at a time: a
- * connection belongs to the workspace that made it, so the section asks which,
+ * The connections, for one workspace at a time: a connection belongs to the
+ * workspace that made it, so the section asks which,
  * starting on the one that is open. The picker is there even for an account with one workspace, so
  * it always says whose connections these are.
  */
 function ConnectionsOf({
-  section,
   startsIn,
   outcome,
   guest,
   onClose,
 }: {
-  section: 'sources' | 'agents';
   guest?: boolean | undefined;
   startsIn: string | undefined;
   outcome?: ConnectOutcomeFor | undefined;
@@ -108,7 +103,6 @@ function ConnectionsOf({
       // Remounted per workspace, so one's half-answered question is not still
       // open over the next.
       key={chosen.id}
-      section={section}
       guest={guest}
       workspaceId={chosen.id}
       workspaceName={chosen.name}

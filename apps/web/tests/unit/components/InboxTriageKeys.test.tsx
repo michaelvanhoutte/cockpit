@@ -70,11 +70,7 @@ function snapshot(): WorkspaceSnapshot {
     itemFormPresentation: 'centered',
     duplicates: [],
     filings: held.filings,
-    agents: [],
-    hiddenAgents: [],
-    hasClaudeCodeConnection: false,
     agentRuns: [],
-    claudeCodeFailing: null,
     generatedAt: '2026-08-31T09:00:00.000Z',
   } as WorkspaceSnapshot;
 }

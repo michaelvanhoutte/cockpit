@@ -75,7 +75,6 @@ export type EnrichmentJob =
   | CleanUpJob
   | ReproposePanelsJob
   | ReadWhatItMeansJob
-  | SimulatedRunWaitsJob
   | GuestArrivalJob
   | CheckPulledConnectionJob
   | ProposeForClaudeJob;
@@ -177,20 +176,6 @@ export interface ReadWhatItMeansJob {
 }
 
 /**
- * Moves a simulated run in the guest account to *waiting on you*, a while
- * after it was started ("Show agents at work in the guest demo, with simulated
- * runs", issue 774) - `jobs/simulated-run.ts`, which also says why it is on
- * this queue. The run is named by its id, which its own demo session address
- * ends in.
- */
-export interface SimulatedRunWaitsJob {
-  kind: 'simulated-run-waits';
-  accountName: string;
-  workspaceId: string;
-  runId: string;
-}
-
-/**
  * Drops one Gmail mail or Teams message into the guest's Inbox, a while after a
  * guest signed in ("Drop a mail and a Teams message into the guest's Inbox
  * after each sign-in", issue 775) - `jobs/guest-arrival.ts`. The ids are the
@@ -247,12 +232,6 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     // packages/shared), and this is carried straight from there.
     workspaceId: z.string().min(1),
     ask: refreshAskSchema.optional(),
-  }),
-  z.object({
-    kind: z.literal('simulated-run-waits'),
-    accountName: z.string().min(1),
-    workspaceId: z.string().min(1),
-    runId: z.string().min(1),
   }),
   z.object({
     kind: z.literal('guest-arrival'),

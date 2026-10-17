@@ -269,11 +269,6 @@ const api = start(
     'MS_BOT_APP_ID:cockpit-e2e-bot',
     '--var',
     `BOT_FRAMEWORK_METADATA_URL:${issuer.origin}/botframework/.well-known/openidconfiguration`,
-    // Starting an agent fires the issuer's stand-in routine, never
-    // Anthropic's (scripts/lib/stub-issuer.mjs): no walk may start a real
-    // session.
-    '--var',
-    `CLAUDE_CODE_ROUTINES_ORIGIN:${issuer.origin}`,
     // Gmail's API is the issuer's stand-in mailbox, never Google's (issue 725).
     '--var',
     `GMAIL_API_ORIGIN:${issuer.origin}`,

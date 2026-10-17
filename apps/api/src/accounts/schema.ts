@@ -745,8 +745,9 @@ export const itemTypes = sqliteTable(
 );
 
 /**
- * A named instruction for Claude, kept in the dock ("Keep your agents in a
- * dock, and choose which each dashboard shows", issue 570). Account-wide, the
+ * A named instruction for Claude, once kept in the dock ("Keep your agents in a
+ * dock, and choose which each dashboard shows", issue 570), and kept as a row
+ * since the dock was retired (issue 1165) because the Runs it started name it. Account-wide, the
  * same scope `itemTypes` above has and for the same reason: which Agents you
  * have is not a fact about any one Workspace.
  *
@@ -769,6 +770,19 @@ export const agents = sqliteTable(
     position: integer('position').notNull().default(0),
     createdAt: text('created_at').notNull(),
     deletedAt: text('deleted_at'),
+    /**
+     * When the Agent was retired ("Retire the agents' dock and routines,
+     * keeping what each agent knew", issue 1165) - turned into a remembered
+     * sentence, or passed over and logged. Null until then, which is what the
+     * retirement looks for, so it converts each Agent once.
+     */
+    retiredAt: text('retired_at'),
+    /**
+     * What it became: `sentence`, or why it became none (`deleted`, `empty`,
+     * `unknown-placeholder`, `too-long`, `points-somewhere`, `full`). Read by
+     * nothing; kept so a person can ask where an Agent went.
+     */
+    retiredAs: text('retired_as'),
   },
   (t) => [
     uniqueIndex('agents_tenant_live_folded_name')
@@ -779,6 +793,7 @@ export const agents = sqliteTable(
     check('agents_position_is_an_order', sql.raw('position >= 0')),
     check('agents_created_at_is_timestamp', isTimestamp('created_at')),
     check('agents_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+    check('agents_retired_at_is_timestamp', isTimestamp('retired_at')),
   ],
 );
 
@@ -1941,10 +1956,20 @@ export const rememberedSentences = sqliteTable(
     useCount: integer('use_count').notNull().default(0),
     lastUsedAt: text('last_used_at'),
     createdAt: text('created_at').notNull(),
+    /**
+     * The Agent this sentence was turned from when Agents were retired (issue
+     * 1165), or null for one remembered from an edit. At most one sentence per
+     * Agent, which is what makes converting one twice impossible however the
+     * retirement was interrupted.
+     */
+    agentId: text('agent_id'),
   },
   (t) => [
     // What a proposal reads: the account's sentences for one kind of source.
     index('remembered_sentences_tenant_source').on(t.tenantId, t.sourceKind),
+    uniqueIndex('remembered_sentences_one_per_agent')
+      .on(t.agentId)
+      .where(sql`${t.agentId} IS NOT NULL`),
     check('remembered_sentences_use_count_is_not_negative', sql`use_count >= 0`),
     check('remembered_sentences_created_at_is_timestamp', isTimestamp('created_at')),
     check('remembered_sentences_last_used_at_is_timestamp', isTimestamp('last_used_at')),

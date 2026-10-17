@@ -7,7 +7,7 @@ import type { GatedEnv } from './gate.js';
  * guest account", issue 772).
  *
  * **The guest account is shared by every stranger who presses "Continue as
- * guest"**, so a mailbox or routine connected from it would be sitting in
+ * guest"**, so a mailbox connected from it would be sitting in
  * front of all of them - the reason MCP consent refuses the guest too
  * (`mcp/grant.ts`). The sentence the page shows is a courtesy; this is the
  * guarantee, a refusal at the route before anything is read or stored.
@@ -22,7 +22,7 @@ export function isConnectionChange(path: string): boolean {
   return (
     /^\/v1\/workspaces\/[^/]+\/connections\//.test(path) ||
     /^\/v1\/connections\//.test(path) ||
-    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|set_connection_choice|set_connection_files_by_name|mark_source_account_tested)$/.test(
+    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|set_connection_choice|set_connection_files_by_name)$/.test(
       path,
     )
   );

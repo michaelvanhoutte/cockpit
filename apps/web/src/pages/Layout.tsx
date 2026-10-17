@@ -10,11 +10,8 @@ import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
 // Out of the initial bundle - the same boundary `ManageConnections` draws
-// around itself in WorkspaceTabs.tsx - since the dock is not what the shell
-// has to paint first.
-const AgentDock = lazy(() => import('../components/AgentDock'));
-// And the Panel list column; its published store (panelList.ts) stays in the
-// bundle, since the board feeds it.
+// around itself in WorkspaceTabs.tsx - the Panel list column; its published
+// store (panelList.ts) stays in the bundle, since the board feeds it.
 const PanelList = lazy(() => import('../components/PanelList'));
 // Out of the initial bundle too: Settings and Platform settings, and what they
 // hold, are fetched when first opened, and each section when it is first shown
@@ -51,7 +48,6 @@ import {
   togglesTheInbox,
   writeInboxCollapsed,
 } from '../inboxCollapsed';
-import { readAgentDockHidden, togglesTheAgentDock, writeAgentDockHidden } from '../agentDockHidden';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useLanding } from '../landOnItem';
 import { usePanelListCollapsed, usePanelListing } from '../panelList';
@@ -246,60 +242,6 @@ function TheShell() {
   const [panelListCollapsed, collapsePanelList] = usePanelListCollapsed(browserStore());
   const published = usePanelListing();
   const panelListing = published?.dashboardId === params.dashboardId ? published : null;
-
-  /**
-   * Whether the agents' dock is hidden ("Keep your agents in a dock, and
-   * choose which each dashboard shows", issue 570) - the same shape
-   * `inboxCollapsed` above carries, and for the same reason.
-   */
-  const [agentDockHidden, setAgentDockHidden] = useState(() => readAgentDockHidden(browserStore()));
-  const hideAgentDock = useCallback((hidden: boolean) => {
-    setAgentDockHidden(hidden);
-    writeAgentDockHidden(browserStore(), hidden);
-  }, []);
-  const agentDockHiddenRef = useRef(agentDockHidden);
-  agentDockHiddenRef.current = agentDockHidden;
-  // Where the focus goes when the dock's own control or strip is pressed: the
-  // pressed element unmounts, and focus would otherwise fall to the page.
-  const dockFocusNext = useRef<'strip' | 'dock' | null>(null);
-  const dockStrip = useRef<HTMLButtonElement>(null);
-  const dockStripShown = Boolean(
-    params.workspaceId && params.dashboardId && roomForTheInbox && agentDockHidden,
-  );
-  useEffect(() => {
-    if (!dockStripShown || !dockStrip.current) return;
-    if (dockFocusNext.current === 'strip') dockStrip.current.focus();
-    // The dock publishes `--dock-h` so the undo offer clears it; the strip
-    // stands in the same spot and must clear it too.
-    const root = document.documentElement;
-    root.style.setProperty('--dock-h', `${dockStrip.current.offsetHeight}px`);
-    return () => {
-      root.style.removeProperty('--dock-h');
-    };
-  }, [dockStripShown]);
-  useEffect(() => {
-    if (!roomForTheInbox || !inWorkspace) return;
-    const onKey = (event: KeyboardEvent) => {
-      const toggles = togglesTheAgentDock(
-        {
-          key: event.key,
-          ctrlKey: event.ctrlKey,
-          altKey: event.altKey,
-          metaKey: event.metaKey,
-          repeat: event.repeat,
-          defaultPrevented: event.defaultPrevented,
-          typing: isTypedInto(event.target),
-        },
-        somethingIsOpenOverThePage(),
-      );
-      if (toggles) {
-        dockFocusNext.current = null;
-        hideAgentDock(!agentDockHiddenRef.current);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [roomForTheInbox, inWorkspace, hideAgentDock]);
 
   /**
    * How wide the Inbox column is drawn - the chosen preference, and the drag
@@ -1204,56 +1146,8 @@ function TheShell() {
         )}
       </main>
 
-      {/* The dock: every Agent, reachable from whichever Dashboard is open
-          ("Keep your agents in a dock, and choose which each dashboard
-          shows", issue 570). Needs an actual Dashboard open, not merely a
-          Workspace, since hiding one is scoped to it; hidden on a phone,
-          where there is no drag, the same room `roomForTheInbox` answers for
-          the Inbox column - a desk-sized screen either way. */}
-      {dockStripShown && (
-        // A hidden dock leaves a strip where its hide control was, which
-        // brings it back: nothing else on screen does.
-        <button
-          type="button"
-          ref={dockStrip}
-          onClick={() => {
-            dockFocusNext.current = 'dock';
-            hideAgentDock(false);
-          }}
-          aria-label="Show the agents’ dock"
-          data-shortcut-tip="dock"
-          title="Show the agents’ dock (A)"
-          className="graphite flex shrink-0 items-center gap-2 py-2 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint hover:text-chrome-ink"
-          style={{ paddingInline: 'calc(0.75rem + var(--edge-left)) 1rem' }}
-        >
-          ▲ Agents
-        </button>
-      )}
-      {params.workspaceId && params.dashboardId && roomForTheInbox && !agentDockHidden && (
-        // No fallback: a beat of nothing where the dock will be costs less
-        // than a placeholder shaped like it, the same call `ManageConnections`
-        // makes for its own chunk.
-        <Suspense fallback={null}>
-          <AgentDock
-            onHide={() => {
-              dockFocusNext.current = 'strip';
-              hideAgentDock(true);
-            }}
-            focusHideControl={dockFocusNext.current === 'dock'}
-            onAgentSettings={() => openSettings('agents')}
-            workspaceId={params.workspaceId}
-            dashboardId={params.dashboardId}
-            agents={workspace.data?.agents ?? []}
-            hiddenAgents={workspace.data?.hiddenAgents ?? []}
-            hasClaudeCodeConnection={workspace.data?.hasClaudeCodeConnection ?? false}
-            agentRuns={workspace.data?.agentRuns ?? []}
-            claudeCodeFailing={workspace.data?.claudeCodeFailing ?? null}
-          />
-        </Suspense>
-      )}
-
-      {/* Settings - the account's connections, agent settings and MCP
-          apps - over the workspace rather than instead of it. Here rather than
+      {/* Settings - the account's connections, MCP apps and what Cockpit
+          remembers - over the workspace rather than instead of it. Here rather than
           in a page, because there is no page: the shell is the one thing that
           is always drawn inside a workspace. Drawn only while open, so its code
           is fetched when it is first asked for. */}

@@ -2,11 +2,9 @@ import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, 
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  agentsShownOnDashboard,
   itemLabel,
   uuidv7,
   workspaceIsDecided,
-  type Agent,
   type Item,
   type PanelFit,
 } from '@cockpit/shared';
@@ -15,7 +13,6 @@ import {
   useCommand,
   useLatestSnapshot,
   useSendCommand,
-  useStartAgent,
   workspacesQuery,
 } from '../api/queries';
 import { CommandRefused } from '../api/client';
@@ -196,28 +193,11 @@ export function ItemList({
       ),
     [data?.items, data?.filings, data?.panels, data?.dashboards, data?.agentRuns, today],
   );
-  /**
-   * The Agents a row here can be started with ("Drop an agent on an item to
-   * start a Claude Code session on it", issue 571): the ones the open
-   * Dashboard shows, and none without a Claude Code connection to start them
-   * through. Null in the Inbox, whose rows take no Agent at all.
-   */
-  const offeredAgents = useMemo(() => {
-    if (panelId === null || openDashboardId === null) return null;
-    if (!data?.hasClaudeCodeConnection) return [];
-    return agentsShownOnDashboard({
-      agents: data.agents,
-      hiddenAgentIds: data.hiddenAgents
-        .filter((hidden) => hidden.dashboardId === openDashboardId)
-        .map((hidden) => hidden.agentId),
-    });
-  }, [panelId, openDashboardId, data?.hasClaudeCodeConnection, data?.agents, data?.hiddenAgents]);
   /** Each Item's open run, looked up once for the list rather than searched per row. */
   const runsByItem = useMemo(
     () => new Map((data?.agentRuns ?? []).map((run) => [run.itemId, run])),
     [data?.agentRuns],
   );
-  const startAgent = useStartAgent(workspaceId);
   const command = useCommand();
   const send = useSendCommand();
   const latestSnapshot = useLatestSnapshot();
@@ -913,28 +893,6 @@ export function ItemList({
             // Item ceasing to match, or leaving the panel it
             // really is filed on.
             ...(gathered ? {} : { onRemoveFromHere: () => removeFromHere(item, panelId) }),
-            ...(offeredAgents && openDashboardId
-              ? {
-                  agentsHere: {
-                    offered: offeredAgents,
-                    run: runsByItem.get(item.id),
-                    start: (agent: Agent,prompt?: string) =>
-                      startAgent
-                        .mutateAsync({
-                          itemId: item.id,
-                          start: {
-                            commandId: uuidv7(),
-                            issuedAt: new Date().toISOString(),
-                            runId: uuidv7(),
-                            agentId: agent.id,
-                            dashboardId: openDashboardId,
-                            ...(prompt ? { prompt } : {}),
-                          },
-                        })
-                        .then(() => undefined),
-                  },
-                }
-              : {}),
           }
         : {
             // A proposal is only ever drawn in the Inbox: it is what a

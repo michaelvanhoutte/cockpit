@@ -95,8 +95,8 @@ export function useServerEvents() {
         // than reasoned about.
         void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
         // A change to the whole account names the account rather than a
-        // workspace, and every snapshot draws what it changed (the dock's
-        // Agents, the Item form's presentation), so every snapshot goes stale.
+        // workspace, and every snapshot draws what it changed (the Item
+        // form's presentation), so every snapshot goes stale.
         if (parsed.data.workspaceId === ACCOUNT_WIDE) {
           void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
         }

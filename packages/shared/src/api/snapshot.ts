@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { agentSchema, hiddenAgentSchema } from '../domain/agent.js';
 import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
@@ -67,16 +66,13 @@ export const workspaceSnapshotSchema = z.object({
    * before this field existed is an app with nothing flagged, not a broken one.
    */
   duplicates: z.array(possibleDuplicateSchema).default([]),
-  /** Every live Agent of the account, in dock order ("Keep your agents in a dock, and choose which each dashboard shows", issue 570). Account-wide. */
-  agents: z.array(agentSchema).default([]),
-  /** Which Agents are hidden on which of this Workspace's Dashboards (issue 570). */
-  hiddenAgents: z.array(hiddenAgentSchema).default([]),
-  /** Whether this Workspace has a live Claude Code connection (issue 570). */
-  hasClaudeCodeConnection: z.boolean().default(false),
-  /** Every open run on this Workspace's Items ("Drop an agent on an item to start a Claude Code session on it", issue 571) - at most one per Item. */
+  /**
+   * Every open run on this Workspace's Items - at most one per Item: an Item
+   * sent to Claude, or one an Agent started before Agents were retired
+   * ("Retire the agents' dock and routines, keeping what each agent knew",
+   * issue 1165).
+   */
   agentRuns: z.array(agentRunSchema).default([]),
-  /** Why Claude last refused this Workspace's Claude Code connection, until a start works again (issue 571); null while it is not failing. */
-  claudeCodeFailing: z.string().nullable().default(null),
   /**
    * What each source is called on screen, by its connector id ("Take source
    * names out of the shared contract", issue 927): every connector

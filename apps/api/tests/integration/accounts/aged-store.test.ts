@@ -448,6 +448,17 @@ const rowsFor: {
     params: (name) => [name, AT, AT],
   },
   {
+    // The table `0044-agents` creates ("Keep your agents in a dock, and choose
+    // which each dashboard shows", issue 570): the one Agent production holds,
+    // so every update after it meets an Agent, and the retirement that follows
+    // the last ("Retire the agents' dock and routines, keeping what each agent
+    // knew", issue 1165) meets one at every point the run starts from.
+    table: 'agents',
+    sql: `INSERT INTO agents (id, tenant_id, name, folded_name, color, engine, message, asks_for_prompt, starts_in_progress, position, created_at)
+          VALUES ('ag-before', ?, 'Scope in Cockpit', 'scope in cockpit', '#6f62b5', 'claude-code', '/scoping {title}: {description}', 0, 0, 0, ?)`,
+    params: (name) => [name, AT],
+  },
+  {
     // The table `0034-rewrite-history` creates, filled for the reason every
     // table above is - and so that `0051-rewrite-history-looks-at` and
     // `0052-rewrite-history-panel-before` meet a refinement recorded before
@@ -2428,6 +2439,214 @@ describe('Agents', () => {
       });
 
       expect(await runsIn(name)).toEqual(once);
+    });
+  });
+});
+
+describe('Agents', () => {
+  /**
+   * The retirement after `0087-agents-remembered` ("Retire the agents' dock
+   * and routines, keeping what each agent knew", issue 1165), through the
+   * store's own upgrade: opening an account aged to just before it, holding
+   * `ag-before` ("Scope in Cockpit") from `rowsFor` and a Claude Code routine
+   * connection beside its Teams and Gmail ones. Integration because what it
+   * converts and forgets are rows written before it existed, which no request
+   * can arrange now. What a template becomes is
+   * tests/unit/domain/agent-sentence.test.ts's.
+   */
+  const RETIRED = '0087-agents-remembered';
+  const ROUTINE = 'cn-routine-before';
+  const SCOPE_IN_COCKPIT = 'Scope in Cockpit: Claude Code, start with /scoping';
+
+  /** A store from just before Agents were retired, with a routine connection and any Agents `extra` writes. */
+  async function storeBeforeRetiring(name: string, extra: (sql: SqlStorage) => void = () => {}): Promise<void> {
+    await agedTo(name, justBefore(RETIRED));
+    await fillWithWhatIsAlreadyThere(name);
+    await inStoreAsItIs(name, (sql) => {
+      sql.exec(
+        `INSERT INTO connector_accounts
+           (id, tenant_id, workspace_id, connector_id, external_account_key,
+            display_name, encrypted_credential, credential_nonce, connected_at, updated_at)
+         VALUES (?, ?, 'ws-before', 'claude-code', 'connection', 'Claude Code', 'c2VhbGVk', 'bm9uY2UtMTItYnl0', ?, ?)`,
+        ROUTINE,
+        name,
+        AT,
+        AT,
+      );
+      extra(sql);
+    });
+  }
+
+  /** One more Agent, as an account could hold it. */
+  function anAgent(sql: SqlStorage, name: string, id: string, message: string, deletedAt: string | null = null): void {
+    sql.exec(
+      `INSERT INTO agents (id, tenant_id, name, folded_name, color, engine, message, asks_for_prompt, starts_in_progress, position, created_at, deleted_at)
+       SELECT ?, tenant_id, ?, ?, '#3a72c8', 'claude-code', ?, 0, 0, 1, ?, ? FROM agents WHERE id = 'ag-before'`,
+      id,
+      name,
+      name.toLowerCase(),
+      message,
+      AT,
+      deletedAt,
+    );
+  }
+
+  /** The sentences the retirement wrote, by the Agent each came from. */
+  const sentencesFromAgents = (name: string) =>
+    inStoreAsItIs(name, (sql) =>
+      sql
+        .exec<{ agent_id: string; action: string; sentence: string; source_kind: string; workspace_id: string | null }>(
+          'SELECT agent_id, action, sentence, source_kind, workspace_id FROM remembered_sentences WHERE agent_id IS NOT NULL ORDER BY agent_id',
+        )
+        .toArray(),
+    );
+
+  /** The account's routine connection, credential and all, while it holds one. */
+  const routineHeld = (name: string) =>
+    inStoreAsItIs(name, (sql) =>
+      sql.exec<{ encrypted_credential: string }>('SELECT encrypted_credential FROM connector_accounts WHERE id = ?', ROUTINE).toArray(),
+    );
+
+  const open = async (name: string) => expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+  /** What the retirement logged as passed over, by the Agent and why. */
+  function passedOver(warnings: unknown[][]): { agentId: string; because: string }[] {
+    return warnings
+      .map(([line]) => String(line))
+      .filter((line) => line.includes('an Agent became no remembered sentence'))
+      .map((line) => (JSON.parse(line) as { data: { agentId: string; because: string } }).data);
+  }
+
+  describe('each live Agent becomes one remembered sentence, once', () => {
+    it.each([
+      {
+        situation: '"Scope in Cockpit" becomes one sentence for Claude Code, starting with /scoping',
+        slug: 'one',
+        more: () => {},
+        sentences: [{ agent_id: 'ag-before', action: 'Scope in Cockpit', sentence: SCOPE_IN_COCKPIT }],
+        logged: [],
+      },
+      {
+        situation: 'two Agents become two sentences',
+        slug: 'two',
+        more: (sql: SqlStorage) => anAgent(sql, 'Draft a reply', 'ag-reply', 'Draft a short reply to this.\n\n{title}\n\n{description}'),
+        sentences: [
+          { agent_id: 'ag-before', action: 'Scope in Cockpit', sentence: SCOPE_IN_COCKPIT },
+          { agent_id: 'ag-reply', action: 'Draft a reply', sentence: 'Draft a reply: Claude Code. Draft a short reply to this.' },
+        ],
+        logged: [],
+      },
+      {
+        situation: 'an Agent with an empty template becomes none, and is logged',
+        slug: 'empty',
+        more: (sql: SqlStorage) => anAgent(sql, 'Nothing to say', 'ag-empty', '{title}\n\n{description}'),
+        sentences: [{ agent_id: 'ag-before', action: 'Scope in Cockpit', sentence: SCOPE_IN_COCKPIT }],
+        logged: [{ agentId: 'ag-empty', because: 'empty' }],
+      },
+      {
+        situation: 'a deleted Agent becomes none, and is logged',
+        slug: 'deleted',
+        more: (sql: SqlStorage) => anAgent(sql, 'Fix it', 'ag-deleted', 'Fix this.', AT),
+        sentences: [{ agent_id: 'ag-before', action: 'Scope in Cockpit', sentence: SCOPE_IN_COCKPIT }],
+        logged: [{ agentId: 'ag-deleted', because: 'deleted' }],
+      },
+    ])('$situation', async ({ slug, more, sentences, logged }) => {
+      const name = `aged-store-retire-${slug}`;
+      await storeBeforeRetiring(name, more);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await open(name);
+        expect(passedOver(warn.mock.calls)).toEqual(logged);
+      } finally {
+        warn.mockRestore();
+      }
+
+      expect(await sentencesFromAgents(name)).toEqual(
+        sentences.map((one) => ({ ...one, source_kind: 'internal', workspace_id: null })),
+      );
+      // Every Agent is kept, marked with what it became, so a later pass reads none of them again.
+      const kept = await inStoreAsItIs(name, (sql) =>
+        sql.exec<{ retired_as: string | null }>('SELECT retired_as FROM agents').toArray(),
+      );
+      expect(kept.length).toBe(sentences.length + logged.length);
+      expect(kept.every((agent) => agent.retired_as !== null)).toBe(true);
+    });
+
+    it('converts nothing again when the account is opened a second time', async () => {
+      const name = 'aged-store-retire-twice';
+      await storeBeforeRetiring(name);
+      await open(name);
+      const once = await sentencesFromAgents(name);
+
+      await abortAllDurableObjects();
+      await open(name);
+
+      expect(once).toHaveLength(1);
+      expect(await sentencesFromAgents(name)).toEqual(once);
+    });
+
+    it('adds no sentence for an Agent whose sentence was written before it was marked', async () => {
+      const name = 'aged-store-retire-interrupted';
+      await storeBeforeRetiring(name);
+      await open(name);
+      const once = await sentencesFromAgents(name);
+      // Interrupted between the two writes: the sentence is there, the Agent not yet marked.
+      await inStoreAsItIs(name, (sql) => sql.exec("UPDATE agents SET retired_at = NULL, retired_as = NULL WHERE id = 'ag-before'"));
+
+      await abortAllDurableObjects();
+      await open(name);
+
+      expect(await sentencesFromAgents(name)).toEqual(once);
+      const marked = await inStoreAsItIs(name, (sql) =>
+        sql.exec<{ retired_at: string | null }>("SELECT retired_at FROM agents WHERE id = 'ag-before'").one().retired_at,
+      );
+      expect(marked).not.toBeNull();
+    });
+  });
+
+  describe('a routine connection is forgotten only after its account’s Agents are converted', () => {
+    it('disconnects it, credential and all, once every Agent is converted', async () => {
+      const name = 'aged-store-retire-disconnects';
+      await storeBeforeRetiring(name);
+      expect(await routineHeld(name)).toHaveLength(1);
+
+      await open(name);
+
+      expect(await sentencesFromAgents(name)).toHaveLength(1);
+      expect(await routineHeld(name)).toEqual([]);
+      // The way Disconnect does it, so every tab is told the connection went.
+      const disconnects = await inStoreAsItIs(name, (sql) =>
+        sql.exec<{ n: number }>("SELECT count(*) AS n FROM commands WHERE name = 'disconnect_source_account'").one().n,
+      );
+      expect(disconnects).toBe(1);
+      // The other connections are not the retirement's.
+      const others = await inStoreAsItIs(name, (sql) =>
+        sql.exec<{ id: string }>('SELECT id FROM connector_accounts ORDER BY id').toArray().map((row) => row.id),
+      );
+      expect(others).toEqual(['cn-before', 'cn-gmail-before']);
+    });
+
+    it('keeps it connected while a conversion fails, still opens the account, and tries both again next time', async () => {
+      const name = 'aged-store-retire-fails';
+      await storeBeforeRetiring(name, (sql) =>
+        sql.exec(`CREATE TRIGGER refuse_a_sentence BEFORE INSERT ON remembered_sentences BEGIN SELECT RAISE(ABORT, 'refused'); END`),
+      );
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await open(name);
+        expect(error.mock.calls.map(([line]) => String(line)).some((line) => line.includes('an Agent could not be retired'))).toBe(true);
+      } finally {
+        error.mockRestore();
+      }
+
+      expect(await sentencesFromAgents(name)).toEqual([]);
+      expect(await routineHeld(name)).toHaveLength(1);
+
+      await inStoreAsItIs(name, (sql) => sql.exec('DROP TRIGGER refuse_a_sentence'));
+      await open(name);
+
+      expect(await sentencesFromAgents(name)).toHaveLength(1);
+      expect(await routineHeld(name)).toEqual([]);
     });
   });
 });

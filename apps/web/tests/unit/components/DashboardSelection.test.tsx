@@ -132,11 +132,7 @@ function snapshotOf(now: World): WorkspaceSnapshot {
     itemFormPresentation: 'centered',
     duplicates: [],
     filings: now.filings,
-    agents: [],
-    hiddenAgents: [],
-    hasClaudeCodeConnection: false,
     agentRuns: [],
-    claudeCodeFailing: null,
     generatedAt: '2026-08-31T09:00:00.000Z',
   } as unknown as WorkspaceSnapshot;
 }

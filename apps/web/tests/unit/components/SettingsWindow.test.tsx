@@ -31,8 +31,6 @@ vi.mock('../../../src/components/ManageConnectedApps', async (importOriginal) =>
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: () => undefined, isPending: held.pending, error: null, reset: () => undefined, variables: undefined }),
   useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
-  useConnectClaudeCode: () => ({ mutate: () => undefined, isPending: false, error: null, data: undefined, reset: () => undefined }),
-  useTestClaudeCodeConnection: () => ({ mutate: () => undefined, isPending: false }),
   useCheckConnectionNow: () => ({ mutate: () => undefined, isPending: false }),
   refusalFrom: () => null,
   workspacesQuery: {
@@ -115,7 +113,7 @@ describe('Across the app', () => {
       held.releaseMcpCode();
     });
 
-    it.each(['Connections', 'Agent settings', 'MCP'])('stays open on %s', async (name) => {
+    it.each(['Connections', 'MCP'])('stays open on %s', async (name) => {
       const user = userEvent.setup();
       open('connections');
       await screen.findByRole('heading', { name: 'Connections' });
@@ -142,7 +140,7 @@ describe('Across the app', () => {
   });
 
   describe('each section of Settings is headed by the name of its entry', () => {
-    it.each(['Connections', 'Agent settings', 'MCP', 'Appearance'])('heads %s with its own name', async (name) => {
+    it.each(['Connections', 'MCP', 'Appearance'])('heads %s with its own name', async (name) => {
       const user = userEvent.setup();
       open('connections');
       await user.click(entry(name));
@@ -155,8 +153,8 @@ describe('Across the app', () => {
   describe('Settings opens on the section asked for, with only that one selected and focus on it', () => {
     it.each([
       { situation: 'from the profile menu', on: 'connections' as const, name: 'Connections' },
-      { situation: 'from the dock', on: 'agents' as const, name: 'Agent settings' },
       { situation: 'to a section that no longer exists', on: 'types' as SettingsKey, name: 'Connections' },
+      { situation: 'to Agent settings, which went with the routines', on: 'agents' as SettingsKey, name: 'Connections' },
     ])('$situation selects and focuses $name and no other', async ({ on, name }) => {
       open(on);
 
@@ -164,12 +162,11 @@ describe('Across the app', () => {
       expect(selected()).toEqual([name]);
     });
 
-    it('lists the sections without Types', () => {
+    it('lists the sections without Types or Agent settings', () => {
       open('connections');
 
       expect(within(screen.getByRole('navigation', { name: 'Settings' })).getAllByRole('button').map((button) => button.textContent).filter((name) => name !== 'Close')).toEqual([
         'Connections',
-        'Agent settings',
         'MCP',
         'What Cockpit remembers',
         'Appearance',
@@ -177,12 +174,11 @@ describe('Across the app', () => {
     });
   });
 
-  describe('Connections and Agent settings are about one workspace at a time, starting with the open one', () => {
-    it('lists each kind under its own section and only for the workspace picked', async () => {
+  describe('Connections are about one workspace at a time, starting with the open one', () => {
+    it('lists the connections of the workspace picked, and no other', async () => {
       held.accounts = {
         'ws-alpha': [
           account('a1', 'teams', 'Ada Teams'),
-          account('a2', 'claude-code', 'Alpha Claude'),
           account('a3', 'gmail', 'ada@example.com'),
         ],
         'ws-beta': [account('b1', 'teams', 'Bea Teams')],
@@ -195,22 +191,15 @@ describe('Across the app', () => {
       expect(await screen.findByText('Ada Teams')).toBeVisible();
       // Gmail sits beside Teams under Connections (issue 724).
       expect(screen.getByText('ada@example.com')).toBeVisible();
-      expect(screen.queryByText('Alpha Claude')).toBeNull();
 
       await user.selectOptions(picker, 'ws-beta');
       expect(await screen.findByText('Bea Teams')).toBeVisible();
       expect(screen.queryByText('Ada Teams')).toBeNull();
-
-      await user.click(entry('Agent settings'));
-      expect(await screen.findByRole('combobox', { name: /Workspace/ })).toHaveValue('ws-alpha');
-      expect(await screen.findByText('Alpha Claude')).toBeVisible();
-      expect(screen.queryByText('Ada Teams')).toBeNull();
-      expect(screen.queryByText('ada@example.com')).toBeNull();
     });
 
     it('still names the workspace when the account has only one', async () => {
       held.accounts = {};
-      open('agents');
+      open('connections');
       const picker = await screen.findByRole('combobox', { name: /Workspace/ });
       expect(within(picker).getAllByRole('option').length).toBeGreaterThan(0);
     });

@@ -1,7 +1,7 @@
 import { derivedKey } from './key-derivation.js';
 
 /**
- * A link that opens one attachment without a sign-in, for an agent's session
+ * A link that opens one attachment without a sign-in, for a Claude session
  * to download ("Send an item's attachments along when an agent starts",
  * issue 573) - the session is not signed in and cannot be.
  *

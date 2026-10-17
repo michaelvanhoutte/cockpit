@@ -156,6 +156,14 @@ describe('Onboarding', () => {
       expect(snap.filings.filter((filing) => filing.panelId === FIRST_PANEL_ID)).toEqual([]);
     });
 
+    it('teaches handing an item to Claude with Send to Claude…, and no Agent or dock', async () => {
+      const steps = (await snapshot()).items.filter((item) => item.title !== INBOX_TASK.title);
+      const handing = steps.find((item) => item.description?.includes('**Send to Claude…**'));
+
+      expect(handing?.title).toBe('Hand an item to Claude');
+      expect(steps.filter((item) => /agents?|dock|Agent settings/i.test(`${item.title} ${item.description}`))).toEqual([]);
+    });
+
     it('holds exactly one Task in the Inbox, saying what the Inbox is', async () => {
       expect(inboxOf(await snapshot()).map((item) => item.title)).toEqual([INBOX_TASK.title]);
     });

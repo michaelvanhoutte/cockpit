@@ -26,7 +26,7 @@ let signedInRole = 'user';
 /** The workspace the router says is open; none, unless a case opens one. */
 let openWorkspaceId: string | undefined;
 
-/** The dashboard the router says is open; the dock is drawn only on one. */
+/** The dashboard the router says is open. */
 let openDashboardId: string | undefined;
 
 /** The address the router says is open, which is what tells a Dashboard from *All items*. */
@@ -200,7 +200,7 @@ describe('Across the app', () => {
       </QueryClientProvider>,
     );
 
-  describe('Settings holds the account’s Teams connection, agent connection and MCP apps, and none stays on the workspace’s menu', () => {
+  describe('Settings holds the account’s connections and MCP apps, and none stays on the workspace’s menu', () => {
     afterEach(() => vi.unstubAllGlobals());
 
     it.each([
@@ -235,7 +235,7 @@ describe('Across the app', () => {
 
       expect(await sections(false)).toEqual({ listed: ['Appearance'], current: 'Appearance' });
       expect(await sections(true)).toEqual({
-        listed: ['Connections', 'Agent settings', 'MCP', 'What Cockpit remembers', 'Appearance'],
+        listed: ['Connections', 'MCP', 'What Cockpit remembers', 'Appearance'],
         current: 'Connections',
       });
     });
@@ -290,36 +290,6 @@ describe('Across the app', () => {
       await user.keyboard('{Escape}');
 
       await waitFor(() => expect(screen.getByRole('button', { name: 'Profile' })).toHaveFocus());
-    });
-  });
-
-  describe('the dock’s menus offer Agent settings', () => {
-    afterEach(() => vi.unstubAllGlobals());
-
-    it('opens Settings on Agent settings from the dock’s “…”', async () => {
-      onADesk(true);
-      openWorkspaceId = 'ws-markup';
-      openDashboardId = 'dash-1';
-      const user = userEvent.setup();
-      shell();
-
-      await user.click(await screen.findByRole('button', { name: 'What is hidden here' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Agent settings…' }));
-
-      const settings = await screen.findByRole('dialog', { name: 'Settings' });
-      await waitFor(() => expect(within(settings).getByRole('button', { name: 'Agent settings' })).toHaveFocus());
-      expect(settings.querySelectorAll('[aria-current="true"]')).toHaveLength(1);
-    });
-
-    it('offers it on a right-click on the dock too', async () => {
-      onADesk(true);
-      openWorkspaceId = 'ws-markup';
-      openDashboardId = 'dash-1';
-      shell();
-
-      fireEvent.contextMenu(await screen.findByRole('toolbar', { name: 'Agents' }));
-
-      expect(await screen.findByRole('menuitem', { name: 'Agent settings…' })).toBeVisible();
     });
   });
 
@@ -519,112 +489,6 @@ describe('User management', () => {
       await user.keyboard('{Escape}');
 
       await waitFor(() => expect(screen.getByRole('button', { name: 'Profile' })).toHaveFocus());
-    });
-  });
-});
-
-describe('Agents', () => {
-  describe('the dock hides and shows from the dock itself', () => {
-    /** A desk-sized screen: the dock is drawn only where the Inbox has room beside the dashboards. */
-    const onADesk = (matches: boolean) =>
-      vi.stubGlobal('matchMedia', (query: string) => ({
-        matches,
-        media: query,
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-      }));
-    const shell = () =>
-      render(
-        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-          <Layout />
-        </QueryClientProvider>,
-      );
-    const dock = () => screen.queryByRole('toolbar', { name: 'Agents' });
-    const strip = () => screen.queryByRole('button', { name: 'Show the agents’ dock' });
-    const openADashboard = () => {
-      openWorkspaceId = 'ws-markup';
-      openDashboardId = 'dash-1';
-    };
-
-    afterEach(() => vi.unstubAllGlobals());
-
-    it('puts the dock away from its own control, and brings it back from the strip', async () => {
-      onADesk(true);
-      openADashboard();
-      const user = userEvent.setup();
-      shell();
-
-      await screen.findByRole('toolbar', { name: 'Agents' });
-      expect(strip()).toBeNull();
-
-      await user.click(screen.getByRole('button', { name: 'Hide the agents’ dock' }));
-      expect(dock()).toBeNull();
-      // The control that was pressed is gone; the focus lands on its stand-in.
-      await waitFor(() => expect(strip()).toHaveFocus());
-      await user.click(strip()!);
-
-      expect(await screen.findByRole('toolbar', { name: 'Agents' })).toBeInTheDocument();
-      expect(strip()).toBeNull();
-      await waitFor(() =>
-        expect(screen.getByRole('button', { name: 'Hide the agents’ dock' })).toHaveFocus(),
-      );
-    });
-
-    it('toggles on A, either way', async () => {
-      onADesk(true);
-      openADashboard();
-      const user = userEvent.setup();
-      shell();
-      await screen.findByRole('toolbar', { name: 'Agents' });
-
-      await user.keyboard('a');
-      expect(dock()).toBeNull();
-      expect(strip()).not.toBeNull();
-
-      await user.keyboard('a');
-      expect(await screen.findByRole('toolbar', { name: 'Agents' })).toBeInTheDocument();
-    });
-
-    it('is still hidden when the page is loaded again', async () => {
-      onADesk(true);
-      openADashboard();
-      const user = userEvent.setup();
-      const first = shell();
-      await screen.findByRole('toolbar', { name: 'Agents' });
-      await user.click(screen.getByRole('button', { name: 'Hide the agents’ dock' }));
-      first.unmount();
-
-      shell();
-
-      expect(await screen.findByRole('button', { name: 'Show the agents’ dock' })).toBeInTheDocument();
-      expect(dock()).toBeNull();
-    });
-
-    it('draws neither the dock nor the strip on a phone', async () => {
-      onADesk(false);
-      openADashboard();
-      localStorage.setItem('cockpit.agent-dock-hidden', '1');
-      shell();
-      await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` });
-
-      expect(dock()).toBeNull();
-      expect(strip()).toBeNull();
-    });
-  });
-
-  describe('no menu hides or shows the dock', () => {
-    it('offers no such entry on the open workspace’s “…”', async () => {
-      openWorkspaceId = 'ws-markup';
-      const user = userEvent.setup();
-      render(
-        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-          <Layout />
-        </QueryClientProvider>,
-      );
-
-      await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
-
-      expect(screen.queryByRole('menuitem', { name: /agents’ dock/ })).toBeNull();
     });
   });
 });

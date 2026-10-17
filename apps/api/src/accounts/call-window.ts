@@ -1,13 +1,8 @@
 /** The window a caller's calls are counted over: a minute. */
 const WINDOW_MS = 60_000;
 
-/** How many calls one Claude Code connection is heard in a minute - a session sends two a turn. */
-export const HOOK_CALLS_PER_MINUTE = 60;
-
 /**
- * How many `create_item` calls one grant is admitted for in a minute, refused ones included - the same number
- * the Claude Code hooks are held to (`HOOK_CALLS_PER_MINUTE`), for the same
- * reason: well above anything a person asking Claude does, and a ceiling on
+ * How many `create_item` calls one grant is admitted for in a minute, refused ones included: well above anything a person asking Claude does, and a ceiling on
  * what a runaway loop can write before somebody notices.
  */
 export const APP_CAPTURES_PER_MINUTE = 60;

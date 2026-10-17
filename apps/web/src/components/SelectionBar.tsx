@@ -48,16 +48,14 @@ export function SelectionBar({
 
   /**
    * Publishes how far the bar's top is from the screen's foot as
-   * `--selection-bar-h`, so the undo offer lifts above it the way it lifts
-   * above the agents' dock (`AgentDock.tsx` does the same with `--dock-h`):
-   * an edit keeps the selection held ("Change the type, priority, due date or
+   * `--selection-bar-h`, so the undo offer lifts above it: an edit keeps the selection held ("Change the type, priority, due date or
    * status of every selected item from the selection bar", issue 864), and the
    * offer it makes would otherwise cover the count and Move to… of the bar the
    * next edit is made from.
    *
    * **Pinned, that is the bar's height; on the board it is where the bar has
-   * got to**, which moves as the page and the Panel scroll. Less the dock and
-   * the safe-area edge, which the offer adds again itself. Observed rather than
+   * got to**, which moves as the page and the Panel scroll. Less the safe-area
+   * edge, which the offer adds again itself. Observed rather than
    * read once, since a refusal line makes it taller; guarded for a test runner,
    * which has no layout engine to observe with. The Inbox's own bar says
    * nothing: it holds a fifth of the screen at the left, clear of the offer.
@@ -70,7 +68,7 @@ export function SelectionBar({
       frame = 0;
       const lift = pinned
         ? `${el.offsetHeight}px - var(--edge-bottom)`
-        : `max(0px, ${Math.round(window.innerHeight - el.getBoundingClientRect().top)}px - var(--dock-h, 0px) - var(--edge-bottom))`;
+        : `max(0px, ${Math.round(window.innerHeight - el.getBoundingClientRect().top)}px - var(--edge-bottom))`;
       root.style.setProperty('--selection-bar-h', `calc(${lift})`);
     };
     // Once a frame at most: a scroll fires many times a frame, and each read
