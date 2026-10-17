@@ -7,7 +7,9 @@ import {
   attachmentLinksSchema,
   CLAUDE_DESTINATION_NAMES,
   claudeLinkFor,
+  isClaudeAction,
   plainPromptFor,
+  proposedPromptFor,
   uuidv7,
   type Attachment,
   type ClaudeDestination,
@@ -57,9 +59,13 @@ function rememberFolder(folder: string): void {
  * the Run as *Sent* and only then opens Claude's desktop app with exactly this
  * prompt and folder, so a send the server refused opens nothing.
  *
- * **The prompt starts as the plain one built from the Item's words**, with a
- * link to each of its files, and is shown once those links are made: the
- * textarea would otherwise be rewritten under the cursor. Where the links
+ * **It opens on what Cockpit proposed** ("Propose what to do with each item
+ * before you look", issue 1161): the switch, the folder and the prompt set to
+ * the first proposed action, the others offered beside it. Where nothing is
+ * proposed yet, or nothing to do, it starts on the plain prompt built from the
+ * Item's words - never waiting for a proposal. Either way the prompt carries a
+ * link to each of the Item's files, and is shown once those links are made:
+ * the textarea would otherwise be rewritten under the cursor. Where the links
  * cannot be made, the files are named instead and the prompt says so.
  */
 export function SendToClaudeWindow({
@@ -69,7 +75,7 @@ export function SendToClaudeWindow({
   onClose,
   returnFocusTo,
 }: {
-  item: Pick<Item, 'id' | 'title' | 'description'>;
+  item: Pick<Item, 'id' | 'title' | 'description' | 'claudeProposals'>;
   workspaceId: string;
   attachments: readonly Pick<Attachment, 'id' | 'filename' | 'contentType'>[];
   onClose: () => void;
@@ -79,8 +85,16 @@ export function SendToClaudeWindow({
   // One Run id for this window: the prompt names it, and an Open pressed
   // twice is the same Run, not two.
   const [runId] = useState(() => uuidv7());
-  const [destination, setDestination] = useState<ClaudeDestination>('cowork');
-  const [folder, setFolder] = useState(lastFolder);
+  // What was proposed when the window opened, which does not change under it.
+  const [proposals] = useState(() => item.claudeProposals ?? []);
+  const actions = proposals.filter(isClaudeAction);
+  const nothing = proposals.find((one) => one.destination === 'nothing');
+  const [chosen, setChosen] = useState(0);
+  const action = actions[chosen];
+  const [destination, setDestination] = useState<ClaudeDestination>(actions[0]?.destination ?? 'cowork');
+  // A proposal's own folder, empty included - it decided none fits, so Claude
+  // asks; the folder last sent to only where nothing was proposed.
+  const [folder, setFolder] = useState(() => (actions[0] ? actions[0].folder : lastFolder()));
   const [edited, setEdited] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -96,16 +110,21 @@ export function SendToClaudeWindow({
   const ready = !links.isPending;
   const apps = useQuery(connectedAppsQuery);
 
-  const plain = plainPromptFor({
-    title: item.title,
-    description: item.description,
-    runId,
-    attachments: attachments.map((attachment) => ({
-      ...attachment,
-      link: links.data?.[attachment.id],
-    })),
-  });
+  const linked = attachments.map((attachment) => ({ ...attachment, link: links.data?.[attachment.id] }));
+  const plain = action
+    ? proposedPromptFor({ prompt: action.prompt, runId, attachments: linked })
+    : plainPromptFor({ title: item.title, description: item.description, runId, attachments: linked });
   const prompt = edited ?? plain;
+
+  /** Another proposed action: its destination, its folder and its prompt, in place of what was there. */
+  const choose = (at: number) => {
+    const next = actions[at];
+    if (!next) return;
+    setChosen(at);
+    setDestination(next.destination);
+    setFolder(next.folder);
+    setEdited(null);
+  };
   const name = CLAUDE_DESTINATION_NAMES[destination];
   const link = claudeLinkFor(destination, prompt.trim(), folder);
   const tooLong = link.length > MAX_CLAUDE_LINK_LENGTH;
@@ -166,6 +185,33 @@ export function SendToClaudeWindow({
               void open();
             }}
           >
+            {actions.length > 1 && (
+              <div role="radiogroup" aria-label="Proposed" className="mt-4 flex flex-col gap-1">
+                <span className="text-sm text-ink-soft">Cockpit proposes {actions.length} things to do</span>
+                {actions.map((one, at) => (
+                  <button
+                    key={at}
+                    type="button"
+                    role="radio"
+                    aria-checked={chosen === at}
+                    disabled={sending}
+                    onClick={() => choose(at)}
+                    className={`rounded-md border px-3 py-1.5 text-left text-sm ${
+                      chosen === at ? 'border-accent bg-accent-tint text-accent-deep' : 'border-shade/10 text-ink-soft hover:bg-accent-tint'
+                    }`}
+                  >
+                    {one.label} <span className="text-ink-faint">· {CLAUDE_DESTINATION_NAMES[one.destination]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {nothing && (
+              <p className="mt-4 rounded-md bg-accent-tint px-3 py-2 text-sm text-ink-soft">
+                Cockpit proposes nothing to do: {nothing.why} You can still send it as it is.
+              </p>
+            )}
+
             <div role="radiogroup" aria-label="Send to" className="mt-4 inline-flex rounded-md border border-shade/10 p-0.5">
               {CLAUDE_DESTINATIONS.map((one) => (
                 <button
@@ -211,7 +257,7 @@ export function SendToClaudeWindow({
             </label>
 
             <p className="mt-3 text-sm text-ink-faint">
-              Goes along: the item’s words
+              Goes along: {action ? 'the proposed task' : 'the item’s words'}
               {attachments.length > 0 ? `, ${attachments.length === 1 ? 'a link to' : 'links to'} ${attachments
                 .map((attachment) => attachment.filename)
                 .join(', ')}` : ''}

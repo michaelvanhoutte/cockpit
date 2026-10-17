@@ -74,6 +74,7 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
     captured_time_zone: _capturedTimeZone,
     due_date_chosen_at: _dueDateChosenAt,
     proposed_panel_fit: _proposedPanelFit,
+    claude_proposals: _claudeProposals,
     ...rest
   } = row;
   return rest;

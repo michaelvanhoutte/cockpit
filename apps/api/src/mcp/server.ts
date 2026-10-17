@@ -9,7 +9,7 @@ import {
 import { ACCOUNT_WIDE, textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
-import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
+import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
@@ -168,6 +168,7 @@ async function capture(
   }
   ctx.waitUntil(enqueueCleanUp(env, accountName, itemId, 'mcp'));
   ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, itemId, 'mcp'));
+  ctx.waitUntil(enqueueProposalForClaude(env, accountName, itemId, 'mcp'));
   // What the MCP connections list says this app last did (issue 600).
   ctx.waitUntil(noteCapture(env, app.grantId, new Date().toISOString()));
 

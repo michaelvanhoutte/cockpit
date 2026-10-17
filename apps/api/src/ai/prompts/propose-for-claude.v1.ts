@@ -1,0 +1,137 @@
+/**
+ * What a proposal is made from ("Propose what to do with each item before you
+ * look", issue 1161): the Item's words, where it came from, its Workspace and
+ * the Panels it is on. Learning from past sends is the next unit's (issue 1162).
+ */
+export interface ItemToPropose {
+  title: string;
+  description: string | null;
+  /** Where it came from, as the row names it: "Gmail", "Teams", "Claude"; null for a note captured in Cockpit itself. */
+  source: string | null;
+  sender: string | null;
+  /** The Workspace's name, or null for an Item belonging to none yet. */
+  workspace: string | null;
+  filedOn: readonly { dashboard: string; panel: string }[];
+}
+
+/**
+ * How much of a description is sent: a mail's text can run to 60,000
+ * characters, and what is asked of it shows in its opening.
+ */
+export const DESCRIPTION_SENT = 4_000;
+
+/**
+ * Every word that is the same for every Item and every account, so it can be
+ * the first cached prefix (`index.ts`), as `clean-up-a-note.v16`'s is.
+ */
+const INSTRUCTIONS = `You are part of Cockpit, one person's inbox for their own work. They hand an item over to Claude in one click: Cowork, Claude's desktop app for knowledge work (documents, mail drafts, research, spreadsheets, planning, anything done with files on their computer or with apps Claude is connected to), or Claude Code, for work on a codebase in a folder on their computer. Before they look at an item, you propose what to hand over.
+
+Propose one of:
+- one action: where it goes, the folder Claude opens in, and the prompt Claude starts from;
+- two or three actions, where the item genuinely needs separate pieces of work - a bug to fix and a reply to write - each its own proposal, the one to do first first;
+- nothing, where the item needs no action from Claude: a quote, a thought or saved idea kept to read again, a note of something that happened, a reminder only the person can act on in the real world (collect a parcel, call someone, go somewhere), or anything else where handing it over would only produce work nobody asked for. Nothing is a real answer, and often the right one. Say why in one short sentence.
+
+Choosing the destination:
+- code: the work is changing, investigating or reviewing software in a repository - a bug, a feature idea for an app, a failing build, a pull request. A feature idea filed on a panel or workspace named after a software project is code work on that project.
+- cowork: everything else that Claude can do at a desk - drafting a reply or a mail, preparing a document or a presentation, researching and comparing options, planning, filling in a form for review, summarising.
+
+The folder: give the number of one of the folders this account has opened Claude in, listed after these instructions, only where it plainly belongs to the item's project or matches it by name; otherwise leave it empty and Claude asks. Code work without a known folder still goes to code.
+
+Writing the prompt - it is what Claude reads first, and the person may edit it before sending:
+- Write it to Claude, in the imperative, in the language of the item.
+- Name the project, the people and the thing outright, from the item: "In the Cockpit repository, ...", "Draft a reply to Els Maes at Halcyon Health about ...". Claude has not seen the inbox, the panel names or the workspace; carry what it needs in words.
+- Say what the result is: a draft left for the person to send, a document, a comparison, a fix with tests, a branch.
+- Where the item lacks something the work needs - who a mail goes to, what a workshop is about, which account, a date - do not guess it: say to ask the person for it first.
+- Never tell Claude to send, post, buy, book, pay or confirm anything; Cockpit adds its own closing about that, and links to the item's files after your prompt. Do not repeat either.
+- Keep it short: what to do, for whom, the facts the item gives, and what to hand back. A few sentences, never a template with placeholders.
+
+The label names each action in a few words ("Fix the login delay", "Draft the reply to Els"), in the language of the item. For nothing, leave the label, the folder and the prompt empty and give the reason in why; for an action, leave why empty.`;
+
+/**
+ * What Cockpit asks Claude to propose doing with an Item: Cowork, Claude Code,
+ * or nothing, with a folder and a prompt ("Propose what to do with each item
+ * before you look", issue 1161). Version 1.
+ *
+ * **The folders it may name are the account's own, by number, as an `enum`**,
+ * so a path it was not shown cannot come back - and by number rather than by path,
+ * because a path's backslashes came back unescaped inside the answer's JSON.
+ * Whether a folder fits is the model's.
+ * Every field is required and empty where it does not apply, which keeps the
+ * schema one flat shape the reader then holds to `claudeProposalsSchema`.
+ */
+export function buildProposeForClaude(
+  item: ItemToPropose,
+  folders: readonly string[],
+): {
+  version: 'v1';
+  model: string;
+  effort: 'low' | null;
+  system: { instructions: string; stable: string; recent: string };
+  message: string;
+  schema: Record<string, unknown>;
+} {
+  return {
+    version: 'v1',
+
+    /**
+     * Haiku 5.5 at low effort: the cheapest that held the contract set
+     * (tests/contract/propose-for-claude.v1.test.ts), chosen there.
+     */
+    model: 'claude-haiku-5-5',
+    effort: 'low',
+
+    system: { instructions: INSTRUCTIONS, stable: renderFolders(folders), recent: '' },
+
+    message: renderItem(item),
+
+    schema: {
+      type: 'object',
+      properties: {
+        proposals: {
+          type: 'array',
+          description: 'One proposal per action, the first to do first; at most three. Exactly one, of nothing, where the item needs no action.',
+          items: {
+            type: 'object',
+            properties: {
+              destination: { type: 'string', enum: ['cowork', 'code', 'nothing'] },
+              label: { type: 'string', description: 'A few words naming the action; empty for nothing.' },
+              folder: {
+                type: 'string',
+                enum: [...folders.map((_, at) => String(at + 1)), ''],
+                description: 'The number of one of the listed folders, or empty.',
+              },
+              prompt: { type: 'string', description: 'What Claude starts from; empty for nothing.' },
+              why: { type: 'string', description: 'For nothing: why, in one short sentence. Empty for an action.' },
+            },
+            required: ['destination', 'label', 'folder', 'prompt', 'why'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['proposals'],
+      additionalProperties: false,
+    },
+  };
+}
+
+/** The folders this account has opened Claude in, most recently used first. */
+export function renderFolders(folders: readonly string[]): string {
+  if (folders.length === 0) return 'Folders this account has opened Claude in: (none yet)';
+  return ['Folders this account has opened Claude in, by number, most recent first:', ...folders.map((folder, at) => `${at + 1}. ${folder}`)].join('\n');
+}
+
+/** The Item, each part on its own labelled line, its texts quoted. */
+export function renderItem(item: ItemToPropose): string {
+  const description = item.description?.trim() ?? '';
+  const shown = description.length <= DESCRIPTION_SENT ? description : `${description.slice(0, DESCRIPTION_SENT)}…`;
+  const from = item.source === null ? 'captured in Cockpit' : item.sender ? `${item.source}, from ${item.sender}` : item.source;
+  const filed =
+    item.filedOn.length === 0 ? 'the inbox, on no panel yet' : item.filedOn.map((one) => `${one.dashboard} › ${one.panel}`).join('; ');
+  return [
+    `Title: ${JSON.stringify(item.title)}`,
+    `Description: ${shown === '' ? '(none)' : JSON.stringify(shown)}`,
+    `Came from: ${from}`,
+    `Workspace: ${item.workspace ?? '(none decided yet)'}`,
+    `Filed on: ${filed}`,
+  ].join('\n');
+}

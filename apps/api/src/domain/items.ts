@@ -6,6 +6,7 @@ import {
   type Item,
   type Priority,
   type ProposeItemFieldsCommand,
+  type ProposeItemForClaudeCommand,
   type ProposeItemPanelCommand,
   type ProposeItemTextsCommand,
   type SetDescriptionCommand,
@@ -113,6 +114,8 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     proposedPanelId: null,
     proposedPanelReason: null,
     proposedPanelFit: null,
+    // Worked out once the note has settled (issue 1161); the window opens on the plain prompt until then.
+    claudeProposals: null,
     sourceResolvedAt: null,
     nextAction: cmd.nextAction ?? null,
     completedAt: null,
@@ -460,6 +463,23 @@ export function applyProposedPanel(item: Item, cmd: ProposeItemPanelCommand): It
     proposedPanelReason: cmd.panelId === null ? null : cmd.reason,
     proposedPanelFit: cmd.panelId === null ? null : (cmd.fit ?? null),
   };
+}
+
+/**
+ * What Cockpit proposes doing with this Item, replacing what it proposed before
+ * ("Propose what to do with each item before you look", issue 1161) - or null,
+ * leaving it as it is, where the proposal was made from words or a filing that
+ * have since changed (`madeFrom` is not the Item's `updatedAt` any more), or for
+ * an Item finished with or dismissed, which nobody will send anywhere.
+ *
+ * Leaves `updatedAt` alone, as the Panel proposal does: Cockpit's own reading is
+ * not a change a person made, and touching it would make the next proposal's
+ * `madeFrom` stale against itself.
+ */
+export function applyClaudeProposals(item: Item, cmd: ProposeItemForClaudeCommand): Item | null {
+  if (item.updatedAt !== cmd.madeFrom) return null;
+  if (item.completedAt !== null || item.deletedAt !== null) return null;
+  return { ...item, claudeProposals: cmd.proposals };
 }
 
 /**

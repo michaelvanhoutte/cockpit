@@ -85,6 +85,19 @@ function stubTheModel(): void {
     // ("Enable prompt caching on the note-cleanup prompt", issue 584). Read here as the one text the model sees.
     const system = typeof sent.system === 'string' ? sent.system : sent.system.map((block) => block.text).join('\n\n');
     const content = sent.messages[0]!.content;
+    // A proposal for Claude, which a capture and a filing now also ask for (issue
+    // 1161), is none of what this file counts, and is answered apart.
+    if ('proposals' in sent.output_config.format.schema.properties) {
+      return Response.json({
+        id: 'msg_1',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-haiku-5-5',
+        content: [{ type: 'text', text: JSON.stringify({ proposals: [{ destination: 'nothing', label: '', folder: '', prompt: '', why: 'Nothing to do.' }] }) }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    }
     // A panel-only question is told apart by the answer it asks for.
     const panelOnly = 'panelId' in sent.output_config.format.schema.properties;
     const note = panelOnly ? (JSON.parse(/^Captured note: (.*)$/m.exec(content)![1]!) as string) : content;
@@ -531,6 +544,8 @@ describe('Triage', () => {
     it('a refresh with nothing left unsettled asks the model nothing', async () => {
       const elsewhere = await aPanel('Somewhere else');
       const settling = await captureANote('call jan about the invoice');
+      // Its own clean-up is a call too, and not the refresh's: waited for first.
+      await vi.waitFor(() => expect(asked).toContain('call jan about the invoice'), { timeout: 15_000, interval: 25 });
       asked = [];
 
       await moveOnto(settling, elsewhere);
@@ -773,7 +788,17 @@ describe('What Cockpit changed', () => {
 
       const rows = await historyRows();
       const recorded = rows.map((row) => row.item_id).sort();
-      const askedAbout = [...new Set(asked)];
+      // Only this case's own notes: a job an earlier case queued can still be
+      // asking about one of its own while this runs, under a loaded suite.
+      const own = new Set([
+        'a note that fits a panel',
+        'a note the model makes nothing of',
+        'a note nothing fits',
+        'a note whose panel no longer fits',
+        'a note whose panel goes while it is read',
+        'a note that fails',
+      ]);
+      const askedAbout = [...new Set(asked)].filter((note) => own.has(note));
       expect(askedAbout).toHaveLength(6);
       expect(new Set(recorded).size).toBe(recorded.length);
       // Every item's note is asked about by the refresh and by nothing else,

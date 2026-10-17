@@ -83,6 +83,21 @@ export type Answering =
 export const asked: { system: string; note: string; blocks: { text: string; cache_control?: unknown }[]; model: string }[] = [];
 
 /**
+ * The calls proposing what to do with an Item ("Propose what to do with each
+ * item before you look", issue 1161), kept apart from `asked` and answered
+ * apart: every capture and edit now asks one, and the cases about cleaning a
+ * note up count and read only their own calls. `answer` is what the model
+ * proposes; by default, nothing.
+ */
+export const proposing: { asked: { system: string; item: string }[]; answer: unknown } = {
+  asked: [],
+  answer: { proposals: [{ destination: 'nothing', label: '', folder: '', prompt: '', why: 'Nothing to do.' }] },
+};
+
+/** Whether a call is a proposal for Claude, by the folder list only that prompt carries. */
+export const isAProposal = (call: { system: string }) => call.system.includes('Folders this account has opened Claude in');
+
+/**
  * What happens between the note being sent and the answer coming back - which
  * is the only way to reach the window an edit can land in: a person typing
  * while the model is reading.
@@ -108,6 +123,18 @@ export function theModelIs(answering: Answering): void {
     // Sent as blocks, the fixed half first and cached ("Enable prompt caching on the note-cleanup prompt", issue 584);
     // read here as the one text the model sees.
     const system = sent.system.map((block) => block.text).join('\n\n');
+    if (isAProposal({ system })) {
+      proposing.asked.push({ system, item: sent.messages[0]!.content });
+      return Response.json({
+        id: 'msg_1',
+        type: 'message',
+        role: 'assistant',
+        model: sent.model,
+        content: [{ type: 'text', text: JSON.stringify(proposing.answer) }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    }
     asked.push({ system, note: sent.messages[0]!.content, blocks: sent.system, model: sent.model });
 
     if (reading.during) await reading.during({ system });
@@ -556,6 +583,8 @@ export function aModelThatReads(): void {
     await seedRegister();
     asked.length = 0;
     reading.during = null;
+    proposing.asked.length = 0;
+    proposing.answer = { proposals: [{ destination: 'nothing', label: '', folder: '', prompt: '', why: 'Nothing to do.' }] };
     // The suite runs with no key at all (vitest.config.ts), which is what keeps
     // every other file's captures from reaching a model. This file is the one
     // that wants a reading, so it sets one - and the fake below is what the key

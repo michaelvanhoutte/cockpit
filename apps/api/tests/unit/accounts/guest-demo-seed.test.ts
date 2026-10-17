@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GRID_COLUMNS, demoAddress, demoPageOf, panelFilterFrom, type FilterCondition, type PanelFilter } from '@cockpit/shared';
+import { GRID_COLUMNS, claudeProposalsSchema, demoAddress, demoPageOf, panelFilterFrom, type FilterCondition, type PanelFilter } from '@cockpit/shared';
 import {
   accountChanges,
   checkedGuestDemo,
@@ -57,6 +57,7 @@ interface WrittenItem {
   title: string;
   dueDate: unknown;
   startedAt: unknown;
+  claudeProposals: unknown;
   createdAt: string;
 }
 
@@ -74,7 +75,8 @@ function itemsWritten(statements: readonly Statement[]): WrittenItem[] {
         title: String(p[9]),
         dueDate: p[13],
         startedAt: p[14],
-        createdAt: String(p[20]),
+        claudeProposals: p[20] === null ? null : JSON.parse(String(p[20])),
+        createdAt: String(p[21]),
       };
     });
 }
@@ -309,6 +311,25 @@ describe('Accounts', () => {
     });
   });
 
+  /**
+   * The guest never calls the model, so what *Send to Claude…* opens on is
+   * seeded ("Propose what to do with each item before you look", issue 1161).
+   */
+  describe('a seeded item carries the proposal for Claude it was given, and one given none carries none', () => {
+    it('writes each as the app reads it back', () => {
+      const written = itemsWritten(guestSeed());
+      const all = [...filedItems, ...inboxItems];
+      expect(all.some((item) => item.forClaude?.some((one) => one.destination === 'code'))).toBe(true);
+      expect(all.some((item) => item.forClaude?.[0]?.destination === 'nothing')).toBe(true);
+
+      for (const item of all) {
+        const one = written.find((w) => w.title === item.title)!;
+        expect(one.claudeProposals, item.title).toEqual(item.forClaude ?? null);
+        if (item.forClaude) expect(claudeProposalsSchema.safeParse(one.claudeProposals).success, item.title).toBe(true);
+      }
+    });
+  });
+
   /** Every workspace shows Gmail and Teams connected, on rows nothing outside Cockpit reads. */
   describe('every workspace is seeded with Gmail, Teams and Claude Code connected', () => {
     it('writes a Gmail, a Teams and a Claude Code row for each workspace, each with a placeholder credential', () => {
@@ -434,6 +455,15 @@ describe('Accounts', () => {
     const DUE_SOON = { field: 'dueDate', window: 'week', orOverdue: true };
 
     it.each([
+      {
+        why: 'an item is proposed something the app cannot read',
+        demo: [
+          workspace('Personal', [[panel('Today')]], [
+            { title: 'Reply to Els', forClaude: [{ destination: 'cowork', label: 'Reply', folder: '', prompt: '' }] },
+          ]),
+        ],
+        says: 'proposed something the app cannot read',
+      },
       {
         why: 'two panels of one dashboard share a name',
         // `panels_dashboard_live_folded_name` is unique on the folded name, so

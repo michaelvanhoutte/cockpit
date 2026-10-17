@@ -117,6 +117,7 @@ function anItem(title: string, proposedPanelId: string | null = null): Item {
     proposedPanelId,
     proposedPanelReason: proposedPanelId ? 'It reads like Falcon work' : null,
     proposedPanelFit: null,
+    claudeProposals: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,

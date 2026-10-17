@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { claudeLinkFor, claudeResultLink, claudeSessionLink, plainPromptFor, type ClaudeDestination } from '../../../src/index.js';
+import {
+  claudeLinkFor,
+  claudeResultLink,
+  claudeSessionLink,
+  plainPromptFor,
+  proposedPromptFor,
+  type ClaudeDestination,
+} from '../../../src/index.js';
 
 /**
  * L1: building the address Claude's desktop app opens at, and assembling the
@@ -101,6 +108,18 @@ describe('Agents', () => {
 
       expect(text).toContain('![the receipt](https://cockpit.test/a/1)');
       expect(text).not.toContain('/v1/attachments/att-1');
+    });
+  });
+
+  describe('a proposed prompt keeps the files and the closing the plain one carries', () => {
+    it('puts the proposed task first, then a link to each file, then the closing naming the run', () => {
+      const png = { id: 'att-1', filename: 'receipt.png', contentType: 'image/png', link: 'https://cockpit.test/a/1' };
+
+      const text = proposedPromptFor({ prompt: '  Draft the reply to Els.  ', attachments: [png], runId: RUN });
+
+      expect(text.startsWith('Draft the reply to Els.\n\nAttachments')).toBe(true);
+      expect(text).toContain('- receipt.png: https://cockpit.test/a/1');
+      expect(text.endsWith(RUN)).toBe(true);
     });
   });
 

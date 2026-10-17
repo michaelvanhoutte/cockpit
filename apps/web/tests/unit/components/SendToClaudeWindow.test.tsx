@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MAX_CLAUDE_LINK_LENGTH } from '@cockpit/shared';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MAX_CLAUDE_LINK_LENGTH, type ClaudeProposal } from '@cockpit/shared';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import SendToClaudeWindow from '../../../src/components/SendToClaudeWindow';
@@ -60,15 +60,20 @@ vi.mock('../../../src/openClaude', () => ({
   openClaude: (link: string) => void held.opened.push(link),
 }));
 
-const ITEM = { id: '018f0000-0000-7000-8000-000000000001', title: 'Pay the invoice', description: 'Due on Friday.' };
+const ITEM = {
+  id: '018f0000-0000-7000-8000-000000000001',
+  title: 'Pay the invoice',
+  description: 'Due on Friday.',
+  claudeProposals: null as ClaudeProposal[] | null,
+};
 const PNG = { id: 'att-1', filename: 'receipt.png', contentType: 'image/png' };
 
-function showWindow(attachments = [PNG]) {
+function showWindow(attachments = [PNG], item = ITEM) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onClose = vi.fn();
   render(
     <QueryClientProvider client={client}>
-      <SendToClaudeWindow item={ITEM} workspaceId="ws-1" attachments={attachments} onClose={onClose} />
+      <SendToClaudeWindow item={item} workspaceId="ws-1" attachments={attachments} onClose={onClose} />
     </QueryClientProvider>,
   );
   return { onClose };
@@ -191,6 +196,70 @@ describe('Agents', () => {
       showWindow();
 
       expect((await screen.findAllByLabelText('Folder')).at(-1)).toHaveValue('/home/me/app');
+    });
+  });
+
+  describe('the window opens on the proposal, and on the plain prompt where there is none', () => {
+    const FIX: ClaudeProposal = {
+      destination: 'code',
+      label: 'Fix the rounding',
+      folder: 'C:\\GitHub\\Billing',
+      prompt: 'In the Billing repository, fix the rounding on invoice totals.',
+    };
+    const REPLY: ClaudeProposal = {
+      destination: 'cowork',
+      label: 'Draft the reply',
+      folder: '',
+      prompt: 'Draft a reply to the supplier saying it is paid.',
+    };
+
+    it('sets the switch, the folder and the prompt to a proposal for Code in a folder', async () => {
+      showWindow([PNG], { ...ITEM, claudeProposals: [FIX] });
+
+      const text = (await prompt()).value;
+
+      expect(screen.getByRole('radio', { name: 'Code' })).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByLabelText('Folder')).toHaveValue('C:\\GitHub\\Billing');
+      expect(text).toMatch(/^In the Billing repository, fix the rounding on invoice totals\.\n\n/);
+      expect(text).not.toContain('Due on Friday.');
+    });
+
+    it('offers both of two proposals, the first chosen, and takes the other when it is picked', async () => {
+      const user = userEvent.setup();
+      showWindow([PNG], { ...ITEM, claudeProposals: [FIX, REPLY] });
+      await prompt();
+      const offered = screen.getByRole('radiogroup', { name: 'Proposed' });
+
+      expect(within(offered).getByRole('radio', { name: /Fix the rounding/ })).toHaveAttribute('aria-checked', 'true');
+      await user.click(within(offered).getByRole('radio', { name: /Draft the reply/ }));
+
+      expect(screen.getByRole('radio', { name: 'Cowork' })).toHaveAttribute('aria-checked', 'true');
+      expect((await prompt()).value).toMatch(/^Draft a reply to the supplier saying it is paid\./);
+    });
+
+    it('leaves the folder empty where the proposal names none, rather than the folder last sent to', async () => {
+      window.localStorage.setItem('cockpit.claudeFolder', 'C:\\GitHub\\Cockpit');
+
+      showWindow([PNG], { ...ITEM, claudeProposals: [REPLY] });
+      await prompt();
+
+      expect(screen.getByLabelText('Folder')).toHaveValue('');
+    });
+
+    it('says when nothing is proposed, with the plain prompt still there to send', async () => {
+      showWindow([PNG], { ...ITEM, claudeProposals: [{ destination: 'nothing', why: 'A quote to keep.' }] });
+
+      expect((await prompt()).value).toMatch(/^Pay the invoice\n\nDue on Friday\./);
+      expect(screen.getByText(/Cockpit proposes nothing to do: A quote to keep\./)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Open in Cowork/ })).toBeEnabled();
+    });
+
+    it('starts on the plain prompt where nothing has been proposed yet', async () => {
+      showWindow([PNG], { ...ITEM, claudeProposals: null });
+
+      expect((await prompt()).value).toMatch(/^Pay the invoice\n\nDue on Friday\./);
+      expect(screen.queryByRole('radiogroup', { name: 'Proposed' })).not.toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Cowork' })).toHaveAttribute('aria-checked', 'true');
     });
   });
 });

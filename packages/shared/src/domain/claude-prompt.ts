@@ -100,3 +100,18 @@ export function plainPromptFor(item: {
   const { description, section } = attachmentsForClaude(item.description, item.attachments);
   return [item.title, description.trim(), section, claudeClosingFor(item.runId)].filter(Boolean).join('\n\n');
 }
+
+/**
+ * The prompt a send starts as where Cockpit proposed one ("Propose what to do
+ * with each item before you look", issue 1161): the proposed task in place of
+ * the Item's own words, then the same link to each file and the same closing
+ * as the plain prompt - neither is the model's to write or to leave out.
+ */
+export function proposedPromptFor(proposal: {
+  prompt: string;
+  attachments: readonly AttachmentForAgent[];
+  runId: string;
+}): string {
+  const { section } = attachmentsForClaude(null, proposal.attachments);
+  return [proposal.prompt.trim(), section, claudeClosingFor(proposal.runId)].filter(Boolean).join('\n\n');
+}

@@ -93,6 +93,7 @@ import {
 import {
   CannotReadMeaningError,
   enqueueCleanUp,
+  enqueueProposalForClaude,
   enqueueReadingItsMeaning,
   enqueueRepropose,
   enqueueGuestArrivals,
@@ -1126,6 +1127,8 @@ async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'a
   if (result.settledRouting) {
     c.executionCtx.waitUntil(enqueueRepropose(c.env, accountName, payload.workspaceId));
   }
+  // Any filing, settling or not, changes the Panel a proposal for Claude is made from (issue 1161).
+  if (result.applied) c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, payload.itemId, 'item-changed'));
   return result;
 }
 
@@ -1137,9 +1140,10 @@ async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'a
  * this account writes ("Learn how you write from the titles you correct",
  * issue 394).
  *
- * **A correction queues nothing but the re-reading of what the Item means.**
- * What it teaches reaches later captures only; the Items already in the Inbox
- * keep the texts they have ("Cut what cleaning up a captured note costs",
+ * **A correction queues the re-reading of what the Item means, and of what to
+ * do with it** ("Propose what to do with each item before you look", issue
+ * 1161), and nothing else: what it teaches reaches later captures only; the
+ * Items already in the Inbox keep the texts they have ("Cut what cleaning up a captured note costs",
  * issue 887).
  *
  * **The form showing the duplicates is where a stale answer would show up
@@ -1161,6 +1165,7 @@ async function changeThatRewritesTheTexts<N extends 'set_title' | 'set_descripti
   const result = await change(c, name, payload);
   if (result.applied) {
     c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, payload.itemId));
+    c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, payload.itemId, 'item-changed'));
   }
   return result;
 }
@@ -1831,6 +1836,8 @@ const routes = app
       // it lands, whether or not this environment can also clean it up. Where
       // it can, the cleanup's own rewrite queues a second read of its own.
       c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, captured.itemId, 'captured-in-app'));
+      // And what to do with it, debounced so the cleanup's rewrite takes this ask's place (issue 1161).
+      c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, captured.itemId, 'captured-in-app'));
     }
     return c.json(result, 200);
   })
@@ -2584,6 +2591,7 @@ const routes = app
         filed: (accountName, itemId, filedBy) => {
           c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, itemId, `connector:${filedBy}`));
           c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, itemId, `connector:${filedBy}`));
+          c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, itemId, `connector:${filedBy}`));
         },
       }),
     );

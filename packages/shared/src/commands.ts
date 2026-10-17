@@ -30,6 +30,7 @@ import {
   claudeResultLink,
   claudeSessionLink,
 } from './domain/claude-send.js';
+import { claudeProposalsSchema } from './domain/claude-proposal.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import {
   filterConditionSchema,
@@ -753,6 +754,19 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
   });
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
+/**
+ * propose_item_for_claude - what Cockpit proposes doing with an Item, sent by
+ * the enrichment job ("Propose what to do with each item before you look",
+ * issue 1161), replacing whatever the Item carried. `madeFrom` is the Item's
+ * `updatedAt` as the job read it: an Item changed since is left alone, since
+ * its own change queued the proposal that will replace this one.
+ */
+export const proposeItemForClaudeSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  proposals: claudeProposalsSchema,
+  madeFrom: z.iso.datetime(),
+});
+export type ProposeItemForClaudeCommand = z.infer<typeof proposeItemForClaudeSchema>;
 /** The most Panels one note is filed on; the job sends no more, so a long answer never fails the whole reading (issue 1116). */
 export const PANELS_A_NOTE_FILES_ON = 20;
 
@@ -968,6 +982,7 @@ export const commandSchemas = {
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
   propose_item_fields: proposeItemFieldsSchema,
+  propose_item_for_claude: proposeItemForClaudeSchema,
   connect_source_account: connectSourceAccountSchema,
   disconnect_source_account: disconnectSourceAccountSchema,
   set_connection_choice: setConnectionChoiceSchema,
@@ -988,6 +1003,7 @@ export type SelfSentCommandName =
   | 'propose_item_texts'
   | 'propose_item_panel'
   | 'propose_item_fields'
+  | 'propose_item_for_claude'
   // Sent by the callback Microsoft returns to, which is a navigation rather
   // than a request a page makes - and which carries a sealed credential no
   // browser may ever hand over (see `connectSourceAccountSchema` above).
