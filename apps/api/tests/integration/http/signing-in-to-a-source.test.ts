@@ -303,8 +303,8 @@ describe('Connector management', () => {
           choice: {
             question: 'Bring in conversations',
             options: [
-              { value: 'label', label: 'Labelled Cockpit' },
-              { value: 'star', label: 'Starred (flagged in Outlook)' },
+              { value: 'label', label: 'Labelled Cockpit', listed: 'labelled Cockpit' },
+              { value: 'star', label: 'Starred (flagged in Outlook)', listed: 'starred' },
             ],
           },
           names: { noun: 'label', example: 'a conversation labelled' },
@@ -319,8 +319,8 @@ describe('Connector management', () => {
           choice: {
             question: 'Bring in messages',
             options: [
-              { value: 'flag', label: 'Flagged' },
-              { value: 'category', label: 'Category Cockpit' },
+              { value: 'flag', label: 'Flagged', listed: 'flagged' },
+              { value: 'category', label: 'Category Cockpit', listed: 'with category Cockpit' },
             ],
           },
           names: { noun: 'category', example: 'a message with the category' },

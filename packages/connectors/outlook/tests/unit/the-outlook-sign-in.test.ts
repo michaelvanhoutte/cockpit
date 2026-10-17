@@ -47,8 +47,8 @@ describe('Connector management', () => {
 
     it('offers the flag to start, and the category Cockpit as the other choice', () => {
       expect(connector.manifest.choice?.options).toEqual([
-        { value: 'flag', label: 'Flagged' },
-        { value: 'category', label: 'Category Cockpit' },
+        { value: 'flag', label: 'Flagged', listed: 'flagged' },
+        { value: 'category', label: 'Category Cockpit', listed: 'with category Cockpit' },
       ]);
       expect(connector.manifest).toMatchObject({ pulled: true });
     });

@@ -20,6 +20,8 @@ export interface CheckDid {
   closed: string[];
   sentBack: string[];
   refused: string[];
+  /** How many source ids the check's complete listing held (issue 1196); absent where it saw none. Not something done, so `didAnything` ignores it. */
+  listed?: number;
 }
 
 /** How a check ended, as its line records it. */
@@ -102,7 +104,7 @@ export function didAnything(did: CheckDid): boolean {
  * connection brought in, closed and sent back", issue 1141): each kind's exact
  * count and its first Items, each Item once; null where it did nothing.
  */
-export function keptDid(did: CheckDid): Record<keyof CheckDid, DidKept> | null {
+export function keptDid(did: CheckDid): Record<Exclude<keyof CheckDid, 'listed'>, DidKept> | null {
   if (!didAnything(did)) return null;
   const kept = (ids: readonly string[]): DidKept => {
     const once = [...new Set(ids)];

@@ -354,3 +354,72 @@ describe('Connector management', () => {
     });
   });
 });
+
+describe('Connector management', () => {
+  describe('a check’s line says how many messages its complete listing returned', () => {
+    const lists = (...sourceIds: string[]) => (host: ConnectorHost) =>
+      host.reportCompleteListing({ choice: 'flag', sourceIds });
+    const listed = async (id: string) => (await linesOf(id)).map((line) => (line as Line & { listed: number | null }).listed);
+
+    it.each([
+      { situation: 'a listing of two, nothing brought in', script: lists('a', 'b'), listed: 2, broughtIn: 0 },
+      { situation: 'a listing of none', script: lists(), listed: 0, broughtIn: 0 },
+      {
+        situation: 'a check that brought one in, listing three',
+        script: async (host: ConnectorHost) => {
+          await host.emitItem(aPage('a'));
+          await lists('a', 'b', 'c')(host);
+        },
+        listed: 3,
+        broughtIn: 1,
+      },
+      { situation: 'a listing that stopped between pages, so none was reported', script: bringsIn(), listed: null, broughtIn: 0 },
+      {
+        situation: 'a listing followed by a failure',
+        script: async (host: ConnectorHost) => {
+          await lists('a', 'b')(host);
+          throw new Error('the source stopped answering');
+        },
+        listed: null,
+        broughtIn: 0,
+      },
+    ])('$situation', async ({ script, listed: expected, broughtIn }) => {
+      runsIn(script);
+      const id = await connect();
+      await queuedCheckRuns();
+
+      const [line] = await linesOf(id);
+      expect((line as Line & { listed: number | null }).listed).toBe(expected);
+      expect(line!.did.broughtIn.count).toBe(broughtIn);
+    });
+
+    it('quiet checks in a row fold into one line showing the newest count', async () => {
+      runsIn(lists('a', 'b'), lists('a', 'b', 'c'));
+      const id = await connect();
+      await queuedCheckRuns();
+      await nextCheckRuns();
+
+      const lines = await linesOf(id);
+      expect(lines.map((line) => line.count)).toEqual([2]);
+      expect(await listed(id)).toEqual([3]);
+    });
+
+    it('a Check now after a quiet check is a line of its own with its own count', async () => {
+      runsIn(lists('a', 'b'), lists('a'));
+      const id = await connect();
+      await queuedCheckRuns();
+      const pressed = await asUser(
+        `http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/${id}/check-now`,
+        { method: 'POST' },
+      );
+      expect(pressed.status).toBe(200);
+      await queuedCheckRuns();
+
+      const lines = await linesOf(id);
+      expect(lines.map((line) => [line.count, (line as Line & { listed: number | null }).listed])).toEqual([
+        [1, 1],
+        [1, 2],
+      ]);
+    });
+  });
+});

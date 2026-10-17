@@ -173,6 +173,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     CLAUDE_SENDS,
     REMEMBERED_SENTENCES,
     AGENTS_REMEMBERED,
+    CONNECTION_HISTORY_LISTED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -982,6 +983,29 @@ const AGENTS_REMEMBERED: Change = {
       sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `remembered_sentences_one_per_agent` ON `remembered_sentences` (`agent_id`) WHERE `agent_id` IS NOT NULL',
     },
   ],
+};
+
+/**
+ * How many messages a pulled check's complete listing returned ("Say how many
+ * messages each pulled check listed, on its history line", issue 1196): one
+ * nullable column on `connection_history`; `schema.ts` says what it holds.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, no statement that reads or writes a row.
+ * - **Stopped halfway, or run twice:** a single statement in one transaction;
+ *   SQLite refuses a column that already exists.
+ * - **Rows that predate it:** take null, which reads as no count. Nothing is
+ *   backfilled, and lines already folded stay folded.
+ * - **What is in each environment:** staging and production keep every line
+ *   whole, each now reading NULL.
+ * - **Rolled back after it has run:** an older release never names the column;
+ *   its lines record no count, and the column stays.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTION_HISTORY_LISTED: Change = {
+  name: '0088-connection-history-listed',
+  statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `listed` integer' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

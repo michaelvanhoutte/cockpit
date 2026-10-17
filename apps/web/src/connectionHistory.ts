@@ -102,8 +102,13 @@ function headingFor(at: Date, now: Date): string {
   });
 }
 
-/** One line in words. */
-export function lineShown(line: ConnectionHistoryLine): HistoryLineShown {
+/**
+ * One line in words. `listed` is what the connection's mark counts in its
+ * connector's words (*flagged*), which a line that worked says beside how many
+ * its complete listing returned (issue 1196); without it, or on a line with no
+ * count, no count is said.
+ */
+export function lineShown(line: ConnectionHistoryLine, listed?: string): HistoryLineShown {
   const folded = line.count > 1;
   const failed = line.outcome === 'failed';
   const message = line.message === null ? null : line.messageCut ? `${line.message}…` : line.message;
@@ -129,7 +134,11 @@ export function lineShown(line: ConnectionHistoryLine): HistoryLineShown {
   }));
   // The source's status stands before its message, as given (issue 1142).
   const answered = failed && line.status !== null ? [`HTTP ${line.status}`, message].filter((part) => part !== null).join(' · ') : message;
-  const parts = [folded ? null : (REASONS[line.reason] ?? null), summary || null, answered].filter(
+  const counted =
+    !failed && listed !== undefined && line.listed !== null
+      ? `${line.listed} ${listed}${folded || summary ? '' : ', nothing new'}`
+      : null;
+  const parts = [folded ? null : (REASONS[line.reason] ?? null), summary || null, counted, answered].filter(
     (part) => part !== null,
   );
   return {
@@ -150,7 +159,12 @@ export function lineShown(line: ConnectionHistoryLine): HistoryLineShown {
  * shown where `olderRemain`, since the read stopped partway through it and a
  * failure it did not carry could be that day's.
  */
-export function historyDays(lines: readonly ConnectionHistoryLine[], now: Date, olderRemain: boolean): HistoryDay[] {
+export function historyDays(
+  lines: readonly ConnectionHistoryLine[],
+  now: Date,
+  olderRemain: boolean,
+  listed?: string,
+): HistoryDay[] {
   const days: { key: string; at: Date; held: ConnectionHistoryLine[] }[] = [];
   for (const line of lines) {
     const at = new Date(line.lastAt);
@@ -161,7 +175,7 @@ export function historyDays(lines: readonly ConnectionHistoryLine[], now: Date, 
   return days.map(({ key, at, held }, index) => ({
     key,
     heading: headingFor(at, now),
-    lines: held.map(lineShown),
+    lines: held.map((line) => lineShown(line, listed)),
     folded: at < today && !(olderRemain && index === days.length - 1) ? foldedDay(held, at) : null,
   }));
 }

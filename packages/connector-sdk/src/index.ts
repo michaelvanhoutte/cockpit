@@ -82,7 +82,12 @@ export interface ConnectionChoice {
   /** What the window asks, e.g. "Bring in conversations". */
   question: string;
   /** At least one; the first is the one offered to start. */
-  options: readonly { value: string; label: string }[];
+  options: readonly {
+    value: string;
+    label: string;
+    /** What a complete listing under this option counts, said after the number (*flagged*, *with category Cockpit*); absent: a history line gives no count for it. */
+    listed?: string;
+  }[];
 }
 
 /**
