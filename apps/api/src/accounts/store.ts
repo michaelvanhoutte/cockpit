@@ -40,7 +40,7 @@ import {
 } from './call-window.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
-import { connectionHistoryOf } from './connection-history.js';
+import { capturePushed, connectionHistoryOf, recordPushFailed } from './connection-history.js';
 import type { CheckDid } from '../domain/connection-history.js';
 import {
   applyPulledSourceChange,
@@ -925,6 +925,32 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       await this.#arm(accountName);
     }
     return answer;
+  }
+
+  /**
+   * Files a delivery a source pushed, attributed to one connection, with the
+   * line naming the Item it made in the same transaction (issue 1144).
+   */
+  capturePushed(
+    accountName: string,
+    sourceAccountId: string,
+    capture: CommandPayload<'capture_item'>,
+  ): Answer<CommandResult> {
+    return this.#answer(accountName, (db) =>
+      capturePushed(db, accountName, sourceAccountId, capture, new Date().toISOString()),
+    );
+  }
+
+  /** Writes the *Failed* line of a delivery that failed after it was attributed to a connection (issue 1144). */
+  pushFailed(
+    accountName: string,
+    sourceAccountId: string,
+    failure: { message: string; status: number | null },
+  ): Answer<null> {
+    return this.#answer(accountName, (db) => {
+      recordPushFailed(db, accountName, sourceAccountId, failure, new Date().toISOString());
+      return null;
+    });
   }
 
   /**

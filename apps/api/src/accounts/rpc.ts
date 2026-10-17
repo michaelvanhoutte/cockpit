@@ -319,6 +319,18 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     workspaceId: string,
     sourceAccountId: string,
   ): Awaitable<Answer<ConnectionHistoryLine[]>>;
+  /** A delivery a source pushed to one connection, filed with its history line in one transaction (issue 1144). */
+  capturePushed(
+    accountName: string,
+    sourceAccountId: string,
+    capture: CommandPayload<'capture_item'>,
+  ): Awaitable<Answer<CommandResult>>;
+  /** A delivery that failed after it was attributed to a connection, as its *Failed* line (issue 1144). */
+  pushFailed(
+    accountName: string,
+    sourceAccountId: string,
+    failure: { message: string; status: number | null },
+  ): Awaitable<Answer<null>>;
   changesSince(
     accountName: string,
     since: string,

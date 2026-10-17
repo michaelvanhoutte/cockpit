@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, type JWTVerifyGetKey } from 'jose';
-import type { Connector, PushHost } from '@cockpit/connector-sdk';
+import { SourceError, type Connector, type PushHost } from '@cockpit/connector-sdk';
 import {
   bearerToken,
   OPEN_ID_METADATA_URL,
@@ -170,7 +170,7 @@ async function bodyOf(request: Request): Promise<unknown> {
  */
 const keysByMetadataUrl = new Map<string, JWTVerifyGetKey>();
 
-function botFrameworkKeys(metadataUrl: string): JWTVerifyGetKey {
+export function botFrameworkKeys(metadataUrl: string): JWTVerifyGetKey {
   const held = keysByMetadataUrl.get(metadataUrl);
   if (held) return held;
 
@@ -178,7 +178,8 @@ function botFrameworkKeys(metadataUrl: string): JWTVerifyGetKey {
   const getKey: JWTVerifyGetKey = async (header, input) => {
     keys ??= (async () => {
       const answer = await fetch(metadataUrl);
-      if (!answer.ok) throw new Error(`the Bot Framework's keys could not be read: ${answer.status}`);
+      // The status as the Bot Framework answered it, in words that name no address (issue 1144).
+      if (!answer.ok) throw new SourceError(`The Bot Framework's keys could not be read: ${answer.status}`, answer.status);
       const metadata = (await answer.json()) as { jwks_uri?: unknown };
       if (typeof metadata.jwks_uri !== 'string') {
         throw new Error("the Bot Framework's metadata names no key set");

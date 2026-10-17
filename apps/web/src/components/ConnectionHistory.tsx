@@ -65,14 +65,16 @@ export function ConnectionHistory({
       </div>
       <div className="mt-2 flex items-center gap-3">
         <h3 className="min-w-0 flex-1 text-sm font-medium">History of {account.displayName}</h3>
-        <button
-          type="button"
-          onClick={onCheckNow}
-          disabled={checkNowPending}
-          className="shrink-0 rounded-md border border-shade/10 px-3 py-1 text-sm hover:bg-shade/5 disabled:opacity-50"
-        >
-          Check now
-        </button>
+        {account.pulled && (
+          <button
+            type="button"
+            onClick={onCheckNow}
+            disabled={checkNowPending}
+            className="shrink-0 rounded-md border border-shade/10 px-3 py-1 text-sm hover:bg-shade/5 disabled:opacity-50"
+          >
+            Check now
+          </button>
+        )}
       </div>
       {checkNowNote && (
         <p
@@ -84,7 +86,7 @@ export function ConnectionHistory({
       )}
       <div className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto px-2">
         {error && !data && <LoadFailure error={error} onRetry={() => void refetch()} />}
-        {data && data.lines.length === 0 && <p className="py-2 text-sm text-ink-faint">No checks yet.</p>}
+        {data && data.lines.length === 0 && <p className="py-2 text-sm text-ink-faint">{account.pulled ? 'No checks yet.' : 'Nothing delivered yet.'}</p>}
         {data &&
           historyDays(data.lines, new Date()).map((day) => (
             <section key={day.key} aria-label={day.heading} className="mt-3 first:mt-0">

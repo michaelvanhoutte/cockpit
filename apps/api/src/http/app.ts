@@ -152,8 +152,8 @@ import {
   signInAsGuest,
   signInWithGoogle,
 } from '../auth/register.js';
-import { connectors, getConnector, pulledConnectorIds, sourceNames } from '../connectors/registry.js';
-import { pushHostFor } from '../connectors/push-host.js';
+import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
+import { handlePush } from '../connectors/push-host.js';
 import { connectionsFor, forgetConnection, rememberConnection } from '../connectors/directory.js';
 import {
   HOOK_BODY_LIMIT_BYTES,
@@ -1357,18 +1357,22 @@ const routes = app
     // connections, the same reasoning the attachment download route records.
     // A described source's choice is stored as its value, and said in its
     // connector's words here, where the registry is known (issue 942).
-    // A pulled connection's checks are what its history holds (issue 1140).
+    // A pulled connection's checks are what its history holds (issue 1140), and
+    // a pushed one's deliveries (issue 1144); only a pulled one can be checked.
     const pulled = pulledConnectorIds(c.env);
+    const pushed = pushedConnectorIds(c.env);
     return c.json(
       {
         sourceAccounts: (await account.sourceAccounts(workspaceId)).map((held) => {
           const options = choiceOptionsOf(c.env, held.connectorId);
           const label = options?.find((option) => option.value === held.follows)?.label;
-          const keepsHistory = pulled.includes(held.connectorId);
+          const isPulled = pulled.includes(held.connectorId);
+          const keepsHistory = isPulled || pushed.includes(held.connectorId);
           return {
             ...held,
             ...(label === undefined ? {} : { followsLabel: label }),
             ...(keepsHistory ? { keepsHistory } : {}),
+            ...(isPulled ? { pulled: true } : {}),
           };
         }),
       },
@@ -2621,17 +2625,14 @@ const routes = app
     if (!connector?.handleWebhook) {
       return c.json({ error: 'unknown connector' }, 404);
     }
-    return connector.handleWebhook(
-      c.req.raw,
-      pushHostFor(connector.manifest.id, {
-        env: c.env,
-        filed: (accountName, itemId, filedBy) => {
-          c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, itemId, `connector:${filedBy}`));
-          c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, itemId, `connector:${filedBy}`));
-          c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, itemId, `connector:${filedBy}`));
-        },
-      }),
-    );
+    return handlePush(connector, c.req.raw, {
+      env: c.env,
+      filed: (accountName, itemId, filedBy) => {
+        c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, itemId, `connector:${filedBy}`));
+        c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, itemId, `connector:${filedBy}`));
+        c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, itemId, `connector:${filedBy}`));
+      },
+    });
   })
   // --- the operator's backup routes ------------------------------------------
   // Behind the secret in `auth/operator.ts` and outside the sign-in gate, because

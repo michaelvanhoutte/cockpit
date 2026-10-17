@@ -1066,7 +1066,10 @@ describe('Connector management', () => {
     filesByName: false,
     failingBecause: null,
     keepsHistory: true,
+    pulled: true,
   };
+  /** A Teams connection: the source pushes to it, so it keeps a history and has nothing to check (issue 1144). */
+  const PUSHED: SourceAccount = { ...ADA, keepsHistory: true };
   /** A moment of the day, in this machine's own time, as the view reads it. */
   const at = (day: number, hour: number, minute: number) => new Date(2026, 9, day, hour, minute).toISOString();
   const none = { count: 0, items: [] as { id: string; title: string | null; dismissed: boolean }[] };
@@ -1096,7 +1099,8 @@ describe('Connector management', () => {
       { situation: 'a connected Gmail row', account: ANNA, offered: true },
       { situation: 'a connected Outlook row', account: { ...ANNA, connectorId: 'outlook' }, offered: true },
       { situation: 'the Claude Code row', account: CLAUDE, offered: false },
-      { situation: 'a Teams row, which keeps none yet', account: ADA, offered: false },
+      { situation: 'a Teams row, which pushes and keeps a history', account: PUSHED, offered: true },
+      { situation: 'a row of a connector that keeps none', account: ADA, offered: false },
     ])('$situation', async ({ account, offered }) => {
       held.sourceAccounts = [account];
       showWindow();
@@ -1136,7 +1140,8 @@ describe('Connector management', () => {
       { situation: 'a connected Gmail row', account: ANNA, offered: true },
       { situation: 'a connected Outlook row', account: { ...ANNA, connectorId: 'outlook' }, offered: true },
       { situation: 'the Claude Code row', account: CLAUDE, offered: false },
-      { situation: 'a Teams row, which keeps no history', account: ADA, offered: false },
+      { situation: 'a Teams row, which is pushed to and has nothing to check', account: PUSHED, offered: false },
+      { situation: 'a row of a connector that keeps no history', account: ADA, offered: false },
     ])('$situation', async ({ account, offered }) => {
       held.sourceAccounts = [account];
       showWindow();
@@ -1145,6 +1150,16 @@ describe('Connector management', () => {
 
       expect(await screen.findByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
       expect(screen.queryByRole('menuitem', { name: 'Check now' }) !== null).toBe(offered);
+    });
+
+    it('has no Check now at the head of a pushed connection’s history', async () => {
+      held.sourceAccounts = [PUSHED];
+      showWindow();
+
+      const history = await openHistory(PUSHED);
+
+      expect(within(history).queryByRole('button', { name: 'Check now' })).toBeNull();
+      expect(await within(history).findByText('Nothing delivered yet.')).toBeInTheDocument();
     });
 
     it('asks for the check of the row it was pressed on, and says so on the list', async () => {

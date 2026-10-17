@@ -325,6 +325,10 @@ export interface Account {
   claudeCodeHookArrival(workspaceId: string, sourceAccountId: string): Promise<{ lastArrivedAt: string | null }>;
   /** One connection of this Workspace's history, newest line first (issue 1140). */
   connectionHistory(workspaceId: string, sourceAccountId: string): Promise<ConnectionHistoryLine[]>;
+  /** A delivery a source pushed to one of this account's connections, filed with its history line (issue 1144). */
+  capturePushed(sourceAccountId: string, capture: CommandPayload<'capture_item'>): Promise<CommandResult>;
+  /** A delivery that failed after it was attributed to a connection, as its *Failed* line (issue 1144). */
+  pushFailed(sourceAccountId: string, failure: { message: string; status: number | null }): Promise<void>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
   applyChange<N extends CommandName>(
     name: N,
@@ -458,6 +462,11 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.claudeCodeHookArrival(accountName, workspaceId, sourceAccountId)),
     connectionHistory: async (workspaceId, sourceAccountId) =>
       unwrap(await store.connectionHistory(accountName, workspaceId, sourceAccountId)),
+    capturePushed: async (sourceAccountId, capture) =>
+      unwrap(await store.capturePushed(accountName, sourceAccountId, capture)),
+    pushFailed: async (sourceAccountId, failure) => {
+      unwrap(await store.pushFailed(accountName, sourceAccountId, failure));
+    },
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
     beginPulledRun: async (sourceAccountId) => unwrap(await store.beginPulledRun(accountName, sourceAccountId)),

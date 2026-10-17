@@ -145,6 +145,13 @@ export function pulledConnectorIds(env: Env): string[] {
     .map((c) => c.manifest.id);
 }
 
+/** The connectors a source pushes to, whose connections keep a line per delivery (issue 1144). */
+export function pushedConnectorIds(env: Env): string[] {
+  return connectors(env)
+    .filter((c) => c.manifest.supportsPush && typeof c.handleWebhook === 'function')
+    .map((c) => c.manifest.id);
+}
+
 /** The pulled connectors that mirror an Item's open state back to their source - declared and able to, since a change recorded for one that cannot is never confirmed (issue 893). */
 export function mirroringConnectorIds(env: Env): string[] {
   return connectors(env)
