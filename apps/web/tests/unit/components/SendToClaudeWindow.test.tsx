@@ -21,6 +21,9 @@ const held = vi.hoisted(() => ({
   sent: [] as unknown[],
   opened: [] as string[],
   sendFails: null as string | null,
+  /** The runs an offer to remember was asked for, and what the server answers to it. */
+  offersAsked: [] as string[],
+  offer: null as (() => Promise<Response>) | null,
 }));
 
 vi.mock('../../../src/api/client', () => ({
@@ -28,6 +31,16 @@ vi.mock('../../../src/api/client', () => ({
     v1: {
       'connected-apps': {
         $get: () => Promise.resolve(new Response(JSON.stringify({ apps: held.apps }))),
+      },
+      'claude-sends': {
+        ':runId': {
+          'remember-offer': {
+            $post: (args: { param: { runId: string } }) => {
+              held.offersAsked.push(args.param.runId);
+              return held.offer ? held.offer() : Promise.resolve(new Response(JSON.stringify({ offer: null })));
+            },
+          },
+        },
       },
       'attachment-links': {
         $post: () => Promise.resolve(new Response(JSON.stringify({ links: held.links }))),
@@ -100,6 +113,8 @@ beforeEach(() => {
   held.sent = [];
   held.opened = [];
   held.sendFails = null;
+  held.offersAsked = [];
+  held.offer = null;
   try {
     window.localStorage.clear();
   } catch {
@@ -304,6 +319,151 @@ describe('Agents', () => {
       expect((await prompt()).value).toMatch(/^Pay the invoice\n\nDue on Friday\./);
       expect(screen.queryByRole('radiogroup', { name: 'Proposed' })).not.toBeInTheDocument();
       expect(screen.getByRole('radio', { name: 'Cowork' })).toHaveAttribute('aria-checked', 'true');
+    });
+  });
+});
+describe('Agents', () => {
+  describe('after an edit the window offers one sentence to remember, and keeps it only when told to', () => {
+    const REPLY: ClaudeProposal = {
+      destination: 'cowork',
+      label: 'Draft the reply',
+      folder: '',
+      prompt: 'Draft a reply to the supplier saying it is paid.',
+    };
+    const OFFER = {
+      sentence: 'Mails to the supplier: Dutch, short, signed Michael.',
+      action: 'reply to a mail',
+      workspaceId: null as string | null,
+      workspaceName: null as string | null,
+      sourceKind: 'gmail',
+    };
+    const offerArrives = (offer: typeof OFFER | null) => {
+      held.offer = () => Promise.resolve(new Response(JSON.stringify({ offer })));
+    };
+
+    /** The window opened on a proposal, edited, and Open pressed. */
+    async function openedAfterEditing() {
+      const user = userEvent.setup();
+      const { onClose } = showWindow([], { ...ITEM, claudeProposals: [REPLY] });
+      const box = await prompt();
+      await user.clear(box);
+      await user.type(box, 'Schrijf kort een antwoord.');
+      await user.click(screen.getByRole('button', { name: /Open in Cowork/ }));
+      return { user, onClose };
+    }
+
+    it('asks nothing, and closes as it always did, where the proposal was sent as it was', async () => {
+      const user = userEvent.setup();
+      const { onClose } = showWindow([], { ...ITEM, claudeProposals: [REPLY] });
+      await prompt();
+
+      await user.click(screen.getByRole('button', { name: /Open in Cowork/ }));
+
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(held.offersAsked).toEqual([]);
+    });
+
+    it('asks nothing where nothing was proposed to edit', async () => {
+      const user = userEvent.setup();
+      const { onClose } = showWindow([], { ...ITEM, claudeProposals: null });
+      const box = await prompt();
+      await user.clear(box);
+      await user.type(box, 'Pay it.');
+
+      await user.click(screen.getByRole('button', { name: /Open in Cowork/ }));
+
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(held.offersAsked).toEqual([]);
+    });
+
+    it('opens Claude first, then shows the sentence when the answer arrives', async () => {
+      let answer: (response: Response) => void = () => {};
+      held.offer = () => new Promise<Response>((resolve) => (answer = resolve));
+
+      const { onClose } = await openedAfterEditing();
+
+      await waitFor(() => expect(held.opened).toHaveLength(1));
+      expect(await screen.findByText(/Looking at what you changed/)).toBeInTheDocument();
+      expect(screen.queryByLabelText('Remember this?')).not.toBeInTheDocument();
+      expect(onClose).not.toHaveBeenCalled();
+
+      answer(new Response(JSON.stringify({ offer: OFFER })));
+
+      expect(await screen.findByLabelText('Remember this?')).toHaveValue(OFFER.sentence);
+      expect(held.sent).toHaveLength(1);
+    });
+
+    it('keeps the sentence as it is on Remember, for every workspace', async () => {
+      offerArrives(OFFER);
+      const { user, onClose } = await openedAfterEditing();
+      await screen.findByLabelText('Remember this?');
+
+      await user.click(screen.getByRole('button', { name: 'Remember' }));
+
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(held.sent[1]).toEqual({
+        name: 'remember_sentence',
+        payload: expect.objectContaining({
+          workspaceId: 'account',
+          sentence: OFFER.sentence,
+          action: 'reply to a mail',
+          sourceKind: 'gmail',
+        }),
+      });
+    });
+
+    it('keeps the sentence as reworded, and for the workspace it names', async () => {
+      offerArrives({ ...OFFER, workspaceId: '018f0000-0000-7000-8000-0000000000aa', workspaceName: 'Northwind' });
+      const { user, onClose } = await openedAfterEditing();
+      const box = await screen.findByLabelText('Remember this?');
+      expect(screen.getByText(/in Northwind only/)).toBeInTheDocument();
+      await user.clear(box);
+      await user.type(box, 'Supplier mails: Dutch.');
+
+      await user.click(screen.getByRole('button', { name: 'Remember' }));
+
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(held.sent[1]).toEqual({
+        name: 'remember_sentence',
+        payload: expect.objectContaining({ workspaceId: '018f0000-0000-7000-8000-0000000000aa', sentence: 'Supplier mails: Dutch.' }),
+      });
+    });
+
+    it('keeps nothing on Just this once', async () => {
+      offerArrives(OFFER);
+      const { user, onClose } = await openedAfterEditing();
+      await screen.findByLabelText('Remember this?');
+
+      await user.click(screen.getByRole('button', { name: 'Just this once' }));
+
+      expect(onClose).toHaveBeenCalled();
+      expect(held.sent).toHaveLength(1);
+    });
+
+    it('keeps nothing where the window is closed with the offer showing', async () => {
+      offerArrives(OFFER);
+      const { user, onClose } = await openedAfterEditing();
+      await screen.findByLabelText('Remember this?');
+
+      await user.keyboard('{Escape}');
+
+      expect(onClose).toHaveBeenCalled();
+      expect(held.sent).toHaveLength(1);
+    });
+
+    it.each([
+      { situation: 'the server finds nothing worth remembering', offer: () => Promise.resolve(new Response(JSON.stringify({ offer: null }))) },
+      { situation: 'the request fails', offer: () => Promise.reject(new Error('offline')) },
+      { situation: 'the server answers with an error', offer: () => Promise.resolve(new Response('no', { status: 500 })) },
+    ])('closes with nothing asked of the person, and Claude already opened, where $situation', async ({ offer }) => {
+      held.offer = offer;
+
+      const { onClose } = await openedAfterEditing();
+
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(held.opened).toHaveLength(1);
+      expect(held.sent).toHaveLength(1);
+      expect(screen.queryByLabelText('Remember this?')).not.toBeInTheDocument();
     });
   });
 });

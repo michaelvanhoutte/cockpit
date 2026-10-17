@@ -1,7 +1,8 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, hookNamesSession } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, hookNamesSession, REMEMBERED_SENTENCES_KEPT } from '@cockpit/shared';
 import { CLAUDE_CODE } from '../domain/named-sources.js';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
+import { LINK_OR_COMMAND, folded, pointsSomewhere } from '../domain/pointing.js';
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
 import {
@@ -50,6 +51,8 @@ import {
   listHiddenAgents,
   openAgentRunOn,
   recordClaudeSend,
+  rememberSentence,
+  countSentencesUsed,
   openRunsWithSessions,
   listFilingsOnPanel,
   listLayoutIds,
@@ -194,6 +197,14 @@ export class AttachmentIdTakenError extends Error {
   constructor(attachmentId: string) {
     super(`attachment ${attachmentId} already names a different upload`);
     this.name = 'AttachmentIdTakenError';
+  }
+}
+
+/** A sentence to remember that is refused, in the words the person is told (issue 1163). */
+export class SentenceRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SentenceRefusedError';
   }
 }
 
@@ -1845,6 +1856,9 @@ export function runCommand<N extends CommandName>(
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
+          // Counted only for a proposal that was written, so a replay or a
+          // proposal discarded for a later change uses nothing (issue 1163).
+          countSentencesUsed(tx, tenantId, cmd.usedSentenceIds ?? [], cmd.issuedAt);
           tx.insert(commands).values(commandRow).run();
         });
       }
@@ -1929,6 +1943,37 @@ export function runCommand<N extends CommandName>(
 
       db.transaction((tx) => {
         settleDuplicate(tx, tenantId, pairOf(cmd.itemId, cmd.otherItemId), cmd.settled, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'remember_sentence': {
+      const cmd = payload as CommandPayload<'remember_sentence'>;
+      const workspaceId = cmd.workspaceId === ACCOUNT_WIDE ? null : cmd.workspaceId;
+      // A sentence naming a Workspace that is gone has nothing to apply to.
+      if (workspaceId !== null && !getWorkspace(db, tenantId, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+      // A sentence is for every Workspace's proposals unless it names one, and
+      // what it changes is proposals, which no tab draws from the stream.
+      everyWorkspaceSees(commandRow);
+      // Read as an offer is read, though the person confirmed it: it is shown
+      // to every later proposal, and what they confirm may have been pasted.
+      const sentence = cmd.sentence.replace(/\s+/g, ' ').trim();
+      const action = cmd.action.replace(/\s+/g, ' ').trim();
+      if (sentence === '' || pointsSomewhere(sentence) || pointsSomewhere(action) || LINK_OR_COMMAND.test(folded(sentence))) {
+        throw new SentenceRefusedError('Cockpit cannot remember a sentence that names an address, a link, a phone number or a command.');
+      }
+      db.transaction((tx) => {
+        const kept = rememberSentence(tx, tenantId, {
+          id: cmd.sentenceId,
+          workspaceId,
+          sourceKind: cmd.sourceKind,
+          action,
+          sentence,
+          createdAt: cmd.issuedAt,
+        });
+        if (kept === 'full') {
+          throw new SentenceRefusedError(`Cockpit keeps at most ${REMEMBERED_SENTENCES_KEPT} remembered sentences. Remove one before adding another.`);
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;

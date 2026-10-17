@@ -24,7 +24,7 @@ import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
-import type { ClaudeProposalContext, UnfiledCandidate } from './repo.js';
+import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
@@ -174,6 +174,10 @@ export interface Account {
   itemIsFiled(itemId: string): Promise<boolean>;
   /** Where an Item stands - its Workspace, the Panels it is on, the folders sent to before - for proposing what to do with it (issue 1161). Read by the enrichment job and by nothing else. */
   claudeProposalContext(itemId: string, model: string): Promise<ClaudeProposalContext>;
+  /** The send kept under a Run, with what an offer to remember a sentence is made from (issue 1163); null where none was kept. */
+  sendToOfferOn(runId: string): Promise<SendToOfferOn | null>;
+  /** The open Items a sentence for this kind of source, in this Workspace or in any, may fit (issue 1163). */
+  openItemsASentenceMayFit(sourceKind: string, workspaceId: string | null): Promise<string[]>;
   /**
    * What a title or description proposal reads about how this account
    * writes ("Learn how you write from the titles you correct", issue 394).
@@ -321,6 +325,8 @@ export interface Account {
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
   /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
+  /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
+  sentenceCallArrived(kind: 'offer' | 'remember', at: string): Promise<'admitted' | 'too-many'>;
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(workspaceId: string, sourceAccountId: string): Promise<{ lastArrivedAt: string | null }>;
   /** One connection of this Workspace's history, newest line first (issue 1140). */
@@ -422,6 +428,9 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     recentCapturedTimeZones: async () => unwrap(await store.recentCapturedTimeZones(accountName)),
     itemIsFiled: async (itemId) => unwrap(await store.itemIsFiled(accountName, itemId)),
     claudeProposalContext: async (itemId, model) => unwrap(await store.claudeProposalContext(accountName, itemId, model)),
+    sendToOfferOn: async (runId) => unwrap(await store.sendToOfferOn(accountName, runId)),
+    openItemsASentenceMayFit: async (sourceKind, workspaceId) =>
+      unwrap(await store.openItemsASentenceMayFit(accountName, sourceKind, workspaceId)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     meaningsForRefresh: async (workspaceId, since, candidateIds, model) =>
@@ -458,6 +467,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.claudeCodeHookArrived(accountName, workspaceId, sourceAccountId, at)),
     appCaptureArrived: async (grantId, at) => store.appCaptureArrived(grantId, at),
     transcriptionArrived: async (at) => store.transcriptionArrived(at),
+    sentenceCallArrived: async (kind, at) => store.sentenceCallArrived(kind, at),
     claudeCodeHookArrival: async (workspaceId, sourceAccountId) =>
       unwrap(await store.claudeCodeHookArrival(accountName, workspaceId, sourceAccountId)),
     connectionHistory: async (workspaceId, sourceAccountId) =>

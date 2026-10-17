@@ -13,6 +13,8 @@ import {
   agentMessageFor,
   attachmentLinksRequestSchema,
   attachmentLinksSchema,
+  rememberOfferAnswerSchema,
+  ACCOUNT_WIDE,
   claudeCodeHooksSchema,
   claudeCodeOutcomeSchema,
   REMOTE_SESSION_HEADER,
@@ -95,6 +97,7 @@ import {
   CannotReadMeaningError,
   enqueueCleanUp,
   enqueueProposalForClaude,
+  enqueueProposalsForSentence,
   enqueueReadingItsMeaning,
   enqueueRepropose,
   enqueueGuestArrivals,
@@ -102,6 +105,7 @@ import {
   readWhatTheseNotesMean,
 } from '../jobs/index.js';
 import { startingPauseMs } from '../jobs/simulated-run.js';
+import { offerToRemember } from '../jobs/offer-to-remember.js';
 import { readUsage } from '../accounts/usage.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
@@ -834,6 +838,24 @@ const attachmentLinksRoute = createRoute({
     200: {
       description: 'One address per file, none where links cannot be made',
       content: { 'application/json': { schema: attachmentLinksSchema } },
+    },
+  },
+});
+
+/**
+ * The sentence worth remembering from the edit a send was made with ("Remember
+ * an edit as a sentence you confirm", issue 1163). Asked after the link has
+ * opened, so it is a request of its own and never part of the send; **always a
+ * 200**, with no offer for every way there is none (`offerToRemember`).
+ */
+const rememberOfferRoute = createRoute({
+  method: 'post',
+  path: '/v1/claude-sends/{runId}/remember-offer',
+  request: { params: z.object({ runId: z.uuid() }) },
+  responses: {
+    200: {
+      description: 'The offer, or none',
+      content: { 'application/json': { schema: rememberOfferAnswerSchema } },
     },
   },
 });
@@ -1839,6 +1861,33 @@ const routes = app
     commandRoute('send_item_to_claude', { conflict: 'The item is done, dismissed, or Claude is already on it' }),
     async (c) => c.json(await change(c, 'send_item_to_claude', c.req.valid('json')), 200),
   )
+  .openapi(rememberOfferRoute, async (c) => {
+    // Counted before the model is reached, and every ask is counted: each is a
+    // call that is paid for. Over the rate is no offer, as any other reason is.
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    if ((await account.sentenceCallArrived('offer', new Date().toISOString())) === 'too-many') return c.json({ offer: null }, 200);
+    return c.json({ offer: await offerToRemember(c.env, c.get('visitor').accountName, c.req.valid('param').runId) }, 200);
+  })
+  .openapi(commandRoute('remember_sentence', { conflict: 'The sentence is refused: it points somewhere, the account keeps too many, or too many were remembered in a minute' }), async (c) => {
+    const cmd = c.req.valid('json');
+    // The kinds of source Cockpit names, and the two front doors it does not.
+    if (![...Object.keys(sourceNames(c.env)), 'internal', 'mcp'].includes(cmd.sourceKind)) {
+      throw new ConflictInAccountError('Cockpit does not know that kind of source, so it cannot remember a sentence for it.');
+    }
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    if ((await account.sentenceCallArrived('remember', new Date().toISOString())) === 'too-many') {
+      throw new ConflictInAccountError('Too many sentences were remembered in the last minute. Try again shortly.');
+    }
+    const result = await change(c, 'remember_sentence', cmd);
+    // The open Items it may fit are proposed for again behind the work already
+    // queued; a replay of the same Remember asks for nothing twice.
+    if (result.applied) {
+      c.executionCtx.waitUntil(
+        enqueueProposalsForSentence(c.env, c.get('visitor').accountName, cmd.sourceKind, cmd.workspaceId === ACCOUNT_WIDE ? null : cmd.workspaceId),
+      );
+    }
+    return c.json(result, 200);
+  })
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => {

@@ -441,6 +441,8 @@ const commandSenders = {
     api.v1.commands.remove_attachment.$post({ json: p }, o),
   set_duplicate_settled: (p: CommandPayload<'set_duplicate_settled'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_duplicate_settled.$post({ json: p }, o),
+  remember_sentence: (p: CommandPayload<'remember_sentence'>, o?: ClientRequestOptions) =>
+    api.v1.commands.remember_sentence.$post({ json: p }, o),
   set_item_form_presentation: (p: CommandPayload<'set_item_form_presentation'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_item_form_presentation.$post({ json: p }, o),
 } as const;

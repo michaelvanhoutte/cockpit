@@ -1911,6 +1911,47 @@ export const claudeSends = sqliteTable(
 );
 
 /**
+ * A sentence the person chose to remember after editing a proposal ("Remember an
+ * edit as a sentence you confirm", issue 1163): one row per sentence, `id` being
+ * the one the window made, so the same Remember twice is one row.
+ *
+ * - **Nothing is here the person did not press Remember on**, and `sentence` is
+ *   as they left it. It is shown to later proposals as data and never as an
+ *   instruction (`propose-for-claude.v4`), since the edit it was summarised
+ *   from may have carried text from someone else's mail.
+ * - **`workspace_id` is null for a sentence that applies to every Workspace**,
+ *   the default, and a Workspace's id for one that names it. No foreign key: a
+ *   deleted Workspace's sentences simply never fit anything.
+ * - **`source_kind` is where the Item the edit was on came from** (its `source`),
+ *   which is how a sentence is matched to "a kind of action": a Gmail Item's
+ *   sentence is shown for Gmail Items, not for a LinkedIn post. `action` is the
+ *   model's few words naming it, for the person to read.
+ * - **`use_count` and `last_used_at`** are how often a written proposal was made
+ *   with it, and when last.
+ */
+export const rememberedSentences = sqliteTable(
+  'remembered_sentences',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id'),
+    sourceKind: text('source_kind').notNull(),
+    action: text('action').notNull(),
+    sentence: text('sentence').notNull(),
+    useCount: integer('use_count').notNull().default(0),
+    lastUsedAt: text('last_used_at'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    // What a proposal reads: the account's sentences for one kind of source.
+    index('remembered_sentences_tenant_source').on(t.tenantId, t.sourceKind),
+    check('remembered_sentences_use_count_is_not_negative', sql`use_count >= 0`),
+    check('remembered_sentences_created_at_is_timestamp', isTimestamp('created_at')),
+    check('remembered_sentences_last_used_at_is_timestamp', isTimestamp('last_used_at')),
+  ],
+);
+
+/**
  * When a hook last reached Cockpit for a Claude Code connection (issue 572),
  * whatever it said and whether it moved a run - what the connection's form
  * shows, so a repository whose hooks arrive but name no run can be told from

@@ -23,6 +23,7 @@ export {
   enqueueCleanUp,
   enqueueReadingItsMeaning,
   enqueueProposalForClaude,
+  enqueueProposalsForSentence,
   enqueueRepropose,
   enrichmentJobSchema,
   proposeForClaude,

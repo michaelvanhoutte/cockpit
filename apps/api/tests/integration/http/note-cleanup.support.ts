@@ -99,6 +99,22 @@ export const proposing: {
   during: null,
 };
 
+/**
+ * The calls offering a sentence to remember from an edit ("Remember an edit as
+ * a sentence you confirm", issue 1163), kept apart and answered apart for the
+ * same reason. `answer` is what the model offers; by default, nothing worth
+ * remembering. `fails` makes the call itself fail, as a model that cannot be
+ * reached does.
+ */
+export const offering: { asked: { system: string; item: string }[]; answer: unknown; fails: boolean } = {
+  asked: [],
+  answer: { sentence: '', action: '', workspace: '' },
+  fails: false,
+};
+
+/** Whether a call is an offer to remember, by the sentence only that prompt asks for. */
+export const isAnOffer = (call: { system: string }) => call.system.includes('Offer one sentence they could remember');
+
 /** Whether a call is a proposal for Claude, by the folder list only that prompt carries. */
 export const isAProposal = (call: { system: string }) => call.system.includes('Folders this account has opened Claude in');
 
@@ -128,6 +144,19 @@ export function theModelIs(answering: Answering): void {
     // Sent as blocks, the fixed half first and cached ("Enable prompt caching on the note-cleanup prompt", issue 584);
     // read here as the one text the model sees.
     const system = sent.system.map((block) => block.text).join('\n\n');
+    if (isAnOffer({ system })) {
+      offering.asked.push({ system, item: sent.messages[0]!.content });
+      if (offering.fails) throw new Error('the model could not be reached');
+      return Response.json({
+        id: 'msg_1',
+        type: 'message',
+        role: 'assistant',
+        model: sent.model,
+        content: [{ type: 'text', text: JSON.stringify(offering.answer) }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    }
     if (isAProposal({ system })) {
       proposing.asked.push({ system, item: sent.messages[0]!.content });
       if (proposing.during) await proposing.during();
@@ -592,6 +621,9 @@ export function aModelThatReads(): void {
     proposing.asked.length = 0;
     proposing.answer = { proposals: [{ destination: 'nothing', label: '', folder: '', prompt: '', why: 'Nothing to do.' }] };
     proposing.during = null;
+    offering.asked.length = 0;
+    offering.answer = { sentence: '', action: '', workspace: '' };
+    offering.fails = false;
     // The suite runs with no key at all (vitest.config.ts), which is what keeps
     // every other file's captures from reaching a model. This file is the one
     // that wants a reading, so it sets one - and the fake below is what the key

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildProposeForClaude, renderPastSends } from '../../../src/ai/prompts/propose-for-claude.v3.js';
+import { buildProposeForClaude, renderPastSends } from '../../../src/ai/prompts/propose-for-claude.v4.js';
 import type { PastSend } from '../../../src/domain/claude-send-records.js';
 
 /**

@@ -34,6 +34,8 @@ import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import { REMEMBERED_SENTENCES_KEPT } from '@cockpit/shared';
+import { sentencesThatFit, ITEMS_PROPOSED_AGAIN, type RememberedSentence } from '../domain/remembered-sentences.js';
 import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } from '../domain/claude-send-records.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
@@ -44,6 +46,7 @@ import {
   agents,
   associations,
   claudeSends,
+  rememberedSentences,
   attachments,
   claudeCodeHookArrivals,
   commands,
@@ -1707,6 +1710,8 @@ export interface ClaudeProposalContext {
    * sent is like it.
    */
   pastSends: PastSend[];
+  /** The remembered sentences that fit it (issue 1163), the most used first; none where nothing was remembered. */
+  remembered: RememberedSentence[];
 }
 
 /** The most folders a proposal is offered, most recently used first. */
@@ -1727,7 +1732,7 @@ export function claudeProposalContext(
   model: string,
 ): ClaudeProposalContext {
   const item = db
-    .select({ workspaceId: items.workspaceId, workspaceDecided: items.workspaceDecided })
+    .select({ workspaceId: items.workspaceId, workspaceDecided: items.workspaceDecided, source: effectiveSource })
     .from(items)
     .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
     .get();
@@ -1778,6 +1783,122 @@ export function claudeProposalContext(
     filedOn,
     folders,
     pastSends: closestPastSends(db, tenantId, itemId, model, item?.workspaceDecided ? item.workspaceId : null),
+    remembered: item
+      ? sentencesThatFit(
+          { sourceKind: item.source, workspaceId: item.workspaceDecided ? item.workspaceId : null },
+          rememberedForSource(db, tenantId, item.source),
+        )
+      : [],
+  };
+}
+
+/**
+ * Where an Item came from as the row names it: the connector that brought it
+ * where there is one, and otherwise the kind of source (`Item.source`). What a
+ * remembered sentence is matched on (issue 1163).
+ */
+const effectiveSource = sql<string>`coalesce(${items.sourceConnector}, ${items.source})`;
+
+/** Every sentence this account remembered for one kind of source. */
+function rememberedForSource(db: AccountDb, tenantId: string, sourceKind: string): RememberedSentence[] {
+  return db
+    .select()
+    .from(rememberedSentences)
+    .where(and(eq(rememberedSentences.tenantId, tenantId), eq(rememberedSentences.sourceKind, sourceKind)))
+    .all();
+}
+
+/**
+ * Keeps a sentence, once: the same id again is left as it is, and a new one
+ * past `REMEMBERED_SENTENCES_KEPT` is not kept (issue 1163).
+ */
+export function rememberSentence(
+  db: InTheStore,
+  tenantId: string,
+  one: { id: string; workspaceId: string | null; sourceKind: string; action: string; sentence: string; createdAt: string },
+): 'kept' | 'full' {
+  const held = db.select({ id: rememberedSentences.id }).from(rememberedSentences).where(eq(rememberedSentences.tenantId, tenantId)).all();
+  if (held.some((row) => row.id === one.id)) return 'kept';
+  if (held.length >= REMEMBERED_SENTENCES_KEPT) return 'full';
+  db.insert(rememberedSentences).values({ ...one, tenantId }).onConflictDoNothing().run();
+  return 'kept';
+}
+
+/** Counts a use of each of these sentences: a proposal was written with them (issue 1163). */
+export function countSentencesUsed(db: InTheStore, tenantId: string, ids: readonly string[], at: string): void {
+  if (ids.length === 0) return;
+  db.update(rememberedSentences)
+    .set({ useCount: sql`${rememberedSentences.useCount} + 1`, lastUsedAt: at })
+    .where(and(eq(rememberedSentences.tenantId, tenantId), inArray(rememberedSentences.id, [...ids])))
+    .run();
+}
+
+/**
+ * The open Items a sentence may fit, newest first and at most
+ * `ITEMS_PROPOSED_AGAIN`: those from the same kind of source, in its Workspace
+ * where it names one (an Item belonging to none yet is in no Workspace, so a
+ * sentence naming one never fits it), and not finished with or dismissed.
+ */
+export function openItemsASentenceMayFit(
+  db: AccountDb,
+  tenantId: string,
+  sourceKind: string,
+  workspaceId: string | null,
+): string[] {
+  return db
+    .select({ id: items.id })
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        sql`${effectiveSource} = ${sourceKind}`,
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
+        workspaceId === null ? undefined : and(eq(items.workspaceDecided, true), eq(items.workspaceId, workspaceId)),
+      ),
+    )
+    .orderBy(desc(items.updatedAt), desc(items.id))
+    .limit(ITEMS_PROPOSED_AGAIN)
+    .all()
+    .map((row) => row.id);
+}
+
+/** What the offer to remember is made from: one kept send, where it came from, and the Workspaces' names. */
+export interface SendToOfferOn {
+  send: ClaudeSendRecord;
+  sourceKind: string;
+  workspaceDecided: boolean;
+  workspaces: { id: string; name: string }[];
+}
+
+/** The send kept under a Run, with what the offer needs beside it; null where none was kept. */
+export function sendToOfferOn(db: AccountDb, tenantId: string, runId: string): SendToOfferOn | null {
+  const row = db
+    .select()
+    .from(claudeSends)
+    .where(and(eq(claudeSends.tenantId, tenantId), eq(claudeSends.id, runId)))
+    .get();
+  if (!row) return null;
+  const item = db
+    .select({ source: effectiveSource, workspaceDecided: items.workspaceDecided })
+    .from(items)
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, row.itemId)))
+    .get();
+  if (!item) return null;
+  return {
+    send: {
+      id: row.id,
+      workspaceId: row.workspaceId,
+      itemId: row.itemId,
+      itemTitle: row.itemTitle,
+      itemDescription: row.itemDescription,
+      proposed: { destination: row.proposedDestination, folder: row.proposedFolder, prompt: row.proposedPrompt },
+      sent: { destination: row.sentDestination, folder: row.sentFolder, prompt: row.sentPrompt },
+      sentAt: row.sentAt,
+    },
+    sourceKind: item.source,
+    workspaceDecided: item.workspaceDecided,
+    workspaces: listWorkspaces(db, tenantId).map((one) => ({ id: one.id, name: one.name })),
   };
 }
 

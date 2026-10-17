@@ -12,7 +12,7 @@ import type {
 } from '@cockpit/shared';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
-import type { ClaudeProposalContext, UnfiledCandidate } from './repo.js';
+import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
@@ -125,6 +125,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   itemIsFiled(accountName: string, itemId: string): Awaitable<Answer<boolean>>;
   claudeProposalContext(accountName: string, itemId: string, model: string): Awaitable<Answer<ClaudeProposalContext>>;
+  sendToOfferOn(accountName: string, runId: string): Awaitable<Answer<SendToOfferOn | null>>;
+  openItemsASentenceMayFit(accountName: string, sourceKind: string, workspaceId: string | null): Awaitable<Answer<string[]>>;
   /**
    * What a title or description proposal reads about how this account
    * writes ("Learn how you write from the titles you correct", issue 394). Per
@@ -307,6 +309,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   appCaptureArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many'>;
   /** A recording sent to be transcribed ("Hold each account to 20 transcriptions a minute", issue 1043) - admitted, or one of too many from this account. */
   transcriptionArrived(at: string): Awaitable<'admitted' | 'too-many'>;
+  /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
+  sentenceCallArrived(kind: 'offer' | 'remember', at: string): Awaitable<'admitted' | 'too-many'>;
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(
     accountName: string,

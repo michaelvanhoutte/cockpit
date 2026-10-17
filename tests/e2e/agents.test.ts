@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test';
 import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
   capture,
+  captureBox,
   chooseRowAction,
   dashboardBar,
   deleteWorkspace,
@@ -12,11 +13,13 @@ import {
   closeTheFilterSheet,
   expectNoSidewaysScroll,
   fileOnto,
+  inbox,
   itemRow,
   makeWorkspace,
   openFirstWorkspace,
   openSettings,
   closeSettings,
+  pastCapture,
   press,
   switchTo,
   test,
@@ -563,6 +566,42 @@ test.describe('Agents', () => {
       await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: /^Dismiss/ }), isMobile);
       await expect(itemRow(page, title)).toHaveCount(0);
+    });
+  });
+
+  test.describe('an edit to a proposal is offered back as a sentence to remember', () => {
+    /**
+     * The guest, because its Items carry proposals from the start and this
+     * stack has no model to make any (scripts/e2e-stack.mjs); the sentence is the
+     * stack's stand-in, since what the real model offers is held one tier down.
+     */
+    test('opens Claude, then offers the sentence, and keeps it on Remember', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'a phone has no Send to Claude…');
+      await page.goto('/signin');
+      await press(page.getByRole('link', { name: 'Continue as guest' }), isMobile);
+      await dashboardBar(page).or(captureBox(page)).first().waitFor({ state: 'visible' });
+      await pastCapture(page, isMobile);
+      await expect(inbox(page)).toBeVisible();
+
+      const title = 'Look into a cheaper energy tariff';
+      await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Send to Claude…' }), isMobile);
+      const review = page.getByRole('dialog', { name: `Send “${title}” to Claude` });
+      const prompt = review.getByLabel('Prompt');
+      await expect(prompt).toHaveValue(/Compare their offer/);
+      await prompt.fill('Vergelijk de tarieven kort, in het Nederlands.');
+
+      await press(review.getByRole('button', { name: /Open in Cowork/ }), isMobile);
+
+      // The window stays for the offer, which arrives with its own answer.
+      const sentence = review.getByLabel('Remember this?');
+      await expect(sentence).toHaveValue('Replies: Dutch, short, signed Michael.');
+      const kept = page.waitForResponse(
+        (response) => response.request().method() === 'POST' && /\/v1\/commands\/remember_sentence$/.test(response.url()),
+      );
+      await press(review.getByRole('button', { name: 'Remember' }), isMobile);
+      expect((await kept).status()).toBe(200);
+      await expect(review).toHaveCount(0);
     });
   });
 });

@@ -221,7 +221,7 @@ export interface CheckPulledConnectionJob {
 const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 const triggerSchema = z.union([
-  z.enum(['captured-in-app', 'mcp', 'panel-settled', 'item-changed', 'backfill', 'agent-started', 'connection-test']),
+  z.enum(['captured-in-app', 'mcp', 'panel-settled', 'item-changed', 'sentence-remembered', 'backfill', 'agent-started', 'connection-test']),
   z.templateLiteral(['connector:', z.string().min(1).max(64)]),
 ]);
 
@@ -1322,6 +1322,27 @@ export async function enqueueProposalForClaude(
   );
 }
 
+/**
+ * Asks for the open Items a newly remembered sentence may fit to be proposed
+ * for again ("Remember an edit as a sentence you confirm", issue 1163): those
+ * from the same kind of source, in its Workspace where it names one, the newest
+ * `ITEMS_PROPOSED_AGAIN` of them. **The rest are untouched**, and each ask goes
+ * through the same debounced queue as any other, so a long Inbox is redone
+ * behind the work already there rather than all at once.
+ */
+export async function enqueueProposalsForSentence(
+  env: Env,
+  accountName: string,
+  sourceKind: string,
+  workspaceId: string | null,
+): Promise<void> {
+  if (!env.ANTHROPIC_API_KEY || accountName === GUEST_ACCOUNT_NAME) return;
+  const account = await openAccount(env, accountName);
+  for (const itemId of await account.openItemsASentenceMayFit(sourceKind, workspaceId)) {
+    await enqueueProposalForClaude(env, accountName, itemId, 'sentence-remembered');
+  }
+}
+
 /** Which refresh an Item's proposal is, to the record of asks: one per Item. */
 function claudeProposalRefresh(itemId: string): string {
   return `propose-for-claude:${itemId}`;
@@ -1373,6 +1394,7 @@ export async function proposeForClaude(env: Env, job: ProposeForClaudeJob): Prom
     },
     context.folders,
     context.pastSends,
+    context.remembered,
     { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
   );
   if (!('proposals' in read)) return say(job.itemId, `nothing was proposed: ${read.discarded}`);
@@ -1392,6 +1414,8 @@ export async function proposeForClaude(env: Env, job: ProposeForClaudeJob): Prom
       itemId: item.id,
       proposals: read.proposals,
       madeFrom: item.updatedAt,
+      // Counted as used once the proposal is written, not before (issue 1163).
+      ...(context.remembered.length > 0 ? { usedSentenceIds: context.remembered.map((one) => one.id) } : {}),
     });
   } catch (error) {
     if (error instanceof NotFoundInAccountError) {

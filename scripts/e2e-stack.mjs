@@ -329,6 +329,15 @@ const api = start(
      */
     '--var',
     'TRANSCRIPTION_STAND_IN:true',
+    /**
+     * And the offer to remember an edit (issue 1163): a fixed sentence for any
+     * edit, since this stack has no model key on purpose. What the real model
+     * offers is held one tier down, against a faked one
+     * (apps/api/tests/integration/http/remembered-sentences.test.ts) and against
+     * the real one in the contract run (apps/api/tests/contract/).
+     */
+    '--var',
+    'REMEMBER_OFFER_STAND_IN:true',
   ],
   'test api',
   '36',

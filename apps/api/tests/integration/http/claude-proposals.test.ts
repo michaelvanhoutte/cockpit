@@ -21,7 +21,7 @@ import {
  * before you look", issue 1161) through the real Worker, the real consumer and
  * the real store, with the model faked at the network boundary - as
  * note-cleanup.test.ts does. Whether the real model proposes well is the
- * contract tier's (tests/contract/propose-for-claude.v3.test.ts); which answers
+ * contract tier's (tests/contract/propose-for-claude.v4.test.ts); which answers
  * are kept is apps/api/tests/unit/ai/claude-proposals.test.ts.
  *
  * **The queue is held, and drained by hand** (`delivered`), as

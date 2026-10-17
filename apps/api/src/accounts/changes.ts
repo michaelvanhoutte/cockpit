@@ -172,6 +172,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_CLAUDE_PROPOSALS,
     CONNECTION_HISTORY_WRITTEN,
     CLAUDE_SENDS,
+    REMEMBERED_SENTENCES,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -884,6 +885,55 @@ const CLAUDE_SENDS: Change = {
 ) STRICT`,
     },
     { sql: 'CREATE INDEX IF NOT EXISTS `claude_sends_tenant_sent_at` ON `claude_sends` (`tenant_id`,`sent_at`)' },
+  ],
+};
+
+/**
+ * The sentences a person chose to remember from an edit ("Remember an edit as a
+ * sentence you confirm", issue 1163): a new table and its index; `schema.ts`
+ * says what each column carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): a `CREATE TABLE` and a `CREATE INDEX`, and no statement
+ *   that reads or writes a row.
+ * - **If it stops halfway:** one change is one transaction, so a failure on
+ *   either statement takes the other back with it, and the next open applies
+ *   both.
+ * - **The second time it runs:** it does not re-run once recorded; both
+ *   statements are `IF NOT EXISTS` besides.
+ * - **Rows that predate it:** none. Nothing was remembered before it, and
+ *   proposals made without sentences read exactly as they did.
+ * - **What is in each environment:** staging and production gain an empty
+ *   table; every existing row is untouched.
+ * - **Rolled back after it has run:** an older release never names the table,
+ *   so it reads and writes no sentence and the table keeps what it held.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const REMEMBERED_SENTENCES: Change = {
+  name: '0086-remembered-sentences',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`remembered_sentences\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text,
+	\`source_kind\` text NOT NULL,
+	\`action\` text NOT NULL,
+	\`sentence\` text NOT NULL,
+	\`use_count\` integer DEFAULT 0 NOT NULL,
+	\`last_used_at\` text,
+	\`created_at\` text NOT NULL,
+	CONSTRAINT "remembered_sentences_use_count_is_not_negative" CHECK(use_count >= 0),
+	${timestampCheck('remembered_sentences', 'created_at')},
+	${timestampCheck('remembered_sentences', 'last_used_at')}
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `remembered_sentences_tenant_source` ON `remembered_sentences` (`tenant_id`,`source_kind`)',
+    },
   ],
 };
 

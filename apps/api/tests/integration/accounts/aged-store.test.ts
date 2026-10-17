@@ -524,6 +524,14 @@ const rowsFor: {
     params: (name) => [name, AT],
   },
   {
+    // The table `0086-remembered-sentences` creates (issue 1163): a sentence
+    // somebody chose to keep, for the next update to meet.
+    table: 'remembered_sentences',
+    sql: `INSERT INTO remembered_sentences (id, tenant_id, workspace_id, source_kind, action, sentence, use_count, last_used_at, created_at)
+          VALUES ('rs-before', ?, 'ws-before', 'gmail', 'reply to a mail', 'Replies: Dutch, short.', 1, ?, ?)`,
+    params: (name) => [name, AT, AT],
+  },
+  {
     table: 'pulled_links',
     sql: `INSERT INTO pulled_links (tenant_id, workspace_id, connector_id, external_account_key, source_id, item_id, linked_at)
           VALUES (?, 'ws-before', 'teams', 'a-tenant:somebody', 'source-before', 'it-done-before', ?)`,

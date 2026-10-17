@@ -1,5 +1,6 @@
 import { claudeProposalsSchema, isClaudeAction, type ClaudeProposal } from '@cockpit/shared';
 import { z } from 'zod';
+import { LINK_OR_COMMAND, folded, pointsSomewhere } from '../domain/pointing.js';
 
 /**
  * Reading what the model proposed doing with an Item ("Propose what to do with
@@ -53,7 +54,7 @@ export function readClaudeProposals(
   if (!answer.success) return { discarded: 'the answer was not a list of proposals' };
 
   // A folder is named by its number in the list offered, never by its path
-  // (`propose-for-claude.v3`), and empty for none.
+  // (`propose-for-claude.v4`), and empty for none.
   const folders = answer.data.proposals.map((one) => folderNumbered(one.folder, offeredFolders));
   if (folders.includes(undefined)) return { discarded: 'the answer named a folder it was not offered' };
 
@@ -77,34 +78,6 @@ export function readClaudeProposals(
   }
   return { proposals: proposals.data };
 }
-
-/** Compatibility forms folded, so a fullwidth `＠` or `．` reads as the `@` or `.` it shows. */
-function folded(text: string): string {
-  return text.normalize('NFKC');
-}
-
-/**
- * An `@`, a scheme, a `www.`, a domain with a path or a common ending, or a
- * phone number - what a reason would need to point anybody anywhere.
- */
-function pointsSomewhere(text: string): boolean {
-  const said = folded(text);
-  if (ADDRESS_OR_LINK.test(said) || BARE_DOMAIN.test(said)) return true;
-  return (said.match(PHONE_LIKE) ?? []).some((run) => run.replace(/\D/g, '').length >= 9);
-}
-
-const ADDRESS_OR_LINK = /@|[a-z][a-z0-9+.-]*:\/\/|\bwww\./i;
-
-/** `bit.ly/x`, `evilpay.com`: a name with a dot and a path, or one ending the way a site's name commonly does. */
-const BARE_DOMAIN =
-  /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:[a-z]{2,}\/|(?:com|net|org|info|biz|io|ly|co|me|app|dev|xyz|be|nl|uk|de|fr|eu|ru|cn|top|site|online|link|click)\b)/i;
-
-/** A run of digits and the separators a phone number is written with; one of nine digits or more is a number to call. */
-const PHONE_LIKE = /\+?\d[\d\s().\/-]{6,}\d/g;
-
-/** A scheme, a `www.`, or the opening of a download-and-run or an install. */
-const LINK_OR_COMMAND =
-  /[a-z][a-z0-9+.-]*:\/\/|\bwww\.|\bcurl\s|\bwget\s|\|\s*(?:ba|z)?sh\b|\bnpm\s+(?:i|install)\b|\bpip3?\s+install\b|\biex\b|\binvoke-expression\b/i;
 
 /** The folder a number names, counting from 1; the empty string for none, and undefined for a number not offered. */
 function folderNumbered(answer: string, offered: readonly string[]): string | undefined {
