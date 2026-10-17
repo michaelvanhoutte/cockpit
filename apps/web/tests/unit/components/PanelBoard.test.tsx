@@ -4431,6 +4431,45 @@ describe('Dashboards', () => {
       expect(rowOf('Pay the rent')).toHaveFocus();
     });
 
+    describe('an Item a Filter panel gathers here, filed on a Panel of another Dashboard', () => {
+      const away: Panel = { ...aPanel('away', 'Elsewhere'), dashboardId: 'other' };
+      const due = aFilter('due', 'Due today', [DUE_TODAY]);
+      const dueItem = { ...anItem(ID(3), 'Send the invoice'), dueDate: TODAY } as Item;
+      const gathered = () =>
+        showBoard({
+          panels: [aPanel('falcon', 'Project Falcon'), due],
+          panelsInWorkspace: [aPanel('falcon', 'Project Falcon'), due, away],
+          items: [vat, dueItem],
+          filings: [
+            { panelId: 'falcon', itemId: ID(1), position: 0 },
+            { panelId: 'away', itemId: ID(3), position: 0 },
+          ],
+        });
+      const landOnFilter = () =>
+        act(() => askToLand({ itemId: ID(3), place: { kind: 'panel', dashboardId: DASHBOARD.id, panelId: 'due' }, focus: true }));
+
+      it('focuses its row in the Filter panel, outlined', () => {
+        gathered();
+
+        landOnFilter();
+
+        expect(rowOf('Send the invoice')).toHaveFocus();
+        expect(rowOf('Send the invoice')).toHaveAttribute('data-shown');
+        expect(screen.getByRole('region', { name: 'Due today' })).toContainElement(rowOf('Send the invoice'));
+      });
+
+      it('clears a Dashboard filter that hides it, then lands on the row', () => {
+        filterTheDashboard({ text: 'vat' });
+        gathered();
+        expect(screen.queryByText('Send the invoice')).toBeNull();
+
+        landOnFilter();
+
+        expect(isFiltering(readDashboardFilter(localStorage, DASHBOARD.id))).toBe(false);
+        expect(rowOf('Send the invoice')).toHaveFocus();
+      });
+    });
+
     it('does nothing for another Dashboard’s request, and settles one for an Item no longer on the Panel', () => {
       showBoard({ items: [vat, rent], filings: [FILED[0]!] });
 

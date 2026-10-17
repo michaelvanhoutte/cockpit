@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
+import type { AgentRun, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { FIND_LIMIT, findItems, indexForFind, useFindIndex } from '../../src/itemFind';
 
 /**
@@ -33,14 +33,14 @@ function aSnapshot(items: Item[], filed: [string, string][] = []): WorkspaceSnap
       { id: 'plan', dashboardId: 'today', name: 'Plan', kind: 'items' },
       { id: 'urgent', dashboardId: 'today', name: 'Urgent', kind: 'items' },
       { id: 'review', dashboardId: 'later', name: 'Review', kind: 'items' },
-      { id: 'gather', dashboardId: 'today', name: 'Gathered', kind: 'filter', filter: { due: null } },
+      { id: 'gather', dashboardId: 'today', name: 'Gathered', kind: 'filter', filter: { rows: [], groupBy: 'none' } },
     ],
     filings: filed.map(([itemId, panelId], position) => ({ itemId, panelId, position })),
   } as unknown as WorkspaceSnapshot;
 }
 
 const rowsFor = (snapshot: WorkspaceSnapshot, query: string, scope: 1 | 2 = 2) =>
-  findItems(indexForFind(snapshot), query, scope, 'today');
+  findItems(indexForFind(snapshot, '2026-09-01'), query, scope, 'today');
 
 describe('Dashboards', () => {
   describe('Find lists the open Items in scope that match what is typed, in any of four fields', () => {
@@ -111,7 +111,7 @@ describe('Dashboards', () => {
         [['open-old', 'plan'], ['done-new', 'plan']],
       );
     const listed = (scope: 1 | 2, withDone: boolean) =>
-      findItems(indexForFind(snapshot()), 'rent', scope, 'today', FIND_LIMIT, withDone).rows;
+      findItems(indexForFind(snapshot(), '2026-09-01'), 'rent', scope, 'today', FIND_LIMIT, withDone).rows;
 
     it('lists no finished Item unless asked', () => {
       expect(listed(2, false).map((row) => row.itemId)).toEqual(['open-old']);
@@ -150,7 +150,7 @@ describe('Dashboards', () => {
         },
       });
       const first = aSnapshot([counted]);
-      const { result, rerender } = renderHook(({ snapshot }) => useFindIndex(snapshot), {
+      const { result, rerender } = renderHook(({ snapshot }) => useFindIndex(snapshot, '2026-09-01'), {
         initialProps: { snapshot: first },
       });
       for (const typed of ['r', 're', 'ren', 'rent', 'rent ']) findItems(result.current, typed, 2, 'today');
@@ -161,6 +161,95 @@ describe('Dashboards', () => {
       rerender({ snapshot: edited });
       expect(findItems(result.current, 'vat', 2, 'today').rows).toHaveLength(1);
       expect(findItems(result.current, 'rent', 2, 'today').rows).toHaveLength(0);
+    });
+  });
+
+  describe('Find on Dashboard matches every open Item drawn on this Dashboard, filed on a Panel here or gathered by a Filter panel here', () => {
+    const dueToday = { rows: [[{ field: 'dueDate', window: 'today', orOverdue: false }]], groupBy: 'none' };
+    const running = { rows: [[{ field: 'agent' }]], groupBy: 'none' };
+    const filterPanel = (id: string, dashboardId: string, name: string, filter: object): Panel =>
+      ({ id, dashboardId, name, kind: 'filter', filter }) as unknown as Panel;
+    /** `invoice` is filed on Review (Later), with these Filter panels in place of the base one. */
+    const snapshotWith = (panels: Panel[], item: Partial<Item> = {}, extra: Partial<WorkspaceSnapshot> = {}) => {
+      const base = aSnapshot([anItem('invoice', item)], [['invoice', 'review']]);
+      return { ...base, panels: [...(base.panels ?? []).filter((panel) => panel.id !== 'gather'), ...panels], ...extra } as WorkspaceSnapshot;
+    };
+    const found = (snapshot: WorkspaceSnapshot, day = '2026-09-01') =>
+      findItems(indexForFind(snapshot, day), 'invoice', 1, 'today').rows;
+
+    it.each([
+      {
+        situation: 'filed on another Dashboard, gathered by a Filter panel here',
+        panels: [filterPanel('gather', 'today', 'Due today', dueToday)],
+        item: { dueDate: '2026-09-01' },
+        expected: ['Due today'],
+      },
+      {
+        situation: 'filed on another Dashboard, gathered only by a Filter panel on that Dashboard',
+        panels: [filterPanel('gather', 'later', 'Due later', dueToday)],
+        item: { dueDate: '2026-09-01' },
+        expected: [],
+      },
+      {
+        situation: 'filed elsewhere, failing the condition of the Filter panel here',
+        panels: [filterPanel('gather', 'today', 'Due today', dueToday)],
+        item: { dueDate: '2026-09-30' },
+        expected: [],
+      },
+    ])('$situation', ({ panels, item, expected }) => {
+      const rows = found(snapshotWith(panels, item as Partial<Item>));
+      expect(rows.map((row) => row.where)).toEqual(expected);
+      if (expected.length > 0) expect(rows[0]?.panel?.panelId).toBe('gather');
+    });
+
+    it('follows the day: found on the day its Due date window holds, then not the day after', () => {
+      const snapshot = snapshotWith([filterPanel('gather', 'today', 'Due today', dueToday)], { dueDate: '2026-09-01' } as Partial<Item>);
+      expect(found(snapshot, '2026-09-01')).toHaveLength(1);
+      expect(found(snapshot, '2026-09-02')).toHaveLength(0);
+    });
+
+    it('follows the open runs: found while the Item has an open run, then not after the run closes', () => {
+      const panels = [filterPanel('gather', 'today', 'Busy', running)];
+      const open = [{ itemId: 'invoice', status: 'running' }] as unknown as AgentRun[];
+      const closed: AgentRun[] = [];
+      expect(found(snapshotWith(panels, {}, { agentRuns: open })).map((row) => row.where)).toEqual(['Busy']);
+      expect(found(snapshotWith(panels, {}, { agentRuns: closed }))).toEqual([]);
+    });
+
+    it('is still found when this Dashboard’s own filter would hide it, since the index never reads that filter', () => {
+      const snapshot = snapshotWith([filterPanel('gather', 'today', 'Due today', dueToday)], { dueDate: '2026-09-01' } as Partial<Item>);
+      expect(found(snapshot)).toHaveLength(1);
+    });
+  });
+
+  describe('an Item drawn on this Dashboard in several places is one row: the Panel it is filed on first, then the Filter panels in Panel order, the rest counted', () => {
+    const dueToday = { rows: [[{ field: 'dueDate', window: 'today', orOverdue: false }]], groupBy: 'none' };
+    const filterPanel = (id: string, name: string): Panel =>
+      ({ id, dashboardId: 'today', name, kind: 'filter', filter: dueToday }) as unknown as Panel;
+    const rowsFor2 = (filedOn: string, filters: Panel[], scope: 1 | 2) => {
+      const base = aSnapshot([anItem('invoice', { dueDate: '2026-09-01' } as Partial<Item>)], [['invoice', filedOn]]);
+      const snapshot = { ...base, panels: [...(base.panels ?? []).filter((panel) => panel.id !== 'gather'), ...filters] } as WorkspaceSnapshot;
+      return findItems(indexForFind(snapshot, '2026-09-01'), 'invoice', scope, 'today').rows;
+    };
+
+    it('names the Panel it is filed on here with +1, and goes to it', () => {
+      const rows = rowsFor2('urgent', [filterPanel('f1', 'Due today')], 1);
+      expect(rows.map((row) => [row.where, row.panel?.panelId])).toEqual([['Urgent +1', 'urgent']]);
+    });
+
+    it('names the first Filter panel with +1 for an Item filed elsewhere and gathered by two here', () => {
+      const rows = rowsFor2('review', [filterPanel('f1', 'First'), filterPanel('f2', 'Second')], 1);
+      expect(rows.map((row) => [row.where, row.panel?.panelId])).toEqual([['First +1', 'f1']]);
+    });
+  });
+
+  describe('Find on Workspace still names where an Item is filed, never a Filter panel that gathers it', () => {
+    it('reads Dashboard ▸ Panel of the Panel it is filed on, though a Filter panel on the Dashboard on screen gathers it', () => {
+      const base = aSnapshot([anItem('invoice', { dueDate: '2026-09-01' } as Partial<Item>)], [['invoice', 'review']]);
+      const gathering = { id: 'f1', dashboardId: 'today', name: 'Due today', kind: 'filter', filter: { rows: [[{ field: 'dueDate', window: 'today', orOverdue: false }]], groupBy: 'none' } };
+      const snapshot = { ...base, panels: [...(base.panels ?? []).filter((panel) => panel.id !== 'gather'), gathering] } as unknown as WorkspaceSnapshot;
+      const rows = findItems(indexForFind(snapshot, '2026-09-01'), 'invoice', 2, 'today').rows;
+      expect(rows.map((row) => [row.where, row.panel?.panelId])).toEqual([['Later ▸ Review', 'review']]);
     });
   });
 });

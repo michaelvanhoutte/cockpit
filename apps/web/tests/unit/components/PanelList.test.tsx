@@ -1329,6 +1329,29 @@ describe('Dashboards', () => {
       for (const key of ['⇧G', '⇧F']) expect(shownList()).toHaveTextContent(key);
     });
 
+    it('lists an Item only a Filter panel here gathers under that Filter panel’s name, and asks to land on its row there', async () => {
+      const user = userEvent.setup();
+      const gathering = {
+        ...snapshot,
+        panels: [
+          ...snapshot.panels!,
+          { id: 'due', dashboardId: 'today', name: 'Due soon', kind: 'filter', filter: { rows: [[{ field: 'priority', values: ['high'] }]], groupBy: 'none' } },
+        ],
+        items: [...snapshot.items, { ...snapshot.items[1]!, id: 'urgent', title: 'Urgent paper', priority: 'high' }],
+        filings: [...snapshot.filings!, { itemId: 'urgent', panelId: 'papers', position: 1 }],
+      } as unknown as WorkspaceSnapshot;
+      const reach = finder({ snapshot: gathering });
+      render(shown(reach));
+
+      await user.keyboard('F');
+      await user.keyboard('urgent paper{ArrowDown}');
+
+      expect(rows()).toEqual(['Urgent paperDue soon']);
+      expect(landing()).toContain('"item":"urgent"');
+      expect(landing()).toContain('"panelId":"due"');
+      expect(calls(reach.go)).toEqual([]);
+    });
+
     describe('the screen follows the highlight onto the Item’s row, and Enter lands focus on it', () => {
       it('asks to land on a row of this Dashboard without leaving it, and on another Dashboard after one history entry', async () => {
         const user = userEvent.setup();
