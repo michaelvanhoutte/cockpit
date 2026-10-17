@@ -8,6 +8,7 @@ import {
   panelFilterFrom,
   panelColumnsSchema,
   panelSortFrom,
+  themeOf,
   type AgentRun,
   type Association,
   type Attachment,
@@ -76,7 +77,8 @@ import {
  */
 
 /**
- * The columns a workspace is read by: exactly the wire shape, named one by one.
+ * The columns a workspace is read by, named one by one: the wire shape less
+ * the three colours `wireWorkspace` derives.
  *
  * **Spelled out rather than left to a bare `select()`, and that is the whole
  * point of it.** Drizzle builds a bare `select()`'s field list from every
@@ -103,10 +105,19 @@ const workspaceColumns = {
   tenantId: workspaces.tenantId,
   name: workspaces.name,
   color: workspaces.color,
-  bar: workspaces.bar,
-  ground: workspaces.ground,
-  header: workspaces.header,
 };
+
+/**
+ * A workspace as the wire carries it: the stored accent, with the band, top bar
+ * and page grey filled in from the palette entry that accent names (the default
+ * theme's for an accent not in the palette). The `bar`, `ground` and `header`
+ * columns are not read, so a later release can drop them; the wire keeps all
+ * four so a tab on an older build still parses and paints the workspace.
+ */
+function wireWorkspace(row: { id: string; tenantId: string; name: string; color: string }): Workspace {
+  const theme = themeOf(row.color);
+  return { ...row, bar: theme.bar, ground: theme.ground, header: theme.header };
+}
 
 /** A deleted workspace is tombstoned, so every read of one filters it out. */
 const live = (tenantId: string) =>
@@ -135,7 +146,8 @@ export function listWorkspaces(db: AccountDb, tenantId: string): Workspace[] {
     .from(workspaces)
     .where(live(tenantId))
     .orderBy(workspaces.position, workspaces.createdAt)
-    .all();
+    .all()
+    .map(wireWorkspace);
 }
 
 /**
@@ -161,12 +173,40 @@ export function getWorkspace(
   tenantId: string,
   workspaceId: string,
 ): Workspace | null {
-  return (
-    db
-      .select(workspaceColumns)
-      .from(workspaces)
-      .where(and(live(tenantId), eq(workspaces.id, workspaceId)))
-      .get() ?? null
+  const row = db
+    .select(workspaceColumns)
+    .from(workspaces)
+    .where(and(live(tenantId), eq(workspaces.id, workspaceId)))
+    .get();
+  return row ? wireWorkspace(row) : null;
+}
+
+/**
+ * Writes a new workspace, naming only the columns it stores.
+ *
+ * **Raw SQL rather than `insert(workspaces).values(...)`, because drizzle puts
+ * every column with a default into the statement** - `bar`, `ground` and
+ * `header` included, as their declared defaults - which would name the columns
+ * a later release drops. A conflict on the id is a replayed create and writes
+ * nothing; a conflict on the name raises, as the index is for.
+ */
+export function insertWorkspace(
+  db: Pick<AccountDb, 'run'>,
+  row: {
+    id: string;
+    tenantId: string;
+    name: string;
+    foldedName: string;
+    color: string;
+    position: number;
+    createdAt: string;
+    deletedAt: string | null;
+  },
+): void {
+  db.run(
+    sql`INSERT INTO workspaces (id, tenant_id, name, folded_name, color, position, created_at, deleted_at)
+        VALUES (${row.id}, ${row.tenantId}, ${row.name}, ${row.foldedName}, ${row.color}, ${row.position}, ${row.createdAt}, ${row.deletedAt})
+        ON CONFLICT (id) DO NOTHING`,
   );
 }
 

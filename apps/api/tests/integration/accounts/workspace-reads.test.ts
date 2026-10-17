@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
+import { WORKSPACE_THEMES } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   WORKSPACE_ID,
@@ -69,10 +70,9 @@ describe('Workspace management', () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
         workspaces: [
-          // The set the frozen changes write, which is not the palette's any more
-          // ("Wear a workspace's colour in the dashboard band", issue 594): the
-          // shell repaints a row holding it in its tint's current theme, and
-          // nothing is rewritten in the store.
+          // The set the frozen changes write is not the palette's any more
+          // ("Wear a workspace's colour in the dashboard band", issue 594), and
+          // is not read: the Workspace leaves in its accent's current theme.
           { id: WORKSPACE_ID, tenantId: ACCOUNT_NAME, name: 'Workspace 1', ...FIRST_WORKSPACE_COLOURS },
         ],
       });
@@ -80,10 +80,10 @@ describe('Workspace management', () => {
   });
 });
 
-/** The four colours the first workspace of a new account is stored with, in the shape the wire carries them. */
+/** The four colours the first workspace of a new account leaves with: its accent's palette entry. */
 const FIRST_WORKSPACE_COLOURS = {
-  color: '#6f62b5',
-  bar: '#211d37',
-  ground: '#edebf7',
-  header: '#18152b',
+  color: WORKSPACE_THEMES[0]!.tint,
+  bar: WORKSPACE_THEMES[0]!.bar,
+  ground: WORKSPACE_THEMES[0]!.ground,
+  header: WORKSPACE_THEMES[0]!.header,
 };

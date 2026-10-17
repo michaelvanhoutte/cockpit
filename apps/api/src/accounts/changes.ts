@@ -9,7 +9,6 @@ import {
   demoAddress,
   filterGroupingSchema,
   panelFilterSchema,
-  themeOf,
 } from '@cockpit/shared';
 import type { AssociationKind } from '@cockpit/shared';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
@@ -5208,22 +5207,18 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
 
   demo.forEach((workspace, index) => {
     const workspaceId = `guest-ws-${demoSlug(workspace.name)}`;
-    const theme = themeOf(workspace.tint);
     /** Every Panel of items in this Workspace by folded name, for the Inbox's suggestions. */
     const panelIds = new Map<string, string>();
     statements.push({
-      sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, bar, ground, header, position, created_at)
-              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, position, created_at)
+              SELECT ?, ?, ?, ?, ?, ?, ?
               WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE tenant_id = ? AND folded_name = ? AND deleted_at IS NULL)`,
       params: [
         workspaceId,
         accountId,
         workspace.name,
         foldName(workspace.name),
-        theme.tint,
-        theme.bar,
-        theme.ground,
-        theme.header,
+        workspace.tint,
         // *Before* the `Workspace 1` that `0015-first-workspace` gives every
         // account, which holds 0, and before anything a guest has made for
         // themselves, which is 1 upwards: a guest lands on the first tab

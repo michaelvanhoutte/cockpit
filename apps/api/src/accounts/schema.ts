@@ -239,16 +239,16 @@ export const workspaces = sqliteTable(
      */
     foldedName: text('folded_name').notNull().default(''),
     /**
-     * The workspace's four colors, chosen together from the palette in
-     * `@cockpit/shared`'s domain/workspace-themes.ts: `color` is the saturated
-     * tint on the tab dot and the selected tab, `header` is the bar across the
-     * top, `bar` is the strip the dashboard tabs sit on one step lighter than
-     * it, and `ground` is the page behind the panels.
+     * The workspace's accent, picked from the palette in `@cockpit/shared`'s
+     * domain/workspace-themes.ts: `color` is the saturated tint on the tab dot
+     * and the selected tab. The palette entry it names gives the other three
+     * colors on the wire: `header` the bar across the top, `bar` the strip the
+     * dashboard tabs sit on, and `ground` the page behind the panels.
      *
-     * Only `color` is read back: a workspace is painted from the theme it
-     * names, so a palette change rewrites no row. The other three are written
-     * with the palette's own values and read by nothing, until a contract step
-     * drops them.
+     * Only `color` is read or written: a workspace is painted from the theme it
+     * names, so a palette change rewrites no row. `bar`, `ground` and `header`
+     * are left at the defaults a new row takes, and read by nothing, until a
+     * contract step drops them.
      *
      * The defaults are the first theme's, and they are what a workspace whose
      * tint is not in the palette keeps: an unfamiliar color is one thing that

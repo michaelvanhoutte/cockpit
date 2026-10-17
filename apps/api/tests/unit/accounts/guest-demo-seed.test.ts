@@ -171,7 +171,7 @@ describe('Accounts', () => {
     it('puts its workspaces ahead of the empty starter every account is given', () => {
       const positions = guestSeed()
         .filter((one) => one.sql.includes('INSERT INTO workspaces '))
-        .map((one) => one.params?.[8]);
+        .map((one) => one.params?.[5]);
 
       // `0015-first-workspace` holds 0 and anything a guest makes for
       // themselves goes above it, so the demonstration counts down from below
