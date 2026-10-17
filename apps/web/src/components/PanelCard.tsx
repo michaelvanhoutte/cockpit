@@ -406,7 +406,6 @@ export function PanelCard({
               !onPickUp ? '' : 'cursor-grab active:cursor-grabbing'
             } ${onTap ? 'touch-manipulation select-none' : ''}`}
           >
-            {(
               <>
                 <div className={`flex min-w-0 flex-1 items-center gap-2 ${addHere ? 'pr-20 @max-[200px]:pr-11' : 'pr-11'}`}>
                   {/* The same heading the Inbox's carries in the band above it
@@ -546,7 +545,6 @@ export function PanelCard({
                   </button>
                 )}
               </>
-            )}
           </header>
         </SurfaceMenu>
       </div>

@@ -1610,6 +1610,8 @@ describe('Panels', () => {
       await act(user);
 
       expect(screen.getByRole('alert')).toHaveTextContent(says);
+      // Said once, by the form: the panel behind it does not say it again.
+      expect(screen.getAllByRole('alert', { hidden: true })).toHaveLength(1);
       // Still there to be corrected: the form does not close over a refusal,
       // and it still holds what was typed into it.
       expect(screen.getByRole('textbox', { name: stillOpen })).toHaveValue(holding);
@@ -1951,6 +1953,41 @@ describe('Panels', () => {
 
       expect(mutate).not.toHaveBeenCalled();
       expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('closes once the save has landed', async () => {
+      const { user } = showBoard();
+
+      await openSettings(user, 'Project Falcon');
+      await user.type(screen.getByRole('textbox', { name: 'Name' }), ' 2');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('stays open, unable to save again or be dismissed, while a save is on its way', async () => {
+      const { mutate, user } = showBoard({ pending: true });
+
+      await openSettings(user, 'Project Falcon');
+      await user.type(screen.getByRole('textbox', { name: 'Name' }), ' 2');
+      await user.keyboard('{Escape}');
+
+      expect(screen.getByRole('dialog', { name: 'Panel settings' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('sends only the formatting when that is all that changed on a panel of text', async () => {
+      const { mutate, user } = showBoard({ panels: [aPanelOfText('words', 'What matters')] });
+
+      await openSettings(user, 'What matters');
+      await user.click(screen.getByRole('checkbox', { name: 'Show formatting' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.payload).not.toHaveProperty('readOnly');
+      expect(asked.payload).not.toHaveProperty('name');
+      expect(asked.payload).toEqual(expect.objectContaining({ panelId: 'words', format: 'rich' }));
     });
 
     it('trims the name it sends', async () => {

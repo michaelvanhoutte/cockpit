@@ -92,6 +92,18 @@ describe('Panels', () => {
       expect(await panelNow(panelId)).toMatchObject({ name: 'Soon', neverPropose: true });
     });
 
+    it('frees the name it had and holds the new one, in the index that guards names', async () => {
+      const dashboardId = await aDashboard();
+      const panelId = await aPanel(dashboardId, 'Next up');
+      expect((await settings(panelId, { name: 'Soon' })).status).toBe(200);
+
+      const dashboard = (id: string, name: string) =>
+        send('add_panel', { workspaceId: WORKSPACE_ID, dashboardId, panelId: id, name });
+
+      expect((await dashboard(nextId(), 'NEXT UP')).status).toBe(200);
+      expect((await dashboard(nextId(), 'soon')).status).toBe(409);
+    });
+
     it('refuses a name another live panel of the dashboard holds, in other capitals, and writes the rest of the save nowhere', async () => {
       const dashboardId = await aDashboard();
       await aPanel(dashboardId, 'To read');
