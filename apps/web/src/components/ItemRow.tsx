@@ -445,12 +445,7 @@ export function ItemRow({
   const alsoInText = alsoIn.length > 0 ? `also in ${alsoIn.join(', ')}` : null;
 
   /**
-   * The priority mark's label and colour, or nothing for an unset priority -
-   * and nothing rather than a crash for a value this build does not
-   * recognise. Reachable from a tab
-   * left open across a deploy that adds a level (functional definition,
-   * "Deploy breaks open tabs' lazy chunks"), since a priority read out of the
-   * cache is never re-validated against the schema the way a fresh fetch is.
+   * The priority mark's label and colour, or nothing for an unset priority.
    */
   const priorityMark = item.priority ? PRIORITY_MARKS[item.priority] : undefined;
   const dueDateText = dueDateLabel(item.dueDate);

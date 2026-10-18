@@ -229,9 +229,9 @@ export function CaptureNote({
     last && afterCapture
       ? possibleDuplicatesOf(
           last.id,
-          afterCapture.items ?? [],
-          filingsThatFile(afterCapture.filings ?? [], afterCapture.panels ?? []),
-          afterCapture.duplicates ?? [],
+          afterCapture.items,
+          filingsThatFile(afterCapture.filings, afterCapture.panels),
+          afterCapture.duplicates,
         )[0]
       : undefined;
 

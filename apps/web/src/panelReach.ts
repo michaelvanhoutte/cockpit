@@ -57,11 +57,11 @@ export type Reach = {
  * and a Panel of text counts nothing.
  */
 export function dashboardsOf(snapshot: WorkspaceSnapshot, store: Storage | undefined): ReachDashboard[] {
-  const panelsInWorkspace = snapshot.panels ?? [];
-  const layouts = snapshot.layouts ?? [];
+  const panelsInWorkspace = snapshot.panels;
+  const layouts = snapshot.layouts;
   const today = dayOf(new Date());
-  const withAttachments = itemIdsWithAttachments(snapshot.attachments ?? []);
-  const withRun = itemIdsWithRun(snapshot.agentRuns ?? []);
+  const withAttachments = itemIdsWithAttachments(snapshot.attachments);
+  const withRun = itemIdsWithRun(snapshot.agentRuns);
   const found: ReachDashboard[] = [];
   for (const dashboard of snapshot.dashboards) {
     const filter = readDashboardFilter(store, dashboard.id);
@@ -72,7 +72,7 @@ export function dashboardsOf(snapshot: WorkspaceSnapshot, store: Storage | undef
     const entryOf = (panel: Panel): PanelListEntry => {
       const shown = itemsShownOn(panel, {
         items: snapshot.items,
-        filings: snapshot.filings ?? [],
+        filings: snapshot.filings,
         panelsInWorkspace,
         dashboards: snapshot.dashboards,
         filter,

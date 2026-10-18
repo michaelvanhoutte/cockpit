@@ -21,7 +21,7 @@ const SmartRefinementsWindow = lazy(() => import('./SmartRefinementsWindow'));
 function useInboxCount(workspaceId: string): number | null {
   const { data } = useQuery(snapshotQuery(workspaceId));
   return data
-    ? itemsInTheInbox(data.items, filingsThatFile(data.filings ?? [], data.panels ?? [])).length
+    ? itemsInTheInbox(data.items, filingsThatFile(data.filings, data.panels)).length
     : null;
 }
 
@@ -216,12 +216,10 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
     return <p className="px-4 py-3 text-ink-faint">Loading…</p>;
   }
 
-  // Everything still yours to handle that is on no panel. `?? []` is a guard
-  // kept from before saved reads were checked on the way back in
-  // (`savedReads.ts`), when a snapshot saved before the field had no filings.
+  // Everything still yours to handle that is on no panel.
   // A filing onto a Filter is no filing at all (`filingsThatFile`), so the item
   // it names is still here - which is the whole of what makes one harmless.
-  const filed = filingsThatFile(data.filings ?? [], data.panels ?? []);
+  const filed = filingsThatFile(data.filings, data.panels);
   const inbox = itemsInTheInbox(data.items, filed);
 
   /* No box of its own and no heading: the column it is drawn in is the hollow

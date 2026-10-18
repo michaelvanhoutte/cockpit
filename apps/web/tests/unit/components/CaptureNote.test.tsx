@@ -128,10 +128,16 @@ const WORK_SNAPSHOT = {
     aPanelOf('p-overdue', 'Overdue', 'd-today', 'filter'),
     aPanelOf('p-reading', 'Reading list', 'd-later'),
   ],
+  items: [],
+  filings: [],
+  duplicates: [],
 };
 const HOME_SNAPSHOT = {
   dashboards: [{ id: 'd-house', name: 'House' }],
   panels: [aPanelOf('p-garden', 'Garden', 'd-house')],
+  items: [],
+  filings: [],
+  duplicates: [],
 };
 
 /**

@@ -51,19 +51,16 @@ export function DashboardPage() {
           workspaceId={workspaceId}
           dashboard={dashboard}
           dashboards={data.dashboards}
-          // `?? []`: guards kept from before saved reads were checked on the
-          // way back in (`savedReads.ts`), when a snapshot saved before these
-          // fields had none.
-          panels={(data.panels ?? []).filter((panel) => panel.dashboardId === dashboard.id)}
+          panels={(data.panels).filter((panel) => panel.dashboardId === dashboard.id)}
           // Unfiltered, and deliberately beside the line above: whether a
           // filing files is a fact about the Panel it names rather than about
           // the dashboard being drawn (`panelsInWorkspace`, PanelBoard.tsx).
-          panelsInWorkspace={data.panels ?? []}
-          layouts={data.layouts ?? []}
+          panelsInWorkspace={data.panels}
+          layouts={data.layouts}
           items={data.items}
-          filings={data.filings ?? []}
-          attachments={data.attachments ?? []}
-          agentRuns={data.agentRuns ?? []}
+          filings={data.filings}
+          attachments={data.attachments}
+          agentRuns={data.agentRuns}
         />
       )}
     </div>

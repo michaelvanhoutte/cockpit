@@ -489,7 +489,7 @@ export function ItemList({
           panelName: panel.name,
           reason: item.proposedPanelReason ?? '',
           // Anything but closest reads as clear: a proposal from before fits
-          // were said, and an Item restored from a copy kept before it (issue 1107).
+          // were said (issue 1107).
           fit: item.proposedPanelFit === 'closest' ? 'closest' : 'clear',
         }
       : undefined;

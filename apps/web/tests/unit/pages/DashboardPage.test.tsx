@@ -8,8 +8,8 @@ import { forgetEverySavedRead, restoreSavedReads, saveRead } from '../../../src/
 import { aWorkspace, anItem } from '../support/savedReads';
 
 /**
- * F1: what is under test is the page reading a stored copy that is older than
- * the fields it wants. Everything the dashboard then does with those panels is
+ * F1: what is under test is the page reading a stored copy kept by an older
+ * version. Everything the dashboard then does with those panels is
  * the board's, and is proved in tests/unit/components/PanelBoard.test.tsx.
  */
 
@@ -35,49 +35,6 @@ vi.mock('../../../src/api/queries', async () => {
       queryFn: () => (held.answers ? Promise.resolve(held.snapshot) : new Promise<never>(() => {})),
     }),
   };
-});
-
-/** A workspace's read model as it was stored before panels and layouts existed. */
-function asItWasStoredBefore(): WorkspaceSnapshot {
-  return {
-    workspace: {
-      id: 'ws-work',
-      tenantId: 'tenant',
-      name: 'Work',
-      color: '#6f62b5',
-      ground: '#e3e1f2',
-      header: '#d2cdea',
-    },
-    items: [],
-    dashboards: [{ id: 'today', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Today' }],
-    associations: [],
-    duplicates: [],
-    filings: [],
-    generatedAt: '2026-09-02T09:00:00.000Z',
-  } as unknown as WorkspaceSnapshot;
-}
-
-describe('Panels', () => {
-  describe('a dashboard opens from a stored copy made before panels existed', () => {
-    it('shows an empty dashboard rather than nothing at all', async () => {
-      // A guard kept from before saved reads were checked on the way back in
-      // (`savedReads.ts`), when a snapshot saved before panels had none.
-      held.snapshot = asItWasStoredBefore();
-      held.answers = true;
-
-      render(
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-        >
-          <DashboardPage />
-        </QueryClientProvider>,
-      );
-
-      expect(
-        await screen.findByText(/A dashboard holds the panels you want in view/),
-      ).toBeVisible();
-    });
-  });
 });
 
 describe('Offline', () => {

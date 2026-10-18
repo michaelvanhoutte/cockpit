@@ -42,7 +42,7 @@ export function panelsToFileOn(
       leftOut.push(workspace.name);
       continue;
     }
-    const panels = (snapshot.panels ?? []).filter(panelTakesItems);
+    const panels = snapshot.panels.filter(panelTakesItems);
     for (const dashboard of snapshot.dashboards) {
       for (const panel of panels) {
         if (panel.dashboardId !== dashboard.id) continue;

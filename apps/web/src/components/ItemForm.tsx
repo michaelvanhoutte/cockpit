@@ -282,18 +282,12 @@ function TheForm({
    * once, while a change arriving over `data` alone never touches it.
    */
   useEffect(() => {
-    // `?? DEFAULT_ITEM_FORM_PRESENTATION` rather than trusting `data` to
-    // always carry the field, a guard kept from before saved reads were
-    // checked on the way back in (`savedReads.ts`): `undefined` here must
-    // still lock to a real value, not `undefined` itself, or the lock this
-    // effect exists for falls through to `data` again on the next render
-    // (found in review).
     if (fixedPresentation === null && data) {
       // A form opened quietly with none open before it is the Inbox's J or K
       // (issue 1110; a capture and a row follow only a form already docked):
       // docked for this opening, held here like any lock and never written to
       // the account.
-      setFixedPresentation(openedQuietly ? 'docked' : (data.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION));
+      setFixedPresentation(openedQuietly ? 'docked' : data.itemFormPresentation);
     }
   }, [data, fixedPresentation, setFixedPresentation, openedQuietly]);
   const presentation = fixedPresentation ?? (openedQuietly ? 'docked' : data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION);

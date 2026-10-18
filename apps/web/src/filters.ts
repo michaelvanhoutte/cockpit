@@ -521,10 +521,9 @@ export function saysWhatItShows(
 }
 
 /**
- * Whether a Filter's rows are drawn under headings. Asked by name rather than
- * as "not none", so a grouping that never reached the schema - a copy restored
- * from this browser's storage, which nothing re-validates (`persistence.tsx`) -
- * draws the flat list rather than whichever grouping a fallthrough lands on.
+ * Whether a Filter's rows are drawn under headings. `undefined` is a Panel that
+ * is not a Filter, or none supplied; a stored `groupBy` the schema does not
+ * know already reads as `none` (`.catch('none')`), so it draws the flat list.
  */
 export function isGrouped(groupBy: FilterGrouping | undefined): groupBy is Exclude<FilterGrouping, 'none'> {
   return groupBy === 'dashboard' || groupBy === 'panel';
