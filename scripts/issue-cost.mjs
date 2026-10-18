@@ -101,7 +101,11 @@ function runRun(number) {
           throw error;
         }
       },
-      readSubIssues: (n) => JSON.parse(gh(['api', `repos/{owner}/{repo}/issues/${n}/sub_issues`, '--paginate', '--jq', '[.[].number]'])),
+      readSubIssues: (n) =>
+        gh(['api', `repos/{owner}/{repo}/issues/${n}/sub_issues`, '--paginate', '--jq', '.[].number'])
+          .split(/\s+/)
+          .filter(Boolean)
+          .map(Number),
       listPullRequests: () =>
         listPullRequests(repoRoot, 'number,headRefName,baseRefName,state,createdAt,mergedAt,closedAt,body,closingIssuesReferences'),
     });
@@ -113,15 +117,9 @@ function runRun(number) {
 
   const branches = new Set(inputs.pullRequests.map((pr) => pr.headRefName));
   const costByBranch = new Map();
-  const claudeDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
-  const projectsDir = join(claudeDir, 'projects');
-  if (existsSync(projectsDir)) {
-    const perBranch = buildReport({ projectDirs: thisRepoProjectDirs(repoRoot, projectsDir), byBranch: true });
-    for (const entry of perBranch.issues) {
-      if (branches.has(entry.issue)) costByBranch.set(entry.issue, { costUSD: entry.costUSD.total, unpricedTokens: entry.unpricedTokens });
-    }
-  } else {
-    console.error(`no session logs at ${projectsDir} - token cost reads ${NOT_RECORDED}`);
+  const perBranch = buildReport({ projectDirs, byBranch: true });
+  for (const entry of perBranch.issues) {
+    if (branches.has(entry.issue)) costByBranch.set(entry.issue, { costUSD: entry.costUSD.total, unpricedTokens: entry.unpricedTokens });
   }
 
   const run = buildRun({ ...inputs, costByBranch });
