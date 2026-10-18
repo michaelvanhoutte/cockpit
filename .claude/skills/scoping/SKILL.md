@@ -33,7 +33,7 @@ Prose that reads fine fails on contact — two designs agreed in discussion over
 
 **A POC is throwaway**: in the real app rather than `poc/`, no tests, no docs. Save the diff outside git before reverting, because what it found is an input to step 3 and rows in step 6.
 
-**An approved POC's presentation is the spec.** Post its saved diff as a comment on the ticket and say so in What to build; whoever builds it reproduces the POC's layout, controls, wording and order from that source, wired to the real data, and names any deviation in the pull request — because a builder working from a prose description rebuilds the screen rather than reproducing the one that was approved.
+**What the person picks on screen is the spec — a POC, or an artboard chosen on a design canvas — never a prose retelling of it.** Record the pick in their words and by its label ("B · Layout chosen by picture"), confirm it back before filing, and post its source on the ticket as a comment — the POC's saved diff, or the canvas link with the chosen artboard's file — saying so in What to build. Whoever builds it reproduces that source's layout, controls, wording and order, wired to the real data, compares the built screen with it side by side before shipping, and names any deviation in the pull request — because a builder working from a description rebuilds the screen rather than reproducing the one that was chosen.
 
 ### 3. Sharpen fuzzy language before sizing anything
 
