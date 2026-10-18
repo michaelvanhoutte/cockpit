@@ -1609,6 +1609,34 @@ describe('Item editing', () => {
       });
     });
 
+    it('Save shows the new title at once, without waiting for the Item to be read again', async () => {
+      await atWidth(390, async () => {
+        // The stored Item never changes in this test: only what the page itself remembers can say the new title.
+        const user = await theEditingPhonePage();
+        await user.type(titleBox(), ' now');
+
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(await screen.findByText('Part 11 now', { selector: 'p' })).toBeVisible();
+        expect(screen.queryByText('Part 11', { selector: 'p' })).toBeNull();
+      });
+    });
+
+    it('a form being edited at a desk keeps what was typed when the window narrows to a page', async () => {
+      const user = await atWidth(1024, () => theForm());
+      await user.type(titleBox(), ' now');
+
+      await atWidth(390, async () => {
+        act(() => {
+          window.dispatchEvent(new Event('resize'));
+        });
+
+        expect(await screen.findByRole('button', { name: 'Save' })).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+        expect(titleBox()).toHaveValue('Part 11 now');
+      });
+    });
+
     it('← in the read view closes the page', async () => {
       await atWidth(390, async () => {
         const user = await thePhonePage();
@@ -2024,6 +2052,28 @@ describe('Item editing', () => {
           payload: expect.objectContaining({ description: 'Ring in January about the invoice.' }),
         }),
       );
+    });
+
+    it('on a phone, a reading chosen while reading opens editing with it in the boxes, still to be saved', async () => {
+      await atWidth(390, async () => {
+        const user = await thePhonePage(
+          anItem({ title: 'Call Jan', description: 'Mine already', readings: READINGS }),
+        );
+
+        await user.click(await screen.findByRole('button', { name: /Call in January/ }));
+
+        expect(await screen.findByLabelText('Title')).toHaveValue('Call in January');
+        await theEditorHasArrived();
+        expect(descriptionBox()).toHaveValue('Ring in January about the invoice.');
+        expect(held.send).not.toHaveBeenCalled();
+
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await screen.findByRole('button', { name: 'Edit' });
+        expect(sent()).toContainEqual(
+          expect.objectContaining({ name: 'set_title', payload: expect.objectContaining({ title: 'Call in January' }) }),
+        );
+      });
     });
 
     it('says nothing about the other readings once the texts are already yours', async () => {

@@ -67,7 +67,7 @@ function FakeRichDescription({ initial, editable }: { initial: string; editable:
   );
 }
 
-async function theBox(arrival: Arrival, value = 'A **bold** word') {
+async function theBox(arrival: Arrival, value = 'A **bold** word', reading = false) {
   vi.resetModules();
   vi.doMock('../../../src/updating', () => ({ takeTheNewVersion: taken }));
   vi.doMock('../../../src/description/RichDescription', async () => {
@@ -97,7 +97,8 @@ async function theBox(arrival: Arrival, value = 'A **bold** word') {
           changes.push(written);
           setMarkdown(written);
         }}
-        editable
+        editable={!reading}
+        reading={reading}
       />
     );
   }
@@ -198,6 +199,17 @@ describe('Item editing', () => {
    * `takeTheNewVersion` in src/updating.ts and on the message here.
    */
   describe('a description whose formatting has gone can pick up the new version', () => {
+    it('offers it when the editor never arrives, in the read view too, which shows the text as it is stored', async () => {
+      const { user } = await theBox('never comes', 'A **bold** word', true);
+
+      expect(await screen.findByRole('button', { name: 'Get the new version' })).toBeVisible();
+      expect(screen.getByText('A **bold** word')).toBeVisible();
+      expect(screen.queryByLabelText('Description')).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Get the new version' }));
+
+      expect(taken).toHaveBeenCalledTimes(1);
+    });
+
     it('offers it when the editor never arrives', async () => {
       const { user } = await theBox('never comes');
       await screen.findByRole('alert');

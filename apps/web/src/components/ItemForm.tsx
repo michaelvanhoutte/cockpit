@@ -930,23 +930,43 @@ function TheForm({
    * On a phone the page opens to be read, and editing is a step behind Edit or
    * a tap on the title or the description ("Read an Item before editing it on a
    * phone", issue 1246): nothing is focused, so no keyboard comes up over the
-   * text it was opened for. A desk is always editing.
+   * text it was opened for. A form that is a desk's is always editing, and
+   * stays editing if the window narrows to a page, so what was typed is not
+   * thrown away by the width changing.
    */
-  const [reading, setReading] = useState(true);
+  const [reading, setReading] = useState(onAPage);
+  useEffect(() => {
+    if (!onAPage) setReading(false);
+  }, [onAPage]);
   const readView = onAPage && reading;
-  /** The field a tap asked to write in, focused as editing opens; none for Edit itself. */
-  const [focusOnEdit, setFocusOnEdit] = useState<'title' | 'description' | null>(null);
-  /** Editing starts from what the Item holds now, so a change made elsewhere while reading is not written over. */
-  const startEditing = (field: 'title' | 'description' | null) => {
-    if (!item) return;
+  /**
+   * What the Item holds, as a value that changes only when something about it
+   * does. While reading, the boxes follow it, so a change made elsewhere shows
+   * - and a Save does not wait on the read-back to be seen, `was` being moved
+   * to what landed.
+   */
+  const stored = item ? JSON.stringify(draftOf(item)) : '';
+  useEffect(() => {
+    if (!readView || !item) return;
     const from = draftOf(item);
     changeEditing(() => ({ was: from, now: { ...from } }));
+    // Only when the stored values move, not when reading begins: a Save has
+    // just put `was` on what landed, which the cached Item may not yet say.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stored]);
+  /** The field a tap asked to write in, focused as editing opens; none for Edit itself. */
+  const [focusOnEdit, setFocusOnEdit] = useState<'title' | 'description' | null>(null);
+  /** Editing starts from what was being read, so there is nothing typed to carry over. */
+  const startEditing = (field: 'title' | 'description' | null) => {
+    if (!item) return;
+    changeEditing((held) => (held ? { was: held.was, now: { ...held.was } } : held));
     setRefusal(null);
     setFocusOnEdit(field);
     setReading(false);
   };
   const stopEditing = () => {
     onPanels.discard();
+    changeEditing((held) => (held ? { was: held.was, now: { ...held.was } } : held));
     setRefusal(null);
     setReading(true);
   };
@@ -1607,7 +1627,7 @@ function TheForm({
                     onClick={() => startEditing('title')}
                     className="shrink-0 whitespace-pre-wrap break-words py-2 text-xl font-semibold text-ink"
                   >
-                    {item.title}
+                    {editing!.was.title}
                   </p>
                 ) : (
                 <label className="block shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
@@ -1747,6 +1767,8 @@ function TheForm({
                                 type="button"
                                 disabled={saving}
                                 onClick={() => {
+                                  // Chosen while reading: editing opens with it in the boxes, still to be saved.
+                                  if (readView) startEditing(null);
                                   setDraft({
                                     ...draft,
                                     title: reading.title,
@@ -1885,9 +1907,9 @@ function TheForm({
                         // The same three values as text; they change through Edit, so every change still waits for Save.
                         <p className="text-sm text-ink-soft">
                           {[
-                            STATUS_LABELS[itemStatus(item)],
-                            item.priority ? `${PRIORITY_LABELS[item.priority]} priority` : null,
-                            dueDateLabel(item.dueDate) ? `Due ${dueDateLabel(item.dueDate)}` : null,
+                            STATUS_LABELS[editing!.was.status],
+                            editing!.was.priority ? `${PRIORITY_LABELS[editing!.was.priority]} priority` : null,
+                            dueDateLabel(editing!.was.dueDate) ? `Due ${dueDateLabel(editing!.was.dueDate)}` : null,
                           ]
                             .filter((part) => part !== null)
                             .join(' · ')}
@@ -1938,12 +1960,12 @@ function TheForm({
                       >
                         <DescriptionBox
                           // A new editor for each of reading and editing, built from the text that mode holds.
-                          key={readView ? `reading:${item.description ?? ''}` : 'editing'}
+                          key={readView ? `reading:${editing!.was.description}` : 'editing'}
                           reading={readView}
                           onReadingTap={() => startEditing('description')}
                           focusWhenReady={focusOnEdit === 'description'}
                           resetKey={readingPicked}
-                          value={readView ? (item.description ?? '') : draft.description}
+                          value={readView ? editing!.was.description : draft.description}
                           onChange={(description) => {
                             if (!onScreen.current) return;
                             setDraft({ ...draft, description });

@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState, type MouseEvent } from 'react';
 import {
   LazyRichDescription,
   NewerVersionIfStale,
@@ -93,37 +93,24 @@ export function DescriptionBox({
     setGeneration((was) => was + 1);
   }, [resetKey]);
 
-  const showing: View = failed ? 'source' : view;
+  const showing: View = failed && !reading ? 'source' : view;
 
-  if (reading) {
-    // The text as it was stored, until the formatted version arrives or if it never does.
-    const plain = <p className="whitespace-pre-wrap break-words text-sm text-ink">{value}</p>;
-    return (
-      <div
-        className="flex min-h-0 flex-1 flex-col text-sm text-ink"
-        onClickCapture={(event) => {
-          const link = (event.target as HTMLElement).closest('a[href]');
-          event.preventDefault();
-          event.stopPropagation();
-          if (!link) return onReadingTap?.();
-          const href = safeHref(link.getAttribute('href') ?? '');
-          if (href) window.open(href, '_blank', 'noopener');
-        }}
-      >
-        {failed ? (
-          plain
-        ) : (
-          <WhateverTheEditorDoes onFailure={() => setFailed(true)}>
-            <Suspense fallback={plain}>
-              <LazyRichDescription initial={value} onChange={onChange} editable={false} reading fill />
-            </Suspense>
-          </WhateverTheEditorDoes>
-        )}
-      </div>
-    );
-  }
+  /** A tap in the read view: a link opens in a new tab, anything else is the way into editing. */
+  const tapped = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    // The note about formatting has its own button, which is not a tap on the text.
+    if (target.closest('[role=alert]')) return;
+    const link = target.closest('a[href]');
+    event.preventDefault();
+    event.stopPropagation();
+    if (!link) return onReadingTap?.();
+    const href = safeHref(link.getAttribute('href') ?? '');
+    if (href) window.open(href, '_blank', 'noopener');
+  };
+  /** The text as it was stored, for the read view until the formatted version arrives, or if it never does. */
+  const plain = <p className="whitespace-pre-wrap break-words text-sm text-ink">{value}</p>;
 
-  const toggle = failed ? null : (
+  const toggle = failed || reading ? null : (
     <button
       type="button"
       onClick={() => {
@@ -141,8 +128,11 @@ export function DescriptionBox({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {onAPage ? (
+    <div
+      className={reading ? 'flex min-h-0 flex-1 flex-col text-sm text-ink' : 'flex min-h-0 flex-1 flex-col'}
+      {...(reading ? { onClickCapture: tapped } : {})}
+    >
+      {reading ? null : onAPage ? (
         showing === 'source' && rowOfItsOwn
       ) : (
         <div className="flex shrink-0 items-center justify-between gap-2">
@@ -153,7 +143,9 @@ export function DescriptionBox({
         </div>
       )}
 
-      {showing === 'source' ? (
+      {reading && failed ? (
+        plain
+      ) : showing === 'source' ? (
         <textarea
           aria-label="Description"
           disabled={!editable}
@@ -175,24 +167,35 @@ export function DescriptionBox({
         // (above) kept its (found in review). Supplied here instead, so
         // `Arriving` below drops the matching border/background it used to
         // carry on its own rather than drawing two.
-        <div className="mt-1 flex min-h-0 flex-1 flex-col rounded-md border border-shade/10 bg-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40">
+        <div
+          className={
+            reading
+              ? 'flex min-h-0 flex-1 flex-col'
+              : 'mt-1 flex min-h-0 flex-1 flex-col rounded-md border border-shade/10 bg-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40'
+          }
+        >
           <WhateverTheEditorDoes onFailure={() => setFailed(true)}>
             <Suspense
               fallback={
-                <>
-                  {rowOfItsOwn}
-                  <Arriving value={value} />
-                </>
+                reading ? (
+                  plain
+                ) : (
+                  <>
+                    {rowOfItsOwn}
+                    <Arriving value={value} />
+                  </>
+                )
               }
             >
               <LazyRichDescription
                 key={generation}
                 initial={value}
                 onChange={onChange}
-                editable={editable}
+                editable={editable && !reading}
                 uploadImage={uploadImage}
                 endOfToolbar={onAPage ? toggle : undefined}
                 focusWhenReady={focusWhenReady}
+                reading={reading}
                 fill
               />
             </Suspense>
@@ -202,8 +205,10 @@ export function DescriptionBox({
 
       {failed && (
         <p role="alert" className="mt-1 shrink-0 text-xs font-normal normal-case tracking-normal text-over-ink">
-          Formatting could not be loaded. The description is still here, as Markdown, and still
-          saves.{' '}
+          Formatting could not be loaded.{' '}
+          {reading
+            ? 'The description is shown as Markdown.'
+            : 'The description is still here, as Markdown, and still saves.'}{' '}
           {/* Offered rather than taken, which is the difference between this and
               the gate around the whole window (components/Updating.tsx). That
               one reloads unasked because carrying on is actively wrong - it
