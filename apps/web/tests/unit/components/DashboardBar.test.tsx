@@ -302,7 +302,7 @@ function showBar(
 
 /**
  * Lays the bar out, because jsdom does not: `tabDrag.ts`'s `placeAt` reads each
- * tab's right edge off `getBoundingClientRect`, which jsdom always answers with
+ * tab's edges off `getBoundingClientRect`, which jsdom always answers with
  * zeroes. Each tab is given a 100-pixel-wide slot instead, the same stand-in
  * `WorkspaceTabs.test.tsx` uses for the strip above it.
  *
@@ -313,7 +313,7 @@ function showBar(
  */
 function layOutTabs() {
   [...document.querySelectorAll('nav[aria-label="Dashboards"] a')].forEach((tab, index) => {
-    tab.getBoundingClientRect = () => ({ right: (index + 1) * 100 }) as DOMRect;
+    tab.getBoundingClientRect = () => ({ left: index * 100, right: (index + 1) * 100 }) as DOMRect;
   });
 }
 
