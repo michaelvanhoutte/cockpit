@@ -375,7 +375,7 @@ export function PanelCard({
             // The margin closes with the count (below), at the same width and for
             // the same reason: a panel this narrow is spending real width on
             // padding alone, and it is spending it on its own name. It stops
-            // matching the rows underneath there, which carry `px-4` of their
+            // matching the rows underneath there, which carry `pl-4` of their
             // own - a fair trade at a width where those rows are showing two
             // characters of a title.
             // `cursor-grab` because the header is the handle and nothing else says

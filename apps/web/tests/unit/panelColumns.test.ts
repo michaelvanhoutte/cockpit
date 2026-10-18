@@ -16,8 +16,12 @@ describe('Panels', () => {
       { situation: '1532 wide at Wide', width: 1532, minimum: PANEL_COLUMN_WIDTHS.wide, columns: 2 },
       { situation: '1532 wide at Medium', width: 1532, minimum: PANEL_COLUMN_WIDTHS.medium, columns: 3 },
       { situation: '1532 wide at Narrow', width: 1532, minimum: PANEL_COLUMN_WIDTHS.narrow, columns: 4 },
-      { situation: 'exactly two Medium columns and the gap between them', width: 864, minimum: 420, columns: 2 },
-      { situation: 'one pixel less than that', width: 863, minimum: 420, columns: 1 },
+      { situation: 'exactly two Medium columns and the gap between them', width: 2 * PANEL_COLUMN_WIDTHS.medium + 24, minimum: PANEL_COLUMN_WIDTHS.medium, columns: 2 },
+      { situation: 'one pixel less than that', width: 2 * PANEL_COLUMN_WIDTHS.medium + 23, minimum: PANEL_COLUMN_WIDTHS.medium, columns: 1 },
+      { situation: 'a 700px Panel at Narrow', width: 700, minimum: PANEL_COLUMN_WIDTHS.narrow, columns: 1 },
+      { situation: 'a 900px Panel at Medium', width: 900, minimum: PANEL_COLUMN_WIDTHS.medium, columns: 1 },
+      { situation: 'a 1200px Panel at Wide', width: 1200, minimum: PANEL_COLUMN_WIDTHS.wide, columns: 1 },
+      { situation: '744px at Narrow, exactly two and the gap between them', width: 744, minimum: PANEL_COLUMN_WIDTHS.narrow, columns: 2 },
       { situation: 'a phone at Narrow', width: 375, minimum: PANEL_COLUMN_WIDTHS.narrow, columns: 1 },
       { situation: 'a Panel narrower than one column', width: 200, minimum: PANEL_COLUMN_WIDTHS.wide, columns: 1 },
       { situation: 'a Panel with no width yet', width: 0, minimum: PANEL_COLUMN_WIDTHS.medium, columns: 1 },
@@ -46,7 +50,7 @@ describe('Panels', () => {
     it('lays the rows out in columns of at least the chosen width, 24 pixels apart', () => {
       expect(columnsStyle('medium')).toEqual({
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 420px), 1fr))',
+        gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${PANEL_COLUMN_WIDTHS.medium}px), 1fr))`,
         columnGap: 24,
       });
     });
