@@ -41,20 +41,19 @@ export function useTabDrag({
    */
   const live = useRef<{ id: string; to: number } | null>(null);
 
-  /**
-   * Which place the pointer is over, measured off the tabs *as painted* - which
-   * already show the preview, so once the dragged tab is under the pointer it
-   * stays there and the reading settles instead of flickering between two
-   * places. Past the last tab means last, so dragging off the end of the strip
-   * is a move rather than nothing.
-   */
-  const placeAt = (clientX: number) => {
+  /** Which place the pointer is over, read off the other tabs as painted (`placeAmong`). */
+  const placeAt = (clientX: number, moving: string) => {
     const tabs = strip.current?.querySelectorAll<HTMLElement>('[data-tab-id]');
     if (!tabs || tabs.length === 0) return null;
-    for (let i = 0; i < tabs.length; i += 1) {
-      if (clientX <= tabs[i]!.getBoundingClientRect().right) return i;
-    }
-    return tabs.length - 1;
+    const from = order.indexOf(moving);
+    const others = [...tabs].filter((tab) => tab.dataset.tabId !== moving);
+    return placeAmong(
+      others.map((tab) => {
+        const { left, right } = tab.getBoundingClientRect();
+        return { left, right, ahead: order.indexOf(tab.dataset.tabId!) > from };
+      }),
+      clientX,
+    );
   };
 
   const stop = ({ clickFollows }: { clickFollows: boolean }) => {
@@ -116,7 +115,7 @@ export function useTabDrag({
         event.currentTarget.setPointerCapture(from.pointerId);
         live.current = { id, to: order.indexOf(id) };
       }
-      const to = placeAt(event.clientX);
+      const to = placeAt(event.clientX, from.id);
       if (to === null || live.current?.to === to) return;
       live.current = { id, to };
       setDragging(live.current);
@@ -158,3 +157,31 @@ export function useTabDrag({
 
 /** How far a press has to travel before it is a drag rather than a press. */
 const DRAG_STARTS_AT = 5;
+
+/**
+ * Where a tab dragged to `x` lands among the strip's other tabs, given in the
+ * order they are painted: after every one whose middle the pointer has passed.
+ * Reaching the middle of a tab it is travelling towards is enough, so letting
+ * go on the centre of a tab moves it either way. Past the last means last, so
+ * dragging off the end of the strip is a move rather than nothing.
+ *
+ * **The other tabs, never the dragged one**, which is what keeps the reading
+ * still. Swapping places moves the tab passed further from the pointer, so the
+ * pointer has to come back past that tab's new middle to undo it. Read off the
+ * dragged tab's own edge, a narrow tab painted in front of a wide one leaves
+ * the pointer beyond that edge, and the next move puts it back.
+ */
+export function placeAmong(
+  others: readonly {
+    left: number;
+    right: number;
+    /** After the dragged tab in the order kept, so a tab it travels towards. */
+    ahead: boolean;
+  }[],
+  x: number,
+): number {
+  return others.filter(({ left, right, ahead }) => {
+    const middle = (left + right) / 2;
+    return ahead ? x >= middle : x > middle;
+  }).length;
+}

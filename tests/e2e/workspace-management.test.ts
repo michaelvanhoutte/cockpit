@@ -221,9 +221,15 @@ test.describe('Workspace management', () => {
      * its own: the run shares one database, so a walk that moved a seeded
      * workspace would reorder the tabs under every other spec. Both are put
      * back afterwards.
+     *
+     * **The one moved is much narrower than the one it is dragged over**, so
+     * every run is the drag that has to stay put once it has passed: painted
+     * in front, the narrow tab leaves the pointer beyond its own edge
+     * (`placeAmong`, apps/web/src/tabDrag.ts). Two names of about one width
+     * test that only when a step happens to land in the few pixels between.
      */
     async function twoOfMyOwn(page: Page, isMobile: boolean): Promise<[string, string]> {
-      const first = uniqueTitle('Anchor');
+      const first = uniqueTitle('Anchor with a longer name');
       const second = uniqueTitle('Mover');
       await openFirstWorkspace(page, isMobile);
       for (const name of [first, second]) await makeWorkspace(page, name, isMobile);

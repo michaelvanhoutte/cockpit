@@ -177,14 +177,14 @@ async function menuOf(name: string) {
 
 /**
  * Lays the strip out, because jsdom does not: `tabDrag.ts`'s `placeAt` reads
- * each tab's right edge off `getBoundingClientRect`, which jsdom always
+ * each tab's edges off `getBoundingClientRect`, which jsdom always
  * answers with zeroes. Each tab is given a 100-pixel-wide slot instead, the
  * same stand-in `PanelBoard.test.tsx`'s `layOut` uses for panels.
  */
 function layOutTabs() {
   const tabs = [...document.querySelectorAll('[data-tab-id]')];
   tabs.forEach((tab, index) => {
-    tab.getBoundingClientRect = () => ({ right: (index + 1) * 100 }) as DOMRect;
+    tab.getBoundingClientRect = () => ({ left: index * 100, right: (index + 1) * 100 }) as DOMRect;
   });
 }
 
