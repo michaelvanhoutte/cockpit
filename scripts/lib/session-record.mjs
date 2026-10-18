@@ -32,10 +32,19 @@ export function recordFileName(branch) {
 /** The browser pass's two boundaries. Kept apart from `PHASES`, which a report reads as the phases a record can miss. */
 export const BROWSER_PHASES = ['browser-start', 'browser-end'];
 
-const MARKS = [...PHASES, ...BROWSER_PHASES];
+/** A review's outcome, marked once that round's fixes are done: how many of the findings its `review-end` reported were fixed, and how many declined. */
+export const REVIEW_OUTCOME = 'review-outcome';
 
-/** The two phases that name which local review, and at what level, they bound. */
-const REVIEW_PHASES = ['review-start', 'review-end'];
+/** A CI wait's two boundaries, marked by the waiter once per push; `ci-end` carries the outcome the checks settled on. Kept apart from `PHASES` too. */
+export const CI_PHASES = ['ci-start', 'ci-end'];
+
+/** The outcomes a CI wait can end on: the conclusions GitHub reports for a check. */
+export const CI_OUTCOMES = ['success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral', 'skipped', 'startup_failure', 'stale'];
+
+const MARKS = [...PHASES, ...BROWSER_PHASES, REVIEW_OUTCOME, ...CI_PHASES];
+
+/** The phases that name which local review, and at what level, they bound or settle. */
+const REVIEW_PHASES = ['review-start', 'review-end', REVIEW_OUTCOME];
 
 export const REVIEW_KINDS = ['code-review', 'security-review'];
 export const REVIEW_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -55,6 +64,12 @@ export function parseMark(words) {
   if (!MARKS.includes(phase)) {
     throw new Error(`${phase === undefined ? 'No phase given' : `Unknown phase ${JSON.stringify(phase)}`}. The phases are ${list(MARKS)}.`);
   }
+  if (phase === 'ci-end') {
+    const [outcome, ...extra] = rest;
+    if (!CI_OUTCOMES.includes(outcome)) throw new Error(`ci-end needs the outcome the checks settled on next: ${list(CI_OUTCOMES)}.`);
+    if (extra.length > 0) throw new Error(`ci-end takes only an outcome, and the time comes from the clock - got ${JSON.stringify(extra.join(' '))} after it.`);
+    return { phase, outcome };
+  }
   if (!REVIEW_PHASES.includes(phase)) {
     if (rest.length > 0) throw new Error(`${phase} takes nothing after it, and the time comes from the clock - got ${JSON.stringify(rest.join(' '))}.`);
     return { phase };
@@ -64,6 +79,14 @@ export function parseMark(words) {
   const [count, ...extra] = counted ? more : [undefined, ...more];
   if (!REVIEW_KINDS.includes(kind)) throw new Error(`${phase} needs the review's kind next: ${list(REVIEW_KINDS)}.`);
   if (!REVIEW_LEVELS.includes(level)) throw new Error(`${phase} ${kind} needs the review's level next: ${list(REVIEW_LEVELS)}.`);
+  if (phase === REVIEW_OUTCOME) {
+    const [fixed, declined, ...left] = more;
+    for (const [name, value] of [['fixed', fixed], ['declined', declined]]) {
+      if (!/^(0|[1-9]\d*)$/.test(value ?? '')) throw new Error(`${phase} ${kind} ${level} takes the number of findings fixed and then declined as whole numbers, 0 or more - got ${name} ${JSON.stringify(value)}.`);
+    }
+    if (left.length > 0) throw new Error(`${phase} takes only a kind, a level, and the fixed and declined counts, and the time comes from the clock - got ${JSON.stringify(left.join(' '))} after them.`);
+    return { phase, kind, level, fixed: Number(fixed), declined: Number(declined) };
+  }
   if (count !== undefined && !/^(0|[1-9]\d*)$/.test(count)) throw new Error(`${phase} ${kind} ${level} takes the number of findings the review reported as a whole number, 0 or more - got ${JSON.stringify(count)}.`);
   if (extra.length > 0) throw new Error(`${phase} takes only a kind and a level${counted ? ' and a finding count' : ''}, and the time comes from the clock - got ${JSON.stringify(extra.join(' '))} after them.`);
   return { phase, kind, level, ...(count === undefined ? {} : { count: Number(count) }) };
@@ -108,14 +131,37 @@ export function serialiseRecord(entries) {
  * The record with one more mark on the end, stamped by `now` - the real clock unless a test hands another. A phase marked again adds an entry rather than replacing one, so two review rounds keep both.
  */
 export function markPhase(entries, words, now = () => new Date()) {
-  return [...entries, { ...parseMark(words), at: now().toISOString() }];
+  const mark = parseMark(words);
+  checkAgainstRecord(entries, mark);
+  return [...entries, { ...mark, at: now().toISOString() }];
+}
+
+/**
+ * The marks that only make sense after another, refused otherwise: a review's outcome must add up to the latest `review-end` of its kind and level, and a CI wait cannot end before it started. Marks that stand alone pass.
+ */
+function checkAgainstRecord(entries, mark) {
+  const marks = entries.filter((entry) => !isRun(entry));
+  if (mark.phase === REVIEW_OUTCOME) {
+    const ended = marks.findLast((entry) => entry.phase === 'review-end' && entry.kind === mark.kind && entry.level === mark.level);
+    if (ended === undefined) throw new Error(`${REVIEW_OUTCOME} ${mark.kind} ${mark.level} needs a review-end ${mark.kind} ${mark.level} marked before it.`);
+    if (ended.count === undefined) throw new Error(`The latest review-end ${mark.kind} ${mark.level} carries no finding count, so there is nothing for the outcome to add up to.`);
+    if (mark.fixed + mark.declined !== ended.count) {
+      throw new Error(`Fixed and declined add up to ${mark.fixed + mark.declined} of the ${ended.count} the latest review-end ${mark.kind} ${mark.level} reported.`);
+    }
+  }
+  if (mark.phase === 'ci-end') {
+    const last = marks.findLast((entry) => CI_PHASES.includes(entry.phase));
+    if (last?.phase !== 'ci-start') throw new Error('ci-end needs a ci-start marked before it, with no ci-end since.');
+  }
 }
 
 /**
  * One mark as the line the block carries: `- <time> <phase>[ <kind> <level>]`. A review's count rides on its level as `<level>:<count>`, so a reader that knows only four words per line still sees the same phase, kind and level word.
  */
-function line({ at, phase, kind, level, count }) {
-  return `- ${at} ${[phase, kind, level === undefined ? undefined : count === undefined ? level : `${level}:${count}`].filter(Boolean).join(' ')}`;
+function line({ at, phase, kind, level, count, fixed, declined, outcome }) {
+  // A review's outcome rides on its level as `<level>:<fixed>/<declined>`, a CI wait's as a word after `ci-end`.
+  const levelWord = level === undefined ? undefined : fixed !== undefined ? `${level}:${fixed}/${declined}` : count === undefined ? level : `${level}:${count}`;
+  return `- ${at} ${[phase, kind, levelWord, outcome].filter(Boolean).join(' ')}`;
 }
 
 /** Runs that overlap, or touch, as one interval naming every scope in them - a workspace run's packages in parallel count once. Runs one after the other stay apart, the same suite twice in a row included. */
@@ -184,12 +230,20 @@ export function readBlock(body) {
   return body
     .slice(span.start, span.end)
     .split(/\r?\n/)
-    .map((text) => /^- (\S+) (\S+)(?: (\S+) (\S+))?$/.exec(text))
+    .map((text) => {
+      const ended = /^- (\S+) ci-end (\S+)$/.exec(text);
+      if (ended) return [text, ended[1], 'ci-end', ended[2]];
+      return /^- (\S+) (\S+)(?: (\S+) (\S+))?$/.exec(text);
+    })
     .filter(Boolean)
     .map(([, at, phase, kind, level]) => {
+      if (phase === 'ci-end') return CI_OUTCOMES.includes(kind) ? { at, phase, outcome: kind } : null;
       const [word, count] = level === undefined ? [] : level.split(':');
+      const outcome = phase === REVIEW_OUTCOME ? /^(\d+)\/(\d+)$/.exec(count ?? '') : null;
+      if (phase === REVIEW_OUTCOME) return outcome ? { at, phase, kind, level: word, fixed: Number(outcome[1]), declined: Number(outcome[2]) } : null;
       return { at, phase, ...(kind ? { kind, level: word } : {}), ...(count !== undefined && /^\d+$/.test(count) ? { count: Number(count) } : {}) };
-    });
+    })
+    .filter(Boolean);
 }
 
 /** Where the block sits in a body, `null` where it has none. Throws where exactly one marker is there, or they appear out of order or more than once. */

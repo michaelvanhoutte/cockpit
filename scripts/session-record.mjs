@@ -6,10 +6,11 @@
 // stdout.
 //
 // Usage:
-//   node scripts/session-record.mjs mark <phase> [<kind> <level> [<count>]]
+//   node scripts/session-record.mjs mark <phase> [<kind> <level> [<count> | <fixed> <declined>] | <outcome>]
 //   node scripts/session-record.mjs body < body.md > body-with-record.md
 //
 //   e.g.  mark start          mark review-start code-review high   mark review-end code-review high 3
+//         mark review-outcome code-review high 2 1   (fixed, then declined)   mark ci-start   mark ci-end success
 //
 // The record is a file per branch in this worktree's own git directory, so it
 // is never tracked, two worktrees never share one, and a branch started after
@@ -36,13 +37,14 @@ const [command, ...words] = process.argv.slice(2);
 
 try {
   if (command === 'mark') {
-    const [mark] = markPhase([], words).slice(-1);
+    // The record is read to check a mark that depends on an earlier one (an outcome, a CI wait's end); only the new mark is appended.
+    const [mark] = markPhase(entries(), words).slice(-1);
     appendFileSync(recordFile, serialiseRecord([mark]));
     console.log(`${mark.at} ${mark.phase}`);
   } else if (command === 'body' && words.length === 0) {
     process.stdout.write(applyBlock(readFileSync(0, 'utf8'), renderBlock(entries())));
   } else {
-    console.error('Usage: node scripts/session-record.mjs mark <phase> [<kind> <level> [<count>]]\n       node scripts/session-record.mjs body < body.md');
+    console.error('Usage: node scripts/session-record.mjs mark <phase> [<kind> <level> [<count> | <fixed> <declined>] | <outcome>]\n       node scripts/session-record.mjs body < body.md');
     process.exit(2);
   }
 } catch (error) {
