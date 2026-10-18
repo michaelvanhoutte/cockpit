@@ -26,7 +26,7 @@ function rowsOf(conditions: readonly FilterCondition[], match: FilterMatch): Fil
  * L1: what a Filter gathers is a view over a Workspace's items and filings,
  * exactly as the Inbox is - so this is pure logic with no query to prove
  * against a database. It moved here with every assertion kept, now that the
- * Worker gathers a Filter panel's Items for a connected app's ind_items
+ * Worker gathers a Filter panel's Items for a connected app's `find_items`
  * (issue 1240). That a Filter reads back as one at all is
  * apps/api/tests/integration/http/panels.test.ts, and what the Panel draws with
  * what it is given is apps/web/tests/unit/components/PanelBoard.test.tsx.

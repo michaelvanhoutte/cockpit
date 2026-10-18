@@ -1167,6 +1167,54 @@ describe('MCP connections', () => {
     });
   });
 
+  describe('an app finds nothing of a workspace that was deleted, though its items and panels are still stored', () => {
+    beforeEach(async () => {
+      await withoutTheGuide();
+    });
+
+    it('does not return its items or offer its panels, and still finds the live workspaces’ own', async () => {
+      await alsoWorkspaces();
+      const { token } = await connected();
+      const gonePanel = await panelOn('ws-atlas-dashboard-1', 'Calls', 'items', 'ws-atlas');
+      await fileOn(await captured('Dentist at Atlas', { workspaceId: 'ws-atlas' }), gonePanel, 'ws-atlas');
+      await captured('Dentist at home');
+      expect(titlesOf(await findItems(token, { text: 'dentist' })).sort()).toEqual(['Dentist at Atlas', 'Dentist at home']);
+
+      await change('delete_workspace', {}, USER_ID, 'ws-atlas');
+
+      const found = await findItems(token, { text: 'dentist' });
+      expect(titlesOf(found)).toEqual(['Dentist at home']);
+      expect(found.content[0]!.text).not.toMatch(/Workspace: *\n/);
+      expect(titlesOf(await findItems(token))).toEqual(['Dentist at home']);
+      const asked = await findItems(token, { panel: 'Calls' });
+      expect(asked.isError).toBe(true);
+      expect(asked.content[0]!.text).toContain('No panel is called "Calls"');
+      expect(asked.content[0]!.text).not.toContain('"Calls", ');
+    });
+  });
+
+  describe('an app naming a workspace finds that workspace’s own items, and an undecided item only where nothing is named', () => {
+    beforeEach(async () => {
+      await withoutTheGuide();
+    });
+
+    it('leaves an item waiting in every Inbox out of another workspace’s results, and out of the whole account’s no more', async () => {
+      await alsoWorkspaces();
+      const { token } = await connected();
+      // No workspace named: undecided, though recorded against the first one.
+      await createItem(token, { message: 'Waiting in every inbox' });
+      await captured('Decided at Atlas', { workspaceId: 'ws-atlas' });
+
+      expect(titlesOf(await findItems(token)).sort()).toEqual(['Decided at Atlas', 'Waiting in every inbox']);
+      expect(titlesOf(await findItems(token, { workspace: 'Atlas Copco' }))).toEqual(['Decided at Atlas']);
+      expect(titlesOf(await findItems(token, { workspace: 'Personal' }))).toEqual([]);
+      // Named for the workspace it was captured from, it is that workspace's.
+      const own = await findItems(token, { workspace: 'Workspace 1' });
+      expect(titlesOf(own)).toEqual(['Waiting in every inbox']);
+      expect(own.content[0]!.text).toContain('Workspace: Workspace 1');
+    });
+  });
+
   describe('each result says where the item is and what it holds', () => {
     beforeEach(async () => {
       await withoutTheGuide();
@@ -1287,6 +1335,45 @@ describe('MCP connections', () => {
     });
   });
 
+  describe('a plain search reads no panels, and one naming a panel says plainly when they cannot be read', () => {
+    beforeEach(async () => {
+      await withoutTheGuide();
+    });
+
+    it('answers a search naming no panel though the panels could not be read, and apologises for one that names one', async () => {
+      const { token } = await connected();
+      await captured('Ring the dentist');
+      const realStores = env.ACCOUNT;
+      env.ACCOUNT = {
+        idFromName: (name: string) => realStores.idFromName(name),
+        get: (id: ReturnType<typeof realStores.idFromName>) => {
+          const real = realStores.get(id) as unknown as Record<string, (...args: unknown[]) => unknown>;
+          return new Proxy(
+            {},
+            {
+              get: (_, method: string) =>
+                method === 'itemPanels'
+                  ? async () => {
+                      throw new Error('panels unreadable: disk on fire');
+                    }
+                  : (...args: unknown[]) => real[method]!(...args),
+            },
+          );
+        },
+      } as unknown as typeof env.ACCOUNT;
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        expect(titlesOf(await findItems(token, { text: 'dentist' }))).toEqual(['Ring the dentist']);
+        const naming = await findItems(token, { panel: 'Admin' });
+        expect(naming).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('Something went wrong in Cockpit') }] });
+        expect(JSON.stringify(naming)).not.toContain('disk on fire');
+      } finally {
+        env.ACCOUNT = realStores;
+        logged.mockRestore();
+      }
+    });
+  });
+
   describe('an app may find 10 times a minute, apart from its limit to capture', () => {
     it('refuses the 11th call inside a minute, saying to wait, and still lets it capture', async () => {
       const { token } = await connected();
@@ -1329,7 +1416,7 @@ describe('Agents', () => {
       await withoutTheGuide();
     });
 
-    async function withAFile(itemId: string): Promise<void> {
+    async function withAFile(itemId: string, filename = 'layout.png'): Promise<void> {
       const uploaded = await asUser(`${ORIGIN}/v1/items/${itemId}/attachments`, {
         method: 'POST',
         headers: {
@@ -1338,7 +1425,7 @@ describe('Agents', () => {
           'x-command-id': crypto.randomUUID(),
           'x-issued-at': new Date().toISOString(),
           'x-workspace-id': WORKSPACE_ID,
-          'x-filename': 'layout.png',
+          'x-filename': filename,
         },
         body: new Uint8Array([137, 80, 78, 71, 1, 2, 3]),
       });
@@ -1356,6 +1443,25 @@ describe('Agents', () => {
       expect(said.match(/Attachments:/g)).toHaveLength(1);
       const opened = await SELF.fetch(link!);
       expect([opened.status, [...new Uint8Array(await opened.arrayBuffer())]]).toEqual([200, [137, 80, 78, 71, 1, 2, 3]]);
+    });
+
+    it('gives each of several files its own link that opens, across items too', async () => {
+      const { token } = await connected();
+      const first = await captured('Has two files');
+      await withAFile(first, 'one.png');
+      await withAFile(first, 'two.png');
+      await withAFile(await captured('Has another'), 'three.png');
+
+      const said = (await findItems(token)).content[0]!.text;
+      const links = ['one.png', 'two.png', 'three.png'].map((name) => {
+        const at = said.indexOf(`${name} (`);
+        expect(at, name).toBeGreaterThanOrEqual(0);
+        const link = said.slice(at + name.length + 2, said.indexOf(')', at));
+        expect(link, name).toContain('/v1/attachment-links/');
+        return link;
+      });
+      expect(new Set(links).size).toBe(3);
+      for (const link of links) expect((await SELF.fetch(link)).status).toBe(200);
     });
 
     it('names the file alone where the environment has no key to seal a link with', async () => {

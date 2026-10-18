@@ -11,13 +11,12 @@ import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Accoun
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
-import { FIND_ITEMS, findItemsTool, formatFound, readFind } from './find-items.js';
+import { FIND_ITEMS, findItemsTool, formatFound, namesAPanel, readFind, tooManyFinds } from './find-items.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from '../auth/mcp-paths.js';
 import { ATTACHMENT_LINK_PREFIX, attachmentLinkKey, sealAttachmentLink } from '../auth/attachment-link.js';
-import { FIND_ITEMS_PER_DAY, FIND_ITEMS_PER_MINUTE } from '../accounts/call-window.js';
 
 /**
  * `/mcp`, once the OAuth library has accepted the access token
@@ -254,18 +253,13 @@ async function findItems(
 ): Promise<{ reply: string } | { refusal: string }> {
   const now = new Date();
   const admitted = await account.appFindArrived(app.grantId, now.toISOString());
-  if (admitted === 'too-many-a-minute') {
-    return {
-      refusal: `Too many find_items calls in the last minute (${FIND_ITEMS_PER_MINUTE} are allowed). Wait a minute and try again.`,
-    };
-  }
-  if (admitted === 'too-many-today') {
-    return {
-      refusal: `find_items has been called ${FIND_ITEMS_PER_DAY} times in the last day, which is as many as it allows. Try again tomorrow.`,
-    };
-  }
+  if (admitted !== 'admitted') return { refusal: tooManyFinds(admitted) };
 
-  const [workspaces, panels] = await Promise.all([account.workspaces(), account.itemPanels()]);
+  // The panels are read only where one is named: a plain search costs the Items in scope.
+  const [workspaces, panels] = await Promise.all([
+    account.workspaces(),
+    namesAPanel(args) ? account.itemPanels() : Promise.resolve([]),
+  ]);
   const read = readFind(args, { workspaces, panels, utcToday: now.toISOString().slice(0, 10) });
   if (!read.ok) return { refusal: read.refusal };
 
@@ -284,12 +278,14 @@ async function findItems(
   const links = new Map<string, string>();
   const key = await attachmentLinkKey(env.CONNECTOR_CREDENTIAL_KEY);
   if (key) {
-    for (const { attachments } of page.items) {
-      for (const { id } of attachments) {
-        const token = await sealAttachmentLink(key, { accountName, attachmentId: id }, now);
-        links.set(id, new URL(`${ATTACHMENT_LINK_PREFIX}${token}`, env.APP_ORIGIN).toString());
-      }
-    }
+    await Promise.all(
+      page.items
+        .flatMap(({ attachments }) => attachments)
+        .map(async ({ id }) => {
+          const token = await sealAttachmentLink(key, { accountName, attachmentId: id }, now);
+          links.set(id, new URL(`${ATTACHMENT_LINK_PREFIX}${token}`, env.APP_ORIGIN).toString());
+        }),
+    );
   }
   return { reply: formatFound(page, env.APP_ORIGIN, links) };
 }

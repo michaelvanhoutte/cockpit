@@ -5,7 +5,7 @@ import { itemsInTheInbox, itemsThatAreFiled, type Filing, type Item } from '../.
  * L1: what the Inbox holds and what is filed somewhere are views over a
  * Workspace's items and filings, so this is pure logic with no query to prove
  * against a database. Moved here with every assertion kept, now that the Worker
- * answers a connected app's ind_items from the same rule (issue 1240).
+ * answers a connected app's `find_items` from the same rule (issue 1240).
  * Which filings the server puts in the snapshot at all - deleted panels' are
  * left out - is proved against a real one in
  * apps/api/tests/integration/http/panel-items.test.ts.

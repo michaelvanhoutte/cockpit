@@ -8,6 +8,7 @@ import {
   type PriorityChoice,
   type Workspace,
 } from '@cockpit/shared';
+import { FIND_ITEMS_PER_DAY, FIND_ITEMS_PER_MINUTE } from '../accounts/call-window.js';
 import { FIND_PAGE, encodeCursor, readCursor, type FindQuery, type FoundItem, type FoundPage } from '../accounts/find.js';
 import { foldName, namedTheSame } from '../domain/names.js';
 import type { ToolDefinition } from './create-item.js';
@@ -100,6 +101,27 @@ const ARGUMENTS = [
   'cursor',
 ] as const;
 
+/** An argument present but empty or null is read as not given, as `create_item` reads `workspace`. */
+function isGiven(given: Record<string, unknown>, name: string): boolean {
+  return given[name] !== undefined && given[name] !== null && given[name] !== '';
+}
+
+/**
+ * Whether a call names a panel - the one argument that needs the account's
+ * panels read, which are only read where one is named, so a plain search costs
+ * the Items in scope and nothing more.
+ */
+export function namesAPanel(args: unknown): boolean {
+  return isGiven((args && typeof args === 'object' ? args : {}) as Record<string, unknown>, 'panel');
+}
+
+/** What a refused call says: the minute is waited out, the day is a rolling twenty-four hours. */
+export function tooManyFinds(why: 'too-many-a-minute' | 'too-many-today'): string {
+  return why === 'too-many-a-minute'
+    ? `Too many find_items calls in the last minute (${FIND_ITEMS_PER_MINUTE} are allowed). Wait a minute and try again.`
+    : `find_items allows ${FIND_ITEMS_PER_DAY} calls in any 24 hours, and that many have been made. Try again later.`;
+}
+
 /** Whether a string is a real calendar day, `YYYY-MM-DD`. */
 function isADay(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -122,6 +144,8 @@ const options = (values: readonly string[]) => values.map((v) => `"${v}"`).join(
  *   (`namedTheSame`), and one that matches nothing is refused with the names
  *   there are. A panel is looked for in the workspace named, or in all.
  * - **Two panels of one name, on different Dashboards, are both asked about.**
+ * - **`panels` is only read where a panel is named** (`namesAPanel`), and may be
+ *   left empty otherwise.
  * - **`today` is the app's, or the UTC day** the call arrived on.
  */
 export function readFind(
@@ -133,8 +157,7 @@ export function readFind(
 
   const unknown = Object.keys(given).find((name) => !(ARGUMENTS as readonly string[]).includes(name));
   if (unknown !== undefined) return refuse(`${unknown} is not an argument of find_items; leave it out.`);
-  // An argument present but empty or null is read as not given, as `create_item` reads `workspace`.
-  const set = (name: string) => given[name] !== undefined && given[name] !== null && given[name] !== '';
+  const set = (name: string) => isGiven(given, name);
 
   let text = '';
   if (set('text')) {

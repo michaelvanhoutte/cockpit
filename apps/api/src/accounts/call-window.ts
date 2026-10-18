@@ -65,14 +65,16 @@ export function admittedCalls(earlier: readonly number[], now: number, limit: nu
  * 150,000 rows, 3% of the free plan's allowance.
  */
 export const FIND_ITEMS_PER_MINUTE = 10;
+/** In any 24 hours, rolling: a refused app is heard again as its earlier calls age out. */
 export const FIND_ITEMS_PER_DAY = 500;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Whether one more `find_items` call is admitted, on the calls the grant was
- * admitted for in the last day, newest last. A refused call is not counted: the
- * window opens as the earlier calls leave it. `calls` is the count to keep.
+ * admitted for in the last 24 hours (a rolling window, not a calendar day),
+ * newest last. A refused call is not counted: the window opens as the earlier
+ * calls leave it. `calls` is the count to keep.
  */
 export function admittedFindCall(
   earlier: readonly number[],

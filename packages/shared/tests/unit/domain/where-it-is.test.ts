@@ -4,7 +4,7 @@ import { placesFiledOn, whereItIs, type Dashboard, type Filing, type Item, type 
 /**
  * L1: where an item is, as *All items* says it in its *Where it is* column -
  * moved here with every case kept, now that the Worker names a place the same
- * way for a connected app's ind_items (issue 1240). That the table draws it
+ * way for a connected app's `find_items` (issue 1240). That the table draws it
  * is apps/web/tests/unit/components/AllItemsBoard.test.tsx.
  */
 

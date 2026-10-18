@@ -21,7 +21,7 @@ import type { Day } from '@cockpit/shared';
  * panel that shows every filed item due in a window", issue 463), and the
  * sentences that say so.
  *
- * **A view over the snapshot, exactly as the Inbox is** (iling.ts,
+ * **A view over the snapshot, exactly as the Inbox is** (`filing.ts`,
  * "Both are views evaluated in the client"): the wire carries the Workspace's
  * open Items, its filings and each Panel's conditions, and nothing about which
  * Items any Panel gathers. That is what makes a Filter cost no round trip, and

@@ -238,7 +238,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   #agentsRetired = false;
   /** The calls each app's grant was admitted for, newest last - see `appCaptureArrived`. */
   #appCaptures = new Map<string, number[]>();
-  /** The `find_items` calls each app's grant was admitted for in the last day, newest last - see `appFindArrived`. */
+  /** The `find_items` calls each app's grant was admitted for in the last 24 hours, newest last - see `appFindArrived`. */
   #appFinds = new Map<string, number[]>();
   /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
   #transcriptions: number[] = [];
@@ -795,7 +795,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /**
    * An app connected to this account calling `find_items` ("Find items in
    * Cockpit from a connected app, over MCP", issue 1240): admitted, or refused
-   * as one of too many from that grant in a minute or in a day.
+   * as one of too many from that grant in a minute or in any 24 hours.
    *
    * **Counted here, in memory, for the reason `appCaptureArrived` is**, and in
    * counters of its own: a call reads the Items in scope, so sharing capture's

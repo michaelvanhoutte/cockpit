@@ -12,7 +12,7 @@ import {
  * L1, and pure: which Items a Dashboard filter's conditions let through, on the
  * day the caller counts from. Moved with the rule from the browser, with every
  * assertion kept, now that the Worker reads the same conditions for a connected
- * app's ind_items (issue 1240). That the board and the tabs obey them is
+ * app's `find_items` (issue 1240). That the board and the tabs obey them is
  * apps/web/tests/unit/components/PanelBoard.test.tsx and DashboardBar.test.tsx;
  * the due windows' own boundaries are tests/unit/domain/filter-rules.test.ts's.
  */

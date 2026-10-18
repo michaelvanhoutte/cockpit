@@ -22,7 +22,7 @@ import { DEFAULT_FILTER_SORT, inSortOrder } from './sorting.js';
  * **A view over the snapshot, exactly as the Inbox is**: the wire carries the
  * Workspace's open Items, its filings and each Panel's conditions, and nothing
  * about which Items any Panel gathers. The rules are shared so the browser that
- * draws a Filter and the Worker that answers a connected app's ind_items
+ * draws a Filter and the Worker that answers a connected app's `find_items`
  * ("Find items in Cockpit from a connected app, over MCP", issue 1240) gather
  * the same Items; the day they count from is the caller's to say, as *this
  * week* is the week of whoever is looking.

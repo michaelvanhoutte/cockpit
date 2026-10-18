@@ -2721,13 +2721,17 @@ export function getSourceAccount(
  * from a connected app, over MCP", issue 1240): every Item of the account not
  * dismissed, most recently changed first with the id breaking a tie.
  *
- * **A workspace named reads the rows its Inbox and Dashboards show** - its own
- * Items and those not yet decided, which every Workspace's Inbox offers
- * (`listOpenItems`) - through the (account, workspace) index; none named reads
- * the account's whole. **Finished Items are read only where asked for**, so the
- * default is the open Items in scope, tens to hundreds of rows. Priority, due
- * and text are not read here: they are checked on these rows, by the rules the
- * screen's filters use.
+ * **Only Items of a live Workspace are read.** Deleting a Workspace tombstones
+ * the Workspace alone and leaves its Items live (`delete_workspace`), so
+ * without the join an Item of a deleted Workspace would come back under a name
+ * of "" and a link to nothing. **A workspace named reads that Workspace's own
+ * Items**, through the (account, workspace) index, never an undecided Item
+ * recorded against it: such an Item belongs to none, and would be labelled with
+ * a Workspace it was only captured from. None named reads the account's whole,
+ * undecided Items included. **Finished Items are read only where asked for**, so
+ * the default is the open Items in scope, tens to hundreds of rows. Priority,
+ * due and text are not read here: they are checked on these rows, by the rules
+ * the screen's filters use.
  */
 export function itemsForFind(
   db: AccountDb,
@@ -2737,16 +2741,15 @@ export function itemsForFind(
   return db
     .select(itemColumns)
     .from(items)
+    .innerJoin(workspaces, eq(items.workspaceId, workspaces.id))
     .where(
       and(
         eq(items.tenantId, tenantId),
-        scope.workspaceId === null
-          ? undefined
-          : or(eq(items.workspaceId, scope.workspaceId), eq(items.workspaceDecided, false)),
+        isNull(workspaces.deletedAt),
+        scope.workspaceId === null ? undefined : eq(items.workspaceId, scope.workspaceId),
         isNull(items.deletedAt),
         scope.includeDone ? undefined : isNull(items.completedAt),
       ),
-
     )
     .orderBy(desc(items.updatedAt), desc(items.id))
     .all();
@@ -2810,7 +2813,8 @@ export function attachmentsOfItems(
 }
 
 /**
- * Every live Panel that can hold or gather Items, on a live Dashboard, with the
+ * Every live Panel that can hold or gather Items, on a live Dashboard of a live
+ * Workspace (deleting a Workspace leaves its Dashboards and Panels live), with the
  * Workspace it is in - what a `panel` name given to `find_items` is read
  * against, and what a refusal lists. Panels of text hold no Items, so they are
  * not offered.
@@ -2823,7 +2827,15 @@ export function itemPanelsInAccount(
     .select({ id: panels.id, name: panels.name, kind: panels.kind, workspaceId: dashboards.workspaceId })
     .from(panels)
     .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
-    .where(and(eq(panels.tenantId, tenantId), isNull(panels.deletedAt), isNull(dashboards.deletedAt)))
+    .innerJoin(workspaces, eq(dashboards.workspaceId, workspaces.id))
+    .where(
+      and(
+        eq(panels.tenantId, tenantId),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+        isNull(workspaces.deletedAt),
+      ),
+    )
     .orderBy(asc(panels.createdAt), asc(panels.id))
     .all()
     .filter((row) => panelTakesItems(row) || panelGathers(row))

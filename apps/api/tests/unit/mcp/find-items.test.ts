@@ -6,7 +6,9 @@ import {
   NO_ITEM_MATCHES,
   findItemsTool,
   formatFound,
+  namesAPanel,
   readFind,
+  tooManyFinds,
   type PanelInScope,
 } from '../../../src/mcp/find-items.js';
 import type { FoundItem, FoundPage } from '../../../src/accounts/find.js';
@@ -135,6 +137,35 @@ describe('MCP connections', () => {
     it('takes the cursor a reply ended with', () => {
       const cursor = encodeCursor({ updatedAt: '2026-10-17T09:00:00.000Z', id: 'item-9' });
       expect(queryOf({ cursor }).after).toEqual({ updatedAt: '2026-10-17T09:00:00.000Z', id: 'item-9' });
+    });
+  });
+
+  describe('an app asking too often is told how long to wait', () => {
+    it('says to wait a minute for the minute, and that the day is any 24 hours - never tomorrow - for the day', () => {
+      expect(tooManyFinds('too-many-a-minute')).toContain('Wait a minute');
+      const day = tooManyFinds('too-many-today');
+      expect(day).toContain('500 calls in any 24 hours');
+      expect(day).toContain('Try again later');
+      expect(day).not.toMatch(/tomorrow|a day\b/i);
+    });
+  });
+
+  describe('the account’s panels are read only for a call that names one', () => {
+    it.each([
+      { situation: 'no arguments', args: undefined, names: false },
+      { situation: 'a text alone', args: { text: 'dentist' }, names: false },
+      { situation: 'an empty panel, read as not given', args: { panel: '' }, names: false },
+      { situation: 'a null panel, read as not given', args: { panel: null }, names: false },
+      { situation: 'a panel', args: { panel: 'Calls' }, names: true },
+      { situation: 'a panel that is no name at all, which is refused once read', args: { panel: 7 }, names: true },
+    ])('a call with $situation', ({ args, names }) => {
+      expect(namesAPanel(args)).toBe(names);
+    });
+
+    it('reads a search that names no panel without any panels to read it against', () => {
+      expect(readFind({ workspace: 'Work', text: 'x' }, { workspaces: [HOME, WORK], panels: [], utcToday: '2026-10-18' })).toMatchObject({
+        ok: true,
+      });
     });
   });
 
