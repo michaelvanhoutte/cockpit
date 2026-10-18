@@ -200,7 +200,7 @@ function nextSnapshot(changes: Partial<World>) {
 const rowOf = (panel: string, item: Item) =>
   within(screen.getByRole('region', { name: panel })).getByText(item.title).closest('li')!;
 
-const isPicked = (li: HTMLElement) => li.classList.contains('bg-accent-tint');
+const isPicked = (li: HTMLElement) => li.classList.contains('row-picked');
 
 async function tick(user: ReturnType<typeof userEvent.setup>, panel: string, item: Item, withShift = false) {
   const key = withShift ? 'Shift' : 'Control';

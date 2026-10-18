@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -10,6 +10,7 @@ import type {
   Item,
   Panel,
   PossibleDuplicate,
+  Priority,
   RewriteHistoryEntry,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
@@ -92,14 +93,39 @@ function FakeRichDescription({
   onChange,
   editable,
   uploadImage,
+  reading = false,
+  focusWhenReady = false,
 }: {
   initial: string;
   onChange: (markdown: string) => void;
   editable: boolean;
   uploadImage?: (file: File) => Promise<string>;
+  reading?: boolean;
+  focusWhenReady?: boolean;
 }) {
   const [value, setValue] = useState(initial);
   const [trouble, setTrouble] = useState('');
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (focusWhenReady) box.current?.focus();
+  }, [focusWhenReady]);
+  // Read, the text is drawn rather than boxed: a link in it as `[words](address)` becomes a link.
+  if (reading) {
+    return (
+      <div aria-label="Description" aria-readonly={!editable} data-testid="the-description-read">
+        {initial.split(/(\[[^\]]+\]\([^)]+\))/).map((part, at) => {
+          const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(part);
+          return link ? (
+            <a key={at} href={link[2]}>
+              {link[1]}
+            </a>
+          ) : (
+            <span key={at}>{part}</span>
+          );
+        })}
+      </div>
+    );
+  }
   return (
     <>
       {/* An image put in, landing at the end of the text once it uploads,
@@ -126,6 +152,7 @@ function FakeRichDescription({
       )}
       {trouble && <p>{trouble}</p>}
       <textarea
+        ref={box}
         aria-label="Description"
         // The real editor's text carries this class, which is how the form
         // tells a drop into the text from one anywhere else.
@@ -263,6 +290,53 @@ async function theForm(
   await screen.findByLabelText('Title');
   await theEditorHasArrived();
   return userEvent.setup();
+}
+
+let theClient: QueryClient;
+
+const aPanelNamed = (id: string, name: string): Panel =>
+  ({ id, tenantId: 't', dashboardId: 'd1', name, kind: 'items', format: 'plain', body: '', readOnly: false, neverPropose: false, filter: null, sort: null }) as Panel;
+
+/**
+ * What the server would do with a change, so the page can be seen reading it
+ * back: the stored Item takes the title, the priority or the Panel, and the
+ * page is told to read again.
+ */
+function applyingWhatIsSent() {
+  held.send.mockImplementation((async (change: { name: string; payload: Record<string, unknown> }) => {
+    if (change.name === 'set_title') held.items = [{ ...held.items[0]!, title: change.payload.title as string }];
+    if (change.name === 'set_priority') held.items = [{ ...held.items[0]!, priority: change.payload.priority as Priority }];
+    if (change.name === 'add_item_to_panel') {
+      held.filings = [...held.filings, { panelId: change.payload.panelId as string, itemId: 'item-1', position: held.filings.length }];
+    }
+    await theClient.invalidateQueries();
+    return { ok: true as const, applied: true };
+  }) as never);
+}
+
+/** A phone's page for an Item as it opens: the read view, with Edit in the header. */
+async function thePhonePage(item: Item = anItem(), alsoInTheInbox: Item[] = [], withUndo = false) {
+  held.items = [item, ...alsoInTheInbox];
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  theClient = client;
+  const tree = (
+    <QueryClientProvider client={client}>
+      <ItemForm />
+    </QueryClientProvider>
+  );
+  render(withUndo ? <UndoWhatJustHappened>{tree}</UndoWhatJustHappened> : tree);
+  // Drawn at once, and enabled only once the Item has arrived.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled());
+  return userEvent.setup();
+}
+
+/** A phone's page after Edit: the page the Item had before it opened to be read. */
+async function theEditingPhonePage(item: Item = anItem(), alsoInTheInbox: Item[] = []) {
+  const user = await thePhonePage(item, alsoInTheInbox);
+  await user.click(screen.getByRole('button', { name: 'Edit' }));
+  await screen.findByLabelText('Title');
+  await theEditorHasArrived();
+  return user;
 }
 
 /** `theForm`, for the describes that wrap it with a wait of their own. */
@@ -1175,14 +1249,15 @@ describe('Item editing', () => {
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
         try {
           filedOn('p-falcon');
-          const user = await theForm();
+          const user = await theEditingPhonePage();
+          await screen.findByRole('group', { name: 'On panels' });
 
           await user.click(onPanels().getByRole('button', { name: 'Remove from Falcon' }));
           expect(held.send).not.toHaveBeenCalled();
           await user.click(screen.getByRole('button', { name: 'Save' }));
 
-          await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
-          expect(sent().map((change) => change.name)).toEqual(['remove_item_from_panel']);
+          await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['remove_item_from_panel']));
+          expect(await screen.findByRole('button', { name: 'Edit' })).toBeVisible();
         } finally {
           Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
         }
@@ -1314,7 +1389,8 @@ describe('Item editing', () => {
     ] as const)('$situation', async ({ width, presentation, page }) => {
       await atWidth(width, async () => {
         held.itemFormPresentation = presentation;
-        await theForm();
+        if (width < 768) await theEditingPhonePage();
+        else await theForm();
 
         const present = (name: string) => screen.queryByRole('button', { name }) !== null;
         // ← is the form's Cancel on a page; the window has the word, and Dock.
@@ -1330,28 +1406,304 @@ describe('Item editing', () => {
     });
   });
 
-  describe('← on the page closes it and keeps nothing typed', () => {
-    it('a title typed, then ←, sends nothing and closes the form', async () => {
+  describe('on a phone, an Item opens to be read, with nothing focused', () => {
+    it('opens with ←, Item and Edit in the header, no Save, and no cursor anywhere', async () => {
       await atWidth(390, async () => {
-        const user = await theForm();
-        await user.type(titleBox(), ' now');
+        await thePhonePage();
 
-        await user.click(screen.getByRole('button', { name: 'Cancel' }));
-
-        expect(held.send).not.toHaveBeenCalled();
-        expect(held.close).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole('button', { name: 'Cancel' })).toHaveTextContent('←');
+        expect(screen.getByText('Item', { selector: 'span' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Edit' })).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+        expect(['INPUT', 'TEXTAREA']).not.toContain(document.activeElement?.tagName);
+        expect(document.activeElement?.getAttribute('contenteditable')).not.toBe('true');
       });
     });
 
-    it('a title typed, then Save in the header, sends only the title', async () => {
+    it('at a desk, in a window, the title is still focused on opening', async () => {
+      await atWidth(1024, async () => {
+        await theForm();
+
+        expect(titleBox()).toHaveFocus();
+        expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+      });
+    });
+  });
+
+  describe('on a phone, the read view shows the Item as text and nothing on it edits', () => {
+    const FAR = '2099-09-30';
+
+    it('draws the title as text, not as a box', async () => {
       await atWidth(390, async () => {
-        const user = await theForm();
+        await thePhonePage(anItem({ title: 'Chase the invoice' }));
+
+        expect(screen.getByText('Chase the invoice', { selector: 'p' })).toBeVisible();
+        expect(screen.queryByLabelText('Title')).toBeNull();
+      });
+    });
+
+    it.each([
+      { situation: 'only a status', over: {}, line: 'To do' },
+      {
+        situation: 'a status, a priority and a due date',
+        over: { startedAt: '2026-09-01T08:00:00.000Z', priority: 'high' as const, dueDate: FAR },
+        line: `In progress · High priority · Due ${dueDateLabel(FAR)}`,
+      },
+    ])('says $situation on one line', async ({ over, line }) => {
+      await atWidth(390, async () => {
+        await thePhonePage(anItem(over));
+
+        expect(screen.getByText(line, { selector: 'p' })).toBeVisible();
+      });
+    });
+
+    it('draws the description formatted and read-only, with no box to type in', async () => {
+      await atWidth(390, async () => {
+        await thePhonePage(anItem({ description: 'Ring the supplier' }));
+
+        const text = await screen.findByTestId('the-description-read');
+        expect(text).toHaveTextContent('Ring the supplier');
+        expect(text).toHaveAttribute('aria-readonly', 'true');
+        expect(screen.queryByRole('textbox')).toBeNull();
+        expect(screen.queryByRole('toolbar')).toBeNull();
+      });
+    });
+
+    it.each([
+      { situation: 'two Panels', panels: ['p-errands', 'p-admin'], says: 'On Errands, Admin' },
+      { situation: 'no Panel', panels: [], says: 'In the Inbox' },
+    ])('says an Item filed on $situation as “$says”', async ({ panels, says }) => {
+      await atWidth(390, async () => {
+        held.dashboards = [{ id: 'd1', name: 'Work' }];
+        held.panels = [aPanelNamed('p-errands', 'Errands'), aPanelNamed('p-admin', 'Admin')];
+        held.filings = panels.map((panelId, position) => ({ panelId, itemId: 'item-1', position }));
+        await thePhonePage();
+
+        expect(await screen.findByText(says, { selector: 'p' })).toBeVisible();
+      });
+    });
+
+    it('draws neither the chips nor the search for a Panel', async () => {
+      await atWidth(390, async () => {
+        await thePhonePage();
+
+        for (const chip of ['To do', 'Priority', 'Due date', '+ Attach']) {
+          expect(screen.queryByRole('button', { name: chip })).toBeNull();
+        }
+        expect(screen.queryByLabelText('Find a Panel to file on')).toBeNull();
+      });
+    });
+  });
+
+  describe('on a phone, a link in the description opens in a new tab and leaves the page reading', () => {
+    it('opens its address in a new tab', async () => {
+      await atWidth(390, async () => {
+        const open = vi.spyOn(window, 'open').mockReturnValue(null);
+        try {
+          const user = await thePhonePage(anItem({ description: 'See [the spec](https://example.com/spec)' }));
+
+          await user.click(await screen.findByRole('link', { name: 'the spec' }));
+
+          expect(open).toHaveBeenCalledWith('https://example.com/spec', '_blank', 'noopener');
+          expect(screen.getByRole('button', { name: 'Edit' })).toBeVisible();
+          expect(screen.queryByLabelText('Title')).toBeNull();
+        } finally {
+          open.mockRestore();
+        }
+      });
+    });
+  });
+
+  describe('on a phone, Edit or a tap on the title or the description switches to editing', () => {
+    it('Edit opens today’s page, with Save in the header and nothing focused', async () => {
+      await atWidth(390, async () => {
+        const user = await thePhonePage(anItem({ description: 'Notes' }));
+
+        await user.click(screen.getByRole('button', { name: 'Edit' }));
+
+        expect(await screen.findByLabelText('Title')).not.toHaveFocus();
+        expect(screen.getByRole('button', { name: 'Save' })).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+        expect(await screen.findByRole('button', { name: 'Priority' })).toBeVisible();
+        expect(await screen.findByLabelText('Find a Panel to file on')).toBeVisible();
+        await theEditorHasArrived();
+        expect(descriptionBox()).not.toHaveFocus();
+      });
+    });
+
+    it('a tap on the title opens editing with the title focused', async () => {
+      await atWidth(390, async () => {
+        const user = await thePhonePage();
+
+        await user.click(screen.getByText('Part 11', { selector: 'p' }));
+
+        expect(await screen.findByLabelText('Title')).toHaveFocus();
+      });
+    });
+
+    it('a tap on the description, not on a link, opens editing with the description focused', async () => {
+      await atWidth(390, async () => {
+        const user = await thePhonePage(anItem({ description: 'Notes' }));
+
+        await user.click(await screen.findByTestId('the-description-read'));
+
+        await waitFor(() => expect(descriptionBox()).toHaveFocus());
+        expect(descriptionBox()).toHaveValue('Notes');
+      });
+    });
+  });
+
+  describe('on a phone, leaving editing goes back to reading', () => {
+    it('Save of a changed title keeps the page open, reading the new title', async () => {
+      await atWidth(390, async () => {
+        const user = await theEditingPhonePage();
+        applyingWhatIsSent();
         await user.type(titleBox(), ' now');
 
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
-        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(await screen.findByText('Part 11 now', { selector: 'p' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Edit' })).toBeVisible();
         expect(sent()).toEqual([expect.objectContaining({ name: 'set_title' })]);
+        expect(held.close).not.toHaveBeenCalled();
+      });
+    });
+
+    it('Save of a changed chip and Panel reads both back in the line and in On panels', async () => {
+      await atWidth(390, async () => {
+        held.dashboards = [{ id: 'd1', name: 'Work' }];
+        held.panels = [aPanelNamed('p-errands', 'Errands')];
+        const user = await theEditingPhonePage();
+        applyingWhatIsSent();
+        await user.click(await screen.findByRole('button', { name: 'Priority' }));
+        await user.click(await screen.findByRole('menuitemradio', { name: 'High' }));
+        await user.click(await screen.findByLabelText('Find a Panel to file on'));
+        await user.type(await screen.findByRole('searchbox', { name: 'Find a Panel to file on' }), 'err');
+        await user.click(await screen.findByRole('button', { name: /Errands/ }));
+
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(await screen.findByText('To do · High priority', { selector: 'p' })).toBeVisible();
+        expect(await screen.findByText('On Errands', { selector: 'p' })).toBeVisible();
+        expect(sent().map((change) => change.name)).toEqual(['set_priority', 'add_item_to_panel']);
+      });
+    });
+
+    it('← after a changed title and description sends nothing and reads the stored ones', async () => {
+      await atWidth(390, async () => {
+        const user = await theEditingPhonePage(anItem({ description: 'Stored notes' }));
+        await user.type(titleBox(), ' now');
+        await user.type(descriptionBox(), ' more');
+
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(await screen.findByRole('button', { name: 'Edit' })).toBeVisible();
+        expect(held.send).not.toHaveBeenCalled();
+        expect(held.close).not.toHaveBeenCalled();
+        expect(screen.getByText('Part 11', { selector: 'p' })).toBeVisible();
+        expect(await screen.findByTestId('the-description-read')).toHaveTextContent(/^Stored notes$/);
+
+        // And the next Edit starts from what is stored, not from what was typed.
+        await user.click(screen.getByRole('button', { name: 'Edit' }));
+        expect(await screen.findByLabelText('Title')).toHaveValue('Part 11');
+        await theEditorHasArrived();
+        expect(descriptionBox()).toHaveValue('Stored notes');
+      });
+    });
+
+    it('Save shows the new title at once, without waiting for the Item to be read again', async () => {
+      await atWidth(390, async () => {
+        // The stored Item never changes in this test: only what the page itself remembers can say the new title.
+        const user = await theEditingPhonePage();
+        await user.type(titleBox(), ' now');
+
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(await screen.findByText('Part 11 now', { selector: 'p' })).toBeVisible();
+        expect(screen.queryByText('Part 11', { selector: 'p' })).toBeNull();
+      });
+    });
+
+    it('a form being edited at a desk keeps what was typed when the window narrows to a page', async () => {
+      const user = await atWidth(1024, () => theForm());
+      await user.type(titleBox(), ' now');
+
+      await atWidth(390, async () => {
+        act(() => {
+          window.dispatchEvent(new Event('resize'));
+        });
+
+        expect(await screen.findByRole('button', { name: 'Save' })).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+        expect(titleBox()).toHaveValue('Part 11 now');
+      });
+    });
+
+    it('← in the read view closes the page', async () => {
+      await atWidth(390, async () => {
+        const user = await thePhonePage();
+
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(held.close).toHaveBeenCalledTimes(1);
+        expect(held.send).not.toHaveBeenCalled();
+      });
+    });
+
+    it('a Save the server refuses stays on editing, with the reason and what was typed', async () => {
+      await atWidth(390, async () => {
+        const user = await theEditingPhonePage();
+        held.send.mockRejectedValueOnce(new Error('Refused.'));
+        await user.type(titleBox(), ' now');
+
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Refused.');
+        expect(titleBox()).toHaveValue('Part 11 now');
+        expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+      });
+    });
+  });
+
+  describe('on a phone, a change made elsewhere shows in the read view', () => {
+    it('shows a title changed in another tab while this one reads', async () => {
+      await atWidth(390, async () => {
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const shell = () => (
+          <QueryClientProvider client={client}>
+            <ItemForm />
+          </QueryClientProvider>
+        );
+        held.items = [anItem()];
+        const { rerender } = render(shell());
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled());
+        expect(screen.getByText('Part 11', { selector: 'p' })).toBeVisible();
+
+        held.items = [anItem({ title: 'Part 12' })];
+        rerender(shell());
+
+        expect(await screen.findByText('Part 12', { selector: 'p' })).toBeVisible();
+      });
+    });
+
+    it('shows a title changed in another tab while this one was editing, once ← goes back to reading', async () => {
+      await atWidth(390, async () => {
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const shell = () => (
+          <QueryClientProvider client={client}>
+            <ItemForm />
+          </QueryClientProvider>
+        );
+        held.items = [anItem()];
+        const { rerender } = render(shell());
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled());
+        await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+        held.items = [anItem({ title: 'Part 12' })];
+        rerender(shell());
+        await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(await screen.findByText('Part 12', { selector: 'p' })).toBeVisible();
       });
     });
   });
@@ -1361,7 +1713,7 @@ describe('Item editing', () => {
 
     it('with no files there is no list line and no box, only the + Attach chip', async () => {
       await atWidth(390, async () => {
-        await theForm();
+        await theEditingPhonePage();
 
         expect(lineOfFiles()).toBeNull();
         expect(await screen.findByRole('button', { name: '+ Attach' })).toBeVisible();
@@ -1372,7 +1724,7 @@ describe('Item editing', () => {
     it('two files read “2 files”, collapsed, and pressing it lists both', async () => {
       await atWidth(390, async () => {
         held.attachments = [anAttachment(), anAttachment({ id: 'attachment-2', filename: 'scan.pdf' })];
-        const user = await theForm();
+        const user = await theEditingPhonePage();
 
         expect(lineOfFiles()).toHaveTextContent('2 files');
         expect(screen.queryByText('receipt.png')).toBeNull();
@@ -1393,7 +1745,7 @@ describe('Item editing', () => {
     it('a file added while collapsed raises the count', async () => {
       await atWidth(390, async () => {
         held.attachments = [anAttachment()];
-        const user = await theForm();
+        const user = await theEditingPhonePage();
         expect(lineOfFiles()).toHaveTextContent('1 file');
 
         const upload = heldUpload();
@@ -1421,7 +1773,7 @@ describe('Item editing', () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(THE_DAY);
         try {
-          await theForm(anItem(over));
+          await theEditingPhonePage(anItem(over));
 
           const chip = await screen.findByRole('button', { name });
           // Outline when nothing is set, a fill when it is.
@@ -1443,7 +1795,7 @@ describe('Item editing', () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(THE_DAY);
         try {
-          await theForm(anItem({ dueDate }));
+          await theEditingPhonePage(anItem({ dueDate }));
 
           const chip = await screen.findByRole('button', { name: label });
           for (const colour of DEADLINE_PILLS[level].split(' ')) expect(chip).toHaveClass(colour);
@@ -1455,7 +1807,7 @@ describe('Item editing', () => {
 
     it('is Status, Priority, Due and + Attach, with no chip for a type', async () => {
       await atWidth(390, async () => {
-        await theForm(anItem({ startedAt: '2026-09-01T08:00:00.000Z' }));
+        await theEditingPhonePage(anItem({ startedAt: '2026-09-01T08:00:00.000Z' }));
 
         expect(await screen.findByRole('button', { name: 'In progress' })).toBeVisible();
         expect(screen.getByRole('button', { name: 'Priority' })).toBeVisible();
@@ -1489,7 +1841,8 @@ describe('Item editing', () => {
 
     async function saved(user: User) {
       await user.click(screen.getByRole('button', { name: 'Save' }));
-      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      await screen.findByRole('button', { name: 'Edit' });
+      expect(held.close).not.toHaveBeenCalled();
     }
 
     it.each([
@@ -1513,7 +1866,7 @@ describe('Item editing', () => {
       },
     ])('$situation is sent on Save, and not before', async ({ over, choose, asks }) => {
       await atWidth(390, async () => {
-        const user = await theForm(anItem(over));
+        const user = await theEditingPhonePage(anItem(over));
 
         await choose(user);
         expect(held.send).not.toHaveBeenCalled();
@@ -1526,7 +1879,7 @@ describe('Item editing', () => {
 
     it('ticks the current Status', async () => {
       await atWidth(390, async () => {
-        const user = await theForm(anItem({ startedAt: '2026-09-01T08:00:00.000Z' }));
+        const user = await theEditingPhonePage(anItem({ startedAt: '2026-09-01T08:00:00.000Z' }));
 
         await user.click(await screen.findByRole('button', { name: 'In progress' }));
         expect(await screen.findByRole('menuitemradio', { name: 'In progress' })).toHaveAttribute('aria-checked', 'true');
@@ -1543,7 +1896,7 @@ describe('Item editing', () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(THE_DAY);
         try {
-          const user = await theForm();
+          const user = await theEditingPhonePage();
 
           await user.click(await screen.findByRole('button', { name: 'Due date' }));
           await user.click(await screen.findByRole('button', { name: entry }));
@@ -1559,7 +1912,7 @@ describe('Item editing', () => {
 
     it('Due, a picked date, sends that date', async () => {
       await atWidth(390, async () => {
-        const user = await theForm();
+        const user = await theEditingPhonePage();
 
         await user.click(await screen.findByRole('button', { name: 'Due date' }));
         fireEvent.change(await screen.findByLabelText('Pick a date'), { target: { value: '2099-09-30' } });
@@ -1571,7 +1924,7 @@ describe('Item editing', () => {
 
     it('Due, a picked date, leaves the picker open for the rest of a typed one', async () => {
       await atWidth(390, async () => {
-        const user = await theForm();
+        const user = await theEditingPhonePage();
 
         await user.click(await screen.findByRole('button', { name: 'Due date' }));
         fireEvent.change(await screen.findByLabelText('Pick a date'), { target: { value: '0002-09-18' } });
@@ -1585,7 +1938,7 @@ describe('Item editing', () => {
 
     it('Due, Clear, clears the date', async () => {
       await atWidth(390, async () => {
-        const user = await theForm(anItem({ dueDate: '2099-09-30' }));
+        const user = await theEditingPhonePage(anItem({ dueDate: '2099-09-30' }));
 
         await user.click(await screen.findByRole('button', { name: /^Due / }));
         await user.click(await screen.findByRole('button', { name: 'Clear' }));
@@ -1598,13 +1951,14 @@ describe('Item editing', () => {
 
     it('a chip changed, then ←, sends nothing', async () => {
       await atWidth(390, async () => {
-        const user = await theForm();
+        const user = await theEditingPhonePage();
 
         await pick(user, 'Priority', 'High');
         await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
         expect(held.send).not.toHaveBeenCalled();
-        expect(held.close).toHaveBeenCalledTimes(1);
+        expect(await screen.findByRole('button', { name: 'Edit' })).toBeVisible();
+        expect(held.close).not.toHaveBeenCalled();
       });
     });
   });
@@ -1612,7 +1966,7 @@ describe('Item editing', () => {
   describe('on a phone, + Attach opens the file picker', () => {
     it('a file chosen joins the attachments line', async () => {
       await atWidth(390, async () => {
-        const user = await theForm();
+        const user = await theEditingPhonePage();
         const upload = heldUpload();
         const picker = screen.getByLabelText('Files to attach');
         const opened = vi.fn();
@@ -1721,6 +2075,28 @@ describe('Item editing', () => {
           payload: expect.objectContaining({ description: 'Ring in January about the invoice.' }),
         }),
       );
+    });
+
+    it('on a phone, a reading chosen while reading opens editing with it in the boxes, still to be saved', async () => {
+      await atWidth(390, async () => {
+        const user = await thePhonePage(
+          anItem({ title: 'Call Jan', description: 'Mine already', readings: READINGS }),
+        );
+
+        await user.click(await screen.findByRole('button', { name: /Call in January/ }));
+
+        expect(await screen.findByLabelText('Title')).toHaveValue('Call in January');
+        await theEditorHasArrived();
+        expect(descriptionBox()).toHaveValue('Ring in January about the invoice.');
+        expect(held.send).not.toHaveBeenCalled();
+
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await screen.findByRole('button', { name: 'Edit' });
+        expect(sent()).toContainEqual(
+          expect.objectContaining({ name: 'set_title', payload: expect.objectContaining({ title: 'Call in January' }) }),
+        );
+      });
     });
 
     it('says nothing about the other readings once the texts are already yours', async () => {
@@ -3444,16 +3820,26 @@ describe('Item editing', () => {
     }
   }
 
-  describe('the form offers Copy link beside Dock or Center, or beside Save on a phone, and not while the Item is in the Inbox', () => {
+  /** Opens the form the way the situation draws it: a desk's window or docked form, or a phone's page read or being edited. */
+  const opened = {
+    'a window': { width: 1280, presentation: 'centered', open: () => theForm() },
+    'a docked form': { width: 1280, presentation: 'docked', open: () => theForm() },
+    'a phone’s page, read': { width: 390, presentation: 'centered', open: () => thePhonePage() },
+    'a phone’s page, edited': { width: 390, presentation: 'centered', open: () => theEditingPhonePage() },
+  } as const;
+
+  describe('the form offers Copy link beside Dock or Center, or beside Edit or Save on a phone, and not while the Item is in the Inbox', () => {
     it.each([
-      { situation: 'a window', width: 1280, presentation: 'centered', beside: 'Dock' },
-      { situation: 'a docked form', width: 1280, presentation: 'docked', beside: 'Center' },
-      { situation: 'a phone’s page', width: 390, presentation: 'centered', beside: 'Save' },
-    ] as const)('$situation: directly left of $beside', async ({ width, presentation, beside }) => {
+      { situation: 'a window', beside: 'Dock' },
+      { situation: 'a docked form', beside: 'Center' },
+      { situation: 'a phone’s page, read', beside: 'Edit' },
+      { situation: 'a phone’s page, edited', beside: 'Save' },
+    ] as const)('$situation: directly left of $beside', async ({ situation, beside }) => {
+      const { width, presentation, open } = opened[situation];
       await atPhoneWidth(width, async () => {
         onAPanel();
         held.itemFormPresentation = presentation;
-        await theForm();
+        await open();
 
         const link = await screen.findByRole('button', { name: 'Copy link' });
 
@@ -3461,16 +3847,17 @@ describe('Item editing', () => {
       });
     });
 
-    it.each([
-      { situation: 'a window', width: 1280 },
-      { situation: 'a phone’s page', width: 390 },
-    ])('$situation: none for an Item in the Inbox', async ({ width }) => {
-      await atPhoneWidth(width, async () => {
-        await theForm();
+    it.each([{ situation: 'a window' }, { situation: 'a phone’s page, read' }] as const)(
+      '$situation: none for an Item in the Inbox',
+      async ({ situation }) => {
+        const { width, open } = opened[situation];
+        await atPhoneWidth(width, async () => {
+          await open();
 
-        expect(copyLink()).toBeNull();
-      });
-    });
+          expect(copyLink()).toBeNull();
+        });
+      },
+    );
   });
 
   describe('Copy link from the form copies the Item’s workspace address, and the bar says whether it did', () => {
@@ -3479,12 +3866,12 @@ describe('Item editing', () => {
     });
 
     it.each([
-      { situation: 'a window', width: 1280 },
-      { situation: 'a phone’s page', width: 390 },
-    ])('$situation: the plain address and a link titled with the Item, "Link copied" and no Undo', async ({ width }) => {
+      { situation: 'a window', width: 1280, open: (item: Item) => theForm(item, [], true) },
+      { situation: 'a phone’s page', width: 390, open: (item: Item) => thePhonePage(item, [], true) },
+    ])('$situation: the plain address and a link titled with the Item, "Link copied" and no Undo', async ({ width, open }) => {
       await atPhoneWidth(width, async () => {
         onAPanel();
-        const user = await theForm(anItem({ title: 'Part <11>' }), [], true);
+        const user = await open(anItem({ title: 'Part <11>' }));
         // After the form, whose user-event setup puts a clipboard of its own in place.
         const { written } = aClipboard();
 

@@ -458,7 +458,9 @@ test.describe('Capture', () => {
       await press(itemRow(page, bolded).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
       const form = page.getByRole('dialog');
-      await expect(form.getByRole('textbox', { name: 'Title' })).toHaveValue(bolded);
+      // A phone's page opens to be read, so its title is text rather than a box.
+      if (isMobile) await expect(form.locator('p.text-xl', { hasText: bolded })).toHaveText(bolded);
+      else await expect(form.getByRole('textbox', { name: 'Title' })).toHaveValue(bolded);
       await expect(form.getByRole('textbox', { name: 'Description' }).locator('strong')).toHaveText(bolded);
     });
   });

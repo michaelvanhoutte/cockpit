@@ -128,6 +128,11 @@ export function useItemPanels({
     /** That something is held for Save to send. */
     pending: hasPanelEdits(edits),
     refusal,
+    /** Gives up what is held for Save, leaving the Panels as the Item has them. */
+    discard: () => {
+      change(() => NO_PANEL_EDITS);
+      setRefusal(null);
+    },
     add: (one: PanelOn) => {
       // A removal still held (a refused one, from before the form was docked) is just put back.
       if (docked && !editsRef.current.removed.includes(one.panelId)) inTurnDo(() => writeAdd(one));

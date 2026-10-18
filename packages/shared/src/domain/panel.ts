@@ -503,7 +503,7 @@ export function panelSortAsStored(sort: readonly SortCriterion[] | null): string
  * settings", issue 1207). The name is what is stored, the pixels are what it
  * means: tuning a width is then a release, and no stored Panel changes.
  */
-export const PANEL_COLUMN_WIDTHS = { narrow: 320, medium: 420, wide: 560 } as const;
+export const PANEL_COLUMN_WIDTHS = { narrow: 360, medium: 480, wide: 620 } as const;
 export const panelColumnsSchema = z.enum(['narrow', 'medium', 'wide']);
 export type PanelColumns = z.infer<typeof panelColumnsSchema>;
 /** The gap between two columns, in pixels. */

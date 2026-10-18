@@ -1645,7 +1645,7 @@ describe('Triage', () => {
         selecting: { picked: true, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() },
       });
 
-      expect(screen.getByRole('listitem').className).toContain('bg-accent-tint');
+      expect(screen.getByRole('listitem')).toHaveClass('row-picked');
     });
   });
 

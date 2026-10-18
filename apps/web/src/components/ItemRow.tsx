@@ -1108,9 +1108,9 @@ export function ItemRow({
       // copied to pay for a gesture only a finger makes.
       //
       // **The row's own colour, and nothing about the swipe.** It used to tint
-      // itself past the threshold, in the same `accent-tint` a picked row
-      // wears - so a row swiped far enough to file looked exactly like a row
-      // somebody had ticked. What the swipe would do is the band below instead,
+      // itself past the threshold, in the same fill a picked row wears - so a
+      // row swiped far enough to file looked exactly like a row somebody had
+      // ticked. What the swipe would do is the band below instead,
       // which can say it in words.
       //
       // **The row's own colour says only whether it is picked.** How near its
@@ -1118,9 +1118,11 @@ export function ItemRow({
       // overdue row is no longer filled red. The row being shown in a docked
       // form is ringed instead, and named to assistive tech.
       aria-current={dock.openId === item.id ? 'true' : undefined}
-      className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
+      className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none ${
+        selecting?.picked ? 'row-picked hover:row-picked-hover' : 'hover:bg-row-hover'
+      } ${
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
-      }${selecting?.picked ? 'bg-accent-tint ' : ''}${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}${
+      }${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}${
         landing === 'before'
           ? 'shadow-landing-before '
           : landing === 'after'
@@ -1135,7 +1137,7 @@ export function ItemRow({
           down here with it, and the `li` keeps what belongs to its place in the
           list. */}
       <div
-        className="flex items-center gap-1.5 px-4 py-2"
+        className="flex items-center gap-1.5 pl-4 pr-2 py-2"
         style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
       >
         {/* The priority flag, the row's one leading mark - always drawn, so every
@@ -1392,6 +1394,8 @@ export function ItemRow({
             the long press, and never while a selection is held, like every other
             single-row action. Invisible rather than absent at rest, so the row
             keeps its width and its title does not re-truncate under the pointer.
+            Drawn 24px wide, not the menu's 36px, to give the title the room;
+            that still meets the 24px minimum target size.
 
             Not drawn on an Inbox row: the Inbox is for deciding where an Item
             belongs, and a ✓ under the pointer made finishing it the easiest
@@ -1405,7 +1409,7 @@ export function ItemRow({
               event.stopPropagation();
               markDone();
             }}
-            className={menuButtonClassName(false, 'invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
+            className={menuButtonClassName(false, 'w-6! invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
           >
             <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 8.5l3.2 3.2L13 4.8" />
@@ -1424,7 +1428,9 @@ export function ItemRow({
             setMenuOpen(next);
           }}
         >
-          <MenuTrigger label="Item actions" ref={trigger} disabled={selecting?.revealed} />
+          {/* 24px wide like the ✓ beside it, and pulled 4px towards it, so the
+              age, ✓ and ⋯ sit about 10px apart, icon to icon; still 36px tall. */}
+          <MenuTrigger label="Item actions" ref={trigger} disabled={selecting?.revealed} className="w-6! -ml-1" />
           <MenuContent
             onCloseAutoFocus={keepFocusIfSomethingOpened}
           >
@@ -1478,10 +1484,10 @@ function WhatLettingGoWouldDo({ across }: { across: number }) {
           ? filing
             ? 'bg-accent-deep text-white'
             : 'bg-over-deep text-white'
-          : // Not `accent-tint`, which is the colour a picked row already
-            // wears: a row ticked and then swiped uncovered a band exactly the
-            // shade of itself, so nothing appeared until the threshold - the
-            // stretch of the gesture this whole band exists to cover.
+          : // Not the picked row's fill (`row-picked`): a row ticked and then
+            // swiped uncovered a band exactly the shade of itself, so nothing
+            // appeared until the threshold - the stretch of the gesture this
+            // whole band exists to cover.
             filing
             ? 'bg-accent-soft/45 text-accent-deep'
             : 'bg-over/25 text-over-ink'

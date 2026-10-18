@@ -876,7 +876,7 @@ describe('Panels', () => {
       for (const heading of headings) {
         expect(heading.closest('ul[style*="grid"]')).toBeNull();
         expect(columnsOf(heading).style.gridTemplateColumns).toBe(
-          'repeat(auto-fill, minmax(min(100%, 420px), 1fr))',
+          'repeat(auto-fill, minmax(min(100%, 480px), 1fr))',
         );
       }
       // Which heading a row sits under is structure, not layout.
@@ -1733,12 +1733,12 @@ async function tick(user: ReturnType<typeof userEvent.setup>, item: Item, withSh
  * Whether a row reads as picked - the only signal left on it once a click
  * anywhere on the row replaced the checkbox that used to carry `checked`.
  *
- * `classList.contains` rather than a substring match: the row always wears
- * `hover:bg-accent-tint/40`, which contains the picked class as text without
- * being it.
+ * `classList.contains` rather than a substring match: a picked row under the
+ * pointer also wears `hover:row-picked-hover`, which contains the picked class
+ * as text without being it.
  */
 function isPicked(item: Item): boolean {
-  return screen.getByText(item.title).closest('li')?.classList.contains('bg-accent-tint') ?? false;
+  return screen.getByText(item.title).closest('li')?.classList.contains('row-picked') ?? false;
 }
 
 /** Move to… on the bar, which is a button where the row's own is a menu entry. */

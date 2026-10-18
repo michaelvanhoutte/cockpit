@@ -62,7 +62,10 @@ test.describe('Item editing', () => {
 
       const fresh = await page.context().newPage();
       await fresh.goto(link);
-      await expect(fresh.getByRole('dialog').getByRole('textbox', { name: 'Title' })).toHaveValue(title);
+      // A phone's page opens to be read, so its title is text rather than a box
+      // (and the captured message, which says the same, is text beside it).
+      if (isMobile) await expect(fresh.getByRole('dialog').getByText(title, { exact: true }).first()).toBeVisible();
+      else await expect(fresh.getByRole('dialog').getByRole('textbox', { name: 'Title' })).toHaveValue(title);
       await fresh.close();
     });
   });
