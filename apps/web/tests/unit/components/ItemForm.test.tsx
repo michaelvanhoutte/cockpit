@@ -1683,6 +1683,27 @@ describe('Item editing', () => {
         expect(await screen.findByText('Part 12', { selector: 'p' })).toBeVisible();
       });
     });
+
+    it('shows a title changed in another tab while this one was editing, once ← goes back to reading', async () => {
+      await atWidth(390, async () => {
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const shell = () => (
+          <QueryClientProvider client={client}>
+            <ItemForm />
+          </QueryClientProvider>
+        );
+        held.items = [anItem()];
+        const { rerender } = render(shell());
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled());
+        await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+        held.items = [anItem({ title: 'Part 12' })];
+        rerender(shell());
+        await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(await screen.findByText('Part 12', { selector: 'p' })).toBeVisible();
+      });
+    });
   });
 
   describe('the attachments are one line until opened', () => {

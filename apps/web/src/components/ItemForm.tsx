@@ -966,7 +966,9 @@ function TheForm({
   };
   const stopEditing = () => {
     onPanels.discard();
-    changeEditing((held) => (held ? { was: held.was, now: { ...held.was } } : held));
+    // Back to what the Item holds now, which a change made elsewhere while editing may have moved.
+    const from = item ? draftOf(item) : null;
+    changeEditing((held) => (held ? { was: from ?? held.was, now: { ...(from ?? held.was) } } : held));
     setRefusal(null);
     setReading(true);
   };
