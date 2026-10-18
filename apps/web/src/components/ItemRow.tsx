@@ -1379,7 +1379,7 @@ export function ItemRow({
             single-row action. Invisible rather than absent at rest, so the row
             keeps its width and its title does not re-truncate under the pointer.
             Drawn 24px wide, not the menu's 36px, to give the title the room;
-            still past the 24px minimum target size.
+            that still meets the 24px minimum target size.
 
             Not drawn on an Inbox row: the Inbox is for deciding where an Item
             belongs, and a ✓ under the pointer made finishing it the easiest
