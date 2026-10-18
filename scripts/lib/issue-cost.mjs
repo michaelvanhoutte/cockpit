@@ -495,10 +495,13 @@ export function mainSessionFilesIn(projectDir) {
  * branch, or `null` for none; a request is split by the marks of its own line's branch, so an issue
  * worked across several sessions needs nothing more - marks are absolute times.
  *
+ * `byBranch` keys every line by its branch name instead of the issue it resolves to, for a caller that wants a
+ * pull request's own cost (`pnpm cost:issue --run`); `resolveIssue` is then not asked.
+ *
  * `since`, if given, is milliseconds since epoch: lines timestamped earlier
  * are left out entirely, from both the wall-clock span and every count.
  */
-export function buildReport({ projectDirs, resolveIssue, resolveMarks = null, marksUnreadable = false, since = null, only = null }) {
+export function buildReport({ projectDirs, resolveIssue, resolveMarks = null, marksUnreadable = false, since = null, only = null, byBranch = false }) {
   const perIssue = new Map();
 
   function issueStats(key) {
@@ -507,6 +510,7 @@ export function buildReport({ projectDirs, resolveIssue, resolveMarks = null, ma
   }
 
   function keyFor(branch) {
+    if (byBranch) return branch ?? '(no branch)';
     const direct = issueFromBranchName(branch);
     if (direct !== null) return direct;
     const resolved = resolveIssue?.(branch);

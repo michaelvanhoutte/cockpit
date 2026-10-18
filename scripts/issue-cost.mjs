@@ -9,6 +9,12 @@
 //   pnpm cost:issue --since 2026-08-15    every issue with a line on or after that date
 //   pnpm cost:issue --issue 421           one issue only
 //   pnpm cost:issue --json                machine-readable, for storing a comparison
+//   pnpm cost:issue --run 1258            a run: a row per pull request of that issue and, for a parent, its
+//                                         children (found through sub-issues, closing references and `Part of #N`
+//                                         lines), each with start and end, coding time, every review's time with
+//                                         reported/fixed/declined, every CI wait's time and outcome and token
+//                                         cost, then a total. What nothing recorded reads "not recorded". Takes
+//                                         --json; not --since or --issue.
 //
 // Issue 421's own baseline: run over the month since 15 August 2026, this
 // should land close to about 52,000 requests, 422 subagent transcripts and
@@ -22,17 +28,24 @@ import { join } from 'node:path';
 
 import { readFlags } from './lib/operator.mjs';
 import { buildReport, marksByBranch, thisRepoProjectDirs } from './lib/issue-cost.mjs';
+import { NOT_RECORDED, RunRefused, buildRun, readRunInputs, showCost, showCount, showDuration, showTotal } from './lib/issue-run.mjs';
 
 let args;
 try {
   args = readFlags(process.argv.slice(2), {
-    takes: { '--since': 'since', '--issue': 'only' },
+    takes: { '--since': 'since', '--issue': 'only', '--run': 'run' },
     switches: { '--json': 'json' },
   });
 } catch (error) {
   console.error(`${error.message}
 
-  pnpm cost:issue [--since <date>] [--issue <number>] [--json]`);
+  pnpm cost:issue [--since <date>] [--issue <number>] [--json]
+  pnpm cost:issue --run <number> [--json]`);
+  process.exit(2);
+}
+
+if (args.run !== undefined && (args.since || args.only || !/^\d+$/.test(args.run))) {
+  console.error('--run takes one issue number, and not --since or --issue');
   process.exit(2);
 }
 
@@ -61,6 +74,11 @@ if (!existsSync(projectsDir)) {
 }
 const projectDirs = thisRepoProjectDirs(repoRoot, projectsDir);
 
+if (args.run !== undefined) {
+  runRun(Number(args.run));
+  process.exit(0);
+}
+
 const { resolveIssue, resolveMarks, marksUnreadable } = makeIssueResolver(repoRoot);
 const report = buildReport({ projectDirs, resolveIssue, resolveMarks, marksUnreadable, since: sinceMs, only });
 
@@ -70,7 +88,84 @@ if (args.json) {
   printTable(report);
 }
 
-/**
+/** Prints the run for an issue; refused in words where the issue, its sub-issues or the pull requests cannot be read. */
+function runRun(number) {
+  let inputs;
+  try {
+    inputs = readRunInputs(number, {
+      readIssue: (n) => {
+        try {
+          return JSON.parse(gh(['issue', 'view', String(n), '--json', 'number,title']));
+        } catch (error) {
+          if (/Could not resolve to an issue|not found/i.test(String(error?.stderr ?? error?.message))) return null;
+          throw error;
+        }
+      },
+      readSubIssues: (n) => JSON.parse(gh(['api', `repos/{owner}/{repo}/issues/${n}/sub_issues`, '--paginate', '--jq', '[.[].number]'])),
+      listPullRequests: () =>
+        listPullRequests(repoRoot, 'number,headRefName,baseRefName,state,createdAt,mergedAt,closedAt,body,closingIssuesReferences'),
+    });
+  } catch (error) {
+    if (!(error instanceof RunRefused)) throw error;
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  const branches = new Set(inputs.pullRequests.map((pr) => pr.headRefName));
+  const costByBranch = new Map();
+  const claudeDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
+  const projectsDir = join(claudeDir, 'projects');
+  if (existsSync(projectsDir)) {
+    const perBranch = buildReport({ projectDirs: thisRepoProjectDirs(repoRoot, projectsDir), byBranch: true });
+    for (const entry of perBranch.issues) {
+      if (branches.has(entry.issue)) costByBranch.set(entry.issue, { costUSD: entry.costUSD.total, unpricedTokens: entry.unpricedTokens });
+    }
+  } else {
+    console.error(`no session logs at ${projectsDir} - token cost reads ${NOT_RECORDED}`);
+  }
+
+  const run = buildRun({ ...inputs, costByBranch });
+  if (args.json) console.log(JSON.stringify(run, null, 2));
+  else printRun(run);
+}
+
+function gh(ghArgs) {
+  return execFileSync('gh', ghArgs, { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+function printRun(run) {
+  console.log(`Run for #${run.issue.number} ${run.issue.title}${run.children.length ? ` (children ${run.children.map((n) => `#${n}`).join(', ')})` : ''}`);
+  for (const row of run.rows) {
+    const pr = row.pullRequest;
+    console.log(`
+#${row.issue} ${pr ? `PR ${pr.number} ${pr.state}, ${pr.branch} into ${pr.base ?? '?'}` : 'no pull request yet'}`);
+    if (!pr) continue;
+    console.log(`  start / end:  ${row.startedAt ?? NOT_RECORDED} .. ${row.endedAt ?? 'open'}`);
+    console.log(`  coding:       ${showDuration(row.codingMs)}`);
+    if (row.reviews === null) console.log(`  reviews:      ${NOT_RECORDED}`);
+    else if (row.reviews.length === 0) console.log('  reviews:      none recorded');
+    for (const r of row.reviews ?? []) {
+      console.log(
+        `  review:       ${r.kind} ${r.level ?? '?'} ${showDuration(r.ms)}, reported ${showCount(r.reported)}, fixed ${showCount(r.fixed)}, declined ${showCount(r.declined)}`,
+      );
+    }
+    if (row.ci === null) console.log(`  ci:           ${NOT_RECORDED}`);
+    else if (row.ci.length === 0) console.log('  ci:           none recorded');
+    for (const wait of row.ci ?? []) console.log(`  ci wait:      ${showDuration(wait.ms)}, ${wait.outcome ?? NOT_RECORDED}`);
+    console.log(`  cost:         ${showCost(row.figures.costUSD)}${row.unpricedTokens ? ` (+${row.unpricedTokens} unpriced tokens)` : ''}`);
+  }
+  const t = run.total;
+  console.log(`
+Total over ${run.rows.length} row(s)`);
+  console.log(`  coding:       ${showTotal(t.codingMs, showDuration)}`);
+  console.log(`  reviews:      ${showTotal(t.reviewMs, showDuration)}`);
+  console.log(`  reported:     ${showTotal(t.reported, showCount)}`);
+  console.log(`  fixed:        ${showTotal(t.fixed, showCount)}`);
+  console.log(`  declined:     ${showTotal(t.declined, showCount)}`);
+  console.log(`  ci:           ${showTotal(t.ciMs, showDuration)}`);
+  console.log(`  cost:         ${showTotal(t.costUSD, showCost)}`);
+}
+
 /**
  * The issue a branch closes, through the pull request whose head it is - one
  * `gh` call for every pull request in the repository, read once up front
