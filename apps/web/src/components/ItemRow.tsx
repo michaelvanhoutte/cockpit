@@ -28,7 +28,7 @@ import { capturingApp, openableAtSource, sourceNamed, type SourceNames } from '.
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
-import { copyItemLink } from '../itemLink';
+import { copyItemLinkAndSay } from '../itemLink';
 import { waitedSince } from '../waited';
 import { selectionBeingExtended } from '../inboxKeys';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
@@ -695,11 +695,7 @@ export function ItemRow({
           <M.Item
             key="copy-link"
             className={menuItemClass}
-            onSelect={() => {
-              void copyItemLink(workspaceId, item.id, item.title).then((copied) =>
-                offerToUndo({ what: copied ? 'Link copied' : "Couldn't copy the link" }),
-              );
-            }}
+            onSelect={() => void copyItemLinkAndSay(workspaceId, item, offerToUndo)}
           >
             Copy link
           </M.Item>

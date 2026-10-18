@@ -55,7 +55,7 @@ import {
 import { capturingApp, openableAtSource, sourceNamed } from '../itemSource';
 import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
-import { copyItemLink } from '../itemLink';
+import { copyItemLinkAndSay } from '../itemLink';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 import {
@@ -271,10 +271,8 @@ function TheForm({
    */
   const filedOnAPanel =
     !!item && filingsThatFile(data?.filings ?? [], data?.panels ?? []).some((filing) => filing.itemId === itemId);
-  const copyLink = async () => {
-    if (!item) return;
-    const copied = await copyItemLink(workspaceId, item.id, item.title);
-    offerToUndo({ what: copied ? 'Link copied' : "Couldn't copy the link" });
+  const copyLink = () => {
+    if (item) void copyItemLinkAndSay(workspaceId, item, offerToUndo);
   };
   const headerButtonClass =
     'rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50';
@@ -1511,7 +1509,7 @@ function TheForm({
               <span className="text-base font-semibold text-ink">Item</span>
               <div className="flex shrink-0 items-center gap-2">
                 {filedOnAPanel && (
-                  <button type="button" onClick={() => void copyLink()} className={headerButtonClass}>
+                  <button type="button" onClick={copyLink} className={headerButtonClass}>
                     Copy link
                   </button>
                 )}
@@ -1528,7 +1526,7 @@ function TheForm({
           ) : (
             <div className="flex shrink-0 items-center justify-end gap-2">
               {filedOnAPanel && (
-                <button type="button" onClick={() => void copyLink()} className={headerButtonClass}>
+                <button type="button" onClick={copyLink} className={headerButtonClass}>
                   Copy link
                 </button>
               )}

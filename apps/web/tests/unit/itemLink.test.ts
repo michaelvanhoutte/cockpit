@@ -37,6 +37,8 @@ describe('Item editing', () => {
   });
 });
 
+const anItem = (title: string) => ({ id: 'item-1', title, nextAction: null });
+
 describe('Item editing', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -46,17 +48,25 @@ describe('Item editing', () => {
     it('writes both in one go', async () => {
       const { written } = aClipboard();
 
-      const copied = await copyItemLink('ws-work', 'item-1', 'Part <11>');
+      const copied = await copyItemLink('ws-work', anItem('Part <11>'));
 
       const link = `${window.location.origin}/w/ws-work?item=item-1`;
       expect(copied).toBe(true);
       expect(written).toEqual([{ 'text/plain': link, 'text/html': `<a href="${link}">Part &lt;11&gt;</a>` }]);
     });
 
+    it('titles an untitled Item the way its row names it, so the pasted link has something to click', async () => {
+      const { written } = aClipboard();
+
+      await copyItemLink('ws-work', anItem(''));
+
+      expect(written[0]?.['text/html']).toMatch(/>Untitled<\/a>$/);
+    });
+
     it('writes the plain address alone in a browser with no ClipboardItem', async () => {
       const { written, plain } = aClipboard({ withClipboardItem: false });
 
-      const copied = await copyItemLink('ws-work', 'item-1', 'Part 11');
+      const copied = await copyItemLink('ws-work', anItem('Part 11'));
 
       expect(copied).toBe(true);
       expect(written).toEqual([]);
@@ -66,7 +76,7 @@ describe('Item editing', () => {
     it('says it did not copy where the browser refuses', async () => {
       aClipboard({ refuses: true });
 
-      expect(await copyItemLink('ws-work', 'item-1', 'Part 11')).toBe(false);
+      expect(await copyItemLink('ws-work', anItem('Part 11'))).toBe(false);
     });
   });
 });
