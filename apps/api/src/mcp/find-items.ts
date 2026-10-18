@@ -38,7 +38,7 @@ const DUE_NAMES: Record<string, DueWindow> = {
   'not set': 'none',
 };
 
-const ARGUMENTS = ['text', 'workspace', 'status', 'priority', 'due', 'today', 'include_done', 'cursor'] as const;
+const ARGUMENTS = ['text', 'workspace', 'panel', 'status', 'priority', 'due', 'today', 'include_done', 'cursor'] as const;
 
 /** How long the text sought may be: a phrase, never a document. */
 const TEXT_LIMIT = 500;
@@ -63,6 +63,7 @@ export function findItemsTool(workspaces: readonly Workspace[]): ToolDefinition 
       'Open items only, unless include_done is true; dismissed items are never found.',
       'It searches every workspace unless one is named.',
       `Workspaces: ${named(workspaceNames)}.`,
+      "A panel is named with panel: only the items filed on a panel of that name, or gathered by a filter panel of that name, on any dashboard, as the panel's own header counts them; with workspace, only that workspace's panels. Finished items are not on a panel, so include_done adds none.",
       `Up to ${FIND_PAGE} items a page, most recently changed first, each with its description whole, where it is and a link that opens it in Cockpit; no total is given.`,
       'When more follow, the reply ends with a cursor: call again with the same arguments and that cursor for the next page. An item changed between two pages can be missed.',
       "Pass today as the user's local date (YYYY-MM-DD): due conditions are counted from it, and from the UTC day without it.",
@@ -75,6 +76,10 @@ export function findItemsTool(workspaces: readonly Workspace[]): ToolDefinition 
           type: 'string',
           ...(workspaceNames.length ? { enum: workspaceNames } : {}),
           description: 'Only items in this workspace, by name.',
+        },
+        panel: {
+          type: 'string',
+          description: 'Only items on a panel of this name (filed on it, or gathered by it if it is a filter panel), by name; one that matches none is refused with the panels there are.',
         },
         status: { type: 'string', enum: STATUS_OPTIONS, description: 'Only items with this status.' },
         priority: { type: 'string', enum: PRIORITY_OPTIONS, description: 'Only items with this priority; "None" is items with no priority.' },
@@ -171,6 +176,9 @@ export function readFind(args: unknown, workspaces: readonly Workspace[], now: D
     workspaceId = workspace.id;
   }
 
+  const panel = textOf('panel');
+  if (isRefusal(panel)) return panel;
+
   /** One of a few names, matched without regard to case. */
   const chosen = <V>(key: 'status' | 'priority' | 'due', names: Record<string, V>, options: readonly string[]) => {
     const value = textOf(key);
@@ -207,6 +215,7 @@ export function readFind(args: unknown, workspaces: readonly Workspace[], now: D
     ok: true,
     query: {
       workspaceId,
+      panel,
       text: text ?? '',
       status: status?.value ?? null,
       priority: priority?.value ?? null,
@@ -216,6 +225,14 @@ export function readFind(args: unknown, workspaces: readonly Workspace[], now: D
       after,
     },
   };
+}
+
+/** What the model is told when no Panel in scope goes by the name asked: the Panels there are, so it can try again. */
+export function refuseNoPanel(panel: string, names: readonly string[], workspaceName: string | null): string {
+  const where = workspaceName === null ? 'in any workspace' : `in workspace ${JSON.stringify(workspaceName)}`;
+  return names.length
+    ? `No panel is called ${JSON.stringify(panel)} ${where}. The panels are ${named(names)}; or leave panel out.`
+    : `No panel is called ${JSON.stringify(panel)}: there are no panels ${where} yet.`;
 }
 
 /**

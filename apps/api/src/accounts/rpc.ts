@@ -32,7 +32,7 @@ import type {
 } from '@cockpit/connector-sdk';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid } from '../domain/connection-history.js';
-import type { FindQuery, FoundPage } from '../domain/find-items.js';
+import type { FindQuery, FindResult } from '../domain/find-items.js';
 import type { FindAdmission } from './call-window.js';
 
 /**
@@ -293,7 +293,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   /** An app connected to this account calling `find_items` ("Find items in Cockpit by text and condition, over MCP", issue 1242) - admitted, or one of too many from that grant in a minute or a day. */
   findArrived(grantId: string, at: string): Awaitable<FindAdmission>;
   /** One page of the Items `find_items` asked for, across the account's Workspaces or one of them (issue 1242). */
-  findItems(accountName: string, query: FindQuery): Awaitable<Answer<FoundPage>>;
+  findItems(accountName: string, query: FindQuery): Awaitable<Answer<FindResult>>;
   /** A recording sent to be transcribed ("Hold each account to 20 transcriptions a minute", issue 1043) - admitted, or one of too many from this account. */
   transcriptionArrived(at: string): Awaitable<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */

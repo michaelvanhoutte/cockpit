@@ -20,6 +20,7 @@ export * from './domain/priority-labels.js';
 export * from './domain/recording.js';
 export * from './domain/share.js';
 export * from './domain/panel.js';
+export * from './domain/panel-items.js';
 export * from './domain/rewrite-history.js';
 export * from './domain/connection-history.js';
 export * from './domain/source-account.js';

@@ -11,7 +11,7 @@ import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Accoun
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
-import { FIND_ITEMS, findItemsTool, formatFound, readFind } from './find-items.js';
+import { FIND_ITEMS, findItemsTool, formatFound, readFind, refuseNoPanel } from './find-items.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
@@ -219,9 +219,15 @@ async function find(
     return { refusal: 'Too many searches today. Try again tomorrow.' };
   }
 
-  const read = readFind(args, await account.workspaces(), new Date());
+  const workspaces = await account.workspaces();
+  const read = readFind(args, workspaces, new Date());
   if (!read.ok) return { refusal: read.refusal };
-  return { reply: formatFound(await account.findItems(read.query), env.APP_ORIGIN) };
+  const found = await account.findItems(read.query);
+  if ('noPanel' in found) {
+    const workspace = workspaces.find((w) => w.id === read.query.workspaceId);
+    return { refusal: refuseNoPanel(read.query.panel ?? '', found.noPanel, workspace?.name ?? null) };
+  }
+  return { reply: formatFound(found, env.APP_ORIGIN) };
 }
 
 /**
