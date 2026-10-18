@@ -876,7 +876,7 @@ describe('Panels', () => {
       for (const heading of headings) {
         expect(heading.closest('ul[style*="grid"]')).toBeNull();
         expect(columnsOf(heading).style.gridTemplateColumns).toBe(
-          'repeat(auto-fill, minmax(min(100%, 420px), 1fr))',
+          'repeat(auto-fill, minmax(min(100%, 480px), 1fr))',
         );
       }
       // Which heading a row sits under is structure, not layout.

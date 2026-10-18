@@ -1121,7 +1121,7 @@ export function ItemRow({
           down here with it, and the `li` keeps what belongs to its place in the
           list. */}
       <div
-        className="flex items-center gap-1.5 px-4 py-2"
+        className="flex items-center gap-1.5 pl-4 pr-2 py-2"
         style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
       >
         {/* The priority flag, the row's one leading mark - always drawn, so every
@@ -1378,6 +1378,8 @@ export function ItemRow({
             the long press, and never while a selection is held, like every other
             single-row action. Invisible rather than absent at rest, so the row
             keeps its width and its title does not re-truncate under the pointer.
+            Drawn 24px wide, not the menu's 36px, to give the title the room;
+            still past the 24px minimum target size.
 
             Not drawn on an Inbox row: the Inbox is for deciding where an Item
             belongs, and a ✓ under the pointer made finishing it the easiest
@@ -1391,7 +1393,7 @@ export function ItemRow({
               event.stopPropagation();
               markDone();
             }}
-            className={menuButtonClassName(false, 'invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
+            className={menuButtonClassName(false, 'w-6! invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
           >
             <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 8.5l3.2 3.2L13 4.8" />
@@ -1410,7 +1412,9 @@ export function ItemRow({
             setMenuOpen(next);
           }}
         >
-          <MenuTrigger label="Item actions" ref={trigger} disabled={selecting?.revealed} />
+          {/* 24px wide like the ✓ beside it, and pulled 4px towards it, so the
+              age, ✓ and ⋯ sit about 10px apart, icon to icon; still 36px tall. */}
+          <MenuTrigger label="Item actions" ref={trigger} disabled={selecting?.revealed} className="w-6! -ml-1" />
           <MenuContent
             onCloseAutoFocus={keepFocusIfSomethingOpened}
           >
