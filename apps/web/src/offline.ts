@@ -19,9 +19,9 @@ import { onlineManager } from '@tanstack/react-query';
 export interface Standing {
   /** Opening has asked the server and is waiting on the answer. */
   connecting: boolean;
-  /** The server did not answer; ends by itself once it does. */
+  /** The server did not answer; ends by itself once it does, and is never remembered. */
   found: boolean;
-  /** The person chose to work offline. */
+  /** The person chose to work offline; remembered on this device. */
   chosen: boolean;
 }
 
@@ -66,8 +66,29 @@ export function useIsOffline(): boolean {
   return found || chosen;
 }
 
+/** Where this device remembers that the person chose to work offline; other tabs hear it change. */
+export const CHOSEN_KEY = 'cockpit-working-offline';
+
+export function readChosen(): boolean {
+  try {
+    return localStorage.getItem(CHOSEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function rememberChosen(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(CHOSEN_KEY, '1');
+    else localStorage.removeItem(CHOSEN_KEY);
+  } catch {
+    // Storage refused: the choice holds for this visit and is forgotten at its end.
+  }
+}
+
 /** Back to a fresh page load's standing, for a test. */
 export function resetStanding(): void {
+  rememberChosen(false);
   stand({ connecting: false, found: false, chosen: false });
 }
 
@@ -84,7 +105,16 @@ export class WorkingOffline extends Error {
  * outbox and is sent when the server answers.
  */
 export function refuseWhileOffline(): void {
-  if (isOffline()) throw new WorkingOffline();
+  if (!isOffline()) return;
+  refusals++;
+  listeners.forEach((listener) => listener());
+  throw new WorkingOffline();
+}
+
+/** How many changes have been refused, so a notice can offer Go online each time. */
+let refusals = 0;
+export function useRefusals(): number {
+  return useSyncExternalStore(subscribe, () => refusals, () => refusals);
 }
 
 /**
