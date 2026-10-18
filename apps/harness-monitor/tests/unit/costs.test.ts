@@ -22,6 +22,8 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
   localRounds: null,
   findings: null,
   issueTitle: null,
+  issueParent: null,
+  issueParentTitle: null,
   ...over,
 });
 

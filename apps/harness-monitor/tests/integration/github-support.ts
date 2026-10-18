@@ -20,7 +20,7 @@ export interface Node {
   headRefName: string;
   isCrossRepository?: boolean;
   author: { login: string } | null;
-  closingIssuesReferences: { nodes: { number: number; title?: string }[] };
+  closingIssuesReferences: { nodes: { number: number; title?: string; parent?: { number: number; title?: string } | null }[] };
   /** What a sized read adds; the first recordings lack them, and read as unsized. */
   id?: string;
   createdAt?: string;
@@ -114,9 +114,14 @@ export function fakeGitHub(
   filesAnswer: (call: FilesCall, calls: FilesCall[]) => Response | Promise<Response> = () => {
     throw new Error('The job asked for more files than the test expected.');
   },
+  /** Answers for the issues named by `Part of` lines; a test that does not expect any leaves it out. */
+  issuesAnswer: (call: IssuesCall, calls: IssuesCall[]) => Response | Promise<Response> = () => {
+    throw new Error('The job asked for issues the test did not expect.');
+  },
 ) {
   const calls: GitHubCall[] = [];
   const fileCalls: FilesCall[] = [];
+  const issueCalls: IssuesCall[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.href !== 'https://api.github.com/graphql') throw new Error(`Unexpected request to ${url.href}`);
@@ -129,6 +134,11 @@ export function fakeGitHub(
       fileCalls.push(call);
       return filesAnswer(call, fileCalls);
     }
+    if (/issue\(number: \d+\)/.test(query)) {
+      const call = { numbers: [...query.matchAll(/issue\(number: (\d+)\)/g)].map((m) => Number(m[1])) };
+      issueCalls.push(call);
+      return issuesAnswer(call, issueCalls);
+    }
     if (!UPDATE_ORDER.test(query)) throw new Error('The job did not ask for pull requests in update order, oldest first.');
     const call = {
       repository: `${variables.owner}/${variables.name}`,
@@ -139,7 +149,7 @@ export function fakeGitHub(
     calls.push(call);
     return answer(call, calls);
   });
-  return Object.assign(calls, { files: fileCalls });
+  return Object.assign(calls, { files: fileCalls, issues: issueCalls });
 }
 
 /** A request for the files of one pull request past its first page. */
@@ -147,6 +157,15 @@ export interface FilesCall {
   id: string;
   after: string | null;
 }
+/** A request for the title and parent of the issues pull requests name in `Part of` lines. */
+export interface IssuesCall {
+  numbers: number[];
+}
+
+/** GitHub's answer to an issues request: each issue by number with its title and parent, or null for one the token cannot see. */
+export const issuesOf = (known: Record<number, { title: string; parent?: { number: number; title: string } } | null>) => (call: IssuesCall) =>
+  Response.json({ data: { repository: Object.fromEntries(call.numbers.map((n) => [`i${n}`, known[n] ? { number: n, title: known[n]!.title, parent: known[n]!.parent ?? null } : null])) } });
+
 /** The hourly schedule firing, entered through the Worker's own scheduled handler. */
 export async function runHourly(over: { GITHUB_TOKEN?: string | undefined } = { GITHUB_TOKEN: 'test-token' }) {
   const ctx = createExecutionContext();
@@ -164,6 +183,17 @@ export async function theLinks() {
   const { results } = await env.DB.prepare(
     'SELECT branch, pr_number, title, state, merged_at, issue_number, engineer FROM branch_links ORDER BY branch',
   ).all();
+  return results;
+}
+
+/** The issue and parent each branch is stored with. */
+export async function theParents() {
+  const { results } = await env.DB.prepare('SELECT branch, issue_number AS issue, issue_parent AS parent, issue_parent_title AS parentTitle FROM branch_links ORDER BY branch').all<{
+    branch: string;
+    issue: number | null;
+    parent: number | null;
+    parentTitle: string | null;
+  }>();
   return results;
 }
 

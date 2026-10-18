@@ -122,6 +122,9 @@ export interface TotalRow {
   findings: number | null;
   /** The closing issue's title. */
   issueTitle: string | null;
+  /** The issue's parent and its title; null for an issue with none, or until linking has read it. */
+  issueParent: number | null;
+  issueParentTitle: string | null;
 }
 
 export interface CostGroup {
@@ -234,9 +237,10 @@ function placeOf(row: TotalRow, group: Group, linking: (row: TotalRow) => 'linki
         : { key: UNATTRIBUTED, label: 'Unattributed', sub: null, catchAll: true };
     case 'issue':
       if (!linked) return { key: UNATTRIBUTED, label: 'Unattributed', sub: null, catchAll: true };
+      // A child's cost joins its parent's row, so a run built as several pull requests is one row beside its twin built as one.
       return row.issue === null
         ? { key: '~none', label: 'No issue', sub: null, catchAll: true }
-        : { key: `issue-${row.issue}`, label: issueLabel(row.issue, row.issueTitle), sub: null, catchAll: false };
+        : { key: `issue-${rowIssue(row)}`, label: issueLabel(rowIssue(row), rowIssueTitle(row)), sub: null, catchAll: false };
     case 'pr':
       // A single named branch no pull request names is one branch, not a catch-all, so it keeps its bar.
       return linked
@@ -249,6 +253,11 @@ function placeOf(row: TotalRow, group: Group, linking: (row: TotalRow) => 'linki
         : { key: `branch-${row.branch}`, label: row.branch === '' ? 'No branch' : row.branch, sub: row.branch === '' ? 'unattributed' : linking(row), catchAll: row.branch === '' };
   }
 }
+
+/** The issue a by-issue row counts a pull request under: its parent where it has one, else the issue itself. */
+const rowIssue = (row: TotalRow) => row.issueParent ?? row.issue!;
+/** That issue's title: the parent's, or the issue's own where it has no parent. */
+const rowIssueTitle = (row: TotalRow) => (row.issueParent !== null ? row.issueParentTitle : row.issueTitle);
 
 /** An issue as a row names it: "#N title", or "#N" until its title has been read. */
 const issueLabel = (number: number, title: string | null) => (title ? `#${number} ${title}` : `#${number}`);
@@ -297,7 +306,7 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     const place = placeOf(row, group, linking);
     let g = groups.get(place.key);
     if (!g) {
-      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, issue: group === 'pr' || group === 'issue' ? row.issue : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, openToMerged: row.openedAt !== null && row.mergedAt !== null ? openFor(row.openedAt, row.mergedAt) : null, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, ciRounds: row.ciRounds, rounds: row.localRounds !== null && row.ciRounds !== null ? row.localRounds + row.ciRounds : null, findings: row.findings, bySeries: bag(), totalMicros: 0, unpricedRequests: 0 };
+      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, issue: group === 'pr' ? row.issue : group === 'issue' && row.issue !== null ? rowIssue(row) : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, openToMerged: row.openedAt !== null && row.mergedAt !== null ? openFor(row.openedAt, row.mergedAt) : null, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, ciRounds: row.ciRounds, rounds: row.localRounds !== null && row.ciRounds !== null ? row.localRounds + row.ciRounds : null, findings: row.findings, bySeries: bag(), totalMicros: 0, unpricedRequests: 0 };
       groups.set(place.key, g);
       prs.set(place.key, new Set());
     }
@@ -305,7 +314,7 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     g.totalMicros += row.costMicros;
     g.unpricedRequests += row.unpricedRequests;
     // Two pull requests on one issue may have been read apart, one before the title was.
-    if (group === 'issue' && row.issue !== null && row.issueTitle && g.label === issueLabel(row.issue, null)) g.label = issueLabel(row.issue, row.issueTitle);
+    if (group === 'issue' && row.issue !== null && rowIssueTitle(row) && g.label === issueLabel(rowIssue(row), null)) g.label = issueLabel(rowIssue(row), rowIssueTitle(row));
     if (row.prNumber !== null) prs.get(place.key)!.add(row.prNumber);
     const r = recencyOf(row);
     const best = recency.get(place.key);
@@ -640,7 +649,8 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
       ? `SELECT t.day AS day, '' AS branch, '' AS category, ${series} AS series, SUM(t.cost_micros) AS costMicros,
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
            NULL AS prNumber, NULL AS title, NULL AS state, NULL AS mergedAt, NULL AS issue, NULL AS engineer,
-           NULL AS linesAdded, NULL AS linesRemoved, NULL AS openedAt, NULL AS ciRounds, NULL AS localRounds, NULL AS findings, NULL AS issueTitle
+           NULL AS linesAdded, NULL AS linesRemoved, NULL AS openedAt, NULL AS ciRounds, NULL AS localRounds, NULL AS findings, NULL AS issueTitle,
+           NULL AS issueParent, NULL AS issueParentTitle
          FROM daily_split_totals t ${needsLinks ? 'LEFT JOIN branch_links l ON l.branch = t.branch' : ''}
          ${conditions} GROUP BY t.day, ${series}`
       : `SELECT '' AS day, t.branch AS branch, ${phase} AS category, ${series} AS series, SUM(t.cost_micros) AS costMicros,
@@ -648,7 +658,8 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
            l.pr_number AS prNumber, l.title AS title, l.state AS state, l.merged_at AS mergedAt,
            l.issue_number AS issue, l.engineer AS engineer,
            s.lines_added AS linesAdded, s.lines_removed AS linesRemoved, s.opened_at AS openedAt,
-           s.ci_rounds AS ciRounds, s.local_rounds AS localRounds, s.findings AS findings, s.issue_title AS issueTitle
+           s.ci_rounds AS ciRounds, s.local_rounds AS localRounds, s.findings AS findings, s.issue_title AS issueTitle,
+           l.issue_parent AS issueParent, l.issue_parent_title AS issueParentTitle
          FROM daily_split_totals t LEFT JOIN branch_links l ON l.branch = t.branch
          LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
          ${conditions} GROUP BY t.branch${phaseKey}, ${series}`;
