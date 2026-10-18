@@ -162,6 +162,30 @@ export async function openTheFiles(page: Page, isMobile: boolean): Promise<void>
 }
 
 /**
+ * A phone's page for an Item opens to be read, with Edit in its header and its
+ * fields not drawn; Edit is the step to them. A no-op where the page is
+ * already editing, and at a desk, whose form is always editing.
+ */
+export async function startEditingTheItem(page: Page, isMobile: boolean): Promise<void> {
+  if (!isMobile) return;
+  const header = page.getByRole('dialog').getByRole('button', { name: /^(Edit|Save)$/ });
+  await expect(header).toBeVisible();
+  if ((await header.innerText()) === 'Edit') await press(header, isMobile);
+}
+
+/**
+ * Save on an open Item form. A phone's page then goes back to reading what it
+ * saved, so ← closes it, as Save closes a desk's form.
+ */
+export async function saveTheItem(page: Page, isMobile: boolean): Promise<void> {
+  const form = page.getByRole('dialog');
+  await press(form.getByRole('button', { name: 'Save' }), isMobile);
+  if (!isMobile) return;
+  await expect(form.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await press(form.getByRole('button', { name: 'Cancel' }), isMobile);
+}
+
+/**
  * An open Item form's status, set through what its device draws: a chip and its
  * picker on a phone's page, the box at a desk. Held until Save either way.
  */
@@ -176,6 +200,7 @@ export async function setFormStatus(
     await page.getByRole('menuitemradio', { name: { to_do: 'To do', in_progress: 'In progress', done: 'Done' }[status], exact: true }).click();
     return;
   }
+  await startEditingTheItem(page, isMobile);
   const name = { to_do: 'To do', in_progress: 'In progress', done: 'Done' }[status];
   // The Status chip leads the phone's row of chips (issue 1068 took Type off it).
   await press(form.getByRole('group', { name: 'Fields' }).getByRole('button').nth(0), isMobile);
@@ -188,6 +213,7 @@ export async function setFormDueDate(page: Page, day: string, isMobile: boolean)
     await page.getByRole('dialog').getByLabel('Due date', { exact: true }).fill(day);
     return;
   }
+  await startEditingTheItem(page, isMobile);
   await press(page.getByRole('dialog').getByRole('button', { name: /^Due/ }), isMobile);
   await page.getByLabel('Pick a date').fill(day);
 }

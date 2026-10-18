@@ -18,6 +18,7 @@ import {
   openPanelSettings,
   pastCapture,
   press,
+  saveTheItem,
   setFormDueDate,
   signIn,
   switchTo,
@@ -1364,7 +1365,7 @@ test.describe('Panels', () => {
       await press(itemRow(page, chase).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
       await setFormDueDate(page, today(), isMobile);
-      await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
+      await saveTheItem(page, isMobile);
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await fileOnto(page, chase, work, isMobile);
 

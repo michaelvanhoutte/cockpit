@@ -265,6 +265,31 @@ describe('Item editing', () => {
     });
   });
 
+  describe('a description drawn to be read has no toolbar and takes no typing', () => {
+    it('draws the formatted text alone, closed to editing', async () => {
+      render(<RichDescription initial="Ring the **supplier**" onChange={() => {}} editable={false} reading fill />);
+
+      const text = await screen.findByLabelText('Description');
+      await waitFor(() => expect(text).toHaveAttribute('contenteditable', 'false'));
+      expect(within(text).getByText('supplier').tagName).toBe('STRONG');
+      expect(screen.queryByRole('toolbar')).toBeNull();
+    });
+  });
+
+  describe('a description opened by a tap on it puts the cursor in it', () => {
+    it('focuses the text once the editor is built, and only when asked to', async () => {
+      const { unmount } = render(<RichDescription initial="Tolerances" onChange={() => {}} editable focusWhenReady />);
+      const box = await screen.findByLabelText('Description');
+      await waitFor(() => expect(box).toHaveFocus());
+      unmount();
+
+      render(<RichDescription initial="Tolerances" onChange={() => {}} editable />);
+      const other = await screen.findByLabelText('Description');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'bold' })).toBeEnabled());
+      expect(other).not.toHaveFocus();
+    });
+  });
+
   describe('only an item’s description offers images', () => {
     it('offers no image button, and takes no pasted image, in a panel’s text', async () => {
       const changes: string[] = [];
