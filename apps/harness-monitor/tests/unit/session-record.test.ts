@@ -39,6 +39,14 @@ describe('Harness Monitor', () => {
       expect(reviewCounts(body)).toEqual({ rounds: 1, findings: 4 });
     });
 
+    it('reads the same rounds and findings with outcome and CI lines in the record', () => {
+      const lines = ['start', 'review-start code-review high', 'review-end code-review high:5', 'review-outcome code-review high:3/2', 'ci-start', 'ci-end failure', 'review-start code-review high', 'review-end code-review high:1'];
+      const plain = record(...lines.filter((l) => !/^(review-outcome|ci-)/.test(l)));
+
+      expect(reviewCounts(record(...lines))).toEqual({ rounds: 2, findings: 6 });
+      expect(reviewCounts(record(...lines))).toEqual(reviewCounts(plain));
+    });
+
     it('does not guess from half a block', () => {
       expect(reviewCounts('<!-- session-record:start -->\n- 2026-10-01T10:00:00.000Z review-start code-review high\n')).toEqual({ rounds: null, findings: null });
     });

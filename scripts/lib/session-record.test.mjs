@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   BLOCK_END,
   BLOCK_START,
+  CI_OUTCOMES,
   PHASES,
   applyBlock,
   markPhase,
@@ -281,5 +282,120 @@ describe('a review’s end can carry how many findings it reported', () => {
     const block = renderBlock([end('code-review', 'high', '3')]);
     const found = /^- (\S+) (\S+)(?: (\S+) (\S+))?$/.exec(block.split(/\r?\n/).find((l) => l.includes('review-end')));
     assert.deepEqual([found[2], found[3], found[4].split(':')[0]], ['review-end', 'code-review', 'high']);
+  });
+});
+
+describe('a review’s outcome is marked once its fixes are done', () => {
+  const ended = (count, kind = 'code-review', level = 'high') => markPhase(markPhase([], ['review-start', kind, level]), ['review-end', kind, level, String(count)]);
+
+  it('records how many findings were fixed and declined where they add up to what the review reported', () => {
+    const entries = markPhase(ended(5), ['review-outcome', 'code-review', 'high', '3', '2'], at('2026-09-21T10:30:00.000Z'));
+    assert.deepEqual(entries.at(-1), { phase: 'review-outcome', kind: 'code-review', level: 'high', fixed: 3, declined: 2, at: '2026-09-21T10:30:00.000Z' });
+  });
+
+  it('records 0 and 0 for a review that reported none', () => {
+    assert.equal(markPhase(ended(0), ['review-outcome', 'code-review', 'high', '0', '0']).at(-1).declined, 0);
+  });
+
+  it('refuses counts that do not add up, saying how far they got', () => {
+    assert.throws(() => markPhase(ended(5), ['review-outcome', 'code-review', 'high', '3', '1']), /add up to 4 of the 5/);
+  });
+
+  it('refuses an outcome with no review-end of that kind and level before it, naming the one it needs', () => {
+    assert.throws(() => markPhase([], ['review-outcome', 'code-review', 'high', '0', '0']), /needs a review-end code-review high/);
+    assert.throws(() => markPhase(ended(1, 'security-review'), ['review-outcome', 'code-review', 'high', '1', '0']), /needs a review-end code-review high/);
+    assert.throws(() => markPhase(ended(1), ['review-outcome', 'code-review', 'xhigh', '1', '0']), /needs a review-end code-review xhigh/);
+  });
+
+  it('refuses an outcome after a review-end that carries no count', () => {
+    const entries = markPhase([], ['review-end', 'code-review', 'high']);
+    assert.throws(() => markPhase(entries, ['review-outcome', 'code-review', 'high', '0', '0']), /no finding count/);
+  });
+
+  it('keeps two rounds of the same review, each outcome against its own round', () => {
+    let entries = markPhase(ended(2), ['review-outcome', 'code-review', 'high', '2', '0']);
+    entries = markPhase(markPhase(entries, ['review-end', 'code-review', 'high', '1']), ['review-outcome', 'code-review', 'high', '0', '1']);
+    assert.deepEqual(
+      entries.filter((entry) => entry.phase === 'review-outcome').map(({ fixed, declined }) => [fixed, declined]),
+      [
+        [2, 0],
+        [0, 1],
+      ],
+    );
+    assert.throws(() => markPhase(entries.slice(0, -1), ['review-outcome', 'code-review', 'high', '2', '0']), /add up to 2 of the 1/);
+  });
+
+  it('refuses counts that are not whole numbers, and a time after them', () => {
+    assert.throws(() => markPhase(ended(2), ['review-outcome', 'code-review', 'high', '1']), /fixed and then declined/);
+    assert.throws(() => markPhase(ended(2), ['review-outcome', 'code-review', 'high', '1', 'x']), /declined/);
+    assert.throws(() => markPhase(ended(2), ['review-outcome', 'code-review', 'high', '1', '1', '2020-01-01T00:00:00Z']), /the time comes from the clock/);
+  });
+});
+
+describe('a CI wait is marked at its start and its end, once per push', () => {
+  it('records the start, then the end with the outcome', () => {
+    const entries = markPhase(markPhase([], ['ci-start'], at('2026-09-21T11:00:00.000Z')), ['ci-end', 'success'], at('2026-09-21T11:08:00.000Z'));
+    assert.deepEqual(entries, [
+      { phase: 'ci-start', at: '2026-09-21T11:00:00.000Z' },
+      { phase: 'ci-end', outcome: 'success', at: '2026-09-21T11:08:00.000Z' },
+    ]);
+  });
+
+  it('refuses an end with an outcome that is not one there is, listing them', () => {
+    const started = markPhase([], ['ci-start']);
+    assert.throws(() => markPhase(started, ['ci-end', 'green']), (error) => CI_OUTCOMES.every((outcome) => error.message.includes(outcome)));
+    assert.throws(() => markPhase(started, ['ci-end']), /outcome/);
+  });
+
+  it('refuses an end with no start since the last end', () => {
+    assert.throws(() => markPhase([], ['ci-end', 'success']), /needs a ci-start/);
+    const waited = markPhase(markPhase([], ['ci-start']), ['ci-end', 'failure']);
+    assert.throws(() => markPhase(waited, ['ci-end', 'success']), /needs a ci-start/);
+  });
+
+  it('keeps two pushes, each waited on', () => {
+    let entries = [];
+    for (const outcome of ['failure', 'success']) entries = markPhase(markPhase(entries, ['ci-start']), ['ci-end', outcome]);
+    assert.deepEqual(
+      entries.map((entry) => entry.outcome ?? entry.phase),
+      ['ci-start', 'failure', 'ci-start', 'success'],
+    );
+  });
+
+  it('refuses a time after the phase, as for every mark', () => {
+    assert.throws(() => markPhase([], ['ci-start', '2020-01-01T00:00:00Z']), /takes nothing after it/);
+    assert.throws(() => markPhase(markPhase([], ['ci-start']), ['ci-end', 'success', '2020-01-01T00:00:00Z']), /the time comes from the clock/);
+  });
+
+  it('is not one of the phases a report counts a record as missing', () => {
+    for (const phase of ['review-outcome', 'ci-start', 'ci-end']) assert.ok(!PHASES.includes(phase));
+  });
+});
+
+describe('the block carries the outcome and the CI wait, and reads them back', () => {
+  const entries = [
+    { phase: 'review-end', kind: 'code-review', level: 'high', count: 5, at: '2026-09-21T10:00:00.000Z' },
+    { phase: 'review-outcome', kind: 'code-review', level: 'high', fixed: 3, declined: 2, at: '2026-09-21T10:20:00.000Z' },
+    { phase: 'ci-start', at: '2026-09-21T10:30:00.000Z' },
+    { phase: 'ci-end', outcome: 'success', at: '2026-09-21T10:38:00.000Z' },
+  ];
+
+  it('writes each as a line of its own', () => {
+    const lines = renderBlock(entries).split('\n');
+    assert.ok(lines.includes('- 2026-09-21T10:20:00.000Z review-outcome code-review high:3/2'));
+    assert.ok(lines.includes('- 2026-09-21T10:30:00.000Z ci-start'));
+    assert.ok(lines.includes('- 2026-09-21T10:38:00.000Z ci-end success'));
+  });
+
+  it('reads the counts, the times and the outcome back', () => {
+    assert.deepEqual(readBlock(applyBlock('', renderBlock(entries))), entries);
+  });
+
+  it('reads a block written before these marks as it did', () => {
+    const old = [BLOCK_START, '### Session record', '', '- 2026-09-21T10:00:00.000Z start', '- 2026-09-21T10:05:00.000Z review-end code-review high:2', BLOCK_END].join('\n');
+    assert.deepEqual(readBlock(old), [
+      { at: '2026-09-21T10:00:00.000Z', phase: 'start' },
+      { at: '2026-09-21T10:05:00.000Z', phase: 'review-end', kind: 'code-review', level: 'high', count: 2 },
+    ]);
   });
 });

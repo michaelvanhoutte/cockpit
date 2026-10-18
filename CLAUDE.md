@@ -115,6 +115,7 @@ gh pr ready <number>
 **Opening the pull request is not the end of the task: wait for the checks to settle, then fix what they report.** Start the waiter on the push, in the background, from inside the repository — `git rev-parse` and gh's `{owner}/{repo}` both need the working directory.
 
 ```bash
+node scripts/session-record.mjs mark ci-start
 sha=$(git rev-parse HEAD); before=
 while :; do
   runs=$(gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '[.check_runs[] | .name + ":" + .status] | sort | .[]')
@@ -122,12 +123,13 @@ while :; do
     [ "$runs" = "$before" ] && ! printf '%s\n' "$runs" | grep -qv ':completed$' && break
   before=$runs; sleep 30
 done
+node scripts/session-record.mjs mark ci-end "$(gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '[.check_runs[].conclusion | select(. != "success" and . != "neutral" and . != "skipped")] | .[0] // "success"')"
 gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '.check_runs[] | [.name, .conclusion] | @tsv'
 ```
 
 It names a SHA because for the seconds after a push GitHub's head is still the previous commit, whose checks are long green. It compares the whole list against the previous poll because a commit's checks are registered as their jobs start, so an early poll can find a complete set of *completed* runs with another still to appear. Do not poll by hand, and do not end a turn on a pending check.
 
-**A remote or cloud session has no `gh` to run that loop in.** Poll `pull_request_read`'s `get_check_runs`/`get` through the GitHub MCP tools, and schedule the next check with `send_later` rather than trusting the PR-activity webhook, which does not fire on every transition.
+**A remote or cloud session has no `gh` to run that loop in.** Poll `pull_request_read`'s `get_check_runs`/`get` through the GitHub MCP tools, and schedule the next check with `send_later` rather than trusting the PR-activity webhook, which does not fire on every transition. Mark the same `ci-start` and `ci-end <conclusion>` around each push's wait, once per push, the conclusion being the first that is not `success`, `neutral` or `skipped`, else `success`.
 
 **A finding is not handled until its own review thread says so**, because a push only adds an *Outdated* badge and GitHub never resolves a thread itself. Reply naming the commit that fixed it and what changed, then resolve; where the fix did not land or was declined on purpose, reply saying which, with a one-line reason for a decline, and leave the thread open. Never resolve without a reply, and never on the strength of a commit message rather than the committed code. `gh pr view` does not show thread state — query `reviewThreads` for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
 
