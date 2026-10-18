@@ -161,7 +161,7 @@ async function showInbox(items: Item[]) {
 beforeAll(() => import('../../../src/inboxTriage'));
 
 beforeEach(() => {
-  vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: !query.includes('pointer'), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
   held.filings = [];
   held.dashboards = [TODAY];
   held.panels = [FALCON, HARBOR];
@@ -336,8 +336,64 @@ describe('Triage', () => {
 describe('Selection', () => {
   const selectedCount = () => screen.queryByText(/^\d+ selected$/)?.textContent ?? null;
 
+  const picked = (title: string) => rowOfTitle(title).classList.contains('row-picked');
+
+  describe('in the Inbox the picked row and the focused row are one', () => {
+    it('moves the pick alone with J and K from a row picked by a click', async () => {
+      const user = await showInbox([anItem('A'), anItem('B'), anItem('C')]);
+      await user.click(screen.getByText('B'));
+      expect(picked('B')).toBe(true);
+
+      await user.keyboard('j');
+      expect([picked('A'), picked('B'), picked('C')]).toEqual([false, false, true]);
+      expect(rowOfTitle('C')).toHaveFocus();
+
+      await user.keyboard('k');
+      await user.keyboard('k');
+      expect([picked('A'), picked('B'), picked('C')]).toEqual([true, false, false]);
+      expect(selectedCount()).toBeNull();
+    });
+
+    it('shows the bar when Shift+J extends a clicked row, and goes back to one with J', async () => {
+      const user = await showInbox([anItem('A'), anItem('B'), anItem('C')]);
+      await user.click(screen.getByText('A'));
+
+      await user.keyboard('{Shift>}J{/Shift}');
+      expect(selectedCount()).toBe('2 selected');
+
+      await user.keyboard('j');
+      expect(selectedCount()).toBeNull();
+      expect([picked('A'), picked('B'), picked('C')]).toEqual([false, false, true]);
+    });
+
+    it.each([
+      { situation: 'D marks it Done', key: 'd', name: 'set_done' },
+      { situation: 'X dismisses it', key: 'x', name: 'set_dismissed' },
+      { situation: 'Enter files it on its proposal', key: '{Enter}', name: 'move_item_to_panel' },
+    ])('acts on the one row picked: $situation', async ({ key, name }) => {
+      const user = await showInbox([anItem('First'), anItem('Second', FALCON.id), anItem('Third')]);
+      await user.click(screen.getByText('Second'));
+      const second = idOf('Second');
+
+      await user.keyboard(key);
+
+      await waitFor(() => expect(sent()).toHaveLength(1));
+      expect(sent()[0]).toMatchObject({ name, payload: { itemId: second } });
+    });
+
+    it('steps the single-row keys aside for two picked rows, and files the selection on Enter', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', FALCON.id), anItem('C')]);
+      await user.click(screen.getByText('A'));
+      await user.keyboard('{Shift>}J{/Shift}');
+
+      await user.keyboard('d');
+
+      expect(sent().filter((command) => command.name === 'set_done')).toHaveLength(0);
+    });
+  });
+
   describe('Shift with J and K extends the selection from the focused row', () => {
-    it('grows by a row with each Shift+J, shrinks with Shift+K, and ends with a plain J', async () => {
+    it('grows by a row with each Shift+J, shrinks with Shift+K, and goes back to the one row with a plain J', async () => {
       const user = await showInbox([anItem('A'), anItem('B'), anItem('C'), anItem('D')]);
       act(() => rowOfTitle('A').focus());
 
@@ -353,6 +409,8 @@ describe('Selection', () => {
       await user.keyboard('j');
       expect(selectedCount()).toBeNull();
       expect(rowOfTitle('C')).toHaveFocus();
+      expect(rowOfTitle('C')).toHaveClass('row-picked');
+      expect(rowOfTitle('B')).not.toHaveClass('row-picked');
     });
 
     it('extends with Shift+ArrowDown the same way', async () => {
@@ -412,7 +470,8 @@ describe('Selection', () => {
       await waitFor(() => expect(moves()).toHaveLength(2));
       expect(screen.getByText('B')).toBeInTheDocument();
       expect(await screen.findByRole('status')).toHaveTextContent('2 items moved to their proposed Panels, 1 had no proposal');
-      expect(selectedCount()).toBe('1 selected');
+      expect(selectedCount()).toBeNull();
+      expect(rowOfTitle('B')).toHaveClass('row-picked');
     });
 
     it('keeps the title of the one moved Item, and says how many had none after it', async () => {

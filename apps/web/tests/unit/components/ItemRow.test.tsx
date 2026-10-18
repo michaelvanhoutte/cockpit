@@ -91,6 +91,8 @@ function aRow({
   selecting?: {
     picked: boolean;
     revealed: boolean;
+    held: boolean;
+    onPickAlone: () => void;
     onPick: (withShift: boolean) => void;
     onEndSelection: () => void;
   };
@@ -963,7 +965,7 @@ describe('Item editing', () => {
         routingProposal: proposal,
         onAcceptRouting,
         onOpen: () => {},
-        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection: () => {} },
+        selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick: () => {}, onEndSelection: () => {} },
       });
 
       fireEvent.doubleClick(screen.getByRole('listitem'), { altKey: true });
@@ -1122,7 +1124,7 @@ describe('Item editing', () => {
       const onEndSelection = vi.fn();
       aRow({
         onOpen,
-        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection },
+        selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick: () => {}, onEndSelection },
       });
       focused();
 
@@ -1211,7 +1213,7 @@ describe('Item editing', () => {
 
     it('opens nothing while a selection is held, which suspends every row’s own menu', () => {
       aRow({
-        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection: () => {} },
+        selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick: () => {}, onEndSelection: () => {} },
       });
 
       fireEvent.contextMenu(screen.getByRole('listitem'));
@@ -1220,9 +1222,9 @@ describe('Item editing', () => {
     });
 
     it('closes when a selection starts while it is open', async () => {
-      const held = { picked: false, revealed: true, onPick: () => {}, onEndSelection: () => {} };
+      const held = { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick: () => {}, onEndSelection: () => {} };
       const { rerenderSelecting } = aRow({
-        selecting: { ...held, revealed: false },
+        selecting: { ...held, revealed: false, held: false },
       });
       fireEvent.contextMenu(screen.getByRole('listitem'));
       await screen.findByRole('menuitem', { name: /^Status/ });
@@ -1417,7 +1419,7 @@ describe('Item editing', () => {
       const onPick = vi.fn();
       aRow({
         dock: { openId: 'item-other', show },
-        selecting: { picked: false, revealed: false, onPick, onEndSelection: () => {} },
+        selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: () => {} },
       });
 
       await user.keyboard('{Control>}');
@@ -1442,19 +1444,19 @@ describe('Item editing', () => {
       expect(show).not.toHaveBeenCalled();
     });
 
-    it('only ends a selection already held on a plain click, and shows nothing', async () => {
+    it('shows the row in the dock on a plain click and also picks it alone, whatever was held', async () => {
       const user = userEvent.setup();
       const show = vi.fn();
-      const onEndSelection = vi.fn();
+      const onPickAlone = vi.fn();
       aRow({
         dock: { openId: 'item-other', show },
-        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection },
+        selecting: { picked: false, revealed: true, held: true, onPickAlone, onPick: () => {}, onEndSelection: () => {} },
       });
 
       await user.click(screen.getByRole('listitem'));
 
-      expect(onEndSelection).toHaveBeenCalledOnce();
-      expect(show).not.toHaveBeenCalled();
+      expect(show).toHaveBeenCalledExactlyOnceWith('item-1');
+      expect(onPickAlone).toHaveBeenCalledOnce();
     });
   });
 
@@ -1642,7 +1644,7 @@ describe('Triage', () => {
       today('2026-09-17');
       aRow({
         item: anItem({ dueDate: '2026-09-10' }),
-        selecting: { picked: true, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() },
+        selecting: { picked: true, revealed: true, held: true, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() },
       });
 
       expect(screen.getByRole('listitem')).toHaveClass('row-picked');
@@ -1820,7 +1822,7 @@ describe('Capture', () => {
       aRow({
         item: anItem(teams),
         onOpen,
-        selecting: { picked: false, revealed: true, onPick, onEndSelection },
+        selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick, onEndSelection },
       });
       const link = screen.getByRole('link', { name: 'Open in Microsoft Teams' });
 
@@ -1906,7 +1908,7 @@ describe('Selection', () => {
 
     it('picks the row out once the finger has rested long enough', () => {
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       hold();
 
@@ -1919,7 +1921,7 @@ describe('Selection', () => {
       // afterwards, because a spent gesture stops drawing. It would have stayed
       // there, mid-swipe, until the finger came off.
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       hold({ dx: HOLD_DRIFT_PX });
 
@@ -1942,7 +1944,7 @@ describe('Selection', () => {
       { situation: 'it started on the row’s own menu', onto: 'menu' as const },
     ])('picks nothing out when $situation', (how) => {
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       hold(how);
 
@@ -1955,7 +1957,7 @@ describe('Selection', () => {
       // knows it is spent, resting on a row and then sliding away picked the
       // row out *and* dismissed it.
       const onPick = vi.fn();
-      const { mutate } = aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      const { mutate } = aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       const row = screen.getByRole('listitem');
       fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
@@ -1985,7 +1987,7 @@ describe('Selection', () => {
       // resting a moment on one row and letting go picked it out half a second
       // later, while the finger was somewhere else entirely.
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       const row = screen.getByRole('listitem');
       fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
@@ -2021,7 +2023,7 @@ describe('Selection', () => {
   describe('a click anywhere on the row picks it, or ends a selection, but never opens it', () => {
     it('picks an unpicked row alone on a ctrl-click, nothing yet selected', () => {
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       fireEvent.click(screen.getByRole('listitem'), { ctrlKey: true });
 
@@ -2030,7 +2032,7 @@ describe('Selection', () => {
 
     it('picks the same way on a cmd-click', () => {
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       fireEvent.click(screen.getByRole('listitem'), { metaKey: true });
 
@@ -2039,7 +2041,7 @@ describe('Selection', () => {
 
     it('adds to a selection already held on a ctrl/cmd-click', () => {
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: true, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       fireEvent.click(screen.getByRole('listitem'), { ctrlKey: true });
 
@@ -2048,47 +2050,58 @@ describe('Selection', () => {
 
     it('reaches a span across rows on a shift-click', () => {
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: true, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       fireEvent.click(screen.getByRole('listitem'), { shiftKey: true });
 
       expect(onPick).toHaveBeenCalledWith(true);
     });
 
-    it('opens nothing on a plain mouse click, nothing yet selected', () => {
-      // A plain click only ends a selection; opening is a double-click's or
-      // the menu's own Open ("Require a double-click to open a row again, now
-      // that a plain click opens it", issue 456).
+    it.each([
+      { situation: 'nothing is picked', revealed: false, held: false },
+      { situation: 'one row is picked', revealed: false, held: true },
+      { situation: 'several rows are picked', revealed: true, held: true },
+    ])('picks the row alone on a plain mouse click when $situation, and opens nothing', ({ revealed, held }) => {
+      // "Pick a row with a plain click, and keep a single pick's own actions",
+      // issue 1236. Opening is a double-click's or the menu's own Open.
       const onOpen = vi.fn();
       const onPick = vi.fn();
+      const onPickAlone = vi.fn();
       const onEndSelection = vi.fn();
-      aRow({ onOpen, selecting: { picked: false, revealed: false, onPick, onEndSelection } });
+      aRow({ onOpen, selecting: { picked: false, revealed, held, onPickAlone, onPick, onEndSelection } });
 
       fireEvent.click(screen.getByRole('listitem'));
 
+      expect(onPickAlone).toHaveBeenCalledOnce();
       expect(onOpen).not.toHaveBeenCalled();
       expect(onPick).not.toHaveBeenCalled();
       expect(onEndSelection).not.toHaveBeenCalled();
     });
 
-    it('clears the whole selection on a plain mouse click, while one is held, without opening the row', () => {
-      const onOpen = vi.fn();
-      const onEndSelection = vi.fn();
-      aRow({
-        onOpen,
-        selecting: { picked: false, revealed: true, onPick: vi.fn(), onEndSelection },
-      });
+    it('picks the row alone on a pen click as on a mouse click', () => {
+      const onPickAlone = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone, onPick: vi.fn(), onEndSelection: vi.fn() } });
+      const row = screen.getByRole('listitem');
 
-      fireEvent.click(screen.getByRole('listitem'));
+      fireEvent.pointerDown(row, { pointerType: 'pen', pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.click(row);
 
-      expect(onEndSelection).toHaveBeenCalledTimes(1);
-      expect(onOpen).not.toHaveBeenCalled();
+      expect(onPickAlone).toHaveBeenCalledOnce();
     });
 
-    it('opens nothing on a plain touch tap, nothing yet selected', () => {
+    it('picks nothing on an alt-click, which belongs to the alt-double-click', () => {
+      const onPickAlone = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone, onPick: vi.fn(), onEndSelection: vi.fn() } });
+
+      fireEvent.click(screen.getByRole('listitem'), { altKey: true });
+
+      expect(onPickAlone).not.toHaveBeenCalled();
+    });
+
+    it('opens and picks nothing on a plain touch tap, nothing yet selected', () => {
       const onOpen = vi.fn();
       const onPick = vi.fn();
-      aRow({ onOpen, selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ onOpen, selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
       const row = screen.getByRole('listitem');
 
       fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
@@ -2098,6 +2111,19 @@ describe('Selection', () => {
       expect(onPick).not.toHaveBeenCalled();
     });
 
+    it('extends a single pick on a plain touch tap, which a phone has in place of ctrl', () => {
+      const onPick = vi.fn();
+      const onPickAlone = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, held: true, onPickAlone, onPick, onEndSelection: vi.fn() } });
+      const row = screen.getByRole('listitem');
+
+      fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.click(row);
+
+      expect(onPick).toHaveBeenCalledWith(false);
+      expect(onPickAlone).not.toHaveBeenCalled();
+    });
+
     it('toggles the row on a plain touch tap instead of opening it, while a selection is held', () => {
       // Touch has no ctrl key, so a tap is what it has instead, once a
       // selection is already held - the way past the first row, which still
@@ -2105,7 +2131,7 @@ describe('Selection', () => {
       const onOpen = vi.fn();
       const onPick = vi.fn();
       const onEndSelection = vi.fn();
-      aRow({ onOpen, selecting: { picked: false, revealed: true, onPick, onEndSelection } });
+      aRow({ onOpen, selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick, onEndSelection } });
       const row = screen.getByRole('listitem');
 
       fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
@@ -2122,7 +2148,7 @@ describe('Selection', () => {
       // just picked out was toggled straight back off.
       vi.useFakeTimers();
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
       const row = screen.getByRole('listitem');
 
       fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
@@ -2143,7 +2169,7 @@ describe('Selection', () => {
       // (found in review, alongside the case above).
       vi.useFakeTimers();
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
       const row = screen.getByRole('listitem');
 
       fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
@@ -2164,7 +2190,7 @@ describe('Selection', () => {
       // the menu also opened the form.
       const onOpen = vi.fn();
       const onPick = vi.fn();
-      aRow({ onOpen, selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      aRow({ onOpen, selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() } });
 
       fireEvent.click(screen.getByLabelText('Item actions'));
 
@@ -2184,7 +2210,7 @@ describe('Selection', () => {
       // menu's own unavailable entries do (`RowMenu`, `MoveAStep`): it stays
       // in Tab order rather than silently dropping out of it.
       const user = userEvent.setup();
-      aRow({ selecting: { picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() } });
       const trigger = screen.getByLabelText('Item actions');
 
       expect(trigger).toHaveAttribute('aria-disabled', 'true');
@@ -2197,8 +2223,10 @@ describe('Selection', () => {
       { situation: 'a selection held on another row', picked: false, revealed: true, shown: false },
       { situation: 'the row itself picked', picked: true, revealed: true, shown: false },
       { situation: 'no selection', picked: false, revealed: false, shown: true },
+      { situation: 'the one row picked being this one', picked: true, revealed: false, shown: true },
+      { situation: 'the one row picked being another', picked: false, revealed: false, shown: true },
     ])('steps the ✓ aside for $situation', ({ picked, revealed, shown }) => {
-      aRow({ selecting: { picked, revealed, onPick: vi.fn(), onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked, revealed, held: revealed, onPickAlone: vi.fn(), onPick: vi.fn(), onEndSelection: vi.fn() } });
 
       expect(screen.queryByRole('button', { name: 'Mark done' }) !== null).toBe(shown);
     });
@@ -2223,7 +2251,7 @@ describe('Selection', () => {
 
     it('leaves the menu trigger available and opening where nothing is selected', async () => {
       const user = userEvent.setup();
-      aRow({ selecting: { picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() } });
+      aRow({ selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() } });
       const trigger = screen.getByLabelText('Item actions');
 
       expect(trigger).not.toHaveAttribute('aria-disabled');
@@ -2237,12 +2265,12 @@ describe('Selection', () => {
       // selection started (found in review).
       const user = userEvent.setup();
       const { rerenderSelecting } = aRow({
-        selecting: { picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() },
+        selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() },
       });
       await user.click(screen.getByLabelText('Item actions'));
       expect(await screen.findByRole('menuitem', { name: /^Status/ })).toBeVisible();
 
-      rerenderSelecting({ picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() });
+      rerenderSelecting({ picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() });
 
       expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
     });
@@ -2254,14 +2282,14 @@ describe('Selection', () => {
       // having asked nobody the second time (found in review).
       const user = userEvent.setup();
       const { rerenderSelecting } = aRow({
-        selecting: { picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() },
+        selecting: { picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() },
       });
       await user.click(screen.getByLabelText('Item actions'));
       expect(await screen.findByRole('menuitem', { name: /^Status/ })).toBeVisible();
-      rerenderSelecting({ picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() });
+      rerenderSelecting({ picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() });
       expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
 
-      rerenderSelecting({ picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() });
+      rerenderSelecting({ picked: false, revealed: false, held: false, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() });
 
       expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
     });
@@ -2270,7 +2298,7 @@ describe('Selection', () => {
       const onMoveTo = vi.fn();
       const { mutate } = aRow({
         onMoveTo,
-        selecting: { picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() },
+        selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() },
       });
 
       swipe({ dx: -past });
@@ -2282,7 +2310,7 @@ describe('Selection', () => {
     it('names no action while a selection is held, so the row promises nothing it will not do', () => {
       aRow({
         onMoveTo: vi.fn(),
-        selecting: { picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() },
+        selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick: vi.fn(), onEndSelection: vi.fn() },
       });
 
       swipeAndHold({ dx: 160 });
@@ -2299,7 +2327,7 @@ describe('Selection', () => {
         routingProposal: { dashboardName: 'Day to day', panelName: 'Compliance questions', reason: 'a compliance question' },
         onAcceptRouting,
         onOpen,
-        selecting: { picked: false, revealed: true, onPick, onEndSelection: vi.fn() },
+        selecting: { picked: false, revealed: true, held: true, onPickAlone: () => {}, onPick, onEndSelection: vi.fn() },
       });
 
       await user.click(screen.getByRole('button', { name: /^Day to day ▸ Compliance questions/ }));

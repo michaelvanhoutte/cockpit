@@ -1384,7 +1384,7 @@ test.describe('Item editing', () => {
         // selection with Enter", issue 1112). Nothing here has a proposal (no
         // model is reached in this tier), so the bar says that and nothing
         // moves; which Panel each lands on is the unit suite's
-        // (InboxTriageKeys.test.tsx). A plain J then ends the selection.
+        // (InboxTriageKeys.test.tsx). A plain J then goes back to the one row.
         const before = await rows.count();
         await rows.nth(0).focus();
         await page.keyboard.press('Shift+J');

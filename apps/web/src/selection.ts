@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type { Item } from '@cockpit/shared';
+import { isTypedInto } from './inboxCollapsed';
 
 /**
  * The rows picked out of a list to be acted on together ("Select several items,
@@ -76,6 +77,63 @@ export function afterClicking(
   // Unpicking leaves nothing to reach back from: the next shift-click means
   // this row alone, which is what a range whose anchor was just taken away is.
   return { picked, reachingFrom: picked.has(id) ? id : null };
+}
+
+/**
+ * How many picked rows make a selection several ("Pick a row with a plain
+ * click, and keep a single pick's own actions", issue 1236): the bar appears,
+ * and every row's own menu, swipe, ✓ and keys step aside. With a pointer one
+ * picked row is only highlighted. **On a touch device it is one**, unchanged:
+ * a long press has no click to pick with, and the bar is how a phone sees a
+ * selection has started.
+ */
+export const SEVERAL = 2;
+
+/** The question "is the pointer a finger", asked of the browser. */
+export const COARSE_POINTER = '(pointer: coarse)';
+
+export const severalFor = (coarse: boolean) => (coarse ? 1 : SEVERAL);
+
+function theCoarseQuestion(): MediaQueryList | null {
+  try {
+    return globalThis.matchMedia?.(COARSE_POINTER) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** How many picked rows are several here, watched so a device that changes its pointer is answered. */
+export function useSeveral(): number {
+  return severalFor(
+    useSyncExternalStore(
+      (announce) => {
+        const question = theCoarseQuestion();
+        question?.addEventListener('change', announce);
+        return () => question?.removeEventListener('change', announce);
+      },
+      () => theCoarseQuestion()?.matches ?? false,
+      () => false,
+    ),
+  );
+}
+
+/**
+ * Whether the bar is drawn: from `several` picked rows, and for one only while it has
+ * a refusal to say - a filing that stopped part way leaves what did not move
+ * picked, and the line saying why is the bar's.
+ */
+export function showsABar(
+  count: number,
+  refusals: readonly (string | null | false | undefined)[],
+  several = SEVERAL,
+): boolean {
+  return count >= several || (count > 0 && refusals.some(Boolean));
+}
+
+/** The selection a plain click leaves: this row alone, and what a shift-click reaches back to. */
+export function afterPickingAlone(selection: Selection, id: string): Selection {
+  if (selection.picked.size === 1 && selection.picked.has(id) && selection.reachingFrom === id) return selection;
+  return { picked: new Set([id]), reachingFrom: id };
 }
 
 /** The picked rows the list actually shows, in the order it shows them. */
@@ -229,6 +287,49 @@ export function pickedNow(scope: string): ReadonlySet<string> {
 /** Changes what `scope` holds; see `afterUpdating`. */
 export function updateSelection(scope: string, update: (was: Selection) => Selection) {
   set(afterUpdating(held, scope, update));
+}
+
+/** A plain click, or J / K in the Inbox: `id` alone is what `scope` holds, ending any other scope's. */
+export function pickAlone(scope: string, id: string) {
+  updateSelection(scope, (was) => afterPickingAlone(was, id));
+}
+
+/** Ends the selection held when it is one row: what Escape and a click on empty space end, and a selection of several they leave. */
+export function endASinglePick() {
+  if (held.selection.picked.size === 1) endSelection();
+}
+
+/**
+ * Ends a single pick on Escape, and on a pointer click on empty space - anywhere that
+ * is not a row, a control, a menu or window, or the form docked beside the
+ * lists. Mounted once, by the shell.
+ */
+export function useEndingASinglePick() {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      // A menu or window closing on its own Escape has already claimed it.
+      if (event.key === 'Escape' && !event.defaultPrevented && !isTypedInto(event.target)) endASinglePick();
+    };
+    const onClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.isConnected) return;
+      // A phone's tap keeps the meaning it had: only a pointer ends a pick this way.
+      if ((event as PointerEvent).pointerType === 'touch') return;
+      if (
+        target.closest(
+          'li[data-item-row], a, button, input, textarea, select, [contenteditable], [role="menu"], [role="dialog"], [role="alertdialog"], [role="status"]',
+        )
+      )
+        return;
+      endASinglePick();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('click', onClick);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('click', onClick);
+    };
+  }, []);
 }
 
 /** Ends `scope`'s selection - or whichever is held, when none is named. */

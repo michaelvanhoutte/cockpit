@@ -194,8 +194,11 @@ test.describe('Selection', () => {
       await goToTheInbox(page, isMobile);
       for (const title of [first, second, third]) await capture(page, title, isMobile);
 
+      // With a pointer one picked row is highlighted and draws no bar, and the
+      // second brings it; a phone's long press brings it at once.
       await startSelecting(page, first, isMobile);
-      await expect(inbox(page).getByText('1 selected')).toBeVisible();
+      await expect(itemRow(page, first)).toHaveClass(/row-picked/);
+      await expect(inbox(page).getByText(/ selected$/)).toHaveCount(isMobile ? 1 : 0);
 
       // A range is a shift-click, which a phone cannot make; there, each row is
       // one more tap.
@@ -270,8 +273,12 @@ test.describe('Selection', () => {
       // Near its top edge: the offer drawn over this short a screen is three
       // buttons wide and two lines tall, and covers the middle of the row.
       await startSelecting(page, titles[0]!, isMobile, true);
+      // A long press brings the bar at one row; a pointer's one row is only
+      // highlighted, so it takes a second.
+      if (!isMobile) await addToSelection(page, titles[1]!, isMobile);
+      const count = isMobile ? '1 selected' : '2 selected';
 
-      await expect(page.getByText('1 selected')).toBeInViewport();
+      await expect(page.getByText(count)).toBeInViewport();
       await expect(page.getByRole('button', { name: 'Move to…' })).toBeInViewport();
       if (!isMobile) return;
 
@@ -292,7 +299,7 @@ test.describe('Selection', () => {
         for (let up: Element | null = row; up; up = up.parentElement) up.scrollTop = up.scrollHeight;
       });
       const row = (await lastRow.boundingBox())!;
-      const bar = (await page.getByText('1 selected').locator('xpath=../..').boundingBox())!;
+      const bar = (await page.getByText(count).locator('xpath=../..').boundingBox())!;
       expect(row.y + row.height).toBeLessThanOrEqual(bar.y);
     });
   });
@@ -338,9 +345,8 @@ test.describe('Selection', () => {
       await startSelecting(page, first, isMobile);
       await addToSelection(page, third, isMobile);
       await startSelecting(page, inInbox, isMobile);
-      await expect(inbox(page).getByText('1 selected')).toBeVisible();
-      await expect(page.getByText(/ selected$/)).toHaveCount(1);
-      await page.getByRole('button', { name: 'Clear' }).click();
+      // The Dashboard's bar is gone with its selection, and one row has none.
+      await expect(itemRow(page, inInbox)).toHaveClass(/row-picked/);
       await expect(page.getByText(/ selected$/)).toHaveCount(0);
     });
 
@@ -439,58 +445,77 @@ test.describe('Selection', () => {
       await signIn(page, ADA, isMobile);
       const inInbox = uniqueTitle('Left in the Inbox');
       await goToTheInbox(page, isMobile);
+      const alongside = uniqueTitle('Also in the Inbox');
       await capture(page, inInbox, isMobile);
+      await capture(page, alongside, isMobile);
       await startSelecting(page, inInbox, isMobile);
+      await addToSelection(page, alongside, isMobile);
       await chooseFromEdit(page, 'Priority', 'High', isMobile);
       await expect(itemRow(page, inInbox).getByRole('img', { name: 'High priority' })).toBeVisible();
     });
   });
 
   test.describe('a selection suspends what a row would otherwise do on its own', () => {
-    // Desktop only: the case is a plain click on a mouse specifically, which is
-    // what ending a selection is - a phone has no such click, a tap while
-    // selecting extends it instead, already proved above.
-    test('a plain click while a selection is held clears it, without opening the row it landed on', async ({
+    // Desktop only: the case is a plain click on a mouse specifically - a
+    // phone has no such click, a tap while selecting extends it instead,
+    // already proved above.
+    test('a plain click picks a row alone, replacing a selection, and a single pick keeps its own menu', async ({
       page,
       isMobile,
     }) => {
-      // A plain click no longer opens a row on its own ("Require a
-      // double-click to open a row again, now that a plain click opens it",
-      // issue 456) - a double-click still does.
-      test.skip(isMobile, 'a plain click ending a selection is a mouse-only gesture');
+      // A plain click picks the row and opens nothing ("Pick a row with a
+      // plain click, and keep a single pick's own actions", issue 1236); a
+      // double-click still opens it.
+      test.skip(isMobile, 'a plain click picking a row is a mouse-only gesture');
 
       const first = uniqueTitle('Reply to Bart');
       const second = uniqueTitle('Renew the domain');
+      const third = uniqueTitle('Chase the purchase order');
       await signIn(page, ADA, isMobile);
       await goToTheInbox(page, isMobile);
-      for (const title of [first, second]) await capture(page, title, isMobile);
+      for (const title of [first, second, third]) await capture(page, title, isMobile);
 
-      await startSelecting(page, first, isMobile);
-      await expect(inbox(page).getByText('1 selected')).toBeVisible();
-
-      await itemRow(page, second).click();
-
-      await expect(inbox(page).getByText('1 selected')).toHaveCount(0);
+      await itemRow(page, first).click();
+      await expect(itemRow(page, first)).toHaveClass(/row-picked/);
+      await expect(inbox(page).getByText(/ selected$/)).toHaveCount(0);
       await expect(page.getByRole('dialog')).toHaveCount(0);
 
-      await itemRow(page, second).dblclick();
+      await addToSelection(page, second, isMobile);
+      await expect(inbox(page).getByText('2 selected')).toBeVisible();
 
+      await itemRow(page, third).click();
+      await expect(itemRow(page, third)).toHaveClass(/row-picked/);
+      await expect(itemRow(page, first)).not.toHaveClass(/row-picked/);
+      await expect(itemRow(page, second)).not.toHaveClass(/row-picked/);
+      await expect(inbox(page).getByText(/ selected$/)).toHaveCount(0);
+
+      // Its own menu works on the one picked, and marks it done.
+      await itemRow(page, third).getByRole('button', { name: 'Item actions' }).click();
+      const status = page.getByRole('menuitem', { name: /^Status/ });
+      await status.focus();
+      await page.keyboard.press('ArrowRight');
+      await page.getByRole('menuitemradio', { name: 'Done' }).click();
+      await expect(inbox(page).getByText(third)).toHaveCount(0);
+
+      await itemRow(page, second).dblclick();
       await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Title' })).toHaveValue(
         second,
       );
     });
 
-    test('a picked row’s own menu does not open while a selection is held', async ({
+    test('a picked row’s own menu does not open while several are picked', async ({
       page,
       isMobile,
     }) => {
       const title = uniqueTitle('Reply to Bart');
+      const other = uniqueTitle('Renew the domain');
       await signIn(page, ADA, isMobile);
       await goToTheInbox(page, isMobile);
-      await capture(page, title, isMobile);
+      for (const one of [title, other]) await capture(page, one, isMobile);
 
       await startSelecting(page, title, isMobile);
-      await expect(inbox(page).getByText('1 selected')).toBeVisible();
+      await addToSelection(page, other, isMobile);
+      await expect(inbox(page).getByText('2 selected')).toBeVisible();
 
       const menu = itemRow(page, title).getByRole('button', { name: 'Item actions' });
       await expect(menu).toBeDisabled();
