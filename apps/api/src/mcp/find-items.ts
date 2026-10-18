@@ -65,6 +65,7 @@ export function findItemsTool(workspaces: readonly Workspace[]): ToolDefinition 
       `Workspaces: ${named(workspaceNames)}.`,
       "A panel is named with panel: only the items filed on a panel of that name, or gathered by a filter panel of that name, on any dashboard, as the panel's own header counts them; with workspace, only that workspace's panels. Finished items are not on a panel, so include_done adds none.",
       `Up to ${FIND_PAGE} items a page, most recently changed first, each with its description whole, where it is and a link that opens it in Cockpit; no total is given.`,
+      "Each item also names its attachments, each with a link that opens the file for an hour without signing in (anyone holding the link can open it, so do not share it); a file's contents are never included.",
       'When more follow, the reply ends with a cursor: call again with the same arguments and that cursor for the next page. An item changed between two pages can be missed.',
       "Pass today as the user's local date (YYYY-MM-DD): due conditions are counted from it, and from the UTC day without it.",
     ].join(' '),
@@ -242,10 +243,15 @@ export function refuseNoPanel(panel: string, names: readonly string[], workspace
  *
  * A finished Item is marked Done and says where it was filed, as *All items*
  * does; an Item never filed is in the *Inbox*.
+ *
+ * **Each file is named, with its link where `links` has one** (an attachment id
+ * to the address that opens it for an hour without signing in); `null` is an
+ * environment with no key to seal links, which names the files only. Never
+ * their contents.
  */
-export function formatFound(found: FoundPage, origin: string): string {
+export function formatFound(found: FoundPage, origin: string, links: ReadonlyMap<string, string> | null = null): string {
   if (found.rows.length === 0) return 'No item matches.';
-  const lines = found.rows.map(({ item, workspaceName, places }, at) => {
+  const lines = found.rows.map(({ item, workspaceName, places, attachments }, at) => {
     const link = new URL(`/w/${encodeURIComponent(item.workspaceId)}`, origin);
     link.searchParams.set('item', item.id);
     const description = item.description?.trim();
@@ -259,6 +265,15 @@ export function formatFound(found: FoundPage, origin: string): string {
       `   Where: ${places.length ? places.map((place) => `${workspaceName} ▸ ${place}`).join('; ') : `Inbox (${workspaceName})`}`,
       `   Last changed: ${item.updatedAt}`,
       `   Open: ${link.href}`,
+      ...(attachments.length
+        ? [
+            '   Attachments:',
+            ...attachments.map((file) => {
+              const href = links?.get(file.id);
+              return `   - ${file.filename}${href ? `: ${href}` : ''}`;
+            }),
+          ]
+        : []),
       `   Description: ${description ? description.replaceAll('\n', '\n   ') : 'none'}`,
     ].join('\n');
   });

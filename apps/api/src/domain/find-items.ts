@@ -63,11 +63,19 @@ export interface NoSuchPanel {
 /** What `find_items` answers: a page, or the names of the Panels there are where the one named is none of them. */
 export type FindResult = FoundPage | NoSuchPanel;
 
-/** One Item found, with the Workspace it is in and the Panels it is filed on as "Dashboard ▸ Panel" (none for the Inbox). */
+/** A file on a found Item: what it is called, never its contents ("Give attachment links with found items, over MCP", issue 1244). */
+export interface FoundAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+}
+
+/** One Item found, with the Workspace it is in, the Panels it is filed on as "Dashboard ▸ Panel" (none for the Inbox), and its files. */
 export interface FoundRow {
   item: Item;
   workspaceName: string;
   places: string[];
+  attachments: FoundAttachment[];
 }
 
 /** One page of what was found, and where the next starts where more follow. */

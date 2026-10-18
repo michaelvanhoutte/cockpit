@@ -194,6 +194,7 @@ describe('MCP connections', () => {
               item: anItem({ nextAction: 'Ring him', priority: 'high', dueDate: '2026-10-16', sender: 'Gmail', startedAt: '2026-10-09T10:00:00.000Z' }),
               workspaceName: 'Home',
               places: ['Dashboard 1 ▸ Panel 1', 'Dashboard 2 ▸ Soon'],
+              attachments: [],
             },
           ],
           next: null,
@@ -219,7 +220,7 @@ describe('MCP connections', () => {
 
     it('says an item never filed is in the Inbox, and a finished one is Done', () => {
       const told = formatFound(
-        { rows: [{ item: anItem({ completedAt: '2026-10-11T10:00:00.000Z' }), workspaceName: 'Home', places: [] }], next: null },
+        { rows: [{ item: anItem({ completedAt: '2026-10-11T10:00:00.000Z' }), workspaceName: 'Home', places: [], attachments: [] }], next: null },
         ORIGIN,
       );
 
@@ -230,16 +231,28 @@ describe('MCP connections', () => {
     it('gives a long description whole, not cut', () => {
       const description = Array.from({ length: 200 }, (_, n) => `Line ${n + 1} of the notes.`).join('\n');
 
-      const told = formatFound({ rows: [{ item: anItem({ description }), workspaceName: 'Home', places: [] }], next: null }, ORIGIN);
+      const told = formatFound({ rows: [{ item: anItem({ description }), workspaceName: 'Home', places: [], attachments: [] }], next: null }, ORIGIN);
 
       expect(told).toContain('Line 1 of the notes.');
       expect(told).toContain('Line 200 of the notes.');
     });
 
+    it('lists each file in order with its link, and the name alone where it has none', () => {
+      const files = [
+        { id: 'a1', filename: 'one.png', contentType: 'image/png' },
+        { id: 'a2', filename: 'two: draft.pdf', contentType: 'application/pdf' },
+      ];
+      const row = { item: anItem({}), workspaceName: 'Home', places: [], attachments: files };
+
+      const linked = formatFound({ rows: [row], next: null }, ORIGIN, new Map([['a1', 'https://cockpit.test/v1/attachment-links/x']]));
+
+      expect(linked).toContain('   Attachments:\n   - one.png: https://cockpit.test/v1/attachment-links/x\n   - two: draft.pdf\n');
+    });
+
     it('ends with the cursor for the next page where more follow, and gives no total', () => {
       const next = { updatedAt: '2026-10-10T10:00:00.000Z', id: ID };
 
-      const told = formatFound({ rows: [{ item: anItem({}), workspaceName: 'Home', places: [] }], next }, ORIGIN);
+      const told = formatFound({ rows: [{ item: anItem({}), workspaceName: 'Home', places: [], attachments: [] }], next }, ORIGIN);
 
       expect(told).toContain('More follow');
       expect(told).toContain(`cursor "${cursorToText(next)}"`);

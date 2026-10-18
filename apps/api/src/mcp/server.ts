@@ -16,6 +16,7 @@ import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFr
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from '../auth/mcp-paths.js';
+import { attachmentLinkAddress, attachmentLinkKey } from '../auth/attachment-link.js';
 
 /**
  * `/mcp`, once the OAuth library has accepted the access token
@@ -95,7 +96,7 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
         params.name === REPORT_RUN
           ? await reportRun(account, app, params.arguments)
           : params.name === FIND_ITEMS
-            ? await find(env, account, app, params.arguments)
+            ? await find(env, account, holder.accountName, app, params.arguments)
             : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
@@ -207,6 +208,7 @@ async function capture(
 async function find(
   env: Env,
   account: Account,
+  accountName: string,
   app: { grantId: string },
   args: unknown,
 ): Promise<{ reply: string } | { refusal: string }> {
@@ -227,7 +229,31 @@ async function find(
     const workspace = workspaces.find((w) => w.id === read.query.workspaceId);
     return { refusal: refuseNoPanel(read.query.panel ?? '', found.noPanel, workspace?.name ?? null) };
   }
-  return { reply: formatFound(found, env.APP_ORIGIN) };
+  return { reply: formatFound(found, env.APP_ORIGIN, await linksToFiles(env, accountName, found.rows)) };
+}
+
+/**
+ * The address that opens each of the found Items' files for an hour without
+ * signing in ("Give attachment links with found items, over MCP", issue 1244):
+ * the sealed link the hand-off to Cowork and Claude Code mints (`auth/attachment-link.ts`),
+ * for these files alone. `null` where the environment has no key to seal with,
+ * which leaves the files named and nothing more.
+ */
+async function linksToFiles(
+  env: Env,
+  accountName: string,
+  rows: readonly { attachments: readonly { id: string }[] }[],
+): Promise<Map<string, string> | null> {
+  const key = await attachmentLinkKey(env.CONNECTOR_CREDENTIAL_KEY);
+  if (!key) return null;
+  const now = new Date();
+  const links = new Map<string, string>();
+  for (const { attachments } of rows) {
+    for (const { id } of attachments) {
+      links.set(id, await attachmentLinkAddress(key, { accountName, attachmentId: id }, now, env.APP_ORIGIN));
+    }
+  }
+  return links;
 }
 
 /**

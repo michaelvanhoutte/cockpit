@@ -118,6 +118,7 @@ import {
   getItem,
   getItemFormPresentation,
   getWorkspace,
+  attachmentsOfItems,
   filingsOfItems,
   itemsToFind,
   isItemFiled,
@@ -835,11 +836,13 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       const found = candidates.filter((item) => meetsFind(item, query));
       const { page, next } = pageOfFound(found, query.after);
       const held = filingsOfItems(db, accountName, page.map((item) => item.id));
+      const files = attachmentsOfItems(db, accountName, page.map((item) => item.id));
       return {
         rows: page.map((item) => ({
           item,
           workspaceName: names.get(item.workspaceId) ?? '',
           places: placesFiledOn(item, held.filings, held.panels, held.dashboards),
+          attachments: files.get(item.id) ?? [],
         })),
         next,
       };
