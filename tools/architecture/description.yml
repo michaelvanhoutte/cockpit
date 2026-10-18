@@ -102,7 +102,7 @@ layers:
         description: 'Sign-in with OIDC, sessions, the gate in front of every route, operator and admin access, attachment links.'
       - path: apps/api/src/mcp
         name: 'mcp'
-        description: 'The MCP server at /mcp: OAuth for connected apps, consent, grants and the create_item tool.'
+        description: 'The MCP server at /mcp: OAuth for connected apps, consent, grants and the create_item, report_run and find_items tools.'
       - path: apps/api/src/jobs
         name: 'jobs'
         description: 'The queue consumer that cleans up and reads captured notes, and the nightly scheduled work.'

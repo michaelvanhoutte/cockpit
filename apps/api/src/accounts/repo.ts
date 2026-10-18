@@ -6,6 +6,8 @@ import {
   DEFAULT_ITEM_FORM_PRESENTATION,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
+  panelGathers,
+  panelTakesItems,
   panelColumnsSchema,
   panelSortFrom,
   themeOf,
@@ -2712,4 +2714,118 @@ export function getSourceAccount(
       and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, sourceAccountId)),
     )
     .get();
+}
+
+/**
+ * The Items a connected app's `find_items` reads from ("Find items in Cockpit
+ * from a connected app, over MCP", issue 1240): every Item of the account not
+ * dismissed, most recently changed first with the id breaking a tie.
+ *
+ * **A workspace named reads the rows its Inbox and Dashboards show** - its own
+ * Items and those not yet decided, which every Workspace's Inbox offers
+ * (`listOpenItems`) - through the (account, workspace) index; none named reads
+ * the account's whole. **Finished Items are read only where asked for**, so the
+ * default is the open Items in scope, tens to hundreds of rows. Priority, due
+ * and text are not read here: they are checked on these rows, by the rules the
+ * screen's filters use.
+ */
+export function itemsForFind(
+  db: AccountDb,
+  tenantId: string,
+  scope: { workspaceId: string | null; includeDone: boolean },
+): Item[] {
+  return db
+    .select(itemColumns)
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        scope.workspaceId === null
+          ? undefined
+          : or(eq(items.workspaceId, scope.workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.deletedAt),
+        scope.includeDone ? undefined : isNull(items.completedAt),
+      ),
+
+    )
+    .orderBy(desc(items.updatedAt), desc(items.id))
+    .all();
+}
+
+/**
+ * Where these Items are filed, for the Panels that exist: each filing with the
+ * Panel's and its Dashboard's names, in the order the Panels were made - what
+ * `placesFiledOn` reads, for a page of results rather than a whole Workspace.
+ * A deleted Panel's or Dashboard's filings are left out, as the snapshot leaves
+ * them, which puts an Item back in the Inbox.
+ */
+export function filingPlacesOfItems(
+  db: AccountDb,
+  tenantId: string,
+  itemIds: readonly string[],
+): { itemId: string; panel: Pick<Panel, 'id' | 'kind' | 'dashboardId' | 'name'>; dashboardName: string }[] {
+  if (itemIds.length === 0) return [];
+  return db
+    .select({
+      itemId: panelItems.itemId,
+      id: panels.id,
+      kind: panels.kind,
+      dashboardId: panels.dashboardId,
+      name: panels.name,
+      dashboardName: dashboards.name,
+    })
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(panelItems.tenantId, tenantId),
+        inArray(panelItems.itemId, [...itemIds]),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(asc(panels.createdAt), asc(panels.id))
+    .all()
+    .map(({ itemId, id, kind, dashboardId, name, dashboardName }) => ({
+      itemId,
+      panel: { id, kind, dashboardId, name },
+      dashboardName,
+    }));
+}
+
+/** The attachments of these Items, oldest first - names for a connected app, never the files' contents. */
+export function attachmentsOfItems(
+  db: AccountDb,
+  tenantId: string,
+  itemIds: readonly string[],
+): { itemId: string; id: string; filename: string }[] {
+  if (itemIds.length === 0) return [];
+  return db
+    .select({ itemId: attachments.itemId, id: attachments.id, filename: attachments.filename })
+    .from(attachments)
+    .where(and(eq(attachments.tenantId, tenantId), inArray(attachments.itemId, [...itemIds])))
+    .orderBy(asc(attachments.createdAt), asc(attachments.id))
+    .all();
+}
+
+/**
+ * Every live Panel that can hold or gather Items, on a live Dashboard, with the
+ * Workspace it is in - what a `panel` name given to `find_items` is read
+ * against, and what a refusal lists. Panels of text hold no Items, so they are
+ * not offered.
+ */
+export function itemPanelsInAccount(
+  db: AccountDb,
+  tenantId: string,
+): { id: string; name: string; workspaceId: string }[] {
+  return db
+    .select({ id: panels.id, name: panels.name, kind: panels.kind, workspaceId: dashboards.workspaceId })
+    .from(panels)
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(and(eq(panels.tenantId, tenantId), isNull(panels.deletedAt), isNull(dashboards.deletedAt)))
+    .orderBy(asc(panels.createdAt), asc(panels.id))
+    .all()
+    .filter((row) => panelTakesItems(row) || panelGathers(row))
+    .map(({ id, name, workspaceId }) => ({ id, name, workspaceId }));
 }

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   APP_CAPTURES_PER_MINUTE,
+  FIND_ITEMS_PER_DAY,
+  FIND_ITEMS_PER_MINUTE,
   TRANSCRIPTIONS_PER_MINUTE,
   admittedCalls,
+  admittedFindCall,
   countedCalls,
 } from '../../../src/accounts/call-window.js';
 
@@ -46,6 +49,47 @@ describe('Connector management', () => {
 
       expect(countedCalls([...full, ...keptAsking], later, TRANSCRIPTIONS_PER_MINUTE).admitted).toBe(false);
       expect(countedCalls(full, later, TRANSCRIPTIONS_PER_MINUTE).admitted).toBe(true);
+    });
+  });
+});
+
+describe('MCP connections', () => {
+  describe('one connected app may find items 10 times a minute and 500 times a day, apart from its captures', () => {
+    const NOW = Date.parse('2026-10-18T10:00:00.000Z');
+
+    it('refuses the 11th call inside a minute, saying it is the minute', () => {
+      expect([FIND_ITEMS_PER_MINUTE, FIND_ITEMS_PER_DAY]).toEqual([10, 500]);
+      const ten = Array.from({ length: FIND_ITEMS_PER_MINUTE }, (_, i) => NOW - 50_000 + i);
+      expect(admittedFindCall(ten, NOW)).toEqual({ admitted: false, why: 'minute' });
+    });
+
+    it('admits again once the minute has passed over the oldest', () => {
+      const ten = Array.from({ length: FIND_ITEMS_PER_MINUTE }, (_, i) => NOW - 61_000 + i);
+      expect(admittedFindCall(ten, NOW)).toMatchObject({ admitted: true });
+    });
+
+    it('refuses the 501st call inside a day, saying it is the day, though none is in the last minute', () => {
+      const day = Array.from({ length: FIND_ITEMS_PER_DAY }, (_, i) => NOW - 23 * 60 * 60 * 1000 + i * 1_000);
+      expect(admittedFindCall(day, NOW)).toEqual({ admitted: false, why: 'day' });
+    });
+
+    it('admits again once the day has passed over the oldest, and forgets what is older', () => {
+      const day = Array.from({ length: FIND_ITEMS_PER_DAY }, (_, i) => NOW - 24 * 60 * 60 * 1000 - 1_000 + i * 1_000);
+      const answer = admittedFindCall(day, NOW);
+      expect(answer).toMatchObject({ admitted: true });
+      expect(answer.admitted && answer.calls.length).toBeLessThan(FIND_ITEMS_PER_DAY + 1);
+    });
+
+    it('does not count a refused call, so the window opens as the earlier ones leave it', () => {
+      const ten = Array.from({ length: FIND_ITEMS_PER_MINUTE }, (_, i) => NOW - 50_000 + i);
+      expect(admittedFindCall(ten, NOW).admitted).toBe(false);
+      expect(admittedFindCall(ten, NOW + 11_000)).toMatchObject({ admitted: true });
+    });
+
+    it('counts nothing of capture, so 60 captures in the minute leave a find answered', () => {
+      const captures = Array.from({ length: APP_CAPTURES_PER_MINUTE }, (_, i) => NOW - 59_000 + i);
+      expect(admittedCalls(captures, NOW, APP_CAPTURES_PER_MINUTE)).toBeNull();
+      expect(admittedFindCall([], NOW)).toMatchObject({ admitted: true });
     });
   });
 });

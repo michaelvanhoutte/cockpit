@@ -76,7 +76,7 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 - **Multi-tenancy.**
 - **Audit trail.**
 - ~~**Backup.**~~ **Done**, in two: "Take a backup of an environment, or of one user" (issue 208) writes the register and every account's store to local JSON, and "Restore an environment, or one user, from a backup" (issue 209) puts one back. Both are operator commands — `pnpm backup:export` and `pnpm backup:restore` — and neither is reachable from the app. D1 Time Travel still covers the register in place, and only the register; see "Migrations and rollback" in [deployment.md](deployment.md). *(What is left is scheduling one, and somewhere off this machine to keep it.)*
-- ~~**MCP server.**~~ **Started**: "Connect Claude to Cockpit, and capture an item from it" (issue 599) made Cockpit an MCP server with one tool, `create_item`, behind its own OAuth consent page. Listing and disconnecting connected apps, and tools beyond capture, are still to come.
+- ~~**MCP server.**~~ **Started**: "Connect Claude to Cockpit, and capture an item from it" (issue 599) made Cockpit an MCP server with one tool, `create_item`, behind its own OAuth consent page. Listing and disconnecting connected apps came with it, `report_run` and the read-only `find_items` ("Find items in Cockpit from a connected app, over MCP", issue 1240) after. Tools that change or file an Item are still to come.
 - **Per-connector rebuild and troubleshooting tools.**
 
 ## 8. Documentation and onboarding
