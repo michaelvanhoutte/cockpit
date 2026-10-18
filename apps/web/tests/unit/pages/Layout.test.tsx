@@ -250,6 +250,7 @@ describe('Across the app', () => {
 
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Settings…',
+        'Work offline',
         'Sign out',
         creditLine(),
       ]);
@@ -448,6 +449,7 @@ describe('User management', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Settings…',
         'Platform settings…',
+        'Work offline',
         'Sign out',
         creditLine(),
       ]);

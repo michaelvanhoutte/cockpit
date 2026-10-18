@@ -1,0 +1,152 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Layout } from '../../../src/pages/Layout';
+import { CHOSEN_KEY, currentStanding, resetStanding, stand } from '../../../src/offline';
+
+/**
+ * F1: the header's Offline mark and the account menu's Work offline / Go online.
+ * The shell is drawn with the router, the stream and the queries stubbed, since
+ * these cases are about what the header shows for each standing.
+ */
+const params: { workspaceId?: string } = { workspaceId: 'ws-a' };
+const SAVED_AT = new Date(2026, 9, 17, 14, 32).getTime();
+const savedTime = new Date(SAVED_AT).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children }: { children?: React.ReactNode }) => <a>{children}</a>,
+  Outlet: () => null,
+  useParams: () => params,
+  useNavigate: () => () => Promise.resolve(),
+  useSearch: () => ({}),
+  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
+    select({ location: { pathname: '/w/ws-a' } }),
+}));
+
+vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
+vi.mock('../../../src/components/DashboardBar', () => ({ DashboardBar: () => null }));
+vi.mock('../../../src/components/InboxPanel', () => ({
+  InboxPanel: () => null,
+  InboxHeading: ({ id }: { id?: string }) => <h2 id={id}>Inbox</h2>,
+}));
+
+vi.mock('../../../src/api/queries', () => ({
+  useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
+  refusalFrom: () => null,
+  useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
+  meQuery: {
+    queryKey: ['me'],
+    queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael', role: 'user' } }),
+  },
+  workspacesQuery: {
+    queryKey: ['workspaces'],
+    queryFn: () =>
+      Promise.resolve({
+        workspaces: [{ id: 'ws-a', tenantId: 'tenant', name: 'Alpha', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' }],
+      }),
+  },
+  snapshotQuery: (workspaceId: string) => ({
+    queryKey: ['snapshot', workspaceId],
+    queryFn: () => Promise.resolve({ items: [], dashboards: [] }),
+  }),
+}));
+
+function theShell() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(['snapshot', 'ws-a'], { items: [], dashboards: [] }, { updatedAt: SAVED_AT });
+  render(
+    <QueryClientProvider client={client}>
+      <Layout />
+    </QueryClientProvider>,
+  );
+  return screen.findByRole('button', { name: 'Profile' });
+}
+
+beforeEach(() => {
+  resetStanding();
+  params.workspaceId = 'ws-a';
+});
+
+afterEach(() => {
+  resetStanding();
+});
+
+describe('Offline', () => {
+  describe('the header shows the Offline mark exactly while offline, with when the read on screen was saved', () => {
+    it('shows nothing while online', async () => {
+      await theShell();
+
+      expect(screen.queryByRole('button', { name: /Offline/ })).toBeNull();
+    });
+
+    it.each([
+      { situation: 'found', standing: { found: true } },
+      { situation: 'chosen', standing: { chosen: true } },
+    ])('says Offline and when the Workspace on screen was saved, $situation', async ({ standing }) => {
+      stand(standing);
+
+      await theShell();
+
+      const mark = screen.getByRole('button', { name: /Offline/ });
+      expect(mark).toHaveTextContent(`Offline · saved ${savedTime}`);
+    });
+
+    it('hides the saved time below the sm breakpoint, which is a phone', async () => {
+      stand({ chosen: true });
+
+      await theShell();
+
+      const time = screen.getByText(`· saved ${savedTime}`, { exact: false });
+      expect(time).toHaveClass('hidden', 'sm:inline');
+    });
+
+    it('says only Offline where no Workspace is on screen', async () => {
+      delete params.workspaceId;
+      stand({ chosen: true });
+
+      await theShell();
+
+      expect(screen.getByRole('button', { name: /Offline/ })).toHaveTextContent(/^Offline$/);
+    });
+
+    it('opens the account menu when pressed', async () => {
+      stand({ found: true });
+      await theShell();
+
+      await userEvent.setup().click(screen.getByRole('button', { name: /Offline/ }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Go online' })).toBeVisible();
+    });
+  });
+
+  describe('the account menu offers Work offline, or Go online while offline', () => {
+    it('offers Work offline online, and choosing it is remembered on this device', async () => {
+      const user = userEvent.setup();
+      await user.click(await theShell());
+
+      await user.click(await screen.findByRole('menuitem', { name: 'Work offline' }));
+
+      await vi.waitFor(() => expect(currentStanding().chosen).toBe(true));
+      expect(localStorage.getItem(CHOSEN_KEY)).toBe('1');
+      expect(await screen.findByRole('button', { name: /Offline/ })).toBeVisible();
+    });
+
+    it.each([
+      { situation: 'chosen', standing: { chosen: true } },
+      { situation: 'found', standing: { found: true } },
+    ])('offers Go online above Sign out while $situation, and it clears the mark', async ({ standing }) => {
+      stand(standing);
+      localStorage.setItem(CHOSEN_KEY, '1');
+      const user = userEvent.setup();
+      await user.click(await theShell());
+      const entries = (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
+      expect(entries.indexOf('Go online')).toBe(entries.indexOf('Sign out') - 1);
+
+      await user.click(screen.getByRole('menuitem', { name: 'Go online' }));
+
+      await vi.waitFor(() => expect(screen.queryByRole('button', { name: /Offline/ })).toBeNull());
+      expect(localStorage.getItem(CHOSEN_KEY)).toBeNull();
+    });
+  });
+});

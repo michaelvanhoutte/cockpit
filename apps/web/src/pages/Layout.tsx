@@ -21,6 +21,9 @@ const PlatformSettingsWindow = lazy(() => import('../components/PlatformSettings
 // And the shortcut tip's toast and wording, fetched with the first tip.
 const ShortcutTip = lazy(() => import('../components/ShortcutTip'));
 import { DashboardBar } from '../components/DashboardBar';
+import { GoOnlineOffer, OfflineMark } from '../components/OfflineMark';
+import { goOnline, workOffline } from '../opening';
+import { useIsOffline } from '../offline';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
@@ -472,6 +475,9 @@ function TheShell() {
   const [settingsSentence, setSettingsSentence] = useState<string | undefined>(undefined);
   /** The profile control, which the focus returns to when Settings closes. */
   const profileControl = useRef<HTMLButtonElement>(null);
+  /** Open from outside too, since the Offline mark opens the same menu. */
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const offline = useIsOffline();
   const openSettings = useCallback((on: SettingsKey, outcome?: ConnectOutcomeFor) => {
     setSettingsOn(on);
     setConnectOutcome(outcome);
@@ -889,11 +895,15 @@ function TheShell() {
           </WorkspaceTabs>
 
           <div className="flex shrink-0 items-end">
+            <OfflineMark
+              savedAt={workspace.data ? workspace.dataUpdatedAt : undefined}
+              onPress={() => setProfileMenuOpen(true)}
+            />
             {/* Who you are, and the way out - a circle carrying your initial
                 rather than the three dots every other menu opens with, so the
                 two controls read as different jobs rather than as one menu cut
                 in half. */}
-            <DropdownMenu.Root>
+            <DropdownMenu.Root open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
               <DropdownMenu.Trigger
                 aria-label="Profile"
                 // A permanent circle of tint rather than the ghost icon every
@@ -921,6 +931,12 @@ function TheShell() {
                     Platform settings…
                   </DropdownMenu.Item>
                 )}
+                <DropdownMenu.Item
+                  onSelect={() => void (offline ? goOnline(queryClient) : workOffline(queryClient))}
+                  className={menuItemClass}
+                >
+                  {offline ? 'Go online' : 'Work offline'}
+                </DropdownMenu.Item>
                 <DropdownMenu.Item
                   onSelect={() => (unsent + untranscribed > 0 ? setAskingToSignOut(true) : leave.mutate())}
                   className={menuItemClass}
@@ -1182,6 +1198,8 @@ function TheShell() {
         startsIn={capturePanel?.workspaceId ?? params.workspaceId ?? null}
         startsOn={capturePanel}
       />
+
+      <GoOnlineOffer />
 
       <DeleteQuestion
         question={whatSigningOutLoses(unsent, untranscribed)}

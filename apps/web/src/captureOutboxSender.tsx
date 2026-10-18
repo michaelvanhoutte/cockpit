@@ -4,6 +4,7 @@ import { createStore, del, set, values, type UseStore } from 'idb-keyval';
 import { uuidv7, type Priority } from '@cockpit/shared';
 import { sendCommand, uploadAttachment } from './api/client';
 import { deviceTimeZone } from './deviceTimeZone';
+import { currentStanding, onStandingChange } from './offline';
 import {
   ENTRY_VERSION,
   NOTHING_HEARD,
@@ -649,6 +650,15 @@ export function fileOf(file: WaitingFile): File {
 }
 
 /**
+ * Whether a send is worth trying: not while the person works offline (a capture
+ * waits until Go online, offline.ts), and not where the browser says it is
+ * offline.
+ */
+export function mayReachServer(): boolean {
+  return !currentStanding().chosen && (typeof navigator === 'undefined' || navigator.onLine !== false);
+}
+
+/**
  * The app's one outbox, made on first use. Other tabs are told through a
  * broadcast channel when this one changes what is stored, so their *Just
  * captured* and count follow without waiting to be looked at again.
@@ -663,7 +673,7 @@ function theAppWideOutbox(): CaptureOutbox {
     store: browserOutboxStore(),
     sender: serverSender,
     lock: browserLock(),
-    online: () => typeof navigator === 'undefined' || navigator.onLine !== false,
+    online: mayReachServer,
     announce: (news) => channel?.postMessage(news),
   });
   channel?.addEventListener('message', (event: MessageEvent<OutboxNews>) => outbox.heard(event.data));
@@ -716,6 +726,13 @@ export function useSendingCaptures(owner: string | null): void {
       if (outbox.sendsOnAnotherSuccess()) kick();
     };
     window.addEventListener('online', kick);
+    // Go online lets the outbox send.
+    const wasChosen = { now: currentStanding().chosen };
+    const goneOnline = onStandingChange(() => {
+      const chosen = currentStanding().chosen;
+      if (wasChosen.now && !chosen) kick();
+      wasChosen.now = chosen;
+    });
     document.addEventListener('visibilitychange', backInView);
     const fromQueries = queryClient.getQueryCache().subscribe(succeeded);
     const fromChanges = queryClient.getMutationCache().subscribe(succeeded);
@@ -728,6 +745,7 @@ export function useSendingCaptures(owner: string | null): void {
     });
     return () => {
       window.removeEventListener('online', kick);
+      goneOnline();
       document.removeEventListener('visibilitychange', backInView);
       fromQueries();
       fromChanges();

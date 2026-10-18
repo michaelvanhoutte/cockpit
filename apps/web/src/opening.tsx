@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { notAnswering, realSurroundings, type Surroundings } from './api/loadFailure';
 import { workspacesQuery } from './api/queries';
-import { currentStanding, stand, useStanding } from './offline';
+import { CHOSEN_KEY, currentStanding, readChosen, rememberChosen, stand, useStanding } from './offline';
 import { restoreSavedReads, saveReadsAsTheyAnswer, tidySavedReads } from './persistence';
 
 /**
@@ -69,6 +69,54 @@ export function cameOnline(client: QueryClient): void {
   void client.invalidateQueries();
 }
 
+/**
+ * Moves to or from working offline without writing the choice down: what a tab
+ * does when another tab of this device has changed it. Saved reads are added
+ * only for what memory does not hold, and going online re-reads everything on
+ * screen.
+ */
+async function followChoice(client: QueryClient, chosen: boolean): Promise<void> {
+  if (chosen) {
+    await restoreSavedReads(client).catch(() => {});
+    stand({ chosen: true, connecting: false });
+  } else {
+    stand({ chosen: false, found: false });
+    void client.invalidateQueries();
+  }
+}
+
+/** *Work offline*: remembered on this device, read by every tab. */
+export function workOffline(client: QueryClient): Promise<void> {
+  rememberChosen(true);
+  return followChoice(client, true);
+}
+
+/** *Go online*: ends the choice, and offline found with it; the next read that gets no answer finds it again. */
+export function goOnline(client: QueryClient): Promise<void> {
+  rememberChosen(false);
+  return followChoice(client, false);
+}
+
+/**
+ * Offline found in the middle of a visit: a read, or the live stream, got no
+ * answer. What the visit already holds stays, and saved reads fill in what it
+ * does not. Ends the way offline found at opening does (cameOnline).
+ */
+export async function foundOffline(client: QueryClient): Promise<void> {
+  const { connecting, found, chosen } = currentStanding();
+  if (connecting || found || chosen) return;
+  await restoreSavedReads(client).catch(() => {});
+  if (!currentStanding().chosen) stand({ found: true });
+}
+
+/** Watches reads for one the server did not answer, once the visit is open. */
+function watchForSilence(client: QueryClient): () => void {
+  return client.getQueryCache().subscribe((event) => {
+    if (event.type !== 'updated' || event.action.type !== 'error') return;
+    if (notAnswering(event.action.error)) void foundOffline(client);
+  });
+}
+
 export interface Seams {
   /** The read opening races. */
   ask?: (client: QueryClient) => Promise<unknown>;
@@ -104,6 +152,7 @@ export function startVisit(client: QueryClient, how: HowToOpen, seams: Seams = {
   const { ask = askTheServer, surroundings = realSurroundings, giveUpAfterMs = GIVE_UP_AFTER_MS } = seams;
   let stopped = false;
   let restored = false;
+  const chosen = readChosen();
 
   const restore = async () => {
     if (restored) return;
@@ -132,9 +181,14 @@ export function startVisit(client: QueryClient, how: HowToOpen, seams: Seams = {
   };
 
   void (async () => {
-    if (how === 'nothing') {
+    if (chosen && how !== 'nothing') {
+      // Working offline is remembered: nothing is asked of the server, and the
+      // saved reads are drawn at once.
+      await restore();
+      if (!stopped) stand({ connecting: false, chosen: true });
+    } else if (how === 'nothing') {
       void tidySavedReads().catch(() => {});
-      stand({ connecting: false });
+      stand({ connecting: false, chosen });
     } else if (how === 'server-first') {
       void tidySavedReads().catch(() => {});
       await findOut();
@@ -181,7 +235,15 @@ export function Opening({
   useEffect(() => {
     const stopSaving = saveReadsAsTheyAnswer(client);
     const stopVisit = startVisit(client, how, seams);
+    const stopWatching = watchForSilence(client);
+    // Another tab of this device chose, or ended, working offline.
+    const followOtherTabs = (event: StorageEvent) => {
+      if (event.key === CHOSEN_KEY || event.key === null) void followChoice(client, readChosen());
+    };
+    window.addEventListener('storage', followOtherTabs);
     return () => {
+      window.removeEventListener('storage', followOtherTabs);
+      stopWatching();
       stopVisit();
       stopSaving();
     };

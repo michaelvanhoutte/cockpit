@@ -3,7 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, serverEventSchema } from '@cockpit/shared';
 import type { ServerEvent, WorkspaceSnapshot } from '@cockpit/shared';
-import { cameOnline } from '../opening';
+import { cameOnline, foundOffline } from '../opening';
+import { useStanding } from '../offline';
 import { RECONNECTED } from '../updating';
 import { diagnoseConnection } from './loadFailure';
 
@@ -37,13 +38,29 @@ const LONGEST_WAIT_MS = 60_000;
 
 export function useServerEvents() {
   const queryClient = useQueryClient();
+  // No stream while working offline: it is closed, and opened again on Go online.
+  const { chosen } = useStanding();
 
   useEffect(() => {
+    if (chosen) return;
     let source: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let wait = FIRST_WAIT_MS;
     let unmounted = false;
     let streamsMade = 0;
+
+    // One reachability check at a time: a stream the browser keeps retrying
+    // reports an error each time, and each is not a reason for another request.
+    let checking = false;
+    const checkTheServer = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        if ((await diagnoseConnection()) === 'offline' && !unmounted) await foundOffline(queryClient);
+      } finally {
+        checking = false;
+      }
+    };
 
     const listen = () => {
       const stream = new EventSource('/v1/events');
@@ -109,7 +126,9 @@ export function useServerEvents() {
       stream.addEventListener('error', () => {
         // A stream still trying is left alone: that is EventSource doing the
         // job itself, and interfering would open a second stream alongside it.
-        if (unmounted || stream.readyState !== EventSource.CLOSED) return;
+        if (unmounted) return;
+        // Still trying, and /health unreachable: the server is not answering (offline.ts).
+        if (stream.readyState !== EventSource.CLOSED) return void checkTheServer();
         stream.close();
         void afterDeath();
       });
@@ -135,6 +154,7 @@ export function useServerEvents() {
       // workspace *list* is neither: Layout takes only its `data`, so
       // invalidating that would fail again in silence.
       const reason = await diagnoseConnection();
+      if (reason === 'offline' && !unmounted) void foundOffline(queryClient);
       if (reason !== 'offline') {
         void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
         void queryClient.invalidateQueries({ queryKey: ['me'] });
@@ -151,7 +171,7 @@ export function useServerEvents() {
       clearTimeout(retry);
       source?.close();
     };
-  }, [queryClient]);
+  }, [queryClient, chosen]);
 }
 
 /**
