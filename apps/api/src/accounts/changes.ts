@@ -1057,12 +1057,12 @@ const PANEL_COLUMNS: Change = {
  *   unfinished one left all three columns. SQLite has no `DROP COLUMN IF
  *   EXISTS`, so that transaction is what makes a retry safe.
  * - **Rows that break the new rule:** none are refused. What goes is three
- *   copies of colours the accent already implies - every stored set read off
- *   production's backup before this shipped was a palette entry, past or
- *   present.
- * - **What is in each environment:** staging and production hold real
- *   Workspaces and drop on their next open; the guest account on its nightly
- *   rebuild; a laptop on its next `pnpm dev`.
+ *   copies of colours the accent already implies, which is why it is promoted
+ *   only once staging's and production's `pnpm backup:export` shows every
+ *   stored set is a palette entry, past or present, or the columns' defaults.
+ * - **What is in each environment:** staging, production and the guest account
+ *   drop on their next open, and the guest's nightly rebuild replays it; a
+ *   laptop on its next `pnpm dev`.
  * - **Rolled back after it has run:** a release before issue 1213 names the
  *   columns, and every Workspace read fails. That is the rollback floor, and
  *   going back past it takes a restore.

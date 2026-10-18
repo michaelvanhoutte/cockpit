@@ -186,8 +186,8 @@ export function getWorkspace(
  *
  * **Raw SQL rather than `insert(workspaces).values(...)`, because drizzle puts
  * every column with a default into the statement**, which would name any such
- * column a later release drops. A conflict on the id is a replayed create and writes
- * nothing; a conflict on the name raises, as the index is for.
+ * column a later release drops. A conflict on the id is a replayed create and
+ * writes nothing; a conflict on the name raises, as the index is for.
  */
 export function insertWorkspace(
   db: Pick<AccountDb, 'run'>,
