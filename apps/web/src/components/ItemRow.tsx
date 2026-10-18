@@ -1472,8 +1472,9 @@ function WhatLettingGoWouldDo({ across }: { across: number }) {
             ? 'bg-accent-deep text-white'
             : 'bg-over-deep text-white'
           : // Not the picked row's fill (`row-picked`): a row ticked and then
-            // swiped uncovered a band exactly the shade of itself, so nothing appeared until the threshold - the
-            // stretch of the gesture this whole band exists to cover.
+            // swiped uncovered a band exactly the shade of itself, so nothing
+            // appeared until the threshold - the stretch of the gesture this
+            // whole band exists to cover.
             filing
             ? 'bg-accent-soft/45 text-accent-deep'
             : 'bg-over/25 text-over-ink'
