@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
@@ -195,6 +195,7 @@ describe('Selection', () => {
     it('offers Priority, Due and Status, and no Type, though the workspace has one', async () => {
       const user = show(TWO_PANELS);
       await tick(user, BART.title);
+      await tick(user, RENEW.title);
 
       await user.click(screen.getByRole('button', { name: 'Edit ▾' }));
 
@@ -253,17 +254,19 @@ describe('Selection', () => {
     it('lets a second field be set straight after the first', async () => {
       const user = show(TWO_PANELS);
       await tick(user, CHASE.title);
+      await tick(user, RENEW.title);
       await choose(user, 'Priority', 'High');
-      expect(await screen.findByText('1 selected')).toBeVisible();
+      expect(await screen.findByText('2 selected')).toBeVisible();
 
       await choose(user, 'Status', 'In progress');
 
-      expect(sent.map((c) => c.name)).toEqual(['set_priority', 'set_started']);
+      expect(sent.map((c) => c.name)).toEqual(['set_priority', 'set_started', 'set_started']);
     });
 
     it('stands the undo offer aside while Edit is open, and brings it back when it closes', async () => {
       const user = show(TWO_PANELS);
       await tick(user, CHASE.title);
+      await tick(user, RENEW.title);
       await choose(user, 'Priority', 'High');
       const offer = await screen.findByRole('status');
       expect(offer).toBeInTheDocument();
@@ -299,7 +302,8 @@ describe('Selection', () => {
         items: [{ ...BART, completedAt: '2026-08-31T09:00:00.000Z' }, RENEW, CHASE],
       });
 
-      expect(await screen.findByText('1 selected')).toBeVisible();
+      await waitFor(() => expect(screen.queryByText('2 selected')).toBeNull());
+      expect(screen.getByText(CHASE.title).closest('li')).toHaveClass('row-picked');
     });
   });
 

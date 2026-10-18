@@ -221,14 +221,20 @@ export function ItemRow({
    * Picking this row out to be acted on with others ("Select several items, and
    * file them all in one go", issue 169), and whether it is picked.
    *
-   * `revealed` is the list saying it already has a selection - which is what a
-   * plain click on a row ends, and what suspends this row's own menu and
-   * swipe ("Pick a row by ctrl/shift-click instead of aiming for a checkbox,
-   * and suspend single-row actions while a selection is held", issue 438).
+   * `revealed` is the list saying its selection is several rows - which is what
+   * suspends this row's own menu, swipe, ✓ and keys ("Pick a row by
+   * ctrl/shift-click instead of aiming for a checkbox, and suspend single-row
+   * actions while a selection is held", issue 438). **One picked row suspends
+   * nothing** ("Pick a row with a plain click, and keep a single pick's own
+   * actions", issue 1236), so `held` - anything picked at all - is what a tap
+   * on a phone extends and a drag of an unpicked row ends.
    */
   selecting?: {
     picked: boolean;
     revealed: boolean;
+    held: boolean;
+    /** A plain click: this row alone is picked, whatever was. */
+    onPickAlone: () => void;
     /** Where the selection is held, which a drag of a picked row carries (issue 1217). */
     scope?: string | undefined;
     onPick: (withShift: boolean) => void;
@@ -881,17 +887,15 @@ export function ItemRow({
       // this gesture is - and the reason there is no drag on touch at all,
       // where the same movement is a swipe.
       draggable
-      // Picks the row out, from anywhere on it, with ctrl/cmd or shift held;
-      // a plain click only ends a selection already held, and opens nothing -
-      // a double-click, or the menu's own **Open**, is what opens a row
-      // ("Require a double-click to open a row again, now that a plain click
-      // opens it", issue 456, reversing part of issue 438's own "Pick a row
-      // by ctrl/shift-click instead of aiming for a checkbox" after it shipped
-      // and read as too easy to trigger by accident).
+      // Picks the row out, from anywhere on it: a plain click picks it alone,
+      // replacing any selection, and ctrl/cmd or shift add to one ("Pick a row
+      // with a plain click, and keep a single pick's own actions", issue 1236,
+      // reversing issue 456's "a plain click opens nothing"). A double-click, or
+      // the menu's own **Open**, is what opens a row.
       //
-      // *A plain tap on touch* extends a selection already held instead,
-      // since touch has no ctrl key of its own to pick with - unchanged from
-      // issue 438.
+      // *A plain tap on touch* extends a selection already held instead, and
+      // picks nothing from none, since touch has no ctrl key of its own to pick
+      // with and spends a long press on starting one - unchanged from issue 438.
       //
       // *Guarded exactly as the double-click below is*: a portal-rendered menu
       // entry reaches this through the React tree rather than the DOM one, and
@@ -903,11 +907,10 @@ export function ItemRow({
       // and `held` is what tells that click apart from a fresh one - without
       // it, the row it had just picked out was toggled straight back off.
       //
-      // **Except while a form is docked open, where a plain click shows that
-      // row in it** ("Let the item's form dock to the side of the screen instead of opening as a dialog", issue
-      // 481): the dock is there to be read alongside the lists, and a click is
-      // how a row is asked for. Not over a selection already held, whose plain
-      // click still only ends it, and not with a modifier, which still picks.
+      // **While a form is docked open, a plain click also shows that row in it**
+      // ("Let the item's form dock to the side of the screen instead of opening
+      // as a dialog", issue 481): the dock is there to be read alongside the
+      // lists, and a click is how a row is asked for. A modifier only picks.
       onClick={(event) => {
         const hit = event.target as Node;
         if (!event.currentTarget.contains(hit)) return;
@@ -916,27 +919,24 @@ export function ItemRow({
         // Alt too: it is this row's own modifier for filing to a proposed panel
         // on a double-click, whose first click must not replace the open form.
         const plain = !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
-        if (plain && dock.openId !== null && !selecting?.revealed) {
-          if (dock.openId !== item.id) dock.show(item.id);
-          return;
+        const touch = lastPointerType.current === 'touch';
+        // A tap that extends a selection is a pick, not a request for the form.
+        if (plain && dock.openId !== null && dock.openId !== item.id && !(touch && selecting?.held)) {
+          dock.show(item.id);
         }
         if (!selecting) return;
         if (event.shiftKey || event.ctrlKey || event.metaKey) {
           selecting.onPick(event.shiftKey);
           return;
         }
-        // Touch has no ctrl key, so a plain tap is what it has instead, once a
-        // selection is already held.
-        if (lastPointerType.current === 'touch' && selecting.revealed) {
-          selecting.onPick(false);
+        if (touch) {
+          if (selecting.held) selecting.onPick(false);
           return;
         }
-        // A plain click only ends a selection; it opens nothing (issue 456).
-        // A no-op where there was nothing to end.
-        if (selecting.revealed) selecting.onEndSelection();
+        if (plain) selecting.onPickAlone();
       }}
       // A double-click also opens the form, alongside the menu's own Open,
-      // since a plain click no longer does (issue 456).
+      // since a plain click only picks (issue 456).
       //
       // **Only when the row itself was double-clicked**, which is two different
       // questions because a React event bubbles through the component tree
@@ -1042,7 +1042,7 @@ export function ItemRow({
         }
         if (event.key === 'Enter') {
           event.preventDefault();
-          // A double-click's first click ends a held selection; Enter has no click.
+          // A double-click's first click picks the row; Enter has no click, so it ends several.
           if (selecting?.revealed) selecting.onEndSelection();
           onOpen?.();
         } else if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
@@ -1082,7 +1082,7 @@ export function ItemRow({
         liftItem(item.id, liftedFrom ?? null, carrying);
         // After the event returns, for the reason `itemInTheAir` tells the rows
         // a tick late: the picture the browser draws is taken when it does.
-        if (selecting?.revealed && !selecting.picked) setTimeout(selecting.onEndSelection, 0);
+        if (selecting?.held && !selecting.picked) setTimeout(selecting.onEndSelection, 0);
         if (carrying) underThePointer(event.dataTransfer, carrying.ids.length);
       }}
       onDragEnd={dragEnded}

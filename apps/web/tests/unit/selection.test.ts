@@ -3,7 +3,10 @@ import type { Item } from '@cockpit/shared';
 import {
   afterClicking,
   afterEnding,
+  afterPickingAlone,
   afterPickingAll,
+  SEVERAL,
+  showsABar,
   afterPruning,
   afterUpdating,
   dashboardScope,
@@ -35,6 +38,31 @@ const picking = (...ids: string[]): Selection => ({
 const anItem = (id: string): Item => ({ id, title: id }) as Item;
 
 describe('Selection', () => {
+  describe('a plain click picks that row alone, and the bar comes with the second', () => {
+    it('replaces whatever was picked with the clicked row, which a shift-click then reaches back to', () => {
+      const clicked = afterPickingAlone(picking('a', 'b', 'c'), 'b');
+
+      expect([...clicked.picked]).toEqual(['b']);
+      expect(afterClicking(ROWS, clicked, 'd', true).picked).toEqual(new Set(['b', 'c', 'd']));
+    });
+
+    it('leaves a selection that is that row alone as it was', () => {
+      const alone = afterPickingAlone(NOTHING_PICKED, 'b');
+
+      expect(afterPickingAlone(alone, 'b')).toBe(alone);
+    });
+
+    it.each([
+      { situation: 'nothing picked', count: 0, refusals: [null], shown: false },
+      { situation: 'one row picked', count: 1, refusals: [null, undefined], shown: false },
+      { situation: 'two rows picked', count: SEVERAL, refusals: [null], shown: true },
+      { situation: 'one row left picked by a filing that was refused', count: 1, refusals: ['it changed'], shown: true },
+      { situation: 'a refusal and nothing picked', count: 0, refusals: ['it changed'], shown: false },
+    ])('draws the bar for $situation: $shown', ({ count, refusals, shown }) => {
+      expect(showsABar(count, refusals)).toBe(shown);
+    });
+  });
+
   describe('clicking a tick picks that row out, and clicking it again puts it back', () => {
     it.each([
       { situation: 'the first row picked', from: NOTHING_PICKED, id: 'b', picked: ['b'] },

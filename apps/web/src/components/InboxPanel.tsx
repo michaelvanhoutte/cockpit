@@ -7,7 +7,7 @@ import { RowMenu } from './Menu';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { INBOX_KEY } from '../inboxCollapsed';
 import { extendingSelection, inboxStep } from '../inboxKeys';
-import { endSelection, inboxScope } from '../selection';
+import { inboxScope, pickAlone } from '../selection';
 import { useDockedItem } from '../itemForm';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { rowOf, useLanding, useLandingStep } from '../landOnItem';
@@ -258,14 +258,16 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
         const to = rows[rows.indexOf(from as HTMLElement) + step];
         if (!to) return;
         to.focus();
-        // Shift extends the selection to the row reached; a plain step ends it
-        // ("Accept the proposals of a selection with Enter", issue 1112).
+        // Shift extends the selection to the row reached; a plain step picks that
+        // row alone, the focus and the pick being one ("Accept the proposals of a
+        // selection with Enter", issue 1112; "Pick a row with a plain click, and
+        // keep a single pick's own actions", issue 1236).
         const scope = inboxScope(workspaceId);
         if (event.shiftKey) {
           const ids = rows.map((row) => row.dataset.itemId!);
           const [fromId, toId] = [(from as HTMLElement).dataset.itemId!, to.dataset.itemId!];
           extendingSelection(() => import('../inboxTriage').then((follow) => follow.extendSelection(scope, ids, fromId, toId)));
-        } else endSelection(scope);
+        } else pickAlone(scope, to.dataset.itemId!);
         // Followed where a form is docked open, and opened docked where none
         // is, for this opening only (`ItemForm.tsx`): a centered window would
         // take the keys it was moved for, and the account's own choice is

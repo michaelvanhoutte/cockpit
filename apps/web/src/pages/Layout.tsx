@@ -23,6 +23,7 @@ const ShortcutTip = lazy(() => import('../components/ShortcutTip'));
 import { DashboardBar } from '../components/DashboardBar';
 import { GoOnlineOffer, OfflineMark } from '../components/OfflineMark';
 import { goOnline, workOffline } from '../opening';
+import { useEndingASinglePick } from '../selection';
 import { useIsOffline } from '../offline';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
@@ -136,6 +137,7 @@ function TheShell() {
   /** *All items* is the page on screen (`router.tsx`), which the bar marks in place of a dashboard. */
   const onAllItems = useAllItemsOnScreen() !== null;
   useScrollWhileDraggingAnItem();
+  useEndingASinglePick();
   const roomForTheInbox = useRoomForTheInbox();
   const shortcutTip = useShortcutTip(roomForTheInbox);
 

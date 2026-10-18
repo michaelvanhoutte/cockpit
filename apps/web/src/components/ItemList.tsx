@@ -51,6 +51,9 @@ import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import {
   afterClicking,
+  pickAlone,
+  SEVERAL,
+  showsABar,
   dashboardOfScope,
   dashboardScope,
   endSelection,
@@ -986,7 +989,9 @@ export function ItemList({
       {...(rowPanel ? { liftedFrom: rowPanel } : {})}
       selecting={{
         picked: selection.picked.has(item.id),
-        revealed: selection.picked.size > 0,
+        revealed: selection.picked.size >= SEVERAL,
+        held: selection.picked.size > 0,
+        onPickAlone: () => pickAlone(scope, item.id),
         scope,
         onPick: (withShift) => pick(item, withShift),
         onEndSelection: stopSelecting,
@@ -1276,7 +1281,7 @@ export function ItemList({
 
       {/* A Dashboard's selection has one bar, drawn by its board
           (`DashboardSelection`), so a Panel draws none. */}
-      {!onDashboard && picked.length > 0 && (
+      {!onDashboard && showsABar(picked.length, [filingSeveral.refusal, editing.refusal]) && (
         <SelectionBar
           count={picked.length}
           filing={filingSeveral.filing}

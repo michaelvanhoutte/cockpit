@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, createEvent, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
@@ -15,7 +15,7 @@ import type {
 import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { landItem, liftItem, selectionCarried } from '../../../src/itemInTheAir';
-import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection } from '../../../src/selection';
+import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection, useEndingASinglePick } from '../../../src/selection';
 import { ItemList } from '../../../src/components/ItemList';
 import type { FilterGroup } from '../../../src/filterGroups';
 import { UndoWhatJustHappened } from '../../../src/undo';
@@ -1833,7 +1833,130 @@ function refusesAfter(after: number) {
   });
 }
 
+/** A plain click on a row's title, which is what a mouse does. */
+async function click(user: ReturnType<typeof userEvent.setup>, item: Item) {
+  await user.click(screen.getByText(item.title));
+}
+
 describe('Selection', () => {
+  describe('a plain click picks that row alone, replacing any selection', () => {
+    it('picks the one row when nothing is held, with no bar', async () => {
+      const user = await showList({ items: THREE });
+
+      await click(user, BART);
+
+      expect(isPicked(BART)).toBe(true);
+      expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+    });
+
+    it('leaves only the clicked row picked when three were held', async () => {
+      const user = await showList({ items: THREE });
+      for (const item of THREE) await tick(user, item);
+      expect(screen.getByText('3 selected')).toBeVisible();
+
+      await click(user, RENEW);
+
+      expect(isPicked(RENEW)).toBe(true);
+      expect(isPicked(BART)).toBe(false);
+      expect(isPicked(CHASE)).toBe(false);
+      expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+    });
+
+    it('moves the pick to another row, and a ctrl-click or shift-click after it builds on it', async () => {
+      const user = await showList({ items: THREE });
+      await click(user, BART);
+      await click(user, RENEW);
+      expect(isPicked(BART)).toBe(false);
+
+      await tick(user, BART);
+      expect(screen.getByText('2 selected')).toBeVisible();
+
+      await click(user, BART);
+      await tick(user, CHASE, true);
+      expect(screen.getByText('3 selected')).toBeVisible();
+    });
+  });
+
+  describe('one picked row suspends none of its own actions, and several do', () => {
+    const triggers = () => screen.getAllByLabelText('Item actions');
+
+    it('keeps every row’s menu, and the ✓ on a Panel’s rows, while one row is picked', async () => {
+      const user = await showList({ items: THREE, panelId: 'p-falcon', openDashboardId: TODAY.id });
+
+      await click(user, BART);
+
+      for (const trigger of triggers()) expect(trigger).not.toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getAllByRole('button', { name: 'Mark done' })).toHaveLength(3);
+    });
+
+    it('steps every row’s menu and ✓ aside from two picked rows', async () => {
+      const user = await showList({ items: THREE, panelId: 'p-falcon', openDashboardId: TODAY.id });
+
+      await click(user, BART);
+      await tick(user, RENEW);
+
+      for (const trigger of triggers()) expect(trigger).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.queryByRole('button', { name: 'Mark done' })).not.toBeInTheDocument();
+    });
+
+    it('opens the menu of the row picked, and dismisses it from there', async () => {
+      const user = await showList({ items: THREE, panelId: 'p-falcon', openDashboardId: TODAY.id });
+      await click(user, BART);
+
+      fireEvent.contextMenu(screen.getByText(BART.title));
+      await user.click(await screen.findByRole('menuitem', { name: /^Dismiss/ }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'set_dismissed', payload: expect.objectContaining({ itemId: BART.id }) }),
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('a single pick ends on Escape and on a click on empty space, and several are left alone', () => {
+    const endsItself = () => renderHook(() => useEndingASinglePick());
+
+    it.each([
+      { situation: 'Escape', end: () => fireEvent.keyDown(document.body, { key: 'Escape' }) },
+      { situation: 'a click on empty space', end: () => fireEvent.click(document.body) },
+    ])('ends on $situation', async ({ end }) => {
+      const user = await showList({ items: THREE });
+      endsItself();
+      await click(user, BART);
+
+      end();
+
+      expect(isPicked(BART)).toBe(false);
+    });
+
+    it('is kept by a click on a control, and by an Escape a menu has already claimed', async () => {
+      const user = await showList({ items: THREE, panelId: 'p-falcon', openDashboardId: TODAY.id });
+      endsItself();
+      await click(user, BART);
+
+      fireEvent.click(screen.getAllByLabelText('Item actions')[0]!);
+      const claimed = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+      claimed.preventDefault();
+      document.dispatchEvent(claimed);
+
+      expect(isPicked(BART)).toBe(true);
+    });
+
+    it.each([
+      { situation: 'Escape', end: () => fireEvent.keyDown(document.body, { key: 'Escape' }) },
+      { situation: 'a click on empty space', end: () => fireEvent.click(document.body) },
+    ])('leaves two picked rows held on $situation', async ({ end }) => {
+      const user = await showList({ items: THREE });
+      endsItself();
+      await tick(user, BART);
+      await tick(user, RENEW);
+
+      end();
+
+      expect(screen.getByText('2 selected')).toBeVisible();
+    });
+  });
+
   describe('what is picked out of a list is offered together, and only while something is picked', () => {
     it('offers nothing until a row is picked', async () => {
       await showList({ items: THREE });
@@ -1843,7 +1966,6 @@ describe('Selection', () => {
     });
 
     it.each([
-      { situation: 'one row picked', picking: [BART], says: '1 selected' },
       { situation: 'two rows picked', picking: [BART, CHASE], says: '2 selected' },
       { situation: 'every row picked', picking: THREE, says: '3 selected' },
     ])('says $situation', async ({ picking, says }) => {
@@ -1852,6 +1974,22 @@ describe('Selection', () => {
       for (const item of picking) await tick(user, item);
 
       expect(screen.getByText(says)).toBeVisible();
+    });
+
+    it('draws no bar for one picked row, however it was picked, and brings one with the second', async () => {
+      const user = await showList({ items: THREE });
+
+      await tick(user, BART);
+      expect(isPicked(BART)).toBe(true);
+      expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Move to…' })).not.toBeInTheDocument();
+
+      await tick(user, RENEW);
+      expect(screen.getByText('2 selected')).toBeVisible();
+
+      await tick(user, RENEW);
+      expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+      expect(isPicked(BART)).toBe(true);
     });
 
     it('goes away again when the last row is put back', async () => {
@@ -1902,7 +2040,7 @@ describe('Selection', () => {
       const user = userEvent.setup();
 
       await tick(user, BART);
-      expect(screen.getByText('1 selected')).toBeVisible();
+      expect(isPicked(BART)).toBe(true);
 
       await tick(user, RENEW);
 
@@ -1941,10 +2079,11 @@ describe('Selection', () => {
 
       // Gone from the list, and back again.
       rerender(list([RENEW]));
-      await waitFor(() => expect(screen.getByText('1 selected')).toBeVisible());
+      await waitFor(() => expect(screen.queryByText('2 selected')).not.toBeInTheDocument());
+      expect(isPicked(RENEW)).toBe(true);
       rerender(list([BART, RENEW]));
 
-      expect(screen.getByText('1 selected')).toBeVisible();
+      expect(isPicked(RENEW)).toBe(true);
       expect(isPicked(BART)).toBe(false);
     });
 
@@ -1966,10 +2105,11 @@ describe('Selection', () => {
           </UndoWhatJustHappened>
         </QueryClientProvider>
       );
-      const { rerender } = render(list([BART]));
+      const { rerender } = render(list([BART, RENEW]));
       await waitFor(() => expect(client.getQueryData(['snapshot', 'ws-work'])).toBeDefined());
       const user = userEvent.setup();
       await tick(user, BART);
+      await tick(user, RENEW);
       await user.click(screen.getByRole('button', { name: 'Move to…' }));
       expect(await screen.findByRole('dialog')).toBeVisible();
 
@@ -2036,29 +2176,16 @@ describe('Triage', () => {
       const user = await showList({ items: THREE, openDashboardId: TODAY.id });
 
       await tick(user, BART);
-      await fileWhatIsPicked(user, 'Falcon');
-
-      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
-      const sent = (held.send.mock.calls[0] as unknown as [{ name: string; payload: Record<string, unknown> }])[0];
-      expect(sent.name).toBe('move_item_to_panel');
-      expect(sent.payload).toMatchObject({ panelId: 'p-falcon' });
-      expect(sent.payload).not.toHaveProperty('fromPanelIds');
-    });
-    it('files one picked row exactly as its own menu would', async () => {
-      held.items = THREE;
-      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
-
       await tick(user, RENEW);
       await fileWhatIsPicked(user, 'Falcon');
 
-      await waitFor(() => expect(filingsSent()).toHaveLength(1));
-      expect(filingsSent()[0]).toEqual({
-        itemId: RENEW.id,
-        panelId: 'p-falcon',
-        order: [RENEW.id],
-      });
+      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(2));
+      for (const [call] of held.send.mock.calls as unknown as [{ name: string; payload: Record<string, unknown> }][]) {
+        expect(call.name).toBe('move_item_to_panel');
+        expect(call.payload).toMatchObject({ panelId: 'p-falcon' });
+        expect(call.payload).not.toHaveProperty('fromPanelIds');
+      }
     });
-
     it('empties the selection once they have all gone', async () => {
       held.items = THREE;
       const user = await showList({ items: THREE, openDashboardId: TODAY.id });
@@ -2109,16 +2236,18 @@ describe('Triage', () => {
       refusesAfter(0);
       const user = await showList({ items: THREE, openDashboardId: TODAY.id });
       await tick(user, BART);
+      await tick(user, RENEW);
       await fileWhatIsPicked(user, 'Falcon');
       await screen.findByText('this panel changed while you were looking at it');
 
-      // Unticking the last row rather than pressing Clear: the reason has to go
+      // Unticking the last rows rather than pressing Clear: the reason has to go
       // with the selection however the selection goes, and Clear is the one
       // route that used to be handled.
       await tick(user, BART);
+      await tick(user, RENEW);
       await tick(user, CHASE);
 
-      expect(screen.getByText('1 selected')).toBeVisible();
+      expect(isPicked(CHASE)).toBe(true);
       expect(
         screen.queryByText('this panel changed while you were looking at it'),
       ).not.toBeInTheDocument();
@@ -2188,16 +2317,6 @@ describe('Triage', () => {
 
       await waitFor(() => expect(filingsSent()).toHaveLength(2));
       expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
-    });
-
-    it('names the row itself when one was picked, the way a single move does', async () => {
-      held.items = THREE;
-      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
-
-      await tick(user, RENEW);
-      await fileWhatIsPicked(user, 'Falcon');
-
-      expect(await screen.findByRole('status')).toHaveTextContent('“Renew the domain” moved to Falcon');
     });
 
     it.each([
@@ -3409,7 +3528,7 @@ describe('Selection', () => {
       grab(BART);
 
       expect(selectionCarried()).toBeNull();
-      expect(screen.getByText('1 selected')).toBeVisible();
+      expect(isPicked(BART)).toBe(true);
     });
 
     it('ends the selection and carries the row alone when the one grabbed is not picked', async () => {

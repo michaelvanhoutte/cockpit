@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { stillOpen } from '../filing';
-import { dashboardScope, endSelection, useHeldTo, useSelection } from '../selection';
+import { dashboardScope, endSelection, showsABar, useHeldTo, useSelection } from '../selection';
 import { SelectionBar } from './SelectionBar';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
@@ -49,7 +49,7 @@ export function DashboardSelection({
 
   return (
     <>
-      {picked.length > 0 && (
+      {showsABar(picked.length, [filingSeveral.refusal, editing.refusal]) && (
         <SelectionBar
           onBoard
           count={picked.length}
