@@ -27,6 +27,8 @@
   --color-ground: #e2e2df;
   /* Hairlines, dimming and shadows are this ink at low alpha, never black. */
   --color-shade: #16181d;
+  /* An Item row under the pointer: the ink at 8%, the same in every Workspace. */
+  --color-row-hover: rgb(22 24 29 / 0.08);
 
   /*
    * The Conselit category colours, each with a -tint for hover and selected
@@ -325,6 +327,7 @@ html[data-app-dark] {
 
   --color-accent-deep: #b0a9d6;
   --color-accent-tint: #343249;
+  --color-row-hover: rgb(255 255 255 / 0.08);
   --color-due-soft: #4a3519;
   --color-due-ink: #e8c08a;
   --color-over-ink: #e0867f;
@@ -427,6 +430,20 @@ html[data-app-dark] .milled {
   box-shadow:
     inset 0 1px 3px rgb(22 24 29 / 0.16),
     inset 0 0 0 1px rgb(22 24 29 / 0.09);
+}
+
+/*
+ * A picked Item row: the Workspace's accent mixed into the list it sits on, so
+ * it is the one colour that means "picked" on the grey lists. Written as a
+ * utility rather than a token because the accent is set on the shell, and a
+ * token on the page would resolve it to the default theme's accent. Under the
+ * pointer it deepens (36%), so a picked row under the pointer reads as both.
+ */
+@utility row-picked {
+  background-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+@utility row-picked-hover {
+  background-color: color-mix(in srgb, var(--color-accent) 36%, transparent);
 }
 
 /*

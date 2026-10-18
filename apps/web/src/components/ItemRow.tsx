@@ -1099,9 +1099,9 @@ export function ItemRow({
       // copied to pay for a gesture only a finger makes.
       //
       // **The row's own colour, and nothing about the swipe.** It used to tint
-      // itself past the threshold, in the same `accent-tint` a picked row
-      // wears - so a row swiped far enough to file looked exactly like a row
-      // somebody had ticked. What the swipe would do is the band below instead,
+      // itself past the threshold, in the same fill a picked row wears - so a
+      // row swiped far enough to file looked exactly like a row somebody had
+      // ticked. What the swipe would do is the band below instead,
       // which can say it in words.
       //
       // **The row's own colour says only whether it is picked.** How near its
@@ -1109,9 +1109,11 @@ export function ItemRow({
       // overdue row is no longer filled red. The row being shown in a docked
       // form is ringed instead, and named to assistive tech.
       aria-current={dock.openId === item.id ? 'true' : undefined}
-      className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
+      className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none ${
+        selecting?.picked ? 'row-picked hover:row-picked-hover' : 'hover:bg-row-hover'
+      } ${
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
-      }${selecting?.picked ? 'bg-accent-tint ' : ''}${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}${
+      }${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}${
         landing === 'before'
           ? 'shadow-landing-before '
           : landing === 'after'
@@ -1469,9 +1471,8 @@ function WhatLettingGoWouldDo({ across }: { across: number }) {
           ? filing
             ? 'bg-accent-deep text-white'
             : 'bg-over-deep text-white'
-          : // Not `accent-tint`, which is the colour a picked row already
-            // wears: a row ticked and then swiped uncovered a band exactly the
-            // shade of itself, so nothing appeared until the threshold - the
+          : // Not the picked row's fill (`row-picked`): a row ticked and then
+            // swiped uncovered a band exactly the shade of itself, so nothing appeared until the threshold - the
             // stretch of the gesture this whole band exists to cover.
             filing
             ? 'bg-accent-soft/45 text-accent-deep'
