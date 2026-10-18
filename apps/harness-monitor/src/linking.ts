@@ -5,26 +5,31 @@ import { fetchChangedPullRequests, type PullRequest } from './github';
  * JSON array bound as a single parameter (see store.ts). A branch already
  * linked to a more recently updated pull request keeps it, and a link that
  * would not change is not written. With ?3 = 1 the pull requests came with
- * errors from GitHub, so a missing issue or engineer keeps the one stored.
+ * errors from GitHub, so a missing issue, parent or engineer keeps the one stored.
  */
 const NEW_ISSUE = 'CASE WHEN ?3 = 1 THEN COALESCE(excluded.issue_number, branch_links.issue_number) ELSE excluded.issue_number END';
+const NEW_PARENT = 'CASE WHEN ?3 = 1 THEN COALESCE(excluded.issue_parent, branch_links.issue_parent) ELSE excluded.issue_parent END';
+const NEW_PARENT_TITLE = 'CASE WHEN ?3 = 1 THEN COALESCE(excluded.issue_parent_title, branch_links.issue_parent_title) ELSE excluded.issue_parent_title END';
 const NEW_ENGINEER = 'CASE WHEN ?3 = 1 THEN COALESCE(excluded.engineer, branch_links.engineer) ELSE excluded.engineer END';
 const UPSERT_LINKS = `INSERT INTO branch_links (
-  branch, pr_number, title, state, merged_at, issue_number, engineer, pr_updated_at, linked_at
+  branch, pr_number, title, state, merged_at, issue_number, engineer, pr_updated_at, linked_at, issue_parent, issue_parent_title
 )
 SELECT value ->> '$.branch', value ->> '$.number', value ->> '$.title', value ->> '$.state',
-       value ->> '$.mergedAt', value ->> '$.issue', value ->> '$.engineer', value ->> '$.updatedAt', ?2
+       value ->> '$.mergedAt', value ->> '$.issue', value ->> '$.engineer', value ->> '$.updatedAt', ?2,
+       value ->> '$.issueParent', value ->> '$.issueParentTitle'
 FROM json_each(?1) WHERE true
 ORDER BY key
 ON CONFLICT (branch) DO UPDATE SET
   pr_number = excluded.pr_number, title = excluded.title, state = excluded.state,
   merged_at = excluded.merged_at, issue_number = ${NEW_ISSUE}, engineer = ${NEW_ENGINEER},
+  issue_parent = ${NEW_PARENT}, issue_parent_title = ${NEW_PARENT_TITLE},
   pr_updated_at = excluded.pr_updated_at, linked_at = excluded.linked_at
 WHERE excluded.pr_updated_at > branch_links.pr_updated_at
    OR (excluded.pr_updated_at = branch_links.pr_updated_at AND (
         excluded.pr_number IS NOT branch_links.pr_number OR excluded.title IS NOT branch_links.title
      OR excluded.state IS NOT branch_links.state OR excluded.merged_at IS NOT branch_links.merged_at
-     OR (${NEW_ISSUE}) IS NOT branch_links.issue_number OR (${NEW_ENGINEER}) IS NOT branch_links.engineer))`;
+     OR (${NEW_ISSUE}) IS NOT branch_links.issue_number OR (${NEW_ENGINEER}) IS NOT branch_links.engineer
+     OR (${NEW_PARENT}) IS NOT branch_links.issue_parent OR (${NEW_PARENT_TITLE}) IS NOT branch_links.issue_parent_title))`;
 
 /**
  * Stores each pull request's size, timing, CI rounds, closing issue's title and the
@@ -91,7 +96,7 @@ WHERE ?4 = 1 OR link_state.page_cursor IS ?3`;
  * and stores this version beside it in the same batch, so a run that fails
  * rewinds again and one that stored carries on from where it stopped.
  */
-export const SIZING_VERSION = 1;
+export const SIZING_VERSION = 2;
 
 export interface LinkEnv {
   DB: D1Database;

@@ -19,8 +19,13 @@ export interface PullRequest {
   deletions: number | null;
   /** Head commits committed after it opened; null when GitHub gave no commits. */
   ciRounds: number | null;
-  /** The closing issue's title. */
+  /** The issue's title: the closing issue's, or the one a `Part of` line names. */
   issueTitle: string | null;
+  /** The issue's parent and its title; null where it has none, or where GitHub did not give it (then `partial`). */
+  issueParent: number | null;
+  issueParentTitle: string | null;
+  /** True when the issue came from a `Part of` line, so its title and parent are still to be read. */
+  viaPartOf: boolean;
   /** Local review rounds and their findings, read from the session record in the body; null where it has none or the body was not given. */
   localRounds: number | null;
   findings: number | null;
@@ -60,7 +65,7 @@ const QUERY = `query($owner: String!, $name: String!, $after: String, $first: In
         author { login }
         files(first: 100) { pageInfo { hasNextPage endCursor } nodes { path additions deletions } }
         commits(last: 100) { nodes { commit { committedDate } } }
-        closingIssuesReferences(first: 1) { nodes { number title } }
+        closingIssuesReferences(first: 1) { nodes { number title parent { number title } } }
       }
     }
   }
@@ -81,6 +86,17 @@ const FILES_QUERY = `query($id: ID!, $after: String) {
  * without its size, and sized by the run that next reads it.
  */
 export const MAX_FILE_REQUESTS = 10;
+
+/** Issues one request asks for, each an alias of the one query. */
+export const ISSUES_PER_REQUEST = 50;
+
+/**
+ * Most requests one run makes for the issues its pull requests name in a `Part of`
+ * line, on top of MAX_REQUESTS and MAX_FILE_REQUESTS: with the run's five D1
+ * statements a run makes at most 48 subrequests, inside the 50. A pull request whose
+ * issue is not read by then is stored without its parent, and gains it when next read.
+ */
+export const MAX_ISSUE_REQUESTS = 3;
 
 export interface Fetched {
   pullRequests: PullRequest[];
@@ -119,7 +135,7 @@ interface Node {
   author?: { login?: string } | null;
   files?: Files | null;
   commits?: { nodes?: ({ commit?: { committedDate?: string } | null } | null)[] } | null;
-  closingIssuesReferences?: { nodes?: { number?: number; title?: string }[] };
+  closingIssuesReferences?: { nodes?: { number?: number; title?: string; parent?: { number?: number; title?: string } | null }[] };
 }
 
 /** Lines in the files that count towards a pull request's size; null when GitHub left a file out, so the size is never short. */
@@ -151,6 +167,20 @@ function ciRoundsOf(node: Node): number | null {
   }).length;
 }
 
+/**
+ * The issue a pull request body names in a `Part of #N` line, which counts only at
+ * the start of a line outside a code block, inline code or a quote. Null for none.
+ */
+export function partOf(body: string | null | undefined): number | null {
+  if (!body) return null;
+  const prose = body
+    .replace(/^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ \t]*\1[`~]*[ \t]*$|(?![\s\S]))/gm, '')
+    .replace(/`[^`\n]*`/g, '')
+    .replace(/^[ \t]*>.*$/gm, '');
+  const found = /^[ \t]*Part of #(\d+)\b/im.exec(prose);
+  return found ? Number(found[1]) : null;
+}
+
 /** A pull request, and the place its files continue from while GitHub has more of them. */
 type Read = { pr: PullRequest; moreFilesAfter: string | null };
 
@@ -162,7 +192,9 @@ function toPullRequest(node: Node | null, partial: boolean): Read | null {
   const files = node.files?.nodes;
   const lines = files ? sumLines(files) : null;
   const moreFilesAfter = node.files?.pageInfo?.hasNextPage ? (node.files.pageInfo.endCursor ?? null) : null;
-  const issue = node.closingIssuesReferences?.nodes?.[0];
+  const closing = node.closingIssuesReferences?.nodes?.[0];
+  // GitHub fills a closing reference only for a pull request into the default branch; the others name their issue in a `Part of` line.
+  const named = closing?.number === undefined ? partOf(node.body) : null;
   const reviews = reviewCounts(node.body);
   return {
     moreFilesAfter,
@@ -173,7 +205,7 @@ function toPullRequest(node: Node | null, partial: boolean): Read | null {
       mergedAt: node.mergedAt ?? null,
       updatedAt: node.updatedAt,
       branch: node.headRefName,
-      issue: issue?.number ?? null,
+      issue: closing?.number ?? named,
       engineer: node.author?.login ?? null,
       id: node.id ?? null,
       openedAt: node.createdAt ?? null,
@@ -181,7 +213,10 @@ function toPullRequest(node: Node | null, partial: boolean): Read | null {
       additions: node.files?.pageInfo?.hasNextPage && !moreFilesAfter ? null : (lines?.additions ?? null),
       deletions: node.files?.pageInfo?.hasNextPage && !moreFilesAfter ? null : (lines?.deletions ?? null),
       ciRounds: ciRoundsOf(node),
-      issueTitle: issue?.title ?? null,
+      issueTitle: closing?.title ?? null,
+      issueParent: closing?.parent?.number ?? null,
+      issueParentTitle: closing?.parent?.title ?? null,
+      viaPartOf: named !== null,
       localRounds: reviews.rounds,
       findings: reviews.findings,
       partial,
@@ -289,6 +324,65 @@ async function readFiles(token: string, id: string, after: string): Promise<{ li
   return lines && { lines, next: files.pageInfo.hasNextPage ? files.pageInfo.endCursor! : null };
 }
 
+interface IssueRead {
+  title: string | null;
+  parent: { number: number; title: string | null } | null;
+}
+
+/**
+ * The title and parent of each issue, MAX_ISSUE_REQUESTS requests at most. An issue
+ * GitHub did not give, because the request failed or the token cannot see it, is
+ * left out of the answer, and the pull requests naming it are stored without a
+ * parent instead of failing the run.
+ */
+async function readIssues(repository: string, token: string, numbers: number[]): Promise<Map<number, IssueRead>> {
+  const [owner = '', name = ''] = repository.split('/');
+  const found = new Map<number, IssueRead>();
+  for (let i = 0; i < numbers.length && i / ISSUES_PER_REQUEST < MAX_ISSUE_REQUESTS; i += ISSUES_PER_REQUEST) {
+    const chunk = numbers.slice(i, i + ISSUES_PER_REQUEST);
+    const fields = chunk.map((n) => `i${n}: issue(number: ${n}) { number title parent { number title } }`).join('\n    ');
+    const query = `query($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n    ${fields}\n  }\n}`;
+    try {
+      const body = await post<{ repository?: Record<string, { title?: string; parent?: { number?: number; title?: string } | null } | null> | null }>(token, query, { owner, name });
+      if ('timeout' in body) continue;
+      for (const n of chunk) {
+        const issue = body.data?.repository?.[`i${n}`];
+        if (!issue) continue;
+        const parent = issue.parent;
+        found.set(n, { title: issue.title ?? null, parent: typeof parent?.number === 'number' ? { number: parent.number, title: parent.title ?? null } : null });
+      }
+    } catch (error) {
+      console.error(`Reading issues for their parents failed, the links are stored without them: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return found;
+}
+
+/**
+ * Reads the pull requests after `after` (see readPullRequests), then the title and
+ * parent of each issue a pull request names in a `Part of` line: one more request
+ * per run for up to ISSUES_PER_REQUEST issues. A closing reference brings its parent
+ * in the page itself.
+ */
+export async function fetchChangedPullRequests(repository: string, token: string, after: string | null): Promise<Fetched> {
+  const fetched = await readPullRequests(repository, token, after);
+  const named = fetched.pullRequests.filter((pr) => pr.viaPartOf && pr.issue !== null);
+  if (named.length === 0) return fetched;
+  const issues = await readIssues(repository, token, [...new Set(named.map((pr) => pr.issue!))]);
+  for (const pr of named) {
+    const issue = issues.get(pr.issue!);
+    if (!issue) {
+      // Unread, so a stored title or parent is kept rather than blanked.
+      pr.partial = true;
+      continue;
+    }
+    pr.issueTitle = issue.title;
+    pr.issueParent = issue.parent?.number ?? null;
+    pr.issueParentTitle = issue.parent?.title ?? null;
+  }
+  return fetched;
+}
+
 /**
  * Reads the pull requests after `after`, GitHub's place in the repository's
  * update order where the last run stopped, or from the first when it is null,
@@ -303,7 +397,7 @@ async function readFiles(token: string, id: string, after: string): Promise<{ li
  * GitHub refuses on the run's first request is dropped once, and the run reads
  * from the first pull request instead.
  */
-export async function fetchChangedPullRequests(repository: string, token: string, after: string | null): Promise<Fetched> {
+async function readPullRequests(repository: string, token: string, after: string | null): Promise<Fetched> {
   const [owner = '', name = ''] = repository.split('/');
   const pullRequests: PullRequest[] = [];
   let cursor = after;
