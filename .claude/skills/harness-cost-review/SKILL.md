@@ -19,6 +19,7 @@ The harness is everything a change waits on after it is written: CI, the local r
 | Selection | `node tools/selection/src/cli.js --json --out <scratch>/sel.json` | paths forcing a full run, tests selected on nearly every pull request, misses |
 | CI stability | `node tools/ci-stability/src/cli.js --json --days 30 --max-runs 2500 --out <scratch>/ci.json` | job and step durations on `main` per window |
 | Token cost | `pnpm cost:issue --since <window start> --json` | per issue: tokens, API-equivalent cost, subagents, review passes by level; tokens and cost also split by session phase (`phases`) |
+| One run | `pnpm cost:issue --run <issue> [--json]` | a row per pull request of an issue and its children, then a total: start and end, coding time, each review's time with reported, fixed and declined, each CI wait's time and outcome, token cost; "not recorded" where a mark was skipped |
 
 Each tool's README says what its figures count and leave out; read it before quoting a number from it. Check each model's `coverage.partial` and every window's `partial` first, and read a partial window by its `actualDays`. Selection downloads run artifacts and token cost reads Claude Code's own logs on the machine, so both run only on a developer's machine; elsewhere skip their bars and say so. "Publish each nightly report's model beside its page" (issue 670) will let all three CI models be read from the site instead.
 
