@@ -2,11 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
+import {
+  type Dashboard,
+  type Filing,
+  type Item,
+  NO_DASHBOARD_FILTER,
+  type Panel,
+  type WorkspaceSnapshot,
+} from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { ItemList } from '../../../src/components/ItemList';
 import { UndoWhatJustHappened } from '../../../src/undo';
-import { NO_DASHBOARD_FILTER, useDashboardFilter } from '../../../src/dashboardFilter';
+import { useDashboardFilter } from '../../../src/dashboardFilter';
 import { useCommand } from '../../../src/api/queries';
 import { carryAcrossSwitch, landItem, liftItem } from '../../../src/itemInTheAir';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';

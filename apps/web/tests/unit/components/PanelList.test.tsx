@@ -4,10 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { PanelList } from '../../../src/components/PanelList';
 import { readDashboardFilter, writeDashboardFilter } from '../../../src/dashboardFilter';
-import type { DashboardFilter } from '../../../src/dashboardFilter';
+import type { DashboardFilter, WorkspaceSnapshot } from '@cockpit/shared';
 import type { PanelListing } from '../../../src/panelList';
 import type { Reach, ReachWorkspace } from '../../../src/panelReach';
-import type { WorkspaceSnapshot } from '@cockpit/shared';
 import { forgetLanding, useLanding } from '../../../src/landOnItem';
 
 /**

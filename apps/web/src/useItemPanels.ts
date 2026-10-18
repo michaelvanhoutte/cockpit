@@ -1,7 +1,13 @@
 import { useRef, useState } from 'react';
-import { itemLabel, uuidv7, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
+import {
+  filedOrderOnPanel,
+  type Item,
+  itemLabel,
+  ordersForFilingSeveral,
+  uuidv7,
+  type WorkspaceSnapshot,
+} from '@cockpit/shared';
 import { useLatestSnapshot, useSendCommand } from './api/queries';
-import { filedOrderOnPanel, ordersForFilingSeveral } from './filing';
 import {
   NO_PANEL_EDITS,
   afterAdding,

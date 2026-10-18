@@ -2,15 +2,17 @@ import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
-  SORT_DIRECTIONS,
-  SORT_FIELDS,
+  directionFor,
   type PanelSort,
+  SORT_DIRECTION_MEANS,
+  SORT_DIRECTIONS,
+  SORT_FIELD_LABELS,
+  SORT_FIELDS,
   type SortCriterion,
   type SortDirection,
 } from '@cockpit/shared';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
-import { SORT_DIRECTION_MEANS, SORT_FIELD_LABELS, directionFor } from '../sorting';
 
 /** Manual is the order you set; Sorted is the rows below. */
 type Mode = 'manual' | 'sorted';

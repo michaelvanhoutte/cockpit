@@ -1,8 +1,13 @@
 import { useState } from 'react';
-import { panelPlace, type RefinementScope, type RewriteHistoryEntry, type SuggestedPanel } from '@cockpit/shared';
+import {
+  panelPlace,
+  PRIORITY_LABELS,
+  type RefinementScope,
+  type RewriteHistoryEntry,
+  type SuggestedPanel,
+} from '@cockpit/shared';
 import { changedFields, fieldChanged, fieldsLookedAt, type ChangedField } from '../cockpitChanges';
 import { LoadFailure } from './LoadFailure';
-import { PRIORITY_LABELS } from '../priority';
 import { dueDateLabel } from '../dueDate';
 
 /**

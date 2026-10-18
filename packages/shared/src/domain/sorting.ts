@@ -1,13 +1,13 @@
-import { panelGathers, panelTakesItems } from '@cockpit/shared';
-import type {
-  Item,
-  Panel,
-  PanelSort,
-  Priority,
-  SortCriterion,
-  SortDirection,
-  SortField,
-} from '@cockpit/shared';
+import type { Item, Priority } from './item.js';
+import {
+  panelGathers,
+  panelTakesItems,
+  type Panel,
+  type PanelSort,
+  type SortCriterion,
+  type SortDirection,
+  type SortField,
+} from './panel.js';
 
 /**
  * How a sorted Panel of items draws its rows ("Sort a panel of items by the

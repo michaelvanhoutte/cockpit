@@ -1,4 +1,5 @@
-import { panelGathers, type Filing, type Item, type Panel } from '@cockpit/shared';
+import { panelGathers, type Filing, type Panel } from './panel.js';
+import type { Item } from './item.js';
 
 /**
  * What a panel holds and what the Inbox holds, derived from the one snapshot

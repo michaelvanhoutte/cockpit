@@ -14,17 +14,20 @@ import { useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ACCOUNT_WIDE,
+  type Attachment,
   DEFAULT_ITEM_FORM_PRESENTATION,
-  TITLE_LENGTH,
+  filingsThatFile,
+  type Item,
+  type ItemFormPresentation,
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
-  uuidv7,
-  type Attachment,
-  type Item,
-  type ItemFormPresentation,
   type ItemStatus,
   type Priority,
+  PRIORITY_LABELS,
+  STATUS_LABELS,
+  TITLE_LENGTH,
+  uuidv7,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
@@ -32,13 +35,10 @@ import { snapshotQuery, useSendCommand, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
 import { useItemPanels } from '../useItemPanels';
-import { STATUS_LABELS } from '../allItems';
 import { dueDateLabel } from '../dueDate';
-import { PRIORITY_LABELS } from '../priority';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
-import { filingsThatFile } from '../filing';
 import {
   FIELDS,
   FIELD_NAMES,

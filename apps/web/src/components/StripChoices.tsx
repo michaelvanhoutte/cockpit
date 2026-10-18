@@ -1,8 +1,7 @@
 import { useRef } from 'react';
-import { prioritySchema, type Priority } from '@cockpit/shared';
+import { type Priority, PRIORITY_LABELS, prioritySchema } from '@cockpit/shared';
 import { dueDateLabel, shortDueDateLabel } from '../dueDate';
 import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
-import { PRIORITY_LABELS } from '../priority';
 
 /**
  * The priority flags and Due chips as Capture's strip draws them, shared with

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Item, PanelSort, Priority } from '@cockpit/shared';
-import { inSortOrder, saysHowItIsSorted } from '../../src/sorting';
+import type { Item, PanelSort, Priority } from '../../../src/index.js';
+import { inSortOrder, saysHowItIsSorted } from '../../../src/domain/sorting.js';
 
 /**
  * F1: the order a sorted Panel draws its rows in is worked out in the client

@@ -7,8 +7,8 @@ import type {
   Item,
   Panel,
   Priority,
-} from '@cockpit/shared';
-import { filingsThatFile, itemsInTheInbox } from '../../src/filing';
+} from '../../../src/index.js';
+import { filingsThatFile, itemsInTheInbox } from '../../../src/domain/filing.js';
 import {
   alsoShownOn,
   dayOf,
@@ -18,8 +18,8 @@ import {
   itemsMatchingFilter,
   panelAndFilterIdsByItem,
   saysWhatItShows,
-} from '../../src/filters';
-import { DEFAULT_FILTER_SORT } from '../../src/sorting';
+} from '../../../src/domain/filters.js';
+import { DEFAULT_FILTER_SORT } from '../../../src/domain/sorting.js';
 
 /** The two shapes the older tests are written in: *all* is a row per condition, *any* one row holding them all. */
 type FilterMatch = 'all' | 'any';

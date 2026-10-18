@@ -1,6 +1,13 @@
-import { panelTakesItems } from '@cockpit/shared';
-import type { Dashboard, Filing, FilterGrouping, Item, Layout, Panel } from '@cockpit/shared';
-import { filingsThatFile } from './filing';
+import {
+  type Dashboard,
+  type Filing,
+  filingsThatFile,
+  type FilterGrouping,
+  type Item,
+  type Layout,
+  type Panel,
+  panelTakesItems,
+} from '@cockpit/shared';
 import { drawnRows } from './panels/arrangement';
 
 /**

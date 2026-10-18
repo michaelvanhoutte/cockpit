@@ -1,17 +1,18 @@
-import { DUE_WINDOWS, type DueWindow, type ItemStatus } from '@cockpit/shared';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
-  NO_DASHBOARD_FILTER,
-  isFiltering,
-  useDashboardFilter,
-  closeEveryFilterBar,
-  useFilterBarOpen,
   type AttachmentsChoice,
+  DUE_WINDOWS,
+  type DueWindow,
+  isAPeriod,
+  isFiltering,
+  type ItemStatus,
+  NO_DASHBOARD_FILTER,
+  PRIORITY_LABELS,
   type PriorityChoice,
-} from '../dashboardFilter';
-import { WINDOW_LABELS, isAPeriod } from '../filters';
+  WINDOW_LABELS,
+} from '@cockpit/shared';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { useDashboardFilter, closeEveryFilterBar, useFilterBarOpen } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
-import { PRIORITY_LABELS } from '../priority';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 

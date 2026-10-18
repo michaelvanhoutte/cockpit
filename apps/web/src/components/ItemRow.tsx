@@ -2,18 +2,19 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
+  type AgentRun,
+  type Item,
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
+  type PanelFit,
   panelPlace,
+  type Priority,
+  PRIORITY_LABELS,
   runBlocksAStart,
   STARTING_GIVES_UP_AFTER_MS,
   uuidv7,
   workspaceIsDecided,
-  type AgentRun,
-  type Item,
-  type PanelFit,
-  type Priority,
 } from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
@@ -31,7 +32,7 @@ import { useUndo } from '../undo';
 import { copyItemLinkAndSay } from '../itemLink';
 import { waitedSince } from '../waited';
 import { selectionBeingExtended } from '../inboxKeys';
-import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
+import { PRIORITY_FLAG_COLOURS } from '../priority';
 import {
   ContextMenuContent,
   MenuContent,

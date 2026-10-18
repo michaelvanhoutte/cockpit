@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
-import { snapshotQuery, useLatestSnapshot, useSendCommand } from '../api/queries';
-import { CommandRefused } from '../api/client';
 import {
   filedOrderOnPanel,
   howToFileSelected,
   type HowToFileSelected,
+  type Item,
+  itemLabel,
   orderPuttingBack,
   ordersForFilingSeveral,
-} from '../filing';
+  uuidv7,
+  workspaceIsDecided,
+} from '@cockpit/shared';
+import { snapshotQuery, useLatestSnapshot, useSendCommand } from '../api/queries';
+import { CommandRefused } from '../api/client';
 import { useFilteredDashboardIds } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';

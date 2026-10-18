@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Dashboard, Filing, Item, Panel } from '@cockpit/shared';
-import { DEFAULT_SORT, allItemsRows, pressHeader, type AllItemsKey } from '../../src/allItems';
+import type { Dashboard, Filing, Item, Panel } from '../../../src/index.js';
+import { DEFAULT_SORT, allItemsRows, pressHeader, type AllItemsKey } from '../../../src/domain/all-items.js';
 
 /**
  * F1, and pure: what the All items table lists, how a row reads and how a

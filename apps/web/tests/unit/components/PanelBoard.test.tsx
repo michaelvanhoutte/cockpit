@@ -3,31 +3,28 @@ import { A_DESK, onAScreen } from '../onAScreen';
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MIN_ROW_HEIGHT } from '@cockpit/shared';
-import type {
-  AgentRun,
-  Attachment,
-  Dashboard,
-  Filing,
-  FilterCondition,
-  FilterGrouping,
-  Item,
-  Layout,
-  Panel,
-  PanelSort,
+import {
+  type AgentRun,
+  type Attachment,
+  type Dashboard,
+  type DashboardFilter,
+  dayOf,
+  type Filing,
+  type FilterCondition,
+  type FilterGrouping,
+  isFiltering,
+  type Item,
+  type Layout,
+  MIN_ROW_HEIGHT,
+  NO_DASHBOARD_FILTER,
+  type Panel,
+  type PanelSort,
 } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { CaptureOpenerContext, type OpenCaptureOn } from '../../../src/captureOpener';
-import {
-  NO_DASHBOARD_FILTER,
-  isFiltering,
-  readDashboardFilter,
-  writeDashboardFilter,
-  type DashboardFilter,
-} from '../../../src/dashboardFilter';
+import { readDashboardFilter, writeDashboardFilter } from '../../../src/dashboardFilter';
 import { askToShow } from '../../../src/showItem';
 import { askToLand, forgetLanding } from '../../../src/landOnItem';
-import { dayOf } from '../../../src/filters';
 import { QUIET } from '../../../src/panels/PanelText';
 import {
   NOTHING_CHOSEN_TO_SHOW,

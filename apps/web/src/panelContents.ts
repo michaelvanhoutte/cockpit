@@ -1,11 +1,20 @@
-import { NO_CONDITIONS, panelGathers } from '@cockpit/shared';
-import type { Dashboard, Filing, Item, Panel } from '@cockpit/shared';
-import { isFiltering, matchesDashboardFilter } from './dashboardFilter';
-import type { DashboardFilter } from './dashboardFilter';
-import { itemsOnPanel } from './filing';
-import type { Day } from './filters';
-import { itemsMatchingFilter } from './filters';
-import { DEFAULT_FILTER_SORT, inSortOrder, sortOf } from './sorting';
+import {
+  type Dashboard,
+  type DashboardFilter,
+  type Day,
+  DEFAULT_FILTER_SORT,
+  type Filing,
+  inSortOrder,
+  isFiltering,
+  type Item,
+  itemsMatchingFilter,
+  itemsOnPanel,
+  matchesDashboardFilter,
+  NO_CONDITIONS,
+  type Panel,
+  panelGathers,
+  sortOf,
+} from '@cockpit/shared';
 
 /** Everything a Panel's contents are worked out from, for the Dashboard it is on. */
 export type PanelContents = {
