@@ -23,8 +23,12 @@ name: CI
 on:
   push:
     branches: [main]
+  # A pull request into a `feature/` branch is checked as one into `main` is,
+  # so work built in several pull requests on a feature branch before it
+  # lands is gated at each one. The selection below reads its base off the
+  # merge commit, so it diffs against the feature branch, not `main`.
   pull_request:
-    branches: [main]
+    branches: [main, 'feature/**']
 
 concurrency:
   group: ci-${{ github.ref }}
