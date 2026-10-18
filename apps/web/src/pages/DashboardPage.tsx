@@ -31,7 +31,7 @@ export function DashboardPage() {
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      {/* No notice here when there is a stored copy to draw from: the shell
+      {/* No notice here when there is a read held to draw from: the shell
           says it once for the whole window (Layout.tsx), because a workspace
           that cannot be read is a fact about the workspace rather than about
           this page - and the Inbox column beside it reads the same snapshot. */}

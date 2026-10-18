@@ -1,10 +1,11 @@
-import type { QueryClient } from '@tanstack/react-query';
+import type { EnsureQueryDataOptions, QueryClient, QueryKey } from '@tanstack/react-query';
 import { lazy, Suspense } from 'react';
 import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
   redirect,
+  useRouter,
 } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
 import { snapshotQuery, workspacesQuery } from './api/queries';
@@ -21,6 +22,8 @@ import {
   viewToOpen,
   workspaceToCaptureFrom,
 } from './lastVisited';
+import { CannotBeLoadedOffline, isOffline, onStandingChange } from './offline';
+import { tryTheServer } from './opening';
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
 import { AllItemsPage } from './pages/AllItemsPage';
@@ -46,13 +49,30 @@ interface RouterContext {
 const rootRoute = createRootRouteWithContext<RouterContext>()({});
 
 /**
+ * A read for a route: what the client holds, and otherwise the server - except
+ * while offline, when a read that is neither in memory nor saved here in a shape
+ * this version can read is *said* rather than asked for. A query made while
+ * offline is paused rather than failed, so it never settles and the route would
+ * hang on the previous screen for good.
+ */
+function readFor<T, K extends QueryKey>(
+  queryClient: QueryClient,
+  options: EnsureQueryDataOptions<T, Error, T, K>,
+): Promise<T> {
+  if (isOffline() && queryClient.getQueryData(options.queryKey) === undefined) {
+    return Promise.reject(new CannotBeLoadedOffline(options.queryKey));
+  }
+  return queryClient.ensureQueryData(options);
+}
+
+/**
  * A read that turns out to need a sign-in sends you to the logon page rather
  * than to a screen explaining that a read failed.
  *
- * This is the *cold* path - no stored copy to paint, so the route genuinely
- * cannot resolve. When there is a copy the read is answered from it, nothing
- * throws here, and the sign-in that has gone is noticed behind the painted
- * screen instead (`pages/Layout.tsx`).
+ * This is the path with nothing held to answer from. When the client holds the
+ * read, from this visit or from the checked saved reads of an offline open, it
+ * is answered from that, nothing throws here, and the sign-in that has gone is
+ * noticed behind the screen instead (`pages/Layout.tsx`).
  */
 async function orTheLogonPage<T>(read: Promise<T>): Promise<T> {
   try {
@@ -74,7 +94,7 @@ async function orTheLogonPage<T>(read: Promise<T>): Promise<T> {
  * one at all.
  */
 const somewhereThatWorks = async (queryClient: QueryClient, room: boolean) => {
-  const { workspaces } = await orTheLogonPage(queryClient.ensureQueryData(workspacesQuery));
+  const { workspaces } = await orTheLogonPage(readFor(queryClient, workspacesQuery));
   // **Only from here**, so a link to a dashboard goes where it says. A phone
   // opens on Capture (`landing.ts`).
   const landing = whereToLand(workspaces, room);
@@ -89,7 +109,7 @@ const somewhereThatWorks = async (queryClient: QueryClient, room: boolean) => {
  * lands you on a workspace that works instead of on a failed snapshot read.
  */
 const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string) => {
-  const { workspaces } = await orTheLogonPage(queryClient.ensureQueryData(workspacesQuery));
+  const { workspaces } = await orTheLogonPage(readFor(queryClient, workspacesQuery));
   // At desk width whatever the screen: a link to a workspace is not a bare `/`,
   // so it never lands on Capture.
   if (!workspaces.some((w) => w.id === workspaceId)) await somewhereThatWorks(queryClient, true);
@@ -103,9 +123,9 @@ const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string)
  * person: a failing fetch retries twice with backoff before it rejects, so the
  * route sits on the previous screen for about three seconds with nothing said;
  * and a query made while genuinely offline is *paused* rather than run and
- * failed, so it never settles at all and the route never commits. Reading what
- * you already have is what the stored copy is for (functional definition,
- * "Offline / local-first behavior").
+ * failed, so it never settles at all and the route never commits (`readFor`).
+ * Reading what you already have is what memory and the checked saved reads are
+ * for (functional definition, "Offline / local-first behavior").
  *
  * What that costs is freshness, and it is paid where the freshness is actually
  * needed rather than on every navigation: adding a dashboard re-reads the
@@ -115,7 +135,7 @@ const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string)
  * be working, since the add just came back.
  */
 const snapshotOf = (queryClient: QueryClient, workspaceId: string) =>
-  orTheLogonPage(queryClient.ensureQueryData(snapshotQuery(workspaceId)));
+  orTheLogonPage(readFor(queryClient, snapshotQuery(workspaceId)));
 
 /**
  * The logon page, and the only address that works before you have signed in.
@@ -160,7 +180,7 @@ const startRoute = createRoute({
   path: '/start',
   beforeLoad: async ({ context }) => {
     const { workspaces } = await orTheLogonPage(
-      context.queryClient.ensureQueryData(workspacesQuery),
+      readFor(context.queryClient, workspacesQuery),
     );
     const first = workspaces[0];
     if (first) throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
@@ -338,7 +358,7 @@ const capturing =
   (loadView: () => Promise<unknown>) =>
   async ({ context }: { context: { queryClient: QueryClient } }) => {
     const { workspaces } = await orTheLogonPage(
-      context.queryClient.ensureQueryData(workspacesQuery),
+      readFor(context.queryClient, workspacesQuery),
     );
     // No workspace to capture from is an account with none, since every other
     // answer falls back to the first one there is (`lastVisited.ts`).
@@ -383,20 +403,52 @@ const routeTree = rootRoute.addChildren([
   ]),
 ]);
 
+/**
+ * Try again races the server once more when the app is offline, and reads the
+ * route again either way; online it is the boundary's own reset.
+ */
+function RouteFailure({ error, reset }: { error: unknown; reset: () => void }) {
+  const router = useRouter();
+  const queryClient = router.options.context.queryClient;
+  return (
+    <LoadFailure
+      error={error}
+      onRetry={() => {
+        if (!isOffline()) return reset();
+        void tryTheServer(queryClient).finally(() => {
+          reset();
+          void router.invalidate();
+        });
+      }}
+    />
+  );
+}
+
 export function createAppRouter(queryClient: QueryClient) {
-  return createRouter({
+  const router = createRouter({
     routeTree,
     context: { queryClient },
     defaultPreload: 'intent',
     // Without this the router falls back to its own ErrorComponent, which
     // prints the raw thrown error ("Failed to fetch") in unstyled markup and
     // makes an expired sign-in, a broken deployment and a stale build all look
-    // identical. This boundary is only reached when there is no stored copy to
-    // paint from, so it may take the screen over.
-    defaultErrorComponent: ({ error, reset }) => (
-      <LoadFailure error={error} onRetry={reset} />
-    ),
+    // identical. This boundary is only reached when there is nothing held to
+    // draw from, so it may take the screen over.
+    defaultErrorComponent: RouteFailure,
   });
+  // An answer that comes after the failure screen is up (the late answer, or a
+  // Try again that outlasted its race) ends offline, and the route is read again
+  // by itself rather than left on a screen that is no longer true. Once per
+  // transition, from here and not from the screen: a screen that invalidated on
+  // mount would cancel the read it started.
+  let wasOffline = isOffline();
+  onStandingChange(() => {
+    const now = isOffline();
+    const failedOffline = router.state.matches.some((match) => match.error instanceof CannotBeLoadedOffline);
+    if (wasOffline && !now && failedOffline) void router.invalidate();
+    wasOffline = now;
+  });
+  return router;
 }
 
 declare module '@tanstack/react-router' {

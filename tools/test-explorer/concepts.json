@@ -539,7 +539,7 @@
     {
       "key": "Offline",
       "label": "Offline",
-      "browserWalks": 3,
+      "browserWalks": 4,
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
         "apps/api/src/accounts/command-service.ts",
@@ -551,6 +551,8 @@
         "apps/web/src/api/loadFailure.ts",
         "apps/web/src/components/LoadFailure.tsx",
         "apps/web/src/persistence.tsx",
+        "apps/web/src/offline.ts",
+        "apps/web/src/opening.tsx",
         "apps/web/src/captureOutbox.ts",
         "apps/web/src/captureOutboxSender.tsx"
       ]

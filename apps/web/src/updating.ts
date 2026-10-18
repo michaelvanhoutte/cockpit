@@ -11,16 +11,15 @@ import { statusOf } from './api/loadFailure';
  * explaining itself and waiting to be clicked.
  *
  * **It stops the whole window rather than saying so in a panel**, because the
- * stored copy is no safer than the network answer. Saved reads are checked
+ * saved copy is no safer than the network answer. Saved reads are checked
  * against this build's own schemas (`savedReads.ts`), not against what the
  * server now sends, so a build that cannot read what the server says cannot
  * trust what it already holds either. Carrying on is the one thing that is actively wrong.
  *
- * That the restore now re-reads everything on the way out of itself
- * ("Re-read the stored copy on load instead of trusting how fresh it looks",
- * issue 162) is what usually raises this gate: it is the first read to come
- * back in a shape this build cannot understand, so the mismatch surfaces on the
- * load rather than whenever something next happens to re-read.
+ * That opening reads the server first (`opening.tsx`) is what usually raises
+ * this gate: the Workspace list it waits on is the first read to come back in a
+ * shape this build cannot understand, so the mismatch surfaces on the load
+ * rather than whenever something next happens to re-read.
  *
  * **A new worker waits; only a click activates it.** The shell is precached by a
  * service worker (apps/web/vite.config.ts), and a worker that took over a live
@@ -34,7 +33,7 @@ import { statusOf } from './api/loadFailure';
  * click, one reload, no hard reload, and never the older of two versions
  * (`activateLatest`).
  *
- * **A reload never depends on the stored copy being whole.** The start page is
+ * **A reload never depends on the saved copy being whole.** The start page is
  * precached under `/`, so a navigation the precache cannot answer is fetched
  * from the network rather than failing (apps/web/vite.config.ts says why `/`).
  *

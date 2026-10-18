@@ -20,6 +20,7 @@ import { DEADLINE_PILLS, dueDateLabel } from '../../../src/dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../../../src/dueDateShortcuts';
 import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
 import { forgetEverySavedRead, restoreSavedReads, saveRead } from '../../../src/persistence';
+import { resetStanding, stand } from '../../../src/offline';
 import { aHistoryEntrySavedBeforePanelsFiledOn } from '../support/savedReads';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
@@ -3348,6 +3349,7 @@ describe('What Cockpit changed', () => {
       held.historyFails = true;
       try {
         const user = await theForm();
+        stand({ found: true, connecting: false });
         await user.click(changesTab());
 
         expect(
@@ -3357,7 +3359,21 @@ describe('What Cockpit changed', () => {
         await user.type(titleBox(), ' now');
         expect(titleBox()).toHaveValue('Part 11 now');
       } finally {
+        resetStanding();
         await forgetEverySavedRead();
+      }
+    });
+
+    it('says a history never opened here can’t be loaded offline, rather than looking for it for good', async () => {
+      held.historyFails = true;
+      try {
+        const user = await theForm();
+        stand({ found: true, connecting: false });
+        await user.click(changesTab());
+
+        expect(await screen.findByText("What Cockpit changed can't be loaded offline.")).toBeVisible();
+      } finally {
+        resetStanding();
       }
     });
   });

@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, serverEventSchema } from '@cockpit/shared';
 import type { ServerEvent, WorkspaceSnapshot } from '@cockpit/shared';
+import { cameOnline } from '../opening';
 import { RECONNECTED } from '../updating';
 import { diagnoseConnection } from './loadFailure';
 
@@ -55,6 +56,9 @@ export function useServerEvents() {
       stream.addEventListener('open', () => {
         // Back to square one, so a later failure waits the short time again.
         wait = FIRST_WAIT_MS;
+        // The server answering ends offline that was found (`offline.ts`); one
+        // the person chose stays until they say so.
+        cameOnline(queryClient);
         // Up again after a drop: a deploy drops every open stream, so this is
         // how a tab learns a new version may be out (updating.ts, RECONNECTED).
         if (wasUp || replacement) globalThis.dispatchEvent(new Event(RECONNECTED));

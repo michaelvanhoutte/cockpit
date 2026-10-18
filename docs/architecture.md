@@ -250,13 +250,15 @@ The Zod schemas in `packages/shared/src` are the wire contract; where a decision
 
 ### 5.1 React + Vite, installed PWA
 
-**A plain SPA** — React, Vite, TanStack Router + Query — installed as a PWA with a service-worker-cached app shell. No server-side rendering: first paint comes from the persisted snapshot (§5.2), not from a server response.
+**A plain SPA** — React, Vite, TanStack Router + Query — installed as a PWA with a service-worker-cached app shell. No server-side rendering: the first screen is drawn from the server's answer once the shell is in (§5.2), and the saved reads draw only when the server does not answer.
 
 ### 5.2 The read model: persisted snapshot, revalidate, push
 
 The server is authoritative; the client keeps a persisted cache purely for speed.
 
-- On load the client paints **immediately from the reads saved in IndexedDB**, then revalidates in the background. Cold open makes no blocking network request beyond the bounded new-version check (see Performance budgets).
+- **On load the client draws from the server's answer, never from the saved reads.** It holds the router until the Workspace list, the first read every signed-in screen needs, has answered; nothing shows for 300 ms, then one quiet "Loading…" line. If the request fails outright, `navigator.onLine` says false, or nothing has answered in 3 s, the app is *offline (found)*: the checked saved reads are put in memory and drawn, and an answer that comes later puts it online again and re-reads everything active. Drawing the saved copy first and re-reading behind it is how an old saved shape reached the screen. The check for a new version (at most 1.5 s, see Performance budgets) runs alongside, not after.
+- **Capture and the Car view are the exception**: they open at once from the checked saved reads and ask the server behind, because a note never waits on a connection (§5.4). A server that does not answer within 3 s makes the rest of that visit offline too.
+- **Offline is one switch the whole app obeys**, TanStack Query's `onlineManager` (`apps/web/src/offline.ts`), whether Cockpit found the server not answering or, later, the person chose it. Reads pause; a route resolves from memory and the checked saved reads, and says "can't be loaded offline" for a read that is neither, rather than waiting on a paused query. Changes are refused before they are sent ("You're working offline"); a capture is not, it goes to the outbox. Offline that was found ends by itself when the server answers: the open's late answer, *Try again* on the failure screen, or the live stream coming up.
 - **Each read is saved on its own**, one record per query in its own database (`apps/web/src/persistence.tsx`), with the time it was saved: replaced only when that read answers again, deleted when it leaves the cache, unread a week after it was saved, and wiped whole when the logon page opens. The capture outbox, kept recordings and held shares are other databases, so no wipe reaches them.
 - **A saved read is drawn only where it converts reliably to the current schema** (`apps/web/src/savedReads.ts`): re-parsed by the shared response schema, it must come back unchanged except for optional or defaulted properties it lacked. A property the schema no longer has, a value that does not parse or that a `.catch` would replace, or a missing required property with no default makes it unusable, and its next answer replaces it. A Workspace's Items are checked one by one: one that fails is left out with whatever names it, and the board says how many; any other part failing leaves the Workspace with nothing saved to draw. A read with no schema named there is neither saved nor restored. So no version number is kept by hand and no saved read is migrated.
 - The working set is kilobytes, so the snapshot is **one API call per workspace**, not a replication protocol.
@@ -274,8 +276,8 @@ The server is authoritative; the client keeps a persisted cache purely for speed
 
 | Promise | Verdict | Mechanism |
 |---|---|---|
-| **Instant render** (no spinner on open) | **Required.** Driver #2, and the reason the product will or won't get used. | Persisted snapshot + cached app shell (§5.2); budgets in §7. |
-| **Offline read** (glance at state on a plane) | **Kept, at zero marginal cost.** Falls out of the same snapshot. | Nothing extra. |
+| **Instant render** (no spinner on open) | **No longer required**, except for Capture and the Car view. Drawing the saved copy before the server answered let an old saved shape reach the screen, and the cost of waiting is one round trip online and at most 3 s on a bad connection. Driver #2 is met by the cached app shell and the server read inside the §7 budget. | The server's answer first; the saved reads only when it does not come (§5.2). |
+| **Offline read** (glance at state on a plane) | **Kept: what was saved, where this version can still read it.** A read saved in a shape this version cannot convert is not drawn, and is replaced by its next answer. | The per-read saved copy, checked against the shared schemas (§5.2). |
 | **Offline write** (triage offline, reconcile later) | **Rejected for v1.** Honestly exceptional in practice. A general mutation queue would double the staleness problem (source→server *and* server→client), add multi-device replay conflicts, and tax every future mutation with queue semantics and offline tests. | Not built. Commands (§4.3), client IDs and LWW timestamps keep a retrofit cheap. |
 
 The general principle worth publishing: **the requirement was never "local-first", it was a latency budget.** Mail, Notion and Slack feel slow because of what happens before any data is requested — megabytes of JavaScript, hydration, auth redirects, workspace bootstrapping. Copy the mechanism, not the buzzword.
@@ -436,12 +438,12 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 
 | Budget | Target |
 |---|---|
-| Cold open → glanceable dashboard (installed PWA, warm cache) | **< 1s** |
+| Cold open → glanceable dashboard (installed PWA, warm cache), counting the server's read | **< 1s** |
 | Capture: entry point → note persisted (excluding typing) | **< 2s** |
 | Panel interactions (filter, drag, reorder, switch dashboard) | **< 100ms** |
 | Initial JS bundle (compressed) | **< 230KB**, hard CI gate |
 | Any one file fetched separately (compressed) | **< 230KB**, same gate, charged on its own |
-| Snapshot revalidation after cold open | background, never blocking paint |
+| The server's answer on opening (the Workspace list) | held at most **3s**, then the saved reads are drawn and a later answer replaces them; nothing shows for the first 300ms |
 | Cold open's check for a new version (a waiting service worker, or the browser asked for one) | holds the app **at most 1.5s**; an answer after that shows the message over the open app |
 
 **The dark appearance's first-frame decision is not in the entry**: a few lines inline in the document head (`apps/web/src/appearanceBoot.js`, written into `index.html` by `vite.config.ts`) read the stored choice and the device's colour scheme before the app's script runs, then keep the flag current as the device or another tab changes. Applying it on mount would paint light first on every dark cold open. It costs the document a few hundred bytes and the gate nothing.
@@ -456,7 +458,7 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 
 **Moved from 223KB to 230KB at once, by the engineer's decision** ("Ask on Connect whether a mail connection files by label or category", issue 1147): the gate had been moved 1KB per feature twice more with the entry left a few bytes under it each time, so any feature touching it failed.
 
-Two standing rules follow: **never block paint on auth** (paint the cached snapshot, verify the session in the background; long-lived sessions with silent refresh, no OAuth redirect on the hot path), and **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
+One standing rule follows: **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 
 ## 8. Security
 

@@ -19,6 +19,16 @@ import { manifest } from './manifest';
 const apiProxy = {
   target: process.env.COCKPIT_API_ORIGIN ?? 'http://127.0.0.1:8787',
   changeOrigin: true,
+  // A Wrangler that is not there is a bad gateway, as it is in front of a
+  // deployment, rather than the 500 the proxy answers with: opening treats a
+  // gateway standing in for the server as the server not answering
+  // (src/api/loadFailure.ts, `notAnswering`).
+  configure: (proxy: { on: (event: string, listener: (error: unknown, request: unknown, response: { writeHead?: (status: number) => void; end?: () => void }) => void) => void }) => {
+    proxy.on('error', (_error, _request, response) => {
+      response.writeHead?.(502);
+      response.end?.();
+    });
+  },
 };
 
 export default defineConfig({

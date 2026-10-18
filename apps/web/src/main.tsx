@@ -4,7 +4,8 @@ import { QueryClient } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
 import { statusOf } from './api/loadFailure';
-import { CACHE_MAX_AGE_MS, PaintedFromTheStoredCopy } from './persistence';
+import { CACHE_MAX_AGE_MS } from './persistence';
+import { HoldForTheServer, Opening } from './opening';
 import { createAppRouter } from './router';
 import { Updating } from './components/Updating';
 import { UndoWhatJustHappened } from './undo';
@@ -12,8 +13,12 @@ import './styles.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
+    // Never paused by the offline switch: a change is refused before it is sent
+    // while offline (`offline.ts`), and a paused one would sit unsent and read
+    // as saved.
+    mutations: { networkMode: 'always' },
     queries: {
-      gcTime: CACHE_MAX_AGE_MS, // keep snapshots a week so offline read works
+      gcTime: CACHE_MAX_AGE_MS, // keep reads a week so a visit can move between them
       /**
        * Retrying a refusal is only ever a delay. A request refused for not
        * being signed in, or for the role the person holds, will be refused
@@ -31,7 +36,7 @@ const router = createAppRouter(queryClient);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <PaintedFromTheStoredCopy client={queryClient}>
+    <Opening client={queryClient}>
       {/* Around the whole app rather than inside the shell, so a change made
           in the Inbox column and one made on a panel are offered back in the
           same place - and so wrapping it costs no re-indent of a file it has
@@ -41,15 +46,19 @@ createRoot(document.getElementById('root')!).render(
           to render - including the logon page, which hangs off the root rather
           than off the shell.
 
-          Inside the stored copy's provider, though, and that way round matters:
-          the re-read it starts on the way out of the restore (persistence.tsx)
-          is usually the first read to come back in a shape this build cannot
-          understand, and this has to be watching the cache before it does. */}
+          Inside the provider that opens the visit, though, and that way round
+          matters: the open's read of the server (opening.tsx) is usually the
+          first to come back in a shape this build cannot understand, and this
+          has to be watching the cache before it does. Its check for a new
+          version and the open's wait on the server start together, which is why
+          the router is held below rather than the whole of this. */}
       <Updating>
         <UndoWhatJustHappened>
-          <RouterProvider router={router} />
+          <HoldForTheServer>
+            <RouterProvider router={router} />
+          </HoldForTheServer>
         </UndoWhatJustHappened>
       </Updating>
-    </PaintedFromTheStoredCopy>
+    </Opening>
   </StrictMode>,
 );

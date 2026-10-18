@@ -27,6 +27,7 @@ import {
   type Priority,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
+import { WorkingOffline, refuseWhileOffline } from '../offline';
 import { snapshotQuery, useSendCommand, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
@@ -478,6 +479,7 @@ function TheForm({
       const attachmentId = uuidv7();
       setPendingAttachments((was) => [...was, { id: attachmentId, filename: file.name }]);
       try {
+        refuseWhileOffline();
         await uploadAttachment({
           itemId,
           workspaceId,
@@ -530,10 +532,11 @@ function TheForm({
     const attachmentId = uuidv7();
     setPendingAttachments((was) => [...was, { id: attachmentId, filename: file.name }]);
     try {
+      refuseWhileOffline();
       await uploadAttachment({ itemId, workspaceId, attachmentId, commandId: uuidv7(), file });
     } catch (failure) {
       throw new Error(
-        failure instanceof CommandRefused
+        failure instanceof CommandRefused || failure instanceof WorkingOffline
           ? failure.message
           : `${file.name} could not be uploaded - the connection dropped.`,
       );
@@ -2071,6 +2074,7 @@ function TheForm({
                         loading={cockpit.loading}
                         onRetry={cockpit.retry}
                         savedByAnOlderVersion={cockpit.savedByAnOlderVersion}
+                        unavailableOffline={cockpit.unavailableOffline}
                       />
                     </Suspense>
                   </div>

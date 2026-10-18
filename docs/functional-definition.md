@@ -39,7 +39,7 @@ The concrete pains with today's way of working (a manual Notion board beside eac
 
 - **Delivery — two iterations.** Iteration 1 tracks items flagged at the source; iteration 2 adds the read-and-process inbox on top ("Two iterations", above). The data model does not change between them.
 - **Audience — personal-first, SaaS-ready.** Built for one person first, with a data model, tenancy and auth that could become a multi-tenant product without a rewrite. **There is now more than one User**, each in an Account of their own and signing in with their Google account. So the tenancy the schema always carried is exercised rather than assumed, and what separates two people's work is a sign-in rather than a claim. Never hard-code how many Accounts exist into the schema.
-- **Offline — local-first.** Syncing happens online, but the app must open, show current status, read synced items and triage them without a connection; offline changes queue and reconcile on reconnect. Per problem 9, instant rendering is the primary purpose and offline use should fall out of the cache design rather than drive machinery of its own.
+- **Offline — local-first.** Syncing happens online, but the app must open, show current status, read synced items and triage them without a connection; offline changes queue and reconcile on reconnect. Per problem 9, offline use falls out of the saved reads rather than driving machinery of its own: opening draws from the server, and the saved reads are drawn when it does not answer in time.
 - **Inbox — triage queue.** The Inbox lists what has arrived and not been dealt with, not a permanent mirror of every message. **What decides is filing**: an Item filed on a Panel has left the Inbox and is visible in every Panel holding it.
 - **v1 sources — Gmail, Slack, Notion.** Linear, Google Calendar, Chrome (bookmarks/downloads) and YouTube (saved videos) are later phases.
 
@@ -50,7 +50,7 @@ The concrete pains with today's way of working (a manual Notion board beside eac
 - **Installable PWA** (or native shell) for offline use and mobile gestures.
 - **SaaS-ready architecture** — every row scoped to an account, now actually exercised by more than one; OAuth-based auth, which a User signs in with; per-user encrypted storage of source tokens.
 - **Security & privacy** — source credentials encrypted; workspace scoping enforced server-side, not just in the UI; clear handling of message content sent to any AI service.
-- **Performance** — dashboards render from the local cache instantly; syncing happens in the background.
+- **Performance** — dashboards draw from the server's answer within the cold-open budget; Capture opens at once from the saved reads, and syncing happens in the background.
 
 ## 12. Open decisions (need your call — recommendations included)
 

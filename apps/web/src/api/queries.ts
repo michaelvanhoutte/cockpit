@@ -24,15 +24,24 @@ import {
   setAccess,
   checkConnectionNow,
 } from './client';
+import { WorkingOffline, refuseWhileOffline } from '../offline';
+
+/** A change sent as it is, refused first while offline (`offline.ts`). */
+function unlessOffline<A, R>(send: (argument: A) => Promise<R>): (argument: A) => Promise<R> {
+  return async (argument) => {
+    refuseWhileOffline();
+    return send(argument);
+  };
+}
 
 /**
  * Who Cockpit believes you are.
  *
  * This is the app's session check as well as the name in the header, and it is
  * one query rather than two because they are one question. It is deliberately
- * *not* awaited before anything paints: the standing rule is never to block
- * paint on auth (architecture, "Performance budgets and the standing rules"),
- * so the cached view goes up and this settles behind it.
+ * *not* awaited before the screen draws: the Workspace list the open waits on
+ * (`opening.tsx`) is refused for a missing sign-in just the same, and this
+ * settles behind the screen.
  */
 export const meQuery = queryOptions({
   queryKey: ['me'],
@@ -77,7 +86,7 @@ export const usageQuery = (days: number) =>
 export function useAddUser() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: addUser,
+    mutationFn: unlessOffline(addUser),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
   });
 }
@@ -96,7 +105,7 @@ export function useAddUser() {
 export function useChangeUser() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: changeUser,
+    mutationFn: unlessOffline(changeUser),
     onSuccess: () => bothReadAgain(queryClient),
   });
 }
@@ -111,7 +120,7 @@ export function useChangeUser() {
 export function useSetAccess() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: setAccess,
+    mutationFn: unlessOffline(setAccess),
     onSuccess: () => bothReadAgain(queryClient),
   });
 }
@@ -140,7 +149,7 @@ export const accountHoldingsQuery = (userId: string) =>
 export function useDeleteUser() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: deleteUser,
+    mutationFn: unlessOffline(deleteUser),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
   });
 }
@@ -269,6 +278,7 @@ export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> 
   const queryClient = useQueryClient();
   return useCallback(
     async (args: CommandArgs) => {
+      refuseUnlessCapture(args);
       const answer = await sendCommand(args.name, args.payload as never);
       await afterChanging(queryClient, args);
       return answer;
@@ -407,14 +417,28 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
  * to say something slightly different about the same failure.
  */
 export function refusalFrom(command: { error: unknown }): string | null {
-  if (command.error instanceof CommandRefused) return command.error.message;
+  if (command.error instanceof CommandRefused || command.error instanceof WorkingOffline) {
+    return command.error.message;
+  }
   return command.error ? 'That did not reach the server. Try again.' : null;
+}
+
+/**
+ * Changes are refused while offline, found or chosen, before they are sent: a
+ * paused request would sit unsent and read as saved. A capture is the exception;
+ * it goes to the outbox, which sends it when the server answers.
+ */
+function refuseUnlessCapture(args: CommandArgs): void {
+  if (args.name !== 'capture_item') refuseWhileOffline();
 }
 
 export function useCommand() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (args: CommandArgs) => sendCommand(args.name, args.payload as never),
+    mutationFn: async (args: CommandArgs) => {
+      refuseUnlessCapture(args);
+      return sendCommand(args.name, args.payload as never);
+    },
     // Returned rather than called and dropped, because React Query waits on
     // what a mutation's own `onSuccess` returns. For the changes that hand it
     // back a promise, the caller's `onSuccess` then runs on a workspace that
@@ -431,6 +455,6 @@ export function useCommand() {
  */
 export function useCheckConnectionNow(workspaceId: string) {
   return useMutation({
-    mutationFn: (sourceAccountId: string) => checkConnectionNow(workspaceId, sourceAccountId),
+    mutationFn: unlessOffline((sourceAccountId: string) => checkConnectionNow(workspaceId, sourceAccountId)),
   });
 }

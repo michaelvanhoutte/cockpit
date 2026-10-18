@@ -20,7 +20,7 @@
 
 export type FailureReason =
   /**
-   * Nothing could be reached at all. The stored copy is still readable
+   * Nothing could be reached at all. The saved reads are still readable, where this version can read them
    * (functional definition, "Offline / local-first behavior").
    */
   | 'offline'
@@ -89,6 +89,19 @@ export function statusOf(error: unknown): string | undefined {
   // the other way round would be a circle.
   if ('status' in error && typeof error.status === 'number') return String(error.status);
   return STATUS.exec(error.message)?.[1];
+}
+
+/**
+ * Whether a failed request is the server not answering at all, as opposed to it
+ * answering "no": a request that failed outright (`fetch`'s `TypeError`), or a
+ * gateway standing in for an origin that is down. Opening treats these as
+ * offline and everything else, a refusal or a shape it cannot read included, as
+ * an answer.
+ */
+export function notAnswering(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  const status = statusOf(error);
+  return status === '502' || status === '503' || status === '504';
 }
 
 export async function diagnose(

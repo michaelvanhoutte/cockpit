@@ -25,8 +25,8 @@ import { forgetEverySavedRead } from '../persistence';
  * person uses the same browser:
  *
  * - the in-memory cache, which is what is on screen;
- * - every read saved in IndexedDB, which is what the *next* cold open would
- *   paint from, a week later if need be (`persistence.tsx`) - and only those:
+ * - every read saved in IndexedDB, which is what the *next* offline open would
+ *   draw from, a week later if need be (`persistence.tsx`) - and only those:
  *   the capture outbox, kept recordings and held shares are each in a database
  *   of their own and stay;
  * - which view each workspace was last on, which panels were last filed into,
