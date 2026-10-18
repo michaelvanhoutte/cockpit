@@ -174,6 +174,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     AGENTS_REMEMBERED,
     CONNECTION_HISTORY_LISTED,
     PANEL_COLUMNS,
+    DROP_WORKSPACE_COLOURS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1029,6 +1030,53 @@ const CONNECTION_HISTORY_LISTED: Change = {
 const PANEL_COLUMNS: Change = {
   name: '0089-panel-columns',
   statements: [{ sql: 'ALTER TABLE `panels` ADD COLUMN `columns` text' }],
+};
+
+/**
+ * A Workspace's band, top bar and page grey, taken off `workspaces` now that
+ * they are the palette's rather than the row's ("Drop a Workspace's band, top
+ * bar and page grey columns from every account's store", issue 1214). Only the
+ * accent is stored; repo.ts gives the other three from the theme it names.
+ *
+ * **The contract half of an expand-then-contract**, a release after "Stop
+ * storing a Workspace's band, top bar and page grey" (issue 1213) stopped every
+ * read and write naming them (deployment, "Migrations and rollback").
+ *
+ * **A plain `DROP COLUMN` each, not a table rebuild.** SQLite refuses to drop a
+ * column carried by an index, a primary key or a CHECK, and none of the three
+ * is: `workspaces_tenant_live_folded_name` names `tenant_id` and `folded_name`,
+ * and the table's two CHECKs name `created_at` and `deleted_at`.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **If it stops halfway:** the three drops and the record that they ran
+ *   commit in one `transactionSync` (store.ts), so an account has all three
+ *   columns or none, and no record of the change; the next open retries it
+ *   whole.
+ * - **The second time it runs:** only an unfinished change runs again, and an
+ *   unfinished one left all three columns. SQLite has no `DROP COLUMN IF
+ *   EXISTS`, so that transaction is what makes a retry safe.
+ * - **Rows that break the new rule:** none are refused. What goes is three
+ *   copies of colours the accent already implies - every stored set read off
+ *   production's backup before this shipped was a palette entry, past or
+ *   present.
+ * - **What is in each environment:** staging and production hold real
+ *   Workspaces and drop on their next open; the guest account on its nightly
+ *   rebuild; a laptop on its next `pnpm dev`.
+ * - **Rolled back after it has run:** a release before issue 1213 names the
+ *   columns, and every Workspace read fails. That is the rollback floor, and
+ *   going back past it takes a restore.
+ * - **A backup restored from before it:** the restore replays only the changes
+ *   the backup recorded, so the columns come back with its rows, and this drop
+ *   runs again as the restore brings the account up to date.
+ */
+const DROP_WORKSPACE_COLOURS: Change = {
+  name: '0090-drop-workspace-colours',
+  statements: [
+    { sql: 'ALTER TABLE `workspaces` DROP COLUMN `bar`' },
+    { sql: 'ALTER TABLE `workspaces` DROP COLUMN `ground`' },
+    { sql: 'ALTER TABLE `workspaces` DROP COLUMN `header`' },
+  ],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

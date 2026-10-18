@@ -4,37 +4,24 @@ import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { Workspace } from '@cockpit/shared';
 import { accountChanges } from '../../../src/accounts/changes.js';
 import { GUEST_ACCOUNT_NAME } from '../../../src/accounts/new-user.js';
-import {
-  asUser,
-  inStoreAsItIs,
-  inTheStore,
-  seedRegister,
-  startFromEmpty,
-  storeNamed,
-} from '../seed.js';
+import { asUser, inStoreAsItIs, seedRegister, startFromEmpty, storeNamed } from '../seed.js';
 
 /**
  * Integration level, because only a real schema shows that nothing the server
- * reads or writes names the `bar`, `ground` and `header` columns: the test
- * removes them by raw SQL, standing in for the release that drops them, and
- * drives every Workspace path against what is left.
+ * reads or writes names the `bar`, `ground` and `header` columns: an account
+ * brought up to date no longer has them (`0090-drop-workspace-colours`), and
+ * every Workspace path is driven against what is left.
  *
- * Its own file because it arranges stores no other test wants - ones without
- * three columns - and, like workspace-reads.test.ts, asks about the shape of a
- * deploy rather than a feature.
+ * Its own file because, like workspace-reads.test.ts, it asks about the shape
+ * of a deploy rather than a feature.
  */
 
 const AT = '2026-10-18T10:00:00.000Z';
-const THE_THREE = ['bar', 'ground', 'header'];
 
 let seq = 0;
 function nextId(): string {
   seq += 1;
   return `018f0000-0000-7000-8000-${String(seq).padStart(12, '0')}`;
-}
-
-function dropTheThree(sql: SqlStorage): void {
-  for (const column of THE_THREE) sql.exec(`ALTER TABLE workspaces DROP COLUMN ${column}`);
 }
 
 async function send(command: string, body: Record<string, unknown>): Promise<Response> {
@@ -64,13 +51,6 @@ beforeEach(async () => {
 
 describe('Workspace management', () => {
   describe('with the band, top bar and page grey no longer stored, every Workspace path still works', () => {
-    // The account is opened (by `inTheStore`) before the columns go, so the
-    // changes that name them have run, as they have on any account the drop
-    // reaches.
-    beforeEach(async () => {
-      await inTheStore(dropTheThree);
-    });
-
     it('creates a Workspace and reads it back in its theme', async () => {
       const id = nextId();
 
@@ -112,9 +92,8 @@ describe('Workspace management', () => {
 
   describe('the guest demonstration’s nightly reset seeds its Workspaces without the three columns', () => {
     it('lands every Workspace of the demonstration', async () => {
-      // A store as it stood before the demonstration was seeded, as the reset
-      // leaves it just before the change runs: everything earlier applied and
-      // recorded, and then the three columns gone.
+      // A store as the reset leaves it just before the demonstration is seeded:
+      // everything earlier applied and recorded, the drop of the three among it.
       const before = accountChanges(GUEST_ACCOUNT_NAME).findIndex(
         (change) => change.name === '0026-guest-demo-seed',
       );
@@ -132,7 +111,6 @@ describe('Workspace management', () => {
           }
           sql.exec('INSERT INTO account_changes (name, applied_at) VALUES (?, ?)', change.name, AT);
         }
-        dropTheThree(sql);
       });
 
       // Opening the store runs the seed, as the first request after a reset does.

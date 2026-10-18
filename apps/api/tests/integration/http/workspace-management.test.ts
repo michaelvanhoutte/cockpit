@@ -709,40 +709,18 @@ describe('Workspace management', () => {
       expect(await coloursOf(subject.id)).toEqual(before);
     });
 
-    it.each([
-      {
-        situation: 'a row holding an older palette’s band and page grey',
-        held: { color: WORKSPACE_THEMES[3]!.tint, bar: '#1d372f', ground: '#edebf7', header: '#18152b' },
-        reaches: WORKSPACE_THEMES[3]!,
-      },
-      {
-        situation: 'a row holding the columns’ defaults under another accent, as one created by a later release does',
-        held: { color: WORKSPACE_THEMES[5]!.tint, bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
-        reaches: WORKSPACE_THEMES[5]!,
-      },
-      {
-        situation: 'an accent that is not in the palette',
-        held: { color: '#123456', bar: '#010203', ground: '#040506', header: '#070809' },
-        reaches: { ...WORKSPACE_THEMES[0]!, tint: '#123456' },
-      },
-    ])('reaches the browser in its accent’s palette colors, whatever it holds: $situation', async ({ held, reaches }) => {
+    // A stored band and page grey that are not the palette's is asked of a
+    // store from before they were dropped (aged-store.test.ts); only an accent
+    // can still be stored that the palette does not have.
+    it('reaches the browser in the first theme’s colors under an accent that is not in the palette', async () => {
       const subject = await aWorkspace();
-      await inTheStore((sql) =>
-        sql.exec(
-          'UPDATE workspaces SET color = ?, bar = ?, ground = ?, header = ? WHERE id = ?',
-          held.color,
-          held.bar,
-          held.ground,
-          held.header,
-          subject.id,
-        ),
-      );
+      await inTheStore((sql) => sql.exec('UPDATE workspaces SET color = ? WHERE id = ?', '#123456', subject.id));
 
       expect(await coloursOf(subject.id)).toEqual({
-        color: reaches.tint,
-        bar: reaches.bar,
-        ground: reaches.ground,
-        header: reaches.header,
+        color: '#123456',
+        bar: WORKSPACE_THEMES[0]!.bar,
+        ground: WORKSPACE_THEMES[0]!.ground,
+        header: WORKSPACE_THEMES[0]!.header,
       });
     });
 

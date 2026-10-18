@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { abortAllDurableObjects, applyD1Migrations, env } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
 import { GMAIL_RECONNECT_REASON, accountChanges, filterRowsStatements } from '../../../src/accounts/changes.js';
+import { themeOf } from '@cockpit/shared';
 import { inStoreAsItIs, storeNamed } from '../seed.js';
 
 /**
@@ -145,6 +146,18 @@ const rowsFor: {
                  ('ws-during', ?, 'During', 'during', '#3a72c8', '#d8e5f7', '#bed6f2', ?),
                  ('ws-after', ?, 'After', 'after', '#c06a45', '#f2e5d4', '#ead2b3', ?)`,
     params: (name) => [name, AT, name, LATER, name, LATEST],
+    // The same three once `0090-drop-workspace-colours` has taken the stored
+    // band, top bar and page grey away.
+    final: [
+      {
+        missingColumns: ['bar', 'ground', 'header'],
+        sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at)
+              VALUES ('ws-before', ?, 'Before', 'before', '#6f62b5', ?),
+                     ('ws-during', ?, 'During', 'during', '#3a72c8', ?),
+                     ('ws-after', ?, 'After', 'after', '#c06a45', ?)`,
+        params: (name) => [name, AT, name, LATER, name, LATEST],
+      },
+    ],
   },
   {
     table: 'dashboards',
@@ -2343,6 +2356,114 @@ describe('Workspace management', () => {
           sql.exec<{ id: string }>('SELECT id FROM workspaces ORDER BY position').toArray(),
         ),
       ).toEqual([{ id: 'ws-before' }, { id: 'ws-during' }, { id: 'ws-after' }]);
+    });
+  });
+});
+
+/**
+ * `0090-drop-workspace-colours` ("Drop a Workspace's band, top bar and page
+ * grey columns from every account's store", issue 1214) meets Workspaces of
+ * several themes still holding stored colours that are not their palette's.
+ * Integration because whether a column exists is a fact about a real schema.
+ */
+const DROP_WORKSPACE_COLOURS = '0090-drop-workspace-colours';
+const STORED_COLOURS = ['bar', 'ground', 'header'];
+
+/** A store just before the drop, each of its Workspaces holding a stale stored set. */
+async function storeWithStaleColours(name: string): Promise<void> {
+  await agedTo(name, justBefore(DROP_WORKSPACE_COLOURS));
+  await fillWithWhatIsAlreadyThere(name);
+  await inStoreAsItIs(name, (sql) => {
+    // An older palette's band and page grey under a palette accent.
+    sql.exec("UPDATE workspaces SET bar = '#211d37', ground = '#edebf7', header = '#18152b' WHERE id = 'ws-before'");
+    // The columns' defaults under another accent, as a later release left them.
+    sql.exec("UPDATE workspaces SET bar = '#dbd7ee', ground = '#e3e1f2', header = '#d2cdea' WHERE id = 'ws-during'");
+    // An accent not in the palette, with colours of its own.
+    sql.exec(
+      "UPDATE workspaces SET color = '#123456', bar = '#010203', ground = '#040506', header = '#070809' WHERE id = 'ws-after'",
+    );
+  });
+}
+
+/** Which of the three stored colours `workspaces` still has, alphabetically. */
+async function storedColoursIn(name: string): Promise<string[]> {
+  const columns = await inStoreAsItIs(name, (sql) => columnsOf(sql, 'workspaces'));
+  return columns.filter((column) => STORED_COLOURS.includes(column)).sort();
+}
+
+/** Each Workspace as the account reads it out. */
+async function workspacesReadFrom(name: string) {
+  const answer = await storeNamed(name).workspaces(name);
+  expect(answer).toMatchObject({ status: 'ok' });
+  return answer.status === 'ok'
+    ? answer.value.map(({ id, color, bar, ground, header }) => ({ id, color, bar, ground, header }))
+    : [];
+}
+
+/** The four colours a Workspace wearing this accent reads in. */
+function wearing(id: string, color: string) {
+  const theme = themeOf(color);
+  return { id, color, bar: theme.bar, ground: theme.ground, header: theme.header };
+}
+
+describe('Workspace management', () => {
+  describe('a store brought fully up to date holds no band, top bar or page grey, and every Workspace still reads in its accent’s colours', () => {
+    it('drops all three from a store whose Workspaces held stale ones', async () => {
+      const name = 'aged-store-workspace-colours';
+      await storeWithStaleColours(name);
+
+      expect(await workspacesReadFrom(name)).toEqual(
+        expect.arrayContaining([
+          // The first Workspace the account was given, holding the set its
+          // change wrote from the palette of the day.
+          wearing('ws-1', '#6f62b5'),
+          wearing('ws-before', '#6f62b5'),
+          wearing('ws-during', '#3a72c8'),
+          wearing('ws-after', '#123456'),
+        ]),
+      );
+      expect(await workspacesReadFrom(name)).toHaveLength(4);
+
+      // The accent is asked for as well, so that a `table_info` answering about
+      // nothing at all fails here rather than reading as columns that have gone.
+      expect(await inStoreAsItIs(name, (sql) => columnsOf(sql, 'workspaces'))).toContain('color');
+      expect(await storedColoursIn(name)).toEqual([]);
+    });
+  });
+
+  describe('the drop applies whole or not at all, and only once', () => {
+    it('leaves all three and no record when it fails partway, and applies whole on the next open', async () => {
+      // An index naming `header` is the one way to make SQLite refuse its drop
+      // from outside, after `bar` and `ground` have already gone in the same run.
+      const name = 'aged-store-workspace-colours-fails-partway';
+      await storeWithStaleColours(name);
+      await inStoreAsItIs(name, (sql) => sql.exec('CREATE INDEX in_the_way ON workspaces (header)'));
+
+      const failed = await storeNamed(name).workspaces(name);
+
+      expect(failed).toMatchObject({ status: 'not-up-to-date' });
+      expect(JSON.stringify(failed)).toContain(DROP_WORKSPACE_COLOURS);
+      expect(await storedColoursIn(name)).toEqual(STORED_COLOURS);
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec('SELECT name FROM account_changes WHERE name = ?', DROP_WORKSPACE_COLOURS).toArray(),
+        ),
+      ).toEqual([]);
+
+      await inStoreAsItIs(name, (sql) => sql.exec('DROP INDEX in_the_way'));
+
+      expect(await workspacesReadFrom(name)).toHaveLength(4);
+      expect(await storedColoursIn(name)).toEqual([]);
+    });
+
+    it('changes nothing further when opened again', async () => {
+      const name = 'aged-store-workspace-colours-twice';
+      await storeWithStaleColours(name);
+      const once = { read: await workspacesReadFrom(name), schema: await schemaIn(name) };
+
+      await abortAllDurableObjects();
+
+      expect({ read: await workspacesReadFrom(name), schema: await schemaIn(name) }).toEqual(once);
     });
   });
 });

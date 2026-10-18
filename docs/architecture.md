@@ -238,7 +238,7 @@ The Zod schemas in `packages/shared/src` are the wire contract; where a decision
 
 **Workspace themes (`domain/workspace-themes.ts`):**
 
-- **The four colors and what each surface is are functional-definition.md's** ("Container hierarchy", §4.1). `bar` is designed per theme rather than computed, so an entry stays tunable by hand. A Workspace is painted from the theme its `color` names, never from its stored `bar`, `ground` or `header`, so a palette change rewrites no row; the server stores only the accent for a pick or a new Workspace, and dropping the three columns is a later contract step.
+- **The four colors and what each surface is are functional-definition.md's** ("Container hierarchy", §4.1). `bar` is designed per theme rather than computed, so an entry stays tunable by hand. Only a Workspace's `color` is stored, and it is painted from the theme that colour names, so a palette change rewrites no row; the server fills in `bar`, `ground` and `header` from the palette whenever it reads one.
 - **Every theme's band and deep accent are designed, then held by a test to contrast rules** (`docs/design-system.md`, "Workspace themes"), not mixed at render time: a darkening that reads on Violet leaves Amber's text under 4.5:1. `deep` is palette-only and never stored — it is found by tint, like the fallback.
 - **`DEFAULT_WORKSPACE_THEME`** is what an unrecognised tint falls back to, since a workspace whose tint is not in the palette is not a corrupt row — just one that looks slightly wrong — and refusing to show it, or refusing a deploy over it, would be the wrong loudness. Contrast two workspaces sharing a *name*, which is refused: that is two things a person genuinely cannot tell apart.
 
