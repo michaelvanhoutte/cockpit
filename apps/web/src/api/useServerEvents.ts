@@ -4,7 +4,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, serverEventSchema } from '@cockpit/shared';
 import type { ServerEvent, WorkspaceSnapshot } from '@cockpit/shared';
 import { cameOnline, foundOffline } from '../opening';
-import { useStanding } from '../offline';
+import { isOffline, useStanding } from '../offline';
 import { RECONNECTED } from '../updating';
 import { diagnoseConnection } from './loadFailure';
 
@@ -53,7 +53,7 @@ export function useServerEvents() {
     // reports an error each time, and each is not a reason for another request.
     let checking = false;
     const checkTheServer = async () => {
-      if (checking) return;
+      if (checking || isOffline()) return;
       checking = true;
       try {
         if ((await diagnoseConnection()) === 'offline' && !unmounted) await foundOffline(queryClient);

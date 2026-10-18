@@ -172,6 +172,7 @@ describe('Offline', () => {
       { situation: 'a read answered by a gateway with 502', error: new Error('snapshot failed: 502'), offline: true },
       { situation: 'a read the server refuses', error: new Error('snapshot failed: 403'), offline: false },
     ])('$situation', async ({ error, offline }) => {
+      vi.mocked(diagnoseConnection).mockResolvedValue('offline');
       const client = openApp(() => Promise.resolve(freshList));
       await screen.findByText('Fresh Work');
 
@@ -181,6 +182,20 @@ describe('Offline', () => {
 
       await vi.waitFor(() => expect(isOffline()).toBe(offline));
       expect(readChosen()).toBe(false);
+    });
+
+    it('stays online when a read fails but the server can still be reached', async () => {
+      vi.mocked(diagnoseConnection).mockResolvedValue('trouble');
+      const client = openApp(() => Promise.resolve(freshList));
+      await screen.findByText('Fresh Work');
+
+      renderHook(() => useQuery({ queryKey: ['on-screen'], queryFn: () => Promise.reject(new TypeError('Failed to fetch')) }), {
+        wrapper: wrapperFor(client),
+      });
+
+      await vi.waitFor(() => expect(diagnoseConnection).toHaveBeenCalled());
+      await act(async () => {});
+      expect(isOffline()).toBe(false);
     });
 
     it('does not flip while the open is still waiting on the server', async () => {

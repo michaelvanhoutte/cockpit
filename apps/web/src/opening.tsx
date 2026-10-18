@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
-import { notAnswering, realSurroundings, type Surroundings } from './api/loadFailure';
+import { diagnoseConnection, notAnswering, realSurroundings, type Surroundings } from './api/loadFailure';
 import { workspacesQuery } from './api/queries';
-import { CHOSEN_KEY, currentStanding, readChosen, rememberChosen, stand, useStanding } from './offline';
+import { CHOSEN_KEY, currentStanding, isOffline, readChosen, rememberChosen, stand, useStanding } from './offline';
 import { restoreSavedReads, saveReadsAsTheyAnswer, tidySavedReads } from './persistence';
 
 /**
@@ -109,11 +109,23 @@ export async function foundOffline(client: QueryClient): Promise<void> {
   if (!currentStanding().chosen) stand({ found: true });
 }
 
-/** Watches reads for one the server did not answer, once the visit is open. */
-function watchForSilence(client: QueryClient): () => void {
+/**
+ * Watches reads for one the server did not answer, once the visit is open.
+ * One failed read is not enough: a dropped request or a single gateway error
+ * while the live stream is up would leave offline found with nothing to end it,
+ * so the server is asked too, and only no answer to that finds offline.
+ */
+function watchForSilence(client: QueryClient, surroundings: Surroundings): () => void {
+  let checking = false;
   return client.getQueryCache().subscribe((event) => {
     if (event.type !== 'updated' || event.action.type !== 'error') return;
-    if (notAnswering(event.action.error)) void foundOffline(client);
+    if (checking || isOffline() || !notAnswering(event.action.error)) return;
+    checking = true;
+    void diagnoseConnection(surroundings)
+      .then((reason) => (reason === 'offline' ? foundOffline(client) : undefined))
+      .finally(() => {
+        checking = false;
+      });
   });
 }
 
@@ -235,7 +247,7 @@ export function Opening({
   useEffect(() => {
     const stopSaving = saveReadsAsTheyAnswer(client);
     const stopVisit = startVisit(client, how, seams);
-    const stopWatching = watchForSilence(client);
+    const stopWatching = watchForSilence(client, seams?.surroundings ?? realSurroundings);
     // Another tab of this device chose, or ended, working offline.
     const followOtherTabs = (event: StorageEvent) => {
       if (event.key === CHOSEN_KEY || event.key === null) void followChoice(client, readChosen());
