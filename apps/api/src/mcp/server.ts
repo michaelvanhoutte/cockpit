@@ -11,6 +11,7 @@ import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Accoun
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
+import { FIND_ITEMS, findItemsTool, formatFound, readFind } from './find-items.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
@@ -26,7 +27,7 @@ import { MCP_PATH } from '../auth/mcp-paths.js';
  * the account as it is now: a workspace renamed a moment ago is listed by its
  * new name on the next `tools/list`, with nothing to invalidate.
  *
- * Two tools, `create_item` and `report_run` (issue 1160), and no resources or prompts: the server declares
+ * Three tools, `create_item`, `find_items` (issue 1242) and `report_run` (issue 1160), and no resources or prompts: the server declares
  * the tools capability alone, so a client never asks for the others.
  */
 
@@ -78,21 +79,24 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     try {
-      return { tools: [createItemTool(await account.workspaces()), reportRunTool()] };
+      const workspaces = await account.workspaces();
+      return { tools: [createItemTool(workspaces), findItemsTool(workspaces), reportRunTool()] };
     } catch (error) {
       logged(error);
       throw new McpError(ErrorCode.InternalError, SOMETHING_BROKE);
     }
   });
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN) {
+    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN && params.name !== FIND_ITEMS) {
       return toolError(`There is no tool called ${params.name}.`);
     }
     try {
       const said =
         params.name === REPORT_RUN
           ? await reportRun(account, app, params.arguments)
-          : await capture(env, ctx, account, holder.accountName, app, params.arguments);
+          : params.name === FIND_ITEMS
+            ? await find(env, account, app, params.arguments)
+            : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
       logged(error);
@@ -189,6 +193,35 @@ async function capture(
   const link = new URL(`/w/${encodeURIComponent(read.workspaceId)}`, env.APP_ORIGIN);
   link.searchParams.set('item', itemId);
   return { reply: `Captured "${title}" in ${where}. Open it: ${link.href}` };
+}
+
+/**
+ * One `find_items` call ("Find items in Cockpit by text and condition, over
+ * MCP", issue 1242): admitted under its own limits, read against the
+ * account as it is now, and answered from the account's store with one page.
+ *
+ * **Reads only**: nothing is written, queued or noted on the connections list,
+ * so a looping agent costs row reads and nothing else, which is what its day's
+ * limit holds down.
+ */
+async function find(
+  env: Env,
+  account: Account,
+  app: { grantId: string },
+  args: unknown,
+): Promise<{ reply: string } | { refusal: string }> {
+  // Every call is counted, as capture's are, and before anything is read.
+  const admitted = await account.findArrived(app.grantId, new Date().toISOString());
+  if (admitted === 'too-many-a-minute') {
+    return { refusal: 'Too many searches in the last minute. Wait a minute and try again.' };
+  }
+  if (admitted === 'too-many-today') {
+    return { refusal: 'Too many searches today. Try again tomorrow.' };
+  }
+
+  const read = readFind(args, await account.workspaces(), new Date());
+  if (!read.ok) return { refusal: read.refusal };
+  return { reply: formatFound(await account.findItems(read.query), env.APP_ORIGIN) };
 }
 
 /**

@@ -110,8 +110,8 @@ export default function ManageConnectedApps({
       ref={list}
     >
       <p className="mt-2 text-sm text-ink-faint">
-        Apps you allowed to capture items into your Cockpit. To connect Claude, paste this address into
-        claude.ai.
+        Apps you allowed to capture items into your Cockpit and to read your items, in every workspace. To
+        connect Claude, paste this address into claude.ai.
       </p>
       <div className="mt-3 flex items-center gap-3 rounded-md border border-shade/10 p-3">
         <code className="min-w-0 flex-1 select-all break-all text-sm">{address}</code>

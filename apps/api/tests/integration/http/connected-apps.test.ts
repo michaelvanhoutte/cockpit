@@ -3,6 +3,8 @@ import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import { NEUTRAL_GROUND, type AgentRun, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
+  DASHBOARD_ID,
+  OTHER_ACCOUNT_NAME,
   OTHER_USER_ID,
   USER_ID,
   WORKSPACE_ID,
@@ -13,6 +15,7 @@ import {
   seedRegister,
   signInAs,
   startFromEmpty,
+  withoutTheGuide,
 } from '../seed.js';
 import { issuerIsReachable, issuerWillIdentify } from '../issuer.js';
 
@@ -178,12 +181,18 @@ interface ListedTool {
   inputSchema: { properties: Record<string, { enum?: string[] }> };
 }
 
-async function listedTool(token: string): Promise<ListedTool> {
+async function listedTool(token: string, name = 'create_item'): Promise<ListedTool> {
   const answer = await mcp(token, 'tools/list');
   expect(answer.status).toBe(200);
   const { tools } = ((await answer.json()) as { result: { tools: ListedTool[] } }).result;
-  expect(tools.map((tool) => tool.name)).toEqual(['create_item', 'report_run']);
-  return tools[0]!;
+  expect(tools.map((tool) => tool.name)).toEqual(['create_item', 'find_items', 'report_run']);
+  return tools.find((tool) => tool.name === name)!;
+}
+
+async function findItems(token: string, args: Record<string, unknown> = {}): Promise<ToolAnswer> {
+  const answer = await mcp(token, 'tools/call', { name: 'find_items', arguments: args });
+  expect(answer.status).toBe(200);
+  return ((await answer.json()) as { result: ToolAnswer }).result;
 }
 
 /** Every Item a workspace's Inbox shows, as the app reads it, but those the account arrived with. */
@@ -324,6 +333,9 @@ describe('MCP connections', () => {
       // What it will be able to see, said plainly: the names it is told.
       expect(page).toContain('see the names of your workspaces and types');
       expect(page).not.toContain('cannot read');
+      // And that it can read the items themselves, in every workspace.
+      expect(page).toContain('read your items, in every workspace');
+      expect(page).not.toContain('cannot see your items');
 
       const allowed = await decide(path, await signInAs(USER_ID), 'allow');
       const back = new URL(allowed.headers.get('location')!);
@@ -664,6 +676,22 @@ describe('Capture', () => {
       expect(own.description).toContain('"Atlas Copco"');
       expect(own.inputSchema.properties).not.toHaveProperty('type');
       expect(own.description).not.toContain('Task');
+
+      // And the tool that looks is told the same names, and the same account's alone.
+      const finds = await listedTool((await connected(USER_ID)).token, 'find_items');
+      expect(finds.inputSchema.properties.workspace!.enum).toEqual(['Workspace 1', 'Atlas Copco', 'Personal']);
+      expect((await listedTool(token, 'find_items')).description).not.toContain('Atlas Copco');
+    });
+
+    it('tells an app in its instructions when to look for items', async () => {
+      const { token } = await connected();
+      const answer = await mcp(token, 'initialize', {
+        protocolVersion: '2025-03-26',
+        capabilities: {},
+        clientInfo: { name: 'Claude', version: '1' },
+      });
+      const { result } = (await answer.json()) as { result: { instructions: string } };
+      expect(result.instructions).toContain('Use find_items when the user asks what is in Cockpit');
     });
 
     it('names a workspace by its new name once it is renamed', async () => {
@@ -972,6 +1000,176 @@ describe('Agents', () => {
 
       vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 61_000 });
       expect((await reportRun(token, { run: runId, stage: 'ready' })).isError).toBeFalsy();
+    });
+  });
+});
+
+/** One command as the person's own browser sends it. */
+function command(name: string, body: Record<string, unknown>, userId: string = USER_ID): Promise<Response> {
+  return asUser(
+    `${ORIGIN}/v1/commands/${name}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        commandId: crypto.randomUUID(),
+        issuedAt: new Date().toISOString(),
+        workspaceId: WORKSPACE_ID,
+        ...body,
+      }),
+    },
+    userId,
+  );
+}
+
+/** An Item captured, and then given the priority, due date and last change a case is about. */
+async function anItemSaying(
+  message: string,
+  over: { workspaceId?: string; userId?: string; priority?: string; dueDate?: string } = {},
+): Promise<string> {
+  const itemId = crypto.randomUUID();
+  const { workspaceId = WORKSPACE_ID, userId = USER_ID } = over;
+  expect((await command('capture_item', { itemId, message, workspaceId }, userId)).status).toBe(200);
+  if (over.priority) {
+    expect((await command('set_priority', { itemId, priority: over.priority, workspaceId }, userId)).status).toBe(200);
+  }
+  if (over.dueDate) {
+    expect((await command('set_due_date', { itemId, dueDate: over.dueDate, workspaceId }, userId)).status).toBe(200);
+  }
+  return itemId;
+}
+
+/** Says when each Item last changed, so the order a case reads is the one it set. */
+async function changedAt(changes: [itemId: string, at: string][]): Promise<void> {
+  await inTheStore((sql) => {
+    for (const [itemId, at] of changes) sql.exec('UPDATE items SET updated_at = ? WHERE id = ?', at, itemId);
+  });
+}
+
+/** The titles a reply lists, in order. */
+const titlesIn = (reply: ToolAnswer) => [...reply.content[0]!.text.matchAll(/^\d+\. (.+)$/gm)].map((m) => m[1]);
+
+describe('MCP connections', () => {
+  describe('an app finds the open items that meet what it asks, across the whole of its own account', () => {
+    it('finds by text in any case, by a sender alone, and says so plainly where nothing matches', async () => {
+      await withoutTheGuide();
+      await anItemSaying('Ring the plumber about the boiler');
+      const { token } = await connected(USER_ID, 'Zebra Mail');
+      expect((await createItem(token, { message: 'Unrelated words', workspace: 'Workspace 1' })).isError).toBeFalsy();
+
+      const byTitle = await findItems(token, { text: 'PLUMBER' });
+      const bySender = await findItems(token, { text: 'zebra mail' });
+      const none = await findItems(token, { text: 'nothing says this' });
+
+      expect([byTitle.isError, titlesIn(byTitle)]).toEqual([undefined, ['Ring the plumber about the boiler']]);
+      expect(titlesIn(bySender)).toEqual(['Unrelated words']);
+      expect(bySender.content[0]!.text).toContain('Sender: Zebra Mail');
+      expect(none).toEqual({ content: [{ type: 'text', text: 'No item matches.' }] });
+    });
+
+    it('lists every open item, newest change first, when no condition is given', async () => {
+      await withoutTheGuide();
+      const older = await anItemSaying('Older');
+      const newer = await anItemSaying('Newer');
+      const finished = await anItemSaying('Finished');
+      expect((await command('set_done', { itemId: finished, done: true })).status).toBe(200);
+      await changedAt([
+        [older, '2026-10-01T10:00:00.000Z'],
+        [newer, '2026-10-02T10:00:00.000Z'],
+      ]);
+      const { token } = await connected();
+
+      expect(titlesIn(await findItems(token))).toEqual(['Newer', 'Older']);
+    });
+
+    it('narrows by workspace in any case, priority and text together, and refuses a workspace there is not', async () => {
+      await withoutTheGuide();
+      await alsoWorkspaces();
+      await anItemSaying('Send the quote to the plumber', { workspaceId: 'ws-atlas', priority: 'high' });
+      await anItemSaying('Plumber for the lobby', { workspaceId: 'ws-atlas', priority: 'low' });
+      await anItemSaying('Plumber at home', { workspaceId: 'ws-personal', priority: 'high' });
+      await anItemSaying('Send the quote for tiles', { workspaceId: 'ws-atlas', priority: 'high' });
+      const { token } = await connected();
+
+      const narrowed = await findItems(token, { workspace: 'atlas copco', priority: 'high', text: 'plumber' });
+      const unknown = await findItems(token, { workspace: 'Nowhere' });
+
+      expect(titlesIn(narrowed)).toEqual(['Send the quote to the plumber']);
+      expect(unknown).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('"Workspace 1", "Atlas Copco", "Personal"') }] });
+    });
+
+    it('leaves a finished item out unless include_done, marks it done when asked, and never finds a dismissed one', async () => {
+      await withoutTheGuide();
+      await anItemSaying('Open errand');
+      const finished = await anItemSaying('Finished errand');
+      const dismissed = await anItemSaying('Dismissed errand');
+      expect((await command('set_done', { itemId: finished, done: true })).status).toBe(200);
+      expect((await command('set_dismissed', { itemId: dismissed, dismissed: true })).status).toBe(200);
+      const { token } = await connected();
+
+      const plain = await findItems(token, { text: 'errand' });
+      const withDone = await findItems(token, { text: 'errand', include_done: true });
+
+      expect(titlesIn(plain)).toEqual(['Open errand']);
+      expect(titlesIn(withDone).toSorted()).toEqual(['Finished errand', 'Open errand']);
+      expect(withDone.content[0]!.text).toContain('Status: Done');
+    });
+
+    it('never finds another account’s items, and names where an item is filed on each Panel', async () => {
+      await withoutTheGuide();
+      await withoutTheGuide(OTHER_ACCOUNT_NAME);
+      const mine = await anItemSaying('Boiler service');
+      await anItemSaying('Boiler service at Ada’s', { userId: OTHER_USER_ID });
+      const panels = [crypto.randomUUID(), crypto.randomUUID()];
+      for (const [at, panelId] of panels.entries()) {
+        expect((await command('add_panel', { dashboardId: DASHBOARD_ID, panelId, name: `Panel ${at + 1} of mine` })).status).toBe(200);
+        expect((await command('add_item_to_panel', { itemId: mine, panelId, order: [mine] })).status).toBe(200);
+      }
+      const { token } = await connected();
+
+      const found = await findItems(token, { text: 'boiler' });
+
+      expect(titlesIn(found)).toEqual(['Boiler service']);
+      expect(found.content[0]!.text).toMatch(/Where: Workspace 1 ▸ .+ ▸ Panel 1 of mine; Workspace 1 ▸ .+ ▸ Panel 2 of mine/);
+      expect(found.content[0]!.text).toContain(`${ORIGIN}/w/${WORKSPACE_ID}?item=${mine}`);
+    });
+  });
+
+  describe('an app reads pages of 25, newest change first, continued by a cursor that repeats and skips nothing', () => {
+    it('gives 25 and a cursor for 26 matches, then the 26th and no cursor, and refuses a cursor it did not give', async () => {
+      await withoutTheGuide();
+      const ids: string[] = [];
+      for (let n = 1; n <= 26; n += 1) ids.push(await anItemSaying(`Errand ${String(n).padStart(2, '0')}`));
+      await changedAt(ids.map((id, n) => [id, `2026-10-01T10:${String(n).padStart(2, '0')}:00.000Z`]));
+      const { token } = await connected();
+
+      const first = await findItems(token, { text: 'errand' });
+      const cursor = /cursor "([^"]+)"/.exec(first.content[0]!.text)?.[1];
+      const second = await findItems(token, { text: 'errand', cursor });
+      const forged = await findItems(token, { text: 'errand', cursor: 'made-up' });
+
+      expect(titlesIn(first)).toHaveLength(25);
+      expect(titlesIn(first)[0]).toBe('Errand 26');
+      expect(first.content[0]!.text).toContain('More follow');
+      expect(titlesIn(second)).toEqual(['Errand 01']);
+      expect(second.content[0]!.text).not.toContain('More follow');
+      expect(forged).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('cursor is not one find_items gave') }] });
+    });
+  });
+
+  describe('an app may find at most 10 times a minute, apart from capturing', () => {
+    it('refuses the 11th in a minute, saying to wait, and answers again once the minute has passed', async () => {
+      await withoutTheGuide();
+      const { token } = await connected();
+      for (let n = 1; n <= 10; n += 1) {
+        expect((await findItems(token)).isError, `search ${n}`).toBeFalsy();
+      }
+
+      const eleventh = await findItems(token);
+      expect(eleventh).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('Wait a minute') }] });
+
+      vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 61_000 });
+      expect((await findItems(token)).isError).toBeFalsy();
     });
   });
 });

@@ -733,6 +733,78 @@ export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: stri
     .all();
 }
 
+/**
+ * The Items of one Workspace `find_items` looks through ("Find items in Cockpit
+ * by text and condition, over MCP", issue 1242): its open ones, and the
+ * finished ones too where asked. A dismissed Item is never read.
+ *
+ * **By the Workspace, through `items_tenant_workspace_status`**, which is the
+ * only index that fits and needs no new one: what the call reads is the Items in
+ * scope, tens to hundreds of rows, and the finished ones are the expensive case
+ * `includeDone` opts into. An Item belonging to no Workspace yet is read under
+ * the one it was captured from, once, rather than in every Workspace's Inbox.
+ */
+export function itemsToFind(db: AccountDb, tenantId: string, workspaceId: string, includeDone: boolean): Item[] {
+  return db
+    .select(itemColumns)
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        eq(items.workspaceId, workspaceId),
+        isNull(items.deletedAt),
+        includeDone ? undefined : isNull(items.completedAt),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Where a page of Items is filed: the filings that hold them, and the Panels
+ * and Dashboards those name, ready for `placesFiledOn` - read for these Items
+ * alone rather than for the whole Workspace (issue 1242).
+ *
+ * The filings of deleted Panels and Dashboards are left out, as the snapshot
+ * leaves them out, so an Item whose last Panel went is in the Inbox here too.
+ */
+export function filingsOfItems(
+  db: AccountDb,
+  tenantId: string,
+  itemIds: readonly string[],
+): { filings: Filing[]; panels: Panel[]; dashboards: Dashboard[] } {
+  if (itemIds.length === 0) return { filings: [], panels: [], dashboards: [] };
+  const filings = db
+    .select({ panelId: panelItems.panelId, itemId: panelItems.itemId, position: panelItems.position })
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(panelItems.tenantId, tenantId),
+        inArray(panelItems.itemId, [...itemIds]),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .all();
+  const panelIds = [...new Set(filings.map((filing) => filing.panelId))];
+  if (panelIds.length === 0) return { filings, panels: [], dashboards: [] };
+  const named = db
+    .select(panelColumns)
+    .from(panels)
+    .where(and(eq(panels.tenantId, tenantId), inArray(panels.id, panelIds)))
+    .orderBy(panels.createdAt)
+    .all()
+    .map(panelAsRead);
+  const dashboardIds = [...new Set(named.map((panel) => panel.dashboardId))];
+  const dashboardsNamed = db
+    .select(dashboardColumns)
+    .from(dashboards)
+    .where(and(eq(dashboards.tenantId, tenantId), inArray(dashboards.id, dashboardIds)))
+    .all();
+  return { filings, panels: named, dashboards: dashboardsNamed };
+}
+
 export function getItem(db: AccountDb, tenantId: string, itemId: string): Item | null {
   return (
     db

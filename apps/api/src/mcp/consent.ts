@@ -66,7 +66,7 @@ consent.get(AUTHORIZE_PATH, async (c) => {
       title: `Allow ${details.clientName}?`,
       body: `
         <h1>Allow ${escape(details.clientName)} to create items in your Cockpit?</h1>
-        <p>${escape(details.clientName)} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit, and to see the names of your workspaces and types so it can say where each note goes. It can also tell Cockpit how a task you send it from an item is going, which shows on that item. It cannot see your items, or change or delete anything else.</p>
+        <p>${escape(details.clientName)} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit, and to see the names of your workspaces and types so it can say where each note goes. It can also read your items, in every workspace, by what they say and by their status, priority and due date, including their descriptions and where they are filed. It can tell Cockpit how a task you send it from an item is going, which shows on that item. It cannot change or delete anything else.</p>
         <p class="faint">Access will be sent to <strong>${escape(details.redirectHost)}</strong>.${
           details.redirectIsLoopback
             ? ' That is an app on this computer: allow it only if you just started connecting it.'

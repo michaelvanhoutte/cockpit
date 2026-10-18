@@ -43,6 +43,8 @@ import type {
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid, NamedOn } from '../domain/connection-history.js';
 import type { NameForms } from '../domain/filing-by-name.js';
+import type { FindQuery, FoundPage } from '../domain/find-items.js';
+import type { FindAdmission } from './call-window.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -313,6 +315,10 @@ export interface Account {
   ): Promise<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>;
   /** An app connected to this account calling `create_item`, under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
+  /** An app connected to this account calling `find_items`, under one grant: counted apart from capture, a minute and a day ("Find items in Cockpit by text and condition, over MCP", issue 1242). */
+  findArrived(grantId: string, at: string): Promise<FindAdmission>;
+  /** One page of the Items `find_items` asked for, across the account's Workspaces or one of them (issue 1242). */
+  findItems(query: FindQuery): Promise<FoundPage>;
   /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
@@ -450,6 +456,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     sealedCredential: async (sourceAccountId) =>
       unwrap(await store.sealedCredential(accountName, sourceAccountId)),
     appCaptureArrived: async (grantId, at) => store.appCaptureArrived(grantId, at),
+    findArrived: async (grantId, at) => store.findArrived(grantId, at),
+    findItems: async (query) => unwrap(await store.findItems(accountName, query)),
     transcriptionArrived: async (at) => store.transcriptionArrived(at),
     sentenceCallArrived: async (kind, at) => store.sentenceCallArrived(kind, at),
     connectionHistory: async (workspaceId, sourceAccountId) =>

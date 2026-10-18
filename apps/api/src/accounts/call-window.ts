@@ -31,6 +31,33 @@ export const REMEMBER_OFFERS_PER_MINUTE = 10;
 export const SENTENCES_REMEMBERED_PER_MINUTE = 10;
 
 /**
+ * How many `find_items` calls one grant is admitted for in a minute, and in a
+ * day ("Find items in Cockpit by text and condition, over MCP", issue 1242):
+ * each reads the Items in scope, so the day's number is what keeps one looping
+ * agent from spending the free plan's daily row reads, apart from capture's.
+ */
+export const FINDS_PER_MINUTE = 10;
+export const FINDS_PER_DAY = 500;
+const DAY_MS = 86_400_000;
+
+/** What a `find_items` call is told: admitted, or which of the two limits it ran into. */
+export type FindAdmission = 'admitted' | 'too-many-a-minute' | 'too-many-today';
+
+/**
+ * The calls a grant has been admitted to find with, a day back, and whether
+ * this one is admitted. **A refused call is not counted**, so a loop held off by
+ * the minute does not also spend the day. `calls` is the count to keep.
+ */
+export function findAdmission(earlier: readonly number[], now: number): { answer: FindAdmission; calls: number[] } {
+  const today = earlier.filter((at) => now - at < DAY_MS);
+  if (today.filter((at) => now - at < WINDOW_MS).length >= FINDS_PER_MINUTE) {
+    return { answer: 'too-many-a-minute', calls: today };
+  }
+  if (today.length >= FINDS_PER_DAY) return { answer: 'too-many-today', calls: today };
+  return { answer: 'admitted', calls: [...today, now] };
+}
+
+/**
  * `admittedCalls` (below), except that a call refused as one too many is counted too:
  * the window then stays full for as long as the caller keeps asking, which is
  * what holds a loop off. `calls` is the count to keep either way.
