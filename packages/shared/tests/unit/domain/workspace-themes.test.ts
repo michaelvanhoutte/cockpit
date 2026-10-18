@@ -68,6 +68,9 @@ describe('Workspace management', () => {
       it('under near-white text on its band', () => {
         expect(contrast(NEAR_WHITE, theme.bar)).toBeGreaterThanOrEqual(4.5);
       });
+      // accent-deep is also the colour of a Section's rule (band and Go to panel
+      // heading), so "on the neutral page" and "on the chip's own fill" (the
+      // Section's fill too) hold that rule against what it sits on.
       it('as deep-accent text on the neutral page', () => {
         expect(contrast(theme.deep, theme.ground)).toBeGreaterThanOrEqual(4.5);
       });
@@ -97,6 +100,8 @@ describe('Workspace management', () => {
     describe.each(WORKSPACE_THEMES.map((theme) => [theme.name, shellColours(paintedWorkspace({ color: theme.tint }), 'dark')] as const))(
       '%s stays readable in dark',
       (_name, dark) => {
+        // accent-deep is also the colour of a Section's rule, so this table holds that
+        // rule against the page and its fill.
         it.each([
           { surface: 'the page', behind: DARK_GROUND },
           { surface: 'a dialog', behind: DARK_SURFACE },
