@@ -41,7 +41,7 @@ cockpit/
 - **Monorepo, pnpm workspaces**, so a contract change and both sides of its implementation land in one reviewable PR. A second service only exists when a real boundary demands one.
 - **`apps/api` is one Worker deployment** exposing the HTTP routes, the SSE endpoint, the queue consumers and the cron schedules together. Splitting them is a deployment decision for when load demands it.
 - **`apps/harness-monitor` is the one second service**, see "The Harness Monitor" below.
-- **`packages/shared` is the contract** — domain types, Zod schemas, command definitions (§4.3), API client. The frontend never redefines a server shape by hand.
+- **`packages/shared` is the contract** — domain types, Zod schemas, command definitions (§4.3), API client, and the pure rules that decide which items a view shows (filing, filters, sorting, find), so the browser and the Worker match items the same way. The frontend never redefines a server shape by hand.
 
 ### The Harness Monitor
 

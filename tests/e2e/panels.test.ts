@@ -1230,7 +1230,7 @@ test.describe('Panels', () => {
     test('narrows the dashboard to what is in progress', async ({ page, isMobile }) => {
       // One item is started from its row's menu, then the filter's Status group
       // keeps only it. Which statuses match is
-      // apps/web/tests/unit/dashboardFilter.test.ts's.
+      // packages/shared/tests/unit/domain/dashboard-filter.test.ts's.
       const { first } = await twoPanelsInARow(page, isMobile);
       const items = await itemsFiledOn(page, first, 2);
       const started = items[1]!;
