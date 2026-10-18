@@ -759,7 +759,7 @@ function DashboardGroup({
 /** A Section's title over the Panels under it, drawn where the hairline between rows would be; `indent` is the group's own. */
 function SectionHeading({ title, indent }: { title: string; indent: string }) {
   return (
-    <h5 className={`${indent} truncate px-4 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint`.trim()}>
+    <h5 className={`${indent} mx-2 mt-1.5 mb-0.5 truncate rounded-t border-b-2 border-accent-deep bg-accent-tint px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent-deep`.trim()}>
       {title}
     </h5>
   );

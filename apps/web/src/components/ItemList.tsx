@@ -1231,9 +1231,9 @@ export function ItemList({
                 {/* Sticks to the top of the Panel while its own rows scroll under
                     it, and goes when the next heading arrives: the heading is
                     inside the group it belongs to, so it is bounded by it. */}
-                <h4 className="sticky top-0 z-[1] flex items-baseline justify-between gap-2 border-b border-shade/10 bg-surface px-4 pb-1 pt-2.5 text-xs font-medium tracking-wide text-ink-faint">
+                <h4 className="sticky top-0 z-[1] flex items-baseline justify-between gap-2 border-b border-accent-deep/55 bg-surface px-4 pb-1 pt-2.5 text-xs font-medium tracking-wide text-ink-faint">
                   <span className="min-w-0 truncate">
-                    <span className="font-semibold uppercase text-ink-soft">{group.name}</span>
+                    <span className="font-semibold uppercase text-accent-deep">{group.name}</span>
                     {group.dashboardName !== null && <span> · {group.dashboardName}</span>}
                   </span>
                   <span className="shrink-0 tabular-nums">{group.items.length}</span>
