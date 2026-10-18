@@ -791,15 +791,21 @@ test.describe('Panels', () => {
       await press(question.getByRole('button', { name: 'Save' }), isMobile);
       expect((await sorted).status()).toBe(200);
       await expect(question).toHaveCount(0);
-      const inTheSortsOrder = await itemsOn(page, panel);
+      // By title, which the panel draws only once the workspace is read back
+      // after the save: read before that, it is still the order you set.
+      const inTheSortsOrder = [...titles].sort();
+      await expect.poll(() => itemsOn(page, panel)).toEqual(inTheSortsOrder);
       let reordered = 0;
       page.on('request', (request) => {
         if (request.url().endsWith('/v1/commands/add_item_to_panel')) reordered += 1;
       });
       await dragRowOnto(page, inTheSortsOrder[3]!, inTheSortsOrder[0]!, 'left');
-      await page.waitForTimeout(500);
-      expect(reordered).toBe(0);
       expect(await itemsOn(page, panel)).toEqual(inTheSortsOrder);
+      // The reload comes after the drop has been handled, so a reorder it sent
+      // has been counted, and what was kept is what is drawn.
+      await page.reload();
+      await expect.poll(() => itemsOn(page, panel)).toEqual(inTheSortsOrder);
+      expect(reordered).toBe(0);
     });
   });
 
