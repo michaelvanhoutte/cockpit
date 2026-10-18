@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { panelTakesItems, type RememberedSentenceView } from '@cockpit/shared';
+import { panelTakesItems, placesFiledOn, type RememberedSentenceView } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -37,7 +37,10 @@ import {
   SENTENCES_REMEMBERED_PER_MINUTE,
   admittedCalls,
   countedCalls,
+  findAdmission,
+  type FindAdmission,
 } from './call-window.js';
+import { meetsFind, pageOfFound, type FindQuery, type FoundPage } from '../domain/find-items.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import { capturePushed, connectionHistoryOf, pruneConnectionHistory, recordPushFailed } from './connection-history.js';
@@ -115,6 +118,8 @@ import {
   getItem,
   getItemFormPresentation,
   getWorkspace,
+  filingsOfItems,
+  itemsToFind,
   isItemFiled,
   claudeProposalContext,
   sendToOfferOn,
@@ -217,6 +222,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   #agentsRetired = false;
   /** The calls each app's grant was admitted for, newest last - see `appCaptureArrived`. */
   #appCaptures = new Map<string, number[]>();
+  /** The `find_items` calls each app's grant was admitted for over the last day, newest last - see `findArrived`. */
+  #appFinds = new Map<string, number[]>();
   /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
   #transcriptions: number[] = [];
   /** The offers to remember and the Remember presses this account made, refused ones included, newest last - see `sentenceCallArrived`. */
@@ -767,6 +774,49 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     if (!calls) return 'too-many';
     this.#appCaptures.set(grantId, calls);
     return 'admitted';
+  }
+
+  /**
+   * An app connected to this account calling `find_items` ("Find items in
+   * Cockpit by text and condition, over MCP", issue 1242): admitted, or refused
+   * as one of too many from that grant in a minute or in a day.
+   *
+   * **Its own counts, apart from capture's**: sharing the 60 a minute would let
+   * one looping agent spend the day's row reads inside the hour. Counted here,
+   * in memory, for the reason `appCaptureArrived` is - an eviction starts the
+   * window over, which is all it costs.
+   */
+  findArrived(grantId: string, at: string): FindAdmission {
+    const { answer, calls } = findAdmission(this.#appFinds.get(grantId) ?? [], Date.parse(at));
+    this.#appFinds.set(grantId, calls);
+    return answer;
+  }
+
+  /**
+   * The Items matching what `find_items` asked, one page: read per Workspace
+   * through the (workspace, status) index, narrowed by the screen's own rules
+   * (`meetsFind`), cut to the page, and only then asked where they are filed.
+   */
+  findItems(accountName: string, query: FindQuery): Answer<FoundPage> {
+    return this.#answer(accountName, (db) => {
+      const inScope = listWorkspaces(db, accountName).filter(
+        (workspace) => query.workspaceId === null || workspace.id === query.workspaceId,
+      );
+      const names = new Map(inScope.map((workspace) => [workspace.id, workspace.name]));
+      const found = inScope
+        .flatMap((workspace) => itemsToFind(db, accountName, workspace.id, query.includeDone))
+        .filter((item) => meetsFind(item, query));
+      const { page, next } = pageOfFound(found, query.after);
+      const held = filingsOfItems(db, accountName, page.map((item) => item.id));
+      return {
+        rows: page.map((item) => ({
+          item,
+          workspaceName: names.get(item.workspaceId) ?? '',
+          places: placesFiledOn(item, held.filings, held.panels, held.dashboards),
+        })),
+        next,
+      };
+    });
   }
 
   /**
