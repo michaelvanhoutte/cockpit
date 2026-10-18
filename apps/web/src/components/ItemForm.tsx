@@ -55,6 +55,7 @@ import {
 import { capturingApp, openableAtSource, sourceNamed } from '../itemSource';
 import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
+import { copyItemLink } from '../itemLink';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 import {
@@ -261,6 +262,22 @@ function TheForm({
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
   const atSource = item ? openableAtSource(item, data?.sourceNames) : null;
+  /**
+   * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
+   * Item's link from its menu and its form", issue 1247): in the Inbox it is
+   * in no workspace to name. Read from the snapshot as the Inbox is
+   * (`itemsInTheInbox`), so moving the Item onto a Panel with the form open
+   * brings the button.
+   */
+  const filedOnAPanel =
+    !!item && filingsThatFile(data?.filings ?? [], data?.panels ?? []).some((filing) => filing.itemId === itemId);
+  const copyLink = async () => {
+    if (!item) return;
+    const copied = await copyItemLink(workspaceId, item.id, item.title);
+    offerToUndo({ what: copied ? 'Link copied' : "Couldn't copy the link" });
+  };
+  const headerButtonClass =
+    'rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50';
   /** What Cockpit changed on this item: read behind the paint, so the form is drawn without it. */
   const cockpit = useCockpitChanges(itemId, item);
   /** Read at the moment a save lands rather than when its function was made, which may be a render ago. */
@@ -1492,22 +1509,34 @@ function TheForm({
                 <span aria-hidden="true">←</span>
               </Dialog.Close>
               <span className="text-base font-semibold text-ink">Item</span>
-              <button
-                type="button"
-                disabled={!item || saving || tooLong}
-                onClick={() => void save()}
-                className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
-              >
-                Save
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {filedOnAPanel && (
+                  <button type="button" onClick={() => void copyLink()} className={headerButtonClass}>
+                    Copy link
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!item || saving || tooLong}
+                  onClick={() => void save()}
+                  className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           ) : (
-            <div className="flex shrink-0 justify-end">
+            <div className="flex shrink-0 items-center justify-end gap-2">
+              {filedOnAPanel && (
+                <button type="button" onClick={() => void copyLink()} className={headerButtonClass}>
+                  Copy link
+                </button>
+              )}
               <button
                 type="button"
                 disabled={saving}
                 onClick={() => void togglePresentation()}
-                className="rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                className={headerButtonClass}
               >
                 {chosenDocked ? 'Center' : 'Dock'}
               </button>
