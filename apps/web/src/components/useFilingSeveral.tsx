@@ -345,7 +345,7 @@ export function useFilingSeveral({
    */
   const addSeveral = async (items: readonly Item[], panelId: string) => {
     if (filing) return;
-    const filings = (await latestSnapshot(workspaceId)).filings ?? [];
+    const filings = (await latestSnapshot(workspaceId)).filings;
     const toAdd = items.filter(
       (item) => !filings.some((f) => f.itemId === item.id && f.panelId === panelId),
     );
@@ -395,7 +395,7 @@ export function useFilingSeveral({
       undo: async () => {
         // Read when pressed: one taken off meanwhile (another tab) is already
         // what Undo wants, and its refusal must not leave the rest on.
-        const now = (await latestSnapshot(workspaceId)).filings ?? [];
+        const now = (await latestSnapshot(workspaceId)).filings;
         for (const item of added) {
           if (!now.some((f) => f.itemId === item.id && f.panelId === panelId)) continue;
           await send({
@@ -430,7 +430,7 @@ export function useFilingSeveral({
   ) => {
     /** What a panel holds at this moment, which each order has to name. */
     const heldOn = async (panelId: string) =>
-      filedOrderOnPanel((await latestSnapshot(workspaceId)).filings ?? [], panelId);
+      filedOrderOnPanel((await latestSnapshot(workspaceId)).filings, panelId);
     const envelope = (itemId: string) => ({
       commandId: uuidv7(),
       issuedAt: new Date().toISOString(),

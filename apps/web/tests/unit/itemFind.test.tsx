@@ -36,6 +36,7 @@ function aSnapshot(items: Item[], filed: [string, string][] = []): WorkspaceSnap
       { id: 'gather', dashboardId: 'today', name: 'Gathered', kind: 'filter', filter: { rows: [], groupBy: 'none' } },
     ],
     filings: filed.map(([itemId, panelId], position) => ({ itemId, panelId, position })),
+    agentRuns: [],
   } as unknown as WorkspaceSnapshot;
 }
 

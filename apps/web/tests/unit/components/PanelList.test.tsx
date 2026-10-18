@@ -1229,6 +1229,9 @@ describe('Dashboards', () => {
         { itemId: 'rent', panelId: 'one', position: 0 },
         { itemId: 'vat', panelId: 'papers', position: 0 },
       ],
+      layouts: [],
+      attachments: [],
+      agentRuns: [],
     } as unknown as WorkspaceSnapshot;
     const finder = (over: Partial<Reach> = {}) => wide({ snapshot, ...over });
     const chosenScope = () =>

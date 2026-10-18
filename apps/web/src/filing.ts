@@ -30,10 +30,7 @@ import { panelGathers, type Filing, type Item, type Panel } from '@cockpit/share
  * work without a round trip.
  */
 export function stillOpen(item: Item): boolean {
-  // Falsy rather than `=== null`: a guard kept from before saved reads were
-  // checked on the way back in (`savedReads.ts`), when an item saved before this
-  // field existed answered `undefined` here.
-  return !item.completedAt;
+  return item.completedAt === null;
 }
 
 /**

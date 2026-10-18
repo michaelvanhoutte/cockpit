@@ -521,13 +521,11 @@ export function saysWhatItShows(
 }
 
 /**
- * Whether a Filter's rows are drawn under headings. Asked by name rather than
- * as "not none", so a grouping that never reached the schema - a copy restored
- * from this browser's storage, which nothing re-validates (`persistence.tsx`) -
- * draws the flat list rather than whichever grouping a fallthrough lands on.
+ * Whether a Filter's rows are drawn under headings. A stored `groupBy` the
+ * schema does not know already reads as `none` (`.catch('none')`).
  */
-export function isGrouped(groupBy: FilterGrouping | undefined): groupBy is Exclude<FilterGrouping, 'none'> {
-  return groupBy === 'dashboard' || groupBy === 'panel';
+export function isGrouped(groupBy: FilterGrouping): groupBy is Exclude<FilterGrouping, 'none'> {
+  return groupBy !== 'none';
 }
 
 /** What a grouping is called, in the funnel's sentence and the Filter question alike ("Group a Filter panel's items by the Dashboard or Panel they are filed on", issue 805). */

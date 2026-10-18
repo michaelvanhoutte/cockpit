@@ -73,18 +73,18 @@ export function searchTextOf(item: Pick<Item, 'title' | 'description' | 'nextAct
  * clears), so the index follows `today` and the open runs as well as the snapshot.
  */
 export function indexForFind(snapshot: WorkspaceSnapshot, today: Day): FindIndex {
-  const panels = snapshot.panels ?? [];
-  const filings = filingsThatFile(snapshot.filings ?? [], panels);
+  const panels = snapshot.panels;
+  const filings = filingsThatFile(snapshot.filings, panels);
   const dashboardOrder = new Map(snapshot.dashboards.map((dashboard, at) => [dashboard.id, at]));
   const dashboardNames = new Map(snapshot.dashboards.map((dashboard) => [dashboard.id, dashboard.name]));
   const panelsById = new Map(panels.map((panel) => [panel.id, panel]));
   // The Panels each Item is filed on, then the Filter panels gathering it, as the rows' "also in" reads them.
   const heldBy = panelAndFilterIdsByItem(
     snapshot.items,
-    snapshot.filings ?? [],
+    snapshot.filings,
     panels,
     snapshot.dashboards,
-    itemIdsWithRun(snapshot.agentRuns ?? []),
+    itemIdsWithRun(snapshot.agentRuns),
     today,
   );
   const placesOf = new Map<string, FoundPlace[]>();

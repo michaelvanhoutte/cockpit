@@ -114,21 +114,18 @@ function sortValue(row: AllItemsRow, key: AllItemsKey): string | number {
 /**
  * Every item of the snapshot as a row, ordered. Equal rows keep the newest
  * change first, so a column of the same value is never in an arbitrary order.
- *
- * The lists besides the items are optional, a guard kept from before saved reads
- * were checked on the way back in (`savedReads.ts`).
  */
 export function allItemsRows(
   snapshot: {
     items: readonly Item[];
-    filings?: readonly Filing[] | undefined;
-    panels?: readonly Panel[] | undefined;
-    dashboards?: readonly Dashboard[] | undefined;
+    filings: readonly Filing[];
+    panels: readonly Panel[];
+    dashboards: readonly Dashboard[];
   },
   sort: AllItemsSort = DEFAULT_SORT,
 ): AllItemsRow[] {
   const rows = snapshot.items.map((item): AllItemsRow => {
-    const places = placesFiledOn(item, snapshot.filings ?? [], snapshot.panels ?? [], snapshot.dashboards ?? []);
+    const places = placesFiledOn(item, snapshot.filings, snapshot.panels, snapshot.dashboards);
     return {
       item,
       title: item.title.trim() || UNTITLED,

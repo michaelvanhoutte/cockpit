@@ -23,11 +23,10 @@ import type {
  *
  * For a Panel of items none is Manual; for a Filter none is the order nobody
  * has changed (`DEFAULT_FILTER_SORT`), which is why the mark stays off it. A
- * Panel of text is not sorted at all. `?? null` is a guard kept from before
- * saved reads were checked on the way back in (`savedReads.ts`).
+ * Panel of text is not sorted at all.
  */
 export function sortOf(panel: Panel): PanelSort | null {
-  return panelTakesItems(panel) || panelGathers(panel) ? (panel.sort ?? null) : null;
+  return panelTakesItems(panel) || panelGathers(panel) ? panel.sort : null;
 }
 
 /**

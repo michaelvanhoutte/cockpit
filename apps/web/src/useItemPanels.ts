@@ -70,7 +70,7 @@ export function useItemPanels({
 
   /** Files the Item on one more Panel, leaving the others alone. Answers whether it sent anything. */
   const fileOn = async (one: PanelOn): Promise<boolean> => {
-    const filings = (await latestSnapshot(workspaceId)).filings ?? [];
+    const filings = (await latestSnapshot(workspaceId)).filings;
     if (filings.some((filing) => filing.itemId === itemId && filing.panelId === one.panelId)) return false;
     const [order] = ordersForFilingSeveral(filedOrderOnPanel(filings, one.panelId), [itemId]);
     await send({ name: 'add_item_to_panel', payload: { ...envelope(), panelId: one.panelId, order: order! } });
@@ -80,7 +80,7 @@ export function useItemPanels({
 
   /** Takes the Item off one Panel. Answers the order the Panel was in, or null where it was not on it. */
   const takeOff = async (panelId: string): Promise<string[] | null> => {
-    const filings = (await latestSnapshot(workspaceId)).filings ?? [];
+    const filings = (await latestSnapshot(workspaceId)).filings;
     if (!filings.some((filing) => filing.itemId === itemId && filing.panelId === panelId)) return null;
     await send({ name: 'remove_item_from_panel', payload: { ...envelope(), panelId } });
     return filedOrderOnPanel(filings, panelId);
