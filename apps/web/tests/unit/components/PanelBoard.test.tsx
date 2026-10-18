@@ -120,7 +120,7 @@ function aPanelOfText(
  * Today, where whoever is running this is - the same reading the board takes
  * (`dayOf`), so a case about *due today* is about the board drawing the row
  * rather than about which day it is. Which items a window takes in is settled
- * against a fixed day in tests/unit/filters.test.ts.
+ * against a fixed day in packages/shared/tests/unit/domain/filters.test.ts.
  */
 const TODAY = dayOf(new Date());
 
@@ -2210,7 +2210,7 @@ describe('Panels', () => {
       const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
       const domain = anItem('11111111-1111-7111-8111-000000000002', 'Renew the domain');
       // Already in position order: that a panel *sorts* by position is
-      // apps/web/tests/unit/filing.test.ts's rule, and re-proving it here would
+      // packages/shared/tests/unit/domain/filing.test.ts's rule, and re-proving it here would
       // be the same calculation twice. What is asked here is that the board
       // hands each panel its own items at all.
       showBoard({
@@ -2233,7 +2233,7 @@ describe('Panels', () => {
   });
 
   /**
-   * Which order a sort puts rows in is tests/unit/sorting.test.ts; what is
+   * Which order a sort puts rows in is packages/shared/tests/unit/domain/sorting.test.ts; what is
    * asked here is that the board draws a sorted Panel through it, says so, and
    * that the Sort question opens on what is stored and sends the whole sort.
    */
@@ -2485,7 +2485,7 @@ describe('Onboarding', () => {
   });
 
   /**
-   * What a Filter gathers is worked out in tests/unit/filters.test.ts against
+   * What a Filter gathers is worked out in packages/shared/tests/unit/domain/filters.test.ts against
    * the items and filings alone; what is asked here is the panel's own
    * behaviour - what it says while nothing has been chosen, what its menu
    * offers, what it sends, and what it refuses to take.
@@ -3089,7 +3089,7 @@ describe('Onboarding', () => {
      * What a Priority, a Type or a Panel condition sends, and what its
      * checkboxes offer, is worked out here; that any of them actually gathers
      * or excludes an item is settled against items and filings alone in
-     * tests/unit/filters.test.ts.
+     * packages/shared/tests/unit/domain/filters.test.ts.
      */
     it('sends a Priority condition’s chosen levels', async () => {
       const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
@@ -3147,7 +3147,7 @@ describe('Onboarding', () => {
 
     /**
      * That an exclusion matches what it should is settled in
-     * tests/unit/filters.test.ts; what is worked out here is that every
+     * packages/shared/tests/unit/domain/filters.test.ts; what is worked out here is that every
      * values card offers the choice, opens on *is*, and sends what was chosen
      * ("Include or exclude a Filter panel condition's values...", issue 908).
      */

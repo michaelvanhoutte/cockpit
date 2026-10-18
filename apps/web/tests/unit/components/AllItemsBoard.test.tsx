@@ -15,7 +15,7 @@ import { browserStore } from '../../../src/lastVisited';
  * F1/C: what the table draws from a snapshot and what a press on it does
  * ("Put each setting where a person looks for it", issue 688). Which items it
  * lists, how a row reads and how a header orders them is
- * tests/unit/allItems.test.ts; that a finished item's form really reopens it is
+ * packages/shared/tests/unit/domain/all-items.test.ts; that a finished item's form really reopens it is
  * the browser walk in tests/e2e/all-items.test.ts.
  */
 const held = vi.hoisted(() => ({ items: [] as Item[], opened: [] as string[] }));

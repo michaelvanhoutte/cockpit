@@ -30,7 +30,7 @@ import {
  * apps/web/tests/unit/components/ItemRow.test.tsx, which rows a shift-click's
  * span covers is apps/web/tests/unit/selection.test.ts's, what counts as
  * holding still is apps/web/tests/unit/hold.test.ts's, the orders a filing of
- * several carries is apps/web/tests/unit/filing.test.ts's, and what choosing a
+ * several carries is packages/shared/tests/unit/domain/filing.test.ts's, and what choosing a
  * panel sends is apps/web/tests/unit/components/ItemList.test.tsx's. **What is
  * only true in a browser** is that a real ctrl/cmd- or shift-click on a real
  * row reaches the row as the modifier it is, that a real touch reaches it as a

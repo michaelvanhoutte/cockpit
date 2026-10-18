@@ -250,7 +250,7 @@ test.describe('Dashboards', () => {
      * F3, because only a browser has the real tab, address and item form
      * together, on a mouse at 1280px and a finger at 480px. Which items the
      * table lists, how a row reads and how a header orders it is
-     * apps/web/tests/unit/allItems.test.ts, and that the address turns the tab
+     * packages/shared/tests/unit/domain/all-items.test.ts, and that the address turns the tab
      * on is apps/web/tests/unit/router.test.tsx.
      */
     test('shows the tab from the workspace’s menu, lists a finished item, and reopens it from its form', async ({
