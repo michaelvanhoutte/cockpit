@@ -15,7 +15,13 @@ const refuse = (status, headers = {}) => ({
 });
 
 /** A pull as the listing shows it, updated `updated` and merged `merged` (both ISO). */
-const listed = (number, merged, updated = merged) => ({ number, merged_at: merged, updated_at: updated });
+const listed = (number, merged, updated = merged, base = 'main', head = `work-${number}`) => ({
+  number,
+  merged_at: merged,
+  updated_at: updated,
+  base: { ref: base },
+  head: { ref: head },
+});
 
 /**
  * The API for a repository whose merged pulls are `pulls` (numbers), each with two
@@ -41,7 +47,7 @@ function stubApi({ listing, override = () => undefined }) {
     const detail = pathname.match(/\/pulls\/(\d+)$/);
     if (detail) {
       const pull = listing.find((entry) => entry.number === Number(detail[1]));
-      return ok({ number: pull.number, title: `Pull ${pull.number}`, html_url: 'u', created_at: '2026-09-10T08:00:00Z', merged_at: pull.merged_at, body: '', additions: 1, deletions: 1, changed_files: 1, commits: 2 });
+      return ok({ number: pull.number, title: `Pull ${pull.number}`, html_url: 'u', created_at: '2026-09-10T08:00:00Z', merged_at: pull.merged_at, body: '', base: pull.base, head: pull.head, additions: 1, deletions: 1, changed_files: 1, commits: 2 });
     }
     if (pathname.includes('/check-runs')) {
       const onB = pathname.includes('b/check-runs');
@@ -148,6 +154,49 @@ describe('Cycle time', () => {
       });
       const { pulls } = await collectFrom(api);
       expect(pulls.map((pull) => pull.number)).toEqual([3]);
+    });
+
+    describe('pull requests into a feature branch are read beside those into main, from one listing', () => {
+      const merged = '2026-09-18T00:00:00Z';
+      const api = () =>
+        stubApi({
+          listing: [
+            listed(1, merged, merged, 'main'),
+            listed(2, merged, merged, 'feature/find-items-1238'),
+            listed(3, merged, merged, 'release/1'),
+            listed(4, null, '2026-09-19T00:00:00Z', 'feature/find-items-1238'),
+            listed(5, merged, merged, 'main', 'feature/find-items-1238'),
+          ],
+        });
+
+      it('reads a pull merged into main or a feature branch, keeping its base and head, and no other', async () => {
+        const { pulls } = await collectFrom(api());
+        expect(pulls.map((pull) => [pull.number, pull.base, pull.head])).toEqual([
+          [1, 'main', 'work-1'],
+          [2, 'feature/find-items-1238', 'work-2'],
+          [5, 'main', 'feature/find-items-1238'],
+        ]);
+      });
+
+      it('lists the closed pulls once with no base filter, so a feature branch costs no listing of its own', async () => {
+        const stubbed = api();
+        await collectFrom(stubbed);
+        const listings = stubbed.calls.filter((url) => new URL(url).pathname.endsWith('/pulls'));
+        expect(listings).toHaveLength(1);
+        expect(listings[0]).not.toContain('base=');
+      });
+
+      it('counts a pull into a feature branch against --max-pulls, and one into another branch not at all', async () => {
+        const collected = await collectFrom(api(), { maxPulls: 2 });
+        expect(collected.pulls.map((pull) => pull.number)).toEqual([1, 2]);
+        expect(collected.truncated).toBe(true);
+      });
+
+      it('reads the trunk named by --branch, with feature branches still', async () => {
+        const stubbed = stubApi({ listing: [listed(1, merged, merged, 'trunk'), listed(2, merged, merged, 'main'), listed(3, merged, merged, 'feature/x')] });
+        const { pulls } = await collectFrom(stubbed, { branch: 'trunk' });
+        expect(pulls.map((pull) => pull.number)).toEqual([1, 3]);
+      });
     });
 
     it('throws a GitHubError, not a bare one, so the command line can print it plainly', async () => {

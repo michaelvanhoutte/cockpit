@@ -116,8 +116,14 @@ function limits(model) {
     ? `<li class="warn"><b>${plural(coverage.failed.length, 'pull request')} could not be read</b> and ${coverage.failed.length === 1 ? 'is' : 'are'} left out: ${coverage.failed.map((each) => `#${esc(each.number)}`).join(', ')}.</li>`
     : '';
 
+  const landings = model.pulls.filter((pull) => pull.landing).length;
+  const branches = model.pulls.some((pull) => pull.base !== model.branch)
+    ? `<li><b>Pull requests into a feature branch are read as well</b>, each marked with its base${landings ? `; ${plural(landings, 'feature branch landing')} (a feature branch into ${esc(model.branch)}) ${landings === 1 ? 'is' : 'are'} shown but in no figure, since ${landings === 1 ? 'its' : 'their'} units are counted already` : ''}.</li>`
+    : '';
+
   return `<div class="note"><b>What this does and does not measure</b><ul>
     ${period}
+    ${branches}
     <li><b>Time before the session&rsquo;s start is not measured.</b> A strip begins at the session&rsquo;s start where the pull request carries a session record, and at its first commit where it does not; deciding what to build, and any earlier attempt, are in neither.</li>
     <li><b>Only merged pull requests count.</b> One closed without merging, or still open, is in no figure and no strip.</li>
     ${records}
@@ -306,11 +312,16 @@ function strip(pull, parts, fitted, scaleMs, summary, notes) {
       </div>`;
 }
 
-function stripRow(pull, parts, scaleMs) {
+function stripRow(pull, parts, scaleMs, trunk) {
   const fitted = fitTo(parts, scaleMs);
   const reds = pull.rounds.filter((round) => round.red).length;
   const flukes = pull.flukes.length;
   const tags = [
+    pull.landing
+      ? `<span class="tag landing" title="A feature branch landing: ${esc(pull.head)} into ${esc(pull.base)}. Its units were each a pull request into the branch and are counted there, so this one is in no average, median or chart">feature branch landing</span>`
+      : '',
+    // The trunk is the report's own and needs no mark; any other base is named.
+    !pull.landing && pull.base !== trunk ? `<span class="tag base" title="Merged into ${esc(pull.base)}, not ${esc(trunk)}">into ${esc(pull.base)}</span>` : '',
     pull.recorded
       ? ''
       : '<span class="tag unrecorded" title="No session record on this pull request, so its coding, local reviews, test runs and browser pass are not measured and its strip starts at the first commit">not recorded</span>',
@@ -368,7 +379,7 @@ function strips(model) {
   const allParts = model.pulls.map(partsOf);
   const scaleMs = scaleFor(allParts);
   const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}, and every part sits at its own time and length on it; one too short to see is drawn a little wider, over what follows it. Time away is not on it. A CI Round is split into the checks that held it, in the order they finished — hover a slice for which one and how long, and hover a round to find its line in the list; it is named on the strip as far as its width allows. Click a strip to open that pull request on its own scale, uncut, with a clock-time axis (UTC) above its CI Rounds in words; click it again to close it. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where several run in parallel, the longest stays on the line and the others stack above it, then below, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
-  return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs)).join('')}</div>`;
+  return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs, model.branch)).join('')}</div>`;
 }
 
 /** A ratio to the precision it can be read at: two places below one, one below ten. */
@@ -724,9 +735,11 @@ const EVO_ZOOM = [
  */
 function evolutionZoomTabs(model) {
   const now = Date.parse(model.generatedAt);
+  // A feature branch landing repeats work its units already plotted, so it is not a point here.
+  const measured = model.pulls.filter((pull) => !pull.landing);
   const pullsFor = (preset) =>
-    preset.id === 'all' ? model.pulls : model.pulls.filter((pull) => Date.parse(pull.mergedAt) >= now - Number(preset.id) * 86_400_000);
-  const scales = evoScales(model.pulls);
+    preset.id === 'all' ? measured : measured.filter((pull) => Date.parse(pull.mergedAt) >= now - Number(preset.id) * 86_400_000);
+  const scales = evoScales(measured);
 
   const inputs = EVO_ZOOM.map(
     (preset, index) =>

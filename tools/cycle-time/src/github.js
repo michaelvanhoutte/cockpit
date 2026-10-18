@@ -29,7 +29,7 @@
  */
 
 import { readZipJson } from '../../selection/src/zip.js';
-import { classify, matchArtifact, recordArtifactOf } from './model.js';
+import { classify, FEATURE_PREFIX, matchArtifact, recordArtifactOf } from './model.js';
 
 const API = 'https://api.github.com';
 const RECORD_FILE = 'record.json';
@@ -81,6 +81,8 @@ export class GitHubError extends Error {
  * @property {string} createdAt
  * @property {string} mergedAt
  * @property {string} body
+ * @property {string|null} base the branch it merged into: the trunk or a `feature/*` branch
+ * @property {string|null} head the branch it came from
  * @property {number} additions
  * @property {number} deletions
  * @property {number} changedFiles
@@ -182,8 +184,10 @@ function normalizeCheck(raw) {
 }
 
 /**
- * Merged pulls into `base`, most recently updated first, back to `since` or until
- * `maxPulls` is reached — whichever comes first.
+ * Merged pulls into `base` (the trunk) or any `feature/*` branch, most recently updated first,
+ * back to `since` or until `maxPulls` is reached — whichever comes first. One listing with no
+ * base filter, so a feature branch costs no request of its own; a pull into another branch is
+ * dropped here and does not count against `maxPulls`.
  *
  * The listing is ordered by *update*, not by merge, so it is read in that order
  * and stopped on a pull last updated before `since`: a pull merged inside the
@@ -201,6 +205,7 @@ function normalizeCheck(raw) {
  *   listing was read back to when it did not reach the window's edge.
  */
 export async function listPulls({ repo, base = 'main', since, maxPulls, ...ctx }) {
+  const intoTrunkOrFeature = (ref) => ref === base || ref?.startsWith(FEATURE_PREFIX);
   const pulls = [];
   let page = 1;
   let truncated = false;
@@ -209,7 +214,7 @@ export async function listPulls({ repo, base = 'main', since, maxPulls, ...ctx }
 
   for (;;) {
     const batch = await request(
-      `/repos/${repo}/pulls?state=closed&base=${encodeURIComponent(base)}&sort=updated&direction=desc&per_page=${PER_PAGE}&page=${page}`,
+      `/repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=${PER_PAGE}&page=${page}`,
       ctx,
     );
     if (!Array.isArray(batch) || batch.length === 0) break;
@@ -221,7 +226,7 @@ export async function listPulls({ repo, base = 'main', since, maxPulls, ...ctx }
         break;
       }
       oldestSeen = updatedAt;
-      if (!raw.merged_at || new Date(raw.merged_at) < since) continue;
+      if (!raw.merged_at || new Date(raw.merged_at) < since || !intoTrunkOrFeature(raw.base?.ref)) continue;
       if (pulls.length >= maxPulls) {
         truncated = true;
         break;
@@ -424,6 +429,8 @@ export async function readPull({ repo, number, commitConcurrency = 4, ...ctx }) 
     createdAt: detail.created_at,
     mergedAt: detail.merged_at,
     body: detail.body ?? '',
+    base: detail.base?.ref ?? null,
+    head: detail.head?.ref ?? null,
     additions: detail.additions ?? 0,
     deletions: detail.deletions ?? 0,
     changedFiles: detail.changed_files ?? 0,
