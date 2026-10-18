@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Filing, Item, Panel } from '@cockpit/shared';
+import type { Filing, Item, Panel } from '../../../src/index.js';
 import {
   filedOrderOnPanel,
   howToFileSelected,
@@ -9,7 +9,7 @@ import {
   orderPuttingBack,
   ordersForFilingSeveral,
   orderWithItemAt,
-} from '../../src/filing';
+} from '../../../src/domain/filing.js';
 
 /**
  * F1: what a panel holds and what the Inbox holds are views over the snapshot

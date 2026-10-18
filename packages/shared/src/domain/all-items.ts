@@ -1,15 +1,5 @@
-import {
-  UNTITLED,
-  itemStatus,
-  panelPlace,
-  panelTakesItems,
-  type Dashboard,
-  type Filing,
-  type Item,
-  type ItemStatus,
-  type Panel,
-  type Priority,
-} from '@cockpit/shared';
+import { UNTITLED, itemStatus, type Dashboard, type Item, type ItemStatus, type Priority } from './item.js';
+import { panelPlace, panelTakesItems, type Filing, type Panel } from './panel.js';
 
 /**
  * The table on *All items* ("Put each setting where a person looks for it",

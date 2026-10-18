@@ -3,16 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
+import { type Item, NO_DASHBOARD_FILTER, type WorkspaceSnapshot } from '@cockpit/shared';
 import { A_DESK, A_PHONE, onAScreen } from '../onAScreen';
 import { allItemsFilterId } from '../../../src/allItemsTab';
 import AllItemsBoard from '../../../src/components/AllItemsBoard';
-import {
-  NO_DASHBOARD_FILTER,
-  readDashboardFilter,
-  useFilterBarOpen,
-  writeDashboardFilter,
-} from '../../../src/dashboardFilter';
+import { readDashboardFilter, useFilterBarOpen, writeDashboardFilter } from '../../../src/dashboardFilter';
 import { askToLand, forgetLanding } from '../../../src/landOnItem';
 import { browserStore } from '../../../src/lastVisited';
 
@@ -20,7 +15,7 @@ import { browserStore } from '../../../src/lastVisited';
  * F1/C: what the table draws from a snapshot and what a press on it does
  * ("Put each setting where a person looks for it", issue 688). Which items it
  * lists, how a row reads and how a header orders them is
- * tests/unit/allItems.test.ts; that a finished item's form really reopens it is
+ * packages/shared/tests/unit/domain/all-items.test.ts; that a finished item's form really reopens it is
  * the browser walk in tests/e2e/all-items.test.ts.
  */
 const held = vi.hoisted(() => ({ items: [] as Item[], opened: [] as string[] }));

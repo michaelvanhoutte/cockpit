@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type {
-  Dashboard,
-  FilterCondition,
-  Layout,
-  Panel,
-  PossibleDuplicate,
-  WorkspaceSnapshot,
+import {
+  type Dashboard,
+  type FilterCondition,
+  type Layout,
+  NO_DASHBOARD_FILTER,
+  type Panel,
+  type PossibleDuplicate,
+  type WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
 import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection, useSelection, useShowing } from '../../../src/selection';
@@ -17,12 +18,7 @@ import { tipForClick } from '../../../src/shortcutTip';
 import { allItemsFilterId, readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
 import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
 import { filterPills } from '../../../src/components/FilterSummary';
-import {
-  NO_DASHBOARD_FILTER,
-  readDashboardFilter,
-  useFilterBarOpen,
-  writeDashboardFilter,
-} from '../../../src/dashboardFilter';
+import { readDashboardFilter, useFilterBarOpen, writeDashboardFilter } from '../../../src/dashboardFilter';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { A_DESK, A_PHONE, onAScreen } from '../onAScreen';

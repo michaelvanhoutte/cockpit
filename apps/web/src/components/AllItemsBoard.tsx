@@ -4,26 +4,23 @@ import { snapshotQuery } from '../api/queries';
 import {
   ALL_ITEMS_COLUMNS,
   ALL_ITEMS_PAGE,
-  DEFAULT_SORT,
-  STATUS_LABELS,
   allItemsRows,
-  pressHeader,
   type AllItemsSort,
-} from '../allItems';
-import { allItemsFilterId } from '../allItemsTab';
-import {
-  clearDashboardFilter,
+  dayOf,
+  DEFAULT_SORT,
   isFiltering,
   itemIdsWithAttachments,
   itemIdsWithRun,
   matchesDashboardFilter,
-  useDashboardFilter,
-} from '../dashboardFilter';
-import { dayOf } from '../filters';
+  pressHeader,
+  PRIORITY_LABELS,
+  STATUS_LABELS,
+} from '@cockpit/shared';
+import { allItemsFilterId } from '../allItemsTab';
+import { clearDashboardFilter, useDashboardFilter } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
 import { rowOf, settleLanding, useLanding, useLandingStep } from '../landOnItem';
 import { browserStore } from '../lastVisited';
-import { PRIORITY_LABELS } from '../priority';
 import { DashboardFilterBar } from './DashboardFilterBar';
 import { LoadFailure } from './LoadFailure';
 

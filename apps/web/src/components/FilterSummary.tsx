@@ -1,16 +1,17 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  NO_DASHBOARD_FILTER,
-  isFiltering,
-  useDashboardFilter,
-  useFilterBarOpen,
   type DashboardFilter,
-} from '../dashboardFilter';
+  DUE_WINDOWS,
+  type DueWindow,
+  isAPeriod,
+  isFiltering,
+  NO_DASHBOARD_FILTER,
+  WINDOW_LABELS,
+} from '@cockpit/shared';
+import { useDashboardFilter, useFilterBarOpen } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
 import { whatTheSheetSwipeMeant } from '../swipe';
-import { DUE_WINDOWS, type DueWindow } from '@cockpit/shared';
-import { WINDOW_LABELS, isAPeriod } from '../filters';
 import { ATTACHMENTS, PRIORITIES, STATUSES } from './DashboardFilterBar';
 
 // The phone's half of the filter, apart from the bar so a desk never fetches it.

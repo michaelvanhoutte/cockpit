@@ -2,12 +2,23 @@ import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, 
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  itemLabel,
-  uuidv7,
-  workspaceIsDecided,
+  alsoShownOn,
+  dayOf,
+  filedOrderOnPanel,
+  filingsThatFile,
   type Item,
+  itemIdsWithRun,
+  itemLabel,
+  itemsOnPanel,
+  orderPuttingBack,
+  ordersForFilingSeveral,
+  orderWithItemAt,
+  panelAndFilterIdsByItem,
   type PanelColumns,
   type PanelFit,
+  stillOpen,
+  uuidv7,
+  workspaceIsDecided,
 } from '@cockpit/shared';
 import {
   snapshotQuery,
@@ -34,18 +45,8 @@ import {
   type SelectionInTheAir,
 } from '../itemInTheAir';
 import { columnsStyle, landingOnRow } from '../panelColumns';
-import {
-  filedOrderOnPanel,
-  filingsThatFile,
-  stillOpen,
-  itemsOnPanel,
-  orderPuttingBack,
-  ordersForFilingSeveral,
-  orderWithItemAt,
-} from '../filing';
-import { alsoShownOn, dayOf, panelAndFilterIdsByItem } from '../filters';
 import type { FilterGroup } from '../filterGroups';
-import { itemIdsWithRun, useFilteredDashboardIds } from '../dashboardFilter';
+import { useFilteredDashboardIds } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';

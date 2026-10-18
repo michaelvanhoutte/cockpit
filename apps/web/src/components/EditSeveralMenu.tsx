@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import type { Item, ItemStatus, Priority } from '@cockpit/shared';
+import { type Item, type ItemStatus, type Priority, PRIORITY_LABELS } from '@cockpit/shared';
 import { sharedValue, type BulkField, type BulkValue } from '../bulkEdit';
 import { dueDateLabel } from '../dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../dueDateShortcuts';
-import { PRIORITY_LABELS } from '../priority';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { menuItemSplitClass } from './Menu';
 

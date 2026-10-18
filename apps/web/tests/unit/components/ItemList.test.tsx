@@ -1193,7 +1193,7 @@ describe('Panels', () => {
   });
 
   /**
-   * Which order a sort draws is tests/unit/sorting.test.ts; what is asked here
+   * Which order a sort draws is packages/shared/tests/unit/domain/sorting.test.ts; what is asked here
    * is what a sorted Panel's list does with a drop ("Sort a panel of items by
    * the fields you choose", issue 526). That a real drag gets there is the walk
    * in tests/e2e/filing.test.ts.
@@ -1701,7 +1701,7 @@ describe('Capture', () => {
  * items, and file them all in one go", issue 169).
  *
  * What a click on a tick *means* is tests/unit/selection.test.ts's, and the
- * orders a filing of several carries are tests/unit/filing.test.ts's. What is
+ * orders a filing of several carries are packages/shared/tests/unit/domain/filing.test.ts's. What is
  * asked here is the wiring: that every row offers a tick, that the bar shows
  * what is picked, and that choosing a panel sends one filing per row carrying
  * the order it was given. **The tick appearing on hover is not asked here at
@@ -2183,7 +2183,7 @@ describe('Selection', () => {
 describe('Triage', () => {
   describe('filing what is picked files every row, in the order the list shows them', () => {
     it('sends one filing per row, onto the panel picked, in the order the list shows them', async () => {
-      // **What each order contains is tests/unit/filing.test.ts's**, table-tested
+      // **What each order contains is packages/shared/tests/unit/domain/filing.test.ts's**, table-tested
       // there including the shapes this arrangement has. What is asked here is
       // the wiring, and `sendThatFiles` is what makes that provable without
       // repeating the arithmetic: it refuses an order that is not the panel's,

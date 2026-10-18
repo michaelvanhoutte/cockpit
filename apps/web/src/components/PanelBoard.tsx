@@ -2,44 +2,43 @@ import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useRef, useState 
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  type AgentRun,
+  type Attachment,
+  type Dashboard,
+  dayOf,
+  DEFAULT_FILTER_SORT,
+  type Filing,
+  type FilterCondition,
+  type FilterGrouping,
+  filtersUsingPanel,
   GRID_COLUMNS,
+  isFiltering,
+  isGrouped,
   isPhoneWidth,
+  type Item,
+  itemIdsWithAttachments,
+  itemIdsWithRun,
+  joinedBy,
+  type Layout,
+  type LayoutRow,
   MIN_ROW_HEIGHT,
   NO_CONDITIONS,
+  type Panel,
   panelGathers,
   panelHoldsText,
+  type PanelSort,
   rowIsSection,
+  sortOf,
   uuidv7,
-} from '@cockpit/shared';
-import type {
-  Dashboard,
-  Filing,
-  FilterCondition,
-  FilterGrouping,
-  AgentRun,
-  Attachment,
-  Item,
-  Layout,
-  LayoutRow,
-  Panel,
-  PanelSort,
 } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { scrollWhileDragging } from '../dragScroll';
 import { groupFilterRows } from '../filterGroups';
-import { dayOf, filtersUsingPanel, isGrouped, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
-import {
-  clearDashboardFilter,
-  isFiltering,
-  itemIdsWithAttachments,
-  itemIdsWithRun,
-  useDashboardFilter,
-} from '../dashboardFilter';
+import { clearDashboardFilter, useDashboardFilter } from '../dashboardFilter';
 import { itemsShownOn } from '../panelContents';
 import { DashboardFilterBar } from './DashboardFilterBar';
-import { DEFAULT_FILTER_SORT, sortOf } from '../sorting';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
   dividerMoved,

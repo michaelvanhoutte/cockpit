@@ -2,8 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import type { Dashboard, Filing, Item, Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
-import { NO_DASHBOARD_FILTER, writeDashboardFilter } from '../../src/dashboardFilter';
+import {
+  type Dashboard,
+  type Filing,
+  type Item,
+  type Layout,
+  NO_DASHBOARD_FILTER,
+  type Panel,
+  type WorkspaceSnapshot,
+} from '@cockpit/shared';
+import { writeDashboardFilter } from '../../src/dashboardFilter';
 import { dashboardsOf, useReach } from '../../src/panelReach';
 import type { ReachDashboard, Scope } from '../../src/panelReach';
 import type { PanelListEntry } from '../../src/panelList';

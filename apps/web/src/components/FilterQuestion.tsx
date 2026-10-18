@@ -3,25 +3,27 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
 import {
-  DUE_WINDOWS,
-  FILTER_GROUPINGS,
-  panelTakesItems,
-  prioritySchema,
-  statusValuesOf,
   type Dashboard,
+  DUE_WINDOWS,
   type DueCondition,
   type DueWindow,
+  FILTER_GROUPINGS,
   type FilterCondition,
   type FilterGrouping,
+  GROUPING_NAMES,
+  isAPeriod,
   type Layout,
   type Panel,
+  panelTakesItems,
   type Priority,
+  PRIORITY_LABELS,
+  prioritySchema,
+  statusValuesOf,
+  WINDOW_LABELS,
 } from '@cockpit/shared';
-import { GROUPING_NAMES, WINDOW_LABELS, isAPeriod } from '../filters';
 import { orderedAsDrawn } from '../filterGroups';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
-import { PRIORITY_LABELS } from '../priority';
 
 /** What a Panel condition's value picker says when the Workspace has no items Panel to offer at all. */
 const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';

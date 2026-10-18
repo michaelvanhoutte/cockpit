@@ -1,5 +1,11 @@
-import { pairedWith, type Filing, type Item, type PossibleDuplicate } from '@cockpit/shared';
-import { itemsInTheInbox, itemsThatAreFiled } from './filing';
+import {
+  type Filing,
+  type Item,
+  itemsInTheInbox,
+  itemsThatAreFiled,
+  pairedWith,
+  type PossibleDuplicate,
+} from '@cockpit/shared';
 
 /**
  * Whether an id is still open at all - in the Inbox or filed - which is the

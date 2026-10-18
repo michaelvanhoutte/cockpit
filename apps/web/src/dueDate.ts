@@ -1,4 +1,4 @@
-import { dayOf } from './filters';
+import { dayOf } from '@cockpit/shared';
 
 /**
  * How near a due date is, as the pill a row wears for it. Replaces the row's

@@ -1,24 +1,20 @@
-import type {
-  DueWindow,
-  Dashboard,
-  Filing,
-  FilterCondition,
-  FilterGrouping,
-  Item,
-  PanelFilter,
-  PanelSort,
-  Panel,
-} from '@cockpit/shared';
+import { itemStatus, type Dashboard, type Item } from './item.js';
 import {
   NO_CONDITIONS,
-  itemStatus,
   panelGathers,
   panelTakesItems,
   statusValuesOf,
-} from '@cockpit/shared';
-import { filingsThatFile, itemsThatAreFiled } from './filing';
-import { PRIORITY_LABELS } from './priority';
-import { DEFAULT_FILTER_SORT, inSortOrder } from './sorting';
+  type DueWindow,
+  type Filing,
+  type FilterCondition,
+  type FilterGrouping,
+  type Panel,
+  type PanelFilter,
+  type PanelSort,
+} from './panel.js';
+import { filingsThatFile, itemsThatAreFiled } from './filing.js';
+import { PRIORITY_LABELS } from './priority-labels.js';
+import { DEFAULT_FILTER_SORT, inSortOrder } from './sorting.js';
 
 /**
  * What a Filter shows, worked out here rather than asked for ("Add a Filter

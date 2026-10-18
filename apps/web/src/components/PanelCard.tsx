@@ -1,17 +1,18 @@
 import { useRef } from 'react';
 import {
+  type Dashboard,
+  type Item,
   NO_CONDITIONS,
+  type Panel,
   panelGathers,
   panelHoldsText,
   panelTakesItems,
-  type Dashboard,
-  type Item,
-  type Panel,
+  saysHowItIsSorted,
+  saysWhatItShows,
+  sortOf,
 } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
-import { saysWhatItShows } from '../filters';
 import type { FilterGroup } from '../filterGroups';
-import { saysHowItIsSorted, sortOf } from '../sorting';
 import { ItemList } from './ItemList';
 import { dashboardScope, pickAll } from '../selection';
 import { useOpenCaptureOn } from '../captureOpener';

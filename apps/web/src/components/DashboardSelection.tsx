@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
-import { stillOpen } from '../filing';
+import { stillOpen } from '@cockpit/shared';
 import { dashboardScope, endSelection, showsABar, useHeldTo, useSelection, useSeveral } from '../selection';
 import { SelectionBar } from './SelectionBar';
 import { useEditingSeveral } from './useEditingSeveral';
