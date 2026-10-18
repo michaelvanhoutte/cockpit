@@ -194,10 +194,11 @@ test.describe('Selection', () => {
       await goToTheInbox(page, isMobile);
       for (const title of [first, second, third]) await capture(page, title, isMobile);
 
-      // One picked row is highlighted and draws no bar; the second brings it.
+      // With a pointer one picked row is highlighted and draws no bar, and the
+      // second brings it; a phone's long press brings it at once.
       await startSelecting(page, first, isMobile);
       await expect(itemRow(page, first)).toHaveClass(/row-picked/);
-      await expect(inbox(page).getByText(/ selected$/)).toHaveCount(0);
+      await expect(inbox(page).getByText(/ selected$/)).toHaveCount(isMobile ? 1 : 0);
 
       // A range is a shift-click, which a phone cannot make; there, each row is
       // one more tap.
@@ -272,9 +273,12 @@ test.describe('Selection', () => {
       // Near its top edge: the offer drawn over this short a screen is three
       // buttons wide and two lines tall, and covers the middle of the row.
       await startSelecting(page, titles[0]!, isMobile, true);
-      await addToSelection(page, titles[1]!, isMobile);
+      // A long press brings the bar at one row; a pointer's one row is only
+      // highlighted, so it takes a second.
+      if (!isMobile) await addToSelection(page, titles[1]!, isMobile);
+      const count = isMobile ? '1 selected' : '2 selected';
 
-      await expect(page.getByText('2 selected')).toBeInViewport();
+      await expect(page.getByText(count)).toBeInViewport();
       await expect(page.getByRole('button', { name: 'Move to…' })).toBeInViewport();
       if (!isMobile) return;
 
@@ -295,7 +299,7 @@ test.describe('Selection', () => {
         for (let up: Element | null = row; up; up = up.parentElement) up.scrollTop = up.scrollHeight;
       });
       const row = (await lastRow.boundingBox())!;
-      const bar = (await page.getByText('2 selected').locator('xpath=../..').boundingBox())!;
+      const bar = (await page.getByText(count).locator('xpath=../..').boundingBox())!;
       expect(row.y + row.height).toBeLessThanOrEqual(bar.y);
     });
   });

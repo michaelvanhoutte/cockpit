@@ -6,6 +6,7 @@ import {
   afterPickingAlone,
   afterPickingAll,
   SEVERAL,
+  severalFor,
   showsABar,
   afterPruning,
   afterUpdating,
@@ -44,6 +45,13 @@ describe('Selection', () => {
 
       expect([...clicked.picked]).toEqual(['b']);
       expect(afterClicking(ROWS, clicked, 'd', true).picked).toEqual(new Set(['b', 'c', 'd']));
+    });
+
+    it('counts one picked row as several on a touch device, and two with a pointer', () => {
+      expect(severalFor(true)).toBe(1);
+      expect(severalFor(false)).toBe(SEVERAL);
+      expect(showsABar(1, [null], severalFor(true))).toBe(true);
+      expect(showsABar(1, [null], severalFor(false))).toBe(false);
     });
 
     it('leaves a selection that is that row alone as it was', () => {

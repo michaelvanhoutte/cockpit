@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { stillOpen } from '../filing';
-import { dashboardScope, endSelection, showsABar, useHeldTo, useSelection } from '../selection';
+import { dashboardScope, endSelection, showsABar, useHeldTo, useSelection, useSeveral } from '../selection';
 import { SelectionBar } from './SelectionBar';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
@@ -30,6 +30,7 @@ export function DashboardSelection({
 }) {
   const scope = dashboardScope(dashboardId);
   const selection = useSelection(scope);
+  const several = useSeveral();
   useHeldTo(scope);
   const { data } = useQuery(snapshotQuery(workspaceId));
 
@@ -49,7 +50,7 @@ export function DashboardSelection({
 
   return (
     <>
-      {showsABar(picked.length, [filingSeveral.refusal, editing.refusal]) && (
+      {showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several) && (
         <SelectionBar
           onBoard
           count={picked.length}

@@ -52,7 +52,7 @@ import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import {
   afterClicking,
   pickAlone,
-  SEVERAL,
+  useSeveral,
   showsABar,
   dashboardOfScope,
   dashboardScope,
@@ -253,6 +253,8 @@ export function ItemList({
   /** The Panel the rows here are filed on, which a move from one of them leaves: none in the Inbox or on a Filter. */
   const rowPanel = panelId !== null && !gathered ? panelId : null;
   const selection = useSelection(scope);
+  /** How many picked rows make a selection several: one on a touch device, two with a pointer. */
+  const several = useSeveral();
   const setSelection = (update: Selection | ((was: Selection) => Selection)) =>
     updateSelection(scope, typeof update === 'function' ? update : () => update);
   /** Everything a selection put on screen, gone together. */
@@ -989,7 +991,7 @@ export function ItemList({
       {...(rowPanel ? { liftedFrom: rowPanel } : {})}
       selecting={{
         picked: selection.picked.has(item.id),
-        revealed: selection.picked.size >= SEVERAL,
+        revealed: selection.picked.size >= several,
         held: selection.picked.size > 0,
         onPickAlone: () => pickAlone(scope, item.id),
         scope,
@@ -1281,7 +1283,7 @@ export function ItemList({
 
       {/* A Dashboard's selection has one bar, drawn by its board
           (`DashboardSelection`), so a Panel draws none. */}
-      {!onDashboard && showsABar(picked.length, [filingSeveral.refusal, editing.refusal]) && (
+      {!onDashboard && showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several) && (
         <SelectionBar
           count={picked.length}
           filing={filingSeveral.filing}

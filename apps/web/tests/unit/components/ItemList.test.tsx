@@ -1913,6 +1913,55 @@ describe('Selection', () => {
     });
   });
 
+  describe('on a touch device one picked row is a selection, as it always was', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it.each([
+      { situation: 'a finger', coarse: true, bar: true, suspended: true },
+      { situation: 'a pointer', coarse: false, bar: false, suspended: false },
+    ])('with $situation, one picked row shows the bar: $bar, and suspends the row menus: $suspended', async ({ coarse, bar, suspended }) => {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: coarse && query.includes('coarse'),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+      const user = await showList({ items: THREE });
+
+      await tick(user, BART);
+
+      expect(screen.queryByText('1 selected') !== null).toBe(bar);
+      for (const trigger of screen.getAllByLabelText('Item actions')) {
+        expect(trigger.getAttribute('aria-disabled') === 'true').toBe(suspended);
+      }
+    });
+  });
+
+  describe('a right-click on another row moves a single pick to it, and leaves several alone', () => {
+    it('picks the row right-clicked alone, so the highlighted row is the one whose menu opens', async () => {
+      const user = await showList({ items: THREE });
+      await click(user, BART);
+
+      fireEvent.contextMenu(screen.getByText(RENEW.title));
+
+      expect(isPicked(RENEW)).toBe(true);
+      expect(isPicked(BART)).toBe(false);
+      expect(await screen.findByRole('menuitem', { name: /^Status/ })).toBeVisible();
+    });
+
+    it('leaves two picked rows as they are, and opens no menu', async () => {
+      const user = await showList({ items: THREE });
+      await tick(user, BART);
+      await tick(user, CHASE);
+
+      fireEvent.contextMenu(screen.getByText(RENEW.title));
+
+      expect(isPicked(RENEW)).toBe(false);
+      expect(screen.getByText('2 selected')).toBeVisible();
+      expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+    });
+  });
+
   describe('a single pick ends on Escape and on a click on empty space, and several are left alone', () => {
     const endsItself = () => renderHook(() => useEndingASinglePick());
 

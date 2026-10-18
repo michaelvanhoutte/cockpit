@@ -161,7 +161,7 @@ async function showInbox(items: Item[]) {
 beforeAll(() => import('../../../src/inboxTriage'));
 
 beforeEach(() => {
-  vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: !query.includes('pointer'), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
   held.filings = [];
   held.dashboards = [TODAY];
   held.panels = [FALCON, HARBOR];

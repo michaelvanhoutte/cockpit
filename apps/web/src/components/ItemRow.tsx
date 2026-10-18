@@ -1063,7 +1063,14 @@ export function ItemRow({
       // dropdown's entries reach here through the React tree, and a menu opening
       // over a menu is not what a right-click on an entry means.
       onContextMenu={(event) => {
-        if (!event.currentTarget.contains(event.target as Node)) event.preventDefault();
+        if (!event.currentTarget.contains(event.target as Node)) {
+          event.preventDefault();
+          return;
+        }
+        // With one row picked, a right-click on another moves the pick to it, so
+        // the highlighted row is the one whose menu opens (a file manager's
+        // way). Several leave the menu suspended.
+        if (selecting?.held && !selecting.revealed && !selecting.picked) selecting.onPickAlone();
       }}
       onDragStart={(event) => {
         event.dataTransfer.setData(ITEM_BEING_DRAGGED, item.id);

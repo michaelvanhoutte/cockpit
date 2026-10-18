@@ -82,18 +82,52 @@ export function afterClicking(
 /**
  * How many picked rows make a selection several ("Pick a row with a plain
  * click, and keep a single pick's own actions", issue 1236): the bar appears,
- * and every row's own menu, swipe, ✓ and keys step aside. One picked row is
- * only highlighted.
+ * and every row's own menu, swipe, ✓ and keys step aside. With a pointer one
+ * picked row is only highlighted. **On a touch device it is one**, unchanged:
+ * a long press has no click to pick with, and the bar is how a phone sees a
+ * selection has started.
  */
 export const SEVERAL = 2;
 
+/** The question "is the pointer a finger", asked of the browser. */
+export const COARSE_POINTER = '(pointer: coarse)';
+
+export const severalFor = (coarse: boolean) => (coarse ? 1 : SEVERAL);
+
+function theCoarseQuestion(): MediaQueryList | null {
+  try {
+    return globalThis.matchMedia?.(COARSE_POINTER) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** How many picked rows are several here, watched so a device that changes its pointer is answered. */
+export function useSeveral(): number {
+  return severalFor(
+    useSyncExternalStore(
+      (announce) => {
+        const question = theCoarseQuestion();
+        question?.addEventListener('change', announce);
+        return () => question?.removeEventListener('change', announce);
+      },
+      () => theCoarseQuestion()?.matches ?? false,
+      () => false,
+    ),
+  );
+}
+
 /**
- * Whether the bar is drawn: from two picked rows, and for one only while it has
+ * Whether the bar is drawn: from `several` picked rows, and for one only while it has
  * a refusal to say - a filing that stopped part way leaves what did not move
  * picked, and the line saying why is the bar's.
  */
-export function showsABar(count: number, refusals: readonly (string | null | false | undefined)[]): boolean {
-  return count >= SEVERAL || (count > 0 && refusals.some(Boolean));
+export function showsABar(
+  count: number,
+  refusals: readonly (string | null | false | undefined)[],
+  several = SEVERAL,
+): boolean {
+  return count >= several || (count > 0 && refusals.some(Boolean));
 }
 
 /** The selection a plain click leaves: this row alone, and what a shift-click reaches back to. */
