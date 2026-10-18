@@ -30,7 +30,7 @@ const USAGE = `Usage: node src/cli.js [options]
   --windows <a,b>     the windows to report, in days (default 7,14)
   --max-pulls <n>     stop after this many pull requests, and report the shorter period (default 120)
   --repo <owner/name> default: $GITHUB_REPOSITORY, else this checkout's origin
-  --branch <name>     default: main
+  --branch <name>     the trunk: pull requests merged into it, or into any feature/* branch, are read (default: main)
   --help
 `;
 

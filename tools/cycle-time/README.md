@@ -39,6 +39,16 @@ node src/cli.js --help
 A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without one the API allows
 60 requests an hour, which is not enough for a window.
 
+## Which pull requests it reads
+
+Pull requests merged into `main` or any `feature/*` branch, from one listing of closed pull requests
+with no base filter, so a feature branch costs no request of its own; units count against
+`--max-pulls` like any other. Each carries its `base` and `head`, and the page marks a row whose base
+is not `main`. A pull request from a `feature/*` branch into `main` is a **landing**: shown, marked,
+and left out of every window figure, the scatter and the evolution panels (`landing: true` in the
+model), since its units were each a pull request into the branch and are counted there. `--branch`
+names the trunk (default `main`): the base that is not marked, and the one a landing merges into.
+
 ## What the model says
 
 A pull request is one line, cut into parts:

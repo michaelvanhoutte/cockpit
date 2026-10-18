@@ -46,6 +46,38 @@ const recordBody = (marks) =>
 const NOW = new Date(BASE + 24 * 60 * MIN);
 
 describe('Cycle time', () => {
+  describe('a pull request into a feature branch is counted, and a landing of one is not', () => {
+    const unit = (number) => pull({ number, base: 'feature/find-items-1238', head: `unit-${number}`, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12)])] });
+    const landing = pull({ number: 9, base: 'main', head: 'feature/find-items-1238', mergedAt: at(300), commits: [commit('a', 0, [check('Test', 2, 12)])] });
+    const build = (pulls) => buildModel({ pulls, now: NOW, requestedDays: 14, coveredSince: new Date(BASE - 14 * 86_400_000), repo: 'o/r' });
+
+    it('keeps the base and head of each, and marks only a feature branch into the trunk as a landing', () => {
+      const model = build([pull({ number: 1 }), unit(2), landing]);
+      expect(model.pulls.map((each) => [each.number, each.base, each.landing])).toEqual([
+        [9, 'main', true],
+        [1, 'main', false],
+        [2, 'feature/find-items-1238', false],
+      ]);
+    });
+
+    it('reads a pull request with no base as into the trunk', () => {
+      expect(pullModel(pull())).toMatchObject({ base: 'main', head: null, landing: false });
+    });
+
+    it('computes every window figure without the landing', () => {
+      const withLanding = build([pull({ number: 1 }), unit(2), landing]);
+      const without = build([pull({ number: 1 }), unit(2)]);
+      expect(withLanding.windows).toEqual(without.windows);
+      expect(withLanding.windows[0].pulls.total).toBe(2);
+      expect(withLanding.windows[0].parts.total.median).toBe(60 * MIN);
+    });
+
+    it('does not read a pull request from a feature branch into another feature branch as a landing', () => {
+      const nested = pull({ number: 3, base: 'feature/a', head: 'feature/b' });
+      expect(build([nested]).pulls[0].landing).toBe(false);
+    });
+  });
+
   describe("each merged pull request's time is split into the parts it spent", () => {
     it('answers before the first push, each round, the fixing between them and the wait to merge', () => {
       const model = pullModel(

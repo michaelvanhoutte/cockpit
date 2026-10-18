@@ -41,6 +41,15 @@ export const LONG_ROUND_MS = 10 * 60_000;
  */
 export const CHECK_KINDS = ['checks'];
 
+/** The prefix of a feature branch: a pull request into one is read, and one from one into the trunk is a landing. */
+export const FEATURE_PREFIX = 'feature/';
+
+/**
+ * A pull request from a feature branch into the trunk. Its units were each a pull request into the
+ * branch and are counted there, so counting the landing as well would count the same work twice.
+ */
+const isLanding = (head, base, trunk) => base === trunk && typeof head === 'string' && head.startsWith(FEATURE_PREFIX);
+
 /** The reviews a session marks, from the session record: local time, apart from CI's. */
 export const LOCAL_REVIEW_KINDS = REVIEW_KINDS;
 
@@ -544,8 +553,9 @@ function unionRanges(ranges) {
  * One merged pull request, cut into the parts it spent.
  *
  * @param {import('./github.js').Pull} pull
+ * @param {string} [trunk] the branch whose pull requests are the report's own; a pull with no `base` is read as into it
  */
-export function pullModel(pull) {
+export function pullModel(pull, trunk = 'main') {
   const mergedAt = time(pull.mergedAt);
   const rounds = buildRounds(pull.commits, mergedAt);
   const runner = runnerOf(pull.commits, rounds);
@@ -607,6 +617,9 @@ export function pullModel(pull) {
     title: pull.title,
     url: pull.url,
     mergedAt: pull.mergedAt,
+    base: pull.base ?? trunk,
+    head: pull.head ?? null,
+    landing: isLanding(pull.head, pull.base ?? trunk, trunk),
     size: {
       additions: pull.additions,
       deletions: pull.deletions,
@@ -754,9 +767,10 @@ function cancelledOfWindow(inWindow) {
 /** One window's picture: the pull requests merged in it, and every part's median and p95. */
 function windowModel(pulls, { days, now, coveredSince }) {
   const since = now.getTime() - days * DAY_MS;
+  // A feature branch landing is shown but is in no figure: its units are already counted.
   const inWindow = pulls.filter((pull) => {
     const merged = time(pull.mergedAt);
-    return merged >= since && merged <= now.getTime();
+    return !pull.landing && merged >= since && merged <= now.getTime();
   });
 
   const rounds = inWindow.flatMap((pull) => pull.rounds.map((round) => ({ pull: pull.number, value: round.ms, round })));
@@ -869,7 +883,7 @@ export function buildModel({
   windows = [7, 14],
 }) {
   // A pull closed without merging has no cycle time to give.
-  const merged = pulls.filter((pull) => time(pull.mergedAt) !== null).map(pullModel).sort((a, b) => time(b.mergedAt) - time(a.mergedAt));
+  const merged = pulls.filter((pull) => time(pull.mergedAt) !== null).map((pull) => pullModel(pull, branch)).sort((a, b) => time(b.mergedAt) - time(a.mergedAt));
   const requestedSince = now.getTime() - requestedDays * DAY_MS;
 
   return {

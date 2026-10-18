@@ -69,6 +69,43 @@ describe('Cycle time', () => {
     expect(html).toContain('<h1>Cycle time</h1>');
   });
 
+  describe('a pull request into a feature branch shows its base, and a landing is marked and left out of the figures', () => {
+    const unit = pull({ number: 2, base: 'feature/find-items-1238', head: 'unit-2', body: withRecord(0) });
+    const landing = pull({ number: 9, base: 'main', head: 'feature/find-items-1238', mergedAt: at(300), body: withRecord(0) });
+
+    it('marks the row of a pull request into a feature branch with its base', () => {
+      const html = render({ pulls: [pull({ number: 1 }), unit] });
+      expect(rowOf(html, 2)).toContain('into feature/find-items-1238');
+      expect(rowOf(html, 1)).not.toContain('class="tag base"');
+    });
+
+    it('marks a feature branch into main as a landing, and no other row', () => {
+      const html = render({ pulls: [pull({ number: 1 }), unit, landing] });
+      expect(rowOf(html, 9)).toContain('feature branch landing');
+      expect(rowOf(html, 9)).not.toContain('class="tag base"');
+      expect(rowOf(html, 2)).not.toContain('feature branch landing');
+      expect(rowOf(html, 1)).not.toContain('feature branch landing');
+    });
+
+    it('leaves the landing out of the scatter and the evolution, though its row stays', () => {
+      const html = render({ pulls: [pull({ number: 1, body: withRecord(0) }), unit, landing] });
+      // A dot or bar names its pull request as "#n title"; a row names it "<b>#n</b> title".
+      expect(html).not.toContain('#9 A change');
+      expect(html).toContain('#2 A change');
+      expect(rowOf(html, 9)).toContain('<b>#9</b>');
+    });
+
+    it('says in the limits box that feature branch pull requests are read and landings are in no figure', () => {
+      expect(render({ pulls: [unit, landing] })).toContain('1 feature branch landing (a feature branch into main) is shown but in no figure');
+    });
+
+    it('renders a window of only pull requests into main with no mention of branches', () => {
+      const html = render({ pulls: [pull({ number: 1 }), pull({ number: 2 })] });
+      expect(html).not.toContain('feature branch');
+      expect(html).not.toContain('class="tag base"');
+    });
+  });
+
   describe('the page says what period it covered and what it cannot see', () => {
     it('names the period it actually covered, not the one asked for, where the fetch was capped', () => {
       const html = render({ requestedDays: 14, coveredDays: 9, truncated: true });

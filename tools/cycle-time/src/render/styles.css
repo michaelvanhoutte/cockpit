@@ -211,6 +211,8 @@ td.pr .title { color: var(--ink-2); }
 .tag.red { color: var(--bad); border-color: var(--bad); }
 .tag.fluke { color: var(--warn); border-color: var(--warn); }
 .tag.unrecorded { color: var(--ink-2); border-style: dashed; border-color: var(--ink-3); }
+.tag.base { color: var(--ink-1); border-color: var(--accent); }
+.tag.landing { color: var(--ink-1); border-style: dotted; border-color: var(--ink-2); }
 .tag.clip { color: var(--ink-1); border-color: var(--bad); }
 
 .clipnote { margin: 4px 0 0; font-size: 12px; color: var(--ink-3); }
