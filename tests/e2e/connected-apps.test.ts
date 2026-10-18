@@ -66,7 +66,7 @@ async function connectClaude(page: Page, context: BrowserContext, isMobile: bool
     })}`,
   );
   await press(page.getByRole('link', { name: addressOf(MICHAEL), exact: true }), isMobile);
-  await expect(page.getByRole('heading', { name: 'Allow Claude to create items in your Cockpit?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Allow Claude to add and read items in your Cockpit?' })).toBeVisible();
   const sentBack = page.waitForRequest((request) => request.url().startsWith(CALLBACK));
   await press(page.getByRole('button', { name: 'Allow' }), isMobile);
   const code = new URL((await sentBack).url()).searchParams.get('code');

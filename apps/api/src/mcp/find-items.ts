@@ -176,8 +176,9 @@ export function readFind(args: unknown, workspaces: readonly Workspace[], now: D
     const value = textOf(key);
     if (isRefusal(value)) return value;
     if (value === null) return null;
-    const at = names[value.toLowerCase()];
-    return at !== undefined ? { value: at } : refuse(`${key} must be one of ${named(options)}.`);
+    const lowered = value.toLowerCase();
+    // Own keys only: "constructor" or "__proto__" is not a name on offer.
+    return Object.hasOwn(names, lowered) ? { value: names[lowered] as V } : refuse(`${key} must be one of ${named(options)}.`);
   };
   const status = chosen('status', STATUS_NAMES, STATUS_OPTIONS);
   if (status && 'ok' in status) return status;

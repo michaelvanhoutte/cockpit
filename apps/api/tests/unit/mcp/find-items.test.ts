@@ -79,6 +79,7 @@ describe('MCP connections', () => {
       { situation: 'a workspace nobody has', args: { workspace: 'Garden' }, says: ['"Garden"', '"Home", "Work"'] },
       { situation: 'a workspace that is not a name at all', args: { workspace: 7 }, says: ['workspace must be text'] },
       { situation: 'a priority there is not', args: { priority: 'urgent' }, says: ['priority must be one of', '"Low"', '"High"', '"None"'] },
+      { situation: 'a name an object happens to have', args: { priority: 'constructor' }, says: ['priority must be one of'] },
       { situation: 'a status there is not', args: { status: 'Done' }, says: ['status must be one of', '"To do"', '"In progress"'] },
       { situation: 'a due window there is not', args: { due: 'next year' }, says: ['due must be one of', '"This week"'] },
       { situation: 'a today that is not a date', args: { today: 'tomorrow' }, says: ['today must be a date'] },
