@@ -245,27 +245,15 @@ export const workspaces = sqliteTable(
      * colors on the wire: `header` the bar across the top, `bar` the strip the
      * dashboard tabs sit on, and `ground` the page behind the panels.
      *
-     * Only `color` is read or written: a workspace is painted from the theme it
-     * names, so a palette change rewrites no row. `bar`, `ground` and `header`
-     * are left at the defaults a new row takes, and read by nothing, until a
-     * contract step drops them.
+     * Only `color` is stored: a workspace is painted from the theme it names,
+     * so a palette change rewrites no row, and a tint not in the palette wears
+     * the first theme's other three. The columns that once held them went in
+     * `0090-drop-workspace-colours` (changes.ts).
      *
-     * The defaults are the first theme's, and they are what a workspace whose
-     * tint is not in the palette keeps: an unfamiliar color is one thing that
-     * looks slightly wrong, not a corrupt row. (The D1 copy needed them for a
-     * second reason this store does not have - old code writing rows across a
-     * deploy that had added the columns.)
-     *
-     * **None of them carries a format CHECK**, and `bar` follows the two it
-     * joins rather than introducing one for itself. A CHECK cannot be added to
-     * an existing table in SQLite, so constraining only the new column would
-     * mean rebuilding the table to make three columns disagree about their own
-     * rules. Worth revisiting for all four together if it is ever wanted.
+     * **No format CHECK.** A CHECK cannot be added to an existing table in
+     * SQLite, so adding one means rebuilding the table.
      */
     color: text('color').notNull(),
-    bar: text('bar').notNull().default('#dbd7ee'),
-    ground: text('ground').notNull().default('#e3e1f2'),
-    header: text('header').notNull().default('#d2cdea'),
     /**
      * Where this workspace sits in the tabs, left to right ("Reorder
      * workspaces", issue 31). Lower is further left; `created_at` breaks a tie,

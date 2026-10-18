@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
+import { themeOf } from '@cockpit/shared';
+import type { Workspace } from '@cockpit/shared';
 import { accountChanges } from '../../../src/accounts/changes.js';
 import {
   ACCOUNT_NAME,
@@ -486,11 +488,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0082-item-claude-proposals` adds what Cockpit proposes doing with an
-    // Item; the guest's demonstration adds rows only, and only to the guest.
-    items: ['claude_proposals'],
-    // `0089-panel-columns` adds how wide a Panel's columns may be.
-    panels: ['columns'],
+    // None: `0090-drop-workspace-colours` takes three columns away, which the
+    // replayed shape then holds at their defaults, and the guest's
+    // demonstration adds rows only, and only to the guest.
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */
@@ -678,6 +678,50 @@ describe('Backup', () => {
       expect(now.tables.gmail_conversations).toBeUndefined();
       expect(now.tables.gmail_checks).toBeUndefined();
       expect(messagesIn(now)).toContain('captured beside Gmail');
+    });
+
+    /**
+     * A backup taken while a Workspace still stored its band, top bar and page
+     * grey ("Drop a Workspace's band, top bar and page grey columns from every
+     * account's store", issue 1214): taken now and made to predate the drop,
+     * each Workspace holding a stale set rather than its palette's.
+     */
+    it('puts back a backup from before the band, top bar and page grey were dropped, then drops them and reads each Workspace in its theme', async () => {
+      await useAccount(USER_ID);
+      const taken = await backUp(ACCOUNT_NAME);
+      // The columns' defaults, which no Workspace of this account holds.
+      const STALE = { bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
+      const older: AccountFile = {
+        ...taken,
+        changesApplied: taken.changesApplied.filter((name) => name !== '0090-drop-workspace-colours'),
+        tables: {
+          ...taken.tables,
+          workspaces: taken.tables.workspaces!.map((row) => ({ ...row, ...STALE })),
+        },
+      };
+      await emptyTheStore(ACCOUNT_NAME);
+
+      // The rows' three colours can only have gone in because the replay put
+      // the columns back: a column the replayed shape lacks refuses the restore.
+      expect((await restore(ACCOUNT_NAME, older)).status).toBe(200);
+
+      // The restore brings the account up to date as it finishes, so the drop
+      // has run again, and every Workspace is otherwise exactly as it was.
+      const now = await backUp(ACCOUNT_NAME);
+      expect(now.changesApplied).toContain('0090-drop-workspace-colours');
+      expect(now.tables.workspaces).toEqual(taken.tables.workspaces);
+      for (const row of now.tables.workspaces!) {
+        expect(Object.keys(row).filter((column) => column in STALE)).toEqual([]);
+      }
+
+      const res = await asUser('http://cockpit.test/v1/workspaces', {}, USER_ID);
+      expect(res.status).toBe(200);
+      const { workspaces: listed } = (await res.json()) as { workspaces: Workspace[] };
+      expect(listed.length).toBe(taken.tables.workspaces!.length);
+      for (const workspace of listed) {
+        const theme = themeOf(workspace.color);
+        expect(workspace, workspace.name).toMatchObject({ bar: theme.bar, ground: theme.ground, header: theme.header });
+      }
     });
   });
 

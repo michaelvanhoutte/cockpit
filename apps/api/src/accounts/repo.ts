@@ -110,9 +110,9 @@ const workspaceColumns = {
 /**
  * A workspace as the wire carries it: the stored accent, with the band, top bar
  * and page grey filled in from the palette entry that accent names (the default
- * theme's for an accent not in the palette). The `bar`, `ground` and `header`
- * columns are not read, so a later release can drop them; the wire keeps all
- * four so a tab on an older build still parses and paints the workspace.
+ * theme's for an accent not in the palette). Only the accent is stored; the
+ * wire keeps all four so a tab on an older build still parses and paints the
+ * workspace.
  */
 function wireWorkspace(row: { id: string; tenantId: string; name: string; color: string }): Workspace {
   const theme = themeOf(row.color);
@@ -185,10 +185,9 @@ export function getWorkspace(
  * Writes a new workspace, naming only the columns it stores.
  *
  * **Raw SQL rather than `insert(workspaces).values(...)`, because drizzle puts
- * every column with a default into the statement** - `bar`, `ground` and
- * `header` included, as their declared defaults - which would name the columns
- * a later release drops. A conflict on the id is a replayed create and writes
- * nothing; a conflict on the name raises, as the index is for.
+ * every column with a default into the statement**, which would name any such
+ * column a later release drops. A conflict on the id is a replayed create and
+ * writes nothing; a conflict on the name raises, as the index is for.
  */
 export function insertWorkspace(
   db: Pick<AccountDb, 'run'>,
