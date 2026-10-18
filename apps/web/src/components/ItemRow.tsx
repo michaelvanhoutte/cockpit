@@ -28,6 +28,7 @@ import { capturingApp, openableAtSource, sourceNamed, type SourceNames } from '.
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
+import { copyItemLinkAndSay } from '../itemLink';
 import { waitedSince } from '../waited';
 import { selectionBeingExtended } from '../inboxKeys';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
@@ -684,6 +685,19 @@ export function ItemRow({
             <a href={atSource.link} target="_blank" rel="noopener noreferrer">
               Open in {atSource.name}
             </a>
+          </M.Item>
+        ),
+        // Only on an Item filed on a Panel, so the link always names a
+        // workspace it has been filed into ("Copy an Item's link from its menu
+        // and its form", issue 1247). A row in the Inbox, decided or not,
+        // would only be keeping the Item there.
+        !inInbox && (
+          <M.Item
+            key="copy-link"
+            className={menuItemClass}
+            onSelect={() => void copyItemLinkAndSay(workspaceId, item, offerToUndo)}
+          >
+            Copy link
           </M.Item>
         ),
       ],

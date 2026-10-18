@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { useEffect, useRef, useState } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -23,6 +23,7 @@ import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
 import { forgetEverySavedRead, restoreSavedReads, saveRead } from '../../../src/persistence';
 import { resetStanding, stand } from '../../../src/offline';
 import { aHistoryEntrySavedBeforePanelsFiledOn } from '../support/savedReads';
+import { aClipboard } from '../support/clipboard';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -314,15 +315,16 @@ function applyingWhatIsSent() {
 }
 
 /** A phone's page for an Item as it opens: the read view, with Edit in the header. */
-async function thePhonePage(item: Item = anItem(), alsoInTheInbox: Item[] = []) {
+async function thePhonePage(item: Item = anItem(), alsoInTheInbox: Item[] = [], withUndo = false) {
   held.items = [item, ...alsoInTheInbox];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   theClient = client;
-  render(
+  const tree = (
     <QueryClientProvider client={client}>
       <ItemForm />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  render(withUndo ? <UndoWhatJustHappened>{tree}</UndoWhatJustHappened> : tree);
   // Drawn at once, and enabled only once the Item has arrived.
   await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled());
   return userEvent.setup();
@@ -3778,6 +3780,121 @@ describe('What Cockpit changed', () => {
       expect(await theNote()).toHaveTextContent('Cockpit changed the title');
       await userEvent.setup().click(changesTab());
       expect(await screen.findByRole('button', { name: /Changed the title/ })).toBeVisible();
+    });
+  });
+});
+
+/**
+ * F1: where the form's Copy link sits and when it is drawn ("Copy an Item's
+ * link from its menu and its form", issue 1247). The address and the titled
+ * link are tests/unit/itemLink.test.ts's, and the link opening the Item in a
+ * fresh page is tests/e2e/item-editing.test.ts's.
+ */
+describe('Item editing', () => {
+  const FALCON = {
+    id: 'p-falcon',
+    tenantId: 't',
+    dashboardId: 'd1',
+    name: 'Falcon',
+    kind: 'items',
+    format: 'plain',
+    body: '',
+    readOnly: false,
+    neverPropose: false,
+    filter: null,
+    sort: null,
+  } as Panel;
+  const onAPanel = () => {
+    held.dashboards = [{ id: 'd1', name: 'Work' }];
+    held.panels = [FALCON];
+    held.filings = [{ panelId: 'p-falcon', itemId: 'item-1', position: 0 }];
+  };
+  const copyLink = () => screen.queryByRole('button', { name: 'Copy link' });
+  async function atPhoneWidth<T>(width: number, run: () => Promise<T>): Promise<T> {
+    const original = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    try {
+      return await run();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
+    }
+  }
+
+  /** Opens the form the way the situation draws it: a desk's window or docked form, or a phone's page read or being edited. */
+  const opened = {
+    'a window': { width: 1280, presentation: 'centered', open: () => theForm() },
+    'a docked form': { width: 1280, presentation: 'docked', open: () => theForm() },
+    'a phone’s page, read': { width: 390, presentation: 'centered', open: () => thePhonePage() },
+    'a phone’s page, edited': { width: 390, presentation: 'centered', open: () => theEditingPhonePage() },
+  } as const;
+
+  describe('the form offers Copy link beside Dock or Center, or beside Edit or Save on a phone, and not while the Item is in the Inbox', () => {
+    it.each([
+      { situation: 'a window', beside: 'Dock' },
+      { situation: 'a docked form', beside: 'Center' },
+      { situation: 'a phone’s page, read', beside: 'Edit' },
+      { situation: 'a phone’s page, edited', beside: 'Save' },
+    ] as const)('$situation: directly left of $beside', async ({ situation, beside }) => {
+      const { width, presentation, open } = opened[situation];
+      await atPhoneWidth(width, async () => {
+        onAPanel();
+        held.itemFormPresentation = presentation;
+        await open();
+
+        const link = await screen.findByRole('button', { name: 'Copy link' });
+
+        expect(link.nextElementSibling).toBe(screen.getByRole('button', { name: beside }));
+      });
+    });
+
+    it.each([{ situation: 'a window' }, { situation: 'a phone’s page, read' }] as const)(
+      '$situation: none for an Item in the Inbox',
+      async ({ situation }) => {
+        const { width, open } = opened[situation];
+        await atPhoneWidth(width, async () => {
+          await open();
+
+          expect(copyLink()).toBeNull();
+        });
+      },
+    );
+  });
+
+  describe('Copy link from the form copies the Item’s workspace address, and the bar says whether it did', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it.each([
+      { situation: 'a window', width: 1280, open: (item: Item) => theForm(item, [], true) },
+      { situation: 'a phone’s page', width: 390, open: (item: Item) => thePhonePage(item, [], true) },
+    ])('$situation: the plain address and a link titled with the Item, "Link copied" and no Undo', async ({ width, open }) => {
+      await atPhoneWidth(width, async () => {
+        onAPanel();
+        const user = await open(anItem({ title: 'Part <11>' }));
+        // After the form, whose user-event setup puts a clipboard of its own in place.
+        const { written } = aClipboard();
+
+        await user.click(await screen.findByRole('button', { name: 'Copy link' }));
+
+        const link = `${window.location.origin}/w/ws-work?item=item-1`;
+        // The bar first: it is shown once the write has landed, which is what `written` waits on.
+        expect(await screen.findByText('Link copied')).toBeInTheDocument();
+        expect(written).toEqual([{ 'text/plain': link, 'text/html': `<a href="${link}">Part &lt;11&gt;</a>` }]);
+        expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      });
+    });
+
+    it('says it could not where the browser refuses, and sends nothing', async () => {
+      onAPanel();
+      const user = await theForm(anItem(), [], true);
+      aClipboard({ refuses: true });
+
+      await user.click(await screen.findByRole('button', { name: 'Copy link' }));
+
+      expect(await screen.findByText("Couldn't copy the link")).toBeInTheDocument();
+      expect(held.send).not.toHaveBeenCalled();
+      expect(held.close).not.toHaveBeenCalled();
     });
   });
 });
