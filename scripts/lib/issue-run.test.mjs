@@ -61,7 +61,7 @@ describe('A run for an issue', () => {
         costByBranch: new Map([['branch-201', cost(1.5)]]),
       });
       assert.equal(run.rows.length, 1);
-      assert.deepEqual(run.total.costUSD, { value: 1.5, missingRows: 0 });
+      assert.deepEqual(run.total.costUSD, { value: 1.5, missingRows: 0, rows: 1 });
     });
 
     it('finds a child whose pull request names it only by Part of', () => {
@@ -149,17 +149,22 @@ describe('A run for an issue', () => {
 
     it('sums each figure when every row is complete', () => {
       const { total } = two(FULL);
-      assert.deepEqual(total.fixed, { value: 6, missingRows: 0 });
-      assert.deepEqual(total.reported, { value: 10, missingRows: 0 });
-      assert.deepEqual(total.costUSD, { value: 3, missingRows: 0 });
+      assert.deepEqual(total.fixed, { value: 6, missingRows: 0, rows: 2 });
+      assert.deepEqual(total.reported, { value: 10, missingRows: 0, rows: 2 });
+      assert.deepEqual(total.costUSD, { value: 3, missingRows: 0, rows: 2 });
     });
 
     it('marks the total as missing a row, not short, when one row has no fixed recorded', () => {
       const withoutOutcome = FULL.replace(/- \S+ review-outcome.*\n/, '');
       const { total } = two(withoutOutcome);
-      assert.deepEqual(total.fixed, { value: 3, missingRows: 1 });
+      assert.deepEqual(total.fixed, { value: 3, missingRows: 1, rows: 2 });
       assert.equal(showTotal(total.fixed, String), `3 (missing 1 row: ${NOT_RECORDED})`);
       assert.equal(showTotal(total.reported, String), '10');
+    });
+
+    it('reads a total no row recorded as not recorded, never zero', () => {
+      const { total } = buildRun({ issue: { number: 10, title: '' }, subIssues: [11], pullRequests: [], costByBranch: new Map() });
+      assert.equal(showTotal(total.fixed, String), NOT_RECORDED);
     });
 
     it('shows no duration as not recorded', () => {

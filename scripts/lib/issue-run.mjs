@@ -182,7 +182,7 @@ export function totalOf(rows) {
   const total = {};
   const column = (name, read) => {
     const known = rows.map(read).filter((n) => n !== null);
-    total[name] = { value: known.reduce((sum, n) => sum + n, 0), missingRows: rows.length - known.length };
+    total[name] = { value: known.reduce((sum, n) => sum + n, 0), missingRows: rows.length - known.length, rows: rows.length };
   };
   column('codingMs', (row) => row.codingMs);
   for (const name of FIGURES) column(name, (row) => row.figures[name]);
@@ -239,8 +239,9 @@ export const showCount = (value) => (value === null || value === undefined ? NOT
 /** Dollars, or the words for none. */
 export const showCost = (value) => (value === null || value === undefined ? NOT_RECORDED : `$${value.toFixed(2)}`);
 
-/** A total's figure: the sum, and where rows had none, how many - so it never reads short without saying. */
+/** A total's figure: the sum, and where rows had none, how many - so it never reads short without saying; no row having it reads as not recorded, never as zero. */
 export function showTotal(figure, show) {
+  if (figure.rows > 0 && figure.missingRows === figure.rows) return NOT_RECORDED;
   const missing = figure.missingRows === 0 ? '' : ` (missing ${figure.missingRows} row${figure.missingRows === 1 ? '' : 's'}: ${NOT_RECORDED})`;
   return `${show(figure.value)}${missing}`;
 }
