@@ -49,6 +49,11 @@ export async function sealAttachmentLink(key: CryptoKey, named: Named, now: Date
   return base64url(token);
 }
 
+/** The address that opens one attachment for an hour: a sealed token under `origin`. */
+export async function attachmentLinkAddress(key: CryptoKey, named: Named, now: Date, origin: string): Promise<string> {
+  return new URL(`${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(key, named, now)}`, origin).toString();
+}
+
 /** What a token names, or `null` for one that is altered, sealed under another key, or expired at `now`. */
 export async function openAttachmentLink(key: CryptoKey, token: string, now: Date): Promise<Named | null> {
   const bytes = bytesOfBase64url(token);

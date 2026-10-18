@@ -83,7 +83,7 @@ import {
   ATTACHMENT_LINK_PREFIX,
   attachmentLinkKey,
   openAttachmentLink,
-  sealAttachmentLink,
+  attachmentLinkAddress,
 } from '../auth/attachment-link.js';
 import {
   CannotReadMeaningError,
@@ -1312,10 +1312,7 @@ const routes = app
     for (const attachmentId of attachmentIds) {
       // Only a file of this account on an Item that is not deleted gets an address.
       if (!(await account.attachmentForDownload(attachmentId))) continue;
-      links[attachmentId] = new URL(
-        `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(key, { accountName, attachmentId }, now)}`,
-        c.env.APP_ORIGIN,
-      ).toString();
+      links[attachmentId] = await attachmentLinkAddress(key, { accountName, attachmentId }, now, c.env.APP_ORIGIN);
     }
     return c.json({ links }, 200);
   })

@@ -237,6 +237,18 @@ describe('MCP connections', () => {
       expect(told).toContain('Line 200 of the notes.');
     });
 
+    it('lists each file in order with its link, and the name alone where it has none', () => {
+      const files = [
+        { id: 'a1', filename: 'one.png', contentType: 'image/png' },
+        { id: 'a2', filename: 'two: draft.pdf', contentType: 'application/pdf' },
+      ];
+      const row = { item: anItem({}), workspaceName: 'Home', places: [], attachments: files };
+
+      const linked = formatFound({ rows: [row], next: null }, ORIGIN, new Map([['a1', 'https://cockpit.test/v1/attachment-links/x']]));
+
+      expect(linked).toContain('   Attachments:\n   - one.png: https://cockpit.test/v1/attachment-links/x\n   - two: draft.pdf\n');
+    });
+
     it('ends with the cursor for the next page where more follow, and gives no total', () => {
       const next = { updatedAt: '2026-10-10T10:00:00.000Z', id: ID };
 

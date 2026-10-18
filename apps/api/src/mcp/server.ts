@@ -16,7 +16,7 @@ import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFr
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from '../auth/mcp-paths.js';
-import { ATTACHMENT_LINK_PREFIX, attachmentLinkKey, sealAttachmentLink } from '../auth/attachment-link.js';
+import { attachmentLinkAddress, attachmentLinkKey } from '../auth/attachment-link.js';
 
 /**
  * `/mcp`, once the OAuth library has accepted the access token
@@ -250,8 +250,7 @@ async function linksToFiles(
   const links = new Map<string, string>();
   for (const { attachments } of rows) {
     for (const { id } of attachments) {
-      const token = await sealAttachmentLink(key, { accountName, attachmentId: id }, now);
-      links.set(id, new URL(`${ATTACHMENT_LINK_PREFIX}${token}`, env.APP_ORIGIN).toString());
+      links.set(id, await attachmentLinkAddress(key, { accountName, attachmentId: id }, now, env.APP_ORIGIN));
     }
   }
   return links;
