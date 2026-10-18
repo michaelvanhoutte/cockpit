@@ -4,6 +4,7 @@ import {
   NewerVersionIfStale,
   WhateverTheEditorDoes,
 } from '../description/lazyEditor';
+import { safeHref } from '../description/safeHref';
 
 /**
  * The description on the Item's form: a formatted editor over Markdown, with
@@ -48,9 +49,28 @@ export interface DescriptionBoxProps {
    * own row, which scrolls sideways, rather than in a line of its own.
    */
   onAPage?: boolean;
+  /**
+   * Drawn to be read: the formatted text with no toolbar, box or Source, and
+   * nothing in it editable. A tap on a link opens it in a new tab; a tap
+   * anywhere else is `onReadingTap`, the way into editing.
+   */
+  reading?: boolean;
+  onReadingTap?: () => void;
+  /** Puts the cursor in the editor as soon as it is built. */
+  focusWhenReady?: boolean;
 }
 
-export function DescriptionBox({ value, onChange, editable, resetKey, uploadImage, onAPage = false }: DescriptionBoxProps) {
+export function DescriptionBox({
+  value,
+  onChange,
+  editable,
+  resetKey,
+  uploadImage,
+  onAPage = false,
+  reading = false,
+  onReadingTap,
+  focusWhenReady = false,
+}: DescriptionBoxProps) {
   const [view, setView] = useState<View>('formatted');
   const [failed, setFailed] = useState(false);
   /**
@@ -74,6 +94,34 @@ export function DescriptionBox({ value, onChange, editable, resetKey, uploadImag
   }, [resetKey]);
 
   const showing: View = failed ? 'source' : view;
+
+  if (reading) {
+    // The text as it was stored, until the formatted version arrives or if it never does.
+    const plain = <p className="whitespace-pre-wrap break-words text-sm text-ink">{value}</p>;
+    return (
+      <div
+        className="flex min-h-0 flex-1 flex-col text-sm text-ink"
+        onClickCapture={(event) => {
+          const link = (event.target as HTMLElement).closest('a[href]');
+          event.preventDefault();
+          event.stopPropagation();
+          if (!link) return onReadingTap?.();
+          const href = safeHref(link.getAttribute('href') ?? '');
+          if (href) window.open(href, '_blank', 'noopener');
+        }}
+      >
+        {failed ? (
+          plain
+        ) : (
+          <WhateverTheEditorDoes onFailure={() => setFailed(true)}>
+            <Suspense fallback={plain}>
+              <LazyRichDescription initial={value} onChange={onChange} editable={false} reading fill />
+            </Suspense>
+          </WhateverTheEditorDoes>
+        )}
+      </div>
+    );
+  }
 
   const toggle = failed ? null : (
     <button
@@ -144,6 +192,7 @@ export function DescriptionBox({ value, onChange, editable, resetKey, uploadImag
                 editable={editable}
                 uploadImage={uploadImage}
                 endOfToolbar={onAPage ? toggle : undefined}
+                focusWhenReady={focusWhenReady}
                 fill
               />
             </Suspense>

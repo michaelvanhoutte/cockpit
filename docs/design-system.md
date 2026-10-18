@@ -62,7 +62,7 @@ A Workspace is never assigned colours outside this table, and is drawn in the ro
 
 ## Field chips
 
-On an Item's phone page the fields are one wrapping row of pill chips, 36px tall so a thumb hits them, 8px apart. **A field with nothing set is an outline in `ink-faint` carrying its own name**, so the row reads as what can still be set; **a set one is filled and says its value**: Status in a faint shade with `ink`, Priority in its own `priority-*` fill with white text, and Due as the row's deadline pill (the same fills as above, a plain shade when the date is over a week off). **+ Attach** is always an outline. A chip opens its picker as a menu with the current choice ticked; Due opens a small sheet of *Today*, *Tomorrow*, *+7d*, the date picker and *Clear*.
+On an Item's phone page, once editing, the fields are one wrapping row of pill chips, 36px tall so a thumb hits them, 8px apart. **A field with nothing set is an outline in `ink-faint` carrying its own name**, so the row reads as what can still be set; **a set one is filled and says its value**: Status in a faint shade with `ink`, Priority in its own `priority-*` fill with white text, and Due as the row's deadline pill (the same fills as above, a plain shade when the date is over a week off). **+ Attach** is always an outline. A chip opens its picker as a menu with the current choice ticked; Due opens a small sheet of *Today*, *Tomorrow*, *+7d*, the date picker and *Clear*.
 
 ## The dark appearance
 
