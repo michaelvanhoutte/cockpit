@@ -941,6 +941,28 @@ export function listAttachmentsOfItem(
 }
 
 /**
+ * The files on a page of Items, oldest first within each Item - read for these
+ * Items alone ("Give attachment links with found items, over MCP", issue 1244).
+ * An Item with none has no entry.
+ */
+export function attachmentsOfItems(
+  db: AccountDb,
+  tenantId: string,
+  itemIds: readonly string[],
+): Map<string, { id: string; filename: string; contentType: string }[]> {
+  const byItem = new Map<string, { id: string; filename: string; contentType: string }[]>();
+  if (itemIds.length === 0) return byItem;
+  const rows = db
+    .select({ id: attachments.id, itemId: attachments.itemId, filename: attachments.filename, contentType: attachments.contentType })
+    .from(attachments)
+    .where(and(eq(attachments.tenantId, tenantId), inArray(attachments.itemId, [...itemIds])))
+    .orderBy(asc(attachments.createdAt), asc(attachments.id))
+    .all();
+  for (const { itemId, ...file } of rows) byItem.set(itemId, [...(byItem.get(itemId) ?? []), file]);
+  return byItem;
+}
+
+/**
  * One attachment by its id, whole - what `add_attachment` reads to tell a
  * genuine retry (the same file, replayed) from a different upload that
  * happens to reuse the id ("Attach a file to an item", issue 441).

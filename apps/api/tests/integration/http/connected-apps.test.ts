@@ -1244,6 +1244,70 @@ describe('MCP connections', () => {
     });
   });
 
+  describe('an app is given each found item’s files by name, each with a link that opens it without signing in', () => {
+    const BYTES = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+
+    /** A PNG attached to an Item, as the person's own browser attaches one. */
+    async function attach(itemId: string, filename: string): Promise<void> {
+      const res = await asUser(
+        `${ORIGIN}/v1/items/${itemId}/attachments`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'image/png',
+            'x-attachment-id': crypto.randomUUID(),
+            'x-command-id': crypto.randomUUID(),
+            'x-issued-at': new Date().toISOString(),
+            'x-workspace-id': WORKSPACE_ID,
+            'x-filename': filename,
+          },
+          body: BYTES,
+        },
+        USER_ID,
+      );
+      expect(res.status).toBe(201);
+    }
+
+    it('lists a file with a link that, fetched with no cookie, gives the file, and lists none for an item without one', async () => {
+      await withoutTheGuide();
+      const withFile = await anItemSaying('Fix the layout');
+      await anItemSaying('Plain errand');
+      await attach(withFile, 'layout.png');
+      const { token } = await connected();
+
+      const found = await findItems(token, { text: 'layout' });
+      const plain = await findItems(token, { text: 'plain errand' });
+      const link = /- layout\.png: (\S+)/.exec(found.content[0]!.text)?.[1];
+
+      expect(link).toMatch(new RegExp(`^${ORIGIN}/v1/attachment-links/`));
+      const opened = await SELF.fetch(link!);
+      expect(opened.status).toBe(200);
+      expect(new Uint8Array(await opened.arrayBuffer())).toEqual(BYTES);
+      expect(plain.content[0]!.text).not.toContain('Attachments');
+    });
+
+    describe('where the deployment cannot seal a link', () => {
+      beforeEach(() => {
+        delete env.CONNECTOR_CREDENTIAL_KEY;
+      });
+      afterEach(() => {
+        env.CONNECTOR_CREDENTIAL_KEY = 'Y29ja3BpdC10ZXN0LWNvbm5lY3Rvci1rZXktMDAwMDA=';
+      });
+
+      it('names the file and gives no link', async () => {
+        await withoutTheGuide();
+        const withFile = await anItemSaying('Fix the layout');
+        await attach(withFile, 'layout.png');
+        const { token } = await connected();
+
+        const found = await findItems(token);
+
+        expect(found.content[0]!.text).toContain('Attachments:\n   - layout.png\n');
+        expect(found.content[0]!.text).not.toContain('/v1/attachment-links/');
+      });
+    });
+  });
+
   describe('an app may find at most 10 times a minute, apart from capturing', () => {
     it('refuses the 11th in a minute, saying to wait, and answers again once the minute has passed', async () => {
       await withoutTheGuide();
