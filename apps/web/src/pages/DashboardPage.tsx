@@ -51,7 +51,7 @@ export function DashboardPage() {
           workspaceId={workspaceId}
           dashboard={dashboard}
           dashboards={data.dashboards}
-          panels={(data.panels).filter((panel) => panel.dashboardId === dashboard.id)}
+          panels={data.panels.filter((panel) => panel.dashboardId === dashboard.id)}
           // Unfiltered, and deliberately beside the line above: whether a
           // filing files is a fact about the Panel it names rather than about
           // the dashboard being drawn (`panelsInWorkspace`, PanelBoard.tsx).

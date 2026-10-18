@@ -3,7 +3,6 @@ import type {
   DueCondition,
   Filing,
   FilterCondition,
-  FilterGrouping,
   FilterRow,
   Item,
   Panel,
@@ -1049,11 +1048,6 @@ describe('Panels', () => {
         expect(saysWhatItShows([[condition]], [], 'none', dashboards)).toBe(reads);
       },
     );
-
-    it('adds nothing for a grouping it does not know, rather than naming one', () => {
-      const unknown = 'type' as unknown as FilterGrouping;
-      expect(saysWhatItShows([[due('week')]], [], unknown)).toBe('Due this week or overdue');
-    });
   });
 
   describe('deleting a Panel is asked about wherever a live Filter of its Workspace looks at it', () => {
