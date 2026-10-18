@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Item } from '@cockpit/shared';
-import { FIND_PAGE, meetsFind, pageOfFound, type FindQuery } from '../../../src/domain/find-items.js';
+import type { Filing, Item, Panel } from '@cockpit/shared';
+import { FIND_PAGE, itemsOnPanelsNamed, meetsFind, pageOfFound, panelsNamed, type FindQuery } from '../../../src/domain/find-items.js';
 
 /**
  * L1: which Items meet what `find_items` asked, and where a page ends. That the
@@ -52,6 +52,7 @@ function anItem(over: Partial<Item> = {}): Item {
 
 const asked = (over: Partial<FindQuery> = {}): FindQuery => ({
   workspaceId: null,
+  panel: null,
   text: '',
   status: null,
   priority: null,
@@ -138,6 +139,83 @@ describe('MCP connections', () => {
 
       const ids = [...first.page, ...second.page].map((item) => item.id);
       expect([ids.length, new Set(ids).size]).toEqual([27, 27]);
+    });
+  });
+});
+
+function aPanel(id: string, name: string, over: Partial<Panel> = {}): Panel {
+  return {
+    id,
+    tenantId: 'tenant-default',
+    dashboardId: 'dash-1',
+    name,
+    kind: 'items',
+    format: 'plain',
+    body: '',
+    readOnly: false,
+    neverPropose: false,
+    filter: null,
+    sort: null,
+    columns: null,
+    ...over,
+  };
+}
+
+const onPanel = (panelId: string, itemId: string, position = 0): Filing => ({ panelId, itemId, position });
+
+/** What a Workspace holds, ready for `itemsOnPanelsNamed`. */
+const holding = (items: Item[], filings: Filing[], panels: Panel[]) => ({
+  items,
+  filings,
+  panelsInWorkspace: panels,
+  dashboards: [{ id: 'dash-1' }, { id: 'dash-2' }],
+  withRun: new Set<string>(),
+  today: TODAY,
+});
+const idsOf = (items: Item[]) => items.map((item) => item.id).toSorted();
+
+describe('MCP connections', () => {
+  describe('an app finds the items on a panel by its name', () => {
+    const a = anItem({ id: 'a', priority: 'high' });
+    const b = anItem({ id: 'b', priority: 'low' });
+    const c = anItem({ id: 'c', priority: 'high' });
+
+    it('gives the items filed on a panel of that name, in any case, and none that are filed elsewhere', () => {
+      const panels = [aPanel('p1', 'Boiler'), aPanel('p2', 'Other')];
+      const filings = [onPanel('p1', 'a'), onPanel('p1', 'b'), onPanel('p2', 'c')];
+
+      expect(idsOf(itemsOnPanelsNamed('boiler ', holding([a, b, c], filings, panels)))).toEqual(['a', 'b']);
+    });
+
+    it('gives the items of both where two panels on different dashboards go by the name, an item on both once', () => {
+      const panels = [aPanel('p1', 'Boiler'), aPanel('p2', 'BOILER', { dashboardId: 'dash-2' })];
+      const filings = [onPanel('p1', 'a'), onPanel('p2', 'a'), onPanel('p2', 'c')];
+
+      expect(idsOf(itemsOnPanelsNamed('Boiler', holding([a, b, c], filings, panels)))).toEqual(['a', 'c']);
+    });
+
+    it('gives what a filter panel of the name gathers from what is filed elsewhere, as the board does', () => {
+      const gathers = aPanel('f1', 'Urgent', {
+        kind: 'filter',
+        filter: { rows: [[{ field: 'priority', values: ['high'] }]], groupBy: 'none' },
+      });
+      const panels = [aPanel('p1', 'Boiler'), gathers];
+      const filings = [onPanel('p1', 'a'), onPanel('p1', 'b')];
+
+      expect(idsOf(itemsOnPanelsNamed('urgent', holding([a, b, c], filings, panels)))).toEqual(['a']);
+    });
+
+    it('gives nothing for a panel of text, which holds no items', () => {
+      const text = aPanel('t1', 'Notes', { kind: 'text' });
+
+      expect(itemsOnPanelsNamed('Notes', holding([a], [], [text]))).toEqual([]);
+    });
+
+    it('finds the panels by name without regard to case, and none where no panel has it', () => {
+      const panels = [aPanel('p1', 'Straße'), aPanel('p2', 'Other')];
+
+      expect(panelsNamed(panels, 'STRASSE').map((panel) => panel.id)).toEqual(['p1']);
+      expect(panelsNamed(panels, 'Nothing')).toEqual([]);
     });
   });
 });

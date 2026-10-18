@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { panelTakesItems, placesFiledOn, type RememberedSentenceView } from '@cockpit/shared';
+import { itemIdsWithRun, panelTakesItems, placesFiledOn, type RememberedSentenceView } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -40,7 +40,7 @@ import {
   findAdmission,
   type FindAdmission,
 } from './call-window.js';
-import { meetsFind, pageOfFound, type FindQuery, type FoundPage } from '../domain/find-items.js';
+import { itemsOnPanelsNamed, meetsFind, pageOfFound, panelsNamed, type FindQuery, type FindResult } from '../domain/find-items.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import { capturePushed, connectionHistoryOf, pruneConnectionHistory, recordPushFailed } from './connection-history.js';
@@ -797,15 +797,42 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * through the (workspace, status) index, narrowed by the screen's own rules
    * (`meetsFind`), cut to the page, and only then asked where they are filed.
    */
-  findItems(accountName: string, query: FindQuery): Answer<FoundPage> {
+  findItems(accountName: string, query: FindQuery): Answer<FindResult> {
     return this.#answer(accountName, (db) => {
       const inScope = listWorkspaces(db, accountName).filter(
         (workspace) => query.workspaceId === null || workspace.id === query.workspaceId,
       );
       const names = new Map(inScope.map((workspace) => [workspace.id, workspace.name]));
-      const found = inScope
-        .flatMap((workspace) => itemsToFind(db, accountName, workspace.id, query.includeDone))
-        .filter((item) => meetsFind(item, query));
+      let candidates: Item[];
+      if (query.panel === null) {
+        candidates = inScope.flatMap((workspace) => itemsToFind(db, accountName, workspace.id, query.includeDone));
+      } else {
+        // A Workspace's Panels are read for the name; its filings and the rest
+        // only where a Panel of that name is in it ("Find items on a panel, over
+        // MCP", issue 1243).
+        const panelNames: string[] = [];
+        candidates = [];
+        let named = false;
+        for (const workspace of inScope) {
+          const panelsInWorkspace = listPanelsInWorkspace(db, accountName, workspace.id);
+          panelNames.push(...panelsInWorkspace.map((panel) => panel.name));
+          if (panelsNamed(panelsInWorkspace, query.panel).length === 0) continue;
+          named = true;
+          // The open Items: a Panel shows no finished one, so `includeDone` adds none here.
+          candidates.push(
+            ...itemsOnPanelsNamed(query.panel, {
+              items: itemsToFind(db, accountName, workspace.id, false),
+              filings: listFilingsInWorkspace(db, accountName, workspace.id),
+              panelsInWorkspace,
+              dashboards: listDashboards(db, accountName, workspace.id),
+              withRun: itemIdsWithRun(listOpenAgentRuns(db, accountName, workspace.id)),
+              today: query.today,
+            }),
+          );
+        }
+        if (!named) return { noPanel: [...new Set(panelNames)] };
+      }
+      const found = candidates.filter((item) => meetsFind(item, query));
       const { page, next } = pageOfFound(found, query.after);
       const held = filingsOfItems(db, accountName, page.map((item) => item.id));
       return {

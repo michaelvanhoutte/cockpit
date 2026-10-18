@@ -2,18 +2,12 @@ import {
   type Dashboard,
   type DashboardFilter,
   type Day,
-  DEFAULT_FILTER_SORT,
   type Filing,
-  inSortOrder,
   isFiltering,
   type Item,
-  itemsMatchingFilter,
-  itemsOnPanel,
+  itemsOfPanel,
   matchesDashboardFilter,
-  NO_CONDITIONS,
   type Panel,
-  panelGathers,
-  sortOf,
 } from '@cockpit/shared';
 
 /** Everything a Panel's contents are worked out from, for the Dashboard it is on. */
@@ -36,18 +30,7 @@ export type PanelContents = {
  * count in the list is the one the header shows.
  */
 export function itemsShownOn(panel: Panel, c: PanelContents): Item[] {
-  const list = panelGathers(panel)
-    ? itemsMatchingFilter(
-        c.items,
-        c.filings,
-        c.panelsInWorkspace,
-        c.dashboards,
-        panel.filter ?? NO_CONDITIONS,
-        c.withRun,
-        c.today,
-        sortOf(panel) ?? DEFAULT_FILTER_SORT,
-      )
-    : inSortOrder(itemsOnPanel(c.items, c.filings, panel.id), sortOf(panel));
+  const list = itemsOfPanel(panel, c);
   return isFiltering(c.filter)
     ? list.filter((item) => matchesDashboardFilter(c.filter, item, c.withAttachments, c.today, c.withRun))
     : list;

@@ -1135,6 +1135,93 @@ describe('MCP connections', () => {
     });
   });
 
+  describe('an app finds the items on a panel by its name', () => {
+    /** A Panel added to a Dashboard, of the kind given, and the Items filed on it. */
+    async function aPanel(name: string, over: { dashboardId?: string; workspaceId?: string; kind?: string; filed?: string[] } = {}) {
+      const panelId = crypto.randomUUID();
+      const { dashboardId = DASHBOARD_ID, workspaceId = WORKSPACE_ID, kind = 'items', filed = [] } = over;
+      expect((await command('add_panel', { dashboardId, panelId, name, kind, workspaceId })).status).toBe(200);
+      for (const [at, itemId] of filed.entries()) {
+        // The order is the whole of the panel's, with the item arriving in it.
+        const order = filed.slice(0, at + 1);
+        expect((await command('add_item_to_panel', { itemId, panelId, order, workspaceId })).status).toBe(200);
+      }
+      return panelId;
+    }
+
+    it('finds the items filed on a panel of that name in any case, and not the ones filed elsewhere', async () => {
+      await withoutTheGuide();
+      const first = await anItemSaying('Boiler service');
+      const second = await anItemSaying('Radiator bleed');
+      const elsewhere = await anItemSaying('Garden gate');
+      await anItemSaying('Never filed');
+      await aPanel('Heating', { filed: [first, second] });
+      await aPanel('Outdoors', { filed: [elsewhere] });
+      const { token } = await connected();
+
+      const found = await findItems(token, { panel: 'HEATING' });
+
+      expect([found.isError, titlesIn(found).toSorted()]).toEqual([undefined, ['Boiler service', 'Radiator bleed']]);
+    });
+
+    it('finds what a filter panel of that name gathers, as the screen shows it', async () => {
+      await withoutTheGuide();
+      const urgent = await anItemSaying('Urgent errand', { priority: 'high' });
+      const calm = await anItemSaying('Calm errand', { priority: 'low' });
+      await anItemSaying('Unfiled urgent', { priority: 'high' });
+      await aPanel('Somewhere', { filed: [urgent, calm] });
+      const filterId = await aPanel('Urgent only', { kind: 'filter' });
+      expect(
+        (await command('set_panel_filter', { panelId: filterId, rows: [[{ field: 'priority', values: ['high'] }]], groupBy: 'none' })).status,
+      ).toBe(200);
+      const { token } = await connected();
+
+      const found = await findItems(token, { panel: 'urgent only' });
+
+      expect(titlesIn(found)).toEqual(['Urgent errand']);
+    });
+
+    it('finds the items of both where two panels of the name are on different dashboards, and narrows to one workspace', async () => {
+      await withoutTheGuide();
+      await alsoWorkspaces();
+      const here = await anItemSaying('Here');
+      const there = await anItemSaying('There');
+      const inAtlas = await anItemSaying('In Atlas', { workspaceId: 'ws-atlas' });
+      const secondDashboard = crypto.randomUUID();
+      expect(
+        (await command('add_dashboard', { dashboardId: secondDashboard, panelId: crypto.randomUUID(), name: 'Second' })).status,
+      ).toBe(200);
+      await aPanel('Shared name', { filed: [here] });
+      await aPanel('shared NAME', { dashboardId: secondDashboard, filed: [there] });
+      await aPanel('Shared name', { dashboardId: 'ws-atlas-dashboard-1', workspaceId: 'ws-atlas', filed: [inAtlas] });
+      const { token } = await connected();
+
+      const everywhere = await findItems(token, { panel: 'Shared name' });
+      const oneWorkspace = await findItems(token, { panel: 'Shared name', workspace: 'Workspace 1' });
+      const narrowed = await findItems(token, { panel: 'Shared name', text: 'there' });
+
+      expect(titlesIn(everywhere).toSorted()).toEqual(['Here', 'In Atlas', 'There']);
+      expect(titlesIn(oneWorkspace).toSorted()).toEqual(['Here', 'There']);
+      expect(titlesIn(narrowed)).toEqual(['There']);
+    });
+
+    it('refuses a panel name that is none, listing the panels in scope', async () => {
+      await withoutTheGuide();
+      await alsoWorkspaces();
+      await aPanel('Heating');
+      await aPanel('Gardening', { dashboardId: 'ws-atlas-dashboard-1', workspaceId: 'ws-atlas' });
+      const { token } = await connected();
+
+      const anywhere = await findItems(token, { panel: 'Nowhere' });
+      const inOneWorkspace = await findItems(token, { panel: 'Gardening', workspace: 'Workspace 1' });
+
+      expect(anywhere).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('"Heating"') }] });
+      expect(anywhere.content[0]!.text).toContain('"Gardening"');
+      expect(inOneWorkspace.isError).toBe(true);
+      expect(inOneWorkspace.content[0]!.text).toContain('The panels are "Panel 1", "Heating";');
+    });
+  });
+
   describe('an app reads pages of 25, newest change first, continued by a cursor that repeats and skips nothing', () => {
     it('gives 25 and a cursor for 26 matches, then the 26th and no cursor, and refuses a cursor it did not give', async () => {
       await withoutTheGuide();

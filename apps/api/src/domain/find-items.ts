@@ -1,12 +1,16 @@
 import {
   NO_DASHBOARD_FILTER,
+  itemsOfPanel,
   matchesDashboardFilter,
   searchTextOf,
   type Day,
   type DueWindow,
   type Item,
+  type Panel,
+  type PanelItemsInput,
   type PriorityChoice,
 } from '@cockpit/shared';
+import { foldName } from './names.js';
 
 /**
  * What `find_items` asks of an account's Items ("Find items in Cockpit by text
@@ -35,6 +39,8 @@ export interface FindCursor {
 export interface FindQuery {
   /** One Workspace, or `null` for every Workspace of the account. */
   workspaceId: string | null;
+  /** A Panel by name, matched without regard to case: only the Items it holds. `null` leaves Panels out of it. */
+  panel: string | null;
   /** Matched as Find item matches it; empty matches everything. */
   text: string;
   /** Only the open statuses are on offer: a finished Item is `includeDone`'s. */
@@ -48,6 +54,14 @@ export interface FindQuery {
   /** The page's start, or `null` for the first. */
   after: FindCursor | null;
 }
+
+/** What a call that named a Panel asked, and found no Panel of that name in scope: the Panels there are. */
+export interface NoSuchPanel {
+  noPanel: string[];
+}
+
+/** What `find_items` answers: a page, or the names of the Panels there are where the one named is none of them. */
+export type FindResult = FoundPage | NoSuchPanel;
 
 /** One Item found, with the Workspace it is in and the Panels it is filed on as "Dashboard ▸ Panel" (none for the Inbox). */
 export interface FoundRow {
@@ -86,6 +100,27 @@ export function meetsFind(item: Item, query: FindQuery): boolean {
     query.today,
     NO_ITEMS,
   );
+}
+
+/** The Panels of a Workspace going by a name, however many Dashboards they are on. */
+export function panelsNamed(panels: readonly Panel[], name: string): Panel[] {
+  const folded = foldName(name);
+  return panels.filter((panel) => foldName(panel.name) === folded);
+}
+
+/**
+ * The Items held by the Panels of a Workspace going by a name, each once: what
+ * each Panel's header counts (`itemsOfPanel`, the board's own rule), so a Filter
+ * panel gathers what it shows and a Panel of text holds none. Two Panels of the
+ * name give the Items of both. What a Dashboard's filter hides in the browser is
+ * not applied: an app asks of the Panel, not of a screen.
+ */
+export function itemsOnPanelsNamed(name: string, c: PanelItemsInput): Item[] {
+  const found = new Map<string, Item>();
+  for (const panel of panelsNamed(c.panelsInWorkspace, name)) {
+    for (const item of itemsOfPanel(panel, c)) found.set(item.id, item);
+  }
+  return [...found.values()];
 }
 
 /** Most recently changed first; the id breaks a tie so two Items changed at the same moment have one order. */

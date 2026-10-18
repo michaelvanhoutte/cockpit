@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Item, Workspace } from '@cockpit/shared';
 import { SERVER_INSTRUCTIONS } from '../../../src/mcp/create-item.js';
-import { cursorFromText, cursorToText, findItemsTool, formatFound, readFind } from '../../../src/mcp/find-items.js';
+import { cursorFromText, cursorToText, findItemsTool, formatFound, readFind, refuseNoPanel } from '../../../src/mcp/find-items.js';
 
 /**
  * L1: how an app's search is read against the account's own names, what the
@@ -31,6 +31,7 @@ describe('MCP connections', () => {
         ok: true,
         query: {
           workspaceId: null,
+          panel: null,
           text: '',
           status: null,
           priority: null,
@@ -53,6 +54,7 @@ describe('MCP connections', () => {
         ok: true,
         query: {
           workspaceId: WORK.id,
+          panel: null,
           text: 'boiler',
           status: 'in_progress',
           priority: 'high',
@@ -74,7 +76,7 @@ describe('MCP connections', () => {
     });
 
     it.each([
-      { situation: 'an argument the tool does not have', args: { panel: 'Doing' }, says: ['panel is not an argument', 'text, workspace'] },
+      { situation: 'an argument the tool does not have', args: { dashboard: 'Doing' }, says: ['dashboard is not an argument', 'text, workspace, panel'] },
       { situation: 'a type, of any name', args: { type: 'Task' }, says: ['type is not an argument'] },
       { situation: 'a workspace nobody has', args: { workspace: 'Garden' }, says: ['"Garden"', '"Home", "Work"'] },
       { situation: 'a workspace that is not a name at all', args: { workspace: 7 }, says: ['workspace must be text'] },
@@ -98,6 +100,12 @@ describe('MCP connections', () => {
       expect(readFind({ workspace: 'Home' }, [], NOW)).toEqual({ ok: false, refusal: expect.stringContaining('no workspaces yet') });
     });
 
+    it('reads a panel by name, trimmed, and leaves it out when blank', () => {
+      expect(readFind({ panel: '  Boiler ' }, [HOME], NOW)).toMatchObject({ ok: true, query: { panel: 'Boiler' } });
+      expect(readFind({ panel: '' }, [HOME], NOW)).toMatchObject({ ok: true, query: { panel: null } });
+      expect(readFind({ panel: 3 }, [HOME], NOW)).toEqual({ ok: false, refusal: 'panel must be text.' });
+    });
+
     it('reads a cursor it gave, and refuses one with the wrong things in it', () => {
       const given = cursorToText({ updatedAt: '2026-10-10T10:00:00.000Z', id: ID });
       const wrong = btoa(JSON.stringify(['yesterday', 7]));
@@ -109,7 +117,7 @@ describe('MCP connections', () => {
   });
 
   describe('an app is told what it can find with, and when to', () => {
-    it('names each workspace in the description and as the only values allowed, and offers no panel or attachment', () => {
+    it('names each workspace in the description and as the only values allowed, and offers the panel by name, with no list of them', () => {
       const tool = findItemsTool([HOME, WORK]);
 
       expect(tool.name).toBe('find_items');
@@ -117,7 +125,7 @@ describe('MCP connections', () => {
       expect(tool.inputSchema.properties.workspace!.enum).toEqual(['Home', 'Work']);
       expect(tool.description).toContain('"Home", "Work"');
       expect(Object.keys(tool.inputSchema.properties)).toEqual([
-        'text', 'workspace', 'status', 'priority', 'due', 'today', 'include_done', 'cursor',
+        'text', 'workspace', 'panel', 'status', 'priority', 'due', 'today', 'include_done', 'cursor',
       ]);
     });
 
@@ -133,6 +141,21 @@ describe('MCP connections', () => {
       const tool = findItemsTool([]);
       expect(tool.inputSchema.properties.workspace).not.toHaveProperty('enum');
       expect(tool.description).toContain('Workspaces: none yet');
+    });
+
+    it('says what a panel name finds, and does not list the panels in the schema', () => {
+      const tool = findItemsTool([HOME]);
+
+      expect(tool.description).toContain('filter panel of that name');
+      expect(tool.inputSchema.properties.panel).not.toHaveProperty('enum');
+    });
+
+    it('refuses a panel that is none, listing the panels there are and where they were looked for', () => {
+      expect(refuseNoPanel('Nope', ['Boiler', 'Urgent'], null)).toBe(
+        'No panel is called "Nope" in any workspace. The panels are "Boiler", "Urgent"; or leave panel out.',
+      );
+      expect(refuseNoPanel('Nope', ['Boiler'], 'Home')).toContain('in workspace "Home"');
+      expect(refuseNoPanel('Nope', [], null)).toContain('there are no panels');
     });
 
     it('is named in the server instructions beside capturing', () => {
