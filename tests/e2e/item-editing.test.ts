@@ -16,17 +16,32 @@ import {
   openInbox,
   openTheFiles,
   press,
+  saveTheItem,
   setFormDueDate,
   setFormStatus,
+  startEditingTheItem,
   switchTo,
   test,
   uniqueTitle,
 } from './support/app';
 
-/** Opens one row's form the way both devices can: from the row's own menu. */
+/**
+ * Opens one row's form the way both devices can: from the row's own menu.
+ * A phone's page opens to be read, so it is taken on to editing with Edit;
+ * a desk's form is always editing.
+ */
 async function openItem(page: Page, row: string, isMobile: boolean): Promise<void> {
   await press(itemRow(page, row).getByRole('button', { name: 'Item actions' }), isMobile);
   await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
+  await startEditingTheItem(page, isMobile);
+}
+
+/** Cancel, which on a phone's editing page only goes back to reading: a second ← closes it. */
+async function cancelItem(page: Page, isMobile: boolean): Promise<void> {
+  await press(page.getByRole('dialog').getByRole('button', { name: 'Cancel' }), isMobile);
+  if (!isMobile) return;
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Edit' })).toBeVisible();
+  await press(page.getByRole('dialog').getByRole('button', { name: 'Cancel' }), isMobile);
 }
 
 const form = (page: Page) => page.getByRole('dialog');
@@ -171,7 +186,7 @@ test.describe('Item editing', () => {
       await titleBox(page).fill(named);
       await theEditorIsThere(page);
       await descriptionBox(page).fill('Tolerances, and the sign-off date');
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await saveTheItem(page, isMobile);
 
       // The row now reads by its title rather than by what was captured, and
       // says there is something written behind it.
@@ -234,7 +249,7 @@ test.describe('Item editing', () => {
       await openItem(page, thought, isMobile);
       await theEditorIsThere(page);
       await descriptionBox(page).fill('Typed and then abandoned');
-      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await cancelItem(page, isMobile);
 
       // No question asked on the way out, and nothing kept: Cancel means cancel.
       await expect(descriptionBox(page)).toHaveCount(0);
@@ -260,7 +275,7 @@ test.describe('Item editing', () => {
       // on it: Back after Cancel leaves the page rather than putting the form
       // straight back up.
       await openItem(page, thought, isMobile);
-      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await cancelItem(page, isMobile);
       await expect(titleBox(page)).toHaveCount(0);
       await page.goBack();
       await expect(titleBox(page)).toHaveCount(0);
@@ -268,7 +283,9 @@ test.describe('Item editing', () => {
       // The address on its own opens it, which is what makes it a link rather
       // than a state only this tab knows about.
       await page.goto(openAt);
-      await expect(titleBox(page)).toBeVisible();
+      // A phone's page opens to be read, so it is Edit that says the form is up.
+      if (isMobile) await expect(form(page).getByRole('button', { name: 'Edit' })).toBeVisible();
+      else await expect(titleBox(page)).toBeVisible();
     });
   });
 
@@ -300,7 +317,7 @@ test.describe('Item editing', () => {
 
       await openItem(page, marked, isMobile);
       await togglePriority(page, 'High', isMobile);
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await saveTheItem(page, isMobile);
 
       await expect(itemRow(page, marked).getByLabel('High priority')).toBeVisible();
 
@@ -320,7 +337,7 @@ test.describe('Item editing', () => {
       // suite runs: a date within a week is a pill instead, and on a phone it
       // takes the date's place.
       await setFormDueDate(page, '2099-09-30', isMobile);
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await saveTheItem(page, isMobile);
 
       await expect(itemRow(page, marked).getByText('Due Sep 30, 2099')).toBeVisible();
 
@@ -334,7 +351,7 @@ test.describe('Item editing', () => {
       } else {
         await form(page).getByRole('button', { name: 'Clear the due date' }).click();
       }
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await saveTheItem(page, isMobile);
 
       // The dialog gone first, the same as the cancel walk above asserts -
       // otherwise the list sits behind Radix's aria-hidden while the dialog
@@ -353,7 +370,7 @@ test.describe('Item editing', () => {
       await expect(form(page).getByText('Shown on')).toHaveCount(0);
       await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
       await setFormStatus(page, 'done', isMobile);
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await saveTheItem(page, isMobile);
       await expect(form(page)).toHaveCount(0);
       await expect(itemRow(page, marked)).toHaveCount(0);
     });
@@ -435,7 +452,7 @@ test.describe('Item editing', () => {
       // Removal is sent the moment it happens, not batched into Save - so a
       // Save pressed afterwards, with nothing else changed, has nothing to
       // resurrect (issue 441's own UI test case).
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await saveTheItem(page, isMobile);
       await openItem(page, thought, isMobile);
       await expect(form(page).getByText('receipt.png')).toHaveCount(0);
     });
@@ -526,7 +543,7 @@ test.describe('Item editing', () => {
       );
       expect(attempts).toBe(0);
 
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await saveTheItem(page, isMobile);
       await expect(form(page)).toHaveCount(0);
       await openItem(page, thought, isMobile);
       await theEditorIsThere(page);
@@ -796,7 +813,7 @@ test.describe('Item editing', () => {
       const { grip: oneAxis } = await takeHold();
       await page.mouse.move(oneAxis.x - 150, oneAxis.y, { steps: 8 });
       await page.mouse.up();
-      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await cancelItem(page, isMobile);
 
       // Back on a screen tall enough for the full default, the height this
       // never touched is the default, not the short screen's own clamp of
@@ -817,7 +834,7 @@ test.describe('Item editing', () => {
       const dragged = (await form(page).boundingBox())!;
       expect(dragged.width, 'the drag moved the handle in by 150px').toBeLessThan(before.width - 50);
       expect(dragged.height, 'the drag moved the handle up by 100px').toBeLessThan(before.height - 50);
-      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await cancelItem(page, isMobile);
 
       // The same item, reopened by address rather than through the Inbox -
       // this walk goes on to change the viewport, which is free to change how
@@ -826,7 +843,7 @@ test.describe('Item editing', () => {
       const reopened = (await form(page).boundingBox())!;
       expect(Math.round(reopened.width)).toBe(Math.round(dragged.width));
       expect(Math.round(reopened.height)).toBe(Math.round(dragged.height));
-      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await cancelItem(page, isMobile);
 
       // A different item, opened for the first time - the size belongs to the
       // browser, not to whichever item was open when it was dragged.
@@ -835,7 +852,7 @@ test.describe('Item editing', () => {
       const otherItem = (await form(page).boundingBox())!;
       expect(Math.round(otherItem.width)).toBe(Math.round(dragged.width));
       expect(Math.round(otherItem.height)).toBe(Math.round(dragged.height));
-      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await cancelItem(page, isMobile);
 
       // A screen too small for the dragged size clamps it down without
       // touching what was remembered.
@@ -844,7 +861,7 @@ test.describe('Item editing', () => {
       const clamped = (await form(page).boundingBox())!;
       expect(clamped.width, 'clamped to the small screen, not overflowing it').toBeLessThanOrEqual(500);
       expect(clamped.height, 'clamped to the small screen, not overflowing it').toBeLessThanOrEqual(500);
-      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await cancelItem(page, isMobile);
 
       // Back on a screen big enough for it, the original drag is what comes
       // back - not the size the small screen clamped it down to.
@@ -863,7 +880,7 @@ test.describe('Item editing', () => {
       expect(reclamped.width, 'the still-open dialog reclamped to the smaller window').toBeLessThan(
         dragged.width,
       );
-      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await cancelItem(page, isMobile);
 
       await page.setViewportSize(full);
       await page.goto(secondUrl);

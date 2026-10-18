@@ -96,6 +96,14 @@ export interface RichDescriptionProps {
    * at its end, in one row.
    */
   endOfToolbar?: ReactNode;
+  /**
+   * Drawn to be read, as an Item's description is on a phone before anyone has
+   * asked to edit it: the formatted text and nothing around it - no toolbar, and
+   * no padding of its own, the page already having margins.
+   */
+  reading?: boolean;
+  /** Puts the cursor in the text as soon as the editor is built, for a tap that asked to write there. */
+  focusWhenReady?: boolean;
 }
 
 /**
@@ -125,6 +133,8 @@ export default function RichDescription({
   fill = false,
   uploadImage,
   endOfToolbar,
+  reading = false,
+  focusWhenReady = false,
 }: RichDescriptionProps) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Editor | null>(null);
@@ -299,6 +309,12 @@ export default function RichDescription({
     if (!editable) setAsking(null);
   }, [editable, ready]);
 
+  useEffect(() => {
+    if (ready && focusWhenReady) focusTheEditor(editor.current);
+    // Asked for when the editor is made, not each time the caller re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
   /**
    * Escape gives up the address being typed, and nothing else.
    *
@@ -359,7 +375,7 @@ export default function RichDescription({
           : 'mt-1 rounded-md border border-shade/10 bg-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40'
       }
     >
-      {toolbar && (
+      {toolbar && !reading && (
         <div
           role="toolbar"
           // Unqualified, and it can be: a description's form is modal, and a
@@ -461,7 +477,9 @@ export default function RichDescription({
       <div
         ref={host}
         className={
-          fill
+          reading
+            ? 'min-h-0 flex-1'
+            : fill
             ? 'min-h-0 flex-1 overflow-y-auto px-4 py-3'
             : 'max-h-96 overflow-y-auto px-3 py-2'
         }

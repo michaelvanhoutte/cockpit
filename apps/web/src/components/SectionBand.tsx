@@ -82,7 +82,7 @@ export function SectionBand({
           aria-label={isRenaming ? undefined : `Actions for ${title}`}
           // `group` and `relative` for the menu button, as a Panel's header
           // has them (`PanelCard`).
-          className={`group relative flex min-h-10 items-center rounded-md bg-accent-tint px-3 py-2 pr-11 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+          className={`group relative flex min-h-10 items-center rounded-t-md border-b-[3px] border-accent-deep bg-accent-tint px-3 py-2 pr-11 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
             lifted ? 'opacity-40 outline-2 outline-dashed outline-accent' : ''
           } ${isRenaming || !onPickUp ? '' : 'cursor-grab active:cursor-grabbing'}`}
         >

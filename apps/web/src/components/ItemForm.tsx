@@ -32,6 +32,9 @@ import { snapshotQuery, useSendCommand, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
 import { useItemPanels } from '../useItemPanels';
+import { STATUS_LABELS } from '../allItems';
+import { dueDateLabel } from '../dueDate';
+import { PRIORITY_LABELS } from '../priority';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
@@ -55,6 +58,7 @@ import {
 import { capturingApp, openableAtSource, sourceNamed } from '../itemSource';
 import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
+import { copyItemLinkAndSay } from '../itemLink';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 import {
@@ -87,6 +91,16 @@ const TAB_NAMES: Record<(typeof TABS)[number], string> = {
 };
 
 const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want to keep and reopen it.';
+
+/** The boxes as the Item fills them. */
+const draftOf = (from: Item): Draft => ({
+  title: from.title,
+  description: from.description ?? '',
+  priority: from.priority,
+  dueDate: from.dueDate,
+  status: itemStatus(from),
+  started: !!from.startedAt,
+});
 
 /** What a field's box and its baseline hold once its write has landed: the value, or - for the status - the item's own two times. */
 const landedAs = (field: Field, drafted: Draft[Field], held: StatusState | null): Partial<Draft> =>
@@ -261,6 +275,20 @@ function TheForm({
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
   const atSource = item ? openableAtSource(item, data?.sourceNames) : null;
+  /**
+   * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
+   * Item's link from its menu and its form", issue 1247): in the Inbox it is
+   * in no workspace to name. Read from the snapshot as the Inbox is
+   * (`itemsInTheInbox`), so moving the Item onto a Panel with the form open
+   * brings the button.
+   */
+  const filedOnAPanel =
+    !!item && filingsThatFile(data?.filings ?? [], data?.panels ?? []).some((filing) => filing.itemId === itemId);
+  const copyLink = () => {
+    if (item) void copyItemLinkAndSay(workspaceId, item, offerToUndo);
+  };
+  const headerButtonClass =
+    'rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50';
   /** What Cockpit changed on this item: read behind the paint, so the form is drawn without it. */
   const cockpit = useCockpitChanges(itemId, item);
   /** Read at the moment a save lands rather than when its function was made, which may be a render ago. */
@@ -908,17 +936,57 @@ function TheForm({
    */
   useEffect(() => {
     if (item && editing === null) {
-      const from = {
-        title: item.title,
-        description: item.description ?? '',
-        priority: item.priority,
-        dueDate: item.dueDate,
-        status: itemStatus(item),
-        started: !!item.startedAt,
-      };
+      const from = draftOf(item);
       changeEditing(() => ({ was: from, now: { ...from } }));
     }
   }, [item, editing]);
+
+  /**
+   * On a phone the page opens to be read, and editing is a step behind Edit or
+   * a tap on the title or the description ("Read an Item before editing it on a
+   * phone", issue 1246): nothing is focused, so no keyboard comes up over the
+   * text it was opened for. A form that is a desk's is always editing, and
+   * stays editing if the window narrows to a page, so what was typed is not
+   * thrown away by the width changing.
+   */
+  const [reading, setReading] = useState(onAPage);
+  useEffect(() => {
+    if (!onAPage) setReading(false);
+  }, [onAPage]);
+  const readView = onAPage && reading;
+  /**
+   * What the Item holds, as a value that changes only when something about it
+   * does. While reading, the boxes follow it, so a change made elsewhere shows
+   * - and a Save does not wait on the read-back to be seen, `was` being moved
+   * to what landed.
+   */
+  const stored = item ? JSON.stringify(draftOf(item)) : '';
+  useEffect(() => {
+    if (!readView || !item) return;
+    const from = draftOf(item);
+    changeEditing(() => ({ was: from, now: { ...from } }));
+    // Only when the stored values move, not when reading begins: a Save has
+    // just put `was` on what landed, which the cached Item may not yet say.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stored]);
+  /** The field a tap asked to write in, focused as editing opens; none for Edit itself. */
+  const [focusOnEdit, setFocusOnEdit] = useState<'title' | 'description' | null>(null);
+  /** Editing starts from what was being read, so there is nothing typed to carry over. */
+  const startEditing = (field: 'title' | 'description' | null) => {
+    if (!item) return;
+    changeEditing((held) => (held ? { was: held.was, now: { ...held.was } } : held));
+    setRefusal(null);
+    setFocusOnEdit(field);
+    setReading(false);
+  };
+  const stopEditing = () => {
+    onPanels.discard();
+    // Back to what the Item holds now, which a change made elsewhere while editing may have moved.
+    const from = item ? draftOf(item) : null;
+    changeEditing((held) => (held ? { was: from ?? held.was, now: { ...(from ?? held.was) } } : held));
+    setRefusal(null);
+    setReading(true);
+  };
 
   /**
    * Over the cap in a box that is actually being sent, not in one that merely
@@ -1034,7 +1102,9 @@ function TheForm({
       }
       // After the fields, so a refusal here leaves them saved; the hook says which Panel failed.
       if ((await onPanels.save()) !== null) return;
-      onClose();
+      // A phone's page goes back to reading what it saved; a desk's form closes.
+      if (onAPage) setReading(true);
+      else onClose();
     } catch (failure) {
       // The form stays open and says why, so nothing typed is lost to a
       // refusal - the one case where closing would throw work away.
@@ -1483,31 +1553,68 @@ function TheForm({
           {onAPage ? (
             // ← is Cancel, by the same close; Save is the form's one Save.
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-shade/10 px-2 py-2">
-              <Dialog.Close
-                disabled={saving}
-                aria-label="Cancel"
-                title="Cancel"
-                className="flex size-10 shrink-0 items-center justify-center rounded-md text-xl text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-              >
-                <span aria-hidden="true">←</span>
-              </Dialog.Close>
+              {readView ? (
+                <Dialog.Close
+                  aria-label="Cancel"
+                  title="Cancel"
+                  className="flex size-10 shrink-0 items-center justify-center rounded-md text-xl text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+                >
+                  <span aria-hidden="true">←</span>
+                </Dialog.Close>
+              ) : (
+                // Editing: ← gives up the changes and goes back to reading.
+                <button
+                  type="button"
+                  disabled={saving}
+                  aria-label="Cancel"
+                  title="Cancel"
+                  onClick={stopEditing}
+                  className="flex size-10 shrink-0 items-center justify-center rounded-md text-xl text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                >
+                  <span aria-hidden="true">←</span>
+                </button>
+              )}
               <span className="text-base font-semibold text-ink">Item</span>
-              <button
-                type="button"
-                disabled={!item || saving || tooLong}
-                onClick={() => void save()}
-                className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
-              >
-                Save
-              </button>
+              {/* Copy link sits left of whichever of Edit and Save holds the corner. */}
+              <div className="flex shrink-0 items-center gap-2">
+                {filedOnAPanel && (
+                  <button type="button" onClick={copyLink} className={headerButtonClass}>
+                    Copy link
+                  </button>
+                )}
+                {readView ? (
+                  <button
+                    type="button"
+                    disabled={!item}
+                    onClick={() => startEditing(null)}
+                    className="shrink-0 rounded-md border border-shade/10 px-4 py-2 text-sm font-medium text-ink hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                  >
+                    Edit
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!item || saving || tooLong}
+                    onClick={() => void save()}
+                    className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
-            <div className="flex shrink-0 justify-end">
+            <div className="flex shrink-0 items-center justify-end gap-2">
+              {filedOnAPanel && (
+                <button type="button" onClick={copyLink} className={headerButtonClass}>
+                  Copy link
+                </button>
+              )}
               <button
                 type="button"
                 disabled={saving}
                 onClick={() => void togglePresentation()}
-                className="rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                className={headerButtonClass}
               >
                 {chosenDocked ? 'Center' : 'Dock'}
               </button>
@@ -1545,10 +1652,19 @@ function TheForm({
                     : '-mx-1 mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto px-1'
                 }
               >
+                {readView ? (
+                  <p
+                    onClick={() => startEditing('title')}
+                    className="shrink-0 whitespace-pre-wrap break-words py-2 text-xl font-semibold text-ink"
+                  >
+                    {editing!.was.title}
+                  </p>
+                ) : (
                 <label className="block shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                   <span className={onAPage ? 'sr-only' : undefined}>Title</span>
                   <input
-                    autoFocus={!(openedQuietly && docked)}
+                    // A page opens to be read, and a tap that asked to write in the title is the only thing that puts the cursor here.
+                    autoFocus={onAPage ? focusOnEdit === 'title' : !(openedQuietly && docked)}
                     // Both boxes are closed while a save is in flight, for the
                     // reason Cancel and Save are: what is sent is worked out
                     // before the round trip, so a keystroke landing during it
@@ -1565,6 +1681,7 @@ function TheForm({
                     }`}
                   />
                 </label>
+                )}
 
                 {/* Where this came from, and - where the source gave a link -
                     the way back to it ("Open an Item at its source", issue
@@ -1680,6 +1797,8 @@ function TheForm({
                                 type="button"
                                 disabled={saving}
                                 onClick={() => {
+                                  // Chosen while reading: editing opens with it in the boxes, still to be saved.
+                                  if (readView) startEditing(null);
                                   setDraft({
                                     ...draft,
                                     title: reading.title,
@@ -1785,7 +1904,9 @@ function TheForm({
                       buttons' `focus:ring-2`). */}
                     <div
                       className={
-                        onAPage
+                        readView
+                          ? 'grid flex-1 grid-cols-1 grid-rows-[auto_auto_auto] content-start gap-4'
+                          : onAPage
                           ? 'grid flex-1 grid-cols-1 grid-rows-[auto_minmax(16rem,1fr)_auto] gap-4'
                           : 'grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)_auto]'
                       }
@@ -1812,12 +1933,24 @@ function TheForm({
                           }}
                         />
                       )}
-                      {onAPage && chipsFailed && (
+                      {readView && (
+                        // The same three values as text; they change through Edit, so every change still waits for Save.
+                        <p className="text-sm text-ink-soft">
+                          {[
+                            STATUS_LABELS[editing!.was.status],
+                            editing!.was.priority ? `${PRIORITY_LABELS[editing!.was.priority]} priority` : null,
+                            dueDateLabel(editing!.was.dueDate) ? `Due ${dueDateLabel(editing!.was.dueDate)}` : null,
+                          ]
+                            .filter((part) => part !== null)
+                            .join(' · ')}
+                        </p>
+                      )}
+                      {onAPage && !readView && chipsFailed && (
                         <p role="alert" className="text-sm text-over-ink">
                           The fields could not load. Reload Cockpit to try again.
                         </p>
                       )}
-                      {onAPage && !chipsFailed && (
+                      {onAPage && !readView && !chipsFailed && (
                         // Chips, one row, each opening its own picker; a choice is held in the draft until Save ("Edit an Item's status, priority and due date from chips on a phone", issue 787). Fetched only here, so a desk never loads it.
                         <WhateverTheQuestionDoes onFailure={() => setChipsFailed(true)}>
                         <Suspense fallback={<div className="h-9" aria-hidden="true" />}>
@@ -1856,8 +1989,13 @@ function TheForm({
                         }}
                       >
                         <DescriptionBox
+                          // A new editor for each of reading and editing, built from the text that mode holds.
+                          key={readView ? `reading:${editing!.was.description}` : 'editing'}
+                          reading={readView}
+                          onReadingTap={() => startEditing('description')}
+                          focusWhenReady={focusOnEdit === 'description'}
                           resetKey={readingPicked}
-                          value={draft.description}
+                          value={readView ? editing!.was.description : draft.description}
                           onChange={(description) => {
                             if (!onScreen.current) return;
                             setDraft({ ...draft, description });
@@ -1876,7 +2014,13 @@ function TheForm({
 
                       {/* The Panels it is filed on, each with ✕, and the search that adds more - Capture's *File on* in the Item's own Workspace (issue 1106). Docked a change is written at once with Undo; otherwise it waits for Save. */}
                       <div className={onAPage ? undefined : '@lg:col-start-2 @lg:row-start-3'}>
-                        {onPanelsFailed ? (
+                        {readView ? (
+                          <p className="text-sm text-ink-soft">
+                            {onPanels.shown.length === 0
+                              ? 'In the Inbox'
+                              : `On ${onPanels.shown.map((one) => one.name).join(', ')}`}
+                          </p>
+                        ) : onPanelsFailed ? (
                           <p role="alert" className="text-sm text-over-ink">
                             The Panels could not load. Reload Cockpit to try again.
                           </p>

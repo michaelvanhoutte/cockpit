@@ -277,7 +277,7 @@
     {
       "key": "Item editing",
       "label": "Item editing",
-      "browserWalks": 13,
+      "browserWalks": 14,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",

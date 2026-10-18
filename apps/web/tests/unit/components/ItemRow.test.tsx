@@ -10,6 +10,7 @@ import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
 import { UndoWhatJustHappened } from '../../../src/undo';
 import { DockedItemContext, type DockedItem } from '../../../src/itemForm';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
+import { aClipboard } from '../support/clipboard';
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
@@ -1013,6 +1014,7 @@ describe('Item editing', () => {
 
       expect(await menuTopToBottom()).toEqual([
         'Open',
+        'Copy link',
         '---',
         'Move to…',
         'Also show on…',
@@ -1035,6 +1037,7 @@ describe('Item editing', () => {
 
       expect(menu).toEqual([
         'Open',
+        'Copy link',
         '---',
         'Move to…',
         '---',
@@ -1074,6 +1077,7 @@ describe('Item editing', () => {
         item: anItem({ workspaceDecided: false }),
         onMoveHere: () => {},
         onMoveTo: () => {},
+        extra: { inInbox: true },
       });
       await user.click(screen.getByLabelText('Item actions'));
 
@@ -2479,6 +2483,74 @@ describe('What Cockpit changed', () => {
       for (const entry of screen.getAllByRole('menuitem')) {
         expect(entry.textContent).not.toMatch(/Cockpit|refinement|suggestions|history/i);
       }
+    });
+  });
+});
+
+/**
+ * F1: where Copy link is offered and what the bar says of it ("Copy an Item's
+ * link from its menu and its form", issue 1247). The address and the titled
+ * link themselves are tests/unit/itemLink.test.ts's, and the link opening the
+ * Item in a fresh page is tests/e2e/item-editing.test.ts's.
+ */
+describe('Item editing', () => {
+  describe('Copy link is offered on an Item that is on a Panel, after where it opens, and never on one in the Inbox', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const teams = { source: 'teams' as const, sourceLink: 'https://teams.example/l/message/1' };
+    const entries = async () => (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
+
+    it.each([
+      {
+        situation: 'a Panel row with a source link',
+        item: teams,
+        inInbox: false,
+        entries: ['Open', 'Open in Microsoft Teams', 'Copy link'],
+      },
+      { situation: 'a Panel row with no source link', item: {}, inInbox: false, entries: ['Open', 'Copy link'] },
+      { situation: 'an Inbox row', item: {}, inInbox: true, entries: ['Open'] },
+    ])('$situation', async ({ item, inInbox, entries: expected }) => {
+      const user = userEvent.setup();
+      aRow({ item: anItem(item), onOpen: vi.fn(), extra: { inInbox } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect((await entries()).slice(0, expected.length)).toEqual(expected);
+      expect(screen.queryByRole('menuitem', { name: 'Copy link' }) !== null).toBe(!inInbox);
+    });
+
+    it.each([
+      { where: 'the three dots', open: (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByLabelText('Item actions')) },
+      { where: 'a right-click', open: async () => void fireEvent.contextMenu(screen.getByRole('listitem')) },
+    ])('copies the Item’s workspace address and a link titled with it from $where, and the bar says so', async ({ open }) => {
+      const user = userEvent.setup();
+      const { written } = aClipboard();
+      aRow({ item: anItem({ title: 'Q&A <soon>' }), onOpen: vi.fn() });
+
+      await open(user);
+      await user.click(await screen.findByRole('menuitem', { name: 'Copy link' }));
+
+      const link = `${window.location.origin}/w/ws-work?item=item-1`;
+      // The bar first: it is shown once the write has landed, which is what `written` waits on.
+      expect(await screen.findByText('Link copied')).toBeInTheDocument();
+      expect(written).toEqual([{ 'text/plain': link, 'text/html': `<a href="${link}">Q&amp;A &lt;soon&gt;</a>` }]);
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    });
+
+    it('says it could not where the browser refuses the clipboard, and changes nothing else', async () => {
+      const user = userEvent.setup();
+      aClipboard({ refuses: true });
+      const { mutate, send } = aRow({ onOpen: vi.fn() });
+
+      await user.click(screen.getByLabelText('Item actions'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Copy link' }));
+
+      expect(await screen.findByText("Couldn't copy the link")).toBeInTheDocument();
+      expect(screen.queryByText('Link copied')).toBeNull();
+      expect(mutate).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
     });
   });
 });

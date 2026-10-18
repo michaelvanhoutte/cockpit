@@ -29,7 +29,11 @@ async function openItem(page: Page, row: string, isMobile: boolean): Promise<voi
 }
 
 const form = (page: Page) => page.getByRole('dialog');
-const titleBox = (page: Page) => form(page).getByRole('textbox', { name: 'Title' });
+/** The title the form shows: a box at a desk, text on a phone, where the page opens to be read. */
+async function expectTitle(page: Page, title: string, isMobile: boolean): Promise<void> {
+  if (isMobile) await expect(form(page).locator('p.text-xl', { hasText: title })).toHaveText(title);
+  else await expect(form(page).getByRole('textbox', { name: 'Title' })).toHaveValue(title);
+}
 
 /**
  * The words two notes share. Long enough that the unique tag each one carries
@@ -90,12 +94,12 @@ test.describe('Triage', () => {
       // The chip's hover names the other note (the open form hides the rows).
       await expect(itemRow(page, one).getByText('Duplicate?')).toHaveAttribute('title', new RegExp(again));
       await openItem(page, one, isMobile);
-      await expect(titleBox(page)).toHaveValue(one);
+      await expectTitle(page, one, isMobile);
       await expect(form(page).getByText('Possible duplicate of')).toBeVisible();
 
       // Following it lands on the other note's own form...
       await press(form(page).getByRole('button', { name: again }), isMobile);
-      await expect(titleBox(page)).toHaveValue(again);
+      await expectTitle(page, again, isMobile);
       // ...which names the first one back, a pair being one pair whichever of
       // the two you are looking at.
       await expect(form(page).getByRole('button', { name: one })).toBeVisible();
@@ -103,7 +107,7 @@ test.describe('Triage', () => {
       // And the way back is the browser's own, because opening one is a change
       // of address rather than something only this tab knows.
       await page.goBack();
-      await expect(titleBox(page)).toHaveValue(one);
+      await expectTitle(page, one, isMobile);
 
       // The form's warning offers the answer "yes, it is": this one goes, the other stays.
       // The phone project shares the desktop's account, so it can be flagged against
