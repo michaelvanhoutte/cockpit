@@ -808,8 +808,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    */
   findItems(accountName: string, search: ItemSearch): Answer<FindAnswer> {
     return this.#answer(accountName, (db) => {
+      const panelName = search.panel;
       let candidates: Item[];
-      if (search.panel === null) {
+      if (panelName === null) {
         candidates = listItemsToSearch(db, accountName, search.workspaceId, search.includeDone);
       } else {
         // A Panel is named, so the Panels and filings of the Workspaces in scope
@@ -821,7 +822,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
           workspaceId: workspace.id,
           panels: listPanelsInWorkspace(db, accountName, workspace.id),
         }));
-        const withTheName = panelsOf.filter(({ panels }) => panelsNamed(panels, search.panel!).length > 0);
+        const withTheName = panelsOf.filter(({ panels }) => panelsNamed(panels, panelName).length > 0);
         if (withTheName.length === 0) {
           return { noSuchPanel: true as const, panelNames: distinctPanelNames(panelsOf.flatMap(({ panels }) => panels)) };
         }
@@ -829,13 +830,14 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         const found = new Map<string, Item>();
         for (const { workspaceId, panels } of withTheName) {
           const board = {
-            items: listOpenItems(db, accountName, workspaceId),
+            // Open Items only: a finished one is on no Panel, so its row is not worth reading.
+            items: listItemsToSearch(db, accountName, workspaceId, false),
             filings: listFilingsInWorkspace(db, accountName, workspaceId),
             panels,
             dashboards: listDashboards(db, accountName, workspaceId),
             withRun: itemIdsWithRun(listOpenAgentRuns(db, accountName, workspaceId)),
           };
-          for (const item of itemsOnPanelsNamed(board, search.panel, search.today)) found.set(item.id, item);
+          for (const item of itemsOnPanelsNamed(board, panelName, search.today)) found.set(item.id, item);
         }
         candidates = [...found.values()];
       }

@@ -355,6 +355,22 @@ describe('MCP connections', () => {
       expect(titlesIn(found)).toEqual(['Pay the tax']);
     });
 
+    it('gives the items on a panel 25 at a time, continued by a cursor, without those on other panels', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      const waiting = await aPanel('Waiting');
+      for (let n = 0; n < 26; n += 1) await anItem(`Errand ${String(n).padStart(2, '0')}`, { panelIds: [admin] }, USER_ID, AT(n));
+      await anItem('Errand elsewhere', { panelIds: [waiting] }, USER_ID, AT(30));
+
+      const first = await findItems(token, { panel: 'Admin' });
+      const second = await findItems(token, { panel: 'Admin', cursor: cursorIn(first) });
+
+      expect(titlesIn(first)).toHaveLength(25);
+      expect(titlesIn(first)[0]).toBe('Errand 25');
+      expect(titlesIn(second)).toEqual(['Errand 00']);
+      expect(cursorIn(second)).toBeUndefined();
+    });
+
     it('counts a Filter panel’s due window from the day the app gives', async () => {
       const { token } = await connected();
       const admin = await aPanel('Admin');
