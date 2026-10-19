@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { panelTakesItems, type RememberedSentenceView } from '@cockpit/shared';
+import { panelTakesItems, placesFiledOn, type RememberedSentenceView } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -36,7 +36,9 @@ import {
   REMEMBER_OFFERS_PER_MINUTE,
   SENTENCES_REMEMBERED_PER_MINUTE,
   admittedCalls,
+  admittedFind,
   countedCalls,
+  type FindCalls,
 } from './call-window.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
@@ -131,10 +133,12 @@ import {
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
   meaningsOfItems,
+  listItemsToSearch,
   listOpenItems,
   listPanelsInWorkspace,
   listWorkspaces,
   meaningsToCompareWith,
+  placesOfItems,
   queueRewriteAttempt,
   recentlyCapturedUnfiled,
   recentCapturedTimeZones,
@@ -150,6 +154,7 @@ import {
   type UnfiledCandidate,
 } from './repo.js';
 import { couldStillBeActedOn, pairOf, saidAgainBy } from '../domain/duplicates.js';
+import { foundItem, pageOfMatches, type FoundPage, type ItemSearch } from '../domain/item-search.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
@@ -217,6 +222,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   #agentsRetired = false;
   /** The calls each app's grant was admitted for, newest last - see `appCaptureArrived`. */
   #appCaptures = new Map<string, number[]>();
+  /** The `find_items` calls each app's grant was admitted for - see `appFindArrived`. */
+  #appFinds = new Map<string, FindCalls>();
   /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
   #transcriptions: number[] = [];
   /** The offers to remember and the Remember presses this account made, refused ones included, newest last - see `sentenceCallArrived`. */
@@ -767,6 +774,43 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     if (!calls) return 'too-many';
     this.#appCaptures.set(grantId, calls);
     return 'admitted';
+  }
+
+  /**
+   * An app connected to this account calling `find_items` ("Find items in
+   * Cockpit by text and condition, over MCP", issue 1242): admitted, or refused
+   * as one of too many from that one grant in a minute or in a UTC day.
+   *
+   * **Counted here, in memory, apart from capture's count**, for the reason
+   * `appCaptureArrived` is counted here: a grant acts for one person and so for
+   * one account, and a count lost to the object being evicted starts the
+   * windows over, which is all it costs.
+   */
+  appFindArrived(grantId: string, at: string): 'admitted' | 'too-many-this-minute' | 'too-many-today' {
+    const { answer, calls } = admittedFind(this.#appFinds.get(grantId), Date.parse(at));
+    this.#appFinds.set(grantId, calls);
+    return answer;
+  }
+
+  /**
+   * One page of the Items matching a connected app's `find_items` ("Find items
+   * in Cockpit by text and condition, over MCP", issue 1242).
+   *
+   * **Where each Item is filed is read for the page's Items only**, after the
+   * page is cut, so what a search costs is the account's Items (`listItemsToSearch`)
+   * and not their filings.
+   */
+  findItems(accountName: string, search: ItemSearch): Answer<FoundPage> {
+    return this.#answer(accountName, (db) => {
+      const page = pageOfMatches(listItemsToSearch(db, accountName, search.workspaceId, search.includeDone), search);
+      const where = placesOfItems(db, accountName, page.items.map((item) => item.id));
+      return {
+        items: page.items.map((item) =>
+          foundItem(item, placesFiledOn(item, where.filings, where.panels, where.dashboards)),
+        ),
+        next: page.next,
+      };
+    });
   }
 
   /**

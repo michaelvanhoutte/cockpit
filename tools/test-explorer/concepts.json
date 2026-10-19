@@ -56,6 +56,8 @@
         "apps/api/src/mcp/grant.ts",
         "apps/api/src/mcp/server.ts",
         "apps/api/src/mcp/create-item.ts",
+        "apps/api/src/mcp/find-items.ts",
+        "apps/api/src/domain/item-search.ts",
         "apps/api/src/mcp/connected-apps.ts",
         "apps/web/src/components/ManageConnectedApps.tsx"
       ]
