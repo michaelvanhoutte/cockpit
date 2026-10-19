@@ -1024,10 +1024,13 @@ Then, by hand (no API, or deliberately not automated):
      merging. It would force an "Update branch" click every time `main` moves, and
      the semantic conflict it guards against is exactly what staging catches; a
      bad merge reaches staging, never production.
-   - **`contexts`** — five names: three of `ci.yml`'s six jobs (`Checks`, which
+   - **`contexts`** — five names: three of `ci.yml`'s six checks (`Checks`, which
      carries the classifier and the fast mechanical checks as steps since "Run
      the six small CI jobs as one, so a push stops paying six runner
-     start-ups" (issue 378), `Test` and `E2E (F3)`), and the two Claude
+     start-ups" (issue 378), `Test` and `E2E (F3)`, the fan-in job over the four
+     shards `E2E (F3) (1)` to `(4)`, which are never named here: "Run the E2E (F3) job
+     as four shards under one required check, starting alongside Checks" (issue 1279)
+     leaves this payload as it was), and the two Claude
      reviews, matched exactly. CodeQL held three more of these — the matrix
      legs `CodeQL (javascript-typescript)` and `CodeQL (actions)`, which said
      only that the analysis *ran*, and `CodeQL` itself, posted by GitHub
@@ -1198,7 +1201,7 @@ mail provider.
 - **Per-tier CI jobs.** Architecture wants the fast tiers split one job per tier
   so a misplaced test is visible; the split lands with the tiers.
 - **L3 on merge, and the contract runs**: they land with the suites they
-  would run. F3 no longer waits — the browser tier runs as its own `E2E (F3)` job
+  would run. F3 no longer waits — the browser tier runs as its own `E2E (F3)` check, four shards under one fan-in,
   on every pull request and on `main`, against its own isolated local stack.
 - **F3 against a deployed environment.** The suite already takes `E2E_BASE_URL`,
   so pointing it at one is configuration rather than code — and with nothing

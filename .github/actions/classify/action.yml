@@ -1,0 +1,52 @@
+name: Classify
+description: Works out whether this diff touches the product, with the base commit's classifier rather than the branch's own. Needs a checkout with full history, ahead of it.
+
+outputs:
+  product_changed:
+    description: "'false' on a documentation-only diff, else 'true'. Unset if the step could not run, which every caller's gate reads as a diff that does touch the product."
+    value: ${{ steps.classify.outputs.product_changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Work out whether this diff touches the product
+      id: classify
+      shell: bash
+      env:
+        # Into the environment rather than into the script text, which is the
+        # shape CodeQL's `actions` leg asks for.
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        # **The classifier runs from the base commit, never from this branch.**
+        # `pull_request` builds the merge ref, so the copy in the tree is the
+        # one the pull request's author wrote - and a branch left to run its
+        # own classifier could answer "documentation only" about its own
+        # payload and skip every check that would have read it. `git diff`
+        # still runs in this checkout, so the diff is this branch's; only the
+        # judgement passing on it is `main`'s.
+        #
+        # A push to `main` has no base sha and needs none: what is in the tree
+        # there arrived by a reviewed squash merge, so running the checkout's
+        # own copy here is running `main`'s own, not a pull request's.
+        #
+        # It fails open throughout: whatever goes wrong leaves `product_changed`
+        # true or unset, and every caller's gate runs on anything but 'false'.
+        if [ -z "$BASE_SHA" ]; then
+          node scripts/what-changed.mjs || echo "product_changed=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        base="$RUNNER_TEMP/base-classifier"
+        mkdir -p "$base/lib"
+        if git show "$BASE_SHA:scripts/what-changed.mjs" > "$base/what-changed.mjs" &&
+           git show "$BASE_SHA:scripts/lib/what-changed.mjs" > "$base/lib/what-changed.mjs"; then
+          node "$base/what-changed.mjs" || echo "product_changed=true" >> "$GITHUB_OUTPUT"
+        else
+          # True of the pull request that introduced the classifier, and of
+          # nothing after it - or of `scripts/what-changed.mjs`'s own shape
+          # having moved since. Either way, falling back to *this branch's
+          # own copy* would be exactly the hole the base-commit extraction
+          # above exists to close, so this fails open instead: no classifier
+          # runs, and the gated steps do.
+          echo "::warning::The base commit carries no classifier, so every check runs rather than trusting this branch's own."
+          echo "product_changed=true" >> "$GITHUB_OUTPUT"
+        fi

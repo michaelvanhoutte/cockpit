@@ -269,9 +269,13 @@ test.describe('Selection', () => {
       await goToTheDashboard(page, dashboard, isMobile);
       const onThePanel = page.getByRole('region', { name: panel });
       await expect(onThePanel.getByText(titles[0]!)).toBeVisible();
-      if (isMobile) await onThePanel.getByText(titles[0]!).scrollIntoViewIfNeeded();
-      // Near its top edge: the offer drawn over this short a screen is three
-      // buttons wide and two lines tall, and covers the middle of the row.
+      // Placed mid-screen: the offer is two lines tall and covers the bottom of
+      // a 320-px screen, and a minimal scroll leaves the row at that bottom edge,
+      // under it, so a press on the row lands on the offer. Centred, the row is
+      // clear of it and of the sticky header at the top.
+      if (isMobile) await onThePanel.getByText(titles[0]!).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+      // Near its top edge, so that even a row that sits lower than that stays
+      // clear of the offer drawn over this short a screen.
       await startSelecting(page, titles[0]!, isMobile, true);
       // A long press brings the bar at one row; a pointer's one row is only
       // highlighted, so it takes a second.

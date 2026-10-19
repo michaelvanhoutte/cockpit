@@ -106,11 +106,16 @@ export default defineConfig({
 
   // One worker, so the tier's whole point survives: every spec shares one
   // database, and two specs capturing at once would make "the inbox holds
-  // exactly what I put in it" a race rather than an assertion. Affordable
-  // precisely because F3 is kept few and thin — the run is seconds, against a
-  // stack that takes about nine to boot. If it ever stops being affordable,
-  // the fix is a stack per worker, not parallelism over shared state.
+  // exactly what I put in it" a race rather than an assertion. CI runs the tier
+  // as four shards (E2E_SHARD, scripts/ci-e2e.mjs), each on its own runner with
+  // its own stack, so this is one worker per stack and the walks still run
+  // serially within it. The fix for a slower tier is another shard, not
+  // parallelism over shared state.
   workers: 1,
+  // Only so `--shard` deals individual walks rather than whole spec files, which
+  // would leave the shards uneven. A walk therefore never relies on an earlier
+  // one in its file having run: that is a bug under the flakiness policy.
+  fullyParallel: true,
   forbidOnly: !!process.env.CI,
   // The last records the run on the branch's session record, where it has one.
   reporter: process.env.CI ? [['github'], ['list'], [playwrightSessionReporter]] : [['list'], [playwrightSessionReporter]],

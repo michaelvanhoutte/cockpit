@@ -66,13 +66,10 @@ jobs:
   # and anything else runs the lot.
   #
   # `Test` and `E2E (F3)` stay their own jobs — their cost is the work itself,
-  # not the start-up (issue 378's own "Out of scope") — and still read this
-  # job's `product_changed` output the mechanism `changes` published before.
-  # The timing is not the same: a `needs:` job unblocks only once the whole
-  # upstream job finishes, so `Test` and `E2E (F3)` now wait out this job's
-  # gated steps too, not only the few-second classifier `changes` used to be.
-  # Traded deliberately for the one-runner saving this issue asks for; the
-  # wall-clock floor is a different lever (issue 369).
+  # not the start-up (issue 378's own "Out of scope") — and run the same
+  # classifier action themselves rather than waiting on this job's, so all of
+  # them start with the run ("Run the E2E (F3) job as four shards under one
+  # required check, starting alongside Checks", issue 1279).
   # `Concepts`, `Test Explorer`, `Stability` and `Publish` still gate nothing
   # of their own; `docs/architecture.md` §9.1 says why.
   #
@@ -86,8 +83,6 @@ jobs:
   checks:
     name: Checks
     runs-on: ubuntu-latest
-    outputs:
-      product_changed: ${{ steps.classify.outputs.product_changed }}
     steps:
       # `fetch-depth: 0` because the classifier's diff reaches back to the
       # base commit, and the whole history is 8MB packed. One checkout for
@@ -99,42 +94,8 @@ jobs:
           fetch-depth: 0
       - name: Work out whether this diff touches the product
         id: classify
+        uses: ./.github/actions/classify
         continue-on-error: true
-        env:
-          # Into the environment rather than into the script text, which is the
-          # shape CodeQL's `actions` leg asks for.
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          # **The classifier runs from the base commit, never from this branch.**
-          # `pull_request` builds the merge ref, so the copy in the tree is the
-          # one the pull request's author wrote — and a branch left to run its
-          # own classifier could answer "documentation only" about its own
-          # payload and skip every check that would have read it. `git diff`
-          # still runs in this checkout, so the diff is this branch's; only the
-          # judgement passing on it is `main`'s.
-          #
-          # A push to `main` has no base sha and needs none: what is in the tree
-          # there arrived by a reviewed squash merge, so running the checkout's
-          # own copy here is running `main`'s own, not a pull request's.
-          if [ -z "$BASE_SHA" ]; then
-            node scripts/what-changed.mjs
-            exit 0
-          fi
-          base="$RUNNER_TEMP/base-classifier"
-          mkdir -p "$base/lib"
-          if git show "$BASE_SHA:scripts/what-changed.mjs" > "$base/what-changed.mjs" &&
-             git show "$BASE_SHA:scripts/lib/what-changed.mjs" > "$base/lib/what-changed.mjs"; then
-            node "$base/what-changed.mjs"
-          else
-            # True of the pull request that introduced the classifier, and of
-            # nothing after it - or of `scripts/what-changed.mjs`'s own shape
-            # having moved since. Either way, falling back to *this branch's
-            # own copy* would be exactly the hole the base-commit extraction
-            # above exists to close, so this fails open instead: no classifier
-            # runs, and the gated steps below do.
-            echo "::warning::The base commit carries no classifier, so every check runs rather than trusting this branch's own."
-            echo "product_changed=true" >> "$GITHUB_OUTPUT"
-          fi
       # **Both steps above are `continue-on-error`**, so a failure inside
       # either one leaves `product_changed` unwritten and the gate's
       # `!= 'false'` below still runs everything - the dangerous direction is
@@ -255,28 +216,40 @@ jobs:
   # designed fallback. Uploaded because Actions jobs share no filesystem - this
   # artifact is the explicit hop `test-explorer` downloads instead of
   # re-running the suite.
+  #
+  # Classifies the diff itself, so it starts with the run instead of when
+  # `checks` ends, and skips its steps on a documentation-only diff as `checks`
+  # does (a skipped step satisfies the required check, so the job is green). Its
+  # `product_changed` output is what keeps `test-explorer`, which needs it,
+  # skipped on such a diff.
   test:
     name: Test
-    # Documentation-only diffs skip this; see the `checks` job.
-    needs: checks
-    if: ${{ !cancelled() && needs.checks.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
+    outputs:
+      product_changed: ${{ steps.classify.outputs.product_changed }}
     steps:
       - uses: actions/checkout@v4
+        continue-on-error: true
         with:
           fetch-depth: 0
+      - name: Work out whether this diff touches the product
+        id: classify
+        uses: ./.github/actions/classify
+        continue-on-error: true
       - uses: ./.github/actions/setup
+        if: ${{ steps.classify.outputs.product_changed != 'false' }}
       # A passing run takes about ten minutes. The cap turns a suite that has
       # passed and then never exits into a failure in minutes rather than
       # GitHub's six hours (apps/api/vitest.config.ts, `disableConsoleIntercept`).
       - run: node scripts/ci-test.mjs
+        if: ${{ steps.classify.outputs.product_changed != 'false' }}
         timeout-minutes: 25
       # What this run selected and why (scripts/lib/test-record.mjs), on every run
       # and whatever the tests did. It can only add: the step is allowed to fail
       # without failing the job, and it runs after the tests have decided the
       # job's result, so recording never changes the outcome (issue 539).
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         continue-on-error: true
         with:
           name: test-selection-record
@@ -285,7 +258,7 @@ jobs:
       # `main` only: a pull request's uninstrumented run writes no coverage, and
       # an upload of nothing would put a warning on every green run.
       - uses: actions/upload-artifact@v4
-        if: ${{ success() && github.event_name == 'push' }}
+        if: ${{ success() && github.event_name == 'push' && steps.classify.outputs.product_changed != 'false' }}
         with:
           name: coverage-reports
           path: |
@@ -309,45 +282,84 @@ jobs:
   # playwright.config.ts). That run lands with "Run the F3 suite against a
   # deployed environment, as its own account" (issue 64); see the deferred item
   # in "Deferred, with reasons" (docs/deployment.md).
+  #
+  # **Four shards, and a fan-in that is the required check** ("Run the E2E (F3)
+  # job as four shards under one required check, starting alongside Checks",
+  # issue 1279). This job is the matrix: each shard is a runner with its own
+  # stack, and Playwright deals the walks across them one by one
+  # (scripts/ci-e2e.mjs, E2E_SHARD). Their names, `E2E (F3) (1)` to `(4)`, are
+  # what the cycle-time and stability reports read as one family with the
+  # fan-in below, which is named for the family and is what branch protection
+  # requires, so neither it nor the deployment runbook names a shard.
+  #
+  # The matrix lists the same shards as `E2E_SHARDS` in
+  # scripts/lib/e2e-record.mjs, which a test holds together. `fail-fast` is off
+  # so one red shard does not cancel the other three: each still reports its
+  # own walks.
+  #
+  # Each shard classifies the diff itself, like `Test`, so it starts with the
+  # run, and skips its steps on a documentation-only diff: no install, no
+  # Chromium, and a green job.
   e2e:
     name: E2E (F3)
-    # Documentation-only diffs skip this; see the `checks` job. The 7.7 minutes
-    # this tier costs is most of that job's argument.
-    needs: checks
-    if: ${{ !cancelled() && needs.checks.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
+        continue-on-error: true
         with:
           fetch-depth: 0
+      - name: Work out whether this diff touches the product
+        id: classify
+        uses: ./.github/actions/classify
+        continue-on-error: true
       - uses: ./.github/actions/setup
+        if: ${{ steps.classify.outputs.product_changed != 'false' }}
       # The budget, ahead of the browser download and the tier itself
       # ("Bring the browser tier back inside a budget", issue 509): `--list`
       # loads the specs and reports what would run, which needs no browser and
       # no stack. A breach is a decision to take rather than a failure to
-      # diagnose, so half a minute here beats thirteen.
+      # diagnose, so half a minute here beats thirteen. Every shard runs it, in
+      # about four seconds, rather than one job upstream of them.
       - name: Walks per area
+        if: ${{ steps.classify.outputs.product_changed != 'false' }}
         run: pnpm test:e2e:ceilings
       # Only Chromium: both Playwright projects (desktop and phone) are
       # Chromium, because this is a viewport and input matrix, not a browser
       # matrix. --with-deps because the runner lacks the shared libraries a
       # browser needs.
       - name: Install Chromium
+        if: ${{ steps.classify.outputs.product_changed != 'false' }}
         run: pnpm exec playwright install --with-deps chromium
       # On a pull request this runs only the areas that own a changed file
       # (scripts/lib/e2e-selection.mjs); a push to `main` runs every walk, as
       # the `Test` job does. `fetch-depth: 0` is what places the merge-base.
-      - run: node scripts/ci-e2e.mjs
-      # What this run selected and why (scripts/lib/e2e-record.mjs), on every run
-      # and whatever the walks did, and it can only add: the same rule as the
-      # `Test` job's record ("Show E2E in the test selection report", issue 541).
+      # Either way this shard runs its share of the walks, and a shard dealt
+      # none passes.
+      - name: Run this shard's walks
+        if: ${{ steps.classify.outputs.product_changed != 'false' }}
+        env:
+          E2E_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: node scripts/ci-e2e.mjs
+      # What this shard selected and ran (scripts/lib/e2e-record.mjs), on every
+      # run and whatever the walks did, and it can only add: the same rule as
+      # the `Test` job's record ("Show E2E in the test selection report", issue
+      # 541). Under a name of its own, because `e2e-selection-record` is the
+      # fan-in's merged record alone: the reports match that name to the job
+      # that uploaded it.
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         continue-on-error: true
         with:
-          name: e2e-selection-record
+          name: e2e-selection-record-${{ matrix.shard }}
           path: e2e-record/record.json
           if-no-files-found: warn
+          # A re-run of this shard alone uploads under the first attempt's name,
+          # which v4 otherwise refuses, leaving the fan-in the failed record.
+          overwrite: true
       # Traces and screenshots are kept on failure only (playwright.config.ts),
       # so this uploads nothing of Playwright's on a green run.
       #
@@ -362,7 +374,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-failures
+          name: playwright-failures-${{ matrix.shard }}
           path: |
             test-results/
             apps/api/.wrangler/logs-e2e/
@@ -374,6 +386,53 @@ jobs:
           # reason it is not about to explain.
           if-no-files-found: ignore
           retention-days: 7
+
+  # The required check, named for the family the shards belong to. It answers
+  # for them: red where any shard failed or was cancelled, green otherwise,
+  # including on a documentation-only diff where each shard skipped its steps.
+  # `!cancelled()` rather than the default, since `needs` on a failed shard
+  # would skip it and a skipped required check passes; a run cancelled by a
+  # newer push is not worth a runner, and its shards are cancelled with it.
+  #
+  # Merges the shards' records into one and uploads it as `e2e-selection-record`,
+  # the name the selection report and the cycle-time report have always read, so
+  # neither learns about shards. Reads each shard's result off the run's jobs, to
+  # name the one that failed: `needs.e2e.result` is only the matrix's aggregate.
+  # Re-running one failed shard re-runs this job too, which then re-reads.
+  e2e-result:
+    name: E2E (F3)
+    needs: e2e
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    # Reads the run's own artifacts and jobs through the Actions API, which the
+    # workflow-level block withholds by default.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      # Missing rather than failed: a documentation-only diff leaves no record,
+      # and a shard that died before uploading one is named by the merge.
+      - name: Download the shards' records
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: e2e-selection-record-*
+          path: e2e-shard-records
+      - name: Merge the records and answer for the shards
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          E2E_SHARDS_RESULT: ${{ needs.e2e.result }}
+        run: node scripts/ci-e2e-fan-in.mjs
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: e2e-selection-record
+          path: e2e-record/record.json
+          if-no-files-found: ignore
+          # The fan-in re-runs with a re-run shard and replaces the merged record.
+          overwrite: true
 
   # Publishes which product concepts own which tests: as a downloadable
   # artifact on every run, and — from `main` only — as the page the `pages` job
@@ -387,10 +446,9 @@ jobs:
   # run on `main`, downloaded as an artifact instead of collected again (a pull
   # request has none and renders "unknown"), and a red
   # suite or a registry drift already kills the report the way it always has
-  # — this job simply never starts. On a documentation-only diff `test` is
-  # skipped rather than failed, and a skipped dependency is not a successful
-  # one, so this job (and `pages` behind it) is skipped too, by the same
-  # `needs` chain rather than a gate of its own — the second thing this
+  # — this job simply never starts. On a documentation-only diff `test`
+  # skips its steps and is green, and its `product_changed` output is what
+  # skips this job (and `pages` behind it) too — the second thing this
   # regains, along with the artifact hop, that a stale rewrite of this file
   # once dropped ("Skip the mechanical checks on a pull request that touches
   # nothing they cover", issue 345). One consequence of `checks` now also
@@ -401,6 +459,7 @@ jobs:
   test-explorer:
     name: Test Explorer
     needs: [test, checks]
+    if: ${{ success() && needs.test.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     # download-artifact reads this run's own artifacts through the Actions API,
     # which the workflow-level block withholds by default — the same reason

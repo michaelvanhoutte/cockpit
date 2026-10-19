@@ -13,6 +13,13 @@
 // Reproducing a selection by hand: `GITHUB_EVENT_NAME=pull_request` on a
 // checkout of a pull request's merge commit.
 //
+// `E2E_SHARD=2/4` runs the second of four shards: every shard plans the same
+// selection and passes Playwright `--shard`, which deals the selected walks
+// across them, so a selected run shards as a full one does. A shard dealt no
+// walk passes: Playwright exits 0 for an empty shard, and the plan has already
+// ruled out a selection that matches no walk anywhere. Each shard writes its own
+// record, which scripts/ci-e2e-fan-in.mjs merges.
+//
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -20,7 +27,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { walksIn } from './lib/e2e-ceilings.mjs';
-import { buildE2eRecord, renderE2eSummary } from './lib/e2e-record.mjs';
+import { buildE2eRecord, parseShard, renderE2eSummary } from './lib/e2e-record.mjs';
 import { planE2eRun } from './lib/e2e-selection.mjs';
 import { packagesOf, readImportGraph } from './lib/import-graph.mjs';
 import { placeMergeBase } from './lib/merge-base.mjs';
@@ -37,10 +44,12 @@ function capture(file, args) {
 // Where the record of this run goes (e2e-record.mjs), uploaded by the E2E job.
 const recordDir = process.env.E2E_RECORD_DIR ?? join(root, 'e2e-record');
 const reportFile = join(recordDir, 'playwright.json');
+// Throws on a value that is not a shard, so a typo fails the job rather than running every walk on every shard.
+const shard = parseShard(process.env.E2E_SHARD);
 
 /** Runs Playwright with `args`, output inherited and a JSON report beside it for the record; returns its exit code. */
 function playwright(args) {
-  const all = [`--reporter=${process.env.CI ? 'github,list' : 'list'},json`, ...args];
+  const all = [`--reporter=${process.env.CI ? 'github,list' : 'list'},json`, ...(shard ? [`--shard=${shard.index}/${shard.total}`] : []), ...args];
   const quoted = shell ? all.map((arg) => (/[\s|()]/.test(arg) ? `"${arg}"` : arg)) : all;
   const env = { ...process.env, PLAYWRIGHT_JSON_OUTPUT_NAME: reportFile };
   return spawnSync('pnpm', ['exec', 'playwright', 'test', ...quoted], { cwd: root, stdio: 'inherit', shell, env }).status ?? 1;
@@ -90,9 +99,11 @@ function writeRecord() {
     } catch {
       // No report: Playwright died before writing one, and the record says so.
     }
-    const record = buildE2eRecord({ event, baseCommit: mergeBase, changedFiles, plan, walks, report });
+    const record = buildE2eRecord({ event, baseCommit: mergeBase, changedFiles, plan, walks, report, shard });
     writeFileSync(join(recordDir, 'record.json'), `${JSON.stringify(record, null, 2)}\n`);
-    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${renderE2eSummary(record)}\n`);
+    // A shard's own table would list every spec it was not dealt as not run; the fan-in's merged one is the table to read.
+    const summary = shard ? `## E2E shard ${shard.index} of ${shard.total}\n\nWas dealt ${record.shard.walks ?? 'an unknown number of'} walks.` : renderE2eSummary(record);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
   } catch (error) {
     console.error(paint('33', `\nThe E2E selection record could not be written (${error.message}); this run's result is unchanged.`));
     if (process.env.GITHUB_ACTIONS) console.log(`::warning::The E2E selection record is missing from this run: ${error.message}`);
