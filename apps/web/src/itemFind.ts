@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { itemLabel, panelGathers } from '@cockpit/shared';
+import { findNeedle, itemLabel, panelGathers, searchTextOf, textMatches } from '@cockpit/shared';
 import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { itemIdsWithRun } from './dashboardFilter';
 import { filingsThatFile, itemsInTheInbox, stillOpen } from './filing';
@@ -58,11 +58,6 @@ export type FoundItem = {
   /** Whether the Item is finished: on no Dashboard, so it is gone to in *All items*. */
   done: boolean;
 };
-
-/** The text a search runs over: what a person would type to find the Item. */
-export function searchTextOf(item: Pick<Item, 'title' | 'description' | 'nextAction' | 'sender'>): string {
-  return [item.title, item.description ?? '', item.nextAction ?? '', item.sender ?? ''].join('\n').toLowerCase();
-}
 
 /**
  * Every Item of the Workspace with its search text and places, the open ones
@@ -142,12 +137,12 @@ export function findItems(
   limit = FIND_LIMIT,
   withDone = false,
 ): { rows: FoundItem[]; more: number } {
-  const needle = query.trim().toLowerCase();
+  const needle = findNeedle(query);
   if (needle === '') return { rows: [], more: 0 };
   const rows: FoundItem[] = [];
   let matched = 0;
   for (const entry of index) {
-    if (!entry.text.includes(needle)) continue;
+    if (!textMatches(entry.text, needle)) continue;
     if (entry.done && !(withDone && scope === 2)) continue;
     const here = entry.places.filter((place) => place.dashboardId === dashboardId);
     const gatheredHere = entry.gatheredOn.filter((place) => place.dashboardId === dashboardId);
