@@ -13,6 +13,7 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { LOAD_MARGIN, budgetIn, checkShardBudget } from './e2e-budget.mjs';
+import { buildE2eRecord } from './e2e-record.mjs';
 
 const BUDGET = 720;
 const SHARD = { index: 2, total: 4 };
@@ -99,23 +100,28 @@ describe('the script that reads the shard\'s report', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }
-  const record = (report) => JSON.stringify({ packages: [{ report }] });
+  // The shard's real record (buildE2eRecord), not a hand-written one: the script reads the shape that builder writes.
+  const everyWalk = { mode: 'full', reason: 'every walk', forced: { rule: 'every walk', path: null } };
+  const noWalkSelected = { mode: 'selected', areas: [], unplaced: [], grep: '' };
+  const record = (plan, written) => JSON.stringify(buildE2eRecord({ event: 'pull_request', baseCommit: null, changedFiles: [], plan, walks: [], report: written, shard: SHARD }));
 
   it('passes a run inside the budget and fails one past it, by exit code', () => {
-    assert.equal(run({ 'playwright.json': JSON.stringify(report(362)), 'record.json': record('written') }).status, 0);
-    const over = run({ 'playwright.json': JSON.stringify(report(840)), 'record.json': record('written') });
-    assert.equal(over.status, 1);
-    assert.match(over.output, /Shard 2 of 4/);
+    const inside = report(362);
+    const over = report(840);
+    assert.equal(run({ 'playwright.json': JSON.stringify(inside), 'record.json': record(everyWalk, inside) }).status, 0);
+    const failed = run({ 'playwright.json': JSON.stringify(over), 'record.json': record(everyWalk, over) });
+    assert.equal(failed.status, 1);
+    assert.match(failed.output, /Shard 2 of 4/);
   });
 
   it('passes with no report where the selection started no Playwright, and fails where it started one', () => {
-    assert.equal(run({ 'record.json': record('written') }).status, 0);
+    assert.equal(run({ 'record.json': record(noWalkSelected, null) }).status, 0);
     assert.equal(run({}).status, 0);
-    assert.equal(run({ 'record.json': record('none') }).status, 1);
+    assert.equal(run({ 'record.json': record(everyWalk, null) }).status, 1);
   });
 
   it('fails on a report that is there and cannot be read', () => {
-    const { status, output } = run({ 'playwright.json': '{"stats": {"duration": 12', 'record.json': record('written') });
+    const { status, output } = run({ 'playwright.json': '{"stats": {"duration": 12', 'record.json': record(everyWalk, report(362)) });
     assert.equal(status, 1);
     assert.match(output, /Could not check/);
   });
