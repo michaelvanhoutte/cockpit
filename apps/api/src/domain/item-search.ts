@@ -35,6 +35,12 @@ export interface ChangeCursor {
 export interface ItemSearch {
   /** The Workspace asked for, or null for the whole account. */
   workspaceId: string | null;
+  /**
+   * The name of a Panel or Filter panel, for the open Items filed on a Panel of
+   * that name or gathered by a Filter panel of that name (`domain/panel-search.ts`);
+   * null for any.
+   */
+  panel: string | null;
   /** Whether finished Items are searched too. A dismissed Item never is. */
   includeDone: boolean;
   /** Case-insensitive, over the title, description, next action and sender; null or blank for any. */
@@ -71,6 +77,15 @@ export interface FoundPage {
   items: FoundItem[];
   next: string | null;
 }
+
+/** What a search for a Panel comes to where no Panel in scope has that name: the names there are instead. */
+export interface NoSuchPanel {
+  noSuchPanel: true;
+  panelNames: string[];
+}
+
+/** What the account answers a search with: a page, or that the Panel named is none of its Panels. */
+export type FindAnswer = FoundPage | NoSuchPanel;
 
 const NO_IDS: ReadonlySet<string> = new Set();
 

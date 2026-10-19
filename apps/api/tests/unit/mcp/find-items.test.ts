@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Workspace } from '@cockpit/shared';
 import { SERVER_INSTRUCTIONS } from '../../../src/mcp/create-item.js';
-import { describeFound, findItemsTool, readFind } from '../../../src/mcp/find-items.js';
-import { cursorFor, type FoundItem } from '../../../src/domain/item-search.js';
+import { MOST_PANEL_NAMES, describeFound, findItemsTool, readFind, refusePanel } from '../../../src/mcp/find-items.js';
+import { cursorFor, type FoundItem, type ItemSearch } from '../../../src/domain/item-search.js';
 
 /**
  * L1: how an app's search is read against the account's own names, what the
@@ -39,6 +39,7 @@ describe('MCP connections', () => {
     it('searches the whole account for open items, from the UTC day, where it gives nothing', () => {
       expect(read({})).toEqual({
         workspaceId: null,
+        panel: null,
         includeDone: false,
         text: null,
         status: null,
@@ -169,7 +170,7 @@ describe('MCP connections', () => {
       const { inputSchema } = findItemsTool([HOME]);
 
       expect(Object.keys(inputSchema.properties).toSorted()).toEqual(
-        ['cursor', 'due', 'include_done', 'or_overdue', 'priority', 'status', 'text', 'today', 'workspace'],
+        ['cursor', 'due', 'include_done', 'or_overdue', 'panel', 'priority', 'status', 'text', 'today', 'workspace'],
       );
       expect(inputSchema.additionalProperties).toBe(false);
     });
@@ -178,6 +179,77 @@ describe('MCP connections', () => {
       expect(SERVER_INSTRUCTIONS).toContain('Use create_item when the user asks to capture');
       expect(SERVER_INSTRUCTIONS).toContain('Use find_items when the user asks what is in Cockpit');
       expect(SERVER_INSTRUCTIONS).toContain('before capturing something that may already be there');
+    });
+  });
+
+  describe('an app finds the items on a panel by its name', () => {
+    it.each([
+      { situation: 'a panel named as it is', args: { panel: 'Admin' }, expected: 'Admin' },
+      { situation: 'a panel left empty', args: { panel: '' }, expected: null },
+      { situation: 'a panel of only spaces', args: { panel: '   ' }, expected: null },
+      { situation: 'no panel at all', args: {}, expected: null },
+    ])('reads $situation', ({ args, expected }) => {
+      expect(read(args).panel).toBe(expected);
+    });
+
+    it('reads a panel beside a workspace, and every other criterion, as one search', () => {
+      expect(read({ panel: 'Admin', workspace: 'work', priority: 'High' })).toMatchObject({
+        panel: 'Admin',
+        workspaceId: 'ws-work',
+        priority: 'high',
+      });
+    });
+
+    it.each([
+      { situation: 'a panel that is not a name', args: { panel: 7 }, says: ['panel must be the name of a panel'] },
+      { situation: 'a panel name far too long', args: { panel: 'x'.repeat(61) }, says: ['at most 60 characters'] },
+      { situation: 'a panel with the finished status', args: { panel: 'Admin', status: 'Done', include_done: true }, says: ['finished item is on no panel'] },
+    ])('refuses $situation', ({ args, says }) => {
+      const said = refusal(args);
+      expect(said).not.toBeNull();
+      for (const words of says) expect(said).toContain(words);
+    });
+
+    it('offers panel as a name to give, without listing the panels, which are read only when one is named', () => {
+      const { description, inputSchema } = findItemsTool([HOME]);
+
+      expect(inputSchema.properties.panel).toMatchObject({ type: 'string', maxLength: 60 });
+      expect(inputSchema.properties.panel).not.toHaveProperty('enum');
+      expect(description).toContain('panel is the name of a Panel or a Filter panel');
+      expect(description).toContain('the reply lists the names there are');
+    });
+  });
+
+  describe('an app is refused a panel nobody has, and told the names there are', () => {
+    const search = (over: Partial<ItemSearch> = {}): ItemSearch => ({ ...read({ panel: 'Garden' }), ...over });
+
+    it('names the panel given and lists the panels there are', () => {
+      const said = refusePanel(search(), { noSuchPanel: true, panelNames: ['Admin', 'Waiting'] }, [HOME, WORK]);
+
+      expect(said).toBe('No panel is called "Garden". The panels are "Admin", "Waiting"; or leave panel out.');
+    });
+
+    it('says which workspace it looked in where one was named', () => {
+      const said = refusePanel(search({ workspaceId: 'ws-work' }), { noSuchPanel: true, panelNames: ['Admin'] }, [HOME, WORK]);
+
+      expect(said).toContain('No panel in the workspace "Work" is called "Garden"');
+      expect(said).toContain('The panels in the workspace "Work" are "Admin"');
+    });
+
+    it('says there are no panels yet, rather than listing none, where there are none', () => {
+      expect(refusePanel(search(), { noSuchPanel: true, panelNames: [] }, [HOME])).toBe(
+        'There are no panels yet; leave panel out.',
+      );
+    });
+
+    it('lists the first fifty and counts the rest, so a large account is not told every name', () => {
+      const names = Array.from({ length: MOST_PANEL_NAMES + 7 }, (_, n) => `Panel ${n}`);
+
+      const said = refusePanel(search(), { noSuchPanel: true, panelNames: names }, [HOME]);
+
+      expect(said).toContain(`"Panel ${MOST_PANEL_NAMES - 1}"`);
+      expect(said).not.toContain(`"Panel ${MOST_PANEL_NAMES}"`);
+      expect(said).toContain('and 7 more');
     });
   });
 

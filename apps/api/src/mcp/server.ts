@@ -11,7 +11,7 @@ import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Accoun
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
-import { FIND_ITEMS, describeFound, findItemsTool, readFind } from './find-items.js';
+import { FIND_ITEMS, describeFound, findItemsTool, readFind, refusePanel } from './find-items.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
@@ -224,7 +224,9 @@ async function find(
   const workspaces = await account.workspaces();
   const read = readFind(args, workspaces, now);
   if (!read.ok) return { refusal: read.refusal };
-  return { reply: describeFound(await account.findItems(read.search), workspaces, env.APP_ORIGIN) };
+  const found = await account.findItems(read.search);
+  if ('noSuchPanel' in found) return { refusal: refusePanel(read.search, found, workspaces) };
+  return { reply: describeFound(found, workspaces, env.APP_ORIGIN) };
 }
 
 /**

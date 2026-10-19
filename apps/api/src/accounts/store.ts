@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { panelTakesItems, placesFiledOn, type RememberedSentenceView } from '@cockpit/shared';
+import { itemIdsWithRun, panelTakesItems, placesFiledOn, type RememberedSentenceView } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -154,7 +154,8 @@ import {
   type UnfiledCandidate,
 } from './repo.js';
 import { couldStillBeActedOn, pairOf, saidAgainBy } from '../domain/duplicates.js';
-import { foundItem, pageOfMatches, type FoundPage, type ItemSearch } from '../domain/item-search.js';
+import { foundItem, pageOfMatches, type FindAnswer, type ItemSearch } from '../domain/item-search.js';
+import { distinctPanelNames, itemsOnPanelsNamed, panelsNamed } from '../domain/panel-search.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
@@ -799,10 +800,46 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * **Where each Item is filed is read for the page's Items only**, after the
    * page is cut, so what a search costs is the account's Items (`listItemsToSearch`)
    * and not their filings.
+   *
+   * **Naming a Panel reads the Panels and filings of the Workspaces in scope,
+   * and only then** ("Find items on a panel, over MCP", issue 1243): the Items
+   * are those of the Workspaces having a Panel of that name (`itemsOnPanelsNamed`),
+   * and where no Workspace in scope has one the answer is the names there are.
    */
-  findItems(accountName: string, search: ItemSearch): Answer<FoundPage> {
+  findItems(accountName: string, search: ItemSearch): Answer<FindAnswer> {
     return this.#answer(accountName, (db) => {
-      const page = pageOfMatches(listItemsToSearch(db, accountName, search.workspaceId, search.includeDone), search);
+      let candidates: Item[];
+      if (search.panel === null) {
+        candidates = listItemsToSearch(db, accountName, search.workspaceId, search.includeDone);
+      } else {
+        // A Panel is named, so the Panels and filings of the Workspaces in scope
+        // are read now and not before ("Find items on a panel, over MCP", issue 1243).
+        const inScope = listWorkspaces(db, accountName).filter(
+          (workspace) => search.workspaceId === null || workspace.id === search.workspaceId,
+        );
+        const panelsOf = inScope.map((workspace) => ({
+          workspaceId: workspace.id,
+          panels: listPanelsInWorkspace(db, accountName, workspace.id),
+        }));
+        const withTheName = panelsOf.filter(({ panels }) => panelsNamed(panels, search.panel!).length > 0);
+        if (withTheName.length === 0) {
+          return { noSuchPanel: true as const, panelNames: distinctPanelNames(panelsOf.flatMap(({ panels }) => panels)) };
+        }
+        // An Item belonging to no Workspace yet is in every one's list but filed on no Panel.
+        const found = new Map<string, Item>();
+        for (const { workspaceId, panels } of withTheName) {
+          const board = {
+            items: listOpenItems(db, accountName, workspaceId),
+            filings: listFilingsInWorkspace(db, accountName, workspaceId),
+            panels,
+            dashboards: listDashboards(db, accountName, workspaceId),
+            withRun: itemIdsWithRun(listOpenAgentRuns(db, accountName, workspaceId)),
+          };
+          for (const item of itemsOnPanelsNamed(board, search.panel, search.today)) found.set(item.id, item);
+        }
+        candidates = [...found.values()];
+      }
+      const page = pageOfMatches(candidates, search);
       const where = placesOfItems(db, accountName, page.items.map((item) => item.id));
       return {
         items: page.items.map((item) =>
