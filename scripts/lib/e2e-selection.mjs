@@ -62,7 +62,8 @@ export const ROOTS = [
   SPECS, // the walks
   CONFIG,
   'scripts/ci-e2e.mjs', // the job's own step
-  'scripts/e2e-ceilings.mjs', // the job's budget step
+  'scripts/e2e-ceilings.mjs', // the job's walks-per-area step
+  'scripts/e2e-budget.mjs', // the job's time-budget step
   'scripts/e2e-stack.mjs', // the stack the walks drive
   'apps/web/src/main.tsx', // the web entry
   'apps/api/tests/e2e-worker.ts', // the Worker entries scripts/e2e-stack.mjs hands Wrangler

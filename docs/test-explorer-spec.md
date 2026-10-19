@@ -326,6 +326,8 @@ there is one list of areas rather than two that drift. An area with no F3 walk c
 ceiling at all — 0 is a number nothing can satisfy, since the check fails both on a
 ceiling no walk declares and on a walk under an area with no ceiling.
 
+The file also holds one number outside the entries, `e2eShardBudget`: the most one CI shard's walks may take, with the slowest shard's typical it was set above and the reason in words. `pnpm test:e2e:budget` holds it (`docs/testing-strategy.md`, "Run-time budget"); the explorer reads only `concepts`.
+
 A describe's outer text resolves to an area by exact match on `key`. A source file
 resolves to **every** area whose patterns it matches, which is expected rather than an
 error (§2a); a file matching none falls into `infrastructure`.

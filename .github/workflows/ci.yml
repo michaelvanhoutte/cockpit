@@ -318,7 +318,7 @@ jobs:
         continue-on-error: true
       - uses: ./.github/actions/setup
         if: ${{ steps.classify.outputs.product_changed != 'false' }}
-      # The budget, ahead of the browser download and the tier itself
+      # The walks-per-area budget, ahead of the browser download and the tier itself
       # ("Bring the browser tier back inside a budget", issue 509): `--list`
       # loads the specs and reports what would run, which needs no browser and
       # no stack. A breach is a decision to take rather than a failure to
@@ -344,6 +344,19 @@ jobs:
         env:
           E2E_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: node scripts/ci-e2e.mjs
+      # The tier's time budget for one shard ("Hold each E2E shard's walks under
+      # a tier-wide time budget", issue 1280): fails with the number, the shard
+      # and the duration when this shard's walks ran past
+      # `e2eShardBudget` in tools/test-explorer/concepts.json. It reads
+      # Playwright's own reported duration from the report the step above wrote,
+      # never this job's wall clock, which carries the Chromium install and the
+      # runner's start-up. `success()` rather than the default so a shard whose
+      # walks failed shows that one red and not a second one from here.
+      - name: Hold this shard's walks to the time budget
+        if: ${{ success() && steps.classify.outputs.product_changed != 'false' }}
+        env:
+          E2E_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: pnpm test:e2e:budget
       # What this shard selected and ran (scripts/lib/e2e-record.mjs), on every
       # run and whatever the walks did, and it can only add: the same rule as
       # the `Test` job's record ("Show E2E in the test selection report", issue
