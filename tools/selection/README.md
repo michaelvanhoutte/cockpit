@@ -88,8 +88,9 @@ what it would have done.
   have skipped it (over at least ten), any miss. The 7-day column shows its figures uncoloured. Each bar has
   an `alarmIssue`, empty until the nightly job files one.
 - **`forcedFullRules`** is a row per rule above its paths, over the same window, counting a pull request once
-  per rule and reading each rule's total against the forced-full bar. The page's advice for each rule lives in
-  `src/render/advice.js`; a rule it lacks gets a neutral line.
+  per rule and reading each rule's total against the forced-full bar, counting only the pull requests it left
+  running everything (a rule that forced one package of several shows its count but reads `within`). The page's
+  advice for each rule lives in `src/render/advice.js`; a rule it lacks gets a neutral line.
 - **"Is selection working?" is per window (7 and 14 days by default) and says
   "none" rather than inventing a number**: a window with no pull requests, or
   where selection never ran at all, reads "none" for the figures that would

@@ -197,6 +197,13 @@ describe('Test selection report', () => {
       expect(model.forcedFullRules[0]).toMatchObject({ count: 10, verdict: 'within' });
     });
 
+    it('a rule that forced one package of several shows its count but is not read as running everything', () => {
+      const partial = () => aPull({ test: [pkg({ name: 'a', ...forced('own package.json', 'apps/a/package.json') }), pkg({ name: 'b', mode: 'changed' })] });
+      const model = build([...times(10, partial), ...times(10, () => aPull({ test: [pkg({ mode: 'changed' })] }))]);
+      expect(model.forcedFullRules[0]).toMatchObject({ rule: 'own package.json', count: 10, of: 20, verdict: 'within' });
+      expect(bar(model, 'test-forced-full')).toMatchObject({ count: 0, verdict: 'within' });
+    });
+
     it('the leading rule of a bar is the one that forced most of the pull requests that ran everything', () => {
       const pulls = [
         ...times(6, () => aPull({ test: [pkg(forced('outside every package', 'a.mjs'))] })),

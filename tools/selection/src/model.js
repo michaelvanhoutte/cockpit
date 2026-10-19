@@ -314,7 +314,7 @@ const share = (count, of) => (of > 0 ? count / of : null);
  * A row per rule that forced a full run, above the paths it caught. A pull
  * request is counted once per rule however many of its paths that rule caught,
  * and once for each of two rules that both caught it. Each row is read against
- * the forced-full bar by its own total, because one rule spread over a hundred
+ * the forced-full bar by its own total (the pull requests it left running everything), because one rule spread over a hundred
  * new files is one cause that no single path reaches the bar for.
  *
  * Over `windowPulls` (the bar window), so a row's figures and the bar they
@@ -323,27 +323,29 @@ const share = (count, of) => (of > 0 ? count / of : null);
  */
 function forcedFullRules(windowPulls, read) {
   const rows = [];
-  for (const { tier, ran, forcedOf } of TIERS) {
+  for (const { tier, ran, forcedOf, ranEverything } of TIERS) {
     const ranPulls = windowPulls.filter(ran);
     const byRule = new Map();
     for (const pull of ranPulls) {
       for (const reason of forcedOf(pull)) {
-        const entry = byRule.get(reason.rule) ?? { pulls: new Map(), paths: new Map() };
+        const entry = byRule.get(reason.rule) ?? { pulls: new Map(), everything: new Set(), paths: new Map() };
         byRule.set(reason.rule, entry);
         entry.pulls.set(pull.number, refOf(pull));
+        if (ranEverything(pull)) entry.everything.add(pull.number);
         const pathEntry = entry.paths.get(reason.path) ?? { path: reason.path, pulls: [] };
         entry.paths.set(reason.path, pathEntry);
         pathEntry.pulls.push(refOf(pull));
       }
     }
     for (const [rule, entry] of byRule) {
-      const value = share(entry.pulls.size, ranPulls.length);
+      // The bar is about running everything: a rule that forced one package of several is listed, but only the pull requests it left running everything are read against the bar.
+      const value = share(entry.everything.size, ranPulls.length);
       rows.push({
         tier,
         rule,
         count: entry.pulls.size,
         of: ranPulls.length,
-        share: value,
+        share: share(entry.pulls.size, ranPulls.length),
         verdict: verdictOf({ read, value, threshold: BARS.forcedFull }),
         pulls: [...entry.pulls.values()],
         paths: [...entry.paths.values()].map((each) => ({ ...each, count: each.pulls.length })).sort((a, b) => b.count - a.count || String(a.path).localeCompare(String(b.path))),
@@ -484,7 +486,9 @@ export function buildModel({ pulls: pullData, now, requestedDays, coveredSince, 
   const pulls = pullData.map(pullModel).sort((a, b) => time(b.mergedAt) - time(a.mergedAt));
   const requestedSince = now.getTime() - requestedDays * DAY_MS;
   const barWindowPulls = pullsInWindow(pulls, BARS.windowDays, now);
-  const barSummary = windowSummary(pulls, { days: BARS.windowDays, now, coveredSince });
+  const windowSummaries = windows.map((days) => windowSummary(pulls, { days, now, coveredSince }));
+  const barSummary = windowSummaries.find((each) => each.days === BARS.windowDays) ?? windowSummary(pulls, { days: BARS.windowDays, now, coveredSince });
+  const bars = barsOf(barWindowPulls, barSummary);
 
   return {
     repo,
@@ -501,10 +505,10 @@ export function buildModel({ pulls: pullData, now, requestedDays, coveredSince, 
       truncated,
       pulls: pulls.length,
     },
-    windows: windows.map((days) => windowSummary(pulls, { days, now, coveredSince })),
-    bars: barsOf(barWindowPulls, barSummary),
+    windows: windowSummaries,
+    bars,
     // A row per rule above its paths, over the bar window: the page's "What forced a full run".
-    forcedFullRules: forcedFullRules(barWindowPulls, barSummary.pulls >= BARS.minPulls),
+    forcedFullRules: forcedFullRules(barWindowPulls, bars.read),
     misses: pulls.flatMap((pull) => pull.misses.map((miss) => ({ ...miss, pull: refOf(pull) }))),
     forcedFull: forcedFullTable(pulls.filter((pull) => pull.status === 'ran')),
     // The browser tier's own rules, apart from the Test job's: "push to main" forces both, and is two reasons.
