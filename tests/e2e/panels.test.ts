@@ -1,16 +1,22 @@
 import { type Locator, type Page, type Response } from '@playwright/test';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
-import type { CommandName } from '@cockpit/shared';
+import type { CommandName, PanelKind } from '@cockpit/shared';
+import {
+  arrange,
+  giveADashboard,
+  giveAnEmptyDashboard,
+  giveToAPanel,
+  type ArrangedDashboard,
+  type ArrangedPanel,
+} from './support/arrange';
 import {
   ADA,
-  capture,
   captureBox,
   choosePanelAction,
   dashboardBar,
   dashboardTab,
   expect,
   expectNoSidewaysScroll,
-  fileOnto,
   inbox,
   itemRow,
   itemsOn,
@@ -18,8 +24,6 @@ import {
   openPanelSettings,
   pastCapture,
   press,
-  saveTheItem,
-  setFormDueDate,
   signIn,
   switchTo,
   test,
@@ -44,79 +48,56 @@ import {
  * walks from lengthening the workspace list that the walks about workspaces
  * assert against - a spec that quietly moves another spec's controls down the
  * page is the order-dependence this tier is arranged to avoid.
+ *
+ * **Every walk arranges its dashboards, panels and rows through the API** and
+ * drives only the panel behaviour its title names through the UI
+ * (`./support/arrange`); the page is opened after, so it reads them. The one
+ * walk whose title is adding a panel adds its panels by hand.
  */
 
+/** A panel to arrange: its name, or its name and what it holds. */
+type PanelToGive = string | { name: string; kind: PanelKind };
+
 /**
- * An empty dashboard of this walk's own, already open - **with the panel it
- * arrives with taken back off**. Its own name is returned for the rare walk
- * that switches away and has to come back.
+ * An empty dashboard of this walk's own, already open, holding the `panels`
+ * given and nothing else - **the panel it arrives with taken back off**. Its
+ * own name is returned for the rare walk that switches away and has to come
+ * back. `arranged` is for whatever else the walk needs read with the page: it
+ * runs after the dashboard exists and before the page is opened on it.
  *
- * Every dashboard arrives with one, and every walk below is about the panels it
- * puts there itself: leaving it would put a `Panel 1` at the head of three
- * expectations that are not about it. That a dashboard arrives with one at all
- * is walked where it belongs, in tests/e2e/dashboards.test.ts.
+ * Every dashboard arrives with a panel, and every walk below is about the
+ * panels it puts there itself: leaving it would put a `Panel 1` at the head of
+ * three expectations that are not about it. That a dashboard arrives with one
+ * at all is walked where it belongs, in tests/e2e/dashboards.test.ts.
  */
-async function ownDashboard(page: Page, isMobile: boolean): Promise<string> {
+async function ownDashboard(
+  page: Page,
+  isMobile: boolean,
+  panels: PanelToGive[] = [],
+  arranged: (board: ArrangedDashboard) => Promise<void> = async () => {},
+): Promise<string> {
   const name = uniqueTitle('Today');
   await signIn(page, ADA, isMobile);
-  await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
-  await page.getByLabel('Name of the new dashboard').fill(name);
-  await page.getByLabel('Name of the new dashboard').press('Enter');
-  await expect(dashboardBar(page).getByRole('link', { name })).toBeVisible();
+  const board = await giveAnEmptyDashboard(page, name, panels);
+  await arranged(board);
+  await page.reload();
+  await openDashboard(page, name, isMobile);
   await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible();
-  await deletePanel(page, 'Panel 1', isMobile);
+  for (const panel of panels) {
+    await expect(page.getByRole('region', { name: typeof panel === 'string' ? panel : panel.name })).toBeVisible();
+  }
   return name;
 }
 
 /**
- * A second dashboard of the same workspace, leaving `here` the one on screen
- * afterwards - what every walk about moving a panel *to* somewhere needs
- * beside the one `ownDashboard` already makes.
+ * Adds a panel of items by hand, from the dashboard's own bar, beside the
+ * control naming its layout ("Pick the layout you are on, by name"), rather
+ * than in a strip at the foot of the board. Only for the walk that is about
+ * adding one; every other walk is given its panels (`ownDashboard`).
  */
-async function anotherDashboard(page: Page, here: string, isMobile: boolean): Promise<string> {
-  const name = uniqueTitle('Elsewhere');
-  await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
-  await page.getByLabel('Name of the new dashboard').fill(name);
-  await page.getByLabel('Name of the new dashboard').press('Enter');
-  await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible();
-  await press(dashboardBar(page).getByRole('link', { name: here }), isMobile);
-  return name;
-}
-
-/** Takes a panel off the dashboard, through the question every delete asks. */
-async function deletePanel(page: Page, name: string, isMobile: boolean): Promise<void> {
-  await choosePanelAction(page, name, 'Delete', isMobile);
-  await press(page.getByRole('button', { name: `Yes, delete ${name}` }), isMobile);
-  await expect(page.getByRole('region', { name })).toHaveCount(0);
-}
-
-async function addPanelOfText(page: Page, name: string, isMobile: boolean): Promise<void> {
-  await addPanel(page, name, isMobile, 'Text');
-}
-
-async function addPanel(
-  page: Page,
-  name: string,
-  isMobile: boolean,
-  holds: 'Items' | 'Text' | 'Filter' = 'Items',
-): Promise<void> {
-  // In the dashboard's own bar, beside the control naming its layout ("Pick the
-  // layout you are on, by name"), rather than in a strip at the foot of the
-  // board.
+async function addPanel(page: Page, name: string, isMobile: boolean): Promise<void> {
   await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
   await page.getByLabel('Name of the new panel').fill(name);
-  // What it holds is settled here and never after, so a walk that wants a panel
-  // of text has to say so before the panel exists.
-  //
-  // **The label rather than the control**, which is what a hand hits: the radio
-  // itself is drawn for screen readers only, so the whole card is the target
-  // and a click aimed at the input lands on the words inside it.
-  if (holds !== 'Items') {
-    await press(
-      page.locator('label').filter({ has: page.getByRole('radio', { name: new RegExp(holds) }) }),
-      isMobile,
-    );
-  }
   await page.getByLabel('Name of the new panel').press('Enter');
   await expect(page.getByRole('region', { name })).toBeVisible();
 }
@@ -272,8 +253,10 @@ test.describe('Panels', () => {
       page,
       isMobile,
     }) => {
-      const here = await ownDashboard(page, isMobile);
-      const elsewhere = await anotherDashboard(page, here, isMobile);
+      const elsewhere = uniqueTitle('Elsewhere');
+      await ownDashboard(page, isMobile, [], async () => {
+        await giveADashboard(page, elsewhere);
+      });
 
       const falcon = uniqueTitle('Project Falcon');
       const reading = uniqueTitle('To read');
@@ -324,13 +307,10 @@ test.describe('Panels', () => {
     }) => {
       // Desktop only: arranging a dashboard is a pointer gesture.
       test.skip(isMobile, 'arranging a dashboard is a pointer gesture');
-      const here = await ownDashboard(page, isMobile);
       const first = uniqueTitle('Project Falcon');
       const second = uniqueTitle('To read');
       const third = uniqueTitle('People');
-      await addPanel(page, first, isMobile);
-      await addPanel(page, second, isMobile);
-      await addPanel(page, third, isMobile);
+      const here = await ownDashboard(page, isMobile, [first, second, third]);
       await expect(layoutControl(page)).toHaveCount(0);
 
       // Arranged on the screen it is on now, which records the dashboard's
@@ -456,13 +436,10 @@ test.describe('Panels', () => {
       // Wide enough for three panels side by side, so the layout this records
       // is one the narrow screen below has to squeeze into four columns each.
       await page.setViewportSize({ width: 1600, height: 900 });
-      await ownDashboard(page, isMobile);
       const waiting = uniqueTitle('Waiting on people');
       const falcon = uniqueTitle('Project Falcon');
       const reading = uniqueTitle('To read');
-      await addPanel(page, waiting, isMobile);
-      await addPanel(page, falcon, isMobile);
-      await addPanel(page, reading, isMobile);
+      await ownDashboard(page, isMobile, [waiting, falcon, reading]);
 
       const panel = page.getByRole('region', { name: waiting });
       const count = panel.getByText('0', { exact: true });
@@ -524,9 +501,8 @@ test.describe('Panels', () => {
       page,
       isMobile,
     }) => {
-      await ownDashboard(page, isMobile);
       const name = uniqueTitle('What matters');
-      await addPanelOfText(page, name, isMobile);
+      await ownDashboard(page, isMobile, [{ name, kind: 'text' }]);
       const panel = page.getByRole('region', { name });
 
       const written = answerTo(page, 'set_panel_text');
@@ -598,14 +574,13 @@ test.describe('Panels', () => {
       page,
       isMobile,
     }) => {
-      const here = await ownDashboard(page, isMobile);
-      const elsewhere = await anotherDashboard(page, here, isMobile);
+      const elsewhere = uniqueTitle('Elsewhere');
       const first = uniqueTitle('Project Falcon');
       const second = uniqueTitle('To read');
       const third = uniqueTitle('People');
-      await addPanel(page, first, isMobile);
-      await addPanel(page, second, isMobile);
-      await addPanel(page, third, isMobile);
+      const here = await ownDashboard(page, isMobile, [first, second, third], async () => {
+        await giveADashboard(page, elsewhere);
+      });
       // Two fit across a desktop board, so the third starts on a line of its
       // own - which is what makes this a drag between rows rather than along
       // one, and the only arrangement that can show a row being left behind.
@@ -687,6 +662,10 @@ test.describe('Panels', () => {
       // where it is let go, on a part of the page drawn by something other
       // than the board that captured the pointer.
       const movedAway = answerTo(page, 'move_panel_to_dashboard');
+      // Centred in the bar first, which scrolls sideways once an account has a
+      // few dashboards, and `boundingBox` reports where a tab is without
+      // scrolling to it (`dragTabOnto`, support/app.ts).
+      await dashboardTab(page, elsewhere).evaluate((el) => el.scrollIntoView({ inline: 'center', block: 'nearest' }));
       await page.mouse.move(
         ...(await centreOf(page.getByRole('region', { name: third }).locator('header'))),
       );
@@ -721,17 +700,12 @@ test.describe('Panels', () => {
     }) => {
       // Wide enough that the panel beside the Inbox holds three Medium columns.
       await page.setViewportSize({ width: 2000, height: 1000 });
-      await ownDashboard(page, isMobile);
       const panel = uniqueTitle('Falcon');
-      await addPanel(page, panel, isMobile);
-
       const titles = ['one', 'two', 'three', 'four', 'five', 'six'].map(uniqueTitle);
-      for (const title of titles) {
-        await capture(page, title, isMobile);
-        await fileOnto(page, title, panel, isMobile);
-      }
-      // Each filed from the menu lands on top of the one before.
-      const [first, second, third, fourth, fifth, sixth] = [...titles].reverse() as [
+      await ownDashboard(page, isMobile, [panel], async (board) => {
+        await giveToAPanel(page, board.panels[0]!, titles);
+      });
+      const [first, second, third, fourth, fifth, sixth] = titles as [
         string, string, string, string, string, string,
       ];
       await expect.poll(() => itemsOn(page, panel)).toEqual([first, second, third, fourth, fifth, sixth]);
@@ -819,9 +793,8 @@ test.describe('Panels', () => {
       // Tall enough that three sized rows overflow it and the first one is
       // reachable to drag the lines of, and short enough that they do overflow.
       await page.setViewportSize({ width: 1280, height: 900 });
-      await ownDashboard(page, isMobile);
       const names = ['Falcon', 'Reading', 'People', 'Plans', 'Ideas'].map((label) => uniqueTitle(label));
-      for (const name of names) await addPanel(page, name, isMobile);
+      await ownDashboard(page, isMobile, names);
       const [one, two, three, four, five] = names as [string, string, string, string, string];
       const arranged = [[one, two], [three, four], [five]];
       await expect.poll(() => rowsOnScreen(page)).toEqual(arranged);
@@ -980,9 +953,8 @@ test.describe('Panels', () => {
       // on the upper row's gives up the room above that held it in the air, so the
       // first row sits directly below the Dashboard bar with no empty space above it.
       await page.setViewportSize({ width: 1280, height: 1600 });
-      await ownDashboard(page, isMobile);
       const shortNames = ['Falcon', 'Reading', 'People'].map((label) => uniqueTitle(label));
-      for (const name of shortNames) await addPanel(page, name, isMobile);
+      await ownDashboard(page, isMobile, shortNames);
       const [shortOne, shortTwo, shortThree] = shortNames as [string, string, string];
       await expect.poll(() => rowsOnScreen(page)).toEqual([[shortOne, shortTwo], [shortThree]]);
       expect(await dashboard.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
@@ -1063,10 +1035,9 @@ test.describe('Panels', () => {
       page,
       isMobile,
     }) => {
-      const { first, second, row, under } = await twoPanelsInARow(page, isMobile);
       // Enough items that the row's own natural height is well past the floor
       // a drag can shrink it to - otherwise shrinking it would prove nothing.
-      const items = await itemsFiledOn(page, first, 8);
+      const { first, second, row, under, items } = await twoPanelsInARow(page, isMobile, { items: 8 });
 
       // **Nothing shows more than its row gives it.** Whether a panel's own
       // box, and the well inside it, really stay inside the row drawn around
@@ -1138,10 +1109,8 @@ test.describe('Panels', () => {
       page,
       isMobile,
     }) => {
-      const { first, second, row, under } = await twoPanelsInARow(page, isMobile);
-      // Two, so the row stays short enough that its line is clear of the Undo
-      // bar the filing leaves at the foot of the screen.
-      await itemsFiledOn(page, first, 2);
+      // Two: enough for the busy well to have something to fill.
+      const { first, second, row, under } = await twoPanelsInARow(page, isMobile, { items: 2 });
       const busyWell = page.getByRole('region', { name: first }).locator('.well');
       const bareWell = page.getByRole('region', { name: second }).locator('.well');
 
@@ -1180,8 +1149,7 @@ test.describe('Panels', () => {
       // drag can reach, which only a layout engine can say. The bare panel has
       // nothing matching, so it goes while the filter is on. What is shown for
       // which condition is apps/web/tests/unit/components/PanelBoard.test.tsx's.
-      const { first, second, row } = await twoPanelsInARow(page, isMobile);
-      const items = await itemsFiledOn(page, first, 3);
+      const { first, second, row, items } = await twoPanelsInARow(page, isMobile, { items: 3 });
       const storedHeight = (await row.boundingBox())!.height;
       const storedShare = await shareOfTheRow(page, first, second);
       let layoutsSent = 0;
@@ -1228,15 +1196,15 @@ test.describe('Panels', () => {
     });
 
     test('narrows the dashboard to what is in progress', async ({ page, isMobile }) => {
-      // One item is started from its row's menu, then the filter's Status group
-      // keeps only it. Which statuses match is
-      // apps/web/tests/unit/dashboardFilter.test.ts's.
-      const { first } = await twoPanelsInARow(page, isMobile);
-      const items = await itemsFiledOn(page, first, 2);
+      // One item is started, then the filter's Status group keeps only it.
+      // Which statuses match is apps/web/tests/unit/dashboardFilter.test.ts's.
+      const { first, items } = await twoPanelsInARow(page, isMobile, {
+        items: 2,
+        also: async (panel) => {
+          await arrange(page, 'set_started', { itemId: panel.itemIds[1], started: true });
+        },
+      });
       const started = items[1]!;
-      await press(itemRow(page, started).getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: /^Status/ }), isMobile);
-      await press(page.getByRole('menuitemradio', { name: 'In progress' }), isMobile);
       await expect(itemRow(page, started).getByText('In progress')).toBeVisible();
       await page.getByRole('button', { name: 'Filter this dashboard' }).click();
       await page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'In progress' }).click();
@@ -1348,34 +1316,18 @@ test.describe('Panels', () => {
       // picker below offering the same panel twice.
       const work = uniqueTitle('Work');
       const gathering = uniqueTitle('Due soon');
-      const here = await ownDashboard(page, isMobile);
-      await addPanel(page, work, isMobile);
-      await addPanel(page, gathering, isMobile, 'Filter');
+      // An item due today, filed on the other panel - which is the whole point:
+      // it is on Work, and it is about to appear on a panel it was never filed
+      // onto.
+      const chase = uniqueTitle('Chase the invoice');
+      const here = await ownDashboard(page, isMobile, [work, { name: gathering, kind: 'filter' }], async (board) => {
+        await giveToAPanel(page, board.panels[0]!, [chase]);
+        await arrange(page, 'set_due_date', { itemId: board.panels[0]!.itemIds[0], dueDate: today() });
+      });
 
       // Nothing chosen yet, so it says how to choose rather than drawing rows.
       const filter = page.getByRole('region', { name: gathering });
       await expect(filter.getByText('Choose what this shows from its menu.')).toBeVisible();
-
-      // An item due today, filed on the other panel - which is the whole point:
-      // it is on Work, and it is about to appear on a panel it was never filed
-      // onto. Captured and triaged where capture happens, which on a phone is
-      // a screen of its own rather than the column beside the dashboard.
-      const chase = uniqueTitle('Chase the invoice');
-      // `openInbox` is no use here: it signs in as the first person, and every
-      // walk in this file is in the second's account. On a wide screen the
-      // Inbox is the column already beside this dashboard; on a phone it is a
-      // tab in the same bar.
-      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
-      await expect(inbox(page)).toBeVisible();
-      await capture(page, chase, isMobile);
-      await press(itemRow(page, chase).getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
-      await setFormDueDate(page, today(), isMobile);
-      await saveTheItem(page, isMobile);
-      await expect(page.getByRole('dialog')).toHaveCount(0);
-      await fileOnto(page, chase, work, isMobile);
-
-      await openDashboard(page, here, isMobile);
       await expect.poll(() => itemsOn(page, work)).toEqual([chase]);
 
       // A Filter is never a place to file into, so it is not among the targets
@@ -1475,10 +1427,9 @@ test.describe('Layouts', () => {
       page,
       isMobile,
     }) => {
-      await ownDashboard(page, isMobile);
       const falcon = uniqueTitle('Project Falcon');
-      await addPanel(page, falcon, isMobile);
-      const rows = page.locator('main [data-panel-row]');
+      await ownDashboard(page, isMobile, [falcon]);
+      const rows =page.locator('main [data-panel-row]');
 
       const week = uniqueTitle('This week');
       const added = answerTo(page, 'save_layout');
@@ -1555,41 +1506,28 @@ async function centreOf(what: Locator): Promise<[number, number]> {
 }
 
 /**
- * A dashboard of this walk's own holding two empty panels on one row - two fit
+ * A dashboard of this walk's own holding two panels on one row - two fit
  * across a desktop board, so both land on it without a drag - with the row and
- * the line under it that sizes it.
+ * the line under it that sizes it. `items` of them are filed on the first, top
+ * to bottom in the order returned, and `also` arranges anything more of the
+ * first panel (an item started, say) before the page reads it; the second is
+ * empty.
  */
-async function twoPanelsInARow(page: Page, isMobile: boolean) {
-  await ownDashboard(page, isMobile);
+async function twoPanelsInARow(
+  page: Page,
+  isMobile: boolean,
+  given: { items?: number; also?: (first: ArrangedPanel, items: string[]) => Promise<void> } = {},
+) {
   const first = uniqueTitle('Project Falcon');
   const second = uniqueTitle('To read');
-  await addPanel(page, first, isMobile);
-  await addPanel(page, second, isMobile);
+  const items = Array.from({ length: given.items ?? 0 }, (_, at) => uniqueTitle(`Item ${at}`));
+  await ownDashboard(page, isMobile, [first, second], async (board) => {
+    await giveToAPanel(page, board.panels[0]!, items);
+    await given.also?.(board.panels[0]!, items);
+  });
   await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
+  if (items.length > 0) await expect.poll(() => itemsOn(page, first)).toEqual(items);
   const row = page.locator('main [style*="grid-template-columns"]').first();
   const under = page.getByTestId('row-line').first();
-  return { first, second, row, under };
-}
-
-/**
- * Captures `count` items and files them on a panel as one selected range, in
- * the order captured: a move per item would leave its own Undo bar up at the
- * foot of the screen (`undo.tsx`) over the next row to be clicked, where one
- * filing leaves one bar, once, after everything has landed. A ctrl-click
- * starts the range and a shift-click reaches the rest ("Pick a row by
- * ctrl/shift-click instead of aiming for a checkbox", issue 438).
- */
-async function itemsFiledOn(page: Page, panel: string, count: number): Promise<string[]> {
-  const items = Array.from({ length: count }, (_, at) => uniqueTitle(`Item ${at}`));
-  for (const title of items) await capture(page, title, false);
-  await itemRow(page, items[0]!).click({ modifiers: ['ControlOrMeta'] });
-  await itemRow(page, items.at(-1)!).click({ modifiers: ['Shift'] });
-  await page.getByRole('button', { name: 'Move to…' }).click();
-  const picker = page.getByRole('dialog');
-  await expect(picker).toBeVisible();
-  await picker.getByRole('button', { name: panel, exact: true }).click();
-  await expect(picker).toHaveCount(0);
-  // Filing several keeps the Inbox's own order, oldest first.
-  await expect.poll(() => itemsOn(page, panel)).toEqual(items);
-  return items;
+  return { first, second, row, under, items };
 }

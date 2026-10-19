@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { expect, type Page } from '@playwright/test';
+import type { PanelKind } from '@cockpit/shared';
 
 /**
  * Arrangement for the F3 walks: the state a walk needs, put there through the
@@ -61,14 +62,53 @@ export async function giveToTheInbox(page: Page, titles: string[]): Promise<stri
  * after the one every dashboard arrives with, as one made from the bar has.
  */
 export async function giveADashboard(page: Page, name: string, panelNames: string[] = []): Promise<ArrangedDashboard> {
-  const dashboard: ArrangedDashboard = { id: randomUUID(), name, panels: [] };
-  await arrange(page, 'add_dashboard', { dashboardId: dashboard.id, panelId: randomUUID(), name });
-  for (const panelName of panelNames) {
-    const panel: ArrangedPanel = { id: randomUUID(), name: panelName, itemIds: [] };
-    await arrange(page, 'add_panel', { dashboardId: dashboard.id, panelId: panel.id, name: panelName });
-    dashboard.panels.push(panel);
+  const { dashboard } = await addDashboard(page, name);
+  for (const panelName of panelNames) await giveAPanel(page, dashboard, panelName);
+  return dashboard;
+}
+
+/**
+ * A dashboard of this name holding only the panels given, **with the one it
+ * arrives with taken back off** - for a walk whose expectations are about the
+ * panels it puts there itself, where a `Panel 1` at their head would be in the
+ * way of every one. That a dashboard arrives with a panel at all is walked in
+ * dashboards.test.ts.
+ */
+export async function giveAnEmptyDashboard(
+  page: Page,
+  name: string,
+  panels: ReadonlyArray<string | { name: string; kind: PanelKind }> = [],
+): Promise<ArrangedDashboard> {
+  const { dashboard, arrivedWith } = await addDashboard(page, name);
+  await arrange(page, 'delete_panel', { panelId: arrivedWith });
+  for (const panel of panels) {
+    if (typeof panel === 'string') await giveAPanel(page, dashboard, panel);
+    else await giveAPanel(page, dashboard, panel.name, panel.kind);
   }
   return dashboard;
+}
+
+/** One more panel on a dashboard, of the kind given (items unless said), after the ones it has. */
+export async function giveAPanel(
+  page: Page,
+  dashboard: ArrangedDashboard,
+  name: string,
+  kind: PanelKind = 'items',
+): Promise<ArrangedPanel> {
+  const panel: ArrangedPanel = { id: randomUUID(), name, itemIds: [] };
+  await arrange(page, 'add_panel', { dashboardId: dashboard.id, panelId: panel.id, name, kind });
+  dashboard.panels.push(panel);
+  return panel;
+}
+
+async function addDashboard(
+  page: Page,
+  name: string,
+): Promise<{ dashboard: ArrangedDashboard; arrivedWith: string }> {
+  const dashboard: ArrangedDashboard = { id: randomUUID(), name, panels: [] };
+  const arrivedWith = randomUUID();
+  await arrange(page, 'add_dashboard', { dashboardId: dashboard.id, panelId: arrivedWith, name });
+  return { dashboard, arrivedWith };
 }
 
 /**
