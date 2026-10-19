@@ -894,7 +894,7 @@ export function renderHtml(model) {
   ${evolutionZoomTabs(model)}
 
   <h2>Coding against the harness</h2>
-  <p class="sectionnote">Minutes spent writing and fixing against minutes spent in the harness, the rounds plus local review, test runs and the browser pass. A dot&rsquo;s size is the lines its pull request changed (additions plus deletions, the figure the Evolution size lane uses) and its shade is its CI rounds, faint for one round and the full accent for five or more. Every pull request pays a fixed harness cost, so a small change sits above the dashed line whatever it did; read the minutes beside the ratio. No line is drawn as healthy, since there is no accepted benchmark for this ratio: the reference is the window&rsquo;s own median.</p>
+  <p class="sectionnote">Minutes spent writing and fixing against minutes spent in the harness, the rounds plus local review, test runs and the browser pass. A dot&rsquo;s size is the lines its pull request changed (additions plus deletions, the figure the Evolution size lane uses) and its shade is its CI rounds, blue for one round to red for five or more. Every pull request pays a fixed harness cost, so a small change sits above the dashed line whatever it did; read the minutes beside the ratio. No line is drawn as healthy, since there is no accepted benchmark for this ratio: the reference is the window&rsquo;s own median.</p>
   ${balance(model)}
 
   <h2>Each pull request, start to merge</h2>

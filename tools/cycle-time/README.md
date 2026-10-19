@@ -166,8 +166,8 @@ evolution panels, coding against the harness, and a strip per pull request.
 - **Coding against the harness is a scatter** (`src/render/scatter.js`): a dot per pull request
   that carries a record, minutes coding and fixing across and minutes in the harness up, on one
   scale for both axes up to two hours. A dot's size is its lines changed, 4 to 14px by the square root
-  over the window's largest, and its shade is its CI rounds in five steps (1 to 5 or more, faint to the
-  full accent). A dashed line marks the harness taking as
+  over the window's largest, and its shade is its CI rounds in five steps, blue for one round to red for
+  five or more. A dashed line marks the harness taking as
   long as the coding, a solid one the median ratio. It is drawn over the widest window only. A dot
   past the scale is hollow on the edge and marked off the chart, the three furthest above the
   dashed line are named where their labels fit (a label takes the first free place right, left or below
