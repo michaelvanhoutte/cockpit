@@ -6,9 +6,8 @@
 // (issue 1282). Playwright's own `--grep` matching is its own tested behaviour
 // and is not re-proved here.
 //
-// The graph is a hand-written map of who imports what: the real one needs the
-// TypeScript compiler (scripts/lib/import-graph.mjs, tested in tests/lint/),
-// which this step runs without.
+// The graph is a hand-written map of who imports what: the real one needs a
+// compiler package this step runs without, so it is tested under tests/lint/.
 //
 
 import assert from 'node:assert/strict';
@@ -213,7 +212,7 @@ describe('planE2eRun', () => {
 
   describe('the job’s roots and stack inputs', () => {
     it('a stack input changed runs every walk, naming it', () => {
-      for (const path of ['apps/api/migrations/0017_new.sql', 'apps/harness-monitor/migrations/0011_new.sql', 'apps/api/seed.sql', 'apps/api/wrangler.jsonc', 'apps/web/vite.config.ts', 'apps/web/index.html', 'apps/web/src/appearanceBoot.js']) {
+      for (const path of ['apps/api/migrations/0017_new.sql', 'apps/harness-monitor/migrations/0011_new.sql', 'apps/api/seed.sql', 'apps/api/wrangler.jsonc', 'apps/web/vite.config.ts', 'apps/web/index.html', 'apps/web/public/share-target-sw.js', 'apps/web/src/appearanceBoot.js']) {
         assert.deepEqual(plan([path, 'apps/web/src/capture/Box.tsx']).forced, { rule: 'stack input', path }, path);
       }
     });

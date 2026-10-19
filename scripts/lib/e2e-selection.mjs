@@ -81,6 +81,7 @@ export const STACK_INPUTS = [
   'apps/harness-monitor/wrangler.jsonc',
   'apps/web/vite.config.ts',
   'apps/web/index.html',
+  'apps/web/public/', // served as it is: the service worker's imported script, the icon, the privacy page
   // Inlined into the page by vite.config.ts through `new URL(...)`, which the graph does not read as an import.
   'apps/web/src/appearanceBoot.js',
 ];
@@ -111,10 +112,11 @@ const isLoaded = (path) => within(path, ROOTS) || within(path, STACK_INPUTS);
 /**
  * Where `path` is placed, which the registry cannot do: its nearest registered
  * importers, a loaded file reached first, or nothing.
+ * @param {(path: string) => string[]} ownersOf the areas the registry places a file in (memoised by the caller: it compiles a pattern per call)
  * @returns {{ areas: Map<string, string> } | { loaded: string } | { areas: null }}
  *   `areas` maps each area to the registered file that placed it
  */
-function placeByImporters(path, concepts, graph) {
+function placeByImporters(path, ownersOf, graph) {
   const seen = new Set([path]);
   let frontier = [path];
   while (frontier.length > 0) {
@@ -124,8 +126,8 @@ function placeByImporters(path, concepts, graph) {
     const next = [...level].sort();
 
     const registered = new Map();
-    for (const file of next) for (const key of matchingConcepts(concepts, file)) if (!registered.has(key)) registered.set(key, file);
-    const loaded = next.find((file) => isLoaded(file) && matchingConcepts(concepts, file).length === 0);
+    for (const file of next) for (const key of ownersOf(file)) if (!registered.has(key)) registered.set(key, file);
+    const loaded = next.find((file) => isLoaded(file) && ownersOf(file).length === 0);
     if (loaded) return { loaded };
     if (registered.size > 0) return { areas: registered };
     frontier = next;
@@ -161,6 +163,12 @@ export function planE2eRun({ event, mergeBase, changedFiles = [], concepts, walk
   const productFiles = changedFiles.filter((path) => !isNonProduct(path));
   if (productFiles.length === 0) return full('no product file in the diff', null, 'no product file in the diff');
 
+  const owned = new Map();
+  const ownersOf = (path) => {
+    if (!owned.has(path)) owned.set(path, matchingConcepts(concepts, path));
+    return owned.get(path);
+  };
+
   const changedBy = new Map();
   const via = new Map();
   const unplaced = [];
@@ -181,14 +189,14 @@ export function planE2eRun({ event, mergeBase, changedFiles = [], concepts, walk
       continue;
     }
 
-    const owners = matchingConcepts(concepts, path);
+    const owners = ownersOf(path);
     if (owners.length > 0) {
       for (const key of owners) take(key, path, null);
       continue;
     }
 
     if (within(path, ROOTS)) return full(LOADED, path, `${path} is loaded by the job and owned by no area`);
-    const placed = placeByImporters(path, concepts, graph);
+    const placed = placeByImporters(path, ownersOf, graph);
     if (placed.loaded) return full(LOADED, placed.loaded, `${path} is loaded by the job through ${placed.loaded}, which no area owns`);
     if (placed.areas === null) unplaced.push(path);
     else for (const [area, registered] of placed.areas) take(area, path, registered);
