@@ -36,6 +36,8 @@ export function walksIn(listing) {
   const found = new Map();
   for (const file of listing.suites ?? []) {
     const path = file.file ?? file.title ?? '';
+    // Setup files are listed too, with no `describe` to place them under; only a `*.test.ts` holds walks.
+    if (!path.endsWith('.test.ts')) continue;
     // The file's own specs, which are the ones written under no `describe` at
     // all - taken without recursing, because everything deeper belongs to an
     // outer `describe` and is read below with the area that names it.

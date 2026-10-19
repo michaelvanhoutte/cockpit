@@ -12,7 +12,7 @@ import {
   makeWorkspace,
   pastCapture,
   press,
-  signIn,
+  signInThroughGoogle,
   somebodyNew,
   switchTo,
   test,
@@ -174,7 +174,7 @@ test.describe('Sign-in', () => {
       page,
       isMobile,
     }) => {
-      await signIn(page, MICHAEL, isMobile);
+      await signInThroughGoogle(page, MICHAEL, isMobile);
       // The All items tab switched on, which is remembered in the browser and
       // is one of the keys `localKeys` below must find gone.
       await chooseTabAction(
@@ -241,7 +241,7 @@ test.describe('Accounts', () => {
       // row the ordering walks have to drag past on a 480px phone. Which way
       // round the walk goes proves the same thing either way; this way it costs
       // nobody else anything.
-      await signIn(page, ADA, isMobile);
+      await signInThroughGoogle(page, ADA, isMobile);
       await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
       // Already beside the dashboards on the wide project; a tab to switch to

@@ -11,6 +11,7 @@ import {
   pastCapture,
   press,
   signIn,
+  signInThroughGoogle,
   signInWith,
   somebodyNew,
   test,
@@ -165,7 +166,7 @@ test.describe('User management', () => {
       page,
       isMobile,
     }) => {
-      await signIn(page, MICHAEL, isMobile);
+      await signInThroughGoogle(page, MICHAEL, isMobile);
       await openManageUsers(page, isMobile);
 
       // Somebody this run has not added before: the stack rebuilds its storage
@@ -218,7 +219,7 @@ test.describe('User management', () => {
      */
     test('makes somebody an admin, and takes it back', async ({ page, isMobile }) => {
       const anna = somebodyNew('Anna');
-      await signIn(page, MICHAEL, isMobile);
+      await signInThroughGoogle(page, MICHAEL, isMobile);
       await openManageUsers(page, isMobile);
       await addSomebody(page, anna, isMobile);
 
@@ -254,7 +255,7 @@ test.describe('User management', () => {
       const anna = somebodyNew('Anna');
       /** What she calls her workspace, so what survives is something she chose. */
       const HERS = `${anna.name}’s work`;
-      await signIn(page, MICHAEL, isMobile);
+      await signInThroughGoogle(page, MICHAEL, isMobile);
       await openManageUsers(page, isMobile);
       await addSomebody(page, anna, isMobile);
 
@@ -316,7 +317,7 @@ test.describe('User management', () => {
       const anna = somebodyNew('Anna');
       /** What she calls her workspace, so what would survive is something she chose. */
       const HERS = `${anna.name}’s work`;
-      await signIn(page, MICHAEL, isMobile);
+      await signInThroughGoogle(page, MICHAEL, isMobile);
       await openManageUsers(page, isMobile);
       await addSomebody(page, anna, isMobile);
 
@@ -342,11 +343,7 @@ test.describe('User management', () => {
       // added by, which derives the same account as before: a new account, and
       // none of what she made.
       await signOut(page, isMobile);
-      await page.goto('/signin');
-      await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
-      await page.getByPlaceholder('somebody@example.com').fill(anna.address);
-      await page.getByPlaceholder('Their name at Google').fill(anna.name);
-      await press(page.getByRole('button', { name: 'Continue' }), isMobile);
+      await signInWith(page, anna.address, isMobile, anna.name);
       await dashboardBar(page).or(captureBox(page)).first().waitFor({ state: 'visible' });
       await pastCapture(page, isMobile);
       await expect(workspaceTab(page, HERS)).toHaveCount(0);
