@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { collect, GitHubError } from './github.js';
+import { listAlarmIssues } from './issues.js';
 import { buildModel } from './model.js';
 import { renderHtml } from './render/html.js';
 
@@ -162,10 +163,11 @@ export async function main(argv) {
   const days = args.days ?? 14;
   const now = new Date();
   const since = new Date(now.getTime() - days * DAY_MS);
+  const token = resolveToken();
 
   let collected;
   try {
-    collected = await collect({ repo, branch, since, now, maxPulls: args.maxPulls ?? 150, token: resolveToken() });
+    collected = await collect({ repo, branch, since, now, maxPulls: args.maxPulls ?? 150, token });
   } catch (error) {
     if (error instanceof GitHubError) {
       process.stderr.write(`${error.message}\n`);
@@ -174,7 +176,17 @@ export async function main(argv) {
     throw error;
   }
 
+  // Only to link each bar's alarm from the page: a page without the links is
+  // still true, so unlike the pull requests above a failed read costs the links.
+  let alarms = [];
+  try {
+    alarms = await listAlarmIssues({ repo, token });
+  } catch (error) {
+    process.stderr.write(`could not read the alarm issues, so the page links none: ${error.message}\n`);
+  }
+
   const model = buildModel({
+    alarms,
     pulls: collected.pulls,
     now,
     requestedDays: days,

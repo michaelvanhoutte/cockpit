@@ -9,13 +9,16 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GitHubError } from '../../src/github.js';
 
 vi.mock('../../src/github.js', async (importOriginal) => ({ ...(await importOriginal()), collect: vi.fn() }));
 
+vi.mock('../../src/issues.js', async (importOriginal) => ({ ...(await importOriginal()), listAlarmIssues: vi.fn() }));
+
 const { collect } = await import('../../src/github.js');
+const { listAlarmIssues } = await import('../../src/issues.js');
 const { main } = await import('../../src/cli.js');
 
 const dirs = [];
@@ -24,6 +27,10 @@ const tmp = () => {
   dirs.push(dir);
   return dir;
 };
+
+beforeEach(() => {
+  listAlarmIssues.mockResolvedValue([]);
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -116,5 +123,28 @@ describe('main', () => {
       stderr.mockRestore();
     }
     expect(existsSync(samePath)).toBe(false);
+  });
+
+  it('records the open alarm of a bar in the model, which is what the page links', async () => {
+    collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
+    listAlarmIssues.mockResolvedValue([{ number: 41, state: 'open', title: 'Selection: misses', body: '<!-- selection-alarm bar=misses first=2026-02-01 last=2026-02-02 -->', comments: [] }]);
+    const out = path.join(tmp(), 'model.json');
+    expect(await main(['--out', out, '--repo', 'o/r', '--json'])).toBe(0);
+    const bars = Object.fromEntries(JSON.parse(readFileSync(out, 'utf8')).bars.items.map((bar) => [bar.id, bar.alarmIssue]));
+    expect(bars.misses).toBe(41);
+    expect(bars['e2e-forced-full']).toBeNull();
+  });
+
+  it('writes the page without links when the alarm issues cannot be read, rather than losing the report', async () => {
+    collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
+    listAlarmIssues.mockRejectedValue(new Error('GitHub answered 502'));
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const out = path.join(tmp(), 'index.html');
+    try {
+      expect(await main(['--out', out, '--repo', 'o/r'])).toBe(0);
+    } finally {
+      stderr.mockRestore();
+    }
+    expect(readFileSync(out, 'utf8')).toContain('Is test selection working?');
   });
 });
