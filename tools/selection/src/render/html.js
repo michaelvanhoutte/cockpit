@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { chainText } from '../model.js';
+import { adviceFor } from './advice.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,45 +49,122 @@ function windowHeading(window) {
 const noData = '<span class="fig none">none</span>';
 const noDataCell = `<td class="num">${noData}</td>`;
 
-function countOfCell(count, of) {
+const percent = (value) => `${Math.round(value * 100)}%`;
+
+/** `of` as the count a figure was made from, with its share where it has one: "of 145 · 32%". */
+function countOfCell(count, of, { withShare = true, verdict = null } = {}) {
   if (count === null) return noDataCell;
-  return `<td class="num"><span class="fig">${count}</span><span class="of">of ${plural(of, 'pull request')}</span></td>`;
+  return `<td class="num"><span class="fig${verdict ? ` ${verdict}` : ''}">${count}</span><span class="of">of ${of}${withShare ? ` &middot; ${percent(count / of)}` : ''}</span></td>`;
+}
+
+/** A bar's threshold as the Bar column words it. */
+function barText(bar) {
+  if (bar.id === 'misses') return 'any miss';
+  if (bar.id === 'most-selected') return `${percent(bar.threshold)}, over at least ${bar.minOver}`;
+  return `${percent(bar.threshold)} of pull requests that ran`;
 }
 
 function figuresTable(model) {
   const windows = model.windows;
-  const row = (label, note, cell) =>
-    `<tr><th scope="row">${label}${note ? `<span class="rownote">${note}</span>` : ''}</th>${windows.map((window) => cell(window)).join('')}</tr>`;
+  const { bars } = model;
+  const barOf = (id) => bars.items.find((each) => each.id === id);
+
+  // A figure is coloured only in the window the verdicts are read on; the others show it plain.
+  const verdictIn = (window, bar) => (bar && window.days === bars.windowDays ? bar.verdict : null);
+  const row = (label, note, bar, cell, barCell = '&mdash;') => {
+    const barClass = bar ? bar.verdict : 'nobar';
+    const barNote = bar && bar.verdict === 'unread' ? `${barCell} &middot; unread` : barCell;
+    return `<tr class="${barClass}"><th scope="row">${label}${note ? `<span class="rownote">${note}</span>` : ''}</th>${windows.map((window) => cell(window, verdictIn(window, bar))).join('')}<td class="bar">${barNote}</td></tr>`;
+  };
+  const plain = (value, verdict) => `<td class="num"><span class="fig${verdict ? ` ${verdict}` : ''}">${value}</span></td>`;
 
   const rows = [
-    row('Pull requests merged', '', (window) => (window.pulls === 0 ? noDataCell : `<td class="num"><span class="fig">${window.pulls}</span></td>`)),
-    row('Misses', 'a test file or E2E spec that failed on main and was not run on the pull request that merged it', (window) =>
-      window.misses === null ? noDataCell : `<td class="num"><span class="fig${window.misses === 0 ? ' none' : ''}">${window.misses}</span></td>`,
-    ),
-    row('Forced to run everything', 'of the pull requests that ran a Test job at all: every package ran in full, so selection saved nothing', (window) =>
-      window.forcedFull === null ? noDataCell : countOfCell(window.forcedFull.count, window.forcedFull.of),
-    ),
-    row('Test files a typical pull request ran', 'the median, over pull requests that used selection at all', (window) =>
-      window.typicalFiles === null ? noDataCell : `<td class="num"><span class="fig">${days(window.typicalFiles)}</span></td>`,
-    ),
-    row('Test job duration', 'pull request vs. main&rsquo;s own run of the merge, both medians', (window) =>
+    row('Pull requests merged', '', null, (window) => (window.pulls === 0 ? noDataCell : plain(window.pulls)), `at least ${bars.minPulls} before a bar is read`),
+    row('Misses', 'a test file or E2E spec that failed on main and was not run on the pull request that merged it', barOf('misses'), (window, verdict) => (window.misses === null ? noDataCell : plain(window.misses, verdict)), barText(barOf('misses'))),
+    row('Test forced to run everything', 'of the pull requests that ran a Test job at all: every package ran in full, so selection saved nothing', barOf('test-forced-full'), (window, verdict) =>
+      window.forcedFull === null ? noDataCell : countOfCell(window.forcedFull.count, window.forcedFull.of, { verdict }),
+    barText(barOf('test-forced-full'))),
+    row('E2E forced to run every spec', 'of the pull requests whose E2E job left a record: every spec ran, so selection saved nothing', barOf('e2e-forced-full'), (window, verdict) =>
+      window.e2e.forcedFull === null ? noDataCell : countOfCell(window.e2e.forcedFull.count, window.e2e.forcedFull.of, { verdict }),
+    barText(barOf('e2e-forced-full'))),
+    row('A test selected on nearly every pull request', 'the most-selected test file or spec, over the pull requests that could have skipped it', barOf('most-selected'), (window, verdict) =>
+      window.mostSelected === null
+        ? noDataCell
+        : `<td class="num"><span class="fig${verdict ? ` ${verdict}` : ''}">${percent(window.mostSelected.share)}</span><span class="of">${window.mostSelected.selected} of ${window.mostSelected.of}</span></td>`,
+    barText(barOf('most-selected'))),
+    row('Test files a typical pull request ran', 'the median, over pull requests that used selection at all', null, (window) => (window.typicalFiles === null ? noDataCell : plain(days(window.typicalFiles)))),
+    row('E2E specs a typical pull request ran', 'the median, over pull requests that used selection at all', null, (window) => (window.e2e.typicalSpecs === null ? noDataCell : plain(days(window.e2e.typicalSpecs)))),
+    row('Test job duration', 'pull request vs. main&rsquo;s own run of the merge, both medians', null, (window) =>
       window.duration.pr === null && window.duration.main === null
         ? noDataCell
         : `<td class="num"><span class="fig">${humanMs(window.duration.pr)}</span><span class="of">main ${humanMs(window.duration.main)}</span></td>`,
     ),
-    row('E2E forced to run every spec', 'of the pull requests whose E2E job left a record: every spec ran, so selection saved nothing', (window) =>
-      window.e2e.forcedFull === null ? noDataCell : countOfCell(window.e2e.forcedFull.count, window.e2e.forcedFull.of),
-    ),
-    row('E2E specs a typical pull request ran', 'the median, over pull requests that used selection at all', (window) =>
-      window.e2e.typicalSpecs === null ? noDataCell : `<td class="num"><span class="fig">${days(window.e2e.typicalSpecs)}</span></td>`,
-    ),
-    row('Documentation-only pull requests', 'skipped the Test job entirely', (window) => (window.docsOnly === null ? noDataCell : countOfCell(window.docsOnly.count, window.docsOnly.of))),
+    row('Documentation-only pull requests', 'skipped the Test job entirely', null, (window) => (window.docsOnly === null ? noDataCell : countOfCell(window.docsOnly.count, window.docsOnly.of, { withShare: false }))),
   ].join('');
 
   return `<div class="card"><div class="tablewrap"><table>
-    <thead><tr><th></th>${windows.map((window) => `<th class="num">${esc(windowHeading(window))}</th>`).join('')}</tr></thead>
+    <thead><tr><th></th>${windows.map((window) => `<th class="num">${esc(windowHeading(window))}</th>`).join('')}<th>Bar</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div></div>`;
+}
+
+/** The sentence under a crossed bar's name: the cause where the model names one. */
+function crossedLine(bar) {
+  const pct = bar.value === null ? '' : percent(bar.value);
+  if (bar.id === 'misses') {
+    return `<b>${plural(bar.count, 'miss', 'misses')}</b> &mdash; a test that failed on main after its pull request skipped it. Any miss crosses.`;
+  }
+  if (bar.id === 'most-selected') {
+    return `<b>${esc(bar.path)} selected on ${pct} of the ${plural(bar.of, 'pull request')} that could have skipped it</b> &mdash; bar ${percent(bar.threshold)}, over at least ${bar.minOver}.`;
+  }
+  const head = `<b>${esc(bar.name)} on ${bar.count} of ${plural(bar.of, 'pull request')} (${pct})</b> &mdash; bar ${percent(bar.threshold)}.`;
+  if (!bar.cause) return head;
+  const wholly = bar.cause.count / bar.count >= 0.9;
+  return `${head} ${wholly ? 'One rule does it' : 'Mostly'}${wholly ? ':' : ''} <i>${esc(bar.cause.rule)}</i>, ${bar.cause.count} of ${wholly ? 'those' : 'the'} ${bar.count}.`;
+}
+
+/** Why a bar could not be read, for the strip's foot. */
+function unreadReason(bar, bars) {
+  return bar.unread === 'window'
+    ? `the window holds ${plural(bars.pulls, 'merged pull request')}, and a bar needs ${bars.minPulls}`
+    : bar.id === 'most-selected'
+      ? `no test file or spec had ${bar.minOver} pull requests that could have skipped it`
+      : 'the window cannot give the figure';
+}
+
+/**
+ * The verdict, first thing on the page: each crossed bar with its figure,
+ * threshold and leading rule, or a green line when none is crossed. A bar that
+ * could not be read is named in the foot — never counted as within.
+ */
+function verdictStrip(model) {
+  const { bars } = model;
+  const crossed = bars.items.filter((bar) => bar.verdict === 'crossed');
+  const unread = bars.items.filter((bar) => bar.verdict === 'unread');
+  const windowName = `${bars.windowDays}-day window`;
+
+  let state = '';
+  let heading;
+  if (crossed.length > 0) heading = `${crossed.length} ${crossed.length === 1 ? 'bar' : 'bars'} crossed in the ${windowName}`;
+  else if (unread.length === bars.items.length) {
+    state = ' unread';
+    heading = `No bar could be read in the ${windowName}`;
+  } else {
+    state = ' ok';
+    heading = `No bar crossed in the ${windowName}`;
+  }
+
+  const foot = [];
+  if (unread.length > 0) {
+    foot.push(`Unread: ${unread.map((bar) => `${esc(bar.name)} (${unreadReason(bar, bars)})`).join('; ')}.`);
+  }
+  if (bars.partial) foot.push(`The window is only ${coveredDays(bars.actualDays)} of its ${bars.windowDays} days covered.`);
+
+  return `<div class="verdict${state}">
+    <h2><span class="dot"></span>${heading}</h2>
+    ${crossed.length > 0 ? `<ul>${crossed.map((bar) => `<li>${crossedLine(bar)}</li>`).join('')}</ul>` : ''}
+    ${foot.length > 0 ? `<div class="filed">${foot.join(' ')}</div>` : ''}
+  </div>`;
 }
 
 /**
@@ -138,26 +216,32 @@ function missesSection(model) {
   </table></div></div>`;
 }
 
+/** One path a rule caught: the path, how many pull requests it forced, and which. */
+function pathRow(path) {
+  const which = `<details><summary>${plural(path.pulls.length, 'pull request')}</summary><ul class="filelist">${path.pulls
+    .map((pull) => `<li><a href="${esc(pull.url)}" target="_blank" rel="noopener">#${esc(pull.number)}</a> ${esc(pull.title)}</li>`)
+    .join('')}</ul></details>`;
+  return `<tr class="pathrow"><td class="path">${esc(path.path)}</td><td class="num"><span class="fig">${path.count}</span></td><td>${which}</td></tr>`;
+}
+
+/** A row per rule above its paths: every pull request the rule forced counted once, the rule's own advice, and the paths it caught folded below, worst first. */
+function ruleRows(rule) {
+  const named = rule.paths.filter((path) => path.path !== null);
+  const advice = esc(adviceFor(rule.tier, rule.rule));
+  const head = `<tr class="rule ${rule.verdict}">
+    <td>${rule.tier}</td>
+    <td class="rulename">${esc(rule.rule)}<span class="advice">${advice}</span></td>
+    <td class="num"><span class="fig">${rule.count}</span><span class="of">of ${rule.of} &middot; ${percent(rule.share)}</span></td>
+  </tr>`;
+  if (named.length === 0) return head;
+  return `${head}<tr><td colspan="3" class="nested"><details class="paths"><summary>${plural(named.length, 'path')}, worst first</summary><table>${named.map(pathRow).join('')}</table></details></td></tr>`;
+}
+
 function forcedFullSection(model) {
-  // One list, the Test job's rules and the E2E job's each under its own name: one path can force both, and that is two reasons to fix.
-  const forced = [...model.forcedFull.map((row) => ({ ...row, tier: 'Vitest' })), ...model.e2eForcedFull.map((row) => ({ ...row, tier: 'E2E' }))].sort((a, b) => b.count - a.count);
-  if (forced.length === 0) return '<div class="card"><p class="empty">Nothing forced a full run in this period.</p></div>';
-  const rows = forced
-    .map(
-      (row) => `<tr>
-        <td>${row.tier}</td>
-        <td>${esc(row.rule)}</td>
-        <td class="path">${row.path ? esc(row.path) : '&mdash;'}</td>
-        <td class="num"><span class="fig">${row.count}</span></td>
-        <td><details><summary>${plural(row.pulls.length, 'pull request')}</summary><ul class="filelist">${row.pulls
-          .map((pull) => `<li><a href="${esc(pull.url)}" target="_blank" rel="noopener">#${esc(pull.number)}</a> ${esc(pull.title)}</li>`)
-          .join('')}</ul></details></td>
-      </tr>`,
-    )
-    .join('');
+  if (model.forcedFullRules.length === 0) return '<div class="card"><p class="empty">Nothing forced a full run in this period.</p></div>';
   return `<div class="card"><div class="tablewrap"><table>
-    <thead><tr><th>Job</th><th>Rule</th><th class="path">Path</th><th class="num">Pull requests</th><th>Which</th></tr></thead>
-    <tbody>${rows}</tbody>
+    <thead><tr><th>Job</th><th>Rule</th><th class="num">Pull requests</th></tr></thead>
+    <tbody>${model.forcedFullRules.map(ruleRows).join('')}</tbody>
   </table></div></div>`;
 }
 
@@ -330,10 +414,12 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
     </div>
   </header>
 
+  ${verdictStrip(model)}
+
   ${limits(model)}
 
   <h2>Is selection working?</h2>
-  <p class="sectionnote">Each carries the counts it was made from, because "none" and a genuine zero are different claims.</p>
+  <p class="sectionnote">Each figure carries its bar and the counts it was made from, because "none" and a genuine zero are different claims. A red figure is over its bar in the ${model.bars.windowDays}-day window.</p>
   ${figuresTable(model)}
 
   <h2>Misses</h2>
@@ -341,7 +427,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
   ${missesSection(model)}
 
   <h2>What forced a full run</h2>
-  <p class="sectionnote">Every package ran when one of these paths changed. What to do: move the path under a package's own directory, or narrow the rule that catches it, so a change there stops paying for every package's suite.</p>
+  <p class="sectionnote">A rule first, with every pull request it forced counted once, then the paths it caught. The bar is read against the rule, because one rule spread over a hundred new files is one cause. The advice is the rule&rsquo;s own.</p>
   ${forcedFullSection(model)}
 
   <h2>Tests selected most often</h2>

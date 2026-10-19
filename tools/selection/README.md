@@ -81,6 +81,15 @@ what it would have done.
   artifact expired) is `no record` for E2E and counted in neither direction there. An E2E miss sits in
   the misses table with level `e2e`; E2E's forced-full rules get their own rows, marked E2E, since one
   path can force both jobs.
+- **Bars** (`bars` in the model, numbers in `BARS` in `src/model.js`) give each headline figure a verdict
+  on the 14-day window: `crossed`, `within`, or `unread` where the window holds fewer than 20 merged pull
+  requests or cannot give the figure. The bars: a job forced to run everything on 25% or more of the pull
+  requests that ran it (Test and E2E apart), a test file or spec selected on 80% or more of those that could
+  have skipped it (over at least ten), any miss. The 7-day column shows its figures uncoloured. Each bar has
+  an `alarmIssue`, empty until the nightly job files one.
+- **`forcedFullRules`** is a row per rule above its paths, over the same window, counting a pull request once
+  per rule and reading each rule's total against the forced-full bar. The page's advice for each rule lives in
+  `src/render/advice.js`; a rule it lacks gets a neutral line.
 - **"Is selection working?" is per window (7 and 14 days by default) and says
   "none" rather than inventing a number**: a window with no pull requests, or
   where selection never ran at all, reads "none" for the figures that would

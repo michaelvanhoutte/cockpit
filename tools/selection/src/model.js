@@ -23,6 +23,23 @@ import { productChanged } from '../../../scripts/lib/what-changed.mjs';
 
 const DAY_MS = 86_400_000;
 
+/**
+ * The bars: the one place their numbers live, so the page and the
+ * harness-cost-review skill read the same ones. A bar is read on the
+ * `windowDays` window only, and only once that window holds `minPulls` merged
+ * pull requests; the figures in the other windows are shown, never judged.
+ */
+export const BARS = Object.freeze({
+  windowDays: 14,
+  minPulls: 20,
+  /** A job forced to run everything on this share of the pull requests that ran it, Test and E2E apart. */
+  forcedFull: 0.25,
+  /** A test file or spec selected on this share of the pull requests that could have skipped it, over at least `minOver` of them. */
+  mostSelected: Object.freeze({ share: 0.8, minOver: 10 }),
+  /** Misses: any one crosses. */
+  misses: 1,
+});
+
 const time = (text) => {
   const ms = Date.parse(text ?? '');
   return Number.isFinite(ms) ? ms : null;
@@ -178,6 +195,45 @@ export function pullModel({ pull, prRun, mainRun, files }) {
 
 const refOf = (pull) => ({ number: pull.number, title: pull.title, url: pull.url, mergedAt: pull.mergedAt });
 
+/** The pull requests merged in the last `days` days up to `now`. */
+function pullsInWindow(pulls, days, now) {
+  const since = now.getTime() - days * DAY_MS;
+  return pulls.filter((pull) => {
+    const merged = time(pull.mergedAt);
+    return merged !== null && merged >= since && merged <= now.getTime();
+  });
+}
+
+/**
+ * The test file or spec selected on the largest share of the pull requests
+ * that could have skipped it, among those with at least `BARS.mostSelected.minOver`
+ * such pull requests. A pull request could have skipped a file only where its
+ * package (or the E2E tier) ran in `changed` mode; a full run says nothing
+ * about selection. `null` where no file has ten of them.
+ */
+function mostSelectedShare(pulls) {
+  const files = new Map();
+  const tally = (packages) => {
+    for (const pkg of packages) {
+      if (pkg.mode === 'full') continue;
+      for (const file of pkg.files) {
+        const entry = files.get(file.path) ?? { path: file.path, selected: 0, of: 0 };
+        entry.of += 1;
+        if (file.status !== 'not run') entry.selected += 1;
+        files.set(file.path, entry);
+      }
+    }
+  };
+  for (const pull of pulls) {
+    tally(pull.packages);
+    tally(pull.e2e.packages);
+  }
+
+  const eligible = [...files.values()].filter((entry) => entry.of >= BARS.mostSelected.minOver).map((entry) => ({ ...entry, share: entry.selected / entry.of }));
+  eligible.sort((a, b) => b.share - a.share || b.of - a.of || a.path.localeCompare(b.path));
+  return eligible[0] ?? null;
+}
+
 /**
  * One window's summary — the five figures "Is selection working?" asks for.
  * `null` wherever there is nothing to compute from, which the page reads as
@@ -185,10 +241,7 @@ const refOf = (pull) => ({ number: pull.number, title: pull.title, url: pull.url
  */
 function windowSummary(pulls, { days, now, coveredSince }) {
   const since = now.getTime() - days * DAY_MS;
-  const inWindow = pulls.filter((pull) => {
-    const merged = time(pull.mergedAt);
-    return merged !== null && merged >= since && merged <= now.getTime();
-  });
+  const inWindow = pullsInWindow(pulls, days, now);
   const partial = coveredSince.getTime() > since;
 
   const ran = inWindow.filter((pull) => pull.status === 'ran');
@@ -219,6 +272,8 @@ function windowSummary(pulls, { days, now, coveredSince }) {
       main: inWindow.length === 0 ? null : median(ran.map((pull) => pull.testDurationMs.main).filter((ms) => ms !== null)),
     },
     docsOnly: inWindow.length === 0 ? null : { count: docsOnly.length, of: inWindow.length },
+    // The worst test file or spec by share selected, over the pull requests that could have skipped it; null where none has ten of them.
+    mostSelected: mostSelectedShare(inWindow),
     // The browser tier, counted over the pull requests whose E2E job left a
     // record: one from before E2E recorded anything says nothing either way.
     e2e: {
@@ -239,6 +294,128 @@ function forcedFullTable(pulls, forcedOf = (pull) => pull.forcedFull) {
     }
   }
   return [...rows.values()].map((row) => ({ ...row, count: row.pulls.length })).sort((a, b) => b.count - a.count);
+}
+
+/** The two jobs this report reads, each with how to tell a pull request ran it, what forced it and whether it ran everything. `Vitest` is the Test job's name on the page. */
+const TIERS = [
+  { tier: 'Vitest', ran: (pull) => pull.status === 'ran', forcedOf: (pull) => pull.forcedFull, ranEverything: (pull) => pull.ranEverything },
+  { tier: 'E2E', ran: (pull) => pull.e2e.status === 'ran', forcedOf: (pull) => pull.e2e.forcedFull, ranEverything: (pull) => pull.e2e.ranEverything },
+];
+
+/** A share against its bar. Unread wherever the window is too small or the figure cannot be given, never within. The tolerance keeps 29 of 116 (exactly a quarter) on the right side of a float. */
+function verdictOf({ read, value, threshold }) {
+  if (!read || value === null) return 'unread';
+  return value + 1e-9 >= threshold ? 'crossed' : 'within';
+}
+
+const share = (count, of) => (of > 0 ? count / of : null);
+
+/**
+ * A row per rule that forced a full run, above the paths it caught. A pull
+ * request is counted once per rule however many of its paths that rule caught,
+ * and once for each of two rules that both caught it. Each row is read against
+ * the forced-full bar by its own total, because one rule spread over a hundred
+ * new files is one cause that no single path reaches the bar for.
+ *
+ * Over `windowPulls` (the bar window), so a row's figures and the bar they
+ * cross are counted over the same pull requests. Worst (most pull requests)
+ * first, and each rule's paths worst first.
+ */
+function forcedFullRules(windowPulls, read) {
+  const rows = [];
+  for (const { tier, ran, forcedOf } of TIERS) {
+    const ranPulls = windowPulls.filter(ran);
+    const byRule = new Map();
+    for (const pull of ranPulls) {
+      for (const reason of forcedOf(pull)) {
+        const entry = byRule.get(reason.rule) ?? { pulls: new Map(), paths: new Map() };
+        byRule.set(reason.rule, entry);
+        entry.pulls.set(pull.number, refOf(pull));
+        const pathEntry = entry.paths.get(reason.path) ?? { path: reason.path, pulls: [] };
+        entry.paths.set(reason.path, pathEntry);
+        pathEntry.pulls.push(refOf(pull));
+      }
+    }
+    for (const [rule, entry] of byRule) {
+      const value = share(entry.pulls.size, ranPulls.length);
+      rows.push({
+        tier,
+        rule,
+        count: entry.pulls.size,
+        of: ranPulls.length,
+        share: value,
+        verdict: verdictOf({ read, value, threshold: BARS.forcedFull }),
+        pulls: [...entry.pulls.values()],
+        paths: [...entry.paths.values()].map((each) => ({ ...each, count: each.pulls.length })).sort((a, b) => b.count - a.count || String(a.path).localeCompare(String(b.path))),
+      });
+    }
+  }
+  const tierOrder = TIERS.map((each) => each.tier);
+  return rows.sort((a, b) => b.count - a.count || tierOrder.indexOf(a.tier) - tierOrder.indexOf(b.tier) || a.rule.localeCompare(b.rule));
+}
+
+/** Of the pull requests that ran everything, the rule that forced the most of them (a pull request counted once per rule), or null where none names one. */
+function leadingRule(pulls, forcedOf) {
+  const tally = new Map();
+  for (const pull of pulls) {
+    for (const rule of new Set(forcedOf(pull).map((reason) => reason.rule))) tally.set(rule, (tally.get(rule) ?? 0) + 1);
+  }
+  const [leader] = [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return leader ? { rule: leader[0], count: leader[1] } : null;
+}
+
+/**
+ * The bars, read on the 14-day window. Each names its figure (`count` of `of`,
+ * and `value` the number the bar compares), its `threshold`, and a `verdict`:
+ * `crossed`, `within`, or `unread` — `unread` for `window` (fewer than
+ * `BARS.minPulls` merged pull requests) or `figure` (the window cannot give it).
+ * A partial window is read by its actual days and says so (`partial`).
+ *
+ * `alarmIssue` is where the nightly job's issue number for a crossed bar goes;
+ * nothing sets it here.
+ */
+function barsOf(windowPulls, summary) {
+  const read = summary.pulls >= BARS.minPulls;
+  const bar = ({ id, name, count, of, value, threshold, ...extra }) => {
+    const verdict = verdictOf({ read, value, threshold });
+    return { id, name, count, of, value, threshold, minOver: null, path: null, cause: null, ...extra, verdict, unread: verdict !== 'unread' ? null : read ? 'figure' : 'window', alarmIssue: null };
+  };
+  const forced = (id, name, figure, { forcedOf, ranEverything, ran }) =>
+    bar({
+      id,
+      name,
+      count: figure?.count ?? null,
+      of: figure?.of ?? null,
+      value: figure ? share(figure.count, figure.of) : null,
+      threshold: BARS.forcedFull,
+      cause: leadingRule(windowPulls.filter((pull) => ran(pull) && ranEverything(pull)), forcedOf),
+    });
+  const [test, e2e] = TIERS;
+  const selected = summary.mostSelected;
+
+  return {
+    windowDays: BARS.windowDays,
+    minPulls: BARS.minPulls,
+    pulls: summary.pulls,
+    partial: summary.partial,
+    actualDays: summary.actualDays,
+    read,
+    items: [
+      forced('e2e-forced-full', 'E2E forced to run every spec', summary.e2e.forcedFull, e2e),
+      forced('test-forced-full', 'Test forced to run everything', summary.forcedFull, test),
+      bar({ id: 'misses', name: 'Misses', count: summary.misses, of: null, value: summary.misses, threshold: BARS.misses }),
+      bar({
+        id: 'most-selected',
+        name: 'A test selected on nearly every pull request',
+        count: selected?.selected ?? null,
+        of: selected?.of ?? null,
+        value: selected?.share ?? null,
+        threshold: BARS.mostSelected.share,
+        minOver: BARS.mostSelected.minOver,
+        path: selected?.path ?? null,
+      }),
+    ],
+  };
 }
 
 /**
@@ -306,6 +483,8 @@ function mostSelectedTable(pulls, limit) {
 export function buildModel({ pulls: pullData, now, requestedDays, coveredSince, truncated = false, repo, branch = 'main', commit = null, windows = [7, 14], limit = 15 }) {
   const pulls = pullData.map(pullModel).sort((a, b) => time(b.mergedAt) - time(a.mergedAt));
   const requestedSince = now.getTime() - requestedDays * DAY_MS;
+  const barWindowPulls = pullsInWindow(pulls, BARS.windowDays, now);
+  const barSummary = windowSummary(pulls, { days: BARS.windowDays, now, coveredSince });
 
   return {
     repo,
@@ -323,6 +502,9 @@ export function buildModel({ pulls: pullData, now, requestedDays, coveredSince, 
       pulls: pulls.length,
     },
     windows: windows.map((days) => windowSummary(pulls, { days, now, coveredSince })),
+    bars: barsOf(barWindowPulls, barSummary),
+    // A row per rule above its paths, over the bar window: the page's "What forced a full run".
+    forcedFullRules: forcedFullRules(barWindowPulls, barSummary.pulls >= BARS.minPulls),
     misses: pulls.flatMap((pull) => pull.misses.map((miss) => ({ ...miss, pull: refOf(pull) }))),
     forcedFull: forcedFullTable(pulls.filter((pull) => pull.status === 'ran')),
     // The browser tier's own rules, apart from the Test job's: "push to main" forces both, and is two reasons.
