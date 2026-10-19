@@ -554,8 +554,10 @@ describe('Cycle time', () => {
 
     describe("a dot's shade is its CI rounds, blue for one round to red for five or more, readable in both themes", () => {
       // WCAG 2 contrast of two #rrggbb colours.
+      // The linear-light red, green and blue of a #rrggbb colour, which both measures below start from.
+      const linear = (hex) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
       const luminance = (hex) => {
-        const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+        const [r, g, b] = linear(hex);
         return 0.2126 * r + 0.7152 * g + 0.0722 * b;
       };
       const contrast = (a, b) => {
@@ -564,7 +566,7 @@ describe('Cycle time', () => {
       };
       // OKLab (Björn Ottosson) of a #rrggbb colour; the distance between two is ΔE ×100.
       const oklab = (hex) => {
-        const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+        const [r, g, b] = linear(hex);
         const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
         const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
         const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
@@ -583,7 +585,10 @@ describe('Cycle time', () => {
       });
 
       it('keeps every shade at least 3:1 against both the dark card and the light one', () => {
-        const ratios = shadesIn(darkBlock(stylesheetOf(render({ pulls: [recorded(1)] })))).map((hex) => [hex, contrast(hex, '#161922'), contrast(hex, '#ffffff')]);
+        const css = stylesheetOf(render({ pulls: [recorded(1)] }));
+        const [darkCard, lightCard] = [darkBlock(css), lightBlock(css)].map((block) => colours(block).card);
+        expect([darkCard, lightCard]).toEqual([expect.stringMatching(/^#/), expect.stringMatching(/^#/)]);
+        const ratios = shadesIn(darkBlock(css)).map((hex) => [hex, contrast(hex, darkCard), contrast(hex, lightCard)]);
         expect(ratios.filter(([, dark, light]) => dark < 3 || light < 3)).toEqual([]);
       });
 
