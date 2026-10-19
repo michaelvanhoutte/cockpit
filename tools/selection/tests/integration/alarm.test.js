@@ -147,11 +147,22 @@ describe('Test selection report', () => {
       expect(repository.state.issues.map((issue) => issue.title)).toEqual(['Selection: Test forced to run everything on 50% of pull requests']);
     });
 
+    it('a label that cannot be made fails only the files that needed it: the other bars still get their edit', async () => {
+      const repository = aRepository({ refuse: ({ path: route }) => route === '/repos/o/r/labels' });
+      repository.state.issues.push({ number: 7, state: 'open', labels: ['selection-alarm'], title: 'old', body: '<!-- selection-alarm bar=e2e-forced-full first=2026-02-10 last=2026-02-14 -->' });
+      const { code, stderr } = await runStep(bothForcedFull(), repository);
+      expect(code).toBe(1);
+      expect(stderr).toContain('alarm for test-forced-full failed: the selection-alarm label could not be made');
+      expect(stderr).not.toContain('alarm for e2e-forced-full failed');
+      expect(repository.state.issues).toHaveLength(1);
+      expect(repository.state.issues[0].title).toBe('Selection: E2E forced to run every spec on 100% of pull requests');
+    });
+
     it('--dry-run says what it would do and changes nothing', async () => {
       const repository = aRepository();
       const { code, stderr } = await runStep(e2eForcedFull(), repository, { extra: ['--dry-run'] });
       expect(code).toBe(0);
-      expect(stderr).toContain('file   [e2e-forced-full] Selection: E2E forced to run every spec on 100% of pull requests');
+      expect(stderr).toContain('file    [e2e-forced-full] Selection: E2E forced to run every spec on 100% of pull requests');
       expect(repository.state.issues).toEqual([]);
       expect(repository.state.calls.every((call) => call.startsWith('GET '))).toBe(true);
     });

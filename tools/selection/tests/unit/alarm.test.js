@@ -42,6 +42,14 @@ describe('Test selection report', () => {
       expect(issue.body).toContain(`\`${MISSED_FILE}\` (unit), missed on #`);
     });
 
+    it('a pull request title is shown as code, so a mention, a reference or an HTML comment in it does nothing in the issue', () => {
+      const model = modelOf(withAMiss());
+      model.misses[0].pull.title = 'fix @someone `x` <!-- see #5';
+      const { body } = only(decideAlarms({ model, alarms: [] }));
+      expect(body).toContain('missed on #');
+      expect(body).toContain('`fix @someone x <!-- see #5`');
+    });
+
     it('two crossed bars are two issues, one each', () => {
       const actions = decide(bothForcedFull());
       expect(kinds(actions)).toEqual(['create', 'create']);

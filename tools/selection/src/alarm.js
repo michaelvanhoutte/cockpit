@@ -76,6 +76,9 @@ function titleOf(bar) {
   return `Selection: ${bar.name} on ${percent(bar.value)} of pull requests`;
 }
 
+/** Text from outside the repository's own files (a pull request's title) as a code span, so a mention, an issue reference or an HTML comment in it does nothing in the issue. */
+const literal = (text) => `\`${String(text).replace(/[`\s]+/g, ' ').trim()}\``;
+
 /** The misses inside the bar's window, one line per file and pull request, capped. */
 function missLines(model) {
   const since = Date.parse(model.generatedAt) - model.bars.windowDays * DAY_MS;
@@ -83,7 +86,7 @@ function missLines(model) {
     const merged = Date.parse(miss.pull.mergedAt);
     return Number.isFinite(merged) && merged >= since;
   });
-  const lines = inWindow.slice(0, MAX_LISTED).map((miss) => `  - \`${miss.path}\` (${miss.level}${miss.reason ? `, ${miss.reason}` : ''}), missed on #${miss.pull.number} ${miss.pull.title}`);
+  const lines = inWindow.slice(0, MAX_LISTED).map((miss) => `  - \`${miss.path}\` (${miss.level}${miss.reason ? `, ${miss.reason}` : ''}), missed on #${miss.pull.number} ${literal(miss.pull.title)}`);
   if (inWindow.length > MAX_LISTED) lines.push(`  - ... ${inWindow.length - MAX_LISTED} more`);
   return lines;
 }

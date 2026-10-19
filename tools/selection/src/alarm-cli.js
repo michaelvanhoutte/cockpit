@@ -8,11 +8,11 @@
  * named by its bar at the end rather than stopping the others.
  */
 
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { decideAlarms } from './alarm.js';
+import { repoFromGitRemote, resolveToken } from './environment.js';
 import { addComment, createIssue, editIssue, ensureLabel, listAlarmIssues, listComments } from './issues.js';
 
 const USAGE = `Usage: node src/alarm-cli.js --model <path> [options]
@@ -22,16 +22,6 @@ const USAGE = `Usage: node src/alarm-cli.js --model <path> [options]
   --dry-run           print what would be filed, edited and commented on; change nothing
   --help
 `;
-
-function tryRun(command, args) {
-  try {
-    return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return null;
-  }
-}
-
-const repoFromGitRemote = () => tryRun('git', ['config', '--get', 'remote.origin.url'])?.match(/github\.com[:/]([^/]+\/[^/.]+)/)?.[1] ?? null;
 
 export function parseArgs(argv) {
   const args = {};
@@ -49,8 +39,8 @@ export function parseArgs(argv) {
 
 /** One line per action, for the log and for --dry-run. */
 export function summarise(action) {
-  if (action.kind === 'create') return `file   [${action.bar}] ${action.title}`;
-  if (action.kind === 'edit') return `edit   [${action.bar}] #${action.number} ${action.title}`;
+  if (action.kind === 'create') return `file    [${action.bar}] ${action.title}`;
+  if (action.kind === 'edit') return `edit    [${action.bar}] #${action.number} ${action.title}`;
   return `comment [${action.bar}] #${action.number}`;
 }
 
@@ -79,17 +69,23 @@ export async function runAlarm({ model, repo, token, fetchImpl, dryRun = false, 
     }
   };
 
+  // Without the label a create would file an issue nothing can find again; the
+  // edits and comments need no label and still go ahead.
+  let labelError = null;
   if (actions.some((action) => action.kind === 'create')) {
     try {
       await ensureLabel(ctx);
     } catch (error) {
-      // Without the label the create would file an issue nothing can find again.
-      return { actions, failures: [{ bar: actions.find((action) => action.kind === 'create').bar, message: `the selection-alarm label could not be made: ${error.message}` }] };
+      labelError = error;
     }
   }
 
   for (const action of actions) {
     if (action.kind === 'create') {
+      if (labelError) {
+        failures.push({ bar: action.bar, message: `the selection-alarm label could not be made: ${labelError.message}` });
+        continue;
+      }
       await attempt(action, async () => log(`filed [${action.bar}] #${await createIssue({ ...ctx, title: action.title, body: action.body })}`));
     } else if (action.kind === 'edit') {
       await attempt(action, () => editIssue({ ...ctx, number: action.number, title: action.title, body: action.body }));
@@ -115,7 +111,7 @@ export async function main(argv, { fetchImpl } = {}) {
     process.stderr.write('Could not tell which repository to read; pass --repo owner/name.\n');
     return 2;
   }
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || tryRun('gh', ['auth', 'token']) || undefined;
+  const token = resolveToken();
   if (!token) {
     process.stderr.write('Filing an issue needs a token: set GITHUB_TOKEN.\n');
     return 2;
