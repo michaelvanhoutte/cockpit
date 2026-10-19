@@ -893,10 +893,12 @@ export const capturedLine = (page: Page, note: string) =>
 
 /**
  * Captures a thought through the header's Capture tab, into the workspace you
- * are in, and waits until it is in the Inbox. Used as arrangement by tests
- * about something else — the capture walk itself asserts its way through the
- * same steps rather than calling this, because a helper that both arranges and
- * asserts is a helper that can make its own test vacuous.
+ * are in, and waits until it is in the Inbox. **Not arrangement for a new
+ * walk**: that goes through the commands API (`support/arrange.ts`), and a call
+ * outside the Capture area is named by `scripts/lib/e2e-conventions.mjs`, which
+ * lists the walks still to be rewritten. The capture walk itself asserts its
+ * way through the same steps rather than calling this, because a helper that
+ * both arranges and asserts is a helper that can make its own test vacuous.
  *
  * Leaves the screen you were on, Inbox screen included on a phone.
  */
