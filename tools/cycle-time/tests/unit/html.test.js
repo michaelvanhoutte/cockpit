@@ -533,6 +533,14 @@ describe('Cycle time', () => {
         expect(svg.match(/class="dotlabel"/g)).toHaveLength(3);
         expect(svg.indexOf('class="dotlabel"')).toBeGreaterThan(svg.lastIndexOf('<circle class="dot '));
       });
+
+      it('leaves each pull request one link, its dot, with the labels hidden from a screen reader and the pointer', () => {
+        const html = render({ pulls: [recorded(1, 90), recorded(2, 60), recorded(3, 45)] });
+        const svg = svgOf(html);
+        expect(svg.match(/<a href=/g)).toHaveLength(3);
+        expect(svg).toMatch(/<g class="dotlabels" aria-hidden="true">(<text class="dotlabel"[^>]*>[^<]*<\/text>){3}<\/g>/);
+        expect(stylesheetOf(html)).toMatch(/\.scatter \.dotlabels \{\s*pointer-events: none;\s*\}/);
+      });
     });
 
     describe("a dot's size is its lines changed, and larger dots are drawn first", () => {

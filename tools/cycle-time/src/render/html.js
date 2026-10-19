@@ -479,9 +479,10 @@ function scatterSvg(layout) {
     .join('');
 
   // The labels are their own layer, after every dot, so no later dot paints over one; a dot whose label found no free place has none and is named by its hover and the table.
+  // A label is only ink: the dot's own link names it to a screen reader and takes the pointer through it, so a label over a neighbour never hides that neighbour's hover.
   const labels = layout.dots
     .filter((dot) => dot.label)
-    .map((dot) => `<a href="${esc(dot.url)}" target="_blank" rel="noopener"><text class="dotlabel" x="${(PLOT.left + dot.label.x).toFixed(1)}" y="${(PLOT.top + dot.label.y).toFixed(1)}" text-anchor="${dot.label.anchor}">#${esc(dot.number)}</text></a>`)
+    .map((dot) => `<text class="dotlabel" x="${(PLOT.left + dot.label.x).toFixed(1)}" y="${(PLOT.top + dot.label.y).toFixed(1)}" text-anchor="${dot.label.anchor}">#${esc(dot.number)}</text>`)
     .join('');
 
   return `<svg class="scatter" viewBox="0 0 ${VIEW.width} ${VIEW.height}" role="img" aria-label="Scatter of minutes coding and fixing against minutes in the harness, one dot per pull request. The same figures are in the table below it.">
@@ -490,7 +491,7 @@ function scatterSvg(layout) {
     <line class="equalline" x1="${px(0)}" y1="${py(0)}" x2="${px(1)}" y2="${py(1)}"/>
     ${median}
     ${dots}
-    <g class="dotlabels">${labels}</g>
+    <g class="dotlabels" aria-hidden="true">${labels}</g>
     <text class="axistitle" x="${px(0.5)}" y="${VIEW.height - 6}" text-anchor="middle">Minutes coding and fixing</text>
     <text class="axistitle" transform="translate(12 ${py(0.5)}) rotate(-90)" text-anchor="middle">Minutes in the harness</text>
   </svg>`;

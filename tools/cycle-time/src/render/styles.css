@@ -171,7 +171,7 @@ td.pr .title { color: var(--ink-2); }
 .zoomed { display: none; }
 .zoomtoggle:checked ~ .zoomed { display: block; }
 .zoomtoggle:checked ~ .whenclosed { display: none; }
-/* The zoomed strip's clock-time axis: the same line of time as the strip above it, ticks at clock times. Its classes are its own: the scatter's SVG has axes and ticks too, and a bare `.tick` here shifted its numbers by half the view box. */
+/* The zoomed strip's clock-time axis: the same line of time as the strip above it, ticks at clock times. Its classes are its own, since the scatter's SVG has axes and ticks too and a rule here would move them. */
 .clockaxis { position: relative; height: 18px; margin-bottom: 4px; border-top: 1px solid var(--ink-3); font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .clocktick { position: absolute; top: 0; padding-top: 3px; white-space: nowrap; transform: translateX(-50%); }
 .clocktick::before { content: ''; position: absolute; top: -4px; left: 50%; height: 4px; border-left: 1px solid var(--ink-3); }
@@ -310,6 +310,7 @@ summary { cursor: pointer; }
 .sample { flex: none; overflow: visible; }
 .samplelabel { margin: 0 10px 0 4px; font-variant-numeric: tabular-nums; }
 .hit { fill: transparent; }
+.scatter .dotlabels { pointer-events: none; }
 .scatter a { cursor: pointer; }
 .scatter a:hover .dot, .scatter a:focus-visible .dot { stroke: var(--ink-1); }
 .scatter a:focus { outline: none; }

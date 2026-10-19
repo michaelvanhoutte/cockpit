@@ -104,7 +104,9 @@ export function layoutScatter(dots, medianRatio) {
   }
 
   // Sample dots for the legend on the window's own scale: the largest and a quarter of it, which is half way up the radius.
-  const sizeKey = [...new Set([Math.round(maxLines / 4), maxLines])].map((lines) => ({ lines, radius: radiusFor(lines, maxLines) }));
+  // A sample that rounds to no lines says nothing, so a window of tiny changes keys only its largest, and one with none keys the smallest dot.
+  const samples = [...new Set([Math.round(maxLines / 4), maxLines])].filter((lines) => lines > 0);
+  const sizeKey = (samples.length ? samples : [0]).map((lines) => ({ lines, radius: radiusFor(lines, maxLines) }));
 
   return {
     scaleMs,

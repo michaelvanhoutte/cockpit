@@ -78,6 +78,12 @@ describe('Cycle time', () => {
       ]);
     });
 
+    it('never keys a sample of no lines beside a window that changed some', () => {
+      expect(layoutScatter([dot(1, 10, 20, 1, 2)], null).sizeKey.map((sample) => sample.lines)).toEqual([1, 2]);
+      expect(layoutScatter([dot(1, 10, 20, 1, 1)], null).sizeKey.map((sample) => sample.lines)).toEqual([1]);
+      expect(layoutScatter([dot(1, 10, 20, 1, 0)], null).sizeKey).toEqual([{ lines: 0, radius: 4 }]);
+    });
+
     it('shades a dot by its CI rounds in five steps, the fifth for five or more', () => {
       const layout = layoutScatter([1, 2, 3, 4, 5, 6].map((rounds) => dot(rounds, 10, 20, rounds)), null);
       expect(layout.dots.map((each) => each.step)).toEqual([1, 2, 3, 4, 5, 5]);
