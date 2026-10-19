@@ -146,7 +146,7 @@ function heldBy(round) {
   return names.join(', then ');
 }
 
-/** What a round says about itself, in words, for the title on its segment and the list under its strip. */
+/** What a round says about itself, in words, for the title on its segment and its detail under the axis. */
 function roundText(round, index) {
   const parts = [`CI Round ${index}`, humanMs(round.ms), `pushed ${stamp(round.pushedAt)}`];
   if (round.held.length) parts.push(`held by ${heldBy(round)}`);
@@ -156,6 +156,12 @@ function roundText(round, index) {
   if (!Array.isArray(round.lanes)) parts.push('lanes not recorded: its job list could not be read, or no job of it ran on a runner, so it is drawn as one block');
   return parts.join(' · ');
 }
+
+/**
+ * Which round a job ran in, said under the job: the round's name and when it was pushed. What held the round is left
+ * out, since beneath one job it would read as that job's story; it is in the round's own detail.
+ */
+const roundContext = (round, index) => `CI Round ${index} · pushed ${stamp(round.pushedAt)}`;
 
 const OUTCOME_WORD = { pass: 'passed', fail: 'failed', cancelled: 'cancelled', running: 'still running', other: 'neither passed nor failed', unknown: 'ended in a conclusion not recognised' };
 
@@ -199,6 +205,48 @@ const PART_TITLE = {
   wait: (part) => `Waiting to merge · ${humanMs(part.ms)}`,
   away: (part) => `Away for ${humanMs(part.ms)} · a gap of over ${humanMs(AWAY_MS)} is drawn off the time scale`,
 };
+
+/**
+ * The elements of one pull request's zoomed strip the reader can pick. Each gets a radio laid over it on the
+ * strip, and the page carries a detail for it under the axis that the styles show while the radio is checked, so
+ * there is no script. The radios share a name, so the pull request holds one pick. Radios that say the same (a
+ * round's background and its two names, a job's lead and its lane) show one detail, written once, which keeps
+ * the page near the size it was before it could be picked from. The closed strip has none: it only zooms.
+ */
+function picker(pull) {
+  const number = esc(pull.number);
+  const name = `pick-${number}`;
+  const details = new Map();
+  let radios = 0;
+  return {
+    /** The details this pull request has, each with the ids of the radios that show it. */
+    details: () => [...details.values()],
+    /** A radio for an element that reads `label`, joined to the detail `detailHtml`, which is added if no radio has shown it yet. Ids are short, since there is one for every element on the page. */
+    add(label, detailHtml) {
+      radios += 1;
+      const id = `r${number}-${radios}`;
+      const detail = details.get(detailHtml) ?? { id: `d${number}-${radios}`, html: detailHtml, radios: [] };
+      detail.radios.push(id);
+      details.set(detailHtml, detail);
+      return `<input type="radio" class="pick" name="${name}" id="${id}" aria-label="${esc(label)}">`;
+    },
+  };
+}
+
+/** A detail: the first piece of what the element says as its heading, the rest as the line under it, then any extra markup. */
+function detailOf(text, extra = '') {
+  const [head, ...rest] = text.split(' · ');
+  return `<p class="dhead">${esc(head)}</p>${rest.length ? `<p class="dline">${esc(rest.join(' · '))}</p>` : ''}${extra}`;
+}
+
+/** The box under the axis: the summary line and what to click until something is picked, then the detail of the pick. */
+function detailBox(pick, summary) {
+  const shown = pick
+    .details()
+    .map((detail) => `<div class="detail" id="${detail.id}">${detail.html}</div>`)
+    .join('');
+  return `<div class="detailbox"><p class="hint">${summary} &middot; click a phase, a CI job or a local run on the strip to read it here.</p>${shown}</div>`;
+}
 
 /** The CSS flex-grow for a duration: proportional to its seconds, floored at 1 so nothing vanishes to zero width. */
 const growOf = (ms) => Math.max(1, Math.round(ms / 1000));
@@ -250,38 +298,45 @@ const visibleLanes = (part) => (part.lanes ?? []).filter((lane) => lane.offsetMs
 /**
  * A round's jobs, each at its own start and stop inside the round, its wait for a runner a lead before
  * it in the same row. Positions are shares of the round's own width, so they stay true wherever the round is placed.
+ * On a zoomed strip (`pick`) each lane and lead carries the radio that picks its job.
  */
-function laneSpans(part) {
+function laneSpans(part, pick) {
   const share = (ms) => (part.ms > 0 ? (ms / part.ms) * 100 : 0).toFixed(3);
+  const { round, index } = part;
   return visibleLanes(part)
     .map((lane) => {
       const title = esc(laneText(lane));
       const top = `top:${lane.row * 100}%`;
-      const lead = lane.leadMs > 0 ? `<span class="lane lead" style="left:${share(lane.offsetMs - lane.leadMs)}%;width:${share(Math.min(lane.leadMs, part.ms - (lane.offsetMs - lane.leadMs)))}%;${top}" title="${title}"></span>` : '';
+      const radio = () => (pick ? pick.add(laneText(lane), detailOf(laneText(lane), `<p class="dctx">in ${esc(roundContext(round, index))}</p>`)) : '');
+      const lead = lane.leadMs > 0 ? `<span class="lane lead" style="left:${share(lane.offsetMs - lane.leadMs)}%;width:${share(Math.min(lane.leadMs, part.ms - (lane.offsetMs - lane.leadMs)))}%;${top}" title="${title}">${radio()}</span>` : '';
       if (lane.offsetMs >= part.ms) return lead;
       const classes = ['lane', 'job', lane.outcome === 'fail' ? 'failed' : '', lane.rerun ? 'rerun' : '', lane.outcome === 'running' ? 'running' : ''].filter(Boolean).join(' ');
-      return `${lead}<span class="${classes}" style="left:${share(lane.offsetMs)}%;width:${share(Math.min(lane.ms, part.ms - lane.offsetMs))}%;${top}" title="${title}"></span>`;
+      return `${lead}<span class="${classes}" style="left:${share(lane.offsetMs)}%;width:${share(Math.min(lane.ms, part.ms - lane.offsetMs))}%;${top}" title="${title}">${radio()}</span>`;
     })
     .join('');
 }
 
-function segment(part, pull, scaleMs) {
+/** A part of a strip. On a zoomed strip (`pick`) each element in it, and the part itself, carries the radio that picks it. */
+function segment(part, pull, scaleMs, pick = null) {
   const place = placeStyle(part, scaleMs);
-  if (part.type === 'away') return `<span class="seg away" style="${place}" title="${esc(PART_TITLE.away(part))}"><span class="sr">away ${esc(humanMs(part.ms))}</span></span>`;
+  const radio = (text, extra = '') => (pick ? pick.add(text, detailOf(text, extra)) : '');
+  if (part.type === 'away') return `<span class="seg away" style="${place}" title="${esc(PART_TITLE.away(part))}"><span class="sr">away ${esc(humanMs(part.ms))}</span>${radio(PART_TITLE.away(part))}</span>`;
 
   if (part.type === 'round') {
     const { round, index } = part;
     const marked = [round.red ? '<i class="mark red" aria-hidden="true">✕</i>' : '', round.flukes.length ? '<i class="mark fluke" aria-hidden="true">↻</i>' : ''].filter(Boolean);
     // Every job its own lane where they are recorded; the block, split by what held the round, where they are not.
-    const drawn = part.lanes ? laneSpans(part) : roundPieces(round, part.cut ? part.ms : undefined);
+    const drawn = part.lanes ? laneSpans(part, pick) : roundPieces(round, part.cut ? part.ms : undefined);
+    // The round's own detail is its line with every job's line beneath it. Its background and both of its names pick it.
+    const roundRadio = () => radio(roundText(round, index), jobList(round));
     // Named by the width it has on screen, which only the browser knows: the long form, the short, or only its mark (styles `roundLabelRules`).
-    const label = `<span class="roundlabel" aria-hidden="true">${marked.join('')}<span class="cilong">CI Round ${index}</span><span class="cishort">CI ${index}</span></span>`;
+    const label = `<span class="roundlabel" aria-hidden="true">${marked.join('')}<span class="cilong">CI Round ${index}${roundRadio()}</span><span class="cishort">CI ${index}${roundRadio()}</span></span>`;
     const size = `d${Math.min(3, String(index).length)} m${marked.length}`;
-    return `<span class="seg round${part.lanes ? ' withlanes' : ''}${round.red ? ' red' : ''} ${size}${part.cut ? ' cut' : ''}" data-round="${index}" style="${place}" title="${esc(roundText(round, index))}">${drawn}${label}</span>`;
+    return `<span class="seg round${part.lanes ? ' withlanes' : ''}${round.red ? ' red' : ''} ${size}${part.cut ? ' cut' : ''}" style="${place}" title="${esc(roundText(round, index))}">${roundRadio()}${drawn}${label}</span>`;
   }
 
   if (part.type === 'review' || part.type === 'test' || part.type === 'browser') {
-    return `<span class="seg ${part.type === 'review' ? 'review' : 'local'} ${reviewClass(part.kind)}${part.cut ? ' cut' : ''}" style="${place}" title="${esc(sliceText(part))}"></span>`;
+    return `<span class="seg ${part.type === 'review' ? 'review' : 'local'} ${reviewClass(part.kind)}${part.cut ? ' cut' : ''}" style="${place}" title="${esc(sliceText(part))}">${radio(sliceText(part))}</span>`;
   }
 
   // Local work in parallel: the longest piece stays on the strip's line and the others stack off it, each where its own work sits in the stretch. The line shows the coding or fixing where no piece of it runs.
@@ -290,18 +345,18 @@ function segment(part, pull, scaleMs) {
       .map((lane) => {
         const left = (lane.offsetMs / part.ms) * 100;
         const width = (Math.min(lane.ms, part.ms - lane.offsetMs) / part.ms) * 100;
-        return `<span class="lane ${reviewClass(lane.kind)}" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%;top:${lane.row * 100}%" title="${esc(sliceText(lane))}"></span>`;
+        return `<span class="lane ${reviewClass(lane.kind)}" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%;top:${lane.row * 100}%" title="${esc(sliceText(lane))}">${radio(sliceText(lane))}</span>`;
       })
       .join('');
-    return `<span class="seg parallel ${part.base}${part.cut ? ' cut' : ''}" style="${place}">${lanesHtml}</span>`;
+    return `<span class="seg parallel ${part.base}${part.cut ? ' cut' : ''}" style="${place}">${radio(`${PART_TITLE[part.base](part, pull)} around the local work`)}${lanesHtml}</span>`;
   }
 
   const unrecorded = part.type === 'coding' && !pull.recorded ? ' unrecorded' : '';
-  return `<span class="seg ${part.type}${unrecorded}${part.cut ? ' cut' : ''}" style="${place}" title="${esc(PART_TITLE[part.type](part, pull))}"></span>`;
+  return `<span class="seg ${part.type}${unrecorded}${part.cut ? ' cut' : ''}" style="${place}" title="${esc(PART_TITLE[part.type](part, pull))}">${radio(PART_TITLE[part.type](part, pull))}</span>`;
 }
 
-/** A strip's track, its parts placed against `scaleMs`; the shared scale in a row, and the pull request's own when zoomed. */
-function track(pull, fitted, scaleMs) {
+/** A strip's track, its parts placed against `scaleMs`; the shared scale in a row, and the pull request's own when zoomed (`pick`, whose radios it carries). */
+function track(pull, fitted, scaleMs, pick = null) {
   const scale = Math.max(1, scaleMs);
   const cap = fitted.clipped ? '<span class="clipmark" aria-hidden="true">&#9656;</span>' : '';
   // The track makes room above and below for the stack of lanes standing off its line.
@@ -309,7 +364,7 @@ function track(pull, fitted, scaleMs) {
   const above = Math.max(0, ...rows.map((row) => -row));
   const below = Math.max(0, ...rows);
   const vars = [`--span:${spanOf(fitted)}`, above + below > 0 ? `--above:${above};--below:${below}` : ''].filter(Boolean).join(';');
-  return `<span class="track${above + below > 0 ? ' stacked' : ''}" style="${vars}">${fitted.parts.map((part) => segment(part, pull, scale)).join('')}${cap}</span>`;
+  return `<span class="track${above + below > 0 ? ' stacked' : ''}" style="${vars}">${fitted.parts.map((part) => segment(part, pull, scale, pick)).join('')}${cap}</span>`;
 }
 
 /** The track's width less its breaks: what the time on the scale is drawn across. */
@@ -328,36 +383,39 @@ function axis(pull, zoomed) {
   const ticks = axisFor(startedAt, zoomed)
     .map((tick) => `<span class="clocktick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + var(--break) * ${tick.breaksBefore})">${clockLabel(tick.atMs, startedAt)}</span>`)
     .join('');
-  return `<div class="clockaxis" style="--span:${spanOf(zoomed)}" title="Clock time, UTC">${ticks}</div>`;
+  // A span, as the label it sits in holds phrasing content only; the styles make it a block.
+  return `<span class="clockaxis" style="--span:${spanOf(zoomed)}" title="Clock time, UTC. Click to close">${ticks}</span>`;
 }
 
-/** The lines under a strip, one per CI Round; each is paired with its round on the strip by `data-round`. */
-const roundList = (pull) =>
-  `<ol class="roundlist">${pull.rounds.map((round, position) => `<li data-round="${position + 1}">${esc(roundText(round, position + 1))}${jobList(round)}</li>`).join('')}</ol>`;
-
-/** Under a round's line, one line per job with when it started and stopped, so the times can be read without hovering. */
+/** Under a round's line in its detail, one line per job with when it started and stopped, so the times can be read without hovering. */
 function jobList(round) {
   if (!Array.isArray(round.lanes) || round.lanes.length === 0) return '';
   return `<ul class="joblist">${round.lanes.map((lane) => `<li>${esc(laneText(lane))}</li>`).join('')}</ul>`;
 }
 
-/** The strip in a row: on the shared scale, and when clicked the same pull request zoomed on its own axis above its round list. */
-function strip(pull, parts, fitted, scaleMs, summary, notes) {
+/**
+ * The strip in a row: on the shared scale, and when clicked the same pull request zoomed on its own axis above
+ * the box where the element picked on it is read. Its picker goes to `pickers`, which the page's styles are written from.
+ */
+function strip(pull, parts, fitted, scaleMs, summary, notes, pickers) {
   if (pull.rounds.length === 0) return '<span class="track"><span class="trackempty">no check ran on it</span></span>';
   const id = `zoom-${esc(pull.number)}`;
   const zoomed = fitTo(parts, Infinity);
+  const pick = picker(pull);
+  pickers.push(pick);
+  const zoomedTrack = track(pull, zoomed, zoomed.shownMs, pick);
   // A checkbox the strip is the label of: a click toggles it and the page's styles show the other form, with no script.
+  // In the zoomed form the axis closes it, and so do the empty rows around the line; an element picked under the pointer does not.
   return `<input type="checkbox" class="zoomtoggle" id="${id}" aria-label="Zoom in on #${esc(pull.number)}">
       <label class="striphit whenclosed" for="${id}" title="Click to zoom in on this pull request">${track(pull, fitted, scaleMs)}</label>
       <div class="zoomed">
-        <label class="striphit" for="${id}" title="Click to close">${track(pull, zoomed, zoomed.shownMs)}</label>
-        ${axis(pull, zoomed)}
-        <p class="clipnote">${summary}</p>
-        ${roundList(pull)}${notes}
+        <label class="striphit" for="${id}">${zoomedTrack}</label>
+        <label class="axishit" for="${id}">${axis(pull, zoomed)}</label>
+        ${detailBox(pick, summary)}${notes}
       </div>`;
 }
 
-function stripRow(pull, parts, scaleMs, trunk) {
+function stripRow(pull, parts, scaleMs, trunk, pickers) {
   const fitted = fitTo(parts, scaleMs);
   const reds = pull.rounds.filter((round) => round.red).length;
   const flukes = pull.flukes.length;
@@ -380,14 +438,15 @@ function stripRow(pull, parts, scaleMs, trunk) {
     : '';
   const summary = `${plural(pull.rounds.length, 'CI Round')}${reds ? `, ${reds} red` : ''} &middot; ${humanMs(pull.totalMs)} to merge`;
   const notes = pull.notes.length ? `<p class="clipnote">${esc(pull.notes.join(' '))}</p>` : '';
-  const detail = pull.rounds.length ? `<details class="whenclosed"><summary>${summary}</summary>${roundList(pull)}${notes}</details>` : '';
+  // Under a closed strip only the summary line and the notes: the elements are read once it is zoomed.
+  const underClosed = pull.rounds.length ? `<p class="clipnote whenclosed">${summary}</p>${notes ? `<div class="whenclosed">${notes}</div>` : ''}` : '';
 
   return `<div class="pullrow">
     <div class="who">
       <a href="${esc(pull.url)}" target="_blank" rel="noopener"><b>#${esc(pull.number)}</b> ${esc(pull.title)}</a>
       <div class="when">merged ${esc(stamp(pull.mergedAt))} ${tags}</div>
     </div>
-    <div class="strip">${strip(pull, parts, fitted, scaleMs, summary, notes)}<span class="sr">${esc(humanMs(pull.totalMs))} to merge, ${plural(pull.rounds.length, 'CI Round')}</span>${clipNote}${detail}</div>
+    <div class="strip">${strip(pull, parts, fitted, scaleMs, summary, notes, pickers)}<span class="sr">${esc(humanMs(pull.totalMs))} to merge, ${plural(pull.rounds.length, 'CI Round')}</span>${clipNote}${underClosed}</div>
   </div>`;
 }
 
@@ -421,12 +480,13 @@ function legend() {
   </div>`;
 }
 
-function strips(model) {
+/** The strips of every pull request, each picker its zoomed form needs collected in `pickers`. */
+function strips(model, pickers) {
   if (model.pulls.length === 0) return '<div class="card"><p class="empty">No merged pull requests in this period.</p></div>';
   const allParts = model.pulls.map(partsOf);
   const scaleMs = scaleFor(allParts);
-  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}, and every part sits at its own time and length on it; one too short to see is drawn a little wider, over what follows it. Time away is not on it. A CI Round is drawn as the jobs that ran in it, each a lane from its own start to its own stop with its wait for a runner as a dotted lead before it, so jobs that ran at the same time are in rows one above another and a job that waited on another starts where that one ended; hover a lane for when it started and stopped (UTC, to the second). A round whose jobs were not read is one block, split into the checks that held it, and says so on hover. Hover a round to find its line in the list; it is named on the strip as far as its width allows. Click a strip to open that pull request on its own scale, uncut, with a clock-time axis (UTC) above its CI Rounds in words; click it again to close it. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where several run in parallel, the longest stays on the line and the others stack above it, then below, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
-  return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs, model.branch)).join('')}</div>`;
+  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}, and every part sits at its own time and length on it; one too short to see is drawn a little wider, over what follows it. Time away is not on it. A CI Round is drawn as the jobs that ran in it, each a lane from its own start to its own stop with its wait for a runner as a dotted lead before it, so jobs that ran at the same time are in rows one above another and a job that waited on another starts where that one ended; hover a lane for when it started and stopped (UTC, to the second). A round whose jobs were not read is one block, split into the checks that held it, and says so on hover. A CI Round is named on the strip as far as its width allows. Click a strip to open that pull request on its own scale, uncut, with a clock-time axis (UTC); there, hover an element to outline it and click it to read it under the axis, and click the axis, or the empty rows above and below the line, to close it. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where several run in parallel, the longest stays on the line and the others stack above it, then below, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
+  return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs, model.branch, pickers)).join('')}</div>`;
 }
 
 /** A ratio to the precision it can be read at: two places below one, one below ten. */
@@ -821,9 +881,10 @@ const LABEL_FITS = { short: 2.6, long: 6, perDigit: 0.6, perMark: 1.9 };
 /**
  * What the stylesheet cannot say for itself, written out for the rounds this page has:
  * - which label a CI Round shows at the width it has, closed or zoomed, as container queries on the round (below the short form's width it shows only its mark, or nothing);
- * - the pairing of a round with its line in the list, one rule per number, scoped to the pull request's own row so a CI Round 1 elsewhere is left alone.
+ * - which detail a strip shows, one rule per detail naming every radio that shows it, scoped to the strip the radios are in so a pull request with the same rounds is left alone.
+ * @param {{ id: string, radios: string[] }[]} details every detail on the page
  */
-function generatedStyles(maxRounds) {
+function generatedStyles(details) {
   const em = (value) => `${Math.round(value * 10) / 10}em`;
   const labelRules = [];
   for (let digits = 1; digits <= 3; digits += 1) {
@@ -836,14 +897,9 @@ function generatedStyles(maxRounds) {
       );
     }
   }
-  const numbers = Array.from({ length: maxRounds }, (_, index) => index + 1);
-  const pair = (hovered, other) => numbers.map((number) => `.pullrow:has(${hovered}[data-round="${number}"]:hover) ${other}[data-round="${number}"]`).join(',\n');
-  const links =
-    numbers.length === 0
-      ? ''
-      : `${pair('.seg.round', '.roundlist li')} { background: var(--raised); color: var(--ink-1); outline: 1px solid var(--accent); }
-${pair('.roundlist li', '.seg.round')} { outline: 2px solid var(--ink-1); outline-offset: -2px; z-index: 2; }`;
-  return `${labelRules.join('\n')}\n${links}`;
+  const picked = (radios) => (radios.length === 1 ? `#${radios[0]}` : `:is(${radios.map((radio) => `#${radio}`).join(', ')})`);
+  const shown = details.map((detail) => `.strip:has(${picked(detail.radios)}:checked) #${detail.id} { display: block; }`);
+  return `${labelRules.join('\n')}\n${shown.join('\n')}`;
 }
 
 /**
@@ -851,7 +907,10 @@ ${pair('.roundlist li', '.seg.round')} { outline: 2px solid var(--ink-1); outlin
  * @returns {string} a complete HTML document
  */
 export function renderHtml(model) {
-  const styles = `${readFileSync(path.join(here, 'styles.css'), 'utf8')}\n${generatedStyles(Math.max(0, ...model.pulls.map((pull) => pull.rounds.length)))}`;
+  // The strips come first: the styles name the radios and details they write.
+  const pickers = [];
+  const stripsHtml = strips(model, pickers);
+  const styles = `${readFileSync(path.join(here, 'styles.css'), 'utf8')}\n${generatedStyles(pickers.flatMap((pick) => pick.details()))}`;
   const commitUrl = model.commit ? `https://github.com/${model.repo}/commit/${model.commit}` : null;
 
   return `<!doctype html>
@@ -898,7 +957,7 @@ export function renderHtml(model) {
   ${balance(model)}
 
   <h2>Each pull request, start to merge</h2>
-  ${strips(model)}
+  ${stripsHtml}
 
   <footer>
     Generated by <code>tools/cycle-time</code> from the pull request and Actions APIs and each pull request&rsquo;s session record.

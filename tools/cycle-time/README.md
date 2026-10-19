@@ -179,14 +179,23 @@ evolution panels, coding against the harness, and a strip per pull request.
   hours; a longer one is cut at the edge and says how much it cut. Time away is off the scale.
   Every part sits at its own time and length on it, with no gap added: a slice too short to see is
   drawn 3px wide over what follows it, which still starts at its own time.
-- **A round's jobs are lanes** at their own start and stop, shards beside Checks and Test, each job's lead dotted before it. Jobs that overlapped sit in rows (the busiest on the strip's line, then above, then below); one that began where another ended is in its row after it. A failed job is ringed and a re-run hatched; hover a lane, or open the strip, for its start and stop to the second (UTC). A round with `lanes: null` is the block split by what held it, and its hover says its lanes are not recorded.
+- **A round's jobs are lanes** at their own start and stop, shards beside Checks and Test, each job's lead dotted before it. Jobs that overlapped sit in rows (the busiest on the strip's line, then above, then below); one that began where another ended is in its row after it. A failed job is ringed and a re-run hatched; hover a lane, or pick it on the zoomed strip, for its start and stop to the second (UTC). A round with `lanes: null` is the block split by what held it, and its hover says its lanes are not recorded.
 - **A round is a CI Round**, named on the strip by the width it has on screen: "CI Round 1", then
-  "CI 1", then only its red or fluke mark (a round with neither shows no name). The list under a
-  strip reads "CI Round 1 · …", and the legend defines the term. Hovering a round highlights its
-  line in the list and the other way about, within one pull request's row.
+  "CI 1", then only its red or fluke mark (a round with neither shows no name). Its detail reads
+  "CI Round 1 · …", and the legend defines the term.
 - **Click a strip to zoom it**: the same pull request, uncut, on its own scale with a clock-time
-  axis (UTC) above its round list; click it again to close. A closed strip has no axis. Both are
-  CSS only (the strip is the label of a checkbox, the names are container queries).
+  axis (UTC). Click the axis, or an empty row above or below the line, to close it. A closed
+  strip has no axis, and under it only its summary line and the notes.
+- **On a zoomed strip, click an element to read it in the box under the axis**: a coding, fixing,
+  waiting or away stretch, a local review, test run or browser pass, a CI job or its lead, or a
+  round's name. Hover outlines the element under the pointer and nothing around it, and the
+  browser's tooltip stays. A pull request holds one pick, kept while its zoom is closed; until
+  something is picked the box holds the summary line. A round's detail is its line, including what
+  held it in order, with every job's line beneath it; a job's is its own line and the round it ran
+  in, without what held the round, which under one job would read as that job's story.
+- **All of it is CSS only**: the strip is the label of a checkbox, each element a radio laid over it
+  (so Tab and the arrow keys reach it), the names container queries. A detail several controls
+  pick, a round's background and both its names, is written once and shown by each of them.
 - **Overlapping local work keeps the longest piece on the strip's line**; the rest stack above it,
   then below, then further out. Where none of them runs on the line, it shows the coding or fixing.
 - **Local and CI read apart.** Local kinds (coding, fixing, each local review, test runs, the browser pass) are in greens and
