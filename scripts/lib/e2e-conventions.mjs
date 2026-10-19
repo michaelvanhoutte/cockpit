@@ -89,10 +89,10 @@ export const STILL_CAPTURING_BY_HAND = {
   'copy-item-link.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
   'dashboards.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
   'duplicates.test.ts': { calls: 5, rewrittenWhen: 'next touched' },
-  'filing.test.ts': { calls: 13, rewrittenWhen: 'issue 1284' },
+  'filing.test.ts': { calls: 13, rewrittenWhen: '"Rewrite the panels and filing walks to arrange through the API" (1284)' },
   'inbox.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
-  'item-editing.test.ts': { calls: 15, rewrittenWhen: 'issue 1285' },
-  'panels.test.ts': { calls: 3, rewrittenWhen: 'issue 1284' },
+  'item-editing.test.ts': { calls: 15, rewrittenWhen: '"Rewrite the item-editing and capture walks to arrange through the API" (1285)' },
+  'panels.test.ts': { calls: 3, rewrittenWhen: '"Rewrite the panels and filing walks to arrange through the API" (1284)' },
   'screen-edges.test.ts': { calls: 5, rewrittenWhen: 'next touched' },
   'sign-in.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
   'triage.test.ts': { calls: 7, rewrittenWhen: 'next touched' },
@@ -129,5 +129,11 @@ export function capturedThroughTheUi(source) {
     if (/\bfunction\s+capture\(/.test(text) || /^\s*(?:\/\/|\/?\*)/.test(text)) return;
     if (/(?<![\w.])capture\(/.test(text)) found.push({ line: index + 1, text: text.trim() });
   });
+  if (closesWith !== null) {
+    throw new Error(
+      `a describe('${THE_CAPTURING_AREA}') never closed with ${JSON.stringify(closesWith)} at its own indent, ` +
+        'so everything after it would pass unchecked: put its closing line where the formatter does',
+    );
+  }
   return found;
 }

@@ -200,6 +200,18 @@ describe('capturedThroughTheUi', () => {
     assert.deepEqual(capturedThroughTheUi(source), []);
   });
 
+  it(`refuses a ${THE_CAPTURING_AREA} area it cannot see close, rather than exempting the rest of the file`, () => {
+    const source = [
+      "test.describe('Inbox', () => {",
+      `  test.describe('${THE_CAPTURING_AREA}', () => {`,
+      '    await capture(page, note, isMobile);',
+      '  }); // end',
+      '  await capture(page, other, isMobile);',
+      '});',
+    ].join('\n');
+    assert.throws(() => capturedThroughTheUi(source), /never closed/);
+  });
+
   it('passes a walk that arranges through the API helpers', () => {
     const source = [
       "test.describe('Selection', () => {",
