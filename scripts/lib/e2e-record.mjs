@@ -167,6 +167,35 @@ export function shardResults(jobs) {
   });
 }
 
+/** What each shard read as, `{ index, read }` for 1 to `total`: its result, or `missing` where the jobs list does not show it. */
+export function shardReads(results, total = E2E_SHARDS) {
+  return Array.from({ length: total }, (_, at) => ({ index: at + 1, read: results.find((one) => one.index === at + 1)?.result ?? 'missing' }));
+}
+
+/** The shards among 1 to `total` that read as missing or unfinished, which the fan-in reads the jobs list again for. */
+export function unsettledShards(results, total = E2E_SHARDS) {
+  return shardReads(results, total).filter(({ read }) => read === 'missing' || UNFINISHED.has(read)).map(({ index }) => index);
+}
+
+/** Shard numbers as words, runs of three or more as a range: `shards 1 to 3, 5`. */
+function shardsText(indices) {
+  const runs = [];
+  for (const index of indices) {
+    const last = runs.at(-1);
+    if (last && last.to === index - 1) last.to = index;
+    else runs.push({ from: index, to: index });
+  }
+  const parts = runs.flatMap(({ from, to }) => (to - from >= 2 ? [`${from} to ${to}`] : Array.from({ length: to - from + 1 }, (_, at) => String(from + at))));
+  return `shard${indices.length === 1 ? '' : 's'} ${parts.join(', ')}`;
+}
+
+/** What the shards read as, grouped: `shards 1 to 3 read as success, shard 4 read as in_progress`. */
+export function readsText(reads) {
+  const groups = new Map();
+  for (const { index, read } of reads) groups.set(read, [...(groups.get(read) ?? []), index]);
+  return [...groups].map(([read, indices]) => `${shardsText(indices)} read as ${read}`).join(', ');
+}
+
 /**
  * What the fan-in answers for the shards: `{ ok, message }`. `results` are the
  * shards' own (shardResults), `null` where they could not be read, and
@@ -176,7 +205,9 @@ export function shardResults(jobs) {
  * pass; anything else is named. A shard the jobs list does not show, or shows
  * unfinished, is unknown rather than wrong (a re-run lists only the attempt's
  * own jobs, and a conclusion can trail the matrix's), so it fails only where
- * there is no `aggregate` to say how the shards ended.
+ * there is no `aggregate` to say how the shards ended. Where the matrix says
+ * it failed and no shard is named for it, the message says what each shard read
+ * as, so the verdict is never a bare aggregate while there are results.
  */
 export function e2eVerdict({ results, aggregate = null, total = E2E_SHARDS }) {
   const problems = [];
@@ -191,7 +222,7 @@ export function e2eVerdict({ results, aggregate = null, total = E2E_SHARDS }) {
       else if (result !== 'success' && result !== 'skipped') problems.push(`shard ${index} ended ${result}`);
     }
   }
-  if (problems.length === 0 && aggregate !== null && aggregate !== 'success' && aggregate !== 'skipped') problems.push(`the shards ended ${aggregate}`);
+  if (problems.length === 0 && aggregate !== null && aggregate !== 'success' && aggregate !== 'skipped') problems.push(results ? `the shards ended ${aggregate}; ${readsText(shardReads(results, total))}` : `the shards ended ${aggregate}`);
   return problems.length === 0 ? { ok: true, message: `All ${total} shards passed.` } : { ok: false, message: `${problems.join('; ')}.`.replace(/^./, (letter) => letter.toUpperCase()) };
 }
 

@@ -22,7 +22,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { E2E_SHARDS, e2eVerdict, mergeE2eRecords, renderE2eSummary, shardResults } from './lib/e2e-record.mjs';
+import { E2E_SHARDS, e2eVerdict, mergeE2eRecords, renderE2eSummary, shardReads, shardResults, unsettledShards } from './lib/e2e-record.mjs';
 
 const recordsDir = process.env.E2E_SHARD_RECORDS ?? 'e2e-shard-records';
 const outDir = process.env.E2E_RECORD_DIR ?? 'e2e-record';
@@ -40,10 +40,18 @@ function readRecords() {
   });
 }
 
+/** A completed matrix's jobs can lag in the API, so a shard that reads missing or unfinished is read for again, a few seconds apart, before the verdict leans on the matrix's. */
+const REREADS = 2;
+const REREAD_AFTER_MS = 5000;
+
 /** The shards' own results off the run's jobs, or `null` where the API could not be read, which the matrix's verdict then answers for. */
 async function readResults() {
   const { GITHUB_TOKEN: token, GITHUB_REPOSITORY: repo, GITHUB_RUN_ID: run, GITHUB_API_URL: api = 'https://api.github.com' } = process.env;
-  if (!token || !repo || !run) return null;
+  if (!token || !repo || !run) {
+    const missing = [!token && 'GITHUB_TOKEN', !repo && 'GITHUB_REPOSITORY', !run && 'GITHUB_RUN_ID'].filter(Boolean).join(', ');
+    console.log(`::warning::The shards' own results were not read: ${missing} not set; the matrix's verdict stands for them.`);
+    return null;
+  }
   try {
     const response = await fetch(`${api}/repos/${repo}/actions/runs/${run}/jobs?filter=latest&per_page=100`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
@@ -71,7 +79,18 @@ function writeMerged() {
   }
 }
 
-const verdict = e2eVerdict({ results: await readResults(), aggregate: process.env.E2E_SHARDS_RESULT || null });
+const aggregate = process.env.E2E_SHARDS_RESULT || null;
+// Only a matrix that did not pass has a failure to name; a passing one needs no second look.
+const passed = aggregate === 'success' || aggregate === 'skipped';
+let results = await readResults();
+for (let reread = 0; results && !passed && reread < REREADS && unsettledShards(results).length > 0; reread += 1) {
+  console.log(`Shard ${unsettledShards(results).join(', ')} read as missing or unfinished; reading the jobs again in ${REREAD_AFTER_MS / 1000}s.`);
+  await new Promise((resolve) => setTimeout(resolve, REREAD_AFTER_MS));
+  results = (await readResults()) ?? results;
+}
+if (results) for (const { index, read } of shardReads(results)) console.log(`Shard ${index} of the run's jobs: ${read}.`);
+console.log(`The matrix's own verdict: ${aggregate ?? 'not given'}.`);
+const verdict = e2eVerdict({ results, aggregate });
 writeMerged();
 
 console.log(verdict.ok ? verdict.message : `::error::${verdict.message}`);

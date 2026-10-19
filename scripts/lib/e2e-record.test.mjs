@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { E2E_SHARDS, buildE2eRecord, e2eVerdict, failedSpecFiles, mergeE2eRecords, ownersText, parseShard, renderE2eSummary, shardResults } from './e2e-record.mjs';
+import { E2E_SHARDS, buildE2eRecord, e2eVerdict, failedSpecFiles, mergeE2eRecords, ownersText, parseShard, readsText, renderE2eSummary, shardReads, shardResults, unsettledShards } from './e2e-record.mjs';
 
 const WALKS = [
   { area: 'Capture', where: 'capture.test.ts' },
@@ -330,7 +330,35 @@ describe('the E2E (F3) check answers for its shards', () => {
   it('leaves a shard the jobs list does not show, or shows unfinished, to the matrix\'s own verdict', () => {
     assert.equal(e2eVerdict({ results: results('success', 'success', 'success'), aggregate: 'success' }).ok, true);
     assert.equal(e2eVerdict({ results: results('success', 'in_progress', 'success', 'success'), aggregate: 'success' }).ok, true);
-    assert.deepEqual(e2eVerdict({ results: results('success', 'success', 'success'), aggregate: 'failure' }), { ok: false, message: 'The shards ended failure.' });
+    assert.deepEqual(e2eVerdict({ results: results('success', 'success', 'success'), aggregate: 'failure' }), { ok: false, message: 'The shards ended failure; shards 1 to 3 read as success, shard 4 read as missing.' });
+  });
+
+  it('says what each shard read as where the matrix failed and no shard could be named, so the verdict is never a bare aggregate', () => {
+    assert.deepEqual(e2eVerdict({ results: results('success', 'success', 'success', 'in_progress'), aggregate: 'failure' }), { ok: false, message: 'The shards ended failure; shards 1 to 3 read as success, shard 4 read as in_progress.' });
+    assert.equal(e2eVerdict({ results: results('success', 'queued', 'success', 'in_progress'), aggregate: 'failure' }).message, 'The shards ended failure; shards 1, 3 read as success, shard 2 read as queued, shard 4 read as in_progress.');
+  });
+
+  it('names the shard that failed rather than the matrix once the jobs list shows it', () => {
+    assert.equal(e2eVerdict({ results: results('success', 'success', 'success', 'failure'), aggregate: 'failure' }).message, 'Shard 4 failed.');
+  });
+
+  it('keeps to the aggregate alone where there are no results to describe', () => {
+    assert.equal(e2eVerdict({ results: null, aggregate: 'cancelled' }).message, 'The shards ended cancelled.');
+  });
+
+  it('reads each shard as its result, or missing where the jobs list does not show it', () => {
+    assert.deepEqual(shardReads(results('success', 'failure'), 3), [{ index: 1, read: 'success' }, { index: 2, read: 'failure' }, { index: 3, read: 'missing' }]);
+  });
+
+  it('groups what the shards read as, with runs of three as a range', () => {
+    assert.equal(readsText(shardReads(results('success', 'success', 'success', 'failure'))), 'shards 1 to 3 read as success, shard 4 read as failure');
+    assert.equal(readsText(shardReads(results('success', 'failure', 'success', 'success'))), 'shards 1, 3, 4 read as success, shard 2 read as failure');
+    assert.equal(readsText(shardReads(results('skipped', 'skipped', 'skipped', 'skipped'))), 'shards 1 to 4 read as skipped');
+  });
+
+  it('lists the shards that read as missing or unfinished, which are the ones worth reading the jobs list for again', () => {
+    assert.deepEqual(unsettledShards(results('success', 'in_progress', 'success')), [2, 4]);
+    assert.deepEqual(unsettledShards(results('success', 'failure', 'cancelled', 'skipped')), []);
   });
 
   it('answers on the matrix\'s own verdict where the shards\' results could not be read', () => {
