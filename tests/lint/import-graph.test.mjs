@@ -1,15 +1,16 @@
 //
-// Unit tests for buildImportGraph, run by `node --test` from the Scripts step.
-// Each case is a row of the statement list from "Build the import graph of the
-// workspace's sources" (issue 1281), over an in-memory file map. Rule 4's one
-// case, the whole workspace read in seconds, is measured once in the E2E job's
-// log and has no pure equivalent here.
+// Unit tests for buildImportGraph, in `tests/lint` rather than `scripts/lib`,
+// whose CI job is checkout-only and could not import the TypeScript parser (see
+// import-rules.test.mjs). Each case is a row of the statement list from "Build
+// the import graph of the workspace's sources" (issue 1281), over an in-memory
+// file map. Rule 4's one case, the whole workspace read in seconds, is measured
+// once in the E2E job's log and has no pure equivalent here.
 //
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { buildImportGraph } from './import-graph.mjs';
+import { buildImportGraph } from '../../scripts/lib/import-graph.mjs';
 
 const PACKAGES = [
   { name: '@cockpit/shared', dir: 'packages/shared' },
