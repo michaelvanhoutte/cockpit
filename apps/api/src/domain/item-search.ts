@@ -54,7 +54,13 @@ export interface ItemSearch {
   after: ChangeCursor | null;
 }
 
-/** One Item as a reply carries it: what it says, how it stands and the Panels it is filed on. */
+/** One file on an Item, by name: its id is what a link to it is made from. */
+export interface FoundAttachment {
+  id: string;
+  filename: string;
+}
+
+/** One Item as a reply carries it: what it says, how it stands, the Panels it is filed on and its files' names. */
 export interface FoundItem {
   id: string;
   workspaceId: string;
@@ -70,6 +76,8 @@ export interface FoundItem {
   changedAt: string;
   /** "Dashboard ▸ Panel" for each Panel it is filed on, none for an Item in the Inbox. */
   places: string[];
+  /** Oldest first; names only, never the contents. */
+  attachments: FoundAttachment[];
 }
 
 /** One page of a search: the Items, and the cursor that continues it where more follow. */
@@ -134,8 +142,8 @@ export function pageOfMatches(candidates: readonly Item[], search: ItemSearch): 
   return { items, next: matches.length > items.length && last ? cursorFor(last) : null };
 }
 
-/** An Item as a reply carries it, given the Panels it is filed on. */
-export function foundItem(item: Item, places: string[]): FoundItem {
+/** An Item as a reply carries it, given the Panels it is filed on and its files. */
+export function foundItem(item: Item, places: string[], attachments: FoundAttachment[]): FoundItem {
   return {
     id: item.id,
     workspaceId: item.workspaceId,
@@ -149,6 +157,7 @@ export function foundItem(item: Item, places: string[]): FoundItem {
     sender: item.sender,
     changedAt: item.updatedAt,
     places,
+    attachments,
   };
 }
 

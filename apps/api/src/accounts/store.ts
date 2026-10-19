@@ -127,6 +127,7 @@ import {
   itemsToRead,
   judgeableItemsForAccount,
   listAssociationsForWorkspace,
+  attachmentsOfItems,
   listAttachmentsInWorkspace,
   listDuplicatesInWorkspace,
   listDashboards,
@@ -797,9 +798,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * One page of the Items matching a connected app's `find_items` ("Find items
    * in Cockpit by text and condition, over MCP", issue 1242).
    *
-   * **Where each Item is filed is read for the page's Items only**, after the
-   * page is cut, so what a search costs is the account's Items (`listItemsToSearch`)
-   * and not their filings.
+   * **Where each Item is filed, and its files' names, are read for the page's
+   * Items only**, after the page is cut ("Give attachment links with found
+   * items, over MCP", issue 1244), so what a search costs is the account's Items
+   * (`listItemsToSearch`) and not their filings or files.
    *
    * **Naming a Panel reads the Panels and filings of the Workspaces in scope,
    * and only then** ("Find items on a panel, over MCP", issue 1243): the Items
@@ -842,10 +844,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         candidates = [...found.values()];
       }
       const page = pageOfMatches(candidates, search);
-      const where = placesOfItems(db, accountName, page.items.map((item) => item.id));
+      const pageIds = page.items.map((item) => item.id);
+      const where = placesOfItems(db, accountName, pageIds);
+      const files = attachmentsOfItems(db, accountName, pageIds);
       return {
         items: page.items.map((item) =>
-          foundItem(item, placesFiledOn(item, where.filings, where.panels, where.dashboards)),
+          foundItem(
+            item,
+            placesFiledOn(item, where.filings, where.panels, where.dashboards),
+            files.filter((file) => file.itemId === item.id).map(({ id, filename }) => ({ id, filename })),
+          ),
         ),
         next: page.next,
       };

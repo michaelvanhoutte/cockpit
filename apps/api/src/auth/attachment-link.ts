@@ -49,6 +49,20 @@ export async function sealAttachmentLink(key: CryptoKey, named: Named, now: Date
   return base64url(token);
 }
 
+/**
+ * The address a link opens at: the token under `ATTACHMENT_LINK_PREFIX` on the
+ * app's own origin. Made here for the two places that hand one out - the send
+ * to Cowork or Claude Code, and a connected app's `find_items`.
+ */
+export async function attachmentLinkAddress(
+  key: CryptoKey,
+  named: Named,
+  now: Date,
+  appOrigin: string,
+): Promise<string> {
+  return new URL(`${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(key, named, now)}`, appOrigin).toString();
+}
+
 /** What a token names, or `null` for one that is altered, sealed under another key, or expired at `now`. */
 export async function openAttachmentLink(key: CryptoKey, token: string, now: Date): Promise<Named | null> {
   const bytes = bytesOfBase64url(token);
