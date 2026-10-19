@@ -1,7 +1,6 @@
 import {
   NO_CONDITIONS,
   NO_DASHBOARD_FILTER,
-  filingsThatFile,
   findNeedle,
   isFiltering,
   itemsMatchingFilter,
@@ -24,8 +23,10 @@ import {
   listDashboards,
   listFilingsInWorkspace,
   listFilingsOfItems,
+  listFilingsOnPanels,
   listItemsToFind,
   listOpenAgentRuns,
+  listPanelsById,
   listPanelsInWorkspace,
   listWorkspaces,
 } from './repo.js';
@@ -106,10 +107,12 @@ const NONE: ReadonlySet<string> = new Set();
  *
  * **Where each Item is read for the page's Items alone**, and a Workspace's
  * Panels and filings in full only when a Filter panel is named, since what it
- * gathers is a question about the whole Workspace.
+ * gathers is a question about the whole Workspace: a Panel of items named alone
+ * reads the filings onto it and nothing else.
  */
 export function findItemsIn(db: AccountDb, tenantId: string, ask: FindItemsAsk): FoundPage {
-  const rows = listItemsToFind(db, tenantId, { workspaceId: ask.workspaceId, includeDone: ask.includeDone });
+  const liveWorkspaceIds = listWorkspaces(db, tenantId).map((workspace) => workspace.id);
+  const rows = listItemsToFind(db, tenantId, { workspaceId: ask.workspaceId, liveWorkspaceIds, includeDone: ask.includeDone });
   const onPanel = ask.panelIds ? itemsOnPanels(db, tenantId, ask, rows) : null;
 
   const needle = findNeedle(ask.text);
@@ -150,24 +153,31 @@ export function pageOf<T extends Pick<Item, 'updatedAt' | 'id'>>(
   return { page: following.slice(0, size), more: following.length > size };
 }
 
-/** The ids of the Items on any of the named Panels, or gathered by any named Filter panel. */
+/**
+ * The ids of the Items on any of the named Panels, or gathered by any named
+ * Filter panel.
+ *
+ * **A Panel of items is read by its own filings**, through the Panel's index,
+ * and a Workspace's Panels, filings and runs only where a Filter panel of it is
+ * named: what a Filter gathers is a question about the whole Workspace.
+ */
 function itemsOnPanels(db: AccountDb, tenantId: string, ask: FindItemsAsk, rows: readonly Item[]): Set<string> {
-  const wanted = new Set(ask.panelIds);
   const onPanel = new Set<string>();
-  for (const workspace of ask.workspaceId === null ? listWorkspaces(db, tenantId) : [{ id: ask.workspaceId }]) {
-    const panels = listPanelsInWorkspace(db, tenantId, workspace.id);
-    const named = panels.filter((panel) => wanted.has(panel.id));
-    if (named.length === 0) continue;
-    const filings = listFilingsInWorkspace(db, tenantId, workspace.id);
-    const filed = filingsThatFile(filings, panels);
-    const gatherers = named.filter(panelGathers);
-    for (const panel of named.filter(panelTakesItems)) {
-      for (const filing of filed) if (filing.panelId === panel.id) onPanel.add(filing.itemId);
-    }
-    if (gatherers.length === 0) continue;
-    const inWorkspace = rows.filter((item) => item.workspaceId === workspace.id);
-    const dashboards = listDashboards(db, tenantId, workspace.id);
-    const withRun = new Set(listOpenAgentRuns(db, tenantId, workspace.id).map((run) => run.itemId));
+  const named = listPanelsById(db, tenantId, ask.panelIds ?? []);
+
+  const ofItems = named.filter(({ panel }) => panelTakesItems(panel)).map(({ panel }) => panel.id);
+  for (const filing of listFilingsOnPanels(db, tenantId, ofItems)) onPanel.add(filing.itemId);
+
+  const gatherersByWorkspace = new Map<string, Panel[]>();
+  for (const { panel, workspaceId } of named.filter(({ panel }) => panelGathers(panel))) {
+    gatherersByWorkspace.set(workspaceId, [...(gatherersByWorkspace.get(workspaceId) ?? []), panel]);
+  }
+  for (const [workspaceId, gatherers] of gatherersByWorkspace) {
+    const panels = listPanelsInWorkspace(db, tenantId, workspaceId);
+    const filings = listFilingsInWorkspace(db, tenantId, workspaceId);
+    const inWorkspace = rows.filter((item) => item.workspaceId === workspaceId);
+    const dashboards = listDashboards(db, tenantId, workspaceId);
+    const withRun = new Set(listOpenAgentRuns(db, tenantId, workspaceId).map((run) => run.itemId));
     for (const panel of gatherers) {
       for (const item of itemsMatchingFilter(inWorkspace, filings, panels, dashboards, panel.filter ?? NO_CONDITIONS, withRun, ask.today)) {
         onPanel.add(item.id);

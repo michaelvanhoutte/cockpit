@@ -740,23 +740,36 @@ export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: stri
  *
  * **Read through `items_tenant_workspace_status`**, whose first two columns
  * are the account and the Workspace, so a named Workspace is an index range
- * and the whole account is the account's range. A dismissed Item is never
- * here, which is the one rule no argument can lift. An Item belonging to no
- * Workspace yet (`workspace_decided` false) is read under the one it was
- * captured from.
+ * and the whole account is the account's live Workspaces. A dismissed Item is
+ * never here, which is the one rule no argument can lift.
+ *
+ * **The Items of a Workspace that is deleted are not**: deleting a Workspace
+ * tombstones it alone and leaves its Items, which no screen draws. **Plus every
+ * Item belonging to no Workspace yet** (`workspace_decided` false), offered in
+ * every Workspace's Inbox until somebody says (`listOpenItems`): the `or` sits
+ * inside the `and`, so it never reaches another account's or a dismissed Item.
+ * `liveWorkspaceIds` is the account's live Workspaces, which a named one is
+ * among.
  */
 export function listItemsToFind(
   db: AccountDb,
   tenantId: string,
-  scope: { workspaceId: string | null; includeDone: boolean },
+  scope: { workspaceId: string | null; liveWorkspaceIds: readonly string[]; includeDone: boolean },
 ): Item[] {
+  const undecided = eq(items.workspaceDecided, false);
+  const inScope =
+    scope.workspaceId !== null
+      ? or(eq(items.workspaceId, scope.workspaceId), undecided)
+      : scope.liveWorkspaceIds.length > 0
+        ? or(inArray(items.workspaceId, [...scope.liveWorkspaceIds]), undecided)
+        : undecided;
   return db
     .select(itemColumns)
     .from(items)
     .where(
       and(
         eq(items.tenantId, tenantId),
-        scope.workspaceId === null ? undefined : eq(items.workspaceId, scope.workspaceId),
+        inScope,
         isNull(items.deletedAt),
         scope.includeDone ? undefined : isNull(items.completedAt),
       ),
@@ -785,6 +798,61 @@ export function listFilingsOfItems(db: AccountDb, tenantId: string, itemIds: rea
       and(
         eq(panelItems.tenantId, tenantId),
         inArray(panelItems.itemId, [...itemIds]),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(asc(panelItems.position))
+    .all();
+}
+
+/**
+ * These Panels, live and on live Dashboards, each with the Workspace its
+ * Dashboard is in - what `find_items` needs to know of the Panels it was asked
+ * about, and no more of the Workspace.
+ */
+export function listPanelsById(
+  db: AccountDb,
+  tenantId: string,
+  panelIds: readonly string[],
+): { panel: Panel; workspaceId: string }[] {
+  if (panelIds.length === 0) return [];
+  return db
+    .select({ panel: panelColumns, workspaceId: dashboards.workspaceId })
+    .from(panels)
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(panels.tenantId, tenantId),
+        inArray(panels.id, [...panelIds]),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .all()
+    .map(({ panel, workspaceId }) => ({ panel: panelAsRead(panel), workspaceId }));
+}
+
+/**
+ * The filings onto these Panels alone, through `panel_items_tenant_panel`, on
+ * Panels that are not deleted and Dashboards that are not - the filings
+ * `find_items` needs to name a Panel of items, without reading a Workspace's.
+ */
+export function listFilingsOnPanels(db: AccountDb, tenantId: string, panelIds: readonly string[]): Filing[] {
+  if (panelIds.length === 0) return [];
+  return db
+    .select({
+      panelId: panelItems.panelId,
+      itemId: panelItems.itemId,
+      position: panelItems.position,
+    })
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(panelItems.tenantId, tenantId),
+        inArray(panelItems.panelId, [...panelIds]),
         isNull(panels.deletedAt),
         isNull(dashboards.deletedAt),
       ),

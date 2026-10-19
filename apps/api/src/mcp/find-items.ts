@@ -3,7 +3,9 @@ import {
   ITEM_STATUSES,
   UNTITLED,
   isAPeriod,
+  itemLink,
   itemStatus,
+  workspaceIsDecided,
   type DueWindow,
   type Item,
   type ItemStatus,
@@ -139,6 +141,8 @@ export type ReadFind =
  *   matches nothing is refused with the names there are.
  * - A status, priority or due window is matched ignoring case, and one there
  *   is not is refused with the ones there are.
+ * - `or_overdue` is refused unless `due` is a period it widens (Today, This week,
+ *   This month, This quarter): given with nothing to widen, it would be ignored in silence.
  * - `today` is a real date, and the UTC day of `now` where it is left out.
  * - Asking for status Done reads finished items, since it could not be
  *   answered from open ones alone.
@@ -192,6 +196,12 @@ export function readFind(args: unknown, workspaces: readonly Workspace[], now: D
     if (!left(given[flag]) && typeof given[flag] !== 'boolean') {
       return { ok: false, refusal: `${flag} must be true or false.` };
     }
+  }
+  if (!left(given.or_overdue) && !(due.value && isAPeriod(due.value))) {
+    return {
+      ok: false,
+      refusal: 'or_overdue only goes with due Today, This week, This month or This quarter; leave it out.',
+    };
   }
 
   let today = now.toISOString().slice(0, 10);
@@ -317,11 +327,16 @@ export interface FindLinks {
  * ("Workspace ▸ Dashboard ▸ Panel" for each Panel it is filed on, or *Inbox*),
  * and a link that opens it in Cockpit - then, where more follow, a cursor.
  */
-export function findItemsReply(page: FoundPage, workspaces: readonly Workspace[], links: FindLinks): string {
+export function findItemsReply(
+  page: FoundPage,
+  workspaces: readonly Workspace[],
+  links: FindLinks,
+  named: Workspace | null = null,
+): string {
   if (page.found.length === 0) return 'No item matches.';
   const lines = [`${page.found.length} ${page.found.length === 1 ? 'item' : 'items'}, most recently changed first.`];
   for (const [at, found] of page.found.entries()) {
-    lines.push('', ...describeItem(at + 1, found, workspaces, links));
+    lines.push('', ...describeItem(at + 1, found, workspaces, links, named));
   }
   const last = page.found[page.found.length - 1]!.item;
   if (page.more) {
@@ -338,15 +353,17 @@ function describeItem(
   { item, places, attachments }: FoundItem,
   workspaces: readonly Workspace[],
   links: FindLinks,
+  named: Workspace | null,
 ): string[] {
-  const workspace = workspaces.find((w) => w.id === item.workspaceId);
-  // An Item no workspace has been chosen for waits in every Inbox, so it is not "in" the one it was captured from.
+  // An Item no workspace has been chosen for waits in every Inbox, so it is in none: it is not "in" the one it was captured from.
+  const workspace = workspaceIsDecided(item) ? workspaces.find((w) => w.id === item.workspaceId) : undefined;
   const where =
     places.length > 0 && workspace
       ? places.map((place) => `${workspace.name} ▸ ${place}`).join('; ')
       : 'Inbox';
-  const link = new URL(`/w/${encodeURIComponent(item.workspaceId)}`, links.origin);
-  link.searchParams.set('item', item.id);
+  // Where it opens: its own Workspace, or - for an Item in every Inbox - the Workspace the app asked about, else the first.
+  const opensIn = workspace ?? named ?? workspaces[0];
+  const link = itemLink(links.origin, opensIn?.id ?? item.workspaceId, item.id);
   const lines = [
     `${number}. ${item.title.trim() || UNTITLED}`,
     `   Status: ${STATUS_NAMES[itemStatus(item)]}`,
@@ -367,7 +384,7 @@ function describeItem(
         .join('; ')}`,
     );
   }
-  lines.push(`   Open: ${link.href}`);
+  lines.push(`   Open: ${link}`);
   const description = item.description?.trim();
   if (description) lines.push('   Description:', ...description.split('\n').map((line) => `     ${line}`));
   return lines;

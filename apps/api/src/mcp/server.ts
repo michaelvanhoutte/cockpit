@@ -6,13 +6,13 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ACCOUNT_WIDE, textsFromCapture, uuidv7 } from '@cockpit/shared';
+import { ACCOUNT_WIDE, itemLink, textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
 import { FIND_ITEMS, findItemsReply, findItemsTool, readFind, resolvePanels } from './find-items.js';
-import { ATTACHMENT_LINK_PREFIX, attachmentLinkKey, sealAttachmentLink } from '../auth/attachment-link.js';
+import { attachmentLinkAddress, attachmentLinkKey } from '../auth/attachment-link.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
@@ -192,9 +192,8 @@ async function capture(
   const where = read.decided
     ? `the ${workspaces.find((w) => w.id === read.workspaceId)?.name ?? ''} Inbox`
     : 'every Inbox, until a workspace is chosen for it';
-  const link = new URL(`/w/${encodeURIComponent(read.workspaceId)}`, env.APP_ORIGIN);
-  link.searchParams.set('item', itemId);
-  return { reply: `Captured "${title}" in ${where}. Open it: ${link.href}` };
+  const link = itemLink(new URL(env.APP_ORIGIN).origin, read.workspaceId, itemId);
+  return { reply: `Captured "${title}" in ${where}. Open it: ${link}` };
 }
 
 /**
@@ -272,7 +271,7 @@ async function findItems(
 
   const page = await account.findItems({ ...read.ask, panelIds });
   const files = await fileLinks(env, accountName, page.found.flatMap((found) => found.attachments.map((file) => file.id)));
-  return { reply: findItemsReply(page, workspaces, { origin: new URL(env.APP_ORIGIN).origin, files }) };
+  return { reply: findItemsReply(page, workspaces, { origin: new URL(env.APP_ORIGIN).origin, files }, read.workspace) };
 }
 
 /**
@@ -288,10 +287,7 @@ async function fileLinks(env: Env, accountName: string, attachmentIds: readonly 
   const now = new Date();
   const links: Record<string, string> = {};
   for (const attachmentId of attachmentIds) {
-    links[attachmentId] = new URL(
-      `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(key, { accountName, attachmentId }, now)}`,
-      env.APP_ORIGIN,
-    ).toString();
+    links[attachmentId] = await attachmentLinkAddress(key, { accountName, attachmentId }, now, env.APP_ORIGIN);
   }
   return links;
 }

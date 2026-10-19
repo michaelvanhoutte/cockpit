@@ -15,6 +15,7 @@ export * from './domain/find.js';
 export * from './domain/sorting.js';
 export * from './domain/where-it-is.js';
 export * from './domain/item.js';
+export * from './domain/item-link.js';
 export * from './domain/item-form-presentation.js';
 export * from './domain/plain-words.js';
 export * from './domain/recording.js';

@@ -1,17 +1,13 @@
-import { itemLabel, type Item } from '@cockpit/shared';
+import { itemLabel, itemLink, type Item } from '@cockpit/shared';
 import type { Undoable } from './undo';
+
+// The address itself is shared (`@cockpit/shared`, `domain/item-link.ts`): the MCP tools hand the same one to an app.
+export { itemLink };
 
 /**
  * Copying the link to an Item ("Copy an Item's link from its menu and its
- * form", issue 1247).
- *
- * **The Item's own workspace, not the view it was copied from**: `/w/<workspace>`
- * opens the last view visited with `?item=` open over it (`itemForm.ts`), so
- * the link survives the Dashboard it was copied from being deleted.
+ * form", issue 1247): the titled anchor, and the clipboard writes.
  */
-export function itemLink(origin: string, workspaceId: string, itemId: string): string {
-  return `${origin}/w/${encodeURIComponent(workspaceId)}?item=${encodeURIComponent(itemId)}`;
-}
 
 /** Text written into HTML as it is written, `<`, `&` and quotes included. */
 function escapeHtml(text: string): string {

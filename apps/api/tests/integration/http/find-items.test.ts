@@ -64,10 +64,12 @@ interface Arranged {
   dueDate?: string;
   /** The moment it was last changed, as the order of a page is read from it. */
   at?: string;
+  /** Captured before anybody has said which workspace it belongs to, so it waits in every Inbox. */
+  undecided?: boolean;
 }
 
 /** An Item captured the way the Capture page does, answering its id. */
-async function anItem({ message, workspaceId = WORKSPACE_ID, userId = USER_ID, priority, dueDate, at }: Arranged): Promise<string> {
+async function anItem({ message, workspaceId = WORKSPACE_ID, userId = USER_ID, priority, dueDate, at, undecided }: Arranged): Promise<string> {
   const itemId = nextId();
   const body = {
     commandId: nextId(),
@@ -77,6 +79,7 @@ async function anItem({ message, workspaceId = WORKSPACE_ID, userId = USER_ID, p
     message,
     ...(priority ? { priority } : {}),
     ...(dueDate ? { dueDate } : {}),
+    ...(undecided ? { workspaceDecided: false } : {}),
   };
   const answer = await asUser(
     `${ORIGIN}/v1/commands/capture_item`,
@@ -266,6 +269,32 @@ describe('MCP connections', () => {
       // And the other way: Ada's app sees her own and none of Michael's.
       const ada = await connected(OTHER_USER_ID, 'Ada’s Claude');
       expect(titlesIn(await found(ada.token, { text: 'pump' }))).toEqual(['Pump quote, secretly Ada’s']);
+    });
+  });
+
+  describe('only Items the screens show are found: those of a live workspace, and those waiting in every Inbox', () => {
+    it('does not find an Item of a workspace that was deleted, when no workspace is named', async () => {
+      await alsoWorkspaces();
+      const { token } = await connected();
+      await anItem({ message: 'Pump quote at Atlas', workspaceId: 'ws-atlas' });
+      await anItem({ message: 'Pump quote at home' });
+      await command('delete_workspace', {}, USER_ID, 'ws-atlas');
+
+      expect(titlesIn(await found(token, { text: 'pump' }))).toEqual(['Pump quote at home']);
+    });
+
+    it('finds an Item captured from another workspace that nobody has placed, when this workspace is named', async () => {
+      await alsoWorkspaces();
+      const { token } = await connected();
+      const waiting = await anItem({ message: 'Undecided pump quote', undecided: true });
+      await anItem({ message: 'Decided pump quote', workspaceId: 'ws-personal' });
+
+      const said = await found(token, { text: 'pump', workspace: 'Atlas Copco' });
+
+      expect(titlesIn(said)).toEqual(['Undecided pump quote']);
+      expect(said).toContain('Where: Inbox');
+      // Opened in the workspace asked about, which is one the Item is offered in.
+      expect(said).toContain(`Open: ${ORIGIN}/w/ws-atlas?item=${waiting}`);
     });
   });
 

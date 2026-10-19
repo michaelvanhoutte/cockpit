@@ -133,6 +133,10 @@ describe('MCP connections', () => {
       { situation: 'an argument the tool does not have', args: { sort: 'title' }, says: ['sort is not an argument of find_items'] },
       { situation: 'today that is not a date', args: { today: 'tomorrow' }, says: ['today must be a date'] },
       { situation: 'today that is no day of the calendar', args: { today: '2026-02-30' }, says: ['today must be a date'] },
+      { situation: 'or_overdue with no due window to widen', args: { or_overdue: true }, says: ['or_overdue only goes with due Today, This week'] },
+      { situation: 'or_overdue false with no due window', args: { or_overdue: false }, says: ['or_overdue only goes with due'] },
+      { situation: 'or_overdue with due Overdue, which is no period', args: { due: 'Overdue', or_overdue: true }, says: ['or_overdue only goes with due'] },
+      { situation: 'or_overdue with due Not set', args: { due: 'Not set', or_overdue: false }, says: ['or_overdue only goes with due'] },
       { situation: 'include_done that is not true or false', args: { include_done: 'yes' }, says: ['include_done must be true or false'] },
       { situation: 'text that is not words', args: { text: 12 }, says: ['text must be words'] },
       { situation: 'a panel that is not a name', args: { panel: 3 }, says: ['panel must be the name of a Panel'] },
@@ -267,6 +271,21 @@ describe('MCP connections', () => {
 
     it('says an Item waiting in every Inbox is in the Inbox, whichever workspace it was captured from', () => {
       expect(told(anItem({ workspaceDecided: false }), [])).toContain('Where: Inbox');
+    });
+
+    it.each([
+      { situation: 'asking about a workspace', named: WORK, opens: 'ws-work' },
+      { situation: 'asking about none, so the first workspace', named: null, opens: 'ws-home' },
+    ])('opens an Item waiting in every Inbox in the workspace it is found under, $situation', ({ named, opens }) => {
+      const waiting = anItem({ workspaceDecided: false, workspaceId: 'ws-captured-from-elsewhere' });
+      const text = findItemsReply(page({ item: waiting, places: [], attachments: [] }), [HOME, WORK], links, named);
+      expect(text).toContain(`Open: https://cockpit.test/w/${opens}?item=${waiting.id}`);
+    });
+
+    it('opens an Item of a workspace that is no longer there in the first workspace, rather than a dead address', () => {
+      const orphan = anItem({ workspaceId: 'ws-deleted' });
+      const text = findItemsReply(page({ item: orphan, places: [], attachments: [] }), [HOME, WORK], links);
+      expect(text).toContain(`Open: https://cockpit.test/w/ws-home?item=${orphan.id}`);
     });
 
     it('gives a long description whole, line by line', () => {
