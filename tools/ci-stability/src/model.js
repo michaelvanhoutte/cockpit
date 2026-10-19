@@ -111,13 +111,14 @@ function foldFamilies(jobs) {
     const whole = fanIn !== null && indices.every((index, position) => index === position + 1);
     const finished = members.every(({ shard }) => (classify(shard) === 'pass' || classify(shard) === 'fail') && durationMs(shard) !== null);
     const failing = members.find(({ shard }) => classify(shard) === 'fail')?.shard ?? null;
-    const base = fanIn ?? { runId: members[0].shard.runId, name: family, conclusion: failing ? 'failure' : 'neutral', status: 'completed', url: members[0].shard.url, steps: [] };
+    // A fan-in skipped behind a failed shard says nothing, so the shard's failure stands in for it.
+    const base = (fanIn && !(failing && classify(fanIn) === 'skipped') ? fanIn : null) ?? { runId: members[0].shard.runId, name: family, conclusion: failing ? 'failure' : 'neutral', status: 'completed', url: members[0].shard.url, steps: [] };
     folded.push({
       ...base,
       name: family,
       // The span of the whole family, or nothing: a figure over the shards that were read would be a shorter family.
       familyMs: whole && finished ? Math.max(...members.map(({ shard }) => Date.parse(shard.completedAt))) - Math.min(...members.map(({ shard }) => Date.parse(shard.startedAt))) : null,
-      ...(failing ? { failedStep: failing.failedStep, url: failing.url } : {}),
+      ...(failing ? { failedStep: failing.failedStep ?? base.failedStep, url: failing.url ?? base.url } : {}),
     });
   }
   return [...jobs.filter((job) => !replaced.has(job)), ...folded];

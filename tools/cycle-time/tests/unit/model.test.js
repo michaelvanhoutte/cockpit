@@ -1189,5 +1189,57 @@ describe('Cycle time', () => {
         expect(build([pull({ createdAt: at(-10), mergedAt: at(120), commits: [commit('a', 0, checks)] })]).windows[0].queue).toBeNull();
       });
     });
+
+    it('reads a family whose fan-in was skipped behind a failed shard as that failure, not as a check that did not run', () => {
+      const failing = shards([1, 10], [1, 11], [1, 12, 'failure', { failure: { steps: ['Run the walks'], record: null } }], [1, 13]);
+      const round = roundOf([...failing, fanIn(13, 13, 'skipped')]);
+      expect(round).toMatchObject({ red: true, failed: ['E2E (F3)'] });
+      expect(round.failures.map((failure) => [failure.check, failure.steps])).toEqual([['E2E (F3)', ['Run the walks']]]);
+    });
+  });
+
+  describe("a round's jobs are lanes", () => {
+    /** A job created `created` minutes past 09:00 whose check run ran `from` to `to`, its job list read. */
+    const job = (name, created, from, to, conclusion = 'success') => check(name, from, to, conclusion, { queue: { state: 'read', createdAt: at(created), startedAt: at(from) } });
+    const lanesOf = (checks) => pullModel(pull({ mergedAt: at(120), commits: [commit('a', 0, checks)] })).rounds[0].lanes;
+
+    it('places each job by its own start and stop in the round, with the wait before its start as a lead', () => {
+      const lanes = lanesOf([job('Checks', 0, 1, 4), job('Test', 1, 3, 9)]);
+      expect(lanes.map(({ name, offsetMs, ms, leadMs, queuedMs }) => ({ name, offsetMs, ms, leadMs, queuedMs }))).toEqual([
+        { name: 'Checks', offsetMs: 0, ms: 3 * MIN, leadMs: 0, queuedMs: MIN },
+        { name: 'Test', offsetMs: 2 * MIN, ms: 6 * MIN, leadMs: 2 * MIN, queuedMs: 2 * MIN },
+      ]);
+    });
+
+    it('cuts a lead at the round’s start, since nothing before the first job to start belongs to the round', () => {
+      const lanes = lanesOf([job('Checks', 1, 1, 4), job('Test', -5, 2, 9)]);
+      const test = lanes.find((lane) => lane.name === 'Test');
+      expect(test).toMatchObject({ offsetMs: MIN, leadMs: MIN, queuedMs: 7 * MIN });
+    });
+
+    it('draws no lane for a re-run’s copy of a job that passed, or for a job cancelled before a runner took it', () => {
+      const copy = check('Test', 0, 5, 'success', { queue: { state: 'read', createdAt: at(20), startedAt: at(0) } });
+      const lanes = lanesOf([job('Checks', 0, 1, 4), copy, job('Lint', 0, 3, 3, 'cancelled')]);
+      expect(lanes.map((lane) => lane.name)).toEqual(['Checks']);
+    });
+
+    it('carries a job still running to the round’s end, with no stop of its own', () => {
+      const rounds = pullModel(pull({ mergedAt: at(120), commits: [commit('a', 0, [job('Checks', 0, 1, 4), check('Test', 2, null, 'success', { queue: { state: 'read', createdAt: at(0), startedAt: at(2) } })])] })).rounds;
+      const test = rounds[0].lanes.find((lane) => lane.name === 'Test');
+      expect(test).toMatchObject({ outcome: 'running', endedAt: null });
+      expect(test.offsetMs + test.ms).toBe(rounds[0].ms);
+    });
+
+    it('numbers a job’s attempts, the later ones marked as re-runs', () => {
+      const lanes = lanesOf([job('Test', 0, 0, 5, 'failure'), job('Test', 6, 6, 12)]);
+      expect(lanes.map(({ attempt, rerun }) => [attempt, rerun])).toEqual([[1, false], [2, true]]);
+    });
+
+    it.each([
+      { situation: 'a job whose list could not be read', checks: () => [job('Checks', 0, 1, 4), check('Test', 2, 12, 'success', { queue: { state: 'not-recorded', why: 'unreadable' } })] },
+      { situation: 'no job that ran on a runner', checks: () => [job('Lint', 0, 3, 3, 'cancelled')] },
+    ])('has none to draw for $situation, so the round is the block', ({ checks }) => {
+      expect(lanesOf(checks())).toBeNull();
+    });
   });
 });

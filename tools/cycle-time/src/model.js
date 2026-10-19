@@ -220,7 +220,9 @@ function derivedConclusion(members) {
 function familyAttempt(family, members, fresh, fanIn, complete) {
   const starts = [...fresh, ...(fanIn ? [fanIn] : [])].map((attempt) => time(attempt.startedAt)).filter((ms) => ms !== null);
   const ended = fanIn ? fanIn.completedAt : members.every((member) => time(member.completedAt) !== null) ? iso(Math.max(...members.map((member) => time(member.completedAt)))) : null;
-  const verdict = fanIn ? { status: fanIn.status, conclusion: fanIn.conclusion } : derivedConclusion(members);
+  const failing = members.filter((member) => classify(member) === 'fail');
+  // A fan-in skipped behind a failed shard (a `needs` job without `always()`) says nothing, so the shards' verdict stands in.
+  const verdict = fanIn && !(failing.length > 0 && classify(fanIn) === 'skipped') ? { status: fanIn.status, conclusion: fanIn.conclusion } : derivedConclusion(members);
 
   const unreadable = members.find((member) => member.queue?.state === 'not-recorded');
   const waits = fresh.map((member) => ({ member, ms: queuedMs(member) })).filter((wait) => wait.ms !== null);
@@ -232,7 +234,6 @@ function familyAttempt(family, members, fresh, fanIn, complete) {
   }
 
   // What a failed attempt names: the steps come from the shards that failed, the record from the fan-in, which merged them.
-  const failing = members.filter((member) => classify(member) === 'fail');
   const failure = {
     steps: [...new Set(failing.flatMap((member) => member.failure?.steps ?? []))],
     record: fanIn?.failure?.record,
@@ -445,7 +446,7 @@ function failuresOf(groups) {
  * of a job that passed and a job cancelled before a runner took it ran nothing and have none.
  * A re-run of a job is its own lane, `rerun`, after the first.
  *
- * `null` where the jobs of the round were not all read: a lane needs its job's creation for
+ * `null` where no job drew a lane, or the jobs of the round were not all read: a lane needs its job's creation for
  * the lead, and a round with a job whose list is missing is not drawn as lanes that
  * look complete. A lead is cut at the round's start, since nothing before the first job to start
  * belongs to the round.
@@ -465,7 +466,7 @@ function lanesOf(checks, from, to) {
     if (shard) families.set(`${check.suiteId}|${shard.family}`, true);
   }
 
-  return ran
+  const lanes = ran
     .map((check) => {
       const start = time(check.startedAt);
       const end = time(check.completedAt) ?? to;
@@ -492,6 +493,8 @@ function lanesOf(checks, from, to) {
     })
     .filter(Boolean)
     .sort((a, b) => a.offsetMs - b.offsetMs || a.offsetMs + a.ms - (b.offsetMs + b.ms) || a.name.localeCompare(b.name) || a.attempt - b.attempt);
+  // No job drew a lane (all cancelled before a runner took them): the round is the block, never an empty one.
+  return lanes.length > 0 ? lanes : null;
 }
 
 /**
@@ -509,7 +512,7 @@ function buildRounds(commits, mergedAt) {
   for (const commit of commits) {
     // A shard family is one check here; the commit's own list still holds every shard, for the round's start.
     const groups = attemptsByCheck(foldFamilies(commit.checks));
-    const ran =groups.map((attempts) => attempts.filter((attempt) => classify(attempt) !== 'skipped')).filter((attempts) => attempts.length > 0);
+    const ran = groups.map((attempts) => attempts.filter((attempt) => classify(attempt) !== 'skipped')).filter((attempts) => attempts.length > 0);
     const at = pushTime(commit.checks);
     if (ran.length === 0 || at === null) {
       waiting += 1;

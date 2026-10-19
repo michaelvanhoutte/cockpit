@@ -153,7 +153,7 @@ function roundText(round, index) {
   if (round.red) parts.push(`RED: ${round.failed.join(', ')} failed`);
   if (round.flukes.length) parts.push(`FLUKE: ${round.flukes.map((fluke) => `${fluke.name} failed and passed on re-run, +${humanMs(fluke.ms)}`).join('; ')}`);
   if (round.unrecognised.length) parts.push(`unrecognised: ${round.unrecognised.map((each) => `${each.name} (${each.conclusion})`).join(', ')}`);
-  if (!Array.isArray(round.lanes)) parts.push('lanes not recorded: its job list could not be read, so it is drawn as one block');
+  if (!Array.isArray(round.lanes)) parts.push('lanes not recorded: its job list could not be read, or no job of it ran on a runner, so it is drawn as one block');
   return parts.join(' · ');
 }
 
