@@ -10,7 +10,7 @@ import { asReachedAt, oauthHelpersFor } from './oauth.js';
 import { AUTHORIZE_PATH } from '../auth/mcp-paths.js';
 
 /**
- * The consent page: "Allow Claude to create items in your Cockpit?"
+ * The consent page: "Allow Claude to create and read items in your Cockpit?"
  * ("Connect Claude to Cockpit, and capture an item from it", issue 599).
  *
  * **The only place a grant is made**, and only by somebody signed in with
@@ -65,8 +65,8 @@ consent.get(AUTHORIZE_PATH, async (c) => {
     page({
       title: `Allow ${details.clientName}?`,
       body: `
-        <h1>Allow ${escape(details.clientName)} to create items in your Cockpit?</h1>
-        <p>${escape(details.clientName)} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit, and to see the names of your workspaces and types so it can say where each note goes. It can also tell Cockpit how a task you send it from an item is going, which shows on that item. It cannot see your items, or change or delete anything else.</p>
+        <h1>Allow ${escape(details.clientName)} to create and read items in your Cockpit?</h1>
+        <p>${escape(details.clientName)} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit, and to see the names of your workspaces and types so it can say where each note goes. It can read your items in every workspace: what each says, its status, priority and due date, and where it is filed. It can also tell Cockpit how a task you send it from an item is going, which shows on that item. It cannot change or delete anything else.</p>
         <p class="faint">Access will be sent to <strong>${escape(details.redirectHost)}</strong>.${
           details.redirectIsLoopback
             ? ' That is an app on this computer: allow it only if you just started connecting it.'

@@ -18,6 +18,7 @@ import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { NamedOn } from '../domain/connection-history.js';
 import type { NameForms } from '../domain/filing-by-name.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { FoundPage, ItemSearch } from '../domain/item-search.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
@@ -288,6 +289,10 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>>;
   /** An app connected to this account calling `create_item` ("Connect Claude to Cockpit, and capture an item from it", issue 599) - admitted, or one of too many from that grant. */
   appCaptureArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many'>;
+  /** An app connected to this account calling `find_items`, counted apart from capture's (issue 1242) - admitted, or one of too many from that grant in a minute or a day. */
+  appFindArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many-this-minute' | 'too-many-today'>;
+  /** One page of the Items a connected app's `find_items` matches, with where each is filed (issue 1242). */
+  findItems(accountName: string, search: ItemSearch): Awaitable<Answer<FoundPage>>;
   /** A recording sent to be transcribed ("Hold each account to 20 transcriptions a minute", issue 1043) - admitted, or one of too many from this account. */
   transcriptionArrived(at: string): Awaitable<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
