@@ -13,6 +13,7 @@ import type {
 } from '@cockpit/shared';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
+import type { FindQuery, FoundPage } from './find.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { NamedOn } from '../domain/connection-history.js';
@@ -288,6 +289,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>>;
   /** An app connected to this account calling `create_item` ("Connect Claude to Cockpit, and capture an item from it", issue 599) - admitted, or one of too many from that grant. */
   appCaptureArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many'>;
+  /** An app connected to this account calling `find_items` ("Find items in Cockpit from a connected app, over MCP", issue 1240) - admitted, or one of too many from that grant in a minute or a day. */
+  appFindArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many-a-minute' | 'too-many-today'>;
+  /** Every live Panel that can hold or gather Items, with its Workspace - what `find_items` reads a `panel` name against (issue 1240). */
+  itemPanels(accountName: string): Awaitable<Answer<{ id: string; name: string; workspaceId: string }[]>>;
+  /** One page of Items for `find_items`, most recently changed first (issue 1240). */
+  findItems(accountName: string, query: FindQuery): Awaitable<Answer<FoundPage>>;
   /** A recording sent to be transcribed ("Hold each account to 20 transcriptions a minute", issue 1043) - admitted, or one of too many from this account. */
   transcriptionArrived(at: string): Awaitable<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */

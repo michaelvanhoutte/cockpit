@@ -15,11 +15,13 @@ import { namedTheSame } from '../domain/names.js';
 export const CREATE_ITEM = 'create_item';
 
 /**
- * The server's whole instruction to the model, one line, as the issue sets it:
- * the model decides when to call, and this is the one hint it needs.
+ * The server's whole instruction to the model: the model decides when to call,
+ * and these are the hints it needs - when to capture, and ("Find items in
+ * Cockpit from a connected app, over MCP", issue 1240) when to look first.
  */
 export const SERVER_INSTRUCTIONS =
-  'Use create_item when the user asks to capture, note or remember something in Cockpit.';
+  'Use create_item when the user asks to capture, note or remember something in Cockpit. ' +
+  'Use find_items when the user asks what is in Cockpit, or before capturing something that may already be there.';
 
 
 /** The tool as `tools/list` answers it: a JSON Schema the client shows the model. */

@@ -11,10 +11,12 @@ import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Accoun
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
+import { FIND_ITEMS, findItemsTool, formatFound, namesAPanel, readFind, tooManyFinds } from './find-items.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from '../auth/mcp-paths.js';
+import { ATTACHMENT_LINK_PREFIX, attachmentLinkKey, sealAttachmentLink } from '../auth/attachment-link.js';
 
 /**
  * `/mcp`, once the OAuth library has accepted the access token
@@ -26,7 +28,7 @@ import { MCP_PATH } from '../auth/mcp-paths.js';
  * the account as it is now: a workspace renamed a moment ago is listed by its
  * new name on the next `tools/list`, with nothing to invalidate.
  *
- * Two tools, `create_item` and `report_run` (issue 1160), and no resources or prompts: the server declares
+ * Three tools, `create_item`, `report_run` (issue 1160) and the read-only `find_items` (issue 1240), and no resources or prompts: the server declares
  * the tools capability alone, so a client never asks for the others.
  */
 
@@ -78,21 +80,24 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     try {
-      return { tools: [createItemTool(await account.workspaces()), reportRunTool()] };
+      const workspaces = await account.workspaces();
+      return { tools: [createItemTool(workspaces), reportRunTool(), findItemsTool(workspaces)] };
     } catch (error) {
       logged(error);
       throw new McpError(ErrorCode.InternalError, SOMETHING_BROKE);
     }
   });
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN) {
+    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN && params.name !== FIND_ITEMS) {
       return toolError(`There is no tool called ${params.name}.`);
     }
     try {
       const said =
         params.name === REPORT_RUN
           ? await reportRun(account, app, params.arguments)
-          : await capture(env, ctx, account, holder.accountName, app, params.arguments);
+          : params.name === FIND_ITEMS
+            ? await findItems(env, account, holder.accountName, app, params.arguments)
+            : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
       logged(error);
@@ -227,6 +232,62 @@ async function reportRun(
     throw error;
   }
   return { reply: 'Reported. Cockpit now shows this on the item.' };
+}
+
+/**
+ * One `find_items` call (issue 1240): admitted by its own limits, apart from
+ * capture's, read against the account as it is now, answered from the store and
+ * worded for the model. **It reads and writes nothing else**: a search is not
+ * an Item changing, so no job is queued and no "last captured" is noted.
+ *
+ * Every attachment the page names gets the sealed one-hour link the Cowork and
+ * Claude Code hand-off mints (`auth/attachment-link.ts`), or is named alone
+ * where the environment has no sealing key.
+ */
+async function findItems(
+  env: Env,
+  account: Account,
+  accountName: string,
+  app: { grantId: string },
+  args: unknown,
+): Promise<{ reply: string } | { refusal: string }> {
+  const now = new Date();
+  const admitted = await account.appFindArrived(app.grantId, now.toISOString());
+  if (admitted !== 'admitted') return { refusal: tooManyFinds(admitted) };
+
+  // The panels are read only where one is named: a plain search costs the Items in scope.
+  const [workspaces, panels] = await Promise.all([
+    account.workspaces(),
+    namesAPanel(args) ? account.itemPanels() : Promise.resolve([]),
+  ]);
+  const read = readFind(args, { workspaces, panels, utcToday: now.toISOString().slice(0, 10) });
+  if (!read.ok) return { refusal: read.refusal };
+
+  let page;
+  try {
+    page = await account.findItems(read.query);
+  } catch (error) {
+    // A workspace deleted between the read above and this one: the same
+    // refusal a name that matched nothing gets, so the model can retry.
+    if (error instanceof NotFoundInAccountError) {
+      return { refusal: 'That workspace was just removed. List the tools again for the current names.' };
+    }
+    throw error;
+  }
+
+  const links = new Map<string, string>();
+  const key = await attachmentLinkKey(env.CONNECTOR_CREDENTIAL_KEY);
+  if (key) {
+    await Promise.all(
+      page.items
+        .flatMap(({ attachments }) => attachments)
+        .map(async ({ id }) => {
+          const token = await sealAttachmentLink(key, { accountName, attachmentId: id }, now);
+          links.set(id, new URL(`${ATTACHMENT_LINK_PREFIX}${token}`, env.APP_ORIGIN).toString());
+        }),
+    );
+  }
+  return { reply: formatFound(page, env.APP_ORIGIN, links) };
 }
 
 /**

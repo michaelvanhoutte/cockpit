@@ -55,3 +55,35 @@ export function admittedCalls(earlier: readonly number[], now: number, limit: nu
   const recent = earlier.filter((at) => now - at < WINDOW_MS);
   return recent.length >= limit ? null : [...recent, now];
 }
+
+/**
+ * How many `find_items` calls one grant is admitted for in a minute, and in a
+ * day ("Find items in Cockpit from a connected app, over MCP", issue 1240). Its
+ * own counters, apart from capture's: each call reads the Items in scope, so a
+ * looping agent sharing capture's 60 a minute could spend the day's reads
+ * within the hour. At 500 calls over 300 open Items the day costs about
+ * 150,000 rows, 3% of the free plan's allowance.
+ */
+export const FIND_ITEMS_PER_MINUTE = 10;
+/** In any 24 hours, rolling: a refused app is heard again as its earlier calls age out. */
+export const FIND_ITEMS_PER_DAY = 500;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether one more `find_items` call is admitted, on the calls the grant was
+ * admitted for in the last 24 hours (a rolling window, not a calendar day),
+ * newest last. A refused call is not counted: the window opens as the earlier
+ * calls leave it. `calls` is the count to keep.
+ */
+export function admittedFindCall(
+  earlier: readonly number[],
+  now: number,
+): { admitted: true; calls: number[] } | { admitted: false; why: 'minute' | 'day' } {
+  const today = earlier.filter((at) => now - at < DAY_MS);
+  if (today.length >= FIND_ITEMS_PER_DAY) return { admitted: false, why: 'day' };
+  if (today.filter((at) => now - at < WINDOW_MS).length >= FIND_ITEMS_PER_MINUTE) {
+    return { admitted: false, why: 'minute' };
+  }
+  return { admitted: true, calls: [...today, now] };
+}

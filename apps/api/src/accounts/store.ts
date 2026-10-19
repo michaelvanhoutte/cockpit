@@ -10,7 +10,15 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { panelTakesItems, type RememberedSentenceView } from '@cockpit/shared';
+import {
+  itemIdsWithRun,
+  itemStatus,
+  panelAndFilterIdsByItem,
+  panelTakesItems,
+  placesFiledOn,
+  stillOpen,
+  type RememberedSentenceView,
+} from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -36,8 +44,10 @@ import {
   REMEMBER_OFFERS_PER_MINUTE,
   SENTENCES_REMEMBERED_PER_MINUTE,
   admittedCalls,
+  admittedFindCall,
   countedCalls,
 } from './call-window.js';
+import { newestFirst, pageOf, type FindQuery, type FoundPage } from './find.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import { capturePushed, connectionHistoryOf, pruneConnectionHistory, recordPushFailed } from './connection-history.js';
@@ -110,6 +120,10 @@ import {
   filingMeaningsSince,
   forgetMeaning,
   listOpenAgentRuns,
+  attachmentsOfItems,
+  filingPlacesOfItems,
+  itemPanelsInAccount,
+  itemsForFind,
   getAttachment,
   getAttachmentForDownload,
   getItem,
@@ -164,6 +178,13 @@ import {
 import { bringUpToDate, type Change } from './up-to-date.js';
 import { retireAgents, whyItFailed } from './retire-agents.js';
 
+/** Rows grouped by the Item they belong to, in the order they came. */
+function byItem<R extends { itemId: string }>(rows: readonly R[]): Map<string, R[]> {
+  const grouped = new Map<string, R[]>();
+  for (const row of rows) grouped.set(row.itemId, [...(grouped.get(row.itemId) ?? []), row]);
+  return grouped;
+}
+
 /** R2's own limit on how many keys one `delete()` call accepts ("Attach a file to an item", issue 441). */
 const R2_DELETE_BATCH = 1000;
 
@@ -217,6 +238,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   #agentsRetired = false;
   /** The calls each app's grant was admitted for, newest last - see `appCaptureArrived`. */
   #appCaptures = new Map<string, number[]>();
+  /** The `find_items` calls each app's grant was admitted for in the last 24 hours, newest last - see `appFindArrived`. */
+  #appFinds = new Map<string, number[]>();
   /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
   #transcriptions: number[] = [];
   /** The offers to remember and the Remember presses this account made, refused ones included, newest last - see `sentenceCallArrived`. */
@@ -767,6 +790,121 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     if (!calls) return 'too-many';
     this.#appCaptures.set(grantId, calls);
     return 'admitted';
+  }
+
+  /**
+   * An app connected to this account calling `find_items` ("Find items in
+   * Cockpit from a connected app, over MCP", issue 1240): admitted, or refused
+   * as one of too many from that grant in a minute or in any 24 hours.
+   *
+   * **Counted here, in memory, for the reason `appCaptureArrived` is**, and in
+   * counters of its own: a call reads the Items in scope, so sharing capture's
+   * 60 a minute would let one looping agent spend the day's reads within the
+   * hour. A count lost to the object being evicted starts the window over,
+   * which is all it costs. Nothing is read or written, so it answers before the
+   * account is brought up to date.
+   */
+  appFindArrived(grantId: string, at: string): 'admitted' | 'too-many-a-minute' | 'too-many-today' {
+    const answer = admittedFindCall(this.#appFinds.get(grantId) ?? [], Date.parse(at));
+    if (!answer.admitted) return answer.why === 'day' ? 'too-many-today' : 'too-many-a-minute';
+    this.#appFinds.set(grantId, answer.calls);
+    return 'admitted';
+  }
+
+  /**
+   * Every live Panel that can hold or gather Items, with its Workspace - what a
+   * `panel` name given to `find_items` is read against (issue 1240).
+   */
+  itemPanels(accountName: string): Answer<{ id: string; name: string; workspaceId: string }[]> {
+    return this.#answer(accountName, (db) => itemPanelsInAccount(db, accountName));
+  }
+
+  /**
+   * One page of what a connected app's `find_items` asks for (issue 1240): the
+   * Items of the account, or of one Workspace, meeting every criterion, most
+   * recently changed first.
+   *
+   * **Answered from the Item rows in scope**, read through the (account,
+   * workspace) index: priority, due and text are checked on those rows by the
+   * screen's own rules (`pageOf`), and the page is cut from them. **Where each is
+   * is read for the page's Items only**, and a Workspace's Panels and filings
+   * only where a Panel is named - a Filter panel gathers what the screen says it
+   * does (`panelAndFilterIdsByItem`), counted from the `today` the app gave.
+   * Names of attachments, never their contents; the link is the Worker's to seal.
+   */
+  findItems(accountName: string, query: FindQuery): Answer<FoundPage> {
+    return this.#answer(accountName, (db) => {
+      const workspaces = listWorkspaces(db, accountName);
+      const workspaceNames = new Map(workspaces.map((workspace) => [workspace.id, workspace.name]));
+      if (query.workspaceId !== null && !workspaceNames.has(query.workspaceId)) {
+        throw new WorkspaceNotFoundError(query.workspaceId);
+      }
+
+      // The Items on the Panels named, which is only worked out where a Panel is.
+      let gathered: Set<string> | null = null;
+      if (query.panelIds !== null) {
+        gathered = new Set();
+        const named = new Set(query.panelIds);
+        const inWorkspaces = new Set(
+          itemPanelsInAccount(db, accountName)
+            .filter((panel) => named.has(panel.id))
+            .map((panel) => panel.workspaceId),
+        );
+        for (const workspaceId of inWorkspaces) {
+          if (query.workspaceId !== null && workspaceId !== query.workspaceId) continue;
+          const open = listOpenItems(db, accountName, workspaceId);
+          const heldBy = panelAndFilterIdsByItem(
+            open,
+            listFilingsInWorkspace(db, accountName, workspaceId),
+            listPanelsInWorkspace(db, accountName, workspaceId),
+            listDashboards(db, accountName, workspaceId),
+            itemIdsWithRun(listOpenAgentRuns(db, accountName, workspaceId)),
+            query.today,
+          );
+          for (const item of open) {
+            // A finished Item is on no Dashboard, whatever it was once filed on.
+            if (!stillOpen(item)) continue;
+            if ([...(heldBy.get(item.id) ?? [])].some((panelId) => named.has(panelId))) gathered.add(item.id);
+          }
+        }
+      }
+
+      const rows = itemsForFind(db, accountName, {
+        workspaceId: query.workspaceId,
+        includeDone: query.includeDone,
+      }).sort(newestFirst);
+      const { page, next } = pageOf(rows, query, gathered);
+
+      const ids = page.map((item) => item.id);
+      const filedOn = byItem(filingPlacesOfItems(db, accountName, ids));
+      const attached = byItem(attachmentsOfItems(db, accountName, ids));
+      return {
+        items: page.map((item) => {
+          const filed = filedOn.get(item.id) ?? [];
+          return {
+            id: item.id,
+            workspaceId: item.workspaceId,
+            workspaceName: workspaceNames.get(item.workspaceId) ?? '',
+            title: item.title,
+            description: item.description,
+            nextAction: item.nextAction,
+            status: itemStatus(item),
+            priority: item.priority,
+            dueDate: item.dueDate,
+            sender: item.sender,
+            places: placesFiledOn(
+              item,
+              filed.map((row) => ({ itemId: item.id, panelId: row.panel.id, position: 0 })),
+              filed.map((row) => row.panel),
+              filed.map((row) => ({ id: row.panel.dashboardId, name: row.dashboardName })),
+            ),
+            updatedAt: item.updatedAt,
+            attachments: (attached.get(item.id) ?? []).map(({ id, filename }) => ({ id, filename })),
+          };
+        }),
+        next,
+      };
+    });
   }
 
   /**

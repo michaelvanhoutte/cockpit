@@ -25,6 +25,7 @@ import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
+import type { FindQuery, FoundPage } from './find.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
@@ -313,6 +314,12 @@ export interface Account {
   ): Promise<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>;
   /** An app connected to this account calling `create_item`, under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
+  /** An app connected to this account calling `find_items`, under one grant, counted apart from capture ("Find items in Cockpit from a connected app, over MCP", issue 1240). */
+  appFindArrived(grantId: string, at: string): Promise<'admitted' | 'too-many-a-minute' | 'too-many-today'>;
+  /** Every live Panel that can hold or gather Items, with its Workspace - what `find_items` reads a `panel` name against (issue 1240). */
+  itemPanels(): Promise<{ id: string; name: string; workspaceId: string }[]>;
+  /** One page of Items for `find_items`, most recently changed first; refuses a Workspace removed since it was named (issue 1240). */
+  findItems(query: FindQuery): Promise<FoundPage>;
   /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
@@ -450,6 +457,9 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     sealedCredential: async (sourceAccountId) =>
       unwrap(await store.sealedCredential(accountName, sourceAccountId)),
     appCaptureArrived: async (grantId, at) => store.appCaptureArrived(grantId, at),
+    appFindArrived: async (grantId, at) => store.appFindArrived(grantId, at),
+    itemPanels: async () => unwrap(await store.itemPanels(accountName)),
+    findItems: async (query) => unwrap(await store.findItems(accountName, query)),
     transcriptionArrived: async (at) => store.transcriptionArrived(at),
     sentenceCallArrived: async (kind, at) => store.sentenceCallArrived(kind, at),
     connectionHistory: async (workspaceId, sourceAccountId) =>

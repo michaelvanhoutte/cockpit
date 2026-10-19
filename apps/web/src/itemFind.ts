@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { itemLabel, panelGathers } from '@cockpit/shared';
+import { itemLabel, panelGathers, searchTextOf } from '@cockpit/shared';
 import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { itemIdsWithRun } from './dashboardFilter';
 import { filingsThatFile, itemsInTheInbox, stillOpen } from './filing';
@@ -58,11 +58,6 @@ export type FoundItem = {
   /** Whether the Item is finished: on no Dashboard, so it is gone to in *All items*. */
   done: boolean;
 };
-
-/** The text a search runs over: what a person would type to find the Item. */
-export function searchTextOf(item: Pick<Item, 'title' | 'description' | 'nextAction' | 'sender'>): string {
-  return [item.title, item.description ?? '', item.nextAction ?? '', item.sender ?? ''].join('\n').toLowerCase();
-}
 
 /**
  * Every Item of the Workspace with its search text and places, the open ones
