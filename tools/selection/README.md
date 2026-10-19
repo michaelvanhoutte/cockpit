@@ -87,7 +87,23 @@ what it would have done.
   requests or cannot give the figure. The bars: a job forced to run everything on 25% or more of the pull
   requests that ran it (Test and E2E apart), a test file or spec selected on 80% or more of those that could
   have skipped it (over at least ten), any miss. The 7-day column shows its figures uncoloured. Each bar has
-  an `alarmIssue`, empty until the nightly job files one.
+  an `alarmIssue`: the number of its open alarm issue, read before the page is built, so an alarm filed
+  tonight is linked from tomorrow's page.
+- **The alarm** is the nightly job's last step (`src/alarm-cli.js`, after the upload, so a refused write
+  makes the job red and costs the page nothing). `src/alarm.js` decides, over the model and the repository's
+  `selection-alarm` issues, and `src/issues.js` makes the calls. Each alarm carries its bar's marker in its
+  body.
+
+  | Bar | Open alarm | Does |
+  |---|---|---|
+  | crossed | none | files one, linking the newest closed one for the bar |
+  | crossed | one | replaces its body with the night's figures, keeping when it first crossed |
+  | crossed | several | edits the newest; the older ones get one comment naming it |
+  | within | one | one comment saying so, until the bar crosses again; the issue stays open |
+  | unread | any | nothing |
+
+  It closes and reopens nothing: a person closes an alarm. `node src/alarm-cli.js --model out/model.json
+  --dry-run` prints what a night would do and changes nothing.
 - **`forcedFullRules`** is a row per rule above its paths, over the same window, counting a pull request once
   per rule and reading each rule's total against the forced-full bar, counting only the pull requests it left
   running everything (a rule that forced one package of several shows its count but reads `within`). The page's

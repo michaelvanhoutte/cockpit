@@ -9,12 +9,13 @@
  * than replacing it with a plausible lie.
  */
 
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { git, repoFromGitRemote, resolveToken } from './environment.js';
 import { collect, GitHubError } from './github.js';
+import { listAlarmIssues } from './issues.js';
 import { buildModel } from './model.js';
 import { renderHtml } from './render/html.js';
 
@@ -33,35 +34,6 @@ const USAGE = `Usage: node src/cli.js [options]
   --branch <name>     default: main
   --help
 `;
-
-/** Quiet on failure: a missing git or a missing remote is not an error here, just no answer. */
-function git(args) {
-  try {
-    return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return null;
-  }
-}
-
-function repoFromGitRemote() {
-  const url = git(['config', '--get', 'remote.origin.url']);
-  const match = url?.match(/github\.com[:/]([^/]+\/[^/.]+)/);
-  return match ? match[1] : null;
-}
-
-/** The same, for `gh`, which a developer machine has and a runner does not need. */
-function gh(args) {
-  try {
-    return execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return null;
-  }
-}
-
-/** A token is optional against a public repository, but 60 requests an hour is not enough for a full window. `gh` is asked last, which is what makes a local run work without any setup. */
-function resolveToken() {
-  return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || gh(['auth', 'token']) || undefined;
-}
 
 /**
  * A count, or a recorded complaint. `Number('8OO')` is NaN, and every
@@ -162,10 +134,11 @@ export async function main(argv) {
   const days = args.days ?? 14;
   const now = new Date();
   const since = new Date(now.getTime() - days * DAY_MS);
+  const token = resolveToken();
 
   let collected;
   try {
-    collected = await collect({ repo, branch, since, now, maxPulls: args.maxPulls ?? 150, token: resolveToken() });
+    collected = await collect({ repo, branch, since, now, maxPulls: args.maxPulls ?? 150, token });
   } catch (error) {
     if (error instanceof GitHubError) {
       process.stderr.write(`${error.message}\n`);
@@ -174,7 +147,17 @@ export async function main(argv) {
     throw error;
   }
 
+  // Only to link each bar's alarm from the page: a page without the links is
+  // still true, so unlike the pull requests above a failed read costs the links.
+  let alarms = [];
+  try {
+    alarms = await listAlarmIssues({ repo, token });
+  } catch (error) {
+    process.stderr.write(`could not read the alarm issues, so the page links none: ${error.message}\n`);
+  }
+
   const model = buildModel({
+    alarms,
     pulls: collected.pulls,
     now,
     requestedDays: days,

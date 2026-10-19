@@ -156,6 +156,11 @@ function verdictStrip(model) {
   }
 
   const foot = [];
+  const filed = crossed.filter((bar) => bar.alarmIssue);
+  if (filed.length > 0) {
+    const links = filed.map((bar) => `<a href="https://github.com/${esc(model.repo)}/issues/${bar.alarmIssue}">#${bar.alarmIssue} ${esc(bar.name)}</a>`);
+    foot.push(`Filed as ${links.length > 1 ? `${links.slice(0, -1).join(', ')} and ${links.at(-1)}` : links[0]}. Each is updated nightly while its bar stays crossed, and closed by a person.`);
+  }
   if (unread.length > 0) {
     foot.push(`Unread: ${unread.map((bar) => `${esc(bar.name)} (${unreadReason(bar, bars)})`).join('; ')}.`);
   }

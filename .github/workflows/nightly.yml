@@ -72,12 +72,15 @@ jobs:
     name: Selection
     runs-on: ubuntu-latest
     # Reads pull requests, their files, the Actions API and each Test run's own
-    # artifact, all through the workflow's own token. Nothing else, and no
-    # write anywhere.
+    # artifact, all through the workflow's own token, and files, edits and
+    # comments on the `selection-alarm` issues: the one write, on this job
+    # alone ("File and update a selection alarm issue from the nightly job",
+    # issue 1290).
     permissions:
       contents: read
       pull-requests: read
       actions: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -91,6 +94,12 @@ jobs:
         with:
           name: test-selection-report
           path: tools/selection/out/
+      # After the upload, so a refused write turns this job red and costs the
+      # page nothing: Publish already tolerates a failed report job.
+      - name: File, update or comment on the alarm for each bar
+        run: node tools/selection/src/alarm-cli.js --model tools/selection/out/model.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # How Cockpit is deployed, drawn from the checkout alone: every environment
   # the Worker config declares with the resources it binds, and every workflow

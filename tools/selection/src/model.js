@@ -20,6 +20,7 @@
 
 import { ownersText } from '../../../scripts/lib/e2e-record.mjs';
 import { productChanged } from '../../../scripts/lib/what-changed.mjs';
+import { openAlarmNumbers } from './alarm.js';
 
 const DAY_MS = 86_400_000;
 
@@ -373,14 +374,16 @@ function leadingRule(pulls, forcedOf) {
  * `BARS.minPulls` merged pull requests) or `figure` (the window cannot give it).
  * A partial window is read by its actual days and says so (`partial`).
  *
- * `alarmIssue` is where the nightly job's issue number for a crossed bar goes;
- * nothing sets it here.
+ * `alarmIssue` is the number of the bar's open alarm issue (the newest, where
+ * several are open), or null: the page links it. It is set from the alarms the
+ * run read before building, so a bar the nightly job files tonight is linked
+ * on tomorrow's page.
  */
-function barsOf(windowPulls, summary) {
+function barsOf(windowPulls, summary, alarmNumbers) {
   const read = summary.pulls >= BARS.minPulls;
   const bar = ({ id, name, count, of, value, threshold, ...extra }) => {
     const verdict = verdictOf({ read, value, threshold });
-    return { id, name, count, of, value, threshold, minOver: null, path: null, cause: null, ...extra, verdict, unread: verdict !== 'unread' ? null : read ? 'figure' : 'window', alarmIssue: null };
+    return { id, name, count, of, value, threshold, minOver: null, path: null, cause: null, ...extra, verdict, unread: verdict !== 'unread' ? null : read ? 'figure' : 'window', alarmIssue: alarmNumbers.get(id) ?? null };
   };
   const forced = (id, name, figure, { forcedOf, ranEverything, ran }) =>
     bar({
@@ -481,14 +484,15 @@ function mostSelectedTable(pulls, limit) {
  * @param {boolean} [input.truncated] whether the pull budget stopped the fetch short
  * @param {number[]} [input.windows] the windows "Is selection working?" reports, in days
  * @param {number} [input.limit] how many rows the most-selected table carries
+ * @param {{ number: number, state: string, body: string }[]} [input.alarms] the repository's alarm issues, for each bar's `alarmIssue`
  */
-export function buildModel({ pulls: pullData, now, requestedDays, coveredSince, truncated = false, repo, branch = 'main', commit = null, windows = [7, 14], limit = 15 }) {
+export function buildModel({ pulls: pullData, now, requestedDays, coveredSince, truncated = false, repo, branch = 'main', commit = null, windows = [7, 14], limit = 15, alarms = [] }) {
   const pulls = pullData.map(pullModel).sort((a, b) => time(b.mergedAt) - time(a.mergedAt));
   const requestedSince = now.getTime() - requestedDays * DAY_MS;
   const barWindowPulls = pullsInWindow(pulls, BARS.windowDays, now);
   const windowSummaries = windows.map((days) => windowSummary(pulls, { days, now, coveredSince }));
   const barSummary = windowSummaries.find((each) => each.days === BARS.windowDays) ?? windowSummary(pulls, { days: BARS.windowDays, now, coveredSince });
-  const bars = barsOf(barWindowPulls, barSummary);
+  const bars = barsOf(barWindowPulls, barSummary, openAlarmNumbers(alarms));
 
   return {
     repo,
