@@ -1125,4 +1125,69 @@ describe('Cycle time', () => {
       expect(window.localRuns).toEqual({ test: { count: null, ms: null }, browser: { count: null, ms: null } });
     });
   });
+
+  describe('jobs sharing a family name are one check in the counts', () => {
+    /** A job created `created` minutes past 09:00 whose check run ran `from` to `to`, its job list read. */
+    const job = (name, created, from, to, conclusion = 'success', overrides = {}) =>
+      check(name, from, to, conclusion, { queue: { state: 'read', createdAt: at(created), startedAt: at(from) }, ...overrides });
+    /** The four shards of `E2E (F3)`, all created at 09:00, as [start, end, conclusion] each. */
+    const shards = (...each) => each.map(([from, to, conclusion = 'success', overrides], index) => job(`E2E (F3) (${index + 1})`, 0, from, to, conclusion, overrides));
+    const fanIn = (from, to, conclusion = 'success', overrides = {}) => job('E2E (F3)', from, from, to, conclusion, overrides);
+    const roundOf = (checks) => pullModel(pull({ mergedAt: at(120), commits: [commit('a', 0, checks)] })).rounds[0];
+    const build = (pulls) => buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });
+    const recordOf = (value) => ({ state: 'read', value: { packages: [{ name: 'e2e', report: 'written', files: [{ path: 'tests/e2e/find.test.ts', status: value }] }] } });
+
+    it('counts four shards and their fan-in as one check named for the family, which holds the round last', () => {
+      const round = roundOf([job('Checks', 0, 1, 3), job('Test', 0, 1, 9), ...shards([1, 10], [1, 11], [1.5, 12], [2, 13]), fanIn(13, 14)]);
+      expect(round.held.map((held) => held.name)).toEqual(['Checks', 'Test', 'E2E (F3)']);
+      expect(round).toMatchObject({ last: 'E2E (F3)', red: false, failed: [], failures: [], flukes: [] });
+      expect(minutes(round.ms)).toBe(13);
+    });
+
+    it('makes the check red once where one shard failed, naming that shard’s steps and the fan-in’s merged record', () => {
+      const failing = shards([1, 10], [1, 11], [1, 12, 'failure', { failure: { steps: ['Run the walks'], record: null } }], [1, 13]);
+      const round = roundOf([...failing, fanIn(13, 14, 'failure', { failure: { steps: ['Fail when a shard failed'], record: recordOf('failed') } })]);
+      expect(round).toMatchObject({ red: true, failed: ['E2E (F3)'], last: 'E2E (F3)' });
+      expect(round.failures).toEqual([
+        { check: 'E2E (F3)', attempt: 1, outcome: 'red', steps: ['Run the walks'], files: ['tests/e2e/find.test.ts'], record: 'read', why: null, packagesNotRecorded: [] },
+      ]);
+    });
+
+    it('counts a shard re-run to green as one fluke on the family, from the failed attempt’s end to the passing one’s', () => {
+      const first = shards([1, 10], [1, 8, 'failure', { failure: { steps: ['Run the walks'], record: null } }], [1, 12], [1, 13]);
+      const round = roundOf([...first, fanIn(13, 14, 'failure', { failure: { steps: [], record: recordOf('failed') } }), job('E2E (F3) (2)', 16, 16, 24), fanIn(24, 25)]);
+      expect(round).toMatchObject({ red: false, failed: [] });
+      expect(round.flukes).toEqual([{ name: 'E2E (F3)', sha: 'a', ms: 11 * MIN }]);
+      expect(round.failures.map((failure) => [failure.check, failure.attempt, failure.outcome, failure.steps])).toEqual([['E2E (F3)', 1, 'fluke', ['Run the walks']]]);
+      // The re-run's wait is the re-run shard's own, not the earlier wait of the three that were not run again.
+      expect(round.queued.filter((entry) => entry.name === 'E2E (F3)').map((entry) => entry.ms)).toEqual([MIN, 0]);
+    });
+
+    it('reads one E2E (F3) job as it always did: its own queue, its own failure and no family', () => {
+      const round = roundOf([job('E2E (F3)', 0, 2, 12, 'failure', { failure: { steps: ['Run the walks'], record: recordOf('failed') } })]);
+      expect(round.queued).toEqual([{ name: 'E2E (F3)', ms: 2 * MIN }]);
+      expect(round.failures[0]).toMatchObject({ check: 'E2E (F3)', steps: ['Run the walks'], files: ['tests/e2e/find.test.ts'] });
+      expect(round.lanes).toEqual([expect.not.objectContaining({ family: expect.anything() })]);
+    });
+
+    it('reports each shard’s queue under the family, and the family’s figure is the longest wait', () => {
+      const checks = [job('E2E (F3) (1)', 0, 1, 10), job('E2E (F3) (2)', 0, 1.5, 11), job('E2E (F3) (3)', 0, 3, 12), job('E2E (F3) (4)', 0, 2, 13), fanIn(13, 14)];
+      expect(roundOf(checks).queued).toEqual([{ name: 'E2E (F3)', ms: 3 * MIN }]);
+      const { queue } = build([pull({ createdAt: at(-10), mergedAt: at(120), commits: [commit('a', 0, checks)] })]).windows[0];
+      expect(queue).toEqual({ 'E2E (F3)': { median: 3 * MIN, p95: 3 * MIN, count: 1, pulls: 1 } });
+    });
+
+    describe('a family with a job missing from the list is not a shorter family', () => {
+      it.each([
+        { situation: 'a shard whose job list was cut off by the rate limit', checks: [...shards([1, 10], [1, 11]), job('E2E (F3) (3)', 0, 1, 12, 'success', { queue: { state: 'not-recorded', why: 'rate-limit' } }), job('E2E (F3) (4)', 0, 2, 13), fanIn(13, 14)] },
+        { situation: 'a shard absent from the list', checks: [...shards([1, 10], [1, 11], [1, 12]).slice(0, 2), job('E2E (F3) (4)', 0, 2, 13), fanIn(13, 14)] },
+        { situation: 'no fan-in in the list', checks: shards([1, 10], [1, 11], [1, 12], [1, 13]) },
+      ])('reads the family’s queue as not recorded, never the longest of the jobs that were read, where $situation', ({ checks }) => {
+        const round = roundOf(checks);
+        expect(round.queued).toEqual([]);
+        expect(round.queueNotRecorded).toBe(true);
+        expect(build([pull({ createdAt: at(-10), mergedAt: at(120), commits: [commit('a', 0, checks)] })]).windows[0].queue).toBeNull();
+      });
+    });
+  });
 });

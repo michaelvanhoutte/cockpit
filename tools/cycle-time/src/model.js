@@ -82,7 +82,8 @@ export function classify({ status, conclusion }) {
 
 /**
  * The jobs whose attempts upload a record of which test files failed, and the
- * artifact each uploads. Every other check names the step that failed and no files.
+ * artifact each uploads. Every other check names the step that failed and no files. For a shard
+ * family the fan-in is the job of that name and uploads the merged record.
  */
 const RECORD_ARTIFACTS = { Test: 'test-selection-record', 'E2E (F3)': 'e2e-selection-record' };
 
@@ -178,6 +179,119 @@ function attemptsByCheck(checks) {
   const started = (check) => time(check.startedAt) ?? time(check.completedAt) ?? 0;
   for (const attempts of groups.values()) attempts.sort((a, b) => started(a) - started(b) || a.id - b.id);
   return [...groups.values()];
+}
+
+/**
+ * A shard job is named for its family and its index, `E2E (F3) (1)`: the name a matrix job
+ * called `E2E (F3)` over a `shard` dimension gets on GitHub. The family is the fan-in job
+ * that `needs` every shard, named exactly the family (`E2E (F3)`), so the required check and
+ * today's single job keep one name. The family's name ends in something other than a number,
+ * so `E2E (F3)` itself is never read as a shard.
+ */
+const SHARD_NAME = /^(.+) \((\d+)\)$/;
+
+/** The family and index a job name is a shard of, or `null` for a job that is not one. */
+export const shardOf = (name) => {
+  const match = SHARD_NAME.exec(name);
+  return match ? { family: match[1], index: Number(match[2]) } : null;
+};
+
+const startedOrder = (a, b) => (time(a.startedAt) ?? time(a.completedAt) ?? 0) - (time(b.startedAt) ?? time(b.completedAt) ?? 0) || a.id - b.id;
+
+/** The verdict of a family whose fan-in was not read: the worst of what its shards said. */
+function derivedConclusion(members) {
+  const outcomes = members.map(classify);
+  if (outcomes.includes('fail')) return { status: 'completed', conclusion: 'failure' };
+  if (outcomes.includes('running')) return { status: 'in_progress', conclusion: null };
+  if (outcomes.includes('cancelled')) return { status: 'completed', conclusion: 'cancelled' };
+  if (outcomes.every((outcome) => outcome === 'skipped')) return { status: 'completed', conclusion: 'skipped' };
+  if (outcomes.every((outcome) => outcome === 'pass' || outcome === 'skipped')) return { status: 'completed', conclusion: 'success' };
+  return { status: 'completed', conclusion: 'neutral' };
+}
+
+/**
+ * One attempt of a family: its fan-in's verdict and end, its shards' earliest start, and its
+ * shards' own details gathered under its name.
+ *
+ * The queue is the longest wait of any shard, since the round waits for the last one to start;
+ * it reads `not-recorded` where a shard's job list could not be read or the family is not whole
+ * (a shard missing, or no fan-in), never the longest of the shards that happened to be read.
+ */
+function familyAttempt(family, members, fresh, fanIn, complete) {
+  const starts = [...fresh, ...(fanIn ? [fanIn] : [])].map((attempt) => time(attempt.startedAt)).filter((ms) => ms !== null);
+  const ended = fanIn ? fanIn.completedAt : members.every((member) => time(member.completedAt) !== null) ? iso(Math.max(...members.map((member) => time(member.completedAt)))) : null;
+  const verdict = fanIn ? { status: fanIn.status, conclusion: fanIn.conclusion } : derivedConclusion(members);
+
+  const unreadable = members.find((member) => member.queue?.state === 'not-recorded');
+  const waits = fresh.map((member) => ({ member, ms: queuedMs(member) })).filter((wait) => wait.ms !== null);
+  let queue;
+  if (unreadable || !complete) queue = { state: 'not-recorded', why: unreadable?.queue.why ?? 'family-incomplete' };
+  else if (waits.length) {
+    const longest = waits.reduce((most, wait) => (wait.ms > most.ms ? wait : most));
+    queue = { state: 'read', createdAt: longest.member.queue.createdAt, startedAt: longest.member.queue.startedAt };
+  }
+
+  // What a failed attempt names: the steps come from the shards that failed, the record from the fan-in, which merged them.
+  const failing = members.filter((member) => classify(member) === 'fail');
+  const failure = {
+    steps: [...new Set(failing.flatMap((member) => member.failure?.steps ?? []))],
+    record: fanIn?.failure?.record,
+    unreadable: [...failing, ...(fanIn ? [fanIn] : [])].some((attempt) => attempt.failure?.unreadable),
+  };
+
+  return {
+    id: fanIn?.id ?? members[0].id,
+    name: family,
+    suiteId: (fanIn ?? members[0]).suiteId,
+    app: (fanIn ?? members[0]).app,
+    ...verdict,
+    startedAt: starts.length ? iso(Math.min(...starts)) : null,
+    completedAt: ended,
+    ...(queue ? { queue } : {}),
+    failure,
+    family: { shards: members.length, complete },
+  };
+}
+
+/**
+ * The checks of one commit with every shard family folded into one check under the family's name,
+ * for the counts: red, fluke, queue, failure and what held a round. Its attempts are the fan-in's,
+ * the n-th attempt standing for the n-th of each shard (a shard that was not re-run stands in
+ * with its last). The shards themselves stay in the commit's own list, which the round's start,
+ * the runner minutes and the lanes read.
+ */
+function foldFamilies(checks) {
+  const shards = checks.filter((check) => shardOf(check.name));
+  if (shards.length === 0) return checks;
+
+  const families = new Map();
+  for (const shard of shards) {
+    const { family, index } = shardOf(shard.name);
+    const key = `${shard.suiteId}|${family}`;
+    if (!families.has(key)) families.set(key, { family, suiteId: shard.suiteId, byIndex: new Map() });
+    const { byIndex } = families.get(key);
+    if (!byIndex.has(index)) byIndex.set(index, []);
+    byIndex.get(index).push(shard);
+  }
+
+  const folded = [];
+  const replaced = new Set(shards);
+  for (const { family, suiteId, byIndex } of families.values()) {
+    const fanIns = checks.filter((check) => check.suiteId === suiteId && check.name === family).sort(startedOrder);
+    fanIns.forEach((fanIn) => replaced.add(fanIn));
+    const indices = [...byIndex.keys()].sort((a, b) => a - b);
+    const whole = indices.every((index, position) => index === position + 1);
+    const lists = indices.map((index) => byIndex.get(index).sort(startedOrder));
+    const waves = Math.max(fanIns.length, ...lists.map((list) => list.length));
+    for (let wave = 0; wave < waves; wave += 1) {
+      const members = lists.map((list) => list[Math.min(wave, list.length - 1)]);
+      const fanIn = fanIns[wave] ?? null;
+      // A shard that was not re-run stands in with its last attempt, which started and waited in an earlier wave.
+      const fresh = lists.flatMap((list) => (list[wave] ? [list[wave]] : []));
+      folded.push(familyAttempt(family, members, fresh, fanIn, whole && fanIn !== null));
+    }
+  }
+  return [...checks.filter((check) => !replaced.has(check)), ...folded];
 }
 
 /**
@@ -326,6 +440,61 @@ function failuresOf(groups) {
 }
 
 /**
+ * Every job that ran in a round, each its own lane: where it started and stopped inside the
+ * round, and its wait for a runner as a lead before the start. A skipped job, a re-run's copy
+ * of a job that passed and a job cancelled before a runner took it ran nothing and have none.
+ * A re-run of a job is its own lane, `rerun`, after the first.
+ *
+ * `null` where the jobs of the round were not all read: a lane needs its job's creation for
+ * the lead, and a round with a job whose list is missing is not drawn as lanes that
+ * look complete. A lead is cut at the round's start, since nothing before the first job to start
+ * belongs to the round.
+ *
+ * @param {object[]} checks every check run of the round's commit
+ * @param {number} from the round's start, in epoch milliseconds
+ * @param {number} to the round's end
+ */
+function lanesOf(checks, from, to) {
+  const ran = checks.filter((check) => classify(check) !== 'skipped' && !isCopy(check) && !(classify(check) === 'cancelled' && neverStarted(check)));
+  if (ran.some((check) => (check.app == null || check.app === 'github-actions') && check.queue?.state !== 'read')) return null;
+
+  const position = new Map(attemptsByCheck(ran).flatMap((group) => group.map((attempt, index) => [attempt, index])));
+  const families = new Map();
+  for (const check of ran) {
+    const shard = shardOf(check.name);
+    if (shard) families.set(`${check.suiteId}|${shard.family}`, true);
+  }
+
+  return ran
+    .map((check) => {
+      const start = time(check.startedAt);
+      const end = time(check.completedAt) ?? to;
+      if (start === null || start >= to) return null;
+      const offsetMs = Math.max(0, start - from);
+      const ms = Math.max(0, Math.min(end, to) - Math.max(start, from));
+      const waited = queuedMs(check);
+      const shard = shardOf(check.name);
+      const fanIn = !shard && families.has(`${check.suiteId}|${check.name}`);
+      return {
+        name: check.name,
+        ...(shard ? { family: shard.family, shard: shard.index } : fanIn ? { family: check.name, fanIn: true } : {}),
+        attempt: position.get(check) + 1,
+        rerun: position.get(check) > 0,
+        outcome: classify(check),
+        startedAt: iso(start),
+        endedAt: time(check.completedAt) === null ? null : iso(time(check.completedAt)),
+        offsetMs,
+        ms,
+        // The wait is cut at the round's start; `queuedMs` is the whole of it.
+        leadMs: Math.min(waited ?? 0, offsetMs),
+        queuedMs: waited,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.offsetMs - b.offsetMs || a.offsetMs + a.ms - (b.offsetMs + b.ms) || a.name.localeCompare(b.name) || a.attempt - b.attempt);
+}
+
+/**
  * The rounds of a pull request, in push order.
  *
  * A commit no check ran on — or only skipped ones did — is not a round of its
@@ -338,8 +507,9 @@ function buildRounds(commits, mergedAt) {
   const pushes = [];
   let waiting = 0;
   for (const commit of commits) {
-    const groups = attemptsByCheck(commit.checks);
-    const ran = groups.map((attempts) => attempts.filter((attempt) => classify(attempt) !== 'skipped')).filter((attempts) => attempts.length > 0);
+    // A shard family is one check here; the commit's own list still holds every shard, for the round's start.
+    const groups = attemptsByCheck(foldFamilies(commit.checks));
+    const ran =groups.map((attempts) => attempts.filter((attempt) => classify(attempt) !== 'skipped')).filter((attempts) => attempts.length > 0);
     const at = pushTime(commit.checks);
     if (ran.length === 0 || at === null) {
       waiting += 1;
@@ -395,6 +565,7 @@ function buildRounds(commits, mergedAt) {
       // job list could not be read, so the round's queue is missing rather than none.
       queued: push.ran.flat().map((attempt) => ({ name: attempt.name, ms: queuedMs(attempt) })).filter((entry) => entry.ms !== null),
       queueNotRecorded: push.ran.flat().some((attempt) => attempt.queue?.state === 'not-recorded'),
+      lanes: lanesOf(push.commit.checks, push.at, previous),
       commits: push.commits,
     };
   });

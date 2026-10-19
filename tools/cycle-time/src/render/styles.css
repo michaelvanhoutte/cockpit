@@ -122,6 +122,8 @@ td.pr .title { color: var(--ink-2); }
 .swatch.coding { background: var(--coding); }
 .swatch.fixing { background: var(--fixing); }
 .swatch.wait { background: var(--wait); }
+.swatch.lead { background: repeating-linear-gradient(90deg, var(--checks) 0 2px, transparent 2px 5px); }
+.swatch.rerun { background: var(--checks) repeating-linear-gradient(135deg, transparent 0 3px, rgb(255 255 255 / 0.45) 3px 5px); }
 .swatch.away { background: transparent; border: 1px dashed var(--ink-3); }
 .swatch.unrecorded { background: repeating-linear-gradient(135deg, var(--coding) 0 2px, transparent 2px 4px); border: 1px solid var(--coding); }
 
@@ -195,6 +197,15 @@ td.pr .title { color: var(--ink-2); }
 .lane.local-security-review { background: var(--local-security-review); }
 .lane.local-test { background: var(--local-test); }
 .lane.local-browser { background: var(--local-browser); }
+/* A round's jobs: a lane per job from its own start to its own stop, its wait for a runner a dotted lead before it. A failed job is ringed, a re-run hatched. The round's name sits on a chip, since a row of the line can be empty. */
+.lane.job { background: var(--checks); }
+.lane.job.failed { box-shadow: inset 0 0 0 2px var(--bad); }
+.lane.job.rerun { background-image: repeating-linear-gradient(135deg, transparent 0 3px, rgb(255 255 255 / 0.45) 3px 5px); }
+.lane.job.running { opacity: 0.7; }
+.lane.lead { background: repeating-linear-gradient(90deg, var(--checks) 0 2px, transparent 2px 5px); opacity: 0.55; }
+.seg.round.withlanes .cilong, .seg.round.withlanes .cishort { background: var(--raised); color: var(--ink-1); padding: 0 3px; border-radius: 3px; }
+.joblist { margin: 2px 0 4px 16px; padding: 0; list-style: none; color: var(--ink-3); font-size: 11.5px; }
+.joblist li { margin: 0; padding: 0 4px; }
 /* Hatched, so that "not recorded" is a different thing from a coloured stretch,
    and from nothing. */
 .seg.unrecorded { background: repeating-linear-gradient(135deg, var(--coding) 0 3px, transparent 3px 6px); outline: 1px solid var(--coding); outline-offset: -1px; }

@@ -67,6 +67,7 @@ A pull request is one line, cut into parts:
   A queued check's wait is therefore inside the round, not before the push.
 - **A round says what held it.** Each check is charged the time since the previous one finished,
   so two checks in flight together count once, and the last to finish is named (`last`).
+- **A shard family is one check.** A job named for a family and a shard index (`E2E (F3) (1)`, which is what GitHub names a matrix job `E2E (F3)` over a `shard` dimension) belongs to the family `E2E (F3)`, whose fan-in is the job named exactly that. The round names the family, which is red, a fluke, queued or failed once: its attempts are the fan-in's, a failure takes its steps from the failing shards and its record from the fan-in's merged artefact, and its queue is its longest shard's. A family whose list is not whole (a shard missing, no fan-in, a shard's job list unread) has its queue `not-recorded`, never the longest of the shards that were read. One `E2E (F3)` job with no shards reads as it always did.
 - **A round is red when a check ended failed.** What a check ended as is its last attempt, so a
   failure that was re-run to a pass is a **fluke** — same commit, `filter=all` shows the earlier
   attempts — and not a red round. Its cost is the time from the failed attempt finishing to the
@@ -86,6 +87,7 @@ A pull request is one line, cut into parts:
   start before their creation; a copy is neither queued nor run time. A round carries `queued`
   (per check, in ms), and `queueNotRecorded` where a job list could not be read: the pull request
   stays in every figure, and so does one where the rate limit is spent while reading them: the checks not yet read read `not-recorded` with `why: 'rate-limit'` and the run goes on. A CI check outside what the listing of CI runs reaches reads `not-recorded` too (`outside-listing`). Only the CI workflow's runs are read.
+- **A round carries a lane per job that ran** (`lanes`): its start and stop inside the round, and its queue as a lead before the start, cut at the round's start. A skipped job, a re-run's copy and a job cancelled before a runner took it have none; a re-run of a job is its own lane, `rerun`. A round where any job's list was not read has `lanes: null` and draws as one block.
 - **Cancelled runs count the runner minutes they used**, start to end, none if never started. A
   pull request's `cancelled` splits them into `superseded` (a later push arrived before the run
   ended, or within five seconds after, which is how soon a push is seen) and `other`; `runnerMs` is
@@ -174,6 +176,7 @@ evolution panels, coding against the harness, and a strip per pull request.
   hours; a longer one is cut at the edge and says how much it cut. Time away is off the scale.
   Every part sits at its own time and length on it, with no gap added: a slice too short to see is
   drawn 3px wide over what follows it, which still starts at its own time.
+- **A round's jobs are lanes** at their own start and stop, shards beside Checks and Test, each job's lead dotted before it. Jobs that overlapped sit in rows (the busiest on the strip's line, then above, then below); one that began where another ended is in its row after it. A failed job is ringed and a re-run hatched; hover a lane, or open the strip, for its start and stop to the second (UTC). A round with `lanes: null` is the block split by what held it, and its hover says its lanes are not recorded.
 - **A round is a CI Round**, named on the strip by the width it has on screen: "CI Round 1", then
   "CI 1", then only its red or fluke mark (a round with neither shows no name). The list under a
   strip reads "CI Round 1 · …", and the legend defines the term. Hovering a round highlights its
