@@ -203,6 +203,12 @@ describe('a shard of the E2E run', () => {
       assert.equal(empty.shard.walks, 0);
     });
 
+    it('was dealt no walks where the selection starts none, with no report to count them from', () => {
+      const idle = shardRecord(2, [], { plan: selected({}), report: null });
+      assert.equal(idle.shard.walks, 0);
+      assert.equal(tier(idle).report, 'written');
+    });
+
     it('says it left no report where Playwright died before writing one', () => {
       const none = shardRecord(4, [], { report: null });
       assert.equal(tier(none).report, 'none');
@@ -252,6 +258,11 @@ describe('a shard of the E2E run', () => {
         { index: 4, report: 'written', walks: 1 },
       ]);
       assert.match(renderE2eSummary(merged), /5 walks over 4 shards \(2, 1, 1, 1\)/);
+    });
+
+    it('says "unknown" rather than null for a shard whose walks could not be counted', () => {
+      const uncounted = shardRecord(4, ['triage.test.ts'], { report: { suites: [{ file: 'triage.test.ts', specs: [{ ok: true }] }] } });
+      assert.match(renderE2eSummary(mergeE2eRecords([records[0], records[1], records[2], uncounted])), /walks over 4 shards \(2, 1, 1, unknown\)/);
     });
 
     it('takes the records in any order', () => {
@@ -311,8 +322,15 @@ describe('the E2E (F3) check answers for its shards', () => {
     assert.equal(e2eVerdict({ results: results('skipped', 'skipped', 'skipped', 'skipped'), aggregate: 'skipped' }).ok, true);
   });
 
-  it('fails where a shard has no result, as where fewer jobs ran than there are shards', () => {
-    assert.deepEqual(e2eVerdict({ results: results('success', 'success', 'success'), aggregate: 'success' }), { ok: false, message: 'Shard 4 has no result.' });
+  it('fails where a shard has no result and the matrix gave no verdict to stand in for it', () => {
+    assert.deepEqual(e2eVerdict({ results: results('success', 'success', 'success') }), { ok: false, message: 'Shard 4 has no result.' });
+    assert.deepEqual(e2eVerdict({ results: results('success', 'in_progress', 'success', 'success') }), { ok: false, message: 'Shard 2 ended in_progress.' });
+  });
+
+  it('leaves a shard the jobs list does not show, or shows unfinished, to the matrix\'s own verdict', () => {
+    assert.equal(e2eVerdict({ results: results('success', 'success', 'success'), aggregate: 'success' }).ok, true);
+    assert.equal(e2eVerdict({ results: results('success', 'in_progress', 'success', 'success'), aggregate: 'success' }).ok, true);
+    assert.deepEqual(e2eVerdict({ results: results('success', 'success', 'success'), aggregate: 'failure' }), { ok: false, message: 'The shards ended failure.' });
   });
 
   it('answers on the matrix\'s own verdict where the shards\' results could not be read', () => {
@@ -370,6 +388,11 @@ describe('the E2E (F3) jobs in the workflow', () => {
     assert.doesNotMatch(job('e2e'), /name: e2e-selection-record$/m);
     assert.match(job('e2e'), /name: e2e-selection-record-\$\{\{ matrix\.shard \}\}$/m);
     assert.match(job('e2e-result'), /pattern: e2e-selection-record-\*/);
+  });
+
+  it('lets a re-run shard replace its first attempt\'s record, or the fan-in merges the stale one', () => {
+    assert.match(job('e2e'), /name: e2e-selection-record-\$\{\{ matrix\.shard \}\}\n(?: {10}.*\n)*? {10}overwrite: true\n/, 'a shard\'s record upload does not overwrite');
+    assert.match(job('e2e-result'), /name: e2e-selection-record\n(?: {10}.*\n)*? {10}overwrite: true\n/, 'the merged record upload does not overwrite');
   });
 });
 

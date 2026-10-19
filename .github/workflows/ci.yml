@@ -357,6 +357,9 @@ jobs:
           name: e2e-selection-record-${{ matrix.shard }}
           path: e2e-record/record.json
           if-no-files-found: warn
+          # A re-run of this shard alone uploads under the first attempt's name,
+          # which v4 otherwise refuses, leaving the fan-in the failed record.
+          overwrite: true
       # Traces and screenshots are kept on failure only (playwright.config.ts),
       # so this uploads nothing of Playwright's on a green run.
       #
@@ -428,6 +431,8 @@ jobs:
           name: e2e-selection-record
           path: e2e-record/record.json
           if-no-files-found: ignore
+          # The fan-in re-runs with a re-run shard and replaces the merged record.
+          overwrite: true
 
   # Publishes which product concepts own which tests: as a downloadable
   # artifact on every run, and — from `main` only — as the page the `pages` job

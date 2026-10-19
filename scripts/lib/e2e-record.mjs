@@ -102,7 +102,8 @@ export function buildE2eRecord({ event, baseCommit, changedFiles, plan, walks, r
         files,
       },
     ],
-    ...(shard ? { shard: { ...shard, walks: walksDealt(report) } } : {}),
+    // A selection that starts nothing deals nothing; only a run that started and left no report leaves the count unknown.
+    ...(shard ? { shard: { ...shard, walks: started ? walksDealt(report) : 0 } } : {}),
   };
 }
 
@@ -155,6 +156,9 @@ export function mergeE2eRecords(records, total = E2E_SHARDS) {
 /** The shard a job of the E2E (F3) family is, from its name (`E2E (F3) (2)`), or `null` for any other job, the fan-in included. */
 const SHARD_JOB = /^E2E \(F3\) \((\d+)\)$/;
 
+/** A job status GitHub reports before there is a conclusion. */
+const UNFINISHED = new Set(['queued', 'in_progress', 'waiting', 'pending', 'requested']);
+
 /** Each shard's result from the run's jobs (GitHub's `jobs` list): `{ index, result }`, where an unfinished job's result is its status. */
 export function shardResults(jobs) {
   return jobs.flatMap((job) => {
@@ -169,15 +173,20 @@ export function shardResults(jobs) {
  * `aggregate` is the matrix's own verdict (`needs.e2e.result`), which still
  * fails the fan-in where it says so and is all there is without `results`.
  * A shard that passed or was skipped, as on a documentation-only diff, is a
- * pass; anything else is named.
+ * pass; anything else is named. A shard the jobs list does not show, or shows
+ * unfinished, is unknown rather than wrong (a re-run lists only the attempt's
+ * own jobs, and a conclusion can trail the matrix's), so it fails only where
+ * there is no `aggregate` to say how the shards ended.
  */
 export function e2eVerdict({ results, aggregate = null, total = E2E_SHARDS }) {
   const problems = [];
   if (results) {
     for (let index = 1; index <= total; index += 1) {
       const result = results.find((one) => one.index === index)?.result;
-      if (result === undefined) problems.push(`shard ${index} has no result`);
-      else if (result === 'cancelled') problems.push(`shard ${index} was cancelled`);
+      const unknown = result === undefined || UNFINISHED.has(result);
+      if (unknown) {
+        if (aggregate === null) problems.push(result === undefined ? `shard ${index} has no result` : `shard ${index} ended ${result}`);
+      } else if (result === 'cancelled') problems.push(`shard ${index} was cancelled`);
       else if (result === 'failure') problems.push(`shard ${index} failed`);
       else if (result !== 'success' && result !== 'skipped') problems.push(`shard ${index} ended ${result}`);
     }
@@ -209,7 +218,7 @@ export function renderE2eSummary(record) {
     lines.push(`Mode ${tier.mode}${tier.reason ? ` (${reasonText(tier.reason)})` : ''}. ${why}, so which specs ran and how they ended is not recorded.`);
     return lines.join('\n');
   }
-  if (shards.length > 0) lines.push(`${shards.reduce((sum, shard) => sum + shard.walks, 0)} walks over ${shards.length} shards (${shards.map((shard) => shard.walks).join(', ')}).`, '');
+  if (shards.length > 0) lines.push(`${shards.reduce((sum, shard) => sum + (shard.walks ?? 0), 0)} walks over ${shards.length} shards (${shards.map((shard) => shard.walks ?? 'unknown').join(', ')}).`, '');
 
   const count = (status) => tier.files.filter((file) => file.status === status).length;
   lines.push('| Mode | Reason | Ran | Not run | Failed |', '|---|---|---|---|---|');
