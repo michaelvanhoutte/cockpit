@@ -18,6 +18,7 @@
     "test:all": "pnpm -r test:all && pnpm test:scripts && pnpm test:lint && pnpm test:runners && pnpm test:e2e:ceilings && pnpm test:e2e",
     "test:e2e": "playwright test",
     "test:e2e:ceilings": "node scripts/e2e-ceilings.mjs",
+    "test:e2e:budget": "node scripts/e2e-budget.mjs",
     "test:scripts": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/lib/node-test-session-reporter.mjs --test-reporter-destination=stdout scripts/lib/*.test.mjs",
     "test:lint": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/lib/node-test-session-reporter.mjs --test-reporter-destination=stdout tests/lint/*.test.mjs",
     "test:runners": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/lib/node-test-session-reporter.mjs --test-reporter-destination=stdout tests/runners/*.test.mjs",
