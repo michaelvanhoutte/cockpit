@@ -84,6 +84,14 @@ describe('MCP connections', () => {
     });
   });
 
+  describe('the window says what an allowed app can do with your Cockpit', () => {
+    it('says connected apps can capture items and read your items', async () => {
+      showWindow();
+
+      expect(await screen.findByText(/allowed to capture items into your Cockpit and to read your items/)).toBeInTheDocument();
+    });
+  });
+
   describe('the address to paste into claude.ai is this environment’s own', () => {
     it('is the origin the page is on followed by /mcp, and Copy puts exactly that on the clipboard', async () => {
       const user = userEvent.setup();

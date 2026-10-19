@@ -12,6 +12,7 @@ import type {
   RememberedSentenceView,
 } from '@cockpit/shared';
 import type { AccountSnapshot, Answer } from './answer.js';
+import type { FindItemsAsk, FoundPage, PanelToFind } from './find-items.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
@@ -288,6 +289,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>>;
   /** An app connected to this account calling `create_item` ("Connect Claude to Cockpit, and capture an item from it", issue 599) - admitted, or one of too many from that grant. */
   appCaptureArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many'>;
+  /** An app connected to this account calling `find_items` ("Find items in Cockpit from a connected app, over MCP", issue 1240) - admitted, or refused for the minute's limit or the day's. */
+  findItemsArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many-a-minute' | 'too-many-a-day'>;
+  /** One page of the Items a connected app asked `find_items` for. */
+  findItems(accountName: string, ask: FindItemsAsk): Awaitable<Answer<FoundPage>>;
+  /** The Panels of one Workspace, or of every one, by name - what `find_items`' `panel` is read against. */
+  panelsToFind(accountName: string, workspaceId: string | null): Awaitable<Answer<PanelToFind[]>>;
   /** A recording sent to be transcribed ("Hold each account to 20 transcriptions a minute", issue 1043) - admitted, or one of too many from this account. */
   transcriptionArrived(at: string): Awaitable<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
