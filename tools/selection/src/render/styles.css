@@ -68,6 +68,42 @@ td.path, th.path { font-family: var(--mono); font-size: 12.5px; }
 .tag.docsonly { background: #1f2a3a; color: var(--accent); }
 .tag.norecord { background: #23262f; color: var(--ink-3); }
 
+/* The verdict strip, first on the page. */
+.verdict { margin-top: 20px; padding: 14px 18px; border-radius: 12px; border: 1px solid #5a2a2a; background: #231616; }
+.verdict.ok { border-color: #244a33; background: #14211a; }
+.verdict.unread { border-color: var(--line); background: var(--card); }
+.verdict h2 { margin: 0 0 6px; font-size: 16px; }
+.verdict h2 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); margin-right: 8px; vertical-align: middle; }
+.verdict.ok h2 .dot { background: var(--ok); }
+.verdict.unread h2 .dot { background: transparent; border: 1.5px solid var(--ink-3); }
+.verdict ul { margin: 6px 0 0; padding-left: 20px; color: var(--ink-2); }
+.verdict li b { color: var(--ink-1); }
+.verdict .filed { margin-top: 8px; color: var(--ink-3); font-size: 13px; }
+
+/* A bar's verdict on a headline row: red over it, green within, grey unread. Only the 14-day cell carries a verdict class. */
+td.bar { color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
+tr.crossed th { color: var(--bad); }
+tr.crossed td.bar::before, tr.within td.bar::before, tr.unread td.bar::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+tr.crossed td.bar::before { background: var(--bad); }
+tr.within td.bar::before { background: var(--ok); }
+tr.unread td.bar::before { border: 1.5px solid var(--ink-3); }
+.fig.crossed { color: var(--bad); }
+.fig.within { color: var(--ok); }
+.fig.unread { color: var(--ink-3); }
+
+/* What forced a full run: a row per rule, its paths folded below it. */
+tr.rule td { background: #1b1f2b; vertical-align: top; }
+tr.rule td.rulename { font-weight: 600; }
+tr.rule td .advice { display: block; color: var(--ink-3); font-weight: 400; font-size: 12.5px; margin-top: 2px; max-width: 520px; }
+tr.rule.crossed td.num .fig { color: var(--bad); }
+tr.rule.within td.num .fig { color: var(--ok); }
+tr.rule.unread td.num .fig { color: var(--ink-3); }
+td.nested { padding: 0; }
+details.paths > summary { padding: 6px 12px 6px 32px; font-size: 12.5px; color: var(--ink-3); }
+details.paths > summary:hover { color: var(--ink-1); }
+details.paths[open] > summary { margin-bottom: 0; }
+tr.pathrow td.path { padding-left: 32px; color: var(--ink-2); }
+
 .pullrow { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .pullrow:last-child { border-bottom: none; }
 .pullrow .who a { color: var(--ink-1); text-decoration: none; }
