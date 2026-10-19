@@ -1148,7 +1148,7 @@ test.describe('Item editing', () => {
         // form's own already-warm cache would answer from regardless of what
         // the account and this browser actually hold.
         //
-        // **Reloaded rather than reopened through `openInbox`.** `openInbox`
+        // **Reloaded rather than reopened through `openInboxHolding`.** It
         // signs in again, and signing in leaves the application and comes
         // back through the logon page - which clears everything this browser
         // remembers (`session/forget.ts`), the dragged width included. The

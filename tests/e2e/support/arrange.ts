@@ -67,7 +67,7 @@ export async function giveAWorkspace(page: Page, name: string): Promise<Arranged
 export async function giveToTheInbox(
   page: Page,
   titles: string[],
-  workspace: ArrangedWorkspace | undefined = undefined,
+  workspace?: ArrangedWorkspace,
 ): Promise<string[]> {
   const ids: string[] = [];
   for (const message of titles) {
