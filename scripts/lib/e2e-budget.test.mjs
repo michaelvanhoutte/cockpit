@@ -5,7 +5,10 @@
 //
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -69,6 +72,52 @@ describe('a shard\'s walks finish within the tier\'s budget', () => {
     const { ok, message } = checkShardBudget({ report: { stats: { expected: 5, unexpected: 0, flaky: 0 } }, budgetSeconds: BUDGET, shard: SHARD });
     assert.equal(ok, false);
     assert.match(message, /no duration/);
+  });
+
+  it('fails where Playwright started and left no report, or a report without stats, rather than passing unchecked', () => {
+    const gone = checkShardBudget({ report: null, budgetSeconds: BUDGET, shard: SHARD, reportExpected: true });
+    const bare = checkShardBudget({ report: {}, budgetSeconds: BUDGET, shard: SHARD });
+
+    assert.equal(gone.ok, false);
+    assert.match(gone.message, /report is missing/);
+    assert.equal(bare.ok, false);
+    assert.match(bare.message, /holds no stats/);
+  });
+});
+
+describe('the script that reads the shard\'s report', () => {
+  const script = fileURLToPath(new URL('../e2e-budget.mjs', import.meta.url));
+
+  /** Runs the script against a record directory holding `files` (name to text). */
+  function run(files) {
+    const dir = mkdtempSync(join(tmpdir(), 'e2e-budget-'));
+    try {
+      for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+      const { status, stdout, stderr } = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...process.env, E2E_RECORD_DIR: dir, E2E_SHARD: '2/4', GITHUB_ACTIONS: '' } });
+      return { status, output: stdout + stderr };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const record = (report) => JSON.stringify({ packages: [{ report }] });
+
+  it('passes a run inside the budget and fails one past it, by exit code', () => {
+    assert.equal(run({ 'playwright.json': JSON.stringify(report(362)), 'record.json': record('written') }).status, 0);
+    const over = run({ 'playwright.json': JSON.stringify(report(840)), 'record.json': record('written') });
+    assert.equal(over.status, 1);
+    assert.match(over.output, /Shard 2 of 4/);
+  });
+
+  it('passes with no report where the selection started no Playwright, and fails where it started one', () => {
+    assert.equal(run({ 'record.json': record('written') }).status, 0);
+    assert.equal(run({}).status, 0);
+    assert.equal(run({ 'record.json': record('none') }).status, 1);
+  });
+
+  it('fails on a report that is there and cannot be read', () => {
+    const { status, output } = run({ 'playwright.json': '{"stats": {"duration": 12', 'record.json': record('written') });
+    assert.equal(status, 1);
+    assert.match(output, /Could not check/);
   });
 });
 

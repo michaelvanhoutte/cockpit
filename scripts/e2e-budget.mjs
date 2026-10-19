@@ -4,6 +4,9 @@
 // in .github/workflows/ci.yml): reads the duration Playwright reported for this
 // shard, from the JSON report scripts/ci-e2e.mjs writes beside the selection
 // record, and fails when it is past the number in tools/test-explorer/concepts.json.
+// A report that is missing where that record says Playwright started, or that is
+// there and unreadable, fails too: only a selection that started no Playwright
+// passes without one.
 //
 // `E2E_SHARD` (2/4) names the shard in the message; `E2E_RECORD_DIR` moves the
 // report, as it does for scripts/ci-e2e.mjs. The arithmetic is in
@@ -19,17 +22,30 @@ import { budgetIn, checkShardBudget } from './lib/e2e-budget.mjs';
 import { parseShard } from './lib/e2e-record.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const reportFile = join(process.env.E2E_RECORD_DIR ?? join(root, 'e2e-record'), 'playwright.json');
+const recordDir = process.env.E2E_RECORD_DIR ?? join(root, 'e2e-record');
+
+/** The JSON in `file`, `null` where there is no such file; a file that is there and unreadable throws, so a truncated report is a failure and not a pass. */
+function readJsonIfPresent(file) {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
 
 try {
   const { seconds } = budgetIn(JSON.parse(readFileSync(join(root, THE_REGISTRY), 'utf8')));
-  let report = null;
+  const report = readJsonIfPresent(join(recordDir, 'playwright.json'));
+  // The selection record says whether the walks step started Playwright, so a report that is missing then is told apart from a selection that owns no walk.
+  let record = null;
   try {
-    report = JSON.parse(readFileSync(reportFile, 'utf8'));
+    record = readJsonIfPresent(join(recordDir, 'record.json'));
   } catch {
-    // No report: the walks step ran no Playwright (a selection that owns no walk), and the check says so.
+    // An unreadable record leaves the report as the only evidence.
   }
-  const { ok, message } = checkShardBudget({ report, budgetSeconds: seconds, shard: parseShard(process.env.E2E_SHARD) });
+  const reportExpected = record?.packages?.[0]?.report === 'none';
+  const { ok, message } = checkShardBudget({ report, budgetSeconds: seconds, shard: parseShard(process.env.E2E_SHARD), reportExpected });
   if (ok) {
     console.log(message);
   } else {

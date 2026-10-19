@@ -48,19 +48,25 @@ function asDuration(seconds) {
  *
  * A shard that ran no walk passes: Playwright reports a duration for the stack
  * it booted, which is no measure of a tier that was dealt nothing, and a
- * selected run can hand a shard none. Likewise no report at all, which the walks
- * step leaves only where it ran nothing; a walks step that failed never reaches
- * this check (the workflow gates it on that step's success), so one failure is
- * one red.
+ * selected run can hand a shard none. Likewise no report, where the walks step
+ * started no Playwright (`reportExpected` false, the default). Where it did
+ * start one (`reportExpected`, which the selection record says) a missing
+ * report, or one without `stats`, fails: the budget cannot be read, and passing
+ * would let a shard grow unchecked. A walks step that failed never reaches this
+ * check (the workflow gates it on that step's success), so one failure is one
+ * red.
  *
- * @param {{ report: { stats?: { duration?: number, expected?: number, unexpected?: number, flaky?: number } } | null, budgetSeconds: number, shard: { index: number, total: number } | null }} input
+ * @param {{ report: { stats?: { duration?: number, expected?: number, unexpected?: number, flaky?: number } } | null, budgetSeconds: number, shard: { index: number, total: number } | null, reportExpected?: boolean }} input
  * @returns {{ ok: boolean, message: string }}
  */
-export function checkShardBudget({ report, budgetSeconds, shard }) {
+export function checkShardBudget({ report, budgetSeconds, shard, reportExpected = false }) {
   const who = shard ? `Shard ${shard.index} of ${shard.total}` : 'This run';
   const stats = report?.stats;
+  if ((!report && reportExpected) || (report && !stats)) {
+    return { ok: false, message: `${who} started its walks and Playwright's report ${report ? 'holds no stats' : 'is missing'}, so the budget of ${asDuration(budgetSeconds)} cannot be checked.` };
+  }
   const ran = stats ? (stats.expected ?? 0) + (stats.unexpected ?? 0) + (stats.flaky ?? 0) : 0;
-  if (!stats || ran === 0) return { ok: true, message: `${who} ran no walk, so it has no duration to hold to the budget of ${asDuration(budgetSeconds)}.` };
+  if (ran === 0) return { ok: true, message: `${who} ran no walk, so it has no duration to hold to the budget of ${asDuration(budgetSeconds)}.` };
 
   if (!Number.isFinite(stats.duration)) {
     return { ok: false, message: `${who} ran ${ran} walks and Playwright's report holds no duration for them, so the budget of ${asDuration(budgetSeconds)} cannot be checked.` };

@@ -350,8 +350,9 @@ jobs:
       # `e2eShardBudget` in tools/test-explorer/concepts.json. It reads
       # Playwright's own reported duration from the report the step above wrote,
       # never this job's wall clock, which carries the Chromium install and the
-      # runner's start-up. `success()` rather than the default so a shard whose
-      # walks failed shows that one red and not a second one from here.
+      # runner's start-up. `success()` is the default, stated because the steps
+      # around it are `!cancelled()`: a shard whose walks failed shows that one
+      # red and not a second one from here.
       - name: Hold this shard's walks to the time budget
         if: ${{ success() && steps.classify.outputs.product_changed != 'false' }}
         env:
