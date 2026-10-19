@@ -1,6 +1,6 @@
 import { type Locator, type Page, type Response } from '@playwright/test';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
-import type { CommandName, PanelKind } from '@cockpit/shared';
+import type { CommandName } from '@cockpit/shared';
 import {
   arrange,
   giveADashboard,
@@ -8,6 +8,7 @@ import {
   giveToAPanel,
   type ArrangedDashboard,
   type ArrangedPanel,
+  type PanelToGive,
 } from './support/arrange';
 import {
   ADA,
@@ -54,9 +55,6 @@ import {
  * (`./support/arrange`); the page is opened after, so it reads them. The one
  * walk whose title is adding a panel adds its panels by hand.
  */
-
-/** A panel to arrange: its name, or its name and what it holds. */
-type PanelToGive = string | { name: string; kind: PanelKind };
 
 /**
  * An empty dashboard of this walk's own, already open, holding the `panels`
@@ -662,10 +660,10 @@ test.describe('Panels', () => {
       // where it is let go, on a part of the page drawn by something other
       // than the board that captured the pointer.
       const movedAway = answerTo(page, 'move_panel_to_dashboard');
-      // Centred in the bar first, which scrolls sideways once an account has a
-      // few dashboards, and `boundingBox` reports where a tab is without
-      // scrolling to it (`dragTabOnto`, support/app.ts).
-      await dashboardTab(page, elsewhere).evaluate((el) => el.scrollIntoView({ inline: 'center', block: 'nearest' }));
+      // Scrolled to first: the bar scrolls sideways once an account has a few
+      // dashboards, and `boundingBox` reports where a tab is without scrolling
+      // to it (`dragTabOnto`, support/app.ts).
+      await dashboardTab(page, elsewhere).scrollIntoViewIfNeeded();
       await page.mouse.move(
         ...(await centreOf(page.getByRole('region', { name: third }).locator('header'))),
       );
@@ -1429,7 +1427,7 @@ test.describe('Layouts', () => {
     }) => {
       const falcon = uniqueTitle('Project Falcon');
       await ownDashboard(page, isMobile, [falcon]);
-      const rows =page.locator('main [data-panel-row]');
+      const rows = page.locator('main [data-panel-row]');
 
       const week = uniqueTitle('This week');
       const added = answerTo(page, 'save_layout');

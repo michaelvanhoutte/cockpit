@@ -28,6 +28,9 @@ export type ArrangedPanel = { id: string; name: string; itemIds: string[] };
 /** A dashboard given to the workspace, with the panels it was given. */
 export type ArrangedDashboard = { id: string; name: string; panels: ArrangedPanel[] };
 
+/** A panel to give: its name, or its name and what it holds. */
+export type PanelToGive = string | { name: string; kind: PanelKind };
+
 /** The workspace the page is on, read off its address (`/w/<workspace>/...`). */
 function workspaceOf(page: Page): string {
   const found = new URL(page.url()).pathname.match(/^\/w\/([^/]+)/);
@@ -77,7 +80,7 @@ export async function giveADashboard(page: Page, name: string, panelNames: strin
 export async function giveAnEmptyDashboard(
   page: Page,
   name: string,
-  panels: ReadonlyArray<string | { name: string; kind: PanelKind }> = [],
+  panels: PanelToGive[] = [],
 ): Promise<ArrangedDashboard> {
   const { dashboard, arrivedWith } = await addDashboard(page, name);
   await arrange(page, 'delete_panel', { panelId: arrivedWith });
