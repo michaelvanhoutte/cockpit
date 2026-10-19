@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { unplacedText } from '../../../../scripts/lib/e2e-record.mjs';
 import { chainText } from '../model.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -247,7 +248,8 @@ function e2eDetails(e2e) {
     })
     .join('');
   const reason = tier.reason ? ` &middot; ${esc(tier.reason.rule)}${tier.reason.path ? ` (<span class="path">${esc(tier.reason.path)}</span>)` : ''}` : '';
-  return `<p class="rownote">E2E: ${plural(e2e.filesRun, 'spec')} of ${e2e.filesTotal} run &middot; ${esc(tier.mode)}${reason}</p>
+  const unplaced = unplacedText(tier.unplaced ?? []).map((text) => `<p class="rownote">${esc(text)}</p>`).join('');
+  return `<p class="rownote">E2E: ${plural(e2e.filesRun, 'spec')} of ${e2e.filesTotal} run &middot; ${esc(tier.mode)}${reason}</p>${unplaced}
     <table class="pkgtable"><thead><tr><th>Spec</th><th>Result</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 

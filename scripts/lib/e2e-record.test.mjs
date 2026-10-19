@@ -19,7 +19,7 @@ const WALKS = [
   { area: 'Sign-in', where: 'shared.test.ts' },
 ];
 
-const selected = (changedBy) => ({ mode: 'selected', areas: Object.keys(changedBy).sort(), grep: 'x', changedBy });
+const selected = (changedBy, { via = {}, unplaced = [] } = {}) => ({ mode: 'selected', areas: Object.keys(changedBy).sort(), grep: 'x', changedBy, via, unplaced });
 const full = (rule, path = null) => ({ mode: 'full', reason: rule, forced: { rule, path } });
 
 function record(plan, { changedFiles = [], report = { suites: [] }, walks = WALKS } = {}) {
@@ -51,6 +51,27 @@ describe('the E2E record', () => {
     it('is a selecting tier with no forcing reason', () => {
       assert.equal(tier(built).mode, 'changed');
       assert.equal(tier(built).reason, null);
+    });
+  });
+
+  describe('what placed each changed file', () => {
+    it('names the area, the registered file that placed a file placed by its importers, and the changed file', () => {
+      const built = record(selected({ Capture: 'apps/web/src/capture/New.tsx' }, { via: { Capture: 'apps/web/src/capture/Box.tsx' } }));
+      assert.deepEqual(fileNamed(built, 'capture.test.ts').selectedBy, {
+        kind: 'concept',
+        owners: [{ concept: 'Capture', path: 'apps/web/src/capture/New.tsx', via: 'apps/web/src/capture/Box.tsx' }],
+      });
+      assert.ok(renderE2eSummary(built).includes('owned by Capture, through `apps/web/src/capture/Box.tsx`, which depends on `apps/web/src/capture/New.tsx`, changed'));
+    });
+
+    it('says nothing imports a file that selected no walk, so a miss through a computed import is readable', () => {
+      const built = record(selected({}, { unplaced: ['apps/api/src/loaded-by-computed-import.ts'] }), { report: null });
+      assert.deepEqual(tier(built).unplaced, [{ path: 'apps/api/src/loaded-by-computed-import.ts', rule: 'nothing imports it' }]);
+      assert.ok(renderE2eSummary(built).includes('`apps/api/src/loaded-by-computed-import.ts` selected no walk: nothing imports it'));
+    });
+
+    it('names no file as unplaced in a full run', () => {
+      assert.deepEqual(tier(record(full('push to main'))).unplaced, []);
     });
   });
 
@@ -112,7 +133,7 @@ describe('the E2E record', () => {
     });
 
     it('still lists every spec as not run where the areas own no walk, so nothing started', () => {
-      const built = record({ mode: 'selected', areas: [], grep: null, changedBy: {} }, { report: null });
+      const built = record({ mode: 'selected', areas: [], grep: null, changedBy: {}, via: {}, unplaced: [] }, { report: null });
       assert.equal(tier(built).report, 'written');
       assert.ok(tier(built).files.every((file) => file.status === 'not run'));
     });
