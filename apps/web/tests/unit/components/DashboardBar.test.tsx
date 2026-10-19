@@ -17,12 +17,7 @@ import { tipForClick } from '../../../src/shortcutTip';
 import { allItemsFilterId, readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
 import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
 import { filterPills } from '../../../src/components/FilterSummary';
-import {
-  NO_DASHBOARD_FILTER,
-  readDashboardFilter,
-  useFilterBarOpen,
-  writeDashboardFilter,
-} from '../../../src/dashboardFilter';
+import { readDashboardFilter, useFilterBarOpen, writeDashboardFilter } from '../../../src/dashboardFilter';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { A_DESK, A_PHONE, onAScreen } from '../onAScreen';
@@ -31,6 +26,7 @@ import { setPanelsCollapsed, usePanelsCollapsed } from '../../../src/panelsColla
 import { DWELL_MS } from '../../../src/switchWhileDragging';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../../../src/whatThingsAre';
 import { publishBoardRows, withdrawBoardRows } from '../../../src/panels/boardRows';
+import { NO_DASHBOARD_FILTER } from '@cockpit/shared';
 
 /**
  * F1: what is under test is the bar's own behaviour - what it shows, what it

@@ -16,8 +16,9 @@ import {
   type Layout,
   type Panel,
   type Priority,
+  isAPeriod,
 } from '@cockpit/shared';
-import { GROUPING_NAMES, WINDOW_LABELS, isAPeriod } from '../filters';
+import { GROUPING_NAMES, WINDOW_LABELS } from '../filters';
 import { orderedAsDrawn } from '../filterGroups';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';

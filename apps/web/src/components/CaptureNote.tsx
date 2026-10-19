@@ -1,6 +1,14 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { itemLabel, plainWords, uuidv7, type Priority, type Workspace, type WorkspaceSnapshot } from '@cockpit/shared';
+import {
+  itemLabel,
+  plainWords,
+  uuidv7,
+  type Priority,
+  type Workspace,
+  type WorkspaceSnapshot,
+  filingsThatFile,
+} from '@cockpit/shared';
 import { FileOnLine, type FiledOn } from './FileOnLine';
 import { CommandRefused, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, workspacesQuery } from '../api/queries';
@@ -11,7 +19,6 @@ import { stateOf, whatGoesBack, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem, useOpenItem } from '../itemForm';
 import { possibleDuplicatesOf, whenCaptured } from '../duplicates';
-import { filingsThatFile } from '../filing';
 import type { Arrived } from '../shares';
 import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
 import { DueChips, LIT_BUTTON, PriorityFlags, QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';

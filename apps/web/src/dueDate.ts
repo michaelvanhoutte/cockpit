@@ -1,4 +1,4 @@
-import { dayOf } from './filters';
+import { dayOf } from '@cockpit/shared';
 
 /**
  * How near a due date is, as the pill a row wears for it. Replaces the row's
@@ -39,7 +39,7 @@ export const DEADLINE_PILLS: Record<DeadlineLevel, string> = {
  * The pill for a due date, or `null` while it is further off than a week, for
  * no due date, and for anything that is not really a date. Counted in the
  * viewer's own calendar days, the way the Filter's own due-date windows are
- * (`filters.ts`'s `holdsFor`): a date-only string is UTC midnight, and so is
+ * (`packages/shared/src/domain/filters.ts`'s `holdsFor`): a date-only string is UTC midnight, and so is
  * what `dayOf` answers for today, so their difference is a whole number of
  * days.
  *

@@ -121,7 +121,7 @@ describe('Item editing', () => {
    * decision over its two times ("Mark an item In progress, and see since
    * when", issue 568). That the row and a Filter actually ask it is
    * apps/web/tests/unit/components/ItemRow.test.tsx and
-   * apps/web/tests/unit/filters.test.ts.
+   * packages/shared/tests/unit/domain/filters.test.ts.
    */
   describe('an item’s status is worked out from when it started and when it was finished with', () => {
     it.each([
