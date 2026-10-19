@@ -172,9 +172,11 @@ function targetsFor(manifest, subpath) {
     const subpaths = typeof exports === 'object' && !Array.isArray(exports) && Object.keys(exports).some((key) => key.startsWith('.'));
     const map = subpaths ? exports : { '.': exports };
     if (subpath in map) return flatten(map[subpath]);
-    for (const [pattern, value] of Object.entries(map)) {
+    // Node takes the pattern with the longest part before the `*`.
+    const patterns = Object.entries(map).filter(([pattern]) => pattern.includes('*'));
+    patterns.sort(([a], [b]) => b.indexOf('*') - a.indexOf('*'));
+    for (const [pattern, value] of patterns) {
       const star = pattern.indexOf('*');
-      if (star < 0) continue;
       const head = pattern.slice(0, star);
       const tail = pattern.slice(star + 1);
       if (subpath.length >= head.length + tail.length && subpath.startsWith(head) && subpath.endsWith(tail)) {

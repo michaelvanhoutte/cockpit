@@ -45,6 +45,12 @@ describe('every static import form is an edge', () => {
     assert.deepEqual(importing("const load = () => import('./b');").importersOf('b.ts'), ['a.ts']);
   });
 
+  it('a dynamic import with a template literal that substitutes nothing is a literal', () => {
+    const graph = importing('const load = () => import(`./b`);');
+    assert.deepEqual(graph.importersOf('b.ts'), ['a.ts']);
+    assert.deepEqual(graph.computedImports, []);
+  });
+
   it('a computed dynamic import names its file and gives no edge', () => {
     const graph = importing("const load = (name: string) => import(`./${name}`);\nconst other = () => import(path);");
     assert.deepEqual(graph.importersOf('b.ts'), []);
@@ -137,6 +143,20 @@ describe('a specifier resolves as the toolchain does', () => {
     assert.deepEqual(graph.importersOf('packages/shared/src/things/one.ts'), ['apps/web/src/a.ts']);
     assert.deepEqual(graph.importersOf('packages/shared/src/private.ts'), []);
     assert.deepEqual(graph.unresolved, [{ importer: 'apps/web/src/a.ts', specifier: '@cockpit/shared/private' }]);
+  });
+
+  it('a subpath pattern with the longest part before its star wins', () => {
+    const graph = graphOf({
+      'apps/web/src/a.ts': "import '@cockpit/shared/things/one';",
+      'packages/shared/package.json': JSON.stringify({
+        name: '@cockpit/shared',
+        exports: { './*': './src/*.ts', './things/*': './src/deep/*.ts' },
+      }),
+      'packages/shared/src/things/one.ts': '',
+      'packages/shared/src/deep/one.ts': '',
+    });
+    assert.deepEqual(graph.importersOf('packages/shared/src/deep/one.ts'), ['apps/web/src/a.ts']);
+    assert.deepEqual(graph.importersOf('packages/shared/src/things/one.ts'), []);
   });
 
   it('a workspace package whose manifest names no existing entry is unresolved', () => {
