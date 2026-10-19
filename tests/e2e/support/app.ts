@@ -5,6 +5,7 @@ import {
   expect,
   test as base,
   type APIRequestContext,
+  type BrowserContext,
   type Locator,
   type Page,
   type TestInfo,
@@ -13,6 +14,7 @@ import {
 // before the row is picked out. Read rather than repeated, so a change to the
 // gesture cannot leave the walk holding for the old length and passing anyway.
 import { HOLD_MS } from '../../../apps/web/src/hold';
+import { signInProjectOf } from './projects';
 
 /**
  * Shared arrangement for the F3 walks. Not a page-object layer — F3 is
@@ -26,9 +28,13 @@ import { HOLD_MS } from '../../../apps/web/src/hold';
  * `pnpm dev` uses. So a run cannot be affected by what was clicked yesterday,
  * and cannot leave anything in the storage being developed against.
  *
- * Every walk now begins by signing in, because nothing but the logon page works
- * until you have. Cookies are per browser context and Playwright gives each
- * test its own, so a walk is never carrying the sign-in of the one before it.
+ * Every walk begins by signing in, because nothing but the logon page works
+ * until you have. The run signs in once per seeded person per project, ahead of
+ * the walks (`support/sign-in.setup.ts`), and `signIn` loads that session into
+ * the walk's own browser context and opens the app: signing in through the
+ * issuer costs seconds, and a walk about anything else has no use for them.
+ * **A walk that signs out ends the shared session for every walk after it**, so
+ * such a walk signs in through Google itself (`signInThroughGoogle`).
  *
  * **Signing in leaves the application and comes back**, which is the real code
  * flow: the browser is sent to an issuer, chooses a Google account there, and
@@ -266,15 +272,54 @@ export const STARTING_WORKSPACE = 'Workspace 1';
 export const MICHAEL = 'Michael';
 export const ADA = 'Ada';
 
+/** The cookies a sign-in left in the browser, which is all of it: the session is a cookie and nothing else. */
+export type SavedSignIn = { cookies: Parameters<BrowserContext['addCookies']>[0] };
+
 /**
- * Signs in by choosing a name, which is the only way into the app.
+ * Where the session of `name` is saved for the walks project `walks`.
  *
- * Used as arrangement by every walk about something else - the walk about
- * signing in itself asserts its way through these steps rather than calling
+ * **Under the project's output directory**, which Playwright empties at the
+ * start of every run: a session left by an earlier run cannot be loaded by this
+ * one. **Keyed by project** so that the two devices never read each other's.
+ */
+export function signedInStateFile(info: TestInfo, walks: string, name: string): string {
+  return join(info.project.outputDir, 'signed-in', `${walks} ${name}.json`);
+}
+
+/**
+ * Signs in as a seeded person by loading the session the run made for them.
+ *
+ * Used as arrangement by every walk about something else. **It does not sign
+ * out, and a walk that does has ended this session for the walks after it**:
+ * such a walk signs in through Google itself (`signInThroughGoogle`). A walk
+ * about signing in asserts its way through those steps rather than calling
  * this, because a helper that both arranges and asserts is a helper that can
  * make its own test vacuous.
+ *
+ * **A session the Worker refuses is a failure here**, not a walk that starts
+ * signed out: the wait for the landing times out at the logon page.
  */
 export async function signIn(page: Page, name: string, isMobile: boolean): Promise<void> {
+  const info = test.info();
+  const file = signedInStateFile(info, info.project.name, name);
+  if (!existsSync(file)) {
+    throw new Error(
+      `no saved sign-in of ${name} at ${file}: the setup project "${signInProjectOf(info.project.name)}" writes it before the walks, so run the walks with it`,
+    );
+  }
+  const { cookies } = JSON.parse(readFileSync(file, 'utf8')) as SavedSignIn;
+  await page.context().addCookies(cookies);
+  await page.goto('/');
+  await waitForFirstScreen(page);
+  await pastCapture(page, isMobile);
+}
+
+/**
+ * Signs in through the issuer as a seeded person and goes on into the app: for a
+ * walk that signs out or otherwise ends the session, which must not end the one
+ * every other walk loads.
+ */
+export async function signInThroughGoogle(page: Page, name: string, isMobile: boolean): Promise<void> {
   await signInToFirstScreen(page, name, isMobile);
   await pastCapture(page, isMobile);
 }
@@ -302,9 +347,7 @@ export async function pastCapture(page: Page, isMobile: boolean): Promise<void> 
  * account and returning leaves the caller on the issuer, mid-redirect, and
  * whatever it asserts next is asked of a page the app has not drawn - which is
  * a walk that fails saying it could not find a heading rather than that it
- * never arrived. `or` is one wait with one timeout, where two raced against
- * each other would settle on the first to *time out* as readily as on the first
- * to appear.
+ * never arrived.
  */
 export async function signInToFirstScreen(
   page: Page,
@@ -314,10 +357,16 @@ export async function signInToFirstScreen(
   await page.goto('/signin');
   await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
   await press(page.getByRole('link', { name: addressOf(name), exact: true }), isMobile);
-  await dashboardBar(page)
-    .or(captureBox(page))
-    .first()
-    .waitFor({ state: 'visible' });
+  await waitForFirstScreen(page);
+}
+
+/**
+ * Waits for one of the two landings, the dashboard or Capture. `or` is one wait
+ * with one timeout, where two raced against each other would settle on the
+ * first to *time out* as readily as on the first to appear.
+ */
+async function waitForFirstScreen(page: Page): Promise<void> {
+  await dashboardBar(page).or(captureBox(page)).first().waitFor({ state: 'visible' });
 }
 
 /**
@@ -332,11 +381,20 @@ export async function signInToFirstScreen(
  * **It arranges and does not assert**, unlike `signIn` above: whether somebody
  * added a moment ago can actually get in is the claim its walk is making, so
  * waiting for the app here would make that walk prove itself.
+ *
+ * `name` is what Google calls them, typed into the issuer's own box; left out,
+ * the issuer derives one from the address.
  */
-export async function signInWith(page: Page, address: string, isMobile: boolean): Promise<void> {
+export async function signInWith(
+  page: Page,
+  address: string,
+  isMobile: boolean,
+  name?: string,
+): Promise<void> {
   await page.goto('/signin');
   await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
   await page.getByPlaceholder('somebody@example.com').fill(address);
+  if (name !== undefined) await page.getByPlaceholder('Their name at Google').fill(name);
   await press(page.getByRole('button', { name: 'Continue' }), isMobile);
 }
 

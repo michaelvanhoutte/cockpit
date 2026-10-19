@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { THE_WAY, tabsPressedWithoutWaiting } from './e2e-conventions.mjs';
+import { THE_SIGN_IN_SPEC, THE_WAY, issuerDrivenByHand, tabsPressedWithoutWaiting } from './e2e-conventions.mjs';
 
 const walks = join(dirname(fileURLToPath(import.meta.url)), '../../tests/e2e');
 
@@ -62,6 +62,66 @@ describe('the browser walks', () => {
       [],
       `press a workspace tab through ${THE_WAY} (tests/e2e/support/app.ts), which waits for the ` +
         `switch to land - otherwise the walk acts on the workspace it just left:\n  ${offences.join('\n  ')}`,
+    );
+  });
+});
+
+describe('issuerDrivenByHand', () => {
+  it('names the press of Continue with Google, with its line', () => {
+    const found = issuerDrivenByHand(
+      [
+        "await page.goto('/signin');",
+        "await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);",
+      ].join('\n'),
+    );
+    assert.deepEqual(found, [
+      { line: 2, text: "await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);" },
+    ]);
+  });
+
+  it('names the link held in a variable, and one pressed over several lines, where it is taken hold of', () => {
+    const found = issuerDrivenByHand(
+      [
+        "const google = page.getByRole('link', { name: 'Continue with Google' });",
+        'await press(google, isMobile);',
+        'await press(',
+        "  page.getByRole('link', { name: 'Continue with Google' }),",
+        '  isMobile,',
+        ');',
+      ].join('\n'),
+    );
+    assert.deepEqual(
+      found.map((f) => f.line),
+      [1, 4],
+    );
+  });
+
+  it('leaves every other press alone, a look at the logon page, and a comment about it', () => {
+    const source = [
+      "await press(page.getByRole('link', { name: 'Continue as guest' }), isMobile);",
+      'await signIn(page, MICHAEL, isMobile);',
+      "await expect(page.getByRole('link', { name: 'Continue with Google' })).toBeVisible();",
+      '// The logon page offers Continue with Google and nothing else.',
+      ' * A walk about the logon page sees Continue with Google and never presses it.',
+    ].join('\n');
+    assert.deepEqual(issuerDrivenByHand(source), []);
+  });
+});
+
+describe('the browser walks and the issuer', () => {
+  it(`are signed in through signIn, except ${THE_SIGN_IN_SPEC}`, () => {
+    const offences = readdirSync(walks, { recursive: true })
+      .filter((name) => name.endsWith('.test.ts') && name !== THE_SIGN_IN_SPEC)
+      .flatMap((name) =>
+        issuerDrivenByHand(readFileSync(join(walks, name), 'utf8')).map(
+          (found) => `${name}:${found.line}  ${found.text}`,
+        ),
+      );
+    assert.deepEqual(
+      offences,
+      [],
+      `sign in through signIn (tests/e2e/support/app.ts), which loads the sign-in the run made once per ` +
+        `person - only ${THE_SIGN_IN_SPEC} drives the issuer:\n  ${offences.join('\n  ')}`,
     );
   });
 });

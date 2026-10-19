@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 import { isLinkedWorktree, portsFor } from './scripts/lib/ports.mjs';
+import { signInProjectOf } from './tests/e2e/support/projects';
 
 /**
  * F3, the end-to-end tier — the level definitions and the directory
@@ -128,8 +129,15 @@ export default defineConfig({
   },
 
   projects: [
-    { name: 'desktop', use: { ...desktop } },
-    { name: 'phone', use: { ...phone } },
+    // Each device signs the seeded people in once, before its walks
+    // (tests/e2e/support/sign-in.setup.ts), because signing in through the
+    // issuer costs seconds a walk and `signIn` can load the session instead. A
+    // setup project of its own per device, on that device, because the session
+    // is saved under the device's name and a phone's walks never read a desk's.
+    { name: signInProjectOf('desktop'), testMatch: /sign-in\.setup\.ts$/, use: { ...desktop } },
+    { name: signInProjectOf('phone'), testMatch: /sign-in\.setup\.ts$/, use: { ...phone } },
+    { name: 'desktop', use: { ...desktop }, dependencies: [signInProjectOf('desktop')] },
+    { name: 'phone', use: { ...phone }, dependencies: [signInProjectOf('phone')] },
   ],
 
   ...(drivingLocalStack
