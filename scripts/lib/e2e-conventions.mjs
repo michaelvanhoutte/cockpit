@@ -10,6 +10,10 @@
 // 2. Only the sign-in walks drive the issuer. The run signs in once per person
 //    per project and every other walk takes that through `signIn`; a walk that
 //    signs in again by hand pays the seconds the shared sign-in exists to save.
+// 3. Only Capture's own walks capture through the UI. Any other walk puts the
+//    items it needs there through the commands API as the signed-in person
+//    (tests/e2e/support/arrange.ts), because capturing through the capture box
+//    is seconds of arrangement before the walk reaches what it proves.
 //
 // Here rather than in the suite: it is a read of source text, so it needs no
 // browser, no stack and no install, and the checkout-only Scripts step already
@@ -64,6 +68,66 @@ export function issuerDrivenByHand(source) {
   source.split('\n').forEach((text, index) => {
     if (!text.includes('Continue with Google') || /\bexpect\(/.test(text) || /^\s*(?:\/\/|\/?\*)/.test(text)) return;
     found.push({ line: index + 1, text: text.trim() });
+  });
+  return found;
+}
+
+/** The feature area whose walks capture through the UI because capturing is what they prove. */
+export const THE_CAPTURING_AREA = 'Capture';
+
+/**
+ * The walks that have not yet been rewritten to arrange through the API, each
+ * held at the number of UI captures it makes today.
+ *
+ * **The list only shrinks.** A file captures no more than its number, and
+ * drops off the list in the pull request that removes its last one: the check
+ * fails on an entry that is stale, naming the number to write, so a rewrite
+ * cannot leave its file exempt. A walk not named here has none to make.
+ */
+export const STILL_CAPTURING_BY_HAND = {
+  'agents.test.ts': { calls: 2, rewrittenWhen: 'next touched' },
+  'copy-item-link.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
+  'dashboards.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
+  'duplicates.test.ts': { calls: 5, rewrittenWhen: 'next touched' },
+  'filing.test.ts': { calls: 13, rewrittenWhen: 'issue 1284' },
+  'inbox.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
+  'item-editing.test.ts': { calls: 15, rewrittenWhen: 'issue 1285' },
+  'panels.test.ts': { calls: 3, rewrittenWhen: 'issue 1284' },
+  'screen-edges.test.ts': { calls: 5, rewrittenWhen: 'next touched' },
+  'sign-in.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
+  'triage.test.ts': { calls: 7, rewrittenWhen: 'next touched' },
+};
+
+/**
+ * Every use of the `capture(...)` helper in one file's source that sits outside
+ * the walks of the `Capture` area, as `{ line, text }`.
+ *
+ * **The helper is the one door**: it fills the capture box and waits for the
+ * Inbox, so a walk calling it spends its seconds there and not on what it
+ * proves. The walks about capturing fill the capture box themselves, since
+ * that is the behaviour they drive, and a read of source text cannot tell that
+ * from arranging - so it is the helper that is named.
+ *
+ * An area is a `describe('Capture', ...)` block, found by indentation: the
+ * block ends at the `});` that closes it at the column it opened on, which is
+ * where the formatter puts it. The helper's own definition and a comment are
+ * not uses.
+ */
+export function capturedThroughTheUi(source) {
+  const found = [];
+  let closesWith = null;
+  source.split('\n').forEach((raw, index) => {
+    const text = raw.replace(/\r$/, '');
+    if (closesWith === null) {
+      const opens = text.match(new RegExp(`^(\\s*)(?:test\\.)?describe\\(\\s*['"]${THE_CAPTURING_AREA}['"]`));
+      if (opens) closesWith = `${opens[1]}});`;
+    } else if (text === closesWith) {
+      closesWith = null;
+      return;
+    }
+    if (closesWith !== null) return;
+    if (/\bfunction\s+capture\(/.test(text) || /^\s*(?:\/\/|\/?\*)/.test(text)) return;
+    if (/(?<![\w.])capture\(/.test(text)) found.push({ line: index + 1, text: text.trim() });
   });
   return found;
 }

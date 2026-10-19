@@ -1,11 +1,10 @@
 import { type Page } from '@playwright/test';
+import { giveADashboard, giveToAPanel, giveToTheInbox } from './support/arrange';
 import {
   ADA,
-  capture,
   choosePanelAction,
   dashboardBar,
   expect,
-  fileOnto,
   holdRow,
   inbox,
   itemRow,
@@ -41,32 +40,40 @@ import {
  * same gesture: a long press starts a selection on either, and every later
  * pick is a ctrl/cmd-click on desktop or a tap on a phone. The range stays
  * desktop-only, because a shift-click is not something a phone can make.
+ *
+ * **Every walk arranges its rows and panels through the API** and drives only
+ * selection through the UI (`./support/arrange`); the page is opened after, so
+ * it reads them. That the Inbox and the dashboard show what was given is what
+ * these walks stand on, and they would not start without it.
  */
 
-/** A panel added to the dashboard on screen, named for this walk. */
-async function addPanel(page: Page, label: string, isMobile: boolean): Promise<string> {
-  const panel = uniqueTitle(label);
-  await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
-  await page.getByLabel('Name of the new panel').fill(panel);
-  await page.getByLabel('Name of the new panel').press('Enter');
-  await expect(page.getByRole('region', { name: panel })).toBeVisible();
-  return panel;
-}
-
-/** An empty dashboard of this walk's own, with one panel on it. */
+/**
+ * A dashboard of this walk's own with one panel on it, and `inInbox` given to
+ * the Inbox, all arranged through the API and then read by opening the page,
+ * with the dashboard on screen. This walk is about selecting, so what it
+ * selects is not made through the capture box.
+ */
 async function ownDashboardWithAPanel(
   page: Page,
   isMobile: boolean,
+  inInbox: string[],
 ): Promise<{ dashboard: string; panel: string }> {
-  const dashboard = uniqueTitle('Today');
   await signIn(page, ADA, isMobile);
-  await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
-  await page.getByLabel('Name of the new dashboard').fill(dashboard);
-  await page.getByLabel('Name of the new dashboard').press('Enter');
-  await expect(dashboardBar(page).getByRole('link', { name: dashboard })).toBeVisible();
+  const board = await giveADashboard(page, uniqueTitle('Today'), [uniqueTitle('Falcon')]);
+  await giveToTheInbox(page, inInbox);
+  await page.reload();
+  await goToTheDashboard(page, board.name, isMobile);
+  const panel = board.panels[0]!.name;
+  await expect(page.getByRole('region', { name: panel })).toBeVisible();
+  return { dashboard: board.name, panel };
+}
 
-  const panel = await addPanel(page, 'Falcon', isMobile);
-  return { dashboard, panel };
+/** The Inbox's rows put in front of the page: arranged, the page opened afterwards, the Inbox on screen. */
+async function signedInWithInboxRows(page: Page, isMobile: boolean, titles: string[]): Promise<void> {
+  await signIn(page, ADA, isMobile);
+  await giveToTheInbox(page, titles);
+  await page.reload();
+  await goToTheInbox(page, isMobile);
 }
 
 /**
@@ -87,31 +94,40 @@ async function goToTheDashboard(page: Page, dashboard: string, isMobile: boolean
 /**
  * A dashboard of this walk's own with three panels - Falcon holding two rows,
  * Reading one and Done none - and a fourth row left in the Inbox, with the
- * dashboard on screen. Falcon's two are filed together, as one selection, so
- * they hold the order every walk after it reads them back in.
+ * dashboard on screen. All of it is given through the API, Falcon's two in the
+ * order every walk after it reads them back in.
  */
 async function picksOnTwoPanels(page: Page, isMobile: boolean) {
-  const { dashboard, panel: falcon } = await ownDashboardWithAPanel(page, isMobile);
-  const reading = await addPanel(page, 'Reading', isMobile);
-  const done = await addPanel(page, 'Done', isMobile);
   const [first, second, third, inInbox] = [
     uniqueTitle('Reply to Bart'),
     uniqueTitle('Renew the domain'),
     uniqueTitle('Chase the purchase order'),
     uniqueTitle('Left in the Inbox'),
   ] as const;
-  await goToTheInbox(page, isMobile);
-  for (const title of [first, second, third, inInbox]) await capture(page, title, isMobile);
-  await startSelecting(page, first, isMobile);
-  await addToSelection(page, second, isMobile);
-  await page.getByRole('button', { name: 'Move to…' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: falcon, exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await fileOnto(page, third, reading, isMobile);
-  await goToTheDashboard(page, dashboard, isMobile);
+  await signIn(page, ADA, isMobile);
+  const board = await giveADashboard(page, uniqueTitle('Today'), [
+    uniqueTitle('Falcon'),
+    uniqueTitle('Reading'),
+    uniqueTitle('Done'),
+  ]);
+  const [falconPanel, readingPanel, donePanel] = [board.panels[0]!, board.panels[1]!, board.panels[2]!];
+  await giveToAPanel(page, falconPanel, [first, second]);
+  await giveToAPanel(page, readingPanel, [third]);
+  await giveToTheInbox(page, [inInbox]);
+  await page.reload();
+  await goToTheDashboard(page, board.name, isMobile);
+  const [falcon, reading, done] = [falconPanel.name, readingPanel.name, donePanel.name];
+  for (const panel of [falcon, reading, done]) {
+    await expect(page.getByRole('region', { name: panel })).toBeVisible();
+  }
   await expect.poll(() => itemsOn(page, falcon)).toEqual([first, second]);
   await expect.poll(() => itemsOn(page, reading)).toEqual([third]);
-  return { dashboard, falcon, reading, done, first, second, third, inInbox };
+  // Beside the dashboard at a desk: the row left in the Inbox is there, and the filed three are not.
+  if (!isMobile) {
+    await expect(inbox(page).getByText(inInbox)).toBeVisible();
+    for (const title of [first, second, third]) await expect(inbox(page).getByText(title)).toHaveCount(0);
+  }
+  return { dashboard: board.name, falcon, reading, done, first, second, third, inInbox };
 }
 
 /**
@@ -187,12 +203,11 @@ test.describe('Selection', () => {
       page,
       isMobile,
     }) => {
-      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
       const first = uniqueTitle('Reply to Bart');
       const second = uniqueTitle('Renew the domain');
       const third = uniqueTitle('Chase the purchase order');
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile, [first, second, third]);
       await goToTheInbox(page, isMobile);
-      for (const title of [first, second, third]) await capture(page, title, isMobile);
 
       // With a pointer one picked row is highlighted and draws no bar, and the
       // second brings it; a phone's long press brings it at once.
@@ -247,10 +262,9 @@ test.describe('Selection', () => {
       // rather than to the panel: a panel taller than what is left of the
       // screen otherwise puts the bar below the fold. The screen is cut short
       // here to make the panel that tall.
-      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
       const titles = [uniqueTitle('Reply to Bart'), uniqueTitle('Renew the domain')];
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile, titles);
       await goToTheInbox(page, isMobile);
-      for (const title of titles) await capture(page, title, isMobile);
       // Cut short before the filing rather than after it, so as little as
       // possible stands between the undo offer appearing and it being read
       // below: it goes after ten seconds.
@@ -446,12 +460,9 @@ test.describe('Selection', () => {
     });
 
     test('offers the same Edit from the Inbox’s bar', async ({ page, isMobile }) => {
-      await signIn(page, ADA, isMobile);
       const inInbox = uniqueTitle('Left in the Inbox');
-      await goToTheInbox(page, isMobile);
       const alongside = uniqueTitle('Also in the Inbox');
-      await capture(page, inInbox, isMobile);
-      await capture(page, alongside, isMobile);
+      await signedInWithInboxRows(page, isMobile, [inInbox, alongside]);
       await startSelecting(page, inInbox, isMobile);
       await addToSelection(page, alongside, isMobile);
       await chooseFromEdit(page, 'Priority', 'High', isMobile);
@@ -475,9 +486,7 @@ test.describe('Selection', () => {
       const first = uniqueTitle('Reply to Bart');
       const second = uniqueTitle('Renew the domain');
       const third = uniqueTitle('Chase the purchase order');
-      await signIn(page, ADA, isMobile);
-      await goToTheInbox(page, isMobile);
-      for (const title of [first, second, third]) await capture(page, title, isMobile);
+      await signedInWithInboxRows(page, isMobile, [first, second, third]);
 
       await itemRow(page, first).click();
       await expect(itemRow(page, first)).toHaveClass(/row-picked/);
@@ -513,9 +522,7 @@ test.describe('Selection', () => {
     }) => {
       const title = uniqueTitle('Reply to Bart');
       const other = uniqueTitle('Renew the domain');
-      await signIn(page, ADA, isMobile);
-      await goToTheInbox(page, isMobile);
-      for (const one of [title, other]) await capture(page, one, isMobile);
+      await signedInWithInboxRows(page, isMobile, [title, other]);
 
       await startSelecting(page, title, isMobile);
       await addToSelection(page, other, isMobile);
