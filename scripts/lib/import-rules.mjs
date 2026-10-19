@@ -23,34 +23,43 @@ const slash = (path) => path.split(sep).join('/');
 
 /**
  * Every module specifier a file names - static, type-only, re-exported or
- * dynamic - with whether it only names types.
+ * dynamic with a literal - with whether it only names types, and the line of
+ * each dynamic import whose argument is computed, which names no specifier.
  * @param {string} path
  * @param {string} text
- * @returns {{ specifier: string, typeOnly: boolean }[]}
+ * @returns {{ specifiers: { specifier: string, typeOnly: boolean }[], computed: number[] }}
  */
-export function specifiersOf(path, text) {
+export function importsOf(path, text) {
   const kind = path.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, false, kind);
-  const found = [];
+  const specifiers = [];
+  const computed = [];
   const visit = (node) => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const clause = node.importClause;
-      found.push({ specifier: node.moduleSpecifier.text, typeOnly: Boolean(clause?.isTypeOnly) });
+      specifiers.push({ specifier: node.moduleSpecifier.text, typeOnly: Boolean(clause?.isTypeOnly) });
     } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      found.push({ specifier: node.moduleSpecifier.text, typeOnly: node.isTypeOnly });
-    } else if (
-      ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      node.arguments[0] &&
-      ts.isStringLiteral(node.arguments[0])
-    ) {
-      found.push({ specifier: node.arguments[0].text, typeOnly: false });
+      specifiers.push({ specifier: node.moduleSpecifier.text, typeOnly: node.isTypeOnly });
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0]) {
+      const [argument] = node.arguments;
+      if (ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument)) specifiers.push({ specifier: argument.text, typeOnly: false });
+      else computed.push(file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1);
     }
     ts.forEachChild(node, visit);
   };
   visit(file);
-  return found;
+  return { specifiers, computed };
 }
+
+/**
+ * Every module specifier a file names - static, type-only, re-exported or
+ * dynamic with a literal - with whether it only names types. A computed
+ * dynamic import names none; `importsOf` reports those.
+ * @param {string} path
+ * @param {string} text
+ * @returns {{ specifier: string, typeOnly: boolean }[]}
+ */
+export const specifiersOf = (path, text) => importsOf(path, text).specifiers;
 
 const LITERAL_KINDS = new Set([
   ts.SyntaxKind.StringLiteral,
