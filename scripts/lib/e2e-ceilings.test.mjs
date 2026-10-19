@@ -167,4 +167,23 @@ describe('the size of the browser tier is held per product area', () => {
       ['Triage', 'Triage'],
     );
   });
+
+  it('counts no walk from a setup file, which the runner lists beside the walks', () => {
+    const file = 'support/sign-in.setup.ts';
+    const setup = ['desktop sign-in', 'phone sign-in'].map((projectName) => ({
+      title: 'sign in Michael',
+      file,
+      line: 19,
+      column: 8,
+      tests: [{ projectName }],
+    }));
+    const review = reviewTheTier(
+      { suites: [{ title: file, file, specs: setup }, ...listing('triage.test.ts', { Triage: { 'a rule': ['a walk'] } }).suites] },
+      { Triage: 1 },
+    );
+
+    assert.equal(review.walks, 1);
+    assert.deepEqual(review.unbudgeted, []);
+    assert.equal(review.held, true);
+  });
 });

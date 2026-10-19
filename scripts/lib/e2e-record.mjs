@@ -8,8 +8,11 @@
 // package (`e2e`) and each spec file as one of its files, so tools/selection
 // reads either with the same functions. What differs is why a file ran: not an
 // import chain but `{ kind: 'concept', owners }`, the product area that owns its
-// walks and the changed file that area owns (planE2eRun's `changedBy`). A `full`
-// run carries the plan's own `{ rule, path }` and no per-file reason.
+// walks and the changed file that area owns (planE2eRun's `changedBy`), with the
+// registered file that placed it (`via`) where the changed file was placed by its
+// importers. A changed file that selected no walk is named in the tier's
+// `unplaced` with the rule, so a miss is readable. A `full` run carries the
+// plan's own `{ rule, path }` and no per-file reason.
 //
 // Pure: no git, no filesystem, no process.env, so each rule is asserted by
 // `node --test` without a browser.
@@ -17,6 +20,9 @@
 
 import { isNonProduct } from './what-changed.mjs';
 import { SPECS } from './test-selection.mjs';
+
+/** Why a changed file selected no walk, as the record keeps it. */
+export const NOTHING_IMPORTS_IT = 'nothing imports it';
 
 /** Every spec file the Playwright JSON report (`--reporter=json`) records a failed walk in, as the path the listing gives: relative to tests/e2e. */
 export function failedSpecFiles(report) {
@@ -84,7 +90,16 @@ export function buildE2eRecord({ event, baseCommit, changedFiles, plan, walks, r
     const selectedAreas = own.filter((area) => areas.has(area)).sort();
     const ran = (!selecting || selectedAreas.length > 0) && (!dealt || dealt.has(where));
     const entry = { path: `${SPECS}${where}`, level: 'e2e', status: !ran ? 'not run' : failed.has(where) ? 'failed' : 'passed' };
-    if (selecting && ran) entry.selectedBy = { kind: 'concept', owners: selectedAreas.map((concept) => ({ concept, path: plan.changedBy?.[concept] ?? null })) };
+    if (selecting && ran) {
+      entry.selectedBy = {
+        kind: 'concept',
+        owners: selectedAreas.map((concept) => {
+          const owner = { concept, path: plan.changedBy?.[concept] ?? null };
+          if (plan.via?.[concept]) owner.via = plan.via[concept];
+          return owner;
+        }),
+      };
+    }
     return entry;
   });
 
@@ -99,6 +114,7 @@ export function buildE2eRecord({ event, baseCommit, changedFiles, plan, walks, r
         mode: selecting ? 'changed' : 'full',
         reason: selecting ? null : plan.forced,
         report: started && !report ? 'none' : 'written',
+        unplaced: selecting ? (plan.unplaced ?? []).map((path) => ({ path, rule: NOTHING_IMPORTS_IT })) : [],
         files,
       },
     ],
@@ -226,9 +242,19 @@ export function e2eVerdict({ results, aggregate = null, total = E2E_SHARDS }) {
   return problems.length === 0 ? { ok: true, message: `All ${total} shards passed.` } : { ok: false, message: `${problems.join('; ')}.`.replace(/^./, (letter) => letter.toUpperCase()) };
 }
 
-/** A reason in words: `owned by Capture (path)`, joined where a file's walks sit under several selected areas. */
+/** A reason in words: `owned by Capture (path)`, joined where a file's walks sit under several selected areas. A changed file placed by its importers names the registered file that owns the area. */
 export function ownersText(selectedBy) {
-  return selectedBy.owners.map(({ concept, path }) => (path ? `owned by ${concept}, which \`${path}\` changed` : `owned by ${concept}`)).join('; ');
+  return selectedBy.owners
+    .map(({ concept, path, via }) => {
+      if (!path) return `owned by ${concept}`;
+      return via ? `owned by ${concept}, through \`${via}\`, which depends on \`${path}\`, changed` : `owned by ${concept}, which \`${path}\` changed`;
+    })
+    .join('; ');
+}
+
+/** The files a changed file placed nothing from, in words: `` `path` selected no walk: nothing imports it``. */
+export function unplacedText(unplaced) {
+  return unplaced.map(({ path, rule }) => `\`${path}\` selected no walk: ${rule}`);
 }
 
 function reasonText(reason) {
@@ -263,6 +289,8 @@ export function renderE2eSummary(record) {
     }
     lines.push('');
   }
+
+  if (tier.unplaced?.length > 0) lines.push(...unplacedText(tier.unplaced).map((text) => `- ${text}`), '');
 
   return lines.join('\n');
 }

@@ -7,6 +7,9 @@
 // decision is tested there without a browser; this is orchestration only, the
 // split scripts/ci-test.mjs uses.
 //
+// The import graph (scripts/lib/import-graph.mjs) is read here, inside the same
+// `try` as the plan, and its size and unresolved imports are logged.
+//
 // Reproducing a selection by hand: `GITHUB_EVENT_NAME=pull_request` on a
 // checkout of a pull request's merge commit.
 //
@@ -26,9 +29,9 @@ import { fileURLToPath } from 'node:url';
 import { walksIn } from './lib/e2e-ceilings.mjs';
 import { buildE2eRecord, parseShard, renderE2eSummary } from './lib/e2e-record.mjs';
 import { planE2eRun } from './lib/e2e-selection.mjs';
+import { packagesOf, readImportGraph } from './lib/import-graph.mjs';
 import { placeMergeBase } from './lib/merge-base.mjs';
 import { paint, pnpmWorkspaceList } from './lib/processes.mjs';
-import { testablePackages } from './lib/workspace.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const shell = process.platform === 'win32';
@@ -55,14 +58,27 @@ function playwright(args) {
 const event = process.env.GITHUB_EVENT_NAME ?? '';
 const { mergeBase, changedFiles } = placeMergeBase(event, (args) => capture('git', args), (message) => console.error(paint('33', message)));
 
+/** The graph's size and what it could not read, on one line, naming each unresolved specifier and computed import so a miss is traceable from the log. */
+function graphLine({ filesRead, unresolved, computedImports }, ms) {
+  const named = [
+    ...unresolved.map(({ importer, specifier }) => `${importer} imports ${specifier}`),
+    ...computedImports.map(({ file, line }) => `${file}:${line} imports a computed specifier`),
+  ];
+  const counts = `${filesRead} files read, ${unresolved.length} unresolved specifiers, ${computedImports.length} computed imports, in ${(ms / 1000).toFixed(1)}s`;
+  return [`Import graph: ${counts}${named.length > 0 ? ':' : '.'}`, ...named.map((line) => `  ${line}`)].join('\n');
+}
+
 let plan;
 let walks = [];
 try {
-  const packages = testablePackages(pnpmWorkspaceList(root), (pkgPath) => JSON.parse(readFileSync(join(pkgPath, 'package.json'), 'utf8')), root);
+  // Inside the `try`: a graph that cannot be built is a full run, never a smaller one.
+  const started = performance.now();
+  const graph = readImportGraph(root, packagesOf(pnpmWorkspaceList(root), root));
+  console.log(paint('2', graphLine(graph, performance.now() - started)));
   const { concepts } = JSON.parse(readFileSync(join(root, 'tools/test-explorer/concepts.json'), 'utf8'));
   // `--list` starts no stack and needs no browser (scripts/e2e-ceilings.mjs).
   walks = walksIn(JSON.parse(capture('pnpm', ['exec', 'playwright', 'test', '--list', '--reporter=json'])));
-  plan = planE2eRun({ event, mergeBase, changedFiles, concepts, walks, packages });
+  plan = planE2eRun({ event, mergeBase, changedFiles, concepts, walks, graph });
 } catch (error) {
   // A selection that cannot be made is never a reason to run less.
   console.error(paint('33', `Could not plan a selection (${error.message}); running every walk.`));
@@ -103,6 +119,7 @@ if (plan.mode === 'full') {
   code = playwright([]);
 } else if (!plan.grep) {
   console.log(paint('2', `The diff touches no area that owns a browser walk (${plan.areas.join(', ') || 'none'}); nothing to run.`));
+  for (const path of plan.unplaced) console.log(paint('2', `  ${path}: nothing imports it`));
 } else {
   console.log(paint('2', `Running the browser walks of ${plan.areas.join(', ')}.`));
   code = playwright(['--grep', plan.grep]);

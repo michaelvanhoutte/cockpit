@@ -6,7 +6,7 @@ import { renderHtml } from '../../src/render/html.js';
 const NOW = new Date('2026-02-15T00:00:00Z');
 
 const file = ({ path, level = 'unit', status = 'passed', selectedBy = null }) => ({ path, level, status, selectedBy });
-const pkg = ({ name = '@cockpit/pkg', dir = 'apps/pkg', mode = 'changed', reason = null, report = 'written', files = [] }) => ({ name, dir, mode, reason, report, files });
+const pkg = ({ name = '@cockpit/pkg', dir = 'apps/pkg', mode = 'changed', reason = null, report = 'written', files = [], unplaced }) => ({ name, dir, mode, reason, report, files, ...(unplaced ? { unplaced } : {}) });
 const record = ({ event = 'pull_request', baseCommit = 'abc123', changedFiles = [], packages = [] }) => ({ event, baseCommit, changedFiles, packages });
 
 let nextNumber = 1;
@@ -103,6 +103,19 @@ describe('renderHtml', () => {
       expect(html).toContain('tests/e2e/capture.test.ts');
       expect(html).toContain('owned by Capture, which `apps/web/src/capture/Box.tsx` changed');
       expect(html).toContain('tests/e2e/triage.test.ts');
+    });
+
+    it('shows the registered file that placed a spec, and a changed file that selected no walk with the rule that says so', () => {
+      const html = render([
+        withE2e(
+          tier({
+            unplaced: [{ path: 'scripts/cycle.mjs', rule: 'nothing imports it' }],
+            files: [spec({ path: 'tests/e2e/capture.test.ts', selectedBy: { kind: 'concept', owners: [{ concept: 'Capture', path: 'apps/web/src/capture/New.tsx', via: 'apps/web/src/capture/Box.tsx' }] } })],
+          }),
+        ),
+      ]);
+      expect(html).toContain('owned by Capture, through `apps/web/src/capture/Box.tsx`, which depends on `apps/web/src/capture/New.tsx`, changed');
+      expect(html).toContain('`scripts/cycle.mjs` selected no walk: nothing imports it');
     });
 
     it('shows a spec that failed on main after the pull request skipped it as a miss at level e2e', () => {
