@@ -90,7 +90,6 @@ export const STILL_CAPTURING_BY_HAND = {
   'dashboards.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
   'duplicates.test.ts': { calls: 5, rewrittenWhen: 'next touched' },
   'inbox.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
-  'item-editing.test.ts': { calls: 15, rewrittenWhen: '"Rewrite the item-editing and capture walks to arrange through the API" (1285)' },
   'screen-edges.test.ts': { calls: 5, rewrittenWhen: 'next touched' },
   'sign-in.test.ts': { calls: 1, rewrittenWhen: 'next touched' },
   'triage.test.ts': { calls: 7, rewrittenWhen: 'next touched' },

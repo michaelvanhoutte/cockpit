@@ -46,15 +46,33 @@ export async function arrange(page: Page, command: string, data: Record<string, 
   expect(sent.ok(), `${command} from outside failed: ${sent.status()} ${await sent.text()}`).toBe(true);
 }
 
+/** A workspace given to the account: the id the commands name it by, and its name. */
+export type ArrangedWorkspace = { id: string; name: string };
+
 /**
- * Items captured into the workspace the page is on, one after the other so the
- * Inbox shows them in the order given. Returns their ids.
+ * A workspace of this name, after the ones the account has, with the dashboard
+ * and panel every workspace arrives with. The page stays where it was: reload,
+ * then `switchTo` it.
  */
-export async function giveToTheInbox(page: Page, titles: string[]): Promise<string[]> {
+export async function giveAWorkspace(page: Page, name: string): Promise<ArrangedWorkspace> {
+  const workspace: ArrangedWorkspace = { id: randomUUID(), name };
+  await arrange(page, 'create_workspace', { workspaceId: workspace.id, panelId: randomUUID(), name });
+  return workspace;
+}
+
+/**
+ * Items captured into the workspace the page is on - or the one given - one
+ * after the other so the Inbox shows them in the order given. Returns their ids.
+ */
+export async function giveToTheInbox(
+  page: Page,
+  titles: string[],
+  workspace: ArrangedWorkspace | undefined = undefined,
+): Promise<string[]> {
   const ids: string[] = [];
   for (const message of titles) {
     const itemId = randomUUID();
-    await arrange(page, 'capture_item', { itemId, message });
+    await arrange(page, 'capture_item', { itemId, message, ...(workspace && { workspaceId: workspace.id }) });
     ids.push(itemId);
   }
   return ids;
