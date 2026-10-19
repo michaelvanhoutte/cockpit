@@ -22,6 +22,8 @@ const check = (name, from, to, conclusion = 'success', overrides = {}) => ({
   completedAt: at(to),
   ...overrides,
 });
+/** A job created `created` minutes past 09:00 whose check run ran `from` to `to`, its job list read. */
+const job = (name, created, from, to, conclusion = 'success') => check(name, from, to, conclusion, { queue: { state: 'read', createdAt: at(created), startedAt: at(from) } });
 const commit = (sha, authoredAt, checks = [], parents = 1) => ({ sha, authoredAt: at(authoredAt), parents, checks });
 const pull = (overrides = {}) => ({
   number: 1,
@@ -38,6 +40,17 @@ const pull = (overrides = {}) => ({
   ...overrides,
 });
 const withRecord = (start = 0) => renderBlock([{ at: at(start), phase: 'start' }, { at: at(start + 1), phase: 'pushed' }]);
+/** A session record that starts at 09:00, holds `marks`, and pushes at 09:19. */
+const session = (...marks) => renderBlock([{ at: at(0), phase: 'start' }, ...marks, { at: at(19), phase: 'pushed' }]);
+const reviewMarks = (kind, from, to) => [
+  { at: at(from), phase: 'review-start', kind, level: 'high' },
+  { at: at(to), phase: 'review-end', kind, level: 'high' },
+];
+const testRunMark = (from, to, ...scopes) => ({ run: 'test', scopes, start: at(from), end: at(to) });
+const browserMarks = (from, to) => [
+  { at: at(from), phase: 'browser-start' },
+  { at: at(to), phase: 'browser-end' },
+];
 
 const render = ({ pulls = [pull()], requestedDays = 14, coveredDays = requestedDays, truncated = false, ...rest } = {}) =>
   renderHtml(
@@ -59,8 +72,37 @@ const rowOf = (html, number) => {
 };
 /** A row's strip as it is closed, on the shared scale: the first track in it, up to the end of the label it is clicked through. */
 const stripOf = (html, number) => rowOf(html, number).split(/<span class="track[^"]*"[^>]*>/)[1].split(/<\/label>|<input /)[0];
-/** The same pull request zoomed: the track, the axis and the round list in the block a click opens. */
+/** The same pull request zoomed: the track, the axis and the detail box in the block a click opens. */
 const zoomedOf = (html, number) => rowOf(html, number).split('<div class="zoomed">')[1];
+/** The stylesheet the page carries, the generated rules included. */
+const cssOf = (html) => html.split('<style>')[1].split('</style>')[0];
+/**
+ * Every element of one pull request's zoomed strip a reader can pick: the radio laid over it, the words it is
+ * labelled with, and the detail the page's own rules show once that radio is checked (`undefined` where no rule does).
+ */
+const pickablesIn = (html, number) => {
+  const zoomed = zoomedOf(html, number);
+  const details = Object.fromEntries([...zoomed.matchAll(/<div class="detail" id="([\w-]+)">([\s\S]*?)<\/div>/g)].map((match) => [match[1], match[2]]));
+  const shownBy = {};
+  // One rule per detail, naming every radio that shows it: `.strip:has(:is(#a, #b):checked) #detail { display: block; }`, or `:has(#a:checked)` for one.
+  for (const [, radios, detailId] of cssOf(html).matchAll(/\.strip:has\((:is\([^)]*\)|#[\w-]+):checked\) #([\w-]+) \{ display: block; \}/g)) {
+    for (const radio of radios.replace(/^:is\(|\)$/g, '').split(', ')) shownBy[radio.replace(/^#/, '')] = detailId;
+  }
+  return [...zoomed.matchAll(/<input type="radio" class="pick" name="([^"]+)" id="([^"]+)" aria-label="([^"]*)">/g)].map(([, name, id, label]) => ({
+    name,
+    id,
+    label,
+    detailId: shownBy[id],
+    detail: details[shownBy[id]],
+  }));
+};
+/** The pickable elements of a pull request whose label matches, for a case that looks at one kind of element. */
+const pickingIn = (html, number, label) => pickablesIn(html, number).filter((each) => label.test(each.label));
+/** A detail's heading, its line and its context, as the page words them. */
+const readDetail = (detail) => {
+  const part = (name) => new RegExp(`<p class="${name}">([\\s\\S]*?)</p>`).exec(detail)?.[1];
+  return { head: part('dhead'), line: part('dline'), context: part('dctx') };
+};
 
 describe('Cycle time', () => {
   it('is titled and headed "Cycle time"', () => {
@@ -210,11 +252,11 @@ describe('Cycle time', () => {
           }),
         ],
       });
-      // The round-list text is read on its own, without hovering the strip's
+      // The round's detail is read on its own, without hovering the strip's
       // pieces, so it must not repeat the strip's old single-check mistake.
-      const detail = rowOf(html, 1).split('<ol class="roundlist">')[1];
-      expect(detail).toContain('held by Test, then E2E (F3)');
-      expect(detail).not.toContain('held by E2E (F3)');
+      const [round] = pickingIn(html, 1, /^CI Round 1 · /);
+      expect(round.detail).toContain('held by Test, then E2E (F3)');
+      expect(round.detail).not.toContain('held by E2E (F3)');
     });
 
     it('trims a clipped round to what is actually shown, not the full round squeezed into less room', () => {
@@ -357,7 +399,7 @@ describe('Cycle time', () => {
     });
 
     describe('each group is a colour family, and a kind has one colour on strip and panel', () => {
-      const css = render().split('<style>')[1].split('</style>')[0];
+      const css = cssOf(render());
       const hueOf = (hex) => {
         const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
         const max = Math.max(r, g, b);
@@ -884,6 +926,13 @@ describe('Cycle time', () => {
       expect(outside).toEqual([]);
     });
 
+    it('picks and outlines the elements of a zoomed strip with no script, and carries no rule for the list that was under it', () => {
+      const html = render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12)])] })] });
+      expect(pickablesIn(html, 1).length).toBeGreaterThan(0);
+      expect(html).not.toMatch(/<script\b|\son(click|change|mouseover|input)=/i);
+      expect(cssOf(html)).not.toMatch(/data-round|roundlist/);
+    });
+
     it('escapes a pull request title rather than letting it write markup into the page', () => {
       const html = render({ pulls: [pull({ title: '<script>alert(1)</script>' })] });
       expect(html).not.toContain('<script>alert(1)</script>');
@@ -1005,7 +1054,7 @@ describe('Cycle time', () => {
   });
 
   describe('a strip is drawn to scale', () => {
-    const css = render().split('<style>')[1].split('</style>')[0];
+    const css = cssOf(render());
     const placement = (html, selector) => {
       const [, left, width] = new RegExp(`${selector}[^>]*style="left:calc\\(var\\(--span\\) \\* ([\\d.]+)[^;]*;width:calc\\(var\\(--span\\) \\* ([\\d.]+)\\)`).exec(stripOf(html, 1));
       return { left: Number(left), width: Number(width) };
@@ -1034,7 +1083,7 @@ describe('Cycle time', () => {
     });
   });
 
-  describe('a CI Round is named on the strip, in the list and in the legend', () => {
+  describe('a CI Round is named on the strip, in its detail and in the legend', () => {
     const rounds = (...commits) => pull({ mergedAt: at(120), commits });
     const two = rounds(commit('a', 0, [check('Test', 2, 12), check('Lint', 2, 5, 'failure')]), commit('b', 30, [check('Test', 31, 40)]));
 
@@ -1047,7 +1096,7 @@ describe('Cycle time', () => {
     });
 
     it('shows the short name from 2.6em wide and the long from 6em, wider for a second digit or a mark, and only the mark below that', () => {
-      const css = render({ pulls: [two] }).split('<style>')[1].split('</style>')[0];
+      const css = cssOf(render({ pulls: [two] }));
       expect(css).toContain('.cilong, .cishort { display: none; }');
       expect(css).toContain('@container (min-width: 2.6em) { .seg.round.d1.m0 .cishort { display: inline; } }');
       expect(css).toContain('@container (min-width: 6em) { .seg.round.d1.m0 .cishort { display: none; } .seg.round.d1.m0 .cilong { display: inline; } }');
@@ -1065,15 +1114,17 @@ describe('Cycle time', () => {
     it('names the same round in the closed strip and in the zoomed one, each with its own width to choose a name by', () => {
       const row = rowOf(render({ pulls: [two] }), 1);
       const [closed, zoomed] = [stripOf(render({ pulls: [two] }), 1), zoomedOf(render({ pulls: [two] }), 1).split('</label>')[0]];
-      for (const strip of [closed, zoomed]) expect(strip).toContain('<span class="cilong">CI Round 1</span>');
+      // The zoomed chip also carries the radio that picks the round; the closed one is a name and nothing else.
+      expect(closed).toContain('<span class="cilong">CI Round 1</span>');
+      expect(zoomed).toMatch(/<span class="cilong">CI Round 1<input [^>]*><\/span>/);
       expect(row.match(/class="seg round/g)).toHaveLength(4);
     });
 
-    it('opens each line of the round list "CI Round N · …", and names the round the same on hover', () => {
+    it('opens a round\'s detail "CI Round N · …", and names the round the same on hover', () => {
       const html = render({ pulls: [two] });
-      const lines = [...rowOf(html, 1).split('<ol class="roundlist">')[1].matchAll(/<li data-round="(\d)">([^<]*)<\/li>/g)].map((match) => [match[1], match[2].split(' · ')[0]]);
-      expect(lines.slice(0, 2)).toEqual([['1', 'CI Round 1'], ['2', 'CI Round 2']]);
-      expect([...stripOf(html, 1).matchAll(/class="seg round[^"]*" data-round="\d" style="[^"]*" title="([^"·]*) ·/g)].map((match) => match[1].trim())).toEqual(['CI Round 1', 'CI Round 2']);
+      const details = pickablesIn(html, 1).filter((each) => /^CI Round \d · /.test(each.label));
+      expect([...new Set(details.map((each) => readDetail(each.detail).head))]).toEqual(['CI Round 1', 'CI Round 2']);
+      expect([...stripOf(html, 1).matchAll(/class="seg round[^"]*" style="[^"]*" title="([^"·]*) ·/g)].map((match) => match[1].trim())).toEqual(['CI Round 1', 'CI Round 2']);
     });
 
     it('defines a CI Round once in the legend, in one line', () => {
@@ -1084,37 +1135,10 @@ describe('Cycle time', () => {
     });
   });
 
-  describe('a CI Round and its line in the list point at each other, within one pull request', () => {
-    const rounded = (number) =>
-      pull({ number, url: `https://github.com/o/r/pull/${number}`, mergedAt: at(120), commits: [commit(`a${number}`, 0, [check('Test', 2, 12)]), commit(`b${number}`, 30, [check('Test', 31, 40)])] });
-    const html = render({ pulls: [rounded(1), rounded(2)] });
-    const css = html.split('<style>')[1].split('</style>')[0];
-
-    it('numbers a round and its line alike, so the two can be paired', () => {
-      for (const number of [1, 2]) {
-        expect([...rowOf(html, number).matchAll(/class="seg round[^"]*" data-round="(\d)"/g)].map((match) => match[1])).toEqual(['1', '2', '1', '2']);
-        expect([...rowOf(html, number).matchAll(/<li data-round="(\d)"/g)].map((match) => match[1])).toEqual(['1', '2', '1', '2']);
-      }
-    });
-
-    it('outlines a hovered round and highlights its line, and the other way about', () => {
-      expect(css).toContain('.pullrow:has(.seg.round[data-round="2"]:hover) .roundlist li[data-round="2"]');
-      expect(css).toContain('.pullrow:has(.roundlist li[data-round="2"]:hover) .seg.round[data-round="2"]');
-      expect(css).toMatch(/\.roundlist li\[data-round="2"\][^{]*\{ background: var\(--raised\)/);
-      expect(css).toMatch(/\.seg\.round\[data-round="2"\]\s*\{ outline: 2px solid/);
-    });
-
-    it('scopes every pairing to the row of one pull request, so a CI Round 1 elsewhere is left alone', () => {
-      const lines = css.split('\n').filter((line) => line.includes('data-round'));
-      expect(lines.length).toBeGreaterThan(0);
-      for (const line of lines) expect(line).toMatch(/^\.pullrow:has\(/);
-    });
-  });
-
   describe('clicking a strip zooms it, and clicking again closes it', () => {
     const away = pull({ mergedAt: at(250), commits: [commit('a', 0, [check('Test', 2, 12)]), commit('b', 20, [check('Test', 212, 222)])] });
     const html = render({ pulls: [away] });
-    const css = html.split('<style>')[1].split('</style>')[0];
+    const css = cssOf(html);
 
     it('makes the strip the label of a checkbox, so a click on it toggles the zoomed form', () => {
       const row = rowOf(html, 1);
@@ -1131,10 +1155,10 @@ describe('Cycle time', () => {
       expect(row.split('<div class="zoomed">')[0]).toMatch(/--span:calc\(100% - var\(--break\) \* 1\)/);
     });
 
-    it('opens the pull request on a clock-time axis from its start to its merge, above its round list', () => {
+    it('opens the pull request on a clock-time axis from its start to its merge, above its detail box', () => {
       const zoomed = zoomedOf(html, 1);
       expect(zoomed.indexOf('class="clockaxis"')).toBeGreaterThan(zoomed.indexOf('class="track'));
-      expect(zoomed.indexOf('<ol class="roundlist">')).toBeGreaterThan(zoomed.indexOf('class="clockaxis"'));
+      expect(zoomed.indexOf('<div class="detailbox">')).toBeGreaterThan(zoomed.indexOf('class="clockaxis"'));
       const labels = [...zoomed.matchAll(/<span class="clocktick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => [match[1], match[2]]);
       expect(labels[0]).toEqual(['start', '09:00']);
       expect(labels[labels.length - 1]).toEqual(['end', '13:10']);
@@ -1163,9 +1187,300 @@ describe('Cycle time', () => {
     });
   });
 
+  describe('every element of a zoomed strip can be picked, and the page carries its detail for the pick', () => {
+    /** Coding, a round, fixing, a round and the wait to merge. */
+    const stretches = pull({ body: withRecord(0), mergedAt: at(60), commits: [commit('a', 0, [check('Test', 10, 20)]), commit('b', 30, [check('Test', 32, 40)])] });
+    const away = pull({ mergedAt: at(250), commits: [commit('a', 0, [check('Test', 2, 12)]), commit('b', 20, [check('Test', 212, 222)])] });
+    const local = (...marks) => pull({ body: session(...marks), mergedAt: at(60), commits: [commit('a', 0, [check('Test', 20, 40)])] });
+    const slices = local(...reviewMarks('code-review', 5, 15), testRunMark(2, 4, 'a'), ...browserMarks(16, 18));
+    const parallel = local(...reviewMarks('code-review', 2, 10), testRunMark(8, 12, 'a'));
+    const jobs = pull({ commits: [commit('a', 0, [job('Checks', 0, 0, 5), job('Test', 1, 3, 9)])] });
+    const unread = pull({ commits: [commit('a', 0, [check('Test', 2, 12, 'success', { queue: { state: 'not-recorded', why: 'unreadable' } })])] });
+
+    it.each([
+      { situation: 'a coding stretch', pulls: [stretches], label: /^Coding before the first push · /, radios: 1, head: 'Coding before the first push' },
+      { situation: 'a fixing stretch', pulls: [stretches], label: /^Fixing before the next push · /, radios: 1, head: 'Fixing before the next push' },
+      { situation: 'a wait to merge', pulls: [stretches], label: /^Waiting to merge · /, radios: 1, head: 'Waiting to merge' },
+      { situation: 'time away', pulls: [away], label: /^Away for 3h 20m · /, radios: 1, head: 'Away for 3h 20m' },
+      { situation: 'a local review cut out of the line', pulls: [slices], label: /^Local code review · /, radios: 1, head: 'Local code review' },
+      { situation: 'a test run cut out of the line', pulls: [slices], label: /^Local test run · /, radios: 1, head: 'Local test run' },
+      { situation: 'a browser pass cut out of the line', pulls: [slices], label: /^Browser pass · /, radios: 1, head: 'Browser pass' },
+      { situation: 'a review stacked as a lane of a parallel stretch', pulls: [parallel], label: /^Local code review · /, radios: 1, head: 'Local code review' },
+      { situation: 'a test run stacked as a lane of a parallel stretch', pulls: [parallel], label: /^Local test run · /, radios: 1, head: 'Local test run' },
+      { situation: 'the coding around the local work of a parallel stretch', pulls: [parallel], label: /^Coding before the first push · .* around the local work$/, radios: 1, head: 'Coding before the first push' },
+      { situation: "a round's job lane", pulls: [jobs], label: /^Checks · /, radios: 1, head: 'Checks' },
+      { situation: "a job's lead and its lane, which pick the same job", pulls: [jobs], label: /^Test · /, radios: 2, head: 'Test' },
+      { situation: "a round's block, its two names and its own background, which pick the same round", pulls: [jobs], label: /^CI Round 1 · /, radios: 3, head: 'CI Round 1' },
+      { situation: 'a round whose jobs were not read', pulls: [unread], label: /^CI Round 1 · /, radios: 3, head: 'CI Round 1' },
+    ])('picks $situation, with one detail on the page for however many controls pick it', ({ pulls, label, radios, head }) => {
+      const html = render({ pulls });
+      const found = pickingIn(html, 1, label);
+      expect(found).toHaveLength(radios);
+      expect(new Set(found.map((each) => each.detailId)).size).toBe(1);
+      expect(readDetail(found[0].detail).head).toBe(head);
+      // However many radios show it, the page says it once.
+      const said = [...zoomedOf(html, 1).matchAll(/<div class="detail" id="[^"]+">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
+      expect(said.filter((each) => each === found[0].detail)).toHaveLength(1);
+    });
+
+    it('lays a radio over no element of the closed strip, which only zooms', () => {
+      const row = rowOf(render({ pulls: [jobs] }), 1);
+      expect(row.split('<div class="zoomed">')[0]).not.toContain('type="radio"');
+      expect(row.split('<div class="zoomed">')[0]).not.toContain('class="pick"');
+    });
+
+    it('offers nothing to pick on a pull request no check ran on', () => {
+      const row = rowOf(render({ pulls: [pull({ commits: [commit('a', 0)] })] }), 1);
+      expect(row).not.toContain('class="pick"');
+      expect(row).not.toContain('class="detailbox"');
+    });
+  });
+
+  describe('a detail says what the tooltip said, split into a heading and a line', () => {
+    const jobs = pull({ commits: [commit('a', 0, [job('Checks', 0, 0, 5), job('Test', 1, 3, 9), job('Lint', 0, 0, 4, 'failure')])] });
+    const held = pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12), job('E2E (F3)', 2, 2, 20)])] });
+    const local = (...marks) => pull({ body: session(...marks), mergedAt: at(60), commits: [commit('a', 0, [check('Test', 20, 40)])] });
+
+    it.each([
+      {
+        situation: 'a job, with the round it ran in as context',
+        pulls: [jobs],
+        label: /^Test · /,
+        head: 'Test',
+        line: 'started 09:03:00Z, stopped 09:09:00Z · ran 6m 00s · waited 2m 00s for a runner · passed',
+        context: 'in CI Round 1 · pushed 2026-09-15 09:00Z',
+      },
+      {
+        situation: 'a failed job',
+        pulls: [jobs],
+        label: /^Lint · /,
+        head: 'Lint',
+        line: 'started 09:00:00Z, stopped 09:04:00Z · ran 4m 00s · waited 0s for a runner · failed',
+        context: 'in CI Round 1 · pushed 2026-09-15 09:00Z',
+      },
+      {
+        situation: 'a local review',
+        pulls: [local(...reviewMarks('code-review', 5, 15))],
+        label: /^Local code review · /,
+        head: 'Local code review',
+        line: 'high · 10m 00s',
+      },
+      {
+        situation: 'a test run',
+        pulls: [local(testRunMark(2, 6, '@cockpit/api', 'tools/cycle-time'))],
+        label: /^Local test run · /,
+        head: 'Local test run',
+        line: '4m 00s · @cockpit/api, tools/cycle-time',
+      },
+      {
+        situation: 'a browser pass',
+        pulls: [local(...browserMarks(8, 14))],
+        label: /^Browser pass · /,
+        head: 'Browser pass',
+        line: '6m 00s',
+      },
+      {
+        situation: 'a first push with no session record to say what came before',
+        pulls: [pull()],
+        label: /^From the first commit to the first push · /,
+        head: 'From the first commit to the first push',
+        line: '2m 00s · no session record, so any coding before the first commit is not recorded',
+      },
+      {
+        situation: 'a review that ended together with the other',
+        pulls: [
+          local(
+            { at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' },
+            { at: at(2), phase: 'review-start', kind: 'security-review', level: 'high' },
+            { at: at(10), phase: 'review-end', kind: 'code-review', level: 'high' },
+            { at: at(10), phase: 'review-end', kind: 'security-review', level: 'high' },
+          ),
+        ],
+        label: /^Local code review · /,
+        head: 'Local code review',
+        line: 'high · 8m 00s · ended together with the other review, so its own length is not recorded',
+      },
+    ])('says $situation', ({ pulls, label, head, line, context }) => {
+      const [found] = pickingIn(render({ pulls }), 1, label);
+      expect(readDetail(found.detail)).toEqual({ head, line, context });
+    });
+
+    it('opens a round with its line and what held it in order, and every job beneath it', () => {
+      const html = render({ pulls: [held] });
+      const [round] = pickingIn(html, 1, /^CI Round 1 · /);
+      const { head, line } = readDetail(round.detail);
+      expect(head).toBe('CI Round 1');
+      expect(line).toBe('18m 00s · pushed 2026-09-15 09:02Z · held by Test, then E2E (F3)');
+      expect(round.detail).toContain(
+        '<ul class="joblist"><li>Test · started 09:02:00Z, stopped 09:12:00Z · ran 10m 00s · waited 0s for a runner · passed</li><li>E2E (F3) · started 09:02:00Z, stopped 09:20:00Z · ran 18m 00s · waited 0s for a runner · passed</li></ul>',
+      );
+    });
+
+    it('names the round and its push time under a job, and not what held the round or for how long', () => {
+      const html = render({ pulls: [held] });
+      const [test, e2e] = ['Test', 'E2E (F3)'].map((name) => readDetail(pickingIn(html, 1, new RegExp(`^${name.replace(/[()]/g, '\\$&')} · started`))[0].detail));
+      for (const { context } of [test, e2e]) {
+        expect(context).toBe('in CI Round 1 · pushed 2026-09-15 09:02Z');
+      }
+      expect(pickingIn(html, 1, /^Test · started/)[0].detail).not.toContain('held by');
+    });
+
+    it('escapes a job name and a test scope in the radio\'s label and in the detail, rather than letting them write markup', () => {
+      const html = render({ pulls: [local(testRunMark(2, 6, 'apps/<b>"web"</b>')), pull({ number: 2, url: 'https://github.com/o/r/pull/2', commits: [commit('a', 0, [job('E2E "phone" <i>', 0, 0, 5)])] })] });
+      expect(html).not.toContain('<b>"web"</b>');
+      expect(html).not.toContain('<i>');
+      const [run] = pickingIn(html, 1, /^Local test run · /);
+      expect(run.label).toContain('apps/&lt;b&gt;&quot;web&quot;&lt;/b&gt;');
+      expect(readDetail(run.detail).line).toBe('4m 00s · apps/&lt;b&gt;&quot;web&quot;&lt;/b&gt;');
+      const [lane] = pickingIn(html, 2, /^E2E &quot;phone&quot; &lt;i&gt; · /);
+      expect(readDetail(lane.detail).head).toBe('E2E &quot;phone&quot; &lt;i&gt;');
+    });
+
+    it('lists the jobs of a round only in that round\'s detail, with when each started and stopped', () => {
+      const html = render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12)])] })] });
+      const [round] = pickingIn(html, 1, /^CI Round 1 · /);
+      expect(round.detail).toContain('<ul class="joblist"><li>Test · started 09:02:00Z, stopped 09:12:00Z · ran 10m 00s · waited 0s for a runner · passed</li></ul>');
+      const outsideDetails = zoomedOf(html, 1).replace(/<div class="detail" id="[^"]+">[\s\S]*?<\/div>/g, '');
+      expect(outsideDetails).not.toContain('joblist');
+    });
+  });
+
+  describe('until something is picked, the box under the axis holds the summary line and says to click an element', () => {
+    const html = render({ pulls: [pull({ mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12, 'failure')]), commit('b', 20, [check('Test', 22, 30)])] })] });
+    const zoomed = zoomedOf(html, 1);
+    const css = cssOf(html);
+
+    it('holds the summary line and names a phase, a CI job and a local run as what to click', () => {
+      const box = zoomed.split('<div class="detailbox">')[1];
+      expect(box).toMatch(/^<p class="hint">2 CI Rounds, 1 red &middot; 1h 00m to merge &middot; click a phase, a CI job or a local run on the strip to read it here\.<\/p>/);
+      expect(zoomed.indexOf('<div class="detailbox">')).toBeGreaterThan(zoomed.indexOf('class="clockaxis"'));
+    });
+
+    it('hides the hint once any radio of the strip is checked, and every detail until its own radio is', () => {
+      expect(css).toContain('.strip:has(.pick:checked) .detailbox .hint { display: none; }');
+      expect(css).toContain('.detail { display: none; }');
+      const picks = pickablesIn(html, 1);
+      expect(picks.length).toBeGreaterThan(0);
+      // A detail with no rule of its own would never be shown, and one shown by another's radio would be the wrong one.
+      expect(picks.filter((each) => each.detail === undefined)).toEqual([]);
+      expect(new Set(picks.map((each) => each.detailId)).size).toBe(zoomed.match(/class="detail" id=/g).length);
+    });
+
+    it('keeps the notes after the box', () => {
+      const box = zoomed.indexOf('<div class="detailbox">');
+      expect(box).toBeGreaterThan(-1);
+      expect(zoomed.indexOf('<p class="clipnote">No session record')).toBeGreaterThan(box);
+    });
+  });
+
+  describe('one pull request holds one pick, kept while its zoom is closed', () => {
+    const rounded = (number) =>
+      pull({ number, url: `https://github.com/o/r/pull/${number}`, mergedAt: at(120), commits: [commit(`a${number}`, 0, [check('Test', 2, 12)]), commit(`b${number}`, 30, [check('Test', 31, 40)])] });
+    const html = render({ pulls: [rounded(1), rounded(2)] });
+
+    it('names every radio of one pull request alike, and the radios of two pull requests apart', () => {
+      const [first, second] = [1, 2].map((number) => new Set(pickablesIn(html, number).map((each) => each.name)));
+      expect([first.size, second.size]).toEqual([1, 1]);
+      expect([...first][0]).not.toBe([...second][0]);
+    });
+
+    it('gives every radio and every detail an id of its own across the page, so two pull requests with the same rounds never share one', () => {
+      const ids = (pattern) => [...html.matchAll(pattern)].map((match) => match[1]);
+      for (const unique of [ids(/<input type="radio" class="pick"[^>]* id="([^"]+)"/g), ids(/<div class="detail" id="([^"]+)"/g)]) {
+        expect(unique.length).toBeGreaterThan(0);
+        expect(new Set(unique).size).toBe(unique.length);
+      }
+      expect(pickablesIn(html, 1).map((each) => each.detailId).filter((id) => pickablesIn(html, 2).some((other) => other.detailId === id))).toEqual([]);
+    });
+
+    it('shows a detail by its radio alone, so the pick stands whether the zoom is open or closed', () => {
+      const rules = cssOf(html).split('\n').filter((line) => line.startsWith('.strip:has(:is(#') || line.startsWith('.strip:has(#'));
+      expect(rules.length).toBeGreaterThan(0);
+      for (const rule of rules) {
+        expect(rule).toMatch(/^\.strip:has\((:is\(#[\w-]+(, #[\w-]+)+\)|#[\w-]+):checked\) #[\w-]+ \{ display: block; \}$/);
+        expect(rule).not.toContain('zoom');
+      }
+    });
+  });
+
+  describe('the lists under a strip are gone', () => {
+    const html = render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12)]), commit('b', 20, [job('Test', 22, 22, 30)])] })] });
+    const row = rowOf(html, 1);
+
+    it('has no round list, and no job list outside a round\'s detail', () => {
+      expect(row).not.toContain('roundlist');
+      expect(row.replace(/<div class="detail" id="[^"]+">[\s\S]*?<\/div>/g, '')).not.toContain('joblist');
+    });
+
+    it('leaves a closed strip the summary line and the notes, with no collapsed section', () => {
+      // Under the closed strip: what follows its screen-reader line, beyond the block a click opens.
+      const under = row.slice(row.indexOf('1h 00m to merge, 2 CI Rounds</span>'));
+      expect(row).not.toContain('<details');
+      expect(row).not.toContain('<summary');
+      expect(under).toContain('<p class="clipnote whenclosed">2 CI Rounds &middot; 1h 00m to merge</p>');
+      expect(under).toContain('<div class="whenclosed"><p class="clipnote">No session record');
+    });
+  });
+
+  describe('the zoomed view closes from the axis and the empty rows, and never from an element', () => {
+    const html = render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12)])] })] });
+    const zoomed = zoomedOf(html, 1);
+
+    it('makes the axis a label of the zoom checkbox, and says that it closes', () => {
+      // A span in the label, since a label holds phrasing content only; the styles make it a block.
+      expect(zoomed).toMatch(/<label class="axishit" for="zoom-1"><span class="clockaxis"[^>]*title="Clock time, UTC\. Click to close">/);
+      expect(cssOf(html)).toMatch(/\.clockaxis \{ display: block;/);
+    });
+
+    it('says with the cursor that the empty rows close the zoom, where an element shows its own pointer', () => {
+      expect(cssOf(html)).toMatch(/\.zoomed \.striphit \{ cursor: zoom-out;/);
+      expect(cssOf(html)).toMatch(/\.pick \{[^}]*cursor: pointer;/);
+    });
+
+    it('keeps the zoomed strip a label of the zoom checkbox, with every radio inside it and laid over its own element', () => {
+      const [track] = zoomed.split('<label class="axishit"');
+      expect(track).toMatch(/^\s*<label class="striphit" for="zoom-1">/);
+      expect(track.match(/<input type="radio" class="pick"/g)).toHaveLength(pickablesIn(html, 1).length);
+      // Laid over the element and invisible: a click lands on the radio, which checks it, rather than on the label around it.
+      expect(cssOf(html)).toMatch(/\.pick \{[^}]*position: absolute;[^}]*inset: 0;[^}]*opacity: 0;/);
+      // The rows of lanes standing above and below the line are inside the label, so a click on an empty one closes the zoom.
+      expect(cssOf(html)).toMatch(/\.zoomed \.striphit \{[^}]*display: flow-root;/);
+    });
+  });
+
+  describe('a click on a job picks the job and not the round around it, a lead included', () => {
+    it("lays the round's own radio under the lanes' radios, which a faded lead's own layer would otherwise be put beneath", () => {
+      const css = cssOf(render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 1, 3, 9)])] })] }));
+      expect(css).toContain('.seg.round > .pick { z-index: 0; }');
+      expect(css).toContain('.lane > .pick { z-index: 2; }');
+      expect(css).toMatch(/\.lane\.lead \{[^}]*opacity: 0\.55;/);
+    });
+  });
+
+  describe('hover outlines the element under the pointer and nothing around it', () => {
+    const css = cssOf(render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12)])] })] }));
+
+    it('outlines a hovered element of a zoomed strip', () => {
+      expect(css).toContain('.zoomed .seg:hover, .zoomed .lane:hover { outline: 2px solid var(--ink-1);');
+    });
+
+    it('un-outlines the round or the parallel stretch around a hovered lane', () => {
+      expect(css).toContain('.zoomed .seg.round:hover:has(.lane:hover), .zoomed .seg.parallel:hover:has(.lane:hover) { outline: none; }');
+    });
+
+    it('outlines a round\'s name chip when its radio is hovered, and not the round', () => {
+      expect(css).toContain('.zoomed .roundlabel:has(.pick:hover) .cilong, .zoomed .roundlabel:has(.pick:hover) .cishort { outline: 2px solid var(--ink-1); }');
+      expect(css).toContain('.zoomed .seg.round:has(.roundlabel .pick:hover) { outline: none; }');
+    });
+
+    it('outlines the picked element in the accent', () => {
+      expect(css).toMatch(/\.zoomed \.seg:has\(> \.pick:checked\), \.zoomed \.lane:has\(> \.pick:checked\) \{ outline: 2px solid var\(--accent\);/);
+      // Whichever name the round shows at its width, since the radio checked may be the hidden name's.
+      expect(css).toContain('.zoomed .roundlabel:has(.pick:checked) .cilong, .zoomed .roundlabel:has(.pick:checked) .cishort { outline: 2px solid var(--accent); }');
+    });
+  });
+
   describe("a round's jobs are drawn where they ran, each its own lane", () => {
-    /** A job created `created` minutes past 09:00 whose check run ran `from` to `to`, its job list read. */
-    const job = (name, created, from, to, conclusion = 'success') => check(name, from, to, conclusion, { queue: { state: 'read', createdAt: at(created), startedAt: at(from) } });
     const strip = (checks, overrides = {}) => stripOf(render({ pulls: [pull({ commits: [commit('a', 0, checks)], ...overrides })] }), 1);
     /** Every job lane and lead in a strip, as the browser places it: its share of the round, its row and its hover. */
     const lanesIn = (html) =>
@@ -1246,11 +1561,6 @@ describe('Cycle time', () => {
       expect(lanesIn(html)).toEqual([]);
       expect(html).toContain('class="piece checks"');
       expect(html).toContain('lanes not recorded');
-    });
-
-    it('lists each job under its round with when it started and stopped, so the times read without hovering', () => {
-      const html = zoomedOf(render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12)])] })] }), 1);
-      expect(html).toContain('<ul class="joblist"><li>Test · started 09:02:00Z, stopped 09:12:00Z · ran 10m 00s · waited 0s for a runner · passed</li></ul>');
     });
   });
 });

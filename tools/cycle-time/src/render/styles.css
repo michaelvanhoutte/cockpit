@@ -161,13 +161,12 @@ td.pr .title { color: var(--ink-2); }
 /* Click a strip to zoom in on it, click it again to close: the strip is the label of a checkbox, so no script. */
 .zoomtoggle { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; margin: 0; }
 .striphit { display: block; cursor: zoom-in; user-select: none; border-radius: 4px; }
-.zoomed .striphit { cursor: zoom-out; }
 .zoomtoggle:focus-visible ~ .striphit, .striphit:hover { outline: 1px solid var(--ink-3); outline-offset: 2px; }
 .zoomed { display: none; }
 .zoomtoggle:checked ~ .zoomed { display: block; }
 .zoomtoggle:checked ~ .whenclosed { display: none; }
 /* The zoomed strip's clock-time axis: the same line of time as the strip above it, ticks at clock times. Its classes are its own, since the scatter's SVG has axes and ticks too and a rule here would move them. */
-.clockaxis { position: relative; height: 18px; margin-bottom: 4px; border-top: 1px solid var(--ink-3); font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.clockaxis { display: block; position: relative; height: 18px; margin-bottom: 4px; border-top: 1px solid var(--ink-3); font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .clocktick { position: absolute; top: 0; padding-top: 3px; white-space: nowrap; transform: translateX(-50%); }
 .clocktick::before { content: ''; position: absolute; top: -4px; left: 50%; height: 4px; border-left: 1px solid var(--ink-3); }
 .clocktick.start { transform: none; }
@@ -210,8 +209,41 @@ td.pr .title { color: var(--ink-2); }
 .lane.job.running { opacity: 0.7; }
 .lane.lead { background: repeating-linear-gradient(90deg, var(--checks) 0 2px, transparent 2px 5px); opacity: 0.55; }
 .seg.round.withlanes .cilong, .seg.round.withlanes .cishort { background: var(--raised); color: var(--ink-1); padding: 0 3px; border-radius: 3px; }
-.joblist { margin: 2px 0 4px 16px; padding: 0; list-style: none; color: var(--ink-3); font-size: 11.5px; }
-.joblist li { margin: 0; padding: 0 4px; }
+.joblist { margin: 4px 0 0 12px; padding: 0; list-style: none; color: var(--ink-3); font-size: 11.5px; }
+.joblist li { margin: 1px 0; padding: 0; }
+
+/* Picking an element of a zoomed strip. A radio lies over each element (a lane's over its round's, the round's name chip's over both),
+   so a click checks the one under the pointer and never the strip's zoom label around them; the detail whose radio is checked shows
+   under the axis (the rules for that are written out per detail in html.js). The axis and the empty rows of the track still close the zoom. */
+.pick { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; z-index: 1; appearance: none; }
+/* A round's own radio is under its lanes': a faded lead or running job is a layer of its own (its opacity), which a radio above 0 would cover. */
+.seg.round > .pick { z-index: 0; }
+.lane > .pick { z-index: 2; }
+.roundlabel .pick { z-index: 3; pointer-events: auto; }
+.cilong, .cishort { position: relative; }
+/* flow-root keeps the rows of lanes above and below the line (the track's margins) inside the label, so a click on an empty one closes the zoom, and the cursor says so there; over an element the radio's own pointer shows instead. */
+.zoomed .striphit { cursor: zoom-out; display: flow-root; }
+.zoomed .striphit:hover { outline: none; }
+.axishit { display: block; cursor: zoom-out; }
+.axishit:hover .clockaxis { color: var(--ink-1); border-top-color: var(--ink-1); }
+/* Hover outlines the element under the pointer and nothing around it: not the round or the parallel stretch a lane is in, nor the round a name chip is on. */
+.zoomed .seg:hover, .zoomed .lane:hover { outline: 2px solid var(--ink-1); outline-offset: -2px; z-index: 2; }
+.zoomed .seg.round:hover:has(.lane:hover), .zoomed .seg.parallel:hover:has(.lane:hover) { outline: none; }
+.zoomed .roundlabel:has(.pick:hover) .cilong, .zoomed .roundlabel:has(.pick:hover) .cishort { outline: 2px solid var(--ink-1); }
+.zoomed .seg.round:has(.roundlabel .pick:hover) { outline: none; }
+/* The picked element keeps an accent outline while its detail shows; a keyboard focus is a dashed one. */
+.zoomed .seg:has(> .pick:checked), .zoomed .lane:has(> .pick:checked) { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 2; }
+/* Whichever name the round shows at its width carries the outline, since the radio checked may be the other name's, hidden with it. */
+.zoomed .roundlabel:has(.pick:checked) .cilong, .zoomed .roundlabel:has(.pick:checked) .cishort { outline: 2px solid var(--accent); }
+.zoomed .seg:has(> .pick:focus-visible), .zoomed .lane:has(> .pick:focus-visible), .zoomed .cilong:has(> .pick:focus-visible), .zoomed .cishort:has(> .pick:focus-visible) { outline: 2px dashed var(--accent); outline-offset: 1px; }
+/* The box under the axis: the summary line and a hint until something is picked, then the detail of the pick. */
+.detailbox { margin-top: 6px; padding: 8px 12px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; font-size: 12px; color: var(--ink-2); background: var(--card); }
+.detailbox .hint { margin: 0; color: var(--ink-3); }
+.strip:has(.pick:checked) .detailbox .hint { display: none; }
+.detail { display: none; }
+.dhead { margin: 0; color: var(--ink-1); font-weight: 600; }
+.dline { margin: 2px 0 0; }
+.dctx { margin: 4px 0 0; color: var(--ink-3); }
 /* Hatched, so that "not recorded" is a different thing from a coloured stretch,
    and from nothing. */
 .seg.unrecorded { background: repeating-linear-gradient(135deg, var(--coding) 0 3px, transparent 3px 6px); outline: 1px solid var(--coding); outline-offset: -1px; }
@@ -235,9 +267,6 @@ td.pr .title { color: var(--ink-2); }
 .clipnote { margin: 4px 0 0; font-size: 12px; color: var(--ink-3); }
 details { margin-top: 4px; font-size: 12px; color: var(--ink-3); }
 summary { cursor: pointer; }
-.roundlist { margin: 6px 0 0; padding: 0; list-style: none; color: var(--ink-2); }
-.roundlist li { margin: 2px 0; padding: 1px 4px; border-radius: 3px; }
-/* The pairing of a CI Round with its line (hover either) is written out per number in html.js, scoped to one pull request's row. */
 .ciround { margin: 0; color: var(--ink-2); }
 .ciround b { color: var(--ink-1); }
 
