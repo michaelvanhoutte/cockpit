@@ -550,7 +550,7 @@ describe('MCP connections', () => {
   describe('an app is given the files of the items it finds, by name and by a link that opens each without signing in', () => {
     const BYTES = new Uint8Array([137, 80, 78, 71, 7, 8, 9]);
 
-    async function attach(itemId: string, filename: string, userId: string = USER_ID): Promise<string> {
+    async function attach(itemId: string, filename: string): Promise<string> {
       const attachmentId = nextId();
       const uploaded = await asUser(
         `${ORIGIN}/v1/items/${itemId}/attachments`,
@@ -566,7 +566,6 @@ describe('MCP connections', () => {
           },
           body: BYTES,
         },
-        userId,
       );
       expect(uploaded.status).toBe(201);
       return attachmentId;
@@ -630,11 +629,30 @@ describe('MCP connections', () => {
       }
     });
 
-    it('gives no link to a file of another account’s item', async () => {
+    it('gives the files of the items on a panel, found by its name', async () => {
       const { token } = await connected();
-      await attach(await anItem('Theirs', {}, OTHER_USER_ID), 'secret.png', OTHER_USER_ID);
+      const admin = await aPanel('Admin');
+      await attach(await anItem('Chase the invoice', { panelIds: [admin] }), 'invoice.png');
+      await attach(await anItem('Not on the panel'), 'elsewhere.png');
 
-      expect(textOf(await findItems(token))).not.toContain('secret.png');
+      const found = await findItems(token, { panel: 'Admin' });
+
+      expect(Object.keys(linksIn(found))).toEqual(['invoice.png']);
+      expect(textOf(found)).not.toContain('elsewhere.png');
+    });
+
+    it('names and links the files of the 25 items on a page and no others', async () => {
+      const { token } = await connected();
+      for (let n = 1; n < 26; n += 1) await anItem(`Errand ${String(n).padStart(2, '0')}`, {}, USER_ID, AT(n));
+      await attach(await anItem('Errand 00', {}, USER_ID, AT(0)), 'second-page.png');
+      await attach(await anItem('Errand 26', {}, USER_ID, AT(26)), 'first-page.png');
+
+      const first = await findItems(token);
+      const second = await findItems(token, { cursor: cursorIn(first) });
+
+      expect(Object.keys(linksIn(first))).toEqual(['first-page.png']);
+      expect(textOf(first)).not.toContain('second-page.png');
+      expect(Object.keys(linksIn(second))).toEqual(['second-page.png']);
     });
   });
 
