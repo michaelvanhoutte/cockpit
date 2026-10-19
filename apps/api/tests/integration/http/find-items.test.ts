@@ -271,6 +271,178 @@ describe('MCP connections', () => {
     });
   });
 
+  describe('an app finds the items on a panel by its name', () => {
+    async function aDashboardCalled(name: string, workspaceId = WORKSPACE_ID): Promise<string> {
+      const dashboardId = nextId();
+      expect((await send('add_dashboard', { workspaceId, dashboardId, panelId: nextId(), name })).status).toBe(200);
+      return dashboardId;
+    }
+
+    /** A Filter panel gathering the filed items of a priority. */
+    async function aFilterOfPriority(name: string, priority: string, workspaceId = WORKSPACE_ID): Promise<string> {
+      const panelId = nextId();
+      expect((await send('add_panel', { workspaceId, dashboardId: DASHBOARD_ID, panelId, name, kind: 'filter' })).status).toBe(200);
+      const rows = [[{ field: 'priority', values: [priority] }]];
+      expect((await send('set_panel_filter', { workspaceId, panelId, rows })).status).toBe(200);
+      return panelId;
+    }
+
+    it('returns the items filed on a panel of that name and no others', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      const waiting = await aPanel('Waiting');
+      await anItem('Chase the invoice', { panelIds: [admin] });
+      await anItem('Pay the tax', { panelIds: [admin, waiting] });
+      await anItem('Call the plumber', { panelIds: [waiting] });
+      await anItem('Water the plants');
+
+      const found = await findItems(token, { panel: 'admin' });
+
+      expect(titlesIn(found).toSorted()).toEqual(['Chase the invoice', 'Pay the tax']);
+    });
+
+    it('returns the filed items a Filter panel of that name gathers, as the screen shows them', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      await aFilterOfPriority('Hot', 'high');
+      await anItem('Filed and high', { panelIds: [admin], priority: 'high' });
+      await anItem('Filed and low', { panelIds: [admin], priority: 'low' });
+      await anItem('High but never filed', { priority: 'high' });
+
+      const found = await findItems(token, { panel: 'Hot' });
+
+      expect(titlesIn(found)).toEqual(['Filed and high']);
+      expect(textOf(found)).toContain('Where: Workspace 1 ▸ Dashboard 1 ▸ Admin');
+    });
+
+    it('returns the items of two panels going by the name on different dashboards', async () => {
+      const { token } = await connected();
+      const first = await aPanel('Admin');
+      const second = nextId();
+      const dashboardId = await aDashboardCalled('Later');
+      expect((await send('add_panel', { dashboardId, panelId: second, name: 'Admin', kind: 'items' })).status).toBe(200);
+      await anItem('On the first', { panelIds: [first] });
+      await anItem('On the second', { panelIds: [second] });
+      await anItem('On neither');
+
+      expect(titlesIn(await findItems(token, { panel: 'Admin' })).toSorted()).toEqual(['On the first', 'On the second']);
+    });
+
+    it('returns the items of the panel in the workspace it is given with, and the panels of every workspace without one', async () => {
+      await alsoWorkspaces();
+      const { token } = await connected();
+      const here = await aPanel('Admin');
+      const there = await aPanel('Admin', 'ws-atlas', 'ws-atlas-dashboard-1');
+      await anItem('Admin here', { panelIds: [here] });
+      await anItem('Admin there', { workspaceId: 'ws-atlas', panelIds: [there] });
+      await anItem('Atlas inbox', { workspaceId: 'ws-atlas' });
+      await anItem('Workspace 1 inbox');
+
+      expect(titlesIn(await findItems(token, { panel: 'Admin', workspace: 'Atlas Copco' }))).toEqual(['Admin there']);
+      expect(titlesIn(await findItems(token, { panel: 'Admin', workspace: 'Workspace 1' }))).toEqual(['Admin here']);
+      expect(titlesIn(await findItems(token, { panel: 'Admin' })).toSorted()).toEqual(['Admin here', 'Admin there']);
+    });
+
+    it('narrows the items on a panel by every other criterion given', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      await anItem('Pay the tax', { panelIds: [admin], priority: 'high' });
+      await anItem('Pay the gas', { panelIds: [admin], priority: 'low' });
+      await anItem('Pay the rent', { priority: 'high' });
+
+      const found = await findItems(token, { panel: 'Admin', text: 'pay', priority: 'High' });
+
+      expect(titlesIn(found)).toEqual(['Pay the tax']);
+    });
+
+    it('gives the items on a panel 25 at a time, continued by a cursor, without those on other panels', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      const waiting = await aPanel('Waiting');
+      for (let n = 0; n < 26; n += 1) await anItem(`Errand ${String(n).padStart(2, '0')}`, { panelIds: [admin] }, USER_ID, AT(n));
+      await anItem('Errand elsewhere', { panelIds: [waiting] }, USER_ID, AT(30));
+
+      const first = await findItems(token, { panel: 'Admin' });
+      const second = await findItems(token, { panel: 'Admin', cursor: cursorIn(first) });
+
+      expect(titlesIn(first)).toHaveLength(25);
+      expect(titlesIn(first)[0]).toBe('Errand 25');
+      expect(titlesIn(second)).toEqual(['Errand 00']);
+      expect(cursorIn(second)).toBeUndefined();
+    });
+
+    it('counts a Filter panel’s due window from the day the app gives', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      const filterId = nextId();
+      expect((await send('add_panel', { dashboardId: DASHBOARD_ID, panelId: filterId, name: 'Due today', kind: 'filter' })).status).toBe(200);
+      const rows = [[{ field: 'dueDate', window: 'today', orOverdue: false }]];
+      expect((await send('set_panel_filter', { workspaceId: WORKSPACE_ID, panelId: filterId, rows })).status).toBe(200);
+      await anItem('Due on the 3rd', { panelIds: [admin], dueDate: '2030-01-03' });
+      await anItem('Due on the 4th', { panelIds: [admin], dueDate: '2030-01-04' });
+
+      expect(titlesIn(await findItems(token, { panel: 'Due today', today: '2030-01-03' }))).toEqual(['Due on the 3rd']);
+      expect(titlesIn(await findItems(token, { panel: 'Due today', today: '2030-01-04' }))).toEqual(['Due on the 4th']);
+    });
+
+    it('does not return a finished item filed on the panel, even where finished items are asked for', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      await anItem('Still to do', { panelIds: [admin] });
+      const finished = await anItem('Already done', { panelIds: [admin] });
+      expect((await send('set_done', { itemId: finished, done: true })).status).toBe(200);
+
+      expect(titlesIn(await findItems(token, { panel: 'Admin', include_done: true }))).toEqual(['Still to do']);
+    });
+
+    it('never returns the items on another account’s panel of the name', async () => {
+      const { token } = await connected(USER_ID);
+      const mine = await aPanel('Admin');
+      await anItem('My invoice', { panelIds: [mine] });
+      const ada = await asUser(`${ORIGIN}/v1/commands/add_panel`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ commandId: nextId(), issuedAt: new Date().toISOString(), workspaceId: WORKSPACE_ID, dashboardId: DASHBOARD_ID, panelId: nextId(), name: 'Admin', kind: 'items' }),
+      }, OTHER_USER_ID);
+      expect(ada.status).toBe(200);
+
+      expect(titlesIn(await findItems(token, { panel: 'Admin' }))).toEqual(['My invoice']);
+    });
+  });
+
+  describe('an app is refused a panel nobody has, and told the names there are', () => {
+    it('lists the panels there are, in the workspace named or in all of them', async () => {
+      await alsoWorkspaces();
+      const { token } = await connected();
+      await aPanel('Admin');
+      await aPanel('Waiting', 'ws-atlas', 'ws-atlas-dashboard-1');
+
+      const everywhere = await findItems(token, { panel: 'Garden' });
+      const inAtlas = await findItems(token, { panel: 'Garden', workspace: 'Atlas Copco' });
+
+      expect(everywhere.isError).toBe(true);
+      expect(textOf(everywhere)).toContain('No panel is called "Garden"');
+      expect(textOf(everywhere)).toContain('"Admin"');
+      expect(textOf(everywhere)).toContain('"Waiting"');
+      expect(textOf(inAtlas)).toContain('in the workspace "Atlas Copco"');
+      expect(textOf(inAtlas)).toContain('"Waiting"');
+      expect(textOf(inAtlas)).not.toContain('"Admin"');
+    });
+
+    it('finds no panel of a workspace that has been deleted', async () => {
+      await alsoWorkspaces();
+      const { token } = await connected();
+      const there = await aPanel('Admin', 'ws-atlas', 'ws-atlas-dashboard-1');
+      await anItem('Left in Atlas', { workspaceId: 'ws-atlas', panelIds: [there] });
+      expect((await send('delete_workspace', { workspaceId: 'ws-atlas' })).status).toBe(200);
+
+      const said = await findItems(token, { panel: 'Admin' });
+
+      expect(said.isError).toBe(true);
+      expect(textOf(said)).toContain('No panel is called "Admin"');
+    });
+  });
+
   describe('an app is told where each item is', () => {
     it('names each panel an item is filed on, as the workspace, the dashboard and the panel', async () => {
       const { token } = await connected();

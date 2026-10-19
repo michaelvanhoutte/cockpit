@@ -28,6 +28,7 @@ function anItem(id: string, over: Partial<Item> = {}): Item {
 
 const EVERYTHING: ItemSearch = {
   workspaceId: null,
+  panel: null,
   includeDone: false,
   text: null,
   status: null,

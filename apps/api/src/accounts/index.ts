@@ -28,7 +28,7 @@ import type { AccountSnapshot, Answer } from './answer.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
-import type { FoundPage, ItemSearch } from '../domain/item-search.js';
+import type { FindAnswer, ItemSearch } from '../domain/item-search.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
@@ -321,7 +321,7 @@ export interface Account {
    * Panels it is filed on (issue 1242). The account's own Items alone: every
    * query filters on the account.
    */
-  findItems(search: ItemSearch): Promise<FoundPage>;
+  findItems(search: ItemSearch): Promise<FindAnswer>;
   /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
