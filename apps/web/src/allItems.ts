@@ -1,8 +1,7 @@
 import {
   UNTITLED,
   itemStatus,
-  panelPlace,
-  panelTakesItems,
+  whereItIs,
   type Dashboard,
   type Filing,
   type Item,
@@ -15,7 +14,7 @@ import {
  * The table on *All items* ("Put each setting where a person looks for it",
  * issue 688): every item of the workspace in one table, and how it is ordered.
  *
- * **A view over the snapshot**, like the Inbox (`filing.ts`): finished items
+ * **A view over the snapshot**, like the Inbox (`packages/shared/src/domain/filing.ts`): finished items
  * travel in it and dismissed ones do not, so the table is the snapshot's items
  * as they stand and asks the server for nothing. It is sorted and filtered over
  * every row, then drawn `ALL_ITEMS_PAGE` at a time.
@@ -23,29 +22,6 @@ import {
 
 /** How many rows are drawn before *Show more*. */
 export const ALL_ITEMS_PAGE = 50;
-
-/**
- * Where an item is filed, as "Dashboard ▸ Panel" for each Panel that takes
- * items, or none to name.
- *
- * A filing onto a Filter is no filing (`filingsThatFile`), and one whose Panel
- * the snapshot no longer carries is a deleted Panel's: both leave the item in
- * the Inbox, which is what reopening it will do.
- */
-export function placesFiledOn(
-  item: Item,
-  filings: readonly Filing[],
-  panels: readonly Panel[],
-  dashboards: readonly Dashboard[],
-): string[] {
-  const held = new Set(filings.filter((filing) => filing.itemId === item.id).map((f) => f.panelId));
-  return panels
-    .filter((panel) => held.has(panel.id) && panelTakesItems(panel))
-    .map((panel) => {
-      const dashboard = dashboards.find((candidate) => candidate.id === panel.dashboardId);
-      return dashboard ? panelPlace(dashboard.name, panel.name) : panel.name;
-    });
-}
 
 export type AllItemsKey = 'title' | 'status' | 'priority' | 'due' | 'where' | 'changed';
 
@@ -125,14 +101,13 @@ export function allItemsRows(
   sort: AllItemsSort = DEFAULT_SORT,
 ): AllItemsRow[] {
   const rows = snapshot.items.map((item): AllItemsRow => {
-    const places = placesFiledOn(item, snapshot.filings, snapshot.panels, snapshot.dashboards);
     return {
       item,
       title: item.title.trim() || UNTITLED,
       status: itemStatus(item),
       priority: item.priority ?? null,
       due: item.dueDate ?? null,
-      where: places.length > 0 ? places.join(', ') : 'Inbox',
+      where: whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards),
       changedAt: item.completedAt ?? item.updatedAt,
     };
   });

@@ -6,11 +6,12 @@ import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { ItemList } from '../../../src/components/ItemList';
 import { UndoWhatJustHappened } from '../../../src/undo';
-import { NO_DASHBOARD_FILTER, useDashboardFilter } from '../../../src/dashboardFilter';
+import { useDashboardFilter } from '../../../src/dashboardFilter';
 import { useCommand } from '../../../src/api/queries';
 import { carryAcrossSwitch, landItem, liftItem } from '../../../src/itemInTheAir';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { dashboardScope, endSelection, pickedNow } from '../../../src/selection';
+import { NO_DASHBOARD_FILTER } from '@cockpit/shared';
 
 /**
  * F1: one selection across a Dashboard's Panels, as the person sees it - the

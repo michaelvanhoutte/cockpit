@@ -12,21 +12,14 @@ import {
 import { allItemsFilterId } from '../allItemsTab';
 import { momentDateLabel } from '../dateFormat';
 import { dueDateLabel } from '../dueDate';
-import {
-  clearDashboardFilter,
-  isFiltering,
-  itemIdsWithAttachments,
-  itemIdsWithRun,
-  matchesDashboardFilter,
-  useDashboardFilter,
-} from '../dashboardFilter';
-import { dayOf } from '../filters';
+import { clearDashboardFilter, useDashboardFilter } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
 import { rowOf, settleLanding, useLanding, useLandingStep } from '../landOnItem';
 import { browserStore } from '../lastVisited';
 import { PRIORITY_LABELS } from '../priority';
 import { DashboardFilterBar } from './DashboardFilterBar';
 import { LoadFailure } from './LoadFailure';
+import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFilter, dayOf } from '@cockpit/shared';
 
 /**
  * Every item of the workspace in one table, finished ones included ("Put each

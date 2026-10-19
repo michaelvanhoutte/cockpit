@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { clearDashboardFilter } from '../dashboardFilter';
-import { dayOf } from '../filters';
 import { isTypedInto, somethingIsOpenOverThePage } from '../inboxCollapsed';
 import { browserStore } from '../lastVisited';
-import { findItems, useFindIndex } from '../itemFind';
-import type { FindScope, FoundItem } from '../itemFind';
+import { useFindIndex } from '../itemFind';
 import { askToLand, forgetLanding } from '../landOnItem';
 import { entriesIn, FIND_ITEM_KEY, isListedSection, modeOfKeyPress, PANEL_LIST_KEY, rowsLeftBy, rowsOfRun } from '../panelList';
 import type { PanelListEntry, PanelListing, PanelListMode, PanelListRow } from '../panelList';
@@ -13,6 +11,7 @@ import { usePanelListWidth } from '../panelListWidth';
 import { KEY_CAP } from './keyCap';
 import { useReach } from '../panelReach';
 import type { Reach, ReachDashboard, ReachWorkspace, Scope } from '../panelReach';
+import { dayOf, findItems, type FindScope, type FoundItem } from '@cockpit/shared';
 
 const KEY_NAME = PANEL_LIST_KEY.toUpperCase();
 const FIND_NAME = FIND_ITEM_KEY.toUpperCase();
@@ -77,7 +76,7 @@ const SCOPES: readonly { scope: Scope; label: string }[] = [
  * **Find item is the same column in a second mode** ("Find an open Item with F
  * and Shift+F, and land on its row", issue 828), under the same rules: F on this
  * Dashboard, Shift+F on its Workspace (there is no *All*), nothing listed until
- * something is typed, then the open Items matching (`itemFind.ts`). The screen
+ * something is typed, then the open Items matching (`find-item.ts` in `@cockpit/shared`). The screen
  * follows the highlight onto the Item's row, and Enter lands focus on it, by a
  * request that outlives the column (`landOnItem.ts`). **Include done** (Workspace only, unticked at every opening) adds the finished Items; highlighting one leaves the screen put, and Enter goes to its row in *All items* (issue 829).
  */

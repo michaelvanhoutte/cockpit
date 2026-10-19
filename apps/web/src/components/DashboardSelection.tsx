@@ -1,9 +1,9 @@
 import { useSnapshot } from '../api/useSnapshot';
-import { stillOpen } from '../filing';
 import { dashboardScope, endSelection, showsABar, useHeldTo, useSelection, useSeveral } from '../selection';
 import { SelectionBar } from './SelectionBar';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
+import { stillOpen } from '@cockpit/shared';
 
 /**
  * What is picked across the Panels of the open Dashboard, and the one bar to act

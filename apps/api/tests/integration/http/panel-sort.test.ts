@@ -16,7 +16,7 @@ import {
  * is a stored column read back through the real snapshot, and what is refused
  * is the real route's validation ("Sort a panel of items by the fields you
  * choose", issue 526). Which order a sort puts rows in is the client's, in
- * apps/web/tests/unit/sorting.test.ts.
+ * packages/shared/tests/unit/domain/sorting.test.ts.
  *
  * **A file of its own rather than more cases in panels.test.ts**, which is
  * already as long as one isolate of the Workers test pool survives: the pool

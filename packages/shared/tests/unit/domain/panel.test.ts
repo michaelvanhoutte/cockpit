@@ -19,7 +19,7 @@ import {
  * L1: what a stored filter says, and which panels take a filing, are decisions
  * over a value. That a Filter really reads back as one from a real store is
  * apps/api/tests/integration/http/panels.test.ts, and what it then gathers is
- * apps/web/tests/unit/filters.test.ts.
+ * packages/shared/tests/unit/domain/filters.test.ts.
  */
 
 const DUE_TODAY: FilterCondition = { field: 'dueDate', window: 'today', orOverdue: true };

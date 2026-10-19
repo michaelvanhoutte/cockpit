@@ -9,6 +9,11 @@ import {
   type Item,
   type PanelColumns,
   type PanelFit,
+  filingsThatFile,
+  stillOpen,
+  dayOf,
+  panelAndFilterIdsByItem,
+  itemIdsWithRun,
 } from '@cockpit/shared';
 import {
   refusalFrom,
@@ -37,17 +42,10 @@ import {
   type SelectionInTheAir,
 } from '../itemInTheAir';
 import { columnsStyle, landingOnRow } from '../panelColumns';
-import {
-  fetchedChunk,
-  filedOrderOnPanel,
-  filingsThatFile,
-  stillOpen,
-  itemsOnPanel,
-  orderWithItemAt,
-} from '../filing';
-import { alsoShownOn, dayOf, panelAndFilterIdsByItem } from '../filters';
+import { fetchedChunk, filedOrderOnPanel, itemsOnPanel, orderWithItemAt } from '../filing';
+import { alsoShownOn } from '../filters';
 import type { FilterGroup } from '../filterGroups';
-import { itemIdsWithRun, useFilteredDashboardIds } from '../dashboardFilter';
+import { useFilteredDashboardIds } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
