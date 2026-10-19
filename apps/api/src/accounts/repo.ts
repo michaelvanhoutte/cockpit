@@ -733,6 +733,87 @@ export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: stri
     .all();
 }
 
+/**
+ * The Items `find_items` answers from ("Find items in Cockpit from a connected
+ * app, over MCP", issue 1240), newest change first and the id breaking a tie:
+ * one Workspace's or the whole account's, finished ones only where asked.
+ *
+ * **Read through `items_tenant_workspace_status`**, whose first two columns
+ * are the account and the Workspace, so a named Workspace is an index range
+ * and the whole account is the account's range. A dismissed Item is never
+ * here, which is the one rule no argument can lift. An Item belonging to no
+ * Workspace yet (`workspace_decided` false) is read under the one it was
+ * captured from.
+ */
+export function listItemsToFind(
+  db: AccountDb,
+  tenantId: string,
+  scope: { workspaceId: string | null; includeDone: boolean },
+): Item[] {
+  return db
+    .select(itemColumns)
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        scope.workspaceId === null ? undefined : eq(items.workspaceId, scope.workspaceId),
+        isNull(items.deletedAt),
+        scope.includeDone ? undefined : isNull(items.completedAt),
+      ),
+    )
+    .orderBy(desc(items.updatedAt), desc(items.id))
+    .all();
+}
+
+/**
+ * The filings of these Items alone, on Panels that are not deleted and
+ * Dashboards that are not - `listFilingsInWorkspace` for the few Items a page
+ * of `find_items` is made of, rather than for a whole Workspace.
+ */
+export function listFilingsOfItems(db: AccountDb, tenantId: string, itemIds: readonly string[]): Filing[] {
+  if (itemIds.length === 0) return [];
+  return db
+    .select({
+      panelId: panelItems.panelId,
+      itemId: panelItems.itemId,
+      position: panelItems.position,
+    })
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(panelItems.tenantId, tenantId),
+        inArray(panelItems.itemId, [...itemIds]),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(asc(panelItems.position))
+    .all();
+}
+
+/** The files on these Items, oldest first - names and sizes, never contents. */
+export function listAttachmentsOfItems(
+  db: AccountDb,
+  tenantId: string,
+  itemIds: readonly string[],
+): { id: string; itemId: string; filename: string; contentType: string; size: number }[] {
+  if (itemIds.length === 0) return [];
+  return db
+    .select({
+      id: attachments.id,
+      itemId: attachments.itemId,
+      filename: attachments.filename,
+      contentType: attachments.contentType,
+      size: attachments.size,
+    })
+    .from(attachments)
+    .where(and(eq(attachments.tenantId, tenantId), inArray(attachments.itemId, [...itemIds])))
+    .orderBy(asc(attachments.createdAt), asc(attachments.id))
+    .all();
+}
+
 export function getItem(db: AccountDb, tenantId: string, itemId: string): Item | null {
   return (
     db

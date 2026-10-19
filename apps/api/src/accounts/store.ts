@@ -36,8 +36,10 @@ import {
   REMEMBER_OFFERS_PER_MINUTE,
   SENTENCES_REMEMBERED_PER_MINUTE,
   admittedCalls,
+  admittedFinds,
   countedCalls,
 } from './call-window.js';
+import { findItemsIn, panelsToFind, type FindItemsAsk, type FoundPage, type PanelToFind } from './find-items.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import { capturePushed, connectionHistoryOf, pruneConnectionHistory, recordPushFailed } from './connection-history.js';
@@ -217,6 +219,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   #agentsRetired = false;
   /** The calls each app's grant was admitted for, newest last - see `appCaptureArrived`. */
   #appCaptures = new Map<string, number[]>();
+  /** The `find_items` calls each app's grant was admitted for in the last day, newest last - see `findItemsArrived`. */
+  #appFinds = new Map<string, number[]>();
   /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
   #transcriptions: number[] = [];
   /** The offers to remember and the Remember presses this account made, refused ones included, newest last - see `sentenceCallArrived`. */
@@ -767,6 +771,34 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     if (!calls) return 'too-many';
     this.#appCaptures.set(grantId, calls);
     return 'admitted';
+  }
+
+  /**
+   * An app connected to this account calling `find_items` ("Find items in
+   * Cockpit from a connected app, over MCP", issue 1240): admitted, or refused
+   * for the limit it hit - 10 a minute or 500 a day, each grant's own and apart
+   * from capture's.
+   *
+   * **Counted here, in memory, as `appCaptureArrived` is**: a count lost to the
+   * object being evicted starts the windows over, which is all it costs. The
+   * day's list holds at most 500 numbers a grant. Nothing is read or written,
+   * so it answers before the account is brought up to date.
+   */
+  findItemsArrived(grantId: string, at: string): 'admitted' | 'too-many-a-minute' | 'too-many-a-day' {
+    const counted = admittedFinds(this.#appFinds.get(grantId) ?? [], Date.parse(at));
+    if (!counted.admitted) return counted.limit === 'a-day' ? 'too-many-a-day' : 'too-many-a-minute';
+    this.#appFinds.set(grantId, counted.calls);
+    return 'admitted';
+  }
+
+  /** One page of the Items a connected app asked `find_items` for - see `findItemsIn`. */
+  findItems(accountName: string, ask: FindItemsAsk): Answer<FoundPage> {
+    return this.#answer(accountName, (db) => findItemsIn(db, accountName, ask));
+  }
+
+  /** The Panels of one Workspace, or of every one, by name - what `find_items`' `panel` is read against. */
+  panelsToFind(accountName: string, workspaceId: string | null): Answer<PanelToFind[]> {
+    return this.#answer(accountName, (db) => panelsToFind(db, accountName, workspaceId));
   }
 
   /**
