@@ -60,6 +60,7 @@ one the API allows 60 requests an hour, which is not enough for a full window.
   are one stretch; a cancelled run in between neither opens nor closes one.
 - **Durations exclude cancelled jobs**, which are truncated and would drag the median
   down. One run is reported as both its median and its p90, which is all one run can say.
+- **A job that runs as shards is one job.** `E2E (F3) (1)` to `(4)` and the fan-in named `E2E (F3)` are one row under the fan-in's name, one occurrence per run with the fan-in's verdict, and its duration is the first shard's start to the last shard's end. A shard that did not finish, a shard missing from the list (seen as a gap in the numbering, so a missing last shard is not) or no fan-in leaves that run's duration out, never the span of the shards that were read. The failing step is the failing shard's, and a fan-in skipped behind a failed shard reads as that failure.
 - **Each job's steps carry the same median and p90**, read from the job list already
   fetched. A step is keyed by its name and its occurrence of that name in the job (the 1st
   and 2nd "Upload"), because step numbers shift when a step is inserted; rows run in the

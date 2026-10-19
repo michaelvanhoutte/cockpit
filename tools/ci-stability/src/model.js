@@ -73,7 +73,59 @@ export function quantiles(values) {
   return { median, p90: sorted[rank - 1], count: sorted.length };
 }
 
+/**
+ * A shard job is named for its family and its index, `E2E (F3) (1)` (what GitHub names a matrix
+ * job called `E2E (F3)` over a `shard` dimension), and the family is the fan-in job named exactly
+ * `E2E (F3)` that needs every shard. The family's name ends in something other than a number, so
+ * `E2E (F3)` itself is never read as a shard. The cycle-time report reads the same convention.
+ */
+const SHARD_NAME = /^(.+) \((\d+)\)$/;
+
+/**
+ * The jobs of one run with every shard family counted as one job under the family's name: the
+ * fan-in's verdict, one occurrence per run, and a duration from the first shard's start to the
+ * last shard's end. That duration is `null` where a shard did not run to a finish or the family
+ * is not whole (a shard missing from the list, or no fan-in) — never the span of the shards that
+ * were read. A family with no fan-in is `other` unless a shard failed, so a partial list never
+ * reads as a pass. The failing step is the failing shard's.
+ *
+ * @param {import('./github.js').Job[]} jobs the jobs of one run
+ */
+function foldFamilies(jobs) {
+  const shards = jobs.filter((job) => SHARD_NAME.test(job.name));
+  if (shards.length === 0) return jobs;
+
+  const families = new Map();
+  for (const shard of shards) {
+    const [, family, index] = SHARD_NAME.exec(shard.name);
+    if (!families.has(family)) families.set(family, []);
+    families.get(family).push({ shard, index: Number(index) });
+  }
+
+  const folded = [];
+  const replaced = new Set(shards);
+  for (const [family, members] of families) {
+    const fanIn = jobs.find((job) => job.name === family) ?? null;
+    if (fanIn) replaced.add(fanIn);
+    const indices = members.map((member) => member.index).sort((a, b) => a - b);
+    const whole = fanIn !== null && indices.every((index, position) => index === position + 1);
+    const finished = members.every(({ shard }) => (classify(shard) === 'pass' || classify(shard) === 'fail') && durationMs(shard) !== null);
+    const failing = members.find(({ shard }) => classify(shard) === 'fail')?.shard ?? null;
+    // A fan-in skipped behind a failed shard says nothing, so the shard's failure stands in for it.
+    const base = (fanIn && !(failing && classify(fanIn) === 'skipped') ? fanIn : null) ?? { runId: members[0].shard.runId, name: family, conclusion: failing ? 'failure' : 'neutral', status: 'completed', url: members[0].shard.url, steps: [] };
+    folded.push({
+      ...base,
+      name: family,
+      // The span of the whole family, or nothing: a figure over the shards that were read would be a shorter family.
+      familyMs: whole && finished ? Math.max(...members.map(({ shard }) => Date.parse(shard.completedAt))) - Math.min(...members.map(({ shard }) => Date.parse(shard.startedAt))) : null,
+      ...(failing ? { failedStep: failing.failedStep ?? base.failedStep, url: failing.url ?? base.url } : {}),
+    });
+  }
+  return [...jobs.filter((job) => !replaced.has(job)), ...folded];
+}
+
 function durationMs(job) {
+  if (job.familyMs !== undefined) return job.familyMs;
   if (!job.startedAt || !job.completedAt) return null;
   const ms = new Date(job.completedAt) - new Date(job.startedAt);
   return Number.isFinite(ms) && ms >= 0 ? ms : null;
@@ -330,7 +382,8 @@ export function buildModel({
   windows = [7, 30],
   failureLimit = 15,
 }) {
-  const jobsByRun = group(jobs, (job) => job.runId);
+  // A shard family is one job, so its shards are in no row, last run or failure of their own.
+  const jobsByRun = new Map([...group(jobs, (job) => job.runId)].map(([runId, own]) => [runId, foldFamilies(own)]));
   const oldest = runs.length
     ? new Date(Math.min(...runs.map((run) => new Date(run.createdAt).getTime())))
     : null;

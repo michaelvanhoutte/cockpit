@@ -70,6 +70,8 @@ function humanMs(ms) {
 
 /** Every timestamp on the page is UTC, and says so — the reader is not. */
 const stamp = (iso) => `${iso.slice(0, 16).replace('T', ' ')}Z`;
+/** A job's own start and stop are to the second, which the minute a push is stamped to cannot tell apart. */
+const clock = (iso) => `${iso.slice(11, 19)}Z`;
 const day = (iso) => iso.slice(0, 10);
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 const days = (value) => (Number.isInteger(value) ? String(value) : (Math.round(value * 10) / 10).toString());
@@ -151,7 +153,25 @@ function roundText(round, index) {
   if (round.red) parts.push(`RED: ${round.failed.join(', ')} failed`);
   if (round.flukes.length) parts.push(`FLUKE: ${round.flukes.map((fluke) => `${fluke.name} failed and passed on re-run, +${humanMs(fluke.ms)}`).join('; ')}`);
   if (round.unrecognised.length) parts.push(`unrecognised: ${round.unrecognised.map((each) => `${each.name} (${each.conclusion})`).join(', ')}`);
+  if (!Array.isArray(round.lanes)) parts.push('lanes not recorded: its job list could not be read, or no job of it ran on a runner, so it is drawn as one block');
   return parts.join(' · ');
+}
+
+const OUTCOME_WORD = { pass: 'passed', fail: 'failed', cancelled: 'cancelled', running: 'still running', other: 'neither passed nor failed', unknown: 'ended in a conclusion not recognised' };
+
+/** What a job lane says of itself: when it started and stopped (UTC, to the second), the wait for a runner before it, and how it ended. */
+function laneText(lane) {
+  const own = lane.shard !== undefined ? `${lane.name} · shard ${lane.shard} of ${lane.family}` : lane.fanIn ? `${lane.name} · fan-in of the ${lane.family} shards` : lane.name;
+  return [
+    own,
+    `${lane.startedAt ? `started ${clock(lane.startedAt)}` : 'start not recorded'}${lane.endedAt ? `, stopped ${clock(lane.endedAt)}` : ', not stopped'}`,
+    `ran ${humanMs(lane.ms)}`,
+    lane.queuedMs === null ? 'wait for a runner not recorded' : `waited ${humanMs(lane.queuedMs)} for a runner${lane.leadMs < lane.queuedMs ? ' (the part before the round began is not drawn)' : ''}`,
+    OUTCOME_WORD[lane.outcome] ?? lane.outcome,
+    lane.rerun ? `re-run (attempt ${lane.attempt})` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /** What one check held a round for, in words, for the title on its own slice of the round. */
@@ -224,8 +244,26 @@ function placeStyle(part, scaleMs) {
   return part.type === 'away' ? `left:${left}` : `left:${left};width:calc(var(--span) * ${(part.ms / scaleMs).toFixed(5)})`;
 }
 
-/** The lanes of a parallel stretch that fall inside it, once the stretch is cut at the scale's edge. */
-const visibleLanes = (part) => part.lanes.filter((lane) => lane.offsetMs < part.ms);
+/** The lanes of a parallel stretch or a round that fall inside it, once it is cut at the scale's edge. */
+const visibleLanes = (part) => (part.lanes ?? []).filter((lane) => lane.offsetMs - (lane.leadMs ?? 0) < part.ms);
+
+/**
+ * A round's jobs, each at its own start and stop inside the round, its wait for a runner a lead before
+ * it in the same row. Positions are shares of the round's own width, so they stay true wherever the round is placed.
+ */
+function laneSpans(part) {
+  const share = (ms) => (part.ms > 0 ? (ms / part.ms) * 100 : 0).toFixed(3);
+  return visibleLanes(part)
+    .map((lane) => {
+      const title = esc(laneText(lane));
+      const top = `top:${lane.row * 100}%`;
+      const lead = lane.leadMs > 0 ? `<span class="lane lead" style="left:${share(lane.offsetMs - lane.leadMs)}%;width:${share(Math.min(lane.leadMs, part.ms - (lane.offsetMs - lane.leadMs)))}%;${top}" title="${title}"></span>` : '';
+      if (lane.offsetMs >= part.ms) return lead;
+      const classes = ['lane', 'job', lane.outcome === 'fail' ? 'failed' : '', lane.rerun ? 'rerun' : '', lane.outcome === 'running' ? 'running' : ''].filter(Boolean).join(' ');
+      return `${lead}<span class="${classes}" style="left:${share(lane.offsetMs)}%;width:${share(Math.min(lane.ms, part.ms - lane.offsetMs))}%;${top}" title="${title}"></span>`;
+    })
+    .join('');
+}
 
 function segment(part, pull, scaleMs) {
   const place = placeStyle(part, scaleMs);
@@ -234,11 +272,12 @@ function segment(part, pull, scaleMs) {
   if (part.type === 'round') {
     const { round, index } = part;
     const marked = [round.red ? '<i class="mark red" aria-hidden="true">✕</i>' : '', round.flukes.length ? '<i class="mark fluke" aria-hidden="true">↻</i>' : ''].filter(Boolean);
-    const pieces = roundPieces(round, part.cut ? part.ms : undefined);
+    // Every job its own lane where they are recorded; the block, split by what held the round, where they are not.
+    const drawn = part.lanes ? laneSpans(part) : roundPieces(round, part.cut ? part.ms : undefined);
     // Named by the width it has on screen, which only the browser knows: the long form, the short, or only its mark (styles `roundLabelRules`).
     const label = `<span class="roundlabel" aria-hidden="true">${marked.join('')}<span class="cilong">CI Round ${index}</span><span class="cishort">CI ${index}</span></span>`;
     const size = `d${Math.min(3, String(index).length)} m${marked.length}`;
-    return `<span class="seg round${round.red ? ' red' : ''} ${size}${part.cut ? ' cut' : ''}" data-round="${index}" style="${place}" title="${esc(roundText(round, index))}">${pieces}${label}</span>`;
+    return `<span class="seg round${part.lanes ? ' withlanes' : ''}${round.red ? ' red' : ''} ${size}${part.cut ? ' cut' : ''}" data-round="${index}" style="${place}" title="${esc(roundText(round, index))}">${drawn}${label}</span>`;
   }
 
   if (part.type === 'review' || part.type === 'test' || part.type === 'browser') {
@@ -266,7 +305,7 @@ function track(pull, fitted, scaleMs) {
   const scale = Math.max(1, scaleMs);
   const cap = fitted.clipped ? '<span class="clipmark" aria-hidden="true">&#9656;</span>' : '';
   // The track makes room above and below for the stack of lanes standing off its line.
-  const rows = fitted.parts.filter((part) => part.type === 'parallel').flatMap((part) => visibleLanes(part).map((lane) => lane.row));
+  const rows = fitted.parts.filter((part) => part.type === 'parallel' || part.type === 'round').flatMap((part) => visibleLanes(part).map((lane) => lane.row));
   const above = Math.max(0, ...rows.map((row) => -row));
   const below = Math.max(0, ...rows);
   const vars = [`--span:${spanOf(fitted)}`, above + below > 0 ? `--above:${above};--below:${below}` : ''].filter(Boolean).join(';');
@@ -294,7 +333,13 @@ function axis(pull, zoomed) {
 
 /** The lines under a strip, one per CI Round; each is paired with its round on the strip by `data-round`. */
 const roundList = (pull) =>
-  `<ol class="roundlist">${pull.rounds.map((round, position) => `<li data-round="${position + 1}">${esc(roundText(round, position + 1))}</li>`).join('')}</ol>`;
+  `<ol class="roundlist">${pull.rounds.map((round, position) => `<li data-round="${position + 1}">${esc(roundText(round, position + 1))}${jobList(round)}</li>`).join('')}</ol>`;
+
+/** Under a round's line, one line per job with when it started and stopped, so the times can be read without hovering. */
+function jobList(round) {
+  if (!Array.isArray(round.lanes) || round.lanes.length === 0) return '';
+  return `<ul class="joblist">${round.lanes.map((lane) => `<li>${esc(laneText(lane))}</li>`).join('')}</ul>`;
+}
 
 /** The strip in a row: on the shared scale, and when clicked the same pull request zoomed on its own axis above its round list. */
 function strip(pull, parts, fitted, scaleMs, summary, notes) {
@@ -362,9 +407,11 @@ function groupedKeys(ids, text) {
 function legend() {
   const text = (id) => (id.startsWith('local-') ? `${KIND[id].key} (local, at the time it ran)` : KIND[id].key);
   return `<div class="legend grouped">
-    <p class="ciround"><b>CI Round</b>: a push, until the last check on it finishes; a red one failed and was pushed again.</p>
+    <p class="ciround"><b>CI Round</b>: a push, until the last check on it finishes; a red one failed and was pushed again. Each job of a round is a lane from its own start to its own stop, so jobs that ran together sit in rows above one another.</p>
     ${groupedKeys(['coding', 'fixing', 'local-code-review', 'local-security-review', 'local-test', 'local-browser', 'checks'], text)}
     <div class="keygroup">
+      ${swatch('lead', 'a job waiting for a runner, before its lane')}
+      ${swatch('rerun', 're-run of a job')}
       ${swatch('wait', 'waiting to merge')}
       ${swatch('away', `away (over ${humanMs(AWAY_MS)}, off the scale)`)}
       <span class="key"><i class="mark red" aria-hidden="true">✕</i>red round</span>
@@ -378,7 +425,7 @@ function strips(model) {
   if (model.pulls.length === 0) return '<div class="card"><p class="empty">No merged pull requests in this period.</p></div>';
   const allParts = model.pulls.map(partsOf);
   const scaleMs = scaleFor(allParts);
-  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}, and every part sits at its own time and length on it; one too short to see is drawn a little wider, over what follows it. Time away is not on it. A CI Round is split into the checks that held it, in the order they finished — hover a slice for which one and how long, and hover a round to find its line in the list; it is named on the strip as far as its width allows. Click a strip to open that pull request on its own scale, uncut, with a clock-time axis (UTC) above its CI Rounds in words; click it again to close it. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where several run in parallel, the longest stays on the line and the others stack above it, then below, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
+  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}, and every part sits at its own time and length on it; one too short to see is drawn a little wider, over what follows it. Time away is not on it. A CI Round is drawn as the jobs that ran in it, each a lane from its own start to its own stop with its wait for a runner as a dotted lead before it, so jobs that ran at the same time are in rows one above another and a job that waited on another starts where that one ended; hover a lane for when it started and stopped (UTC, to the second). A round whose jobs were not read is one block, split into the checks that held it, and says so on hover. Hover a round to find its line in the list; it is named on the strip as far as its width allows. Click a strip to open that pull request on its own scale, uncut, with a clock-time axis (UTC) above its CI Rounds in words; click it again to close it. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where several run in parallel, the longest stays on the line and the others stack above it, then below, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
   return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs, model.branch)).join('')}</div>`;
 }
 

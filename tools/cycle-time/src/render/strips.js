@@ -91,6 +91,35 @@ function describe(slice) {
 }
 
 /**
+ * A round's jobs placed in rows: a job takes the free row that ended last, from its lead's start to
+ * its end, so jobs that overlapped sit in different rows and one that waited on another sits in
+ * its row after it. The row that was busiest holds the strip's line, then the next above it, then
+ * below, as for local work in parallel, so the same jobs hold the same rows on every render.
+ * `null` where the round's jobs are not recorded.
+ *
+ * @param {object[]|null|undefined} lanes the model's `round.lanes`
+ */
+export function placeLanes(lanes) {
+  if (!Array.isArray(lanes)) return null;
+  const rows = [];
+  const placed = lanes.map((lane) => {
+    const occupiedFrom = lane.offsetMs - lane.leadMs;
+    // The free row that ended last, so a job that began where another ended carries on its row.
+    let index = -1;
+    rows.forEach((row, each) => {
+      if (row.end <= occupiedFrom && (index === -1 || row.end > rows[index].end)) index = each;
+    });
+    if (index === -1) index = rows.push({ end: -Infinity, busy: 0 }) - 1;
+    rows[index].end = lane.offsetMs + lane.ms;
+    rows[index].busy += lane.leadMs + lane.ms;
+    return { ...lane, packed: index };
+  });
+  const ranked = rows.map((row, index) => ({ index, busy: row.busy })).sort((a, b) => b.busy - a.busy || a.index - b.index);
+  const rowOf = new Map(ranked.map((row, rank) => [row.index, rowOfRank(rank)]));
+  return placed.map(({ packed, ...lane }) => ({ ...lane, row: rowOf.get(packed) }));
+}
+
+/**
  * A pull request's parts, in the order they were spent. Empty where no check ever
  * ran on it, since every part after the first push is measured from a round.
  *
@@ -105,7 +134,7 @@ export function partsOf(pull) {
   const firstPush = Date.parse(pull.rounds[0].pushedAt);
   parts.push(...gapParts('coding', firstPush - pull.beforeFirstPushMs, firstPush, slicesIn(0)));
   pull.rounds.forEach((round, position) => {
-    parts.push({ type: 'round', ms: round.ms, round, index: position + 1 });
+    parts.push({ type: 'round', ms: round.ms, round, index: position + 1, lanes: placeLanes(round.lanes) });
     const next = pull.rounds[position + 1];
     const from = Date.parse(round.endedAt);
     const to = Date.parse(next ? next.pushedAt : pull.mergedAt);

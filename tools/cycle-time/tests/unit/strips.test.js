@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { renderBlock } from '../../../../scripts/lib/session-record.mjs';
 import { pullModel } from '../../src/model.js';
-import { axisFor, fitTo, partsOf, scaleFor } from '../../src/render/strips.js';
+import { axisFor, fitTo, partsOf, placeLanes, scaleFor } from '../../src/render/strips.js';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -405,6 +405,37 @@ describe('Cycle time', () => {
       const zoomed = fitTo(parts, Infinity);
       expect(zoomed.clipped).toBeNull();
       expect(axisFor(clock(0), zoomed).pop().atMs).toBe(clock(200));
+    });
+  });
+
+  describe("a round's jobs sit in rows by when they ran", () => {
+    const lane = (name, from, to, lead = 0) => ({ name, offsetMs: from * MIN, ms: (to - from) * MIN, leadMs: lead * MIN });
+    const rowsOf = (...lanes) => Object.fromEntries(placeLanes(lanes).map((each) => [each.name, each.row]));
+
+    it('puts jobs that ran together in different rows and a job that began where another ended in its row', () => {
+      const rows = rowsOf(lane('Checks', 0, 3), lane('Test', 0, 9), lane('Publish', 9, 12, 0));
+      expect(rows.Checks).not.toBe(rows.Test);
+      expect(rows.Publish).toBe(rows.Test);
+    });
+
+    it('keeps a job that waited for a runner in the row of what it waited behind only where its lead begins after that one ended', () => {
+      // Test is created at minute 3 and starts at 5: its lead is in Checks' row only because Checks ended at 3.
+      const behind = rowsOf(lane('Checks', 0, 3), lane('Test', 5, 9, 2));
+      expect(behind.Test).toBe(behind.Checks);
+      // Created at minute 2, its lead overlaps Checks, so it needs a row of its own.
+      const overlapping = rowsOf(lane('Checks', 0, 3), lane('Test', 4, 9, 2));
+      expect(overlapping.Test).not.toBe(overlapping.Checks);
+    });
+
+    it('holds the strip’s line with the row that was busiest, then stacks the rest above and below it', () => {
+      const rows = rowsOf(lane('Checks', 0, 3), lane('E2E', 0, 25), lane('Test', 0, 9));
+      expect(rows.E2E).toBe(0);
+      expect(new Set(Object.values(rows))).toEqual(new Set([0, -1, 1]));
+    });
+
+    it('places nothing for a round whose jobs are not recorded', () => {
+      expect(placeLanes(null)).toBeNull();
+      expect(placeLanes(undefined)).toBeNull();
     });
   });
 });

@@ -561,3 +561,80 @@ describe('Step durations', () => {
     });
   });
 });
+
+describe('A job that runs as shards is measured as one job', () => {
+  /** A job of `runId` that ran from `from` to `to` minutes past 12:00 on the 6th. */
+  const ran = (runId, name, from, to, conclusion = 'success', overrides = {}) =>
+    job({
+      runId,
+      name,
+      conclusion,
+      startedAt: new Date(Date.UTC(2026, 8, 6, 12, from)).toISOString(),
+      completedAt: new Date(Date.UTC(2026, 8, 6, 12, to)).toISOString(),
+      ...overrides,
+    });
+  /** The four shards of `E2E (F3)`, as [start, end, conclusion] each, then its fan-in waiting on them. */
+  const family = (runId, shards, fan = [Math.max(...shards.map(([, to]) => to)), Math.max(...shards.map(([, to]) => to)) + 1, 'success']) => [
+    ...shards.map(([from, to, conclusion], index) => ran(runId, `E2E (F3) (${index + 1})`, from, to, conclusion)),
+    ...(fan ? [ran(runId, 'E2E (F3)', ...fan)] : []),
+  ];
+  const jobsOf = (runs, jobs) => build({ runs, jobs, windows: [30] }).windows[0].workflows[0].jobs;
+  const MINUTE = 60_000;
+
+  it('takes the span from the first shard’s start to the last shard’s end, one occurrence per run', () => {
+    const only = run();
+    const jobs = jobsOf([only], [...family(only.id, [[0, 8, 'success'], [1, 9, 'success'], [1, 11, 'success'], [2, 10, 'success']]), ran(only.id, 'Test', 0, 5)]);
+    expect(jobs.map((each) => each.name).sort()).toEqual(['E2E (F3)', 'Test']);
+    const e2e = jobs.find((each) => each.name === 'E2E (F3)');
+    // The fan-in ran from minute 11 to 12; its own minute is not the family's, which is 0 to 11.
+    expect(e2e.durations).toEqual({ median: 11 * MINUTE, p90: 11 * MINUTE, count: 1 });
+    expect(e2e.tally).toMatchObject({ pass: 1, completed: 1 });
+  });
+
+  it('reads the family’s duration for a run as nothing where a shard was cancelled, not the span of the other three', () => {
+    const only = run({ conclusion: 'cancelled' });
+    const [e2e] = jobsOf([only], family(only.id, [[0, 8, 'success'], [1, 9, 'success'], [1, 2, 'cancelled'], [2, 10, 'success']], [10, 11, 'cancelled']));
+    expect(e2e.durations).toBeNull();
+    expect(e2e.tally).toMatchObject({ cancelled: 1, completed: 0 });
+  });
+
+  it('measures a lone E2E (F3) job as it always was, from its own start to its own end', () => {
+    const only = run();
+    const [e2e] = jobsOf([only], [ran(only.id, 'E2E (F3)', 0, 25)]);
+    expect(e2e.durations).toEqual({ median: 25 * MINUTE, p90: 25 * MINUTE, count: 1 });
+  });
+
+  describe('a family with a job missing from the list is not a shorter family', () => {
+    it.each([
+      { situation: 'a shard absent from the list', passes: 1, jobs: (id) => [...family(id, [[0, 8, 'success'], [1, 9, 'success'], [1, 11, 'success'], [2, 10, 'success']]).filter((each) => each.name !== 'E2E (F3) (3)')] },
+      { situation: 'no fan-in in the list', passes: 0, jobs: (id) => family(id, [[0, 8, 'success'], [1, 9, 'success'], [1, 11, 'success'], [2, 10, 'success']], null) },
+    ])('reads its duration as nothing where $situation, and counts a pass only where the fan-in said so', ({ jobs, passes }) => {
+      const only = run();
+      const [e2e] = jobsOf([only], jobs(only.id));
+      expect(e2e.durations).toBeNull();
+      expect(e2e.tally.pass).toBe(passes);
+    });
+  });
+
+  it('lists a failure under the family’s name, with the step the failing shard died on', () => {
+    const failed = run({ conclusion: 'failure' });
+    const shards = family(failed.id, [[0, 8, 'success'], [1, 9, 'failure'], [1, 11, 'success'], [2, 10, 'success']], [11, 12, 'failure']);
+    const model = build({ runs: [failed], jobs: shards.map((each) => (each.name === 'E2E (F3) (2)' ? { ...each, failedStep: 'Run the walks' } : each)), windows: [30] });
+    expect(model.recentFailures[0].jobs.map((each) => [each.name, each.failedStep])).toEqual([['E2E (F3)', 'Run the walks']]);
+    expect(model.lastRuns[0].jobs.map((each) => each.name)).toEqual(['E2E (F3)']);
+  });
+
+  it('keeps the fan-in’s own step where the failing shard names none', () => {
+    const failed = run({ conclusion: 'failure' });
+    const jobs = family(failed.id, [[0, 8, 'success'], [1, 9, 'failure'], [1, 11, 'success'], [2, 10, 'success']], [11, 12, 'failure']).map((each) => (each.name === 'E2E (F3)' ? { ...each, failedStep: 'Fail when a shard failed' } : each));
+    const model = build({ runs: [failed], jobs, windows: [30] });
+    expect(model.recentFailures[0].jobs.map((each) => [each.name, each.failedStep])).toEqual([['E2E (F3)', 'Fail when a shard failed']]);
+  });
+
+  it('reads a fan-in skipped behind a failed shard as that failure, not as a job that did not run', () => {
+    const failed = run({ conclusion: 'failure' });
+    const jobs = family(failed.id, [[0, 8, 'success'], [1, 9, 'failure'], [1, 11, 'success'], [2, 10, 'success']], [11, 11, 'skipped']);
+    const [e2e] = jobsOf([failed], jobs);
+    expect(e2e.tally).toMatchObject({ fail: 1, skipped: 0 });
+  });
+});

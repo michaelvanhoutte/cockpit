@@ -295,7 +295,7 @@ describe('Cycle time', () => {
       expect(unrecorded).toContain('>not recorded<');
       expect(unrecorded).toContain('seg coding unrecorded');
       expect(recorded).not.toContain('unrecorded');
-      expect(recorded).not.toContain('not recorded');
+      expect(recorded).not.toContain('>not recorded<');
     });
 
     it('reads a pull request no check ran on as having no rounds, not as a strip of nothing', () => {
@@ -400,7 +400,7 @@ describe('Cycle time', () => {
     it('draws no review slice for a record that marks no review, and does not call it not recorded', () => {
       const html = render({ pulls: [pull({ body: withRecord(0), commits: [commit('a', 0, [check('Test', 20, 40)])] })] });
       expect(stripOf(html, 1)).not.toContain('seg review');
-      expect(rowOf(html, 1)).not.toContain('not recorded');
+      expect(rowOf(html, 1)).not.toContain('>not recorded<');
     });
   });
 
@@ -980,6 +980,97 @@ describe('Cycle time', () => {
       const html = render({ pulls: [pull({ commits: [commit('a', 0)] })] });
       expect(rowOf(html, 1)).toContain('no check ran on it');
       expect(rowOf(html, 1)).not.toContain('class="axis"');
+    });
+  });
+
+  describe("a round's jobs are drawn where they ran, each its own lane", () => {
+    /** A job created `created` minutes past 09:00 whose check run ran `from` to `to`, its job list read. */
+    const job = (name, created, from, to, conclusion = 'success') => check(name, from, to, conclusion, { queue: { state: 'read', createdAt: at(created), startedAt: at(from) } });
+    const strip = (checks, overrides = {}) => stripOf(render({ pulls: [pull({ commits: [commit('a', 0, checks)], ...overrides })] }), 1);
+    /** Every job lane and lead in a strip, as the browser places it: its share of the round, its row and its hover. */
+    const lanesIn = (html) =>
+      [...html.matchAll(/<span class="lane (job|lead)([^"]*)" style="left:([\d.]+)%;width:([\d.]+)%;top:(-?\d+)%" title="([^"]*)">/g)].map(([, kind, flags, left, width, top, title]) => ({
+        kind,
+        flags: flags.trim().split(' ').filter(Boolean),
+        left: Number(left),
+        width: Number(width),
+        top: Number(top),
+        title,
+      }));
+    const jobsOf = (html) => lanesIn(html).filter((lane) => lane.kind === 'job');
+    const share = (minutes, whole) => Number(((minutes / whole) * 100).toFixed(3));
+
+    it('draws Checks, Test and four shards as six lanes, each from its own start to its own stop, the shards overlapping', () => {
+      const html = strip([
+        job('Checks', 0, 1, 4),
+        job('Test', 0, 1, 9),
+        job('E2E (F3) (1)', 0, 1, 10),
+        job('E2E (F3) (2)', 0, 1.5, 11),
+        job('E2E (F3) (3)', 0, 2, 12),
+        job('E2E (F3) (4)', 0, 2, 13),
+      ]);
+      // The round runs from the first start, minute 1, to the last stop, minute 13: twelve minutes.
+      const lanes = jobsOf(html);
+      expect(lanes.map(({ left, width }) => [left, width])).toEqual([
+        [0, share(3, 12)],
+        [0, share(8, 12)],
+        [0, share(9, 12)],
+        [share(0.5, 12), share(9.5, 12)],
+        [share(1, 12), share(10, 12)],
+        [share(1, 12), share(11, 12)],
+      ]);
+      // Everything overlaps in time, so no two share a row.
+      expect(new Set(lanes.map((lane) => lane.top)).size).toBe(6);
+      expect(lanes.map((lane) => lane.title.split(' · ').slice(0, 2).join(' · '))).toContain('E2E (F3) (3) · shard 3 of E2E (F3)');
+    });
+
+    it('draws the wait for a runner as a lead before the lane, which starts at the job’s own start', () => {
+      const html = strip([job('Checks', 0, 0, 5), job('Test', 1, 3, 9)]);
+      const [lead] = lanesIn(html).filter((lane) => lane.kind === 'lead');
+      const test = jobsOf(html).find((lane) => lane.title.startsWith('Test'));
+      expect(lead).toMatchObject({ left: share(1, 9), width: share(2, 9) });
+      expect(test).toMatchObject({ left: share(3, 9), width: share(6, 9) });
+      expect(test.title).toContain('waited 2m 00s for a runner');
+      expect(test.title).toContain('started 09:03:00Z, stopped 09:09:00Z');
+    });
+
+    it('starts the lane of a job created when another finished where that one ended, in the same row', () => {
+      const html = strip([job('Test', 0, 0, 5), job('Publish', 5, 5, 8)]);
+      const [test, publish] = jobsOf(html);
+      expect(publish.left).toBeCloseTo(test.left + test.width, 3);
+      expect(publish.top).toBe(test.top);
+    });
+
+    it('draws a round of one job as one lane on the strip’s line, over the whole round', () => {
+      const lanes = jobsOf(strip([job('Test', 0, 2, 12)]));
+      expect(lanes).toHaveLength(1);
+      expect(lanes[0]).toMatchObject({ left: 0, width: 100, top: 0 });
+    });
+
+    it('draws no lane for a job that was skipped', () => {
+      const lanes = jobsOf(strip([job('Test', 0, 2, 12), job('Publish', 2, 2, 2, 'skipped')]));
+      expect(lanes.map((lane) => lane.title.split(' · ')[0])).toEqual(['Test']);
+    });
+
+    it('draws a re-run of a job as its own lane after the first, marked as a re-run, and ringed the failed one', () => {
+      const lanes = jobsOf(strip([job('Test', 0, 0, 5, 'failure'), job('Test', 6, 6, 12)]));
+      expect(lanes).toHaveLength(2);
+      expect(lanes[0].flags).toEqual(['failed']);
+      expect(lanes[1].flags).toEqual(['rerun']);
+      expect(lanes[1].left).toBeGreaterThan(lanes[0].left + lanes[0].width - 0.001);
+      expect(lanes[1].title).toContain('re-run (attempt 2)');
+    });
+
+    it('draws a round whose job list could not be read as today’s block, and says its lanes are not recorded', () => {
+      const html = strip([check('Test', 2, 12, 'success', { queue: { state: 'not-recorded', why: 'unreadable' } }), job('Checks', 0, 2, 5)]);
+      expect(lanesIn(html)).toEqual([]);
+      expect(html).toContain('class="piece checks"');
+      expect(html).toContain('lanes not recorded');
+    });
+
+    it('lists each job under its round with when it started and stopped, so the times read without hovering', () => {
+      const html = zoomedOf(render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12)])] })] }), 1);
+      expect(html).toContain('<ul class="joblist"><li>Test · started 09:02:00Z, stopped 09:12:00Z · ran 10m 00s · waited 0s for a runner · passed</li></ul>');
     });
   });
 });
