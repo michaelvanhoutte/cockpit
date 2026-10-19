@@ -552,32 +552,53 @@ describe('Cycle time', () => {
       });
     });
 
-    describe("a dot's shade is its CI rounds, faint to strong, readable in both themes", () => {
+    describe("a dot's shade is its CI rounds, blue for one round to red for five or more, readable in both themes", () => {
       // WCAG 2 contrast of two #rrggbb colours.
+      // The linear-light red, green and blue of a #rrggbb colour, which both measures below start from.
+      const linear = (hex) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
       const luminance = (hex) => {
-        const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+        const [r, g, b] = linear(hex);
         return 0.2126 * r + 0.7152 * g + 0.0722 * b;
       };
       const contrast = (a, b) => {
         const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
         return (high + 0.05) / (low + 0.05);
       };
+      // OKLab (Björn Ottosson) of a #rrggbb colour; the distance between two is ΔE ×100.
+      const oklab = (hex) => {
+        const [r, g, b] = linear(hex);
+        const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+        const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+        const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+        return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+      };
+      const deltaE = (a, b) => 100 * Math.hypot(...oklab(a).map((value, index) => value - oklab(b)[index]));
       const colours = (block) => Object.fromEntries([...block.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((match) => [match[1], match[2]]));
+      const darkBlock = (css) => css.match(/:root \{([^}]*)\}/)[1];
+      const lightBlock = (css) => css.match(/prefers-color-scheme: light\)\s*\{\s*:root \{([^}]*)\}/)[1];
+      const shadesIn = (block) => [1, 2, 3, 4, 5].map((step) => colours(block)[`round-${step}`]);
 
-      it.each([
-        ['dark', (css) => css.match(/:root \{([^}]*)\}/)[1]],
-        ['light', (css) => css.match(/prefers-color-scheme: light\)\s*\{\s*:root \{([^}]*)\}/)[1]],
-      ])('keeps every step at least 3:1 against the card in the %s theme, step 1 the lowest and 5 the highest', (_theme, blockOf) => {
-        const theme = colours(blockOf(stylesheetOf(render({ pulls: [recorded(1)] }))));
-        const ratios = [1, 2, 3, 4, 5].map((step) => contrast(theme[`round-${step}`], theme.card));
-        ratios.forEach((ratio) => expect(ratio).toBeGreaterThanOrEqual(3));
-        expect(ratios).toEqual([...ratios].sort((a, b) => a - b));
-        expect(new Set(ratios).size).toBe(5);
-        // The strongest step is the page's accent, so five rounds read as the full colour.
-        expect(theme['round-5']).toBe(theme.accent);
+      it('shades the rounds blue to red with the same five colours in both themes', () => {
+        const css = stylesheetOf(render({ pulls: [recorded(1)] }));
+        expect(shadesIn(darkBlock(css))).toEqual(['#4399d3', '#8075db', '#b848b2', '#ce2a5f', '#c72801']);
+        expect(lightBlock(css)).not.toMatch(/--round-/);
       });
 
-      it('shades 1 round faintest and 5 or more strongest on the dot itself', () => {
+      it('keeps every shade at least 3:1 against both the dark card and the light one', () => {
+        const css = stylesheetOf(render({ pulls: [recorded(1)] }));
+        const [darkCard, lightCard] = [darkBlock(css), lightBlock(css)].map((block) => colours(block).card);
+        expect([darkCard, lightCard]).toEqual([expect.stringMatching(/^#/), expect.stringMatching(/^#/)]);
+        const ratios = shadesIn(darkBlock(css)).map((hex) => [hex, contrast(hex, darkCard), contrast(hex, lightCard)]);
+        expect(ratios.filter(([, dark, light]) => dark < 3 || light < 3)).toEqual([]);
+      });
+
+      it('keeps neighbouring shades at least 8 apart in colour, so adjacent rounds tell apart', () => {
+        const shades = shadesIn(darkBlock(stylesheetOf(render({ pulls: [recorded(1)] }))));
+        const gaps = shades.slice(1).map((hex, index) => [shades[index], hex, deltaE(shades[index], hex)]);
+        expect(gaps.filter(([, , gap]) => gap < 8)).toEqual([]);
+      });
+
+      it('shades 1 round blue and 5 or more red on the dot itself', () => {
         const svg = svgOf(render({ pulls: [inRounds(1, 1, 5), inRounds(2, 5, 5), inRounds(3, 6, 5)] }));
         expect([...svg.matchAll(/<circle class="dot (step\d)"/g)].map((match) => match[1]).sort()).toEqual(['step1', 'step5', 'step5']);
       });
@@ -617,7 +638,7 @@ describe('Cycle time', () => {
         const note = sectionOf(render({ pulls: sized })).split('</p>')[0];
         expect(note).toMatch(/^\s*<p class="sectionnote">/);
         expect(note).toMatch(/size is the lines its pull request changed/);
-        expect(note).toMatch(/its shade is its CI rounds/);
+        expect(note).toMatch(/its shade is its CI rounds, blue for one round to red for five or more\./);
       });
 
       it('adds the lines changed after the rounds on a hover, and a column of them to the table', () => {

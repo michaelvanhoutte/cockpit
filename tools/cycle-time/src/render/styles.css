@@ -16,12 +16,12 @@
   --ok: #6fce8d;
   --warn-bg: #241c14;
   --warn-line: #4a3a2a;
-  /* A scatter dot's shade is its CI rounds: 1, 2, 3, 4 and 5 or more, from the faintest to the full accent. Each is at least 3:1 against --card, in this theme and the light one. */
-  --round-1: #496ca2;
-  --round-2: #527bb9;
-  --round-3: #5c8ad0;
-  --round-4: #6599e7;
-  --round-5: #6ea8fe;
+  /* A scatter dot's shade is its CI rounds, running blue to red: 1, 2, 3, 4 and 5 or more. The same five in both themes, each at least 3:1 against both cards. */
+  --round-1: #4399d3;
+  --round-2: #8075db;
+  --round-3: #b848b2;
+  --round-4: #ce2a5f;
+  --round-5: #c72801;
   /* Two colour families: local work in greens and teals, CI in blue. A later local kind takes another step of the first family. Kinds within a family differ by lightness too, so they stay apart in greyscale. */
   --checks: #4f8ef7;
   --on-checks: #0b1220;
@@ -51,11 +51,6 @@
     --ok: #1c7a3d;
     --warn-bg: #fff6e5;
     --warn-line: #ecd29a;
-    --round-1: #608dde;
-    --round-2: #5082db;
-    --round-3: #3f76d8;
-    --round-4: #2f6bd4;
-    --round-5: #1f5fd1;
     --checks: #2f6fe0;
     --on-checks: #ffffff;
     --local-code-review: #0f9a87;
