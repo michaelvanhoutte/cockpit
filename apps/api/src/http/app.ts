@@ -81,9 +81,9 @@ import { ALLOWANCE_SPENT_MESSAGE, allowanceSpent } from '../accounts/allowance.j
 import { attachmentR2Key, type AttachmentForDownload } from '../domain/attachments.js';
 import {
   ATTACHMENT_LINK_PREFIX,
+  attachmentLinkAddress,
   attachmentLinkKey,
   openAttachmentLink,
-  sealAttachmentLink,
 } from '../auth/attachment-link.js';
 import {
   CannotReadMeaningError,
@@ -1312,10 +1312,7 @@ const routes = app
     for (const attachmentId of attachmentIds) {
       // Only a file of this account on an Item that is not deleted gets an address.
       if (!(await account.attachmentForDownload(attachmentId))) continue;
-      links[attachmentId] = new URL(
-        `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(key, { accountName, attachmentId }, now)}`,
-        c.env.APP_ORIGIN,
-      ).toString();
+      links[attachmentId] = await attachmentLinkAddress(key, { accountName, attachmentId }, now, c.env.APP_ORIGIN);
     }
     return c.json({ links }, 200);
   })

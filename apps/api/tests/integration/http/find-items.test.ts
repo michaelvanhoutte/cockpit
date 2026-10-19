@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
-import { env, applyD1Migrations } from 'cloudflare:test';
+import { SELF, env, applyD1Migrations } from 'cloudflare:test';
 import {
   DASHBOARD_ID,
   OTHER_USER_ID,
@@ -544,6 +544,115 @@ describe('MCP connections', () => {
 
       expect((await findItems(token)).isError).toBe(true);
       expect((await findItems(other)).isError).toBeFalsy();
+    });
+  });
+
+  describe('an app is given the files of the items it finds, by name and by a link that opens each without signing in', () => {
+    const BYTES = new Uint8Array([137, 80, 78, 71, 7, 8, 9]);
+
+    async function attach(itemId: string, filename: string): Promise<string> {
+      const attachmentId = nextId();
+      const uploaded = await asUser(
+        `${ORIGIN}/v1/items/${itemId}/attachments`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'image/png',
+            'x-attachment-id': attachmentId,
+            'x-command-id': nextId(),
+            'x-issued-at': new Date().toISOString(),
+            'x-workspace-id': WORKSPACE_ID,
+            'x-filename': filename,
+          },
+          body: BYTES,
+        },
+      );
+      expect(uploaded.status).toBe(201);
+      return attachmentId;
+    }
+
+    /** The addresses a reply gives for files, by file name. */
+    const linksIn = (answer: ToolAnswer) =>
+      Object.fromEntries([...textOf(answer).matchAll(/^- (.*?): (https?:\/\/\S+)$/gm)].map((found) => [found[1], found[2]]));
+
+    it('names a file and gives a link that, fetched with no cookie, gives the file', async () => {
+      const { token } = await connected();
+      const itemId = await anItem('A broken layout');
+      await attach(itemId, 'layout.png');
+
+      const found = await findItems(token);
+
+      const link = linksIn(found)['layout.png'];
+      expect(link).toBeDefined();
+      const opened = await SELF.fetch(link!);
+      expect(opened.status).toBe(200);
+      expect(new Uint8Array(await opened.arrayBuffer())).toEqual(BYTES);
+    });
+
+    it('names every file of an item, oldest first, and gives each its own link', async () => {
+      const { token } = await connected();
+      const itemId = await anItem('Two pictures');
+      await attach(itemId, 'first.png');
+      await attach(itemId, 'second.png');
+
+      const found = await findItems(token);
+
+      expect(Object.keys(linksIn(found))).toEqual(['first.png', 'second.png']);
+      expect(new Set(Object.values(linksIn(found))).size).toBe(2);
+    });
+
+    it('lists no attachments for an item with none, whatever the item beside it has', async () => {
+      const { token } = await connected();
+      await anItem('Bare', {}, USER_ID, AT(1));
+      await attach(await anItem('With a file', {}, USER_ID, AT(2)), 'layout.png');
+
+      const found = await findItems(token);
+
+      const [withFile, bare] = textOf(found).split('\n\n---\n\n');
+      expect(withFile).toContain('Attachments:\n- layout.png: ');
+      expect(bare).toContain('Attachments: none');
+    });
+
+    it('gives the names alone where the environment has no key to seal links with', async () => {
+      const { token } = await connected();
+      await attach(await anItem('A broken layout'), 'layout.png');
+      const key = env.CONNECTOR_CREDENTIAL_KEY;
+      env.CONNECTOR_CREDENTIAL_KEY = '';
+      try {
+        const found = await findItems(token);
+
+        expect(found.isError).toBeFalsy();
+        expect(textOf(found)).toContain('Attachments:\n- layout.png\nDescription:');
+        expect(textOf(found)).not.toContain('/v1/attachment-links/');
+      } finally {
+        env.CONNECTOR_CREDENTIAL_KEY = key ?? '';
+      }
+    });
+
+    it('gives the files of the items on a panel, found by its name', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      await attach(await anItem('Chase the invoice', { panelIds: [admin] }), 'invoice.png');
+      await attach(await anItem('Not on the panel'), 'elsewhere.png');
+
+      const found = await findItems(token, { panel: 'Admin' });
+
+      expect(Object.keys(linksIn(found))).toEqual(['invoice.png']);
+      expect(textOf(found)).not.toContain('elsewhere.png');
+    });
+
+    it('names and links the files of the 25 items on a page and no others', async () => {
+      const { token } = await connected();
+      for (let n = 1; n < 26; n += 1) await anItem(`Errand ${String(n).padStart(2, '0')}`, {}, USER_ID, AT(n));
+      await attach(await anItem('Errand 00', {}, USER_ID, AT(0)), 'second-page.png');
+      await attach(await anItem('Errand 26', {}, USER_ID, AT(26)), 'first-page.png');
+
+      const first = await findItems(token);
+      const second = await findItems(token, { cursor: cursorIn(first) });
+
+      expect(Object.keys(linksIn(first))).toEqual(['first-page.png']);
+      expect(textOf(first)).not.toContain('second-page.png');
+      expect(Object.keys(linksIn(second))).toEqual(['second-page.png']);
     });
   });
 

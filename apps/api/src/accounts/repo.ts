@@ -970,6 +970,25 @@ export function listAttachmentsOfItem(
 }
 
 /**
+ * The files on these Items, oldest first on each, for the one page of Items a
+ * `find_items` reply carries and for nothing else ("Give attachment links with
+ * found items, over MCP", issue 1244). Names and ids only: no contents.
+ */
+export function attachmentsOfItems(
+  db: AccountDb,
+  tenantId: string,
+  itemIds: readonly string[],
+): { itemId: string; id: string; filename: string }[] {
+  if (itemIds.length === 0) return [];
+  return db
+    .select({ itemId: attachments.itemId, id: attachments.id, filename: attachments.filename })
+    .from(attachments)
+    .where(and(eq(attachments.tenantId, tenantId), inArray(attachments.itemId, [...itemIds])))
+    .orderBy(asc(attachments.createdAt), asc(attachments.id))
+    .all();
+}
+
+/**
  * One attachment by its id, whole - what `add_attachment` reads to tell a
  * genuine retry (the same file, replayed) from a different upload that
  * happens to reuse the id ("Attach a file to an item", issue 441).

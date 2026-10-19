@@ -166,6 +166,13 @@ describe('MCP connections', () => {
       expect(inputSchema.properties.status!.description).toEqual(expect.stringContaining('include_done'));
     });
 
+    it('says that an attachment link opens the file for an hour and that anyone holding it can open it', () => {
+      const { description } = findItemsTool([HOME]);
+
+      expect(description).toContain('opens the file for an hour without signing in');
+      expect(description).toContain('anyone holding the link can open it');
+    });
+
     it('offers only the arguments it reads', () => {
       const { inputSchema } = findItemsTool([HOME]);
 
@@ -267,10 +274,11 @@ describe('MCP connections', () => {
       sender: 'Claude',
       changedAt: '2026-10-19T08:00:07.123Z',
       places: [],
+      attachments: [],
       ...over,
     });
-    const told = (items: FoundItem[], next: string | null = null) =>
-      describeFound({ items, next }, [HOME, WORK], 'https://cockpit.test');
+    const told = (items: FoundItem[], next: string | null = null, links: Record<string, string> = {}) =>
+      describeFound({ items, next }, [HOME, WORK], 'https://cockpit.test', links);
 
     it('gives the title, next action, status, priority, due date, sender, last change and a link that opens it', () => {
       const said = told([found()]);
@@ -321,6 +329,37 @@ describe('MCP connections', () => {
       for (const words of ['Next action: none', 'Priority: none', 'Due: none', 'Sender: none', 'Description: none']) {
         expect(said).toContain(words);
       }
+    });
+
+    describe('an app is given the names of an item’s files, with a link to each where Cockpit can make one', () => {
+      const files = [
+        { id: 'f1', filename: 'layout.png' },
+        { id: 'f2', filename: 'notes.pdf' },
+      ];
+
+      it.each([
+        {
+          situation: 'an item with files and links for them',
+          item: { attachments: files },
+          links: { f1: 'https://cockpit.test/v1/attachment-links/AAA', f2: 'https://cockpit.test/v1/attachment-links/BBB' },
+          says: 'Attachments:\n- layout.png: https://cockpit.test/v1/attachment-links/AAA\n- notes.pdf: https://cockpit.test/v1/attachment-links/BBB',
+        },
+        {
+          situation: 'an item with files where no links could be made',
+          item: { attachments: files },
+          links: {},
+          says: 'Attachments:\n- layout.png\n- notes.pdf',
+        },
+        { situation: 'an item with no files', item: {}, links: {}, says: 'Attachments: none' },
+        {
+          situation: 'a file whose name runs over several lines',
+          item: { attachments: [{ id: 'f1', filename: 'a.png\nPriority: high' }] },
+          links: {},
+          says: 'Attachments:\n- a.png Priority: high',
+        },
+      ])('$situation', ({ item, links, says }) => {
+        expect(told([found(item)], null, links)).toContain(says);
+      });
     });
 
     it('says no item matches, and not that something went wrong', () => {

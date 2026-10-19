@@ -16,6 +16,8 @@ import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFr
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from '../auth/mcp-paths.js';
+import { attachmentLinkAddress, attachmentLinkKey } from '../auth/attachment-link.js';
+import type { FoundPage } from '../domain/item-search.js';
 
 /**
  * `/mcp`, once the OAuth library has accepted the access token
@@ -97,7 +99,7 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
         params.name === REPORT_RUN
           ? await reportRun(account, app, params.arguments)
           : params.name === FIND_ITEMS
-            ? await find(env, account, app, params.arguments)
+            ? await find(env, account, holder.accountName, app, params.arguments)
             : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
@@ -209,6 +211,7 @@ async function capture(
 async function find(
   env: Env,
   account: Account,
+  accountName: string,
   app: { grantId: string },
   args: unknown,
 ): Promise<{ reply: string } | { refusal: string }> {
@@ -226,7 +229,32 @@ async function find(
   if (!read.ok) return { refusal: read.refusal };
   const found = await account.findItems(read.search);
   if ('noSuchPanel' in found) return { refusal: refusePanel(read.search, found, workspaces) };
-  return { reply: describeFound(found, workspaces, env.APP_ORIGIN) };
+  return { reply: describeFound(found, workspaces, env.APP_ORIGIN, await linksToFilesOf(env, accountName, found, now)) };
+}
+
+/**
+ * The links that open the files of a page's Items for an hour without signing
+ * in ("Give attachment links with found items, over MCP", issue 1244): the same
+ * sealed links the send to Cowork or Claude Code mints (`auth/attachment-link.ts`),
+ * by file id. **None where the environment has no sealing key**, which leaves
+ * the reply naming files only. The files are those just read from this account
+ * for this page, so none needs checking again.
+ */
+async function linksToFilesOf(
+  env: Env,
+  accountName: string,
+  page: FoundPage,
+  now: Date,
+): Promise<Record<string, string>> {
+  const key = await attachmentLinkKey(env.CONNECTOR_CREDENTIAL_KEY);
+  if (!key) return {};
+  const links: Record<string, string> = {};
+  for (const { attachments } of page.items) {
+    for (const { id } of attachments) {
+      links[id] = await attachmentLinkAddress(key, { accountName, attachmentId: id }, now, env.APP_ORIGIN);
+    }
+  }
+  return links;
 }
 
 /**

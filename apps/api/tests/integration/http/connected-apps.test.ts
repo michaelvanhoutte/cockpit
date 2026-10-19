@@ -217,6 +217,7 @@ describe('MCP connections', () => {
       expect(page).not.toContain('cannot read');
       // And that it can read the items themselves, which it once said it could not.
       expect(page).toContain('read your items in every workspace');
+      expect(page).toContain('its attached files, which it is given links to open for an hour');
       expect(page).not.toContain('cannot see your items');
 
       const allowed = await decide(path, await signInAs(USER_ID), 'allow');
