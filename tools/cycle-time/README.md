@@ -143,7 +143,7 @@ requests it failed on and the attempts on each, most pull requests first, and co
 whose files could not be read (`notRecorded`). It is empty lists, never `null`, where nothing failed.
 
 **Coding against the harness** is each pull request's `balance`, and over a window its `balance`
-holds the dots and the median of their ratios. Coding is the time before the first push plus the
+holds the dots, each with its lines changed, and the median of their ratios. Coding is the time before the first push plus the
 fixing between rounds, less local review; the harness is every round plus local review. Waiting to
 merge and time away are in neither. It is `null` for a pull request with no record (the local
 reviews would be missing from it) or with no round, and `noChecks` counts the second kind.
@@ -165,10 +165,13 @@ evolution panels, coding against the harness, and a strip per pull request.
 
 - **Coding against the harness is a scatter** (`src/render/scatter.js`): a dot per pull request
   that carries a record, minutes coding and fixing across and minutes in the harness up, on one
-  scale for both axes up to two hours, sized by rounds. A dashed line marks the harness taking as
+  scale for both axes up to two hours. A dot's size is its lines changed, 4 to 14px by the square root
+  over the window's largest, and its shade is its CI rounds in five steps (1 to 5 or more, faint to the
+  full accent). A dashed line marks the harness taking as
   long as the coding, a solid one the median ratio. It is drawn over the widest window only. A dot
   past the scale is hollow on the edge and marked off the chart, the three furthest above the
-  dashed line are named, and a hover or focus names the pull request and its figures. Pull requests
+  dashed line are named where their labels fit (a label takes the first free place right, left or below
+  its dot, and is left off when none is), and a hover or focus names the pull request and its figures. Pull requests
   without a record are counted beneath it, not drawn. No line means healthy: there is no accepted
   benchmark, so the reference is the window's own median.
 

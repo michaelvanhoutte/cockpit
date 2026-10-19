@@ -548,6 +548,18 @@ describe('Cycle time', () => {
       expect(window.pulls.withoutRecord).toBe(1);
     });
 
+    it("gives each dot the lines its pull request changed, the figure the Evolution size lane uses", () => {
+      const [window] = buildModel({
+        pulls: [pull({ number: 1, additions: 30, deletions: 12, mergedAt: at(120), body: recordBody([[0, 'start'], [1, 'pushed']]), commits: [commit('a', 10, [check('Test', 20, 40)])] })],
+        now: NOW,
+        requestedDays: 7,
+        coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN),
+        repo: 'o/r',
+        windows: [7],
+      }).windows;
+      expect(window.balance.dots.map((dot) => [dot.number, dot.lines])).toEqual([[1, 42]]);
+    });
+
     it('reads a window with no weighed pull request as no median, never as a ratio of zero', () => {
       const [window] = buildModel({ pulls: [], now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] }).windows;
       expect(window.balance).toEqual({ dots: [], ratio: null, noChecks: 0 });

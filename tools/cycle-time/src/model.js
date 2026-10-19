@@ -973,11 +973,11 @@ function windowModel(pulls, { days, now, coveredSince }) {
       waitingToMerge: figure(inWindow.filter((pull) => pull.waitingToMergeMs !== null).map((pull) => ({ pull: pull.number, value: pull.waitingToMergeMs }))),
       away: figure(each((pull) => pull.awayMs)),
     },
-    // The scatter's dots, and the median of their ratios. A dot with no coding time
+    // The scatter's dots, each with its lines changed (the Evolution size lane's figure), and the median of their ratios. A dot with no coding time
     // has no ratio, so it is placed but not in the median. `noChecks` are the ones
     // with a record that no check ran on, left off because they have no harness time.
     balance: {
-      dots: placed.map((pull) => ({ number: pull.number, title: pull.title, url: pull.url, ...pull.balance })),
+      dots: placed.map((pull) => ({ number: pull.number, title: pull.title, url: pull.url, ...pull.balance, lines: pull.size.additions + pull.size.deletions })),
       ratio: figure(placed.filter((pull) => pull.balance.ratio !== null).map((pull) => ({ pull: pull.number, value: pull.balance.ratio }))),
       noChecks: withRecord.length - placed.length,
     },

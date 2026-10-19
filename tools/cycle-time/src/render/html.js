@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AWAY_MS, LOCAL_REVIEW_KINDS, LOCAL_RUN_KINDS } from '../model.js';
-import { layoutScatter, radiusFor } from './scatter.js';
+import { layoutScatter, PLOT_SIZE } from './scatter.js';
 import { axisFor, fitTo, partsOf, scaleFor } from './strips.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -326,9 +326,9 @@ function axis(pull, zoomed) {
   const startedAt = Date.parse(pull.rounds[0].pushedAt) - pull.beforeFirstPushMs;
   const scale = Math.max(1, zoomed.shownMs);
   const ticks = axisFor(startedAt, zoomed)
-    .map((tick) => `<span class="tick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + var(--break) * ${tick.breaksBefore})">${clockLabel(tick.atMs, startedAt)}</span>`)
+    .map((tick) => `<span class="clocktick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + var(--break) * ${tick.breaksBefore})">${clockLabel(tick.atMs, startedAt)}</span>`)
     .join('');
-  return `<div class="axis" style="--span:${spanOf(zoomed)}" title="Clock time, UTC">${ticks}</div>`;
+  return `<div class="clockaxis" style="--span:${spanOf(zoomed)}" title="Clock time, UTC">${ticks}</div>`;
 }
 
 /** The lines under a strip, one per CI Round; each is paired with its round on the strip by `data-round`. */
@@ -443,12 +443,13 @@ function dotTitle(dot) {
     `in the harness ${humanMs(dot.harnessMs)}`,
     dot.ratio === null ? 'no coding time, so no ratio' : `ratio ${ratioText(dot.ratio)}`,
     plural(dot.rounds, 'round'),
+    `${plural(dot.lines, 'line')} changed`,
   ];
   if (dot.off) parts.push('beyond the scale, so drawn on its edge');
   return parts.join(' · ');
 }
 
-const PLOT = { left: 48, top: 16, size: 380 };
+const PLOT = { left: 48, top: 16, size: PLOT_SIZE };
 const VIEW = { width: PLOT.left + PLOT.size + 24, height: PLOT.top + PLOT.size + 44 };
 
 function scatterSvg(layout) {
@@ -467,18 +468,20 @@ function scatterSvg(layout) {
     ? `<line class="medianline" x1="${px(0)}" y1="${py(0)}" x2="${px(layout.median.x)}" y2="${py(layout.median.y)}"/>`
     : '';
 
-  const dots = layout.dots
+  // Larger dots first, so a small one is never hidden under a large one; a tie keeps its place.
+  const dots = [...layout.dots]
+    .sort((a, b) => b.lines - a.lines)
     .map((dot) => {
-      const r = radiusFor(dot.rounds);
-      const cx = px(dot.x);
-      const cy = py(dot.y);
-      const nearRight = dot.x > 0.85;
-      const label = dot.labelled
-        ? `<text class="dotlabel" x="${(Number(cx) + (nearRight ? -(r + 4) : r + 4)).toFixed(1)}" y="${(Number(cy) + 4).toFixed(1)}" text-anchor="${nearRight ? 'end' : 'start'}">#${esc(dot.number)}</text>`
-        : '';
+      const r = dot.radius;
       // The link is the hit target: a pointer only has to be near, and a keyboard reaches it.
-      return `<a href="${esc(dot.url)}" target="_blank" rel="noopener"><title>${esc(dotTitle(dot))}</title><circle class="hit" cx="${cx}" cy="${cy}" r="${Math.max(12, r + 6)}"/><circle class="dot${dot.off ? ' off' : ''}" cx="${cx}" cy="${cy}" r="${r}"/>${label}</a>`;
+      return `<a href="${esc(dot.url)}" target="_blank" rel="noopener"><title>${esc(dotTitle(dot))}</title><circle class="hit" cx="${px(dot.x)}" cy="${py(dot.y)}" r="${Math.max(12, r + 6)}"/><circle class="dot step${dot.step}${dot.off ? ' off' : ''}" cx="${px(dot.x)}" cy="${py(dot.y)}" r="${r.toFixed(1)}"/></a>`;
     })
+    .join('');
+
+  // The labels are their own layer, after every dot, so no later dot paints over one; a dot whose label found no free place has none and is named by its hover and the table.
+  const labels = layout.dots
+    .filter((dot) => dot.label)
+    .map((dot) => `<a href="${esc(dot.url)}" target="_blank" rel="noopener"><text class="dotlabel" x="${(PLOT.left + dot.label.x).toFixed(1)}" y="${(PLOT.top + dot.label.y).toFixed(1)}" text-anchor="${dot.label.anchor}">#${esc(dot.number)}</text></a>`)
     .join('');
 
   return `<svg class="scatter" viewBox="0 0 ${VIEW.width} ${VIEW.height}" role="img" aria-label="Scatter of minutes coding and fixing against minutes in the harness, one dot per pull request. The same figures are in the table below it.">
@@ -487,6 +490,7 @@ function scatterSvg(layout) {
     <line class="equalline" x1="${px(0)}" y1="${py(0)}" x2="${px(1)}" y2="${py(1)}"/>
     ${median}
     ${dots}
+    <g class="dotlabels">${labels}</g>
     <text class="axistitle" x="${px(0.5)}" y="${VIEW.height - 6}" text-anchor="middle">Minutes coding and fixing</text>
     <text class="axistitle" transform="translate(12 ${py(0.5)}) rotate(-90)" text-anchor="middle">Minutes in the harness</text>
   </svg>`;
@@ -525,11 +529,20 @@ function balance(model) {
       }.</p>`
     : '<p class="fact"><b>No median ratio:</b> no pull request here has any coding time to divide by.</p>';
 
+  // Sample dots on this window's own scale, each labelled in lines; five swatches for the shade, 1 round to 5 or more.
+  const sizeKey = layout.sizeKey
+    .map((sample) => `<svg class="sample" viewBox="0 0 ${sample.radius * 2 + 4} 30" width="${sample.radius * 2 + 4}" height="30" aria-hidden="true"><circle class="keydot" cx="${sample.radius + 2}" cy="15" r="${sample.radius}"/></svg><span class="samplelabel">${plural(sample.lines, 'line')}</span>`)
+    .join('');
+  const shadeKey = [1, 2, 3, 4, 5]
+    .map((step) => `<svg class="sample" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true"><circle class="keydot step${step}" cx="7" cy="7" r="5"/></svg><span class="samplelabel">${step === 5 ? '5+' : step}</span>`)
+    .join('');
+
   const legend = `<div class="legend stacked">
     <span class="key"><svg class="keyline" viewBox="0 0 24 8" aria-hidden="true"><line class="equalline" x1="0" y1="4" x2="24" y2="4"/></svg>the harness took as long as the coding</span>
     <span class="key"><svg class="keyline" viewBox="0 0 24 8" aria-hidden="true"><line class="medianline" x1="0" y1="4" x2="24" y2="4"/></svg>this window&rsquo;s median ratio</span>
-    <span class="key"><svg class="keyline" viewBox="0 0 34 14" aria-hidden="true"><circle class="dot" cx="7" cy="7" r="${radiusFor(1)}"/><circle class="dot" cx="24" cy="7" r="${radiusFor(5)}"/></svg>dot size: 1 round, and 5</span>
-    <span class="key"><svg class="keyline" viewBox="0 0 14 14" aria-hidden="true"><circle class="dot off" cx="7" cy="7" r="5"/></svg>hollow on the edge: off the chart</span>
+    <span class="key sizekey">${sizeKey}dot size: lines changed</span>
+    <span class="key shadekey">${shadeKey}dot shade: CI rounds</span>
+    <span class="key"><svg class="keyline" viewBox="0 0 14 14" aria-hidden="true"><circle class="keydot off" cx="7" cy="7" r="5"/></svg>hollow on the edge: off the chart</span>
   </div>`;
 
   const rows = layout.dots
@@ -540,6 +553,7 @@ function balance(model) {
         <td class="num dur">${humanMs(dot.harnessMs)}</td>
         <td class="num dur">${dot.ratio === null ? '&mdash;' : ratioText(dot.ratio)}</td>
         <td class="num">${dot.rounds}</td>
+        <td class="num">${dot.lines}</td>
         <td>${dot.off ? '<span class="tag">off the chart</span>' : ''}</td>
       </tr>`,
     )
@@ -551,12 +565,12 @@ function balance(model) {
       <div class="chartside">
         ${legend}
         ${medianNote}
-        <p class="clipnote">Scale to ${humanMs(layout.scaleMs)} on both axes${off ? `; ${plural(off, 'dot')} beyond it, drawn hollow on the edge` : ''}. The three furthest above the dashed line are named. Hover or focus a dot for its figures; it opens the pull request.</p>
+        <p class="clipnote">Scale to ${humanMs(layout.scaleMs)} on both axes${off ? `; ${plural(off, 'dot')} beyond it, drawn hollow on the edge` : ''}. The three furthest above the dashed line are named where their labels fit. Hover or focus a dot for its figures; it opens the pull request.</p>
         ${leftOut}
       </div>
     </div>
     <details><summary>The figures behind the dots</summary><div class="tablewrap"><table>
-      <thead><tr><th>Pull request</th><th class="num">Coding and fixing</th><th class="num">In the harness</th><th class="num">Ratio</th><th class="num">Rounds</th><th></th></tr></thead>
+      <thead><tr><th>Pull request</th><th class="num">Coding and fixing</th><th class="num">In the harness</th><th class="num">Ratio</th><th class="num">Rounds</th><th class="num">Lines changed</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div></details>
   </div>`;
@@ -879,7 +893,7 @@ export function renderHtml(model) {
   ${evolutionZoomTabs(model)}
 
   <h2>Coding against the harness</h2>
-  <p class="sectionnote">Minutes spent writing and fixing against minutes spent in the harness, the rounds plus local review, test runs and the browser pass. Every pull request pays a fixed harness cost, so a small change sits above the dashed line whatever it did; read the minutes beside the ratio. No line is drawn as healthy, since there is no accepted benchmark for this ratio: the reference is the window&rsquo;s own median.</p>
+  <p class="sectionnote">Minutes spent writing and fixing against minutes spent in the harness, the rounds plus local review, test runs and the browser pass. A dot&rsquo;s size is the lines its pull request changed (additions plus deletions, the figure the Evolution size lane uses) and its shade is its CI rounds, faint for one round and the full accent for five or more. Every pull request pays a fixed harness cost, so a small change sits above the dashed line whatever it did; read the minutes beside the ratio. No line is drawn as healthy, since there is no accepted benchmark for this ratio: the reference is the window&rsquo;s own median.</p>
   ${balance(model)}
 
   <h2>Each pull request, start to merge</h2>

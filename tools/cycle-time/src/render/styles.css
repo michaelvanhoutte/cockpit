@@ -16,6 +16,12 @@
   --ok: #6fce8d;
   --warn-bg: #241c14;
   --warn-line: #4a3a2a;
+  /* A scatter dot's shade is its CI rounds: 1, 2, 3, 4 and 5 or more, from the faintest to the full accent. Each is at least 3:1 against --card, in this theme and the light one. */
+  --round-1: #496ca2;
+  --round-2: #527bb9;
+  --round-3: #5c8ad0;
+  --round-4: #6599e7;
+  --round-5: #6ea8fe;
   /* Two colour families: local work in greens and teals, CI in blue. A later local kind takes another step of the first family. Kinds within a family differ by lightness too, so they stay apart in greyscale. */
   --checks: #4f8ef7;
   --on-checks: #0b1220;
@@ -45,6 +51,11 @@
     --ok: #1c7a3d;
     --warn-bg: #fff6e5;
     --warn-line: #ecd29a;
+    --round-1: #608dde;
+    --round-2: #5082db;
+    --round-3: #3f76d8;
+    --round-4: #2f6bd4;
+    --round-5: #1f5fd1;
     --checks: #2f6fe0;
     --on-checks: #ffffff;
     --local-code-review: #0f9a87;
@@ -160,14 +171,14 @@ td.pr .title { color: var(--ink-2); }
 .zoomed { display: none; }
 .zoomtoggle:checked ~ .zoomed { display: block; }
 .zoomtoggle:checked ~ .whenclosed { display: none; }
-/* The zoomed strip's clock-time axis: the same line of time as the strip above it, ticks at clock times. */
-.axis { position: relative; height: 18px; margin-bottom: 4px; border-top: 1px solid var(--ink-3); font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.tick { position: absolute; top: 0; padding-top: 3px; white-space: nowrap; transform: translateX(-50%); }
-.tick::before { content: ''; position: absolute; top: -4px; left: 50%; height: 4px; border-left: 1px solid var(--ink-3); }
-.tick.start { transform: none; }
-.tick.start::before { left: 0; }
-.tick.end { transform: translateX(-100%); }
-.tick.end::before { left: 100%; }
+/* The zoomed strip's clock-time axis: the same line of time as the strip above it, ticks at clock times. Its classes are its own: the scatter's SVG has axes and ticks too, and a bare `.tick` here shifted its numbers by half the view box. */
+.clockaxis { position: relative; height: 18px; margin-bottom: 4px; border-top: 1px solid var(--ink-3); font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.clocktick { position: absolute; top: 0; padding-top: 3px; white-space: nowrap; transform: translateX(-50%); }
+.clocktick::before { content: ''; position: absolute; top: -4px; left: 50%; height: 4px; border-left: 1px solid var(--ink-3); }
+.clocktick.start { transform: none; }
+.clocktick.start::before { left: 0; }
+.clocktick.end { transform: translateX(-100%); }
+.clocktick.end::before { left: 100%; }
 .seg.coding { background: var(--coding); }
 .seg.fixing { background: var(--fixing); }
 .seg.wait { background: var(--wait); }
@@ -285,9 +296,19 @@ summary { cursor: pointer; }
 .equalline { stroke: var(--ink-3); stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; }
 .medianline { stroke: var(--ink-1); stroke-width: 2; stroke-linecap: round; fill: none; }
 /* A 2px ring in the card's colour keeps overlapping dots apart; a dot beyond the
-   scale is the same dot, hollow. */
-.dot { fill: var(--accent); fill-opacity: 0.85; stroke: var(--card); stroke-width: 2; }
-.dot.off { fill: var(--card); stroke: var(--accent); }
+   scale is the same dot, hollow, its ring in its own shade. The shade is the dot's rounds. */
+.step1 { --shade: var(--round-1); }
+.step2 { --shade: var(--round-2); }
+.step3 { --shade: var(--round-3); }
+.step4 { --shade: var(--round-4); }
+.step5 { --shade: var(--round-5); }
+.dot { fill: var(--shade, var(--accent)); stroke: var(--card); stroke-width: 2; }
+.dot.off { fill: var(--card); stroke: var(--shade, var(--accent)); }
+/* The legend's sample dots: grey where only the size is meant, in a step's shade where the shade is. */
+.keydot { fill: var(--shade, var(--ink-3)); stroke: none; }
+.keydot.off { fill: var(--card); stroke: var(--ink-3); stroke-width: 2; }
+.sample { flex: none; overflow: visible; }
+.samplelabel { margin: 0 10px 0 4px; font-variant-numeric: tabular-nums; }
 .hit { fill: transparent; }
 .scatter a { cursor: pointer; }
 .scatter a:hover .dot, .scatter a:focus-visible .dot { stroke: var(--ink-1); }
