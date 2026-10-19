@@ -738,11 +738,14 @@ export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: stri
  * text and condition, over MCP", issue 1242): the account's, dismissed never,
  * finished ones only where asked, and one Workspace's where it is named.
  *
- * **Read through the index that leads with the account and the Workspace**
- * (`items_tenant_workspace_status`), so a named Workspace reads that
- * Workspace's rows alone. The rest of what is asked - text, priority, due,
- * status - is checked on these rows (`domain/item-search.ts`). Finished Items
- * are filtered after they are read, as no index holds `completed_at`.
+ * **Reads every row of the account, whichever Workspace is named.** The
+ * Workspace condition is an `or` with the undecided Items, and no index holds
+ * `workspace_decided`, so SQLite can use `items_tenant_workspace_status` for
+ * the account alone (`EXPLAIN QUERY PLAN` says `tenant_id=?`). What a search
+ * costs in rows read is therefore every Item the account holds, finished and
+ * dismissed ones included, which is what `listOpenItems` costs a Workspace
+ * opening. The rest of what is asked - text, priority, due, status - is
+ * checked on the rows that come back (`domain/item-search.ts`).
  *
  * **A named Workspace also takes the Items belonging to none yet**, which sit
  * in every Workspace's Inbox until somebody says (`listOpenItems`). **An Item

@@ -797,8 +797,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * in Cockpit by text and condition, over MCP", issue 1242).
    *
    * **Where each Item is filed is read for the page's Items only**, after the
-   * page is cut, so what a search costs is the Items in scope and not their
-   * filings.
+   * page is cut, so what a search costs is the account's Items (`listItemsToSearch`)
+   * and not their filings.
    */
   findItems(accountName: string, search: ItemSearch): Answer<FoundPage> {
     return this.#answer(accountName, (db) => {

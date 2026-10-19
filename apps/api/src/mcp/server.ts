@@ -213,10 +213,7 @@ async function find(
   args: unknown,
 ): Promise<{ reply: string } | { refusal: string }> {
   const now = new Date();
-  const [admitted, workspaces] = await Promise.all([
-    account.appFindArrived(app.grantId, now.toISOString()),
-    account.workspaces(),
-  ]);
+  const admitted = await account.appFindArrived(app.grantId, now.toISOString());
   if (admitted === 'too-many-this-minute') {
     return { refusal: 'Too many searches in the last minute (10 a minute). Wait a minute and try again.' };
   }
@@ -224,6 +221,7 @@ async function find(
     return { refusal: 'Too many searches today (500 a day). Try again tomorrow.' };
   }
 
+  const workspaces = await account.workspaces();
   const read = readFind(args, workspaces, now);
   if (!read.ok) return { refusal: read.refusal };
   return { reply: describeFound(await account.findItems(read.search), workspaces, env.APP_ORIGIN) };
