@@ -3,10 +3,11 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type { Dashboard, Filing, Item, Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
-import { NO_DASHBOARD_FILTER, writeDashboardFilter } from '../../src/dashboardFilter';
+import { writeDashboardFilter } from '../../src/dashboardFilter';
 import { dashboardsOf, useReach } from '../../src/panelReach';
 import type { ReachDashboard, Scope } from '../../src/panelReach';
 import type { PanelListEntry } from '../../src/panelList';
+import { NO_DASHBOARD_FILTER } from '@cockpit/shared';
 
 /** A Dashboard's Panels, without the Sections standing among them. */
 const panelsOf = (one: ReachDashboard) => one.entries.filter((entry): entry is PanelListEntry => 'panelId' in entry);

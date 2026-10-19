@@ -1,6 +1,5 @@
-import { panelTakesItems } from '@cockpit/shared';
+import { panelTakesItems, filingsThatFile } from '@cockpit/shared';
 import type { Filing, Panel } from '@cockpit/shared';
-import { filingsThatFile } from './filing';
 
 /**
  * The Item form's *On panels* field ("List and change an Item's Panels in its

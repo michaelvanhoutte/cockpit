@@ -26,7 +26,7 @@ export type PossibleDuplicate = z.infer<typeof possibleDuplicateSchema>;
  * pair it is in.
  *
  * Pure and here rather than in either app, for the reason every other view over
- * the snapshot is (`itemsInTheInbox`, apps/web/src/filing.ts): the wire carries
+ * the snapshot is (`itemsInTheInbox`, packages/shared/src/domain/filing.ts): the wire carries
  * the pairs, and who is paired with whom is worked out where it is drawn.
  */
 export function pairedWith(

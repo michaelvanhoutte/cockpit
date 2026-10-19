@@ -10,6 +10,11 @@ import {
   panelHoldsText,
   rowIsSection,
   uuidv7,
+  dayOf,
+  isFiltering,
+  itemIdsWithAttachments,
+  itemIdsWithRun,
+  DEFAULT_FILTER_SORT,
 } from '@cockpit/shared';
 import type {
   Dashboard,
@@ -28,18 +33,12 @@ import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { scrollWhileDragging } from '../dragScroll';
 import { groupFilterRows } from '../filterGroups';
-import { dayOf, filtersUsingPanel, isGrouped, joinedBy } from '../filters';
+import { filtersUsingPanel, isGrouped, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
-import {
-  clearDashboardFilter,
-  isFiltering,
-  itemIdsWithAttachments,
-  itemIdsWithRun,
-  useDashboardFilter,
-} from '../dashboardFilter';
+import { clearDashboardFilter, useDashboardFilter } from '../dashboardFilter';
 import { itemsShownOn } from '../panelContents';
 import { DashboardFilterBar } from './DashboardFilterBar';
-import { DEFAULT_FILTER_SORT, sortOf } from '../sorting';
+import { sortOf } from '../sorting';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
   dividerMoved,

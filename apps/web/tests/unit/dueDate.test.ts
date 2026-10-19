@@ -46,7 +46,7 @@ describe('Triage', () => {
   /**
    * The pill a row wears for how near its due date is. `now` is built from
    * local calendar parts, because "today" is the viewer's own day - the same
-   * reason the Filter's windows are (`filters.ts`) - so these read the same in
+   * reason the Filter's windows are (`packages/shared/src/domain/filters.ts`) - so these read the same in
    * any timezone the suite runs in.
    */
   describe('a row’s pill says how near its due date is, calm at a distance and louder as it closes', () => {

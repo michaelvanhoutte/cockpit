@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
-import { prioritySchema, type ItemStatus, type Priority } from '@cockpit/shared';
+import { prioritySchema, type ItemStatus, type Priority, type Day } from '@cockpit/shared';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../dueDateShortcuts';
-import type { Day } from '../filters';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 import { MenuContent, menuItemSplitClass } from './Menu';
 

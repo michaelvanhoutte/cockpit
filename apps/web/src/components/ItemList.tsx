@@ -8,6 +8,11 @@ import {
   type Item,
   type PanelColumns,
   type PanelFit,
+  filingsThatFile,
+  stillOpen,
+  dayOf,
+  panelAndFilterIdsByItem,
+  itemIdsWithRun,
 } from '@cockpit/shared';
 import {
   snapshotQuery,
@@ -34,18 +39,10 @@ import {
   type SelectionInTheAir,
 } from '../itemInTheAir';
 import { columnsStyle, landingOnRow } from '../panelColumns';
-import {
-  filedOrderOnPanel,
-  filingsThatFile,
-  stillOpen,
-  itemsOnPanel,
-  orderPuttingBack,
-  ordersForFilingSeveral,
-  orderWithItemAt,
-} from '../filing';
-import { alsoShownOn, dayOf, panelAndFilterIdsByItem } from '../filters';
+import { filedOrderOnPanel, itemsOnPanel, orderPuttingBack, ordersForFilingSeveral, orderWithItemAt } from '../filing';
+import { alsoShownOn } from '../filters';
 import type { FilterGroup } from '../filterGroups';
-import { itemIdsWithRun, useFilteredDashboardIds } from '../dashboardFilter';
+import { useFilteredDashboardIds } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';

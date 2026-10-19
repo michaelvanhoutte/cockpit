@@ -25,6 +25,7 @@ import {
   type ItemFormPresentation,
   type ItemStatus,
   type Priority,
+  filingsThatFile,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
@@ -38,7 +39,6 @@ import { PRIORITY_LABELS } from '../priority';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
-import { filingsThatFile } from '../filing';
 import {
   FIELDS,
   FIELD_NAMES,
