@@ -1,6 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 
 import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE, TRANSCRIPTION_PATH } from '@cockpit/shared';
+import { giveToTheInbox } from './support/arrange';
 import {
   captureBox,
   capturedLine,
@@ -180,15 +181,16 @@ test.describe('Capture', () => {
       isMobile,
     }) => {
       await openInbox(page, isMobile);
-      await openCapture(page, isMobile);
       // Said above the Captured line once the server has paired the two, with
       // Undo still beside the line ("Warn at Capture when the note just captured
       // repeats another", issue 1115). Words nothing else on this shared account
       // says, so the pair is this walk's own (the stack reads words rather than
-      // meaning: `EMBEDDINGS_STAND_IN`, scripts/e2e-stack.mjs).
+      // meaning: `EMBEDDINGS_STAND_IN`, scripts/e2e-stack.mjs). The earlier note
+      // is the arrangement, given through the API; the one that repeats it is
+      // captured here, because the warning on that capture is what is walked.
       const words = `Renew the ${crypto.randomUUID()} support contract for the ${crypto.randomUUID()} line`;
-      await captureBox(page).fill(uniqueTitle(words));
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await giveToTheInbox(page, [uniqueTitle(words)]);
+      await openCapture(page, isMobile);
       const repeated = uniqueTitle(words);
       await captureBox(page).fill(repeated);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);

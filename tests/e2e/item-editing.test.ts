@@ -1,19 +1,18 @@
 import type { Locator, Page } from '@playwright/test';
 import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
+import { arrange, giveAWorkspace, giveToTheInbox } from './support/arrange';
 import {
   STARTING_WORKSPACE,
-  capture,
   captureBox,
   closeCapture,
   openCapture,
+  dashboardBar,
   dashboardTab,
-  deleteWorkspace,
   expect,
   inbox,
   itemRow,
-  makeWorkspace,
   openDashboard,
-  openInbox,
+  openFirstWorkspace,
   openTheFiles,
   press,
   saveTheItem,
@@ -24,6 +23,20 @@ import {
   test,
   uniqueTitle,
 } from './support/app';
+
+/**
+ * The Inbox on screen holding items of this walk's own. They are given through
+ * the API and the page opened after, so it reads them: these walks are about
+ * editing an item, not about capturing one (`./support/arrange`).
+ */
+async function openInboxHolding(page: Page, isMobile: boolean, titles: string[]): Promise<void> {
+  await openFirstWorkspace(page, isMobile);
+  await giveToTheInbox(page, titles);
+  await page.reload();
+  // The Inbox is a screen of its own on a phone, and a column beside the dashboards at a desk.
+  if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+  await expect(inbox(page)).toBeVisible();
+}
 
 /**
  * Opens one row's form the way both devices can: from the row's own menu.
@@ -128,9 +141,8 @@ async function show(page: Page, which: 'Source' | 'Formatted', isMobile: boolean
 
 /** An item of this walk's own, opened with its form on the description. */
 async function anItemToWriteOn(page: Page, label: string, isMobile: boolean): Promise<string> {
-  await openInbox(page, isMobile);
   const thought = uniqueTitle(label);
-  await capture(page, thought, isMobile);
+  await openInboxHolding(page, isMobile, [thought]);
   await openItem(page, thought, isMobile);
   await theEditorIsThere(page);
   return thought;
@@ -147,13 +159,16 @@ async function anItemToWriteOn(page: Page, label: string, isMobile: boolean): Pr
  * Both projects, because the two ways in differ by device: a double-click is a
  * mouse gesture and a phone has only the menu, so the menu is what
  * both have in common and what the walk uses.
+ *
+ * **Every walk arranges the items it edits through the API** and drives only
+ * the editing through the UI (`./support/arrange`); the page is opened after,
+ * so it reads them. Capturing is Capture's own walks'.
  */
 test.describe('Item editing', () => {
   test.describe('writing something about an item, and finding it again', () => {
     test('keeps the title and the description, and marks the row', async ({ page, isMobile }) => {
-      await openInbox(page, isMobile);
       const thought = uniqueTitle('Ask Novy about part 11');
-      await capture(page, thought, isMobile);
+      await openInboxHolding(page, isMobile, [thought]);
 
       await openItem(page, thought, isMobile);
 
@@ -242,9 +257,8 @@ test.describe('Item editing', () => {
     });
 
     test('throws away what was typed when the form is cancelled', async ({ page, isMobile }) => {
-      await openInbox(page, isMobile);
       const thought = uniqueTitle('Left as it was');
-      await capture(page, thought, isMobile);
+      await openInboxHolding(page, isMobile, [thought]);
 
       await openItem(page, thought, isMobile);
       await theEditorIsThere(page);
@@ -260,9 +274,8 @@ test.describe('Item editing', () => {
       page,
       isMobile,
     }) => {
-      await openInbox(page, isMobile);
       const thought = uniqueTitle('Linkable');
-      await capture(page, thought, isMobile);
+      await openInboxHolding(page, isMobile, [thought]);
 
       await openItem(page, thought, isMobile);
       await expect(page).toHaveURL(/[?&]item=/);
@@ -309,11 +322,9 @@ test.describe('Item editing', () => {
       page,
       isMobile,
     }) => {
-      await openInbox(page, isMobile);
       const plain = uniqueTitle('No level here');
       const marked = uniqueTitle('Renew the passport');
-      await capture(page, plain, isMobile);
-      await capture(page, marked, isMobile);
+      await openInboxHolding(page, isMobile, [plain, marked]);
 
       await openItem(page, marked, isMobile);
       await togglePriority(page, 'High', isMobile);
@@ -408,9 +419,8 @@ test.describe('Item editing', () => {
       page,
       isMobile,
     }) => {
-      await openInbox(page, isMobile);
       const thought = uniqueTitle('Scanned receipt');
-      await capture(page, thought, isMobile);
+      await openInboxHolding(page, isMobile, [thought]);
       await openItem(page, thought, isMobile);
 
       const uploaded = uploadResponse(page);
@@ -461,9 +471,8 @@ test.describe('Item editing', () => {
       page,
       isMobile,
     }) => {
-      await openInbox(page, isMobile);
       const thought = uniqueTitle('Rejected files');
-      await capture(page, thought, isMobile);
+      await openInboxHolding(page, isMobile, [thought]);
       await openItem(page, thought, isMobile);
 
       await attachmentInput(page).setInputFiles({
@@ -721,9 +730,8 @@ test.describe('Item editing', () => {
       // already sits close to a laptop-sized screen by design.
       if (!isMobile) await page.setViewportSize({ width: 1280, height: 1000 });
 
-      await openInbox(page, isMobile);
       const thought = uniqueTitle('Resize handle');
-      await capture(page, thought, isMobile);
+      await openInboxHolding(page, isMobile, [thought]);
       await openItem(page, thought, isMobile);
 
       // That a phone's form still fills the screen it always has is
@@ -787,11 +795,9 @@ test.describe('Item editing', () => {
       // the resize handle is still offered.
       await page.setViewportSize({ width: 900, height: 500 });
 
-      await openInbox(page, isMobile);
       const first = uniqueTitle('Dragged smaller');
       const second = uniqueTitle('Same size here too');
-      await capture(page, first, isMobile);
-      await capture(page, second, isMobile);
+      await openInboxHolding(page, isMobile, [first, second]);
 
       await openItem(page, first, isMobile);
       const firstUrl = page.url();
@@ -918,9 +924,8 @@ test.describe('Item editing', () => {
       // further without one.
       await page.setViewportSize({ width: 1280, height: 1000 });
 
-      await openInbox(page, isMobile);
       const thought = uniqueTitle('Opens big enough');
-      await capture(page, thought, isMobile);
+      await openInboxHolding(page, isMobile, [thought]);
       await openItem(page, thought, isMobile);
       await theEditorIsThere(page);
 
@@ -1058,8 +1063,8 @@ test.describe('Item editing', () => {
   /**
    * "Let the item's form dock to the side of the screen instead of opening
    * as a dialog" (issue 481): an account-wide choice, so this walk restores
-   * it to centered in a `finally` - the same reason `deleteWorkspace` puts a
-   * workspace back, but guarded here because a failure partway through would
+   * it to centered in a `finally` - the same reason the follow walk deletes
+   * its workspace, but guarded here because a failure partway through would
    * otherwise leave every other item-form walk sharing this account finding
    * it docked (found in review).
    */
@@ -1070,9 +1075,8 @@ test.describe('Item editing', () => {
     }) => {
       test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
 
-      await openInbox(page, isMobile);
       const thought = uniqueTitle('Dock to the side');
-      await capture(page, thought, isMobile);
+      await openInboxHolding(page, isMobile, [thought]);
       await openItem(page, thought, isMobile);
 
       // Whatever the shared account already has - centered, on a run where
@@ -1144,7 +1148,7 @@ test.describe('Item editing', () => {
         // form's own already-warm cache would answer from regardless of what
         // the account and this browser actually hold.
         //
-        // **Reloaded rather than reopened through `openInbox`.** `openInbox`
+        // **Reloaded rather than reopened through `openInboxHolding`.** It
         // signs in again, and signing in leaves the application and comes
         // back through the logon page - which clears everything this browser
         // remembers (`session/forget.ts`), the dragged width included. The
@@ -1225,18 +1229,19 @@ test.describe('Item editing', () => {
             new URL(response.url()).pathname === `/v1/commands/${command}`,
         );
 
-      const home = uniqueTitle('Docked walk');
       const anotherDashboard = uniqueTitle('Second');
-      await openInbox(page, isMobile);
-      await makeWorkspace(page, home, isMobile);
-      // Making it only waits for its tab, and the capture below acts on
-      // whichever workspace is on screen until the router has moved.
-      await switchTo(page, home, isMobile);
-
       const first = uniqueTitle('Follow first');
       const next = uniqueTitle('Follow second');
-      await capture(page, first, isMobile);
-      await capture(page, next, isMobile);
+      // The workspace and the two notes in its Inbox are given through the API,
+      // and the page opened on them afterwards. A second Dashboard is added
+      // below, by hand, because staying open across dashboards is what this
+      // walk says.
+      await openFirstWorkspace(page, isMobile);
+      const workspace = await giveAWorkspace(page, uniqueTitle('Docked walk'));
+      const home = workspace.name;
+      await giveToTheInbox(page, [first, next], workspace);
+      await page.reload();
+      await switchTo(page, home, isMobile);
       await openItem(page, first, isMobile);
       await centerIfDocked(page, isMobile);
 
@@ -1452,7 +1457,8 @@ test.describe('Item editing', () => {
         }
         await putItBackCentered(page, isMobile);
       }
-      await deleteWorkspace(page, home, isMobile);
+      // Put back for every other walk sharing this account.
+      await arrange(page, 'delete_workspace', { workspaceId: workspace.id });
     });
 
   });
