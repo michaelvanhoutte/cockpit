@@ -12,17 +12,17 @@ import type { Dashboard, Item } from './item.js';
 import { filingsThatFile, itemsThatAreFiled } from './filing.js';
 import { DEFAULT_FILTER_SORT, inSortOrder } from './sorting.js';
 
-
 /**
  * What a Filter shows, worked out here rather than asked for ("Add a Filter
  * panel that shows every filed item due in a window", issue 463).
  *
- * **A view over the snapshot, exactly as the Inbox is** (`filing.ts`,
- * "Both are views evaluated in the client"): the wire carries the Workspace's
- * open Items, its filings and each Panel's conditions, and nothing about which
- * Items any Panel gathers. That is what makes a Filter cost no round trip, and
- * *this week* is the week of whoever is looking, so every window is measured
- * from the day the caller hands in (`Day`), never from a clock read here.
+ * **A view over the snapshot, exactly as the Inbox is** (`filing.ts`, in this
+ * folder: both are evaluated from the snapshot, not asked of the server): the
+ * wire carries the Workspace's open Items, its filings and each Panel's
+ * conditions, and nothing about which Items any Panel gathers. That is what
+ * makes a Filter cost no round trip, and *this week* is the week of whoever is
+ * looking, so every window is measured from the day the caller hands in
+ * (`Day`), never from a clock read here.
  */
 
 /** A calendar day, as an Item's due date is stored: `2026-09-17`. */

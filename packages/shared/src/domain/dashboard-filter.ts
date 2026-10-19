@@ -42,7 +42,6 @@ export const NO_DASHBOARD_FILTER: DashboardFilter = {
   agentRunning: false,
 };
 
-
 /** Whether any of the six conditions is set - which is all "filtered" means. */
 export function isFiltering(filter: DashboardFilter): boolean {
   return (
