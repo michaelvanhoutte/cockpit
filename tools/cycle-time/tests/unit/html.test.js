@@ -406,9 +406,8 @@ describe('Cycle time', () => {
 
   describe('coding against the harness: every recorded pull request is a dot, and nothing else is', () => {
     const sectionOf = (html) => html.split('<h2>Coding against the harness</h2>')[1].split('<h2>')[0];
-    const dotsOf = (html) => [...sectionOf(html).matchAll(/<circle class="dot( off)?" /g)].length - keyDots;
-    // The key draws its own sample dots; they are not pull requests.
-    const keyDots = 3;
+    // The key draws its own sample dots, as `keydot`; they are not pull requests.
+    const dotsOf = (html) => [...sectionOf(html).matchAll(/<circle class="dot step\d( off)?" /g)].length;
     // Ten minutes writing, then thirty in the harness: a ratio of three.
     const recorded = (number, harness = 30, extra = {}) =>
       pull({
@@ -424,7 +423,7 @@ describe('Cycle time', () => {
       const html = render({ pulls: [recorded(7)] });
       expect(dotsOf(html)).toBe(1);
       const title = sectionOf(html).match(/<a href="https:\/\/github.com\/o\/r\/pull\/7"[^>]*><title>([^<]*)<\/title>/)[1];
-      expect(title).toBe('#7 A change · coding and fixing 10m 00s · in the harness 30m 00s · ratio 3.0× · 1 round');
+      expect(title).toBe('#7 A change · coding and fixing 10m 00s · in the harness 30m 00s · ratio 3.0× · 1 round · 12 lines changed');
     });
 
     it('draws no dot for a pull request with no record, and says how many it left out', () => {
@@ -441,7 +440,7 @@ describe('Cycle time', () => {
     it('draws a dot beyond the scale hollow on the edge, and says it is off the chart', () => {
       const html = render({ pulls: [recorded(1), recorded(2, 390)] });
       const section = sectionOf(html);
-      expect(section.match(/<circle class="dot off" /g)).toHaveLength(2);
+      expect(section.match(/<circle class="dot step1 off" /g)).toHaveLength(1);
       expect(section).toContain('beyond the scale, so drawn on its edge');
       expect(section).toContain('1 dot beyond it, drawn hollow on the edge');
       expect(section).toContain('<span class="tag">off the chart</span>');
@@ -472,6 +471,166 @@ describe('Cycle time', () => {
       expect(table).toContain('#1');
       expect(table).toContain('#2');
       expect(table).toContain('1h 00m');
+    });
+
+    const svgOf = (html) => sectionOf(html).match(/<svg class="scatter"[\s\S]*?<\/svg>/)[0];
+    const legendOf = (html) => sectionOf(html).match(/<div class="legend stacked">[\s\S]*?<\/div>/)[0];
+    /** A pull request of `rounds` rounds, each `minutes` of checks, 15 minutes apart. */
+    const inRounds = (number, rounds, minutes, extra = {}) =>
+      recorded(number, 30, {
+        mergedAt: at(rounds * 15 + 60),
+        commits: Array.from({ length: rounds }, (_, index) => commit(`r${number}-${index}`, index * 15, [check('Test', index * 15 + 2, index * 15 + 2 + minutes)])),
+        ...extra,
+      });
+    /** The stylesheet as the page carries it, without comments. */
+    const stylesheetOf = (html) => html.match(/<style>([\s\S]*?)<\/style>/)[1].replace(/\/\*[\s\S]*?\*\//g, '');
+    const rulesOf = (css) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((rule) => ({ selectors: rule[1].split(',').map((each) => each.trim()), body: rule[2] }));
+    const classesIn = (markup) => new Set([...markup.matchAll(/class="([^"]*)"/g)].flatMap((match) => match[1].split(/\s+/).filter(Boolean)));
+
+    describe('each axis number sits at its own gridline', () => {
+      it('reads 0, 30, 60, 90 and 120 on both axes, each number at the x or y of its own gridline', () => {
+        const svg = svgOf(render({ pulls: [recorded(1, 390)] }));
+        const gridXs = [...svg.matchAll(/<line class="grid" x1="([\d.]+)" y1="[\d.]+" x2="\1" y2="[\d.]+"\/>/g)].map((match) => Number(match[1]));
+        const gridYs = [...svg.matchAll(/<line class="grid" x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="\1"\/>/g)].map((match) => Number(match[1]));
+        const ticks = [...svg.matchAll(/<text class="tick" x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)">(\d+)<\/text>/g)].map((match) => ({ x: Number(match[1]), y: Number(match[2]), anchor: match[3], text: match[4] }));
+        const across = ticks.filter((tick) => tick.anchor === 'middle');
+        const up = ticks.filter((tick) => tick.anchor === 'end');
+
+        expect(across.map((tick) => tick.text)).toEqual(['0', '30', '60', '90', '120']);
+        expect(up.map((tick) => tick.text)).toEqual(['0', '30', '60', '90', '120']);
+        expect(across.map((tick) => tick.x)).toEqual(gridXs);
+        // The baseline sits 4px below the middle of the digits, which is what centres them on the line.
+        up.forEach((tick, index) => expect(tick.y - 4).toBeCloseTo(gridYs[index], 1));
+        // The numbers up the side stand left of the plot, not on it.
+        up.forEach((tick) => expect(tick.x).toBeLessThan(gridXs[0]));
+        across.forEach((tick) => expect(tick.y).toBeGreaterThan(Math.max(...gridYs)));
+      });
+    });
+
+    describe("the strip's clock-axis styling cannot reach the scatter", () => {
+      it('has no rule for a class both the strips and the scatter draw, other than one scoped to the scatter', () => {
+        const html = render({ pulls: [recorded(1)] });
+        const strips = html.split('<h2>Each pull request, start to merge</h2>')[1].split('<footer>')[0];
+        const stripClasses = classesIn(strips);
+        const scatterClasses = classesIn(svgOf(html));
+        // The strip does draw an axis of its own, so a class list that never met the scatter's proves nothing.
+        expect([...stripClasses].some((name) => /axis/.test(name))).toBe(true);
+        const shared = [...stripClasses].filter((name) => scatterClasses.has(name));
+
+        const reaching = rulesOf(stylesheetOf(html))
+          .flatMap((rule) => rule.selectors)
+          .filter((selector) => {
+            const last = selector.split(/[\s>+~]+/).filter(Boolean).pop();
+            return shared.some((name) => new RegExp(`\\.${name}(?![\\w-])`).test(last)) && !selector.includes('.scatter');
+          });
+        expect(reaching).toEqual([]);
+      });
+    });
+
+    describe("the named dots' labels are drawn above every dot", () => {
+      it('draws every label after the last dot', () => {
+        const svg = svgOf(render({ pulls: [recorded(1, 90), recorded(2, 60), recorded(3, 45)] }));
+        expect(svg.match(/class="dotlabel"/g)).toHaveLength(3);
+        expect(svg.indexOf('class="dotlabel"')).toBeGreaterThan(svg.lastIndexOf('<circle class="dot '));
+      });
+
+      it('leaves each pull request one link, its dot, with the labels hidden from a screen reader and the pointer', () => {
+        const html = render({ pulls: [recorded(1, 90), recorded(2, 60), recorded(3, 45)] });
+        const svg = svgOf(html);
+        expect(svg.match(/<a href=/g)).toHaveLength(3);
+        expect(svg).toMatch(/<g class="dotlabels" aria-hidden="true">(<text class="dotlabel"[^>]*>[^<]*<\/text>){3}<\/g>/);
+        expect(stylesheetOf(html)).toMatch(/\.scatter \.dotlabels \{\s*pointer-events: none;\s*\}/);
+      });
+    });
+
+    describe("a dot's size is its lines changed, and larger dots are drawn first", () => {
+      it('draws the larger dot before a smaller one listed ahead of it', () => {
+        const svg = svgOf(render({ pulls: [recorded(1, 30, { additions: 8, deletions: 2 }), recorded(2, 30, { additions: 900, deletions: 100 })] }));
+        expect(svg.indexOf('pull/2"')).toBeLessThan(svg.indexOf('pull/1"'));
+        const radii = [...svg.matchAll(/<circle class="dot step\d" [^>]*r="([\d.]+)"/g)].map((match) => Number(match[1]));
+        expect(radii).toEqual([14, 4 + 10 * Math.sqrt(10 / 1000)]);
+      });
+    });
+
+    describe("a dot's shade is its CI rounds, faint to strong, readable in both themes", () => {
+      // WCAG 2 contrast of two #rrggbb colours.
+      const luminance = (hex) => {
+        const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const contrast = (a, b) => {
+        const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+        return (high + 0.05) / (low + 0.05);
+      };
+      const colours = (block) => Object.fromEntries([...block.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((match) => [match[1], match[2]]));
+
+      it.each([
+        ['dark', (css) => css.match(/:root \{([^}]*)\}/)[1]],
+        ['light', (css) => css.match(/prefers-color-scheme: light\)\s*\{\s*:root \{([^}]*)\}/)[1]],
+      ])('keeps every step at least 3:1 against the card in the %s theme, step 1 the lowest and 5 the highest', (_theme, blockOf) => {
+        const theme = colours(blockOf(stylesheetOf(render({ pulls: [recorded(1)] }))));
+        const ratios = [1, 2, 3, 4, 5].map((step) => contrast(theme[`round-${step}`], theme.card));
+        ratios.forEach((ratio) => expect(ratio).toBeGreaterThanOrEqual(3));
+        expect(ratios).toEqual([...ratios].sort((a, b) => a - b));
+        expect(new Set(ratios).size).toBe(5);
+        // The strongest step is the page's accent, so five rounds read as the full colour.
+        expect(theme['round-5']).toBe(theme.accent);
+      });
+
+      it('shades 1 round faintest and 5 or more strongest on the dot itself', () => {
+        const svg = svgOf(render({ pulls: [inRounds(1, 1, 5), inRounds(2, 5, 5), inRounds(3, 6, 5)] }));
+        expect([...svg.matchAll(/<circle class="dot (step\d)"/g)].map((match) => match[1]).sort()).toEqual(['step1', 'step5', 'step5']);
+      });
+    });
+
+    describe('a dot beyond the scale stays hollow on the edge, its ring in its rounds’ shade', () => {
+      it('draws a hollow dot with a card fill and a ring in its own step', () => {
+        const html = render({ pulls: [recorded(1, 390), inRounds(2, 5, 90)] });
+        const svg = svgOf(html);
+        expect(svg).toContain('<circle class="dot step1 off"');
+        expect(svg).toContain('<circle class="dot step5 off"');
+        const css = stylesheetOf(html);
+        const ruleFor = (selector) => rulesOf(css).find((rule) => rule.selectors.includes(selector)).body;
+        expect(ruleFor('.dot.off')).toMatch(/fill:\s*var\(--card\)/);
+        expect(ruleFor('.dot.off')).toMatch(/stroke:\s*var\(--shade/);
+        for (const step of [1, 2, 3, 4, 5]) expect(ruleFor(`.step${step}`)).toContain(`--shade: var(--round-${step})`);
+      });
+    });
+
+    describe("everything that describes a dot names its lines changed and its rounds", () => {
+      const sized = [recorded(1, 30, { additions: 30, deletions: 10 }), recorded(2, 30, { additions: 100, deletions: 60 })];
+
+      it('keys the dot size in lines on the window’s scale, and the shade in five swatches', () => {
+        const legend = legendOf(render({ pulls: sized }));
+        expect(legend).toMatch(/<circle class="keydot" cx="[\d.]+" cy="15" r="9"\/><\/svg><span class="samplelabel">40 lines<\/span>/);
+        expect(legend).toMatch(/<circle class="keydot" cx="[\d.]+" cy="15" r="14"\/><\/svg><span class="samplelabel">160 lines<\/span>/);
+        expect([...legend.matchAll(/<circle class="keydot step(\d)"[^>]*\/><\/svg><span class="samplelabel">([^<]*)</g)].map((match) => [match[1], match[2]])).toEqual([
+          ['1', '1'],
+          ['2', '2'],
+          ['3', '3'],
+          ['4', '4'],
+          ['5', '5+'],
+        ]);
+      });
+
+      it('says under the heading that size is lines changed and shade is rounds', () => {
+        const note = sectionOf(render({ pulls: sized })).split('</p>')[0];
+        expect(note).toMatch(/^\s*<p class="sectionnote">/);
+        expect(note).toMatch(/size is the lines its pull request changed/);
+        expect(note).toMatch(/its shade is its CI rounds/);
+      });
+
+      it('adds the lines changed after the rounds on a hover, and a column of them to the table', () => {
+        const section = sectionOf(render({ pulls: sized }));
+        expect(section).toContain('1 round · 40 lines changed</title>');
+        expect(section).toContain('1 round · 160 lines changed</title>');
+        expect(section).toContain('<th class="num">Lines changed</th>');
+        expect(section).toContain('<td class="num">160</td>');
+      });
+
+      it('says under the chart that the three furthest are named where their labels fit', () => {
+        expect(sectionOf(render({ pulls: sized }))).toContain('are named where their labels fit.');
+      });
     });
   });
 
@@ -947,21 +1106,21 @@ describe('Cycle time', () => {
 
     it('draws a closed strip with no axis, on the shared scale', () => {
       const row = rowOf(html, 1);
-      expect(row.split('<div class="zoomed">')[0]).not.toContain('class="axis"');
+      expect(row.split('<div class="zoomed">')[0]).not.toContain('class="clockaxis"');
       expect(row.split('<div class="zoomed">')[0]).toMatch(/--span:calc\(100% - var\(--break\) \* 1\)/);
     });
 
     it('opens the pull request on a clock-time axis from its start to its merge, above its round list', () => {
       const zoomed = zoomedOf(html, 1);
-      expect(zoomed.indexOf('class="axis"')).toBeGreaterThan(zoomed.indexOf('class="track'));
-      expect(zoomed.indexOf('<ol class="roundlist">')).toBeGreaterThan(zoomed.indexOf('class="axis"'));
-      const labels = [...zoomed.matchAll(/<span class="tick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => [match[1], match[2]]);
+      expect(zoomed.indexOf('class="clockaxis"')).toBeGreaterThan(zoomed.indexOf('class="track'));
+      expect(zoomed.indexOf('<ol class="roundlist">')).toBeGreaterThan(zoomed.indexOf('class="clockaxis"'));
+      const labels = [...zoomed.matchAll(/<span class="clocktick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => [match[1], match[2]]);
       expect(labels[0]).toEqual(['start', '09:00']);
       expect(labels[labels.length - 1]).toEqual(['end', '13:10']);
     });
 
     it('reads the real clock time either side of time away in the zoomed axis', () => {
-      const labels = [...zoomedOf(html, 1).matchAll(/<span class="tick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => match[2]);
+      const labels = [...zoomedOf(html, 1).matchAll(/<span class="clocktick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => match[2]);
       expect(labels).toContain('09:12');
       expect(labels).toContain('12:32');
       expect(labels.filter((label) => label > '09:12' && label < '12:32')).toEqual([]);
@@ -973,13 +1132,13 @@ describe('Cycle time', () => {
       const zoomed = zoomedOf(long, 1);
       expect(zoomed).not.toContain('clipmark');
       expect(zoomed).toContain('CI Round 3');
-      expect(zoomed).toMatch(/<span class="tick end"[^>]*>17:00</);
+      expect(zoomed).toMatch(/<span class="clocktick end"[^>]*>17:00</);
     });
 
     it('reads a pull request no check ran on as it did, with nothing to zoom', () => {
       const html = render({ pulls: [pull({ commits: [commit('a', 0)] })] });
       expect(rowOf(html, 1)).toContain('no check ran on it');
-      expect(rowOf(html, 1)).not.toContain('class="axis"');
+      expect(rowOf(html, 1)).not.toContain('class="clockaxis"');
     });
   });
 
