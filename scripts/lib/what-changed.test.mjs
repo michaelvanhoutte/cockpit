@@ -2,7 +2,8 @@
 // Two halves, and both are needed. The first proves the classifier tells a
 // documentation-only diff from every other kind, against path lists written
 // here, and that every way its I/O can fail still says "product changed" and
-// "security". The second reads the two workflow files, which is the half
+// "security". The second reads the workflow files and the classifier action
+// they share, which is the half
 // that gates: the classifier is only worth anything if the jobs actually
 // consult it, and a job added or an output renamed would otherwise be found
 // by a pull request that skipped its own checks.
@@ -571,7 +572,6 @@ describe('classify', () => {
 });
 
 describe('the mechanical checks', () => {
-  const jobGate = "if: ${{ !cancelled() && needs.checks.outputs.product_changed != 'false' }}";
   const stepGate = "if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}";
 
   /** One named step's own lines, from its `- name:` down to the next step at that indent. */
@@ -591,17 +591,26 @@ describe('the mechanical checks', () => {
     assert.deepEqual(needsOf('    runs-on: x'), []);
   });
 
+  const classifier = readFileSync(join(repo, '.github/actions/classify/action.yml'), 'utf8');
+  const useClassifier = 'uses: ./.github/actions/classify';
+
+  /** The steps of a job that follow its classifier step, each as its own lines. */
+  function stepsAfterClassifier(jobBlock) {
+    const lines = jobBlock.split('\n');
+    const at = lines.findIndex((line) => line.trim() === useClassifier);
+    assert.notEqual(at, -1, 'this job does not run the classifier');
+    const rest = lines.slice(at + 1);
+    const starts = rest.flatMap((line, index) => (/^ {6}- /.test(line) ? [index] : []));
+    return starts.map((start, index) => rest.slice(start, starts[index + 1] ?? rest.length).join('\n'));
+  }
+
   it('consult what changed, since a skipped step or job is what a required check accepts', () => {
     const yaml = workflow('ci.yml');
+    assert.match(classifier, /product_changed:\s+description:.*\s+value: \$\{\{ steps\.classify\.outputs\.product_changed \}\}/, 'the classifier action publishes no answer');
+    assert.match(classifier, /node scripts\/what-changed\.mjs/, 'the classifier action does not run the classifier on a push');
+    assert.match(classifier, /node "\$base\/what-changed\.mjs"/, "the classifier action does not run the base commit's own copy");
+    for (const id of ['checks', 'test', 'e2e']) assert.ok(job(yaml, id).includes(useClassifier), `ci.yml's ${id} job does not run the classifier`);
     const checks = job(yaml, 'checks');
-    assert.match(checks, /product_changed: \$\{\{ steps\.classify\.outputs\.product_changed \}\}/, "ci.yml's checks job publishes no answer");
-    assert.match(checks, /node scripts\/what-changed\.mjs/, "ci.yml's checks job does not run the classifier on a push");
-    assert.match(checks, /node "\$base\/what-changed\.mjs"/, "ci.yml's checks job does not run the base commit's own copy");
-    for (const id of ['test', 'e2e']) {
-      const block = job(yaml, id);
-      assert.ok(needsOf(block).includes('checks'), `ci.yml's ${id} job does not wait for what changed`);
-      assert.ok(block.includes(jobGate), `ci.yml's ${id} job does not carry the gate: ${jobGate}`);
-    }
     for (const step of ['Typecheck', 'Lint', 'Verify the lint config', 'Build']) {
       assert.ok(stepNamed(checks, step).includes(stepGate), `checks' ${step} step does not carry the gate: ${stepGate}`);
     }
@@ -615,14 +624,35 @@ describe('the mechanical checks', () => {
     );
   });
 
+  it('skip every step of a shard or Test on a documentation-only diff, so no Chromium is installed', () => {
+    const yaml = workflow('ci.yml');
+    for (const id of ['test', 'e2e']) {
+      const steps = stepsAfterClassifier(job(yaml, id));
+      assert.ok(steps.length >= 3, `${id} has too few steps after its classifier to be real`);
+      for (const step of steps) {
+        // A failure step only fires after a gated step failed, so it cannot fire on a skip.
+        if (step.includes('Upload failure artefacts')) continue;
+        assert.match(step, /if: .*steps\.classify\.outputs\.product_changed != 'false'/, `ci.yml's ${id} job has a step that runs on a documentation-only diff:\n${step}`);
+      }
+    }
+    // Test Explorer needs Test and now sees a green job on such a diff, so it asks Test's answer itself.
+    assert.match(job(yaml, 'test-explorer'), /if: \$\{\{ success\(\) && needs\.test\.outputs\.product_changed != 'false' \}\}/, 'Test Explorer would run on a documentation-only diff');
+    assert.match(job(yaml, 'test'), /product_changed: \$\{\{ steps\.classify\.outputs\.product_changed \}\}/, 'Test publishes no answer for Test Explorer');
+  });
+
+  it('start Test and the shards with the run, not when Checks ends', () => {
+    const yaml = workflow('ci.yml');
+    for (const id of ['checks', 'test', 'e2e']) assert.deepEqual(needsOf(job(yaml, id)), [], `ci.yml's ${id} job waits for another`);
+    for (const id of ['test', 'e2e']) assert.doesNotMatch(job(yaml, id), /\$\{\{[^}]*needs\./, `ci.yml's ${id} job reads another job's output`);
+  });
+
   it('decide from the base commit, so a branch cannot rule on its own diff', () => {
     // `pull_request` builds the merge ref, so the classifier in the tree is the
     // one this branch wrote. Running it would let a diff answer "documentation
     // only" about its own payload and skip every check that would have read it.
-    const checks = job(workflow('ci.yml'), 'checks');
-    assert.match(checks, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/, 'the base commit is never named');
-    assert.match(checks, /git show "\$BASE_SHA:scripts\/what-changed\.mjs"/, "the base commit's own wrapper is not taken");
-    assert.match(checks, /git show "\$BASE_SHA:scripts\/lib\/what-changed\.mjs"/, "the base commit's own module is not taken");
+    assert.match(classifier, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/, 'the base commit is never named');
+    assert.match(classifier, /git show "\$BASE_SHA:scripts\/what-changed\.mjs"/, "the base commit's own wrapper is not taken");
+    assert.match(classifier, /git show "\$BASE_SHA:scripts\/lib\/what-changed\.mjs"/, "the base commit's own module is not taken");
   });
 
   it('names every local file the base-commit extraction would need to copy too', () => {
@@ -656,24 +686,23 @@ describe('the mechanical checks', () => {
     // first comment line of the else branch, leaving 70 bytes of 1062 to
     // search and passing whether or not a `node` call is hiding past that
     // point (it was, once, while this test still read that way).
-    const checks = job(workflow('ci.yml'), 'checks');
-    const elseBranch = checks.slice(checks.indexOf('else', checks.indexOf('git show')));
-    const body = elseBranch.split(/\n {10}fi\n/)[0];
+    const elseBranch = classifier.slice(classifier.indexOf('else', classifier.indexOf('git show')));
+    const body = elseBranch.split(/\n {8}fi\n/)[0];
     assert.ok(body.length > 200, `the else branch looked too short to be real: ${body.length} bytes`);
-    assert.doesNotMatch(body, /node /, "the else branch still runs a classifier - which one, on whose copy?");
+    assert.doesNotMatch(body, /node /, 'the else branch still runs a classifier - which one, on whose copy?');
     assert.match(body, /product_changed=true/, 'the else branch does not fail open directly');
   });
 
   it('cannot skip on a classifier that failed rather than answered', () => {
     // Only the checkout and the classify step itself carry `continue-on-error`
-    // - a failure in either still lets the job carry on to Scripts next, with
+    // - a failure in either still lets the job carry on, with
     // `product_changed` unset and the gate's `!= 'false'` running everything
-    // downstream. Every step after them (Scripts, install, Concepts, and the
-    // five gated steps) should NOT continue on error: a real failure in any of
-    // those has to fail the job, not disappear the way a classifier hiccup is
-    // meant to.
-    const yaml = workflow('ci.yml');
-    const checks = job(yaml, 'checks');
+    // downstream. In `checks`, every step after them (Scripts, install,
+    // Concepts, and the five gated steps) should NOT continue on error: a real
+    // failure in any of those has to fail the job, not disappear the way a
+    // classifier hiccup is meant to. The classifier action itself ends in an
+    // answer even where the classifier crashed, rather than relying on that.
+    const checks = job(workflow('ci.yml'), 'checks');
     const classifierSteps = checks.slice(0, checks.indexOf('- name: Scripts'));
     // Every step in that slice, not a count that a new step could drift past
     // (`- run:` included, not only `- uses:`/`- name:` - a step needs no other
@@ -684,17 +713,8 @@ describe('the mechanical checks', () => {
     assert.ok(steps >= 2, `expected at least two steps ahead of Scripts, found ${steps}`);
     assert.equal(continues, steps, `every step ahead of Scripts should continue on error (${continues} of ${steps} do)`);
     assert.doesNotMatch(checks.slice(checks.indexOf('- name: Scripts')), /continue-on-error: true/, 'a step from Scripts onward should not continue on error');
-    // `needs` on a failed job skips the lot, and a skip is what a required check
-    // accepts - so `test` and `e2e` still read `!cancelled()`, the same reason
-    // `pages` further down this file does: GitHub's own expressions reference
-    // names it the way to run a job regardless of an upstream failure, and
-    // unlike `!failure()` - true on exactly the condition the default
-    // `success()` already tests for a `needs`-only job, so it would have
-    // changed nothing - it does not also turn a genuinely cancelled run into a
-    // passing `skipped` the way `!cancelled()` mistakenly not being used once
-    // did (docs/deployment.md, "Bootstrap runbook": "A cancelled run reports
-    // `cancelled`, not a passing conclusion").
-    assert.match(job(yaml, 'test'), /!cancelled\(\)/, 'the gate should run despite checks failing outright, not only despite its output being unset');
+    assert.match(classifier, /node scripts\/what-changed\.mjs \|\| echo "product_changed=true"/, 'a crashed classifier leaves no answer on a push');
+    assert.match(classifier, /node "\$base\/what-changed\.mjs" \|\| echo "product_changed=true"/, "a crashed base commit's classifier leaves no answer");
   });
 
   it('leave the reports and the writing rules alone', () => {
@@ -706,18 +726,17 @@ describe('the mechanical checks', () => {
     for (const step of ['Scripts', 'Concepts']) {
       assert.ok(!stepNamed(checks, step).includes(stepGate), `${step} should not be gated on what changed`);
     }
-    for (const id of ['test-explorer', 'stability', 'pages']) {
-      assert.doesNotMatch(job(yaml, id), /needs\.checks\.outputs\.product_changed/, `${id} should not be gated on what changed`);
+    for (const id of ['stability', 'pages']) {
+      assert.doesNotMatch(job(yaml, id), /product_changed/, `${id} should not be gated on what changed`);
     }
   });
 
-  it('keep Test Explorer downstream of Test, not gated on what changed', () => {
+  it('keep Test Explorer downstream of Test, skipped by what Test says rather than a classifier of its own', () => {
     // Sharing `test`'s instrumented run instead of paying for a second one is
     // "Run the suite once in CI, not once to gate and once to measure" (issue
     // 289), not this file's own finding - `Test Explorer` skips a
-    // documentation-only diff for free, because `test` does and a skipped
-    // dependency is not a successful one, rather than needing a gate of its
-    // own. A rewrite that drops the Concepts step or this chain loses both that
+    // documentation-only diff on the answer `test` publishes, not a
+    // classifier of its own. A rewrite that drops the Concepts step or this chain loses both that
     // saving and the artifact hop `test-explorer-spec.md` documents, silently:
     // every job here still exists and still passes.
     const yaml = workflow('ci.yml');

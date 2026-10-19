@@ -29,6 +29,30 @@ export function failedSpecFiles(report) {
   return failed;
 }
 
+/** How many shards the tier runs as. The workflow's matrix lists the same indices; a test holds the two together. */
+export const E2E_SHARDS = 4;
+
+/** The shard `E2E_SHARD` names (`2/4`): `{ index, total }`, or `null` where the variable is unset and the whole tier runs in one process. */
+export function parseShard(value) {
+  if (value === undefined || value === '') return null;
+  const match = /^(\d+)\/(\d+)$/.exec(value);
+  const index = Number(match?.[1]);
+  const total = Number(match?.[2]);
+  if (!match || index < 1 || index > total) throw new Error(`E2E_SHARD reads like 2/4, a shard and how many there are, not "${value}"`);
+  return { index, total };
+}
+
+/** The spec files a Playwright JSON report holds a walk in: for a shard's report, the files it was dealt. */
+function filesIn(report) {
+  return new Set((report?.suites ?? []).map((file) => file.file ?? file.title ?? ''));
+}
+
+/** How many walks the report holds, those a walk skips itself (a phone has no Connections) included, so the shards' counts add up to the suite's; `null` where the process left no report. */
+function walksDealt(report) {
+  const stats = report?.stats;
+  return stats ? stats.expected + stats.unexpected + stats.flaky + (stats.skipped ?? 0) : null;
+}
+
 /**
  * The whole record. `plan` is planE2eRun's answer, `walks` the tier's listing
  * (walksIn), `report` what Playwright's JSON reporter wrote - null where the
@@ -37,12 +61,17 @@ export function failedSpecFiles(report) {
  * A spec file ran where the plan is `full`, or where any walk in it sits under a
  * selected area, which is what `--grep` matches. A run that started and left no
  * report says so (`report: 'none'`) rather than guessing which files failed.
+ *
+ * A `shard` (parseShard) ran only the walks Playwright dealt it, so there a file
+ * ran where the report holds a walk of it, and the record carries the shard and
+ * how many walks it was dealt for mergeE2eRecords.
  */
-export function buildE2eRecord({ event, baseCommit, changedFiles, plan, walks, report }) {
+export function buildE2eRecord({ event, baseCommit, changedFiles, plan, walks, report, shard = null }) {
   const selecting = plan.mode === 'selected';
   const areas = new Set(selecting ? plan.areas : []);
   const started = !selecting || areas.size > 0;
   const failed = failedSpecFiles(report);
+  const dealt = shard ? filesIn(report) : null;
 
   const areasByFile = new Map();
   for (const walk of walks) {
@@ -53,7 +82,7 @@ export function buildE2eRecord({ event, baseCommit, changedFiles, plan, walks, r
   const files = started && !report ? [] : [...areasByFile.keys()].sort().map((where) => {
     const own = [...areasByFile.get(where)];
     const selectedAreas = own.filter((area) => areas.has(area)).sort();
-    const ran = !selecting || selectedAreas.length > 0;
+    const ran = (!selecting || selectedAreas.length > 0) && (!dealt || dealt.has(where));
     const entry = { path: `${SPECS}${where}`, level: 'e2e', status: !ran ? 'not run' : failed.has(where) ? 'failed' : 'passed' };
     if (selecting && ran) entry.selectedBy = { kind: 'concept', owners: selectedAreas.map((concept) => ({ concept, path: plan.changedBy?.[concept] ?? null })) };
     return entry;
@@ -73,7 +102,88 @@ export function buildE2eRecord({ event, baseCommit, changedFiles, plan, walks, r
         files,
       },
     ],
+    ...(shard ? { shard: { ...shard, walks: walksDealt(report) } } : {}),
   };
+}
+
+const RANK = { 'not run': 0, passed: 1, failed: 2 };
+
+/**
+ * The shards' records as the one record the selection report and the cycle-time
+ * report read: a spec ran if any shard ran it and failed if any failed, and the
+ * plan and the changed files are carried once, from the first shard's, since
+ * every shard plans the same diff. `records` are what each shard wrote
+ * (buildE2eRecord with a shard), in any order, and fewer than `total` is allowed.
+ *
+ * A shard that left no record, or whose run left no report, makes the whole say
+ * so (`report: 'none'`, as a run with no report does) rather than say its specs
+ * did not run: a spec's walks are dealt across shards, so what the others
+ * reported cannot say how it ended. `shards` names each one's own state.
+ *
+ * `null` where no shard left a record, for a diff that ran none.
+ */
+export function mergeE2eRecords(records, total = E2E_SHARDS) {
+  const byIndex = new Map();
+  for (const record of records) if (record?.shard && !byIndex.has(record.shard.index)) byIndex.set(record.shard.index, record);
+  if (byIndex.size === 0) return null;
+
+  const first = byIndex.get(Math.min(...byIndex.keys()));
+  const shards = Array.from({ length: total }, (_, at) => {
+    const record = byIndex.get(at + 1);
+    return record ? { index: at + 1, report: record.packages[0].report, walks: record.shard.walks } : { index: at + 1, report: 'missing', walks: null };
+  });
+  const complete = shards.every((shard) => shard.report === 'written');
+
+  const merged = new Map();
+  if (complete) {
+    for (const record of byIndex.values()) {
+      for (const file of record.packages[0].files) {
+        const known = merged.get(file.path);
+        if (!known) merged.set(file.path, { ...file });
+        else {
+          if (RANK[file.status] > RANK[known.status]) known.status = file.status;
+          if (!known.selectedBy && file.selectedBy) known.selectedBy = file.selectedBy;
+        }
+      }
+    }
+  }
+
+  const { shard: _shard, ...rest } = first;
+  return { ...rest, packages: [{ ...first.packages[0], report: complete ? 'written' : 'none', files: [...merged.values()].sort((a, b) => (a.path < b.path ? -1 : 1)) }], shards };
+}
+
+/** The shard a job of the E2E (F3) family is, from its name (`E2E (F3) (2)`), or `null` for any other job, the fan-in included. */
+const SHARD_JOB = /^E2E \(F3\) \((\d+)\)$/;
+
+/** Each shard's result from the run's jobs (GitHub's `jobs` list): `{ index, result }`, where an unfinished job's result is its status. */
+export function shardResults(jobs) {
+  return jobs.flatMap((job) => {
+    const match = SHARD_JOB.exec(job.name);
+    return match ? [{ index: Number(match[1]), result: job.conclusion ?? job.status }] : [];
+  });
+}
+
+/**
+ * What the fan-in answers for the shards: `{ ok, message }`. `results` are the
+ * shards' own (shardResults), `null` where they could not be read, and
+ * `aggregate` is the matrix's own verdict (`needs.e2e.result`), which still
+ * fails the fan-in where it says so and is all there is without `results`.
+ * A shard that passed or was skipped, as on a documentation-only diff, is a
+ * pass; anything else is named.
+ */
+export function e2eVerdict({ results, aggregate = null, total = E2E_SHARDS }) {
+  const problems = [];
+  if (results) {
+    for (let index = 1; index <= total; index += 1) {
+      const result = results.find((one) => one.index === index)?.result;
+      if (result === undefined) problems.push(`shard ${index} has no result`);
+      else if (result === 'cancelled') problems.push(`shard ${index} was cancelled`);
+      else if (result === 'failure') problems.push(`shard ${index} failed`);
+      else if (result !== 'success' && result !== 'skipped') problems.push(`shard ${index} ended ${result}`);
+    }
+  }
+  if (problems.length === 0 && aggregate !== null && aggregate !== 'success' && aggregate !== 'skipped') problems.push(`the shards ended ${aggregate}`);
+  return problems.length === 0 ? { ok: true, message: `All ${total} shards passed.` } : { ok: false, message: `${problems.join('; ')}.`.replace(/^./, (letter) => letter.toUpperCase()) };
 }
 
 /** A reason in words: `owned by Capture (path)`, joined where a file's walks sit under several selected areas. */
@@ -92,10 +202,14 @@ export function renderE2eSummary(record) {
   const lines = ['## E2E selection', ''];
   lines.push(record.baseCommit ? `Base commit \`${record.baseCommit.slice(0, 7)}\` · event \`${record.event || 'unknown'}\`` : `No base commit · event \`${record.event || 'unknown'}\``, '');
 
+  const shards = record.shards ?? [];
   if (tier.report === 'none') {
-    lines.push(`Mode ${tier.mode}${tier.reason ? ` (${reasonText(tier.reason)})` : ''}. The run left no report, so which specs ran and how they ended is not recorded.`);
+    const left = shards.filter((shard) => shard.report !== 'written').map((shard) => `Shard ${shard.index} left no ${shard.report === 'missing' ? 'record' : 'report'}`);
+    const why = left.length > 0 ? left.join(', ') : 'The run left no report';
+    lines.push(`Mode ${tier.mode}${tier.reason ? ` (${reasonText(tier.reason)})` : ''}. ${why}, so which specs ran and how they ended is not recorded.`);
     return lines.join('\n');
   }
+  if (shards.length > 0) lines.push(`${shards.reduce((sum, shard) => sum + shard.walks, 0)} walks over ${shards.length} shards (${shards.map((shard) => shard.walks).join(', ')}).`, '');
 
   const count = (status) => tier.files.filter((file) => file.status === status).length;
   lines.push('| Mode | Reason | Ran | Not run | Failed |', '|---|---|---|---|---|');

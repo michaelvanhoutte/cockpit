@@ -73,7 +73,8 @@ what it would have done.
   first; the issue that scoped this report calls that "either is correct".
 - **E2E is read the same way, from its own record**
   ([`scripts/lib/e2e-record.mjs`](../../scripts/lib/e2e-record.mjs), the `e2e-selection-record`
-  artifact of the same run). It has the Test record's shape — the whole browser tier as one package,
+  artifact of the same run, which the `E2E (F3)` fan-in uploads after merging its four shards' own
+  `e2e-selection-record-1` to `-4`, so this report meets one record per run). It has the Test record's shape — the whole browser tier as one package,
   each spec file one of its files — so misses, forced-full rows and the per-pull-request table read
   it with the functions they read the Test record with. A spec was selected because a changed file
   belongs to the product area whose walks it holds, which is what its row says in place of an import
