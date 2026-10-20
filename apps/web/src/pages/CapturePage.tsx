@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { CaptureForms } from '../captureForm';
-import type { FiledOn } from '../components/FileOnLine';
+import type { PanelOpening } from '../captureOpener';
 
 /**
  * What the header's tab and `C` put in the navigation's state to say which
@@ -12,7 +12,7 @@ import type { FiledOn } from '../components/FileOnLine';
 export interface CaptureState {
   captureFrom?: string;
   /** The Panel a + on its header opened Capture for (issue 1105). */
-  captureOn?: FiledOn;
+  captureOn?: PanelOpening;
 }
 
 /**
@@ -20,7 +20,7 @@ export interface CaptureState {
  * state as an interface only an augmentation of `@tanstack/history` can add
  * to, and that package is not this one's to import.
  */
-export const captureStateFor = (workspaceId: string | undefined, on?: FiledOn): never =>
+export const captureStateFor = (workspaceId: string | undefined, on?: PanelOpening): never =>
   ({
     ...(workspaceId ? { captureFrom: workspaceId } : {}),
     ...(on ? { captureOn: on } : {}),

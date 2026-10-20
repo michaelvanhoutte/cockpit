@@ -53,6 +53,7 @@ export function CaptureNote({
   arrived,
   onPutOn,
   onCaptured,
+  onKept,
   dictating,
 }: {
   startsIn: string | null;
@@ -64,6 +65,14 @@ export function CaptureNote({
   onPutOn?: (() => void) | undefined;
   /** Said when a capture is made on this form. */
   onCaptured?: (() => void) | undefined;
+  /**
+   * Said once a capture made on this form is kept: written to the outbox on this
+   * device, or, where the outbox cannot be written, kept by the server with every
+   * file attached. Not when Capture is pressed (`onCaptured`), since a note that
+   * was not kept stays in the box and whoever closes this on hearing it would
+   * take the note with it.
+   */
+  onKept?: (() => void) | undefined;
   /**
    * What dictation records with and transcribes with: the browser's recorder and
    * the Worker, unless a test hands in fakes. `transcriber` says whether the
@@ -243,8 +252,8 @@ export function CaptureNote({
    * while this is open.
    */
   // What the page asked to be told, read when it happens rather than when drawn.
-  const saidNow = useRef({ onPutOn, onCaptured });
-  saidNow.current = { onPutOn, onCaptured };
+  const saidNow = useRef({ onPutOn, onCaptured, onKept });
+  saidNow.current = { onPutOn, onCaptured, onKept };
   const dock = useDockedItem();
   const dockNow = useRef(dock);
   dockNow.current = dock;
@@ -443,8 +452,8 @@ export function CaptureNote({
    * A file that fails says so by name and leaves the others to keep
    * uploading: the capture already landed, and nothing here can undo it.
    */
-  const uploadQueued = async (files: QueuedFile[], itemId: string, workspaceId: string) => {
-    if (files.length === 0) return;
+  const uploadQueued = async (files: QueuedFile[], itemId: string, workspaceId: string): Promise<boolean> => {
+    if (files.length === 0) return true;
     // Collected across the whole batch, not set as each one fails - a
     // rejection two files back must not be a message the next file's own
     // failure quietly clears.
@@ -470,6 +479,7 @@ export function CaptureNote({
     }
     if (failures.length > 0) setQueueError(failures.join(' '));
     void queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
+    return failures.length === 0;
   };
 
   /**
@@ -589,6 +599,7 @@ export function CaptureNote({
           emptied();
           setLast(captured(id));
           setRefused(null);
+          saidNow.current.onKept?.();
         },
         () => {
           madeHere.current.delete(id);
@@ -605,7 +616,11 @@ export function CaptureNote({
         asking: emptied,
         captured: (itemId) => {
           setLast(captured(itemId));
-          void uploadQueued(queuedAtSubmit, itemId, targetWorkspace);
+          // Said only once the files are on the Item too: a window that closed on
+          // the note alone would take the line naming a refused file with it.
+          void uploadQueued(queuedAtSubmit, itemId, targetWorkspace).then((allAttached) => {
+            if (allAttached) saidNow.current.onKept?.();
+          });
         },
         refused: (why) => {
           setMessage(trimmed);

@@ -1824,7 +1824,7 @@ describe('Panels', () => {
         }),
       );
 
-      expect(opensCapture).toHaveBeenCalledWith({ panelId: 'falcon', name: 'Project Falcon', workspaceId: 'ws-work' });
+      expect(opensCapture).toHaveBeenCalledWith({ panelId: 'falcon', name: 'Project Falcon', workspaceId: 'ws-work', dashboardId: 'today' });
     });
 
     it('opens Capture holding the Panel from Add an item… in its menu', async () => {
@@ -1833,7 +1833,7 @@ describe('Panels', () => {
 
       await choose(user, 'To read', 'Add an item…');
 
-      expect(opensCapture).toHaveBeenCalledWith({ panelId: 'reading', name: 'To read', workspaceId: 'ws-work' });
+      expect(opensCapture).toHaveBeenCalledWith({ panelId: 'reading', name: 'To read', workspaceId: 'ws-work', dashboardId: 'today' });
     });
 
     it.each([
