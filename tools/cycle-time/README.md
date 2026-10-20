@@ -179,7 +179,7 @@ evolution panels, coding against the harness, and a strip per pull request.
   hours; a longer one is cut at the edge and says how much it cut. Time away is off the scale.
   Every part sits at its own time and length on it, with no gap added: a slice too short to see is
   drawn 3px wide over what follows it, which still starts at its own time.
-- **A round's jobs are lanes** at their own start and stop, shards beside Checks and Test, each job's lead dotted before it. Jobs that overlapped sit in rows (the busiest on the strip's line, then above, then below); one that began where another ended is in its row after it. A failed job is ringed and a re-run hatched; hover a lane, or pick it on the zoomed strip, for its start and stop to the second (UTC). A round with `lanes: null` is the block split by what held it, and its hover says its lanes are not recorded.
+- **A round's jobs are lanes** at their own start and stop, shards beside Checks and Test, each job's lead dotted before it. Jobs that overlapped sit in rows (the busiest on the strip's line, then above, then below); one that began where another ended is in its row after it. Stacked rows are parted by a hairline in the page's background. A failed job is ringed and a re-run hatched; hover a lane, or pick it on the zoomed strip, for its start and stop to the second (UTC). A round with `lanes: null` is the block split by what held it, and its hover says its lanes are not recorded.
 - **A round is a CI Round**, named on the strip by the width it has on screen: "CI Round 1", then
   "CI 1", then only its red or fluke mark (a round with neither shows no name). Its detail reads
   "CI Round 1 · …", and the legend defines the term.
