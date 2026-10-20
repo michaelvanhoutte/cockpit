@@ -166,6 +166,7 @@ async function thePage({
   arrived,
   onPutOn,
   onCaptured,
+  onKept,
   recordingStore = browserRecordingStore(),
   recordingLock = inTabLock(),
   waitingRecordings = [],
@@ -203,6 +204,7 @@ async function thePage({
   arrived?: Arrived | null;
   onPutOn?: () => void;
   onCaptured?: () => void;
+  onKept?: () => void;
 } = {}) {
   held.workspaces = [WORK, HOME];
   held.snapshots = { 'ws-work': WORK_SNAPSHOT, 'ws-home': HOME_SNAPSHOT };
@@ -246,7 +248,7 @@ async function thePage({
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
         <KeptRecordingsProvider value={kept}>
-          <CaptureNote startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} />
+          <CaptureNote startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} />
         </KeptRecordingsProvider>
       </OutboxProvider>
     </QueryClientProvider>,
@@ -1478,6 +1480,68 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       expect((await captured()).payload).toMatchObject({ workspaceId: 'ws-work', panelIds: ['p-falcon'] });
+    });
+  });
+
+  /**
+   * Whoever opened Capture from a Panel's + closes it on hearing this, so it
+   * is said only once a note is kept - never as Capture is pressed, which a
+   * refused note would have left in a window that was already gone. That the
+   * window and the page close on it is tests/unit/pages/header-capture.test.tsx
+   * and CapturePage.test.tsx.
+   */
+  describe('a note kept on this device, or by the server, is said to whoever opened Capture, and a note not kept is not', () => {
+    const FALCON = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' };
+
+    it.each([
+      { situation: 'written to the outbox on this device', store: undefined },
+      { situation: 'kept by the server where the outbox cannot be written', store: UNAVAILABLE },
+    ])('is said once a note is $situation', async ({ store }) => {
+      const onKept = vi.fn();
+      const user = await thePage({ startsOn: FALCON, onKept, ...(store ? { store } : {}) });
+
+      await user.type(box(), 'Reply to Bart');
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(onKept).toHaveBeenCalledTimes(1));
+    });
+
+    it('is not said while the server has neither kept nor refused a note the outbox could not take', async () => {
+      const onKept = vi.fn();
+      const user = await thePage({ startsOn: FALCON, onKept, store: UNAVAILABLE, heldMutation: true });
+
+      await user.type(box(), 'Reply to Bart');
+      await user.click(chip('Capture'));
+      await settled();
+
+      expect(onKept).not.toHaveBeenCalled();
+      held.settle();
+      expect(onKept).toHaveBeenCalledTimes(1);
+    });
+
+    it('is not said for a note the outbox could not take and the server refused, which stays in the box with the reason', async () => {
+      const onKept = vi.fn();
+      const user = await thePage({ startsOn: FALCON, onKept, store: UNAVAILABLE });
+      held.refuses = new CommandRefused(404, 'That workspace is gone.');
+
+      await user.type(box(), 'Reply to Bart');
+      await user.click(chip('Capture'));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('That workspace is gone.');
+      expect(box()).toHaveValue('Reply to Bart');
+      expect(onKept).not.toHaveBeenCalled();
+    });
+
+    it('is not said for an empty note, which captures nothing', async () => {
+      const onKept = vi.fn();
+      const user = await thePage({ startsOn: FALCON, onKept });
+
+      await user.type(box(), '   ');
+      fireEvent.submit(box().closest('form')!);
+      await settled();
+
+      expect(capturedCalls()).toHaveLength(0);
+      expect(onKept).not.toHaveBeenCalled();
     });
   });
 

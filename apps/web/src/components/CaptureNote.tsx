@@ -53,6 +53,7 @@ export function CaptureNote({
   arrived,
   onPutOn,
   onCaptured,
+  onKept,
   dictating,
 }: {
   startsIn: string | null;
@@ -64,6 +65,13 @@ export function CaptureNote({
   onPutOn?: (() => void) | undefined;
   /** Said when a capture is made on this form. */
   onCaptured?: (() => void) | undefined;
+  /**
+   * Said once a capture made on this form is kept: written to the outbox on this
+   * device, or, where the outbox cannot be written, kept by the server. Not when
+   * Capture is pressed (`onCaptured`), since a note that was not kept stays in the
+   * box and whoever closes this on hearing it would take the note with it.
+   */
+  onKept?: (() => void) | undefined;
   /**
    * What dictation records with and transcribes with: the browser's recorder and
    * the Worker, unless a test hands in fakes. `transcriber` says whether the
@@ -243,8 +251,8 @@ export function CaptureNote({
    * while this is open.
    */
   // What the page asked to be told, read when it happens rather than when drawn.
-  const saidNow = useRef({ onPutOn, onCaptured });
-  saidNow.current = { onPutOn, onCaptured };
+  const saidNow = useRef({ onPutOn, onCaptured, onKept });
+  saidNow.current = { onPutOn, onCaptured, onKept };
   const dock = useDockedItem();
   const dockNow = useRef(dock);
   dockNow.current = dock;
@@ -589,6 +597,7 @@ export function CaptureNote({
           emptied();
           setLast(captured(id));
           setRefused(null);
+          saidNow.current.onKept?.();
         },
         () => {
           madeHere.current.delete(id);
@@ -606,6 +615,7 @@ export function CaptureNote({
         captured: (itemId) => {
           setLast(captured(itemId));
           void uploadQueued(queuedAtSubmit, itemId, targetWorkspace);
+          saidNow.current.onKept?.();
         },
         refused: (why) => {
           setMessage(trimmed);
