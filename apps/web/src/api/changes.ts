@@ -23,9 +23,9 @@ const keepThePage = (event: BeforeUnloadEvent) => {
  * "You're working offline" instead of leaving them to a connection that is gone.
  */
 export const changes = createChangeQueue({
-  send: async (change): Promise<CommandResult> => {
+  send: async (change, signal): Promise<CommandResult> => {
     refuseWhileOffline();
-    return sendCommand(change.name, change.payload as never);
+    return sendCommand(change.name, change.payload as never, signal);
   },
   ...(typeof window === 'undefined'
     ? {}

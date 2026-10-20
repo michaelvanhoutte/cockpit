@@ -49,13 +49,29 @@ interface Entry {
   settle: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void };
 }
 
+/** How long a change may be out before the queue gives up on it and goes on to the next. */
+export const SEND_TIMEOUT_MS = 15_000;
+
+/** What a change that was given up on says, the same as one the network dropped. */
+export const NOT_REACHED = 'That did not reach the server. Try again.';
+
 export function createChangeQueue(options: {
-  /** Sends one change; throwing is how it reports a refusal or that it did not reach the server. */
-  send: (change: CommandArgs) => Promise<CommandResult>;
+  /**
+   * Sends one change; throwing is how it reports a refusal or that it did not
+   * reach the server. `signal` aborts the request once the queue gives up on it.
+   */
+  send: (change: CommandArgs, signal: AbortSignal) => Promise<CommandResult>;
   /** Armed while any change is unanswered. Absent where there is no window. */
   leaveGuard?: { arm: () => void; disarm: () => void };
+  /**
+   * How long one change may wait for its answer. **Without it a request that
+   * hangs holds every change behind it**, where before the queue it held only
+   * its own control; a change given up on goes back like one that did not reach
+   * the server.
+   */
+  sendTimeoutMs?: number;
 }): ChangeQueue {
-  const { send, leaveGuard } = options;
+  const { send, leaveGuard, sendTimeoutMs = SEND_TIMEOUT_MS } = options;
   const entries: Entry[] = [];
   const listeners = new Set<() => void>();
   let tick = 0;
@@ -87,8 +103,19 @@ export function createChangeQueue(options: {
     try {
       for (let next = entries.find((e) => e.state === 'waiting'); next; next = entries.find((e) => e.state === 'waiting')) {
         next.state = 'sending';
+        const sending = new AbortController();
+        let giveUp: ReturnType<typeof setTimeout> | undefined;
         try {
-          const result = await send(next.change);
+          const sent = send(next.change, sending.signal);
+          // A request given up on may still fail later; nobody is waiting on it then.
+          sent.catch(() => {});
+          const gaveUp = new Promise<never>((_, reject) => {
+            giveUp = setTimeout(() => {
+              sending.abort();
+              reject(new Error(NOT_REACHED));
+            }, sendTimeoutMs);
+          });
+          const result = await Promise.race([sent, gaveUp]);
           if (DRAWN_AHEAD.has(next.change.name)) {
             next.state = 'answered';
             next.answeredAt = ++tick;
@@ -102,6 +129,8 @@ export function createChangeQueue(options: {
           drop(next);
           changed();
           next.settle.reject(error);
+        } finally {
+          clearTimeout(giveUp);
         }
       }
     } finally {

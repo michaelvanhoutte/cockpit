@@ -38,12 +38,18 @@ const priorityShown = (copy: WorkspaceSnapshot) => copy.items[0]!.priority;
 
 /** A server that holds every request until the test answers it, in the order they arrive. */
 function aServer() {
-  const arrived: { change: CommandArgs; answer: (result?: CommandResult) => void; refuse: (error: Error) => void }[] = [];
+  const arrived: {
+    change: CommandArgs;
+    signal: AbortSignal;
+    answer: (result?: CommandResult) => void;
+    refuse: (error: Error) => void;
+  }[] = [];
   const send = vi.fn(
-    (change: CommandArgs) =>
+    (change: CommandArgs, signal: AbortSignal) =>
       new Promise<CommandResult>((resolve, reject) => {
         arrived.push({
           change,
+          signal,
           answer: (result = { ok: true, applied: true }) => resolve(result),
           refuse: reject,
         });
@@ -201,6 +207,23 @@ describe('Item editing', () => {
 
       expect(server.arrived.map((request) => request.change)).toEqual([priority('high'), priority('low')]);
       await expect(first).rejects.toThrow('That item is locked.');
+    });
+
+    it('gives up on a request that never answers, sends it back as not reached, and goes on to the next', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send, sendTimeoutMs: 20 });
+      const hung = queue.enqueue(priority('high'));
+      hung.catch(() => {});
+      // It hangs too, in its turn; nobody is waiting on that here.
+      queue.enqueue(priority('low')).catch(() => {});
+      await settle();
+      expect(server.arrived.map((request) => request.change)).toEqual([priority('high')]);
+
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      await expect(hung).rejects.toThrow('That did not reach the server. Try again.');
+      expect(server.arrived.map((request) => request.change)).toEqual([priority('high'), priority('low')]);
+      expect(server.arrived[0]!.signal.aborted).toBe(true);
     });
   });
 

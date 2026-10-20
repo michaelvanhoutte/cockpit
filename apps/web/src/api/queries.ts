@@ -277,7 +277,6 @@ export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> 
   const queryClient = useQueryClient();
   return useCallback(
     async (args: CommandArgs) => {
-      refuseUnlessCapture(args);
       const answer = await sendChange(args);
       await afterChanging(queryClient, args);
       return answer;
