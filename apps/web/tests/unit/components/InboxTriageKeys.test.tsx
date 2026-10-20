@@ -40,6 +40,12 @@ vi.mock('../../../src/api/queries', () => ({
       held.apply(command);
       options?.onSuccess?.();
     },
+    // Done and Dismiss are sent this way, the offer to undo being made at the click.
+    mutateAsync: (command: unknown) => {
+      held.sent.push(command);
+      held.apply(command);
+      return Promise.resolve({ ok: true, applied: true });
+    },
     reset: () => {},
     isPending: false,
     error: null,

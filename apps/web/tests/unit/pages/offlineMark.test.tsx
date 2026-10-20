@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { changes } from '../../../src/api/changes';
+import { sendCommand } from '../../../src/api/client';
 import { Layout } from '../../../src/pages/Layout';
 import { CHOSEN_KEY, currentStanding, resetStanding, stand } from '../../../src/offline';
 
@@ -22,6 +24,11 @@ vi.mock('@tanstack/react-router', () => ({
   useSearch: () => ({}),
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({ location: { pathname: '/w/ws-a' } }),
+}));
+
+vi.mock('../../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  sendCommand: vi.fn(),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
@@ -147,6 +154,31 @@ describe('Offline', () => {
 
       await vi.waitFor(() => expect(screen.queryByRole('button', { name: /Offline/ })).toBeNull());
       expect(localStorage.getItem(CHOSEN_KEY)).toBeNull();
+    });
+  });
+});
+
+describe('Item editing', () => {
+  describe('the header shows the saving sign beside the account menu while a change waits', () => {
+    it('draws it left of the account menu once a change has waited half a second, and takes it away when answered', async () => {
+      let answer!: () => void;
+      vi.mocked(sendCommand).mockImplementation(
+        () => new Promise((resolve) => void (answer = () => resolve({ ok: true, applied: true }))),
+      );
+      const profile = await theShell();
+      expect(screen.queryByRole('status', { name: /Saving/ })).toBeNull();
+
+      void changes.enqueue({
+        name: 'set_priority',
+        payload: { commandId: 'c1', issuedAt: '2026-10-20T09:00:00.000Z', workspaceId: 'ws-a', itemId: 'i-1', priority: 'high' },
+      });
+
+      const sign = await screen.findByRole('status', { name: 'Saving 1 change…' }, { timeout: 2000 });
+      expect(sign.compareDocumentPosition(profile) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      answer();
+      await vi.waitFor(() => expect(screen.queryByRole('status', { name: /Saving/ })).toBeNull());
+      changes.forgetAnswered();
     });
   });
 });

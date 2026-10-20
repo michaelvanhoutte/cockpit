@@ -25,6 +25,7 @@ import {
   checkConnectionNow,
 } from './client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
+import { changes, readOfWorkspaceBegins, watchWorkspaceReads } from './changes';
 
 /** A change sent as it is, refused first while offline (`offline.ts`). */
 function unlessOffline<A, R>(send: (argument: A) => Promise<R>): (argument: A) => Promise<R> {
@@ -169,7 +170,13 @@ function bothReadAgain(queryClient: QueryClient) {
 export const snapshotQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () => fetchSnapshot(workspaceId),
+    queryFn: ({ client }) => {
+      // Marked as it starts, because whether the changes this tab has made are
+      // in what comes back depends on when the read began (`changeQueue.ts`).
+      watchWorkspaceReads(client);
+      readOfWorkspaceBegins(workspaceId);
+      return fetchSnapshot(workspaceId);
+    },
     staleTime: 15_000,
   });
 
@@ -229,13 +236,6 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<ClientCommandName>([
  * refused. Removing one is here for the same reason from the other end: it
  * changes the order the next filing will send.
  *
- * The four fields the item form edits are here because what is built on them
- * is a *read*: the form closes on Save and the item can be opened again at
- * once, and a form fills its boxes from the copy the cache holds and never
- * refills them (`ItemForm.tsx`) - so a form reopened inside the re-read opens
- * on the value as it was before the save, and stays on it. The browser walk
- * lost that race in CI with the re-read out for 215ms.
- *
  * **Only these.** Making every change wait is the same fix and it was tried
  * first; it broke adding a dashboard, whose own success handler navigates to
  * the dashboard it just made. Waiting first meant the new dashboard appeared in
@@ -244,16 +244,15 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<ClientCommandName>([
  * - remounting the board and taking what they had typed with it. A change that
  * carries only its own fields, and that nothing is read back after, has nothing
  * to wait for.
+ *
+ * An Item's own fields are not here: they are drawn at once and stay drawn until
+ * a read that began after their answer has landed (`changeQueue.ts`), so a form
+ * reopened straight after a save opens on what was saved.
  */
 const NOT_DONE_UNTIL_READ_BACK = new Set<ClientCommandName>([
   'move_item_to_panel',
   'add_item_to_panel',
   'remove_item_from_panel',
-  'set_title',
-  'set_description',
-  'set_priority',
-  'set_due_date',
-  'set_done',
 ]);
 
 /**
@@ -279,7 +278,7 @@ export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> 
   return useCallback(
     async (args: CommandArgs) => {
       refuseUnlessCapture(args);
-      const answer = await sendCommand(args.name, args.payload as never);
+      const answer = await sendChange(args);
       await afterChanging(queryClient, args);
       return answer;
     },
@@ -432,13 +431,24 @@ function refuseUnlessCapture(args: CommandArgs): void {
   if (args.name !== 'capture_item') refuseWhileOffline();
 }
 
+/**
+ * Hands a change to the tab's queue (`changeQueue.ts`), which draws it at once
+ * where it can and sends it when those made before it have been answered.
+ *
+ * **A capture is the exception and goes straight out**: it has an outbox of its
+ * own, is already shown the moment it is made, and must not wait behind a slow
+ * change to something else.
+ */
+async function sendChange(args: CommandArgs): Promise<CommandResult> {
+  refuseUnlessCapture(args);
+  if (args.name === 'capture_item') return sendCommand(args.name, args.payload);
+  return changes.enqueue(args);
+}
+
 export function useCommand() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (args: CommandArgs) => {
-      refuseUnlessCapture(args);
-      return sendCommand(args.name, args.payload as never);
-    },
+    mutationFn: sendChange,
     // Returned rather than called and dropped, because React Query waits on
     // what a mutation's own `onSuccess` returns. For the changes that hand it
     // back a promise, the caller's `onSuccess` then runs on a workspace that

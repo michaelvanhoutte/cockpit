@@ -94,8 +94,12 @@ export function needingTheChange(items: readonly Item[], field: BulkField, value
 }
 
 /**
- * Sets a field on every Item that does not already hold the value, one Item
- * after another.
+ * Sets a field on every Item that does not already hold the value, in the order picked.
+ *
+ * **Every change is handed over before any is awaited**, so the tab's queue
+ * (`changeQueue.ts`) draws the whole selection at once and sends them one after
+ * another; `onStarted` is told the moment that is done, which is when an Undo
+ * can already be offered. What the answers say is gathered afterwards, in order.
  *
  * **A refusal is recorded against its Item and the run goes on**, unlike filing
  * several, which stops at the first: filing builds each order on the one before
@@ -103,7 +107,7 @@ export function needingTheChange(items: readonly Item[], field: BulkField, value
  * did not are both answered, so the bar can say how many were not changed and
  * why, and the Undo can cover exactly the ones that were.
  */
-export async function editSeveral(
+export function editSeveral(
   sending: Sending,
   options: {
     items: readonly Item[];
@@ -111,28 +115,51 @@ export async function editSeveral(
     value: BulkValue;
     /** The open agent run of an Item, which Done ends. */
     runOf: (itemId: string) => string | undefined;
-    /** Told which Item (counting from one) of how many is being sent. */
+    /** Told which Item (counting from one) of how many is being answered. */
     onProgress: (at: number, of: number) => void;
+    /** Told, as soon as every change has been handed over, which Items are changing and what will say how it went. */
+    onStarted?: (changing: Changed[], answer: Promise<{ changed: Changed[]; refused: Refused[] }>) => void;
   },
 ): Promise<{ changed: Changed[]; refused: Refused[] }> {
   const { field, value } = options;
-  const toChange = needingTheChange(options.items, field, value);
+  const runs = needingTheChange(options.items, field, value).map((item) => {
+    const writes = fieldWrites(field, sending.envelope(item.id), value, stateOf(item));
+    const sends = writes.map((write) => sending.send(write.command));
+    // Awaited one Item at a time below: a refusal met while an earlier Item is
+    // still being waited on must not be reported as unhandled meanwhile.
+    sends.forEach((send) => send.catch(() => {}));
+    const endedRunId = field === 'status' && value === 'done' ? options.runOf(item.id) : undefined;
+    const changing: Changed = {
+      item,
+      before: valueOf(item, field),
+      after: writes.at(-1)?.held ?? stateOf(item),
+      ...(endedRunId && { endedRunId }),
+    };
+    return { changing, sends };
+  });
+  const answer = answered(runs, options.onProgress);
+  options.onStarted?.(
+    runs.map((run) => run.changing),
+    answer,
+  );
+  return answer;
+}
+
+async function answered(
+  runs: readonly { changing: Changed; sends: readonly Promise<{ applied: boolean }>[] }[],
+  onProgress: (at: number, of: number) => void,
+): Promise<{ changed: Changed[]; refused: Refused[] }> {
   const changed: Changed[] = [];
   const refused: Refused[] = [];
-  for (const [at, item] of toChange.entries()) {
-    options.onProgress(at + 1, toChange.length);
-    const writes = fieldWrites(field, sending.envelope(item.id), value, stateOf(item));
+  for (const [at, { changing, sends }] of runs.entries()) {
+    onProgress(at + 1, runs.length);
     try {
-      await sendAll(sending, writes.map((write) => write.command));
-      const endedRunId = field === 'status' && value === 'done' ? options.runOf(item.id) : undefined;
-      changed.push({
-        item,
-        before: valueOf(item, field),
-        after: writes.at(-1)?.held ?? stateOf(item),
-        ...(endedRunId && { endedRunId }),
-      });
+      for (const send of sends) {
+        if (!(await send).applied) throw new Error(CHANGED_ELSEWHERE);
+      }
+      changed.push(changing);
     } catch (error) {
-      refused.push({ item, why: whyNot(error) });
+      refused.push({ item: changing.item, why: whyNot(error) });
     }
   }
   return { changed, refused };

@@ -11,6 +11,7 @@ import { forgetEveryAllItemsTab } from '../allItemsTab';
 import { forgetEverySeenChange } from '../cockpitChanges';
 import { forgetWhatJustHappened } from '../undo';
 import { forgetEverySavedRead } from '../persistence';
+import { changes } from '../api/changes';
 
 /**
  * Everything this browser is holding about the person who was signed in.
@@ -38,7 +39,9 @@ import { forgetEverySavedRead } from '../persistence';
  *   ten of them
  *   because leaving one behind gives the first person's answer to the second;
  * - what the undo bar is still offering, which is a title of theirs drawn over
- *   whatever screen comes next.
+ *   whatever screen comes next;
+ * - the changes the server has answered but that are still drawn over the next
+ *   read of a Workspace (`changeQueue.ts`).
  *
  * Order matters for the first two. Emptying the cache first and removing the
  * saved reads second means nothing can write the old contents back out
@@ -71,4 +74,5 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   forgetEveryAllItemsTab(browserStore());
   forgetEverySeenChange(browserStore());
   forgetWhatJustHappened();
+  changes.forgetAnswered();
 }

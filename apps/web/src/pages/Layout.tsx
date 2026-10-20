@@ -22,6 +22,7 @@ const PlatformSettingsWindow = lazy(() => import('../components/PlatformSettings
 const ShortcutTip = lazy(() => import('../components/ShortcutTip'));
 import { DashboardBar } from '../components/DashboardBar';
 import { GoOnlineOffer, OfflineMark } from '../components/OfflineMark';
+import { SavingMark } from '../components/SavingMark';
 import { goOnline, workOffline } from '../opening';
 import { useEndingASinglePick } from '../selection';
 import { useIsOffline } from '../offline';
@@ -896,6 +897,7 @@ function TheShell() {
           </WorkspaceTabs>
 
           <div className="flex shrink-0 items-end">
+            <SavingMark />
             <OfflineMark
               savedAt={workspace.data ? workspace.dataUpdatedAt : undefined}
               onPress={() => setProfileMenuOpen(true)}

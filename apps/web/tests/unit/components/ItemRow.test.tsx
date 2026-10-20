@@ -65,11 +65,13 @@ const SOURCE_NAMES = { teams: 'Microsoft Teams', gmail: 'Gmail' };
 /**
  * Renders one row and hands back the changes it asks for.
  *
- * `settles` runs the caller's `onSuccess`, which is what a change that really
- * landed does - and what the offer of an undo waits for.
+ * `refused` answers every change with the server's refusal, and `unanswered`
+ * leaves every change waiting for an answer that never comes - the two ways the
+ * offer of an undo, made at the click, can still be taken back.
  */
 function aRow({
-  settles = false,
+  refused = false,
+  unanswered = false,
   onMoveTo,
   onOpen,
   onMoveHere,
@@ -83,7 +85,8 @@ function aRow({
   dock,
   extra,
 }: {
-  settles?: boolean;
+  refused?: boolean;
+  unanswered?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
   onOpen?: () => void;
   onMoveHere?: () => void;
@@ -105,11 +108,15 @@ function aRow({
   /** Any other prop the row takes, such as the Panel entries. */
   extra?: Partial<React.ComponentProps<typeof ItemRow>>;
 } = {}) {
-  const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
-    if (settles) options?.onSuccess?.();
-  });
+  const mutate = vi.fn((_args: { name: string; payload: Record<string, unknown> }) =>
+    unanswered
+      ? new Promise<never>(() => {})
+      : refused
+        ? Promise.reject(new Error('That item is locked.'))
+        : Promise.resolve({ ok: true as const, applied: true }),
+  );
   const send = vi.fn(() => Promise.resolve({ ok: true as const, applied: true }));
-  mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
+  mockUseCommand.mockReturnValue({ mutate, mutateAsync: mutate, isPending: false } as never);
   mockUseSendCommand.mockReturnValue(send);
   const rendered = (selectingNow?: typeof selecting) => (
     <UndoWhatJustHappened>
@@ -586,7 +593,7 @@ describe('Triage', () => {
   describe('what just happened can be put back, until the offer runs out', () => {
     it('offers a dismissal back, as the same change turned round', async () => {
       const user = userEvent.setup();
-      const { send } = aRow({ settles: true });
+      const { send } = aRow();
 
       await choose(user, 'Dismiss');
       expect(screen.getByRole('status')).toHaveTextContent(
@@ -606,7 +613,7 @@ describe('Triage', () => {
 
     it('offers a finish back, as the same change turned round', async () => {
       const user = userEvent.setup();
-      const { send } = aRow({ settles: true });
+      const { send } = aRow();
 
       await chooseStatus(user, 'Done');
       expect(screen.getByRole('status')).toHaveTextContent(
@@ -639,7 +646,7 @@ describe('Triage', () => {
 
       it.each(situations)('$situation', async ({ item, extra }) => {
         const user = userEvent.setup();
-        const { mutate, send } = aRow({ settles: true, item, extra });
+        const { mutate, send } = aRow({ item, extra });
 
         const mark = screen.getByRole('button', { name: 'Mark done' });
         expect(mark).toHaveAttribute('title', 'Mark done');
@@ -650,7 +657,6 @@ describe('Triage', () => {
             name: 'set_done',
             payload: expect.objectContaining({ itemId: 'item-1', done: true }),
           }),
-          expect.anything(),
         );
         expect(screen.getByRole('status')).toHaveTextContent(
           '“Make appointment with Novy” marked done',
@@ -665,13 +671,33 @@ describe('Triage', () => {
       });
     });
 
-    it('offers nothing back while the dismissal is still in flight', async () => {
-      const user = userEvent.setup();
-      aRow({ settles: false });
+    describe('the offer is made at the click, before the server has answered', () => {
+      it.each([
+        { situation: 'a dismissal', pick: (user: ReturnType<typeof userEvent.setup>) => choose(user, 'Dismiss'), said: 'dismissed' },
+        { situation: 'a finish', pick: (user: ReturnType<typeof userEvent.setup>) => chooseStatus(user, 'Done'), said: 'marked done' },
+      ])('$situation', async ({ pick, said }) => {
+        const user = userEvent.setup();
+        aRow({ unanswered: true });
 
-      await choose(user, 'Dismiss');
+        await pick(user);
 
-      expect(screen.queryByRole('status')).toBeNull();
+        expect(screen.getByRole('status')).toHaveTextContent(`“Make appointment with Novy” ${said}`);
+        expect(screen.getByRole('button', { name: 'Undo' })).toBeVisible();
+      });
+    });
+
+    describe('the offer is taken back when the server refuses the change', () => {
+      it.each([
+        { situation: 'a dismissal', pick: (user: ReturnType<typeof userEvent.setup>) => choose(user, 'Dismiss') },
+        { situation: 'a finish', pick: (user: ReturnType<typeof userEvent.setup>) => chooseStatus(user, 'Done') },
+      ])('$situation', async ({ pick }) => {
+        const user = userEvent.setup();
+        aRow({ refused: true });
+
+        await pick(user);
+
+        await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+      });
     });
   });
 
@@ -2459,7 +2485,7 @@ describe('Agents', () => {
       { situation: 'the ✓ on a row with no run', run: undefined, act: (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Mark done' })), name: 'set_done', turned: { done: false }, named: undefined },
     ])('Undo after $situation names the run it ended: $named', async ({ run, act, name, turned, named }) => {
       const user = userEvent.setup();
-      const { send } = aRow({ settles: true, extra: run ? { openRun: run } : {} });
+      const { send } = aRow({ extra: run ? { openRun: run } : {} });
 
       await act(user);
       await user.click(screen.getByRole('button', { name: 'Undo' }));
