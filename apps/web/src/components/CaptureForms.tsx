@@ -66,15 +66,20 @@ export function CaptureForms({
             arrived={arrived}
             onPutOn={() => setShareFailed(false)}
             // A Panel's + came to add one note: back to its Dashboard once it is kept, in place of
-            // the Capture page so Back does not return to a finished form.
+            // the Capture page so Back does not return to a finished form. The Panel comes from
+            // the navigation's state, which a page open since before the Dashboard was carried
+            // in it still holds without one; that goes to the Workspace instead of to an address
+            // with a hole in it.
             onKept={
               startsOn
                 ? () =>
-                    void navigate({
-                      to: '/w/$workspaceId/d/$dashboardId',
-                      params: { workspaceId: startsOn.workspaceId, dashboardId: startsOn.dashboardId },
-                      replace: true,
-                    })
+                    void (startsOn.dashboardId
+                      ? navigate({
+                          to: '/w/$workspaceId/d/$dashboardId',
+                          params: { workspaceId: startsOn.workspaceId, dashboardId: startsOn.dashboardId },
+                          replace: true,
+                        })
+                      : navigate({ to: '/w/$workspaceId', params: { workspaceId: startsOn.workspaceId }, replace: true }))
                 : undefined
             }
             onCaptured={() => {

@@ -1516,7 +1516,7 @@ describe('Capture', () => {
 
       expect(onKept).not.toHaveBeenCalled();
       held.settle();
-      expect(onKept).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(onKept).toHaveBeenCalledTimes(1));
     });
 
     it('is not said for a note the outbox could not take and the server refused, which stays in the box with the reason', async () => {
@@ -1530,6 +1530,34 @@ describe('Capture', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent('That workspace is gone.');
       expect(box()).toHaveValue('Reply to Bart');
       expect(onKept).not.toHaveBeenCalled();
+    });
+
+    it('is not said while a file the server refused is named under the box, the note itself kept', async () => {
+      vi.mocked(uploadAttachment).mockRejectedValue(new CommandRefused(415, '"doc.pdf" could not be attached.'));
+      const onKept = vi.fn();
+      const user = await thePage({ startsOn: FALCON, onKept, store: UNAVAILABLE });
+      fireEvent.drop(box(), carrying(aFile('doc.pdf', 'application/pdf')));
+      await screen.findByText('doc.pdf');
+      await user.type(box(), 'Reply to Bart');
+
+      await user.click(chip('Capture'));
+
+      expect(await screen.findByText('"doc.pdf" could not be attached.')).toBeVisible();
+      expect(capturedCalls()).toHaveLength(1);
+      expect(onKept).not.toHaveBeenCalled();
+    });
+
+    it('is said once every file is on the Item the server kept', async () => {
+      const onKept = vi.fn();
+      const user = await thePage({ startsOn: FALCON, onKept, store: UNAVAILABLE });
+      fireEvent.drop(box(), carrying(aFile('doc.pdf', 'application/pdf')));
+      await screen.findByText('doc.pdf');
+      await user.type(box(), 'Reply to Bart');
+
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(onKept).toHaveBeenCalledTimes(1));
+      expect(uploadAttachment).toHaveBeenCalledTimes(1);
     });
 
     it('is not said for an empty note, which captures nothing', async () => {

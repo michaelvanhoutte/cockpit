@@ -67,9 +67,10 @@ export function CaptureNote({
   onCaptured?: (() => void) | undefined;
   /**
    * Said once a capture made on this form is kept: written to the outbox on this
-   * device, or, where the outbox cannot be written, kept by the server. Not when
-   * Capture is pressed (`onCaptured`), since a note that was not kept stays in the
-   * box and whoever closes this on hearing it would take the note with it.
+   * device, or, where the outbox cannot be written, kept by the server with every
+   * file attached. Not when Capture is pressed (`onCaptured`), since a note that
+   * was not kept stays in the box and whoever closes this on hearing it would
+   * take the note with it.
    */
   onKept?: (() => void) | undefined;
   /**
@@ -451,8 +452,8 @@ export function CaptureNote({
    * A file that fails says so by name and leaves the others to keep
    * uploading: the capture already landed, and nothing here can undo it.
    */
-  const uploadQueued = async (files: QueuedFile[], itemId: string, workspaceId: string) => {
-    if (files.length === 0) return;
+  const uploadQueued = async (files: QueuedFile[], itemId: string, workspaceId: string): Promise<boolean> => {
+    if (files.length === 0) return true;
     // Collected across the whole batch, not set as each one fails - a
     // rejection two files back must not be a message the next file's own
     // failure quietly clears.
@@ -478,6 +479,7 @@ export function CaptureNote({
     }
     if (failures.length > 0) setQueueError(failures.join(' '));
     void queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
+    return failures.length === 0;
   };
 
   /**
@@ -614,8 +616,11 @@ export function CaptureNote({
         asking: emptied,
         captured: (itemId) => {
           setLast(captured(itemId));
-          void uploadQueued(queuedAtSubmit, itemId, targetWorkspace);
-          saidNow.current.onKept?.();
+          // Said only once the files are on the Item too: a window that closed on
+          // the note alone would take the line naming a refused file with it.
+          void uploadQueued(queuedAtSubmit, itemId, targetWorkspace).then((allAttached) => {
+            if (allAttached) saidNow.current.onKept?.();
+          });
         },
         refused: (why) => {
           setMessage(trimmed);

@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NotSignedIn } from '../../../src/api/client';
 import { CapturePage } from '../../../src/pages/CapturePage';
+import type { PanelOpening } from '../../../src/captureOpener';
 import { aShare, aSharedPhoto, holdAShare, howManyAreHeld } from '../support/shares';
 
 /**
@@ -207,6 +208,18 @@ describe('Capture', () => {
         params: { workspaceId: 'ws-work', dashboardId: 'd-today' },
         replace: true,
       });
+    });
+
+    it('goes to the Workspace where the page was opened before the Dashboard was carried with the Panel', async () => {
+      navigated.mockClear();
+      // What a tab open since before the Dashboard travelled with the Panel still holds.
+      const on = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' } as unknown as PanelOpening;
+      opened('/capture', { captureFrom: 'ws-work', captureOn: on });
+      await screen.findByTestId('the-form');
+
+      await keepANote();
+
+      expect(navigated).toHaveBeenCalledWith({ to: '/w/$workspaceId', params: { workspaceId: 'ws-work' }, replace: true });
     });
 
     it('stays on the page from the tab, for the next note', async () => {
