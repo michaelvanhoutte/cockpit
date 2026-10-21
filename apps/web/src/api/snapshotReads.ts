@@ -7,8 +7,8 @@ import { changes } from './changes';
  * When the tab reads a Workspace again ("Read a Workspace once after your
  * changes, and never restart a read in progress", issue 1332).
  *
- * Three rules, all about not reading what the tab need not and not throwing
- * away a read already on its way:
+ * Rules about not reading what the tab need not and not throwing away a read
+ * already on its way:
  *
  * 1. **After its own changes, once, when its queue empties** - not once per
  *    change. A burst of five reads once, after the fifth is answered.
@@ -21,6 +21,9 @@ import { changes } from './changes';
  * 3. **Nothing cancels a read in progress.** What arrives meanwhile - an
  *    announcement, or a change answered - is read once more after it lands,
  *    unless the read that landed already holds it.
+ * 4. **A Workspace this tab has deleted is not read** ("Show a Workspace
+ *    rename, colour, delete or reorder the moment you make it", issue 1365),
+ *    answered or not.
  *
  * Every uncertainty reads, as the app did before: an announcement or answer
  * without a stamp (an older Worker) is never skipped.
@@ -73,6 +76,8 @@ function readWhatIsOwed(): void {
 function read(client: QueryClient, workspaceId: string, upTo: string, marked: boolean): void {
   const queryKey = workspaceId === '' ? ['snapshot'] : ['snapshot', workspaceId];
   for (const query of client.getQueryCache().findAll({ queryKey })) {
+    // A Workspace deleted here is gone whether or not the server has said so yet: a read would find nothing.
+    if (changes.deleting(String(query.queryKey[1]))) continue;
     const filters = { queryKey: query.queryKey, exact: true };
     const alongside = { cancelRefetch: false };
     const flying = query.state.fetchStatus === 'fetching';
@@ -105,12 +110,15 @@ function read(client: QueryClient, workspaceId: string, upTo: string, marked: bo
  * announcement without a time, a copy from before `upTo` existed, an answer
  * without a stamp - what the app does without this.
  */
-export function readForAnnouncement(client: QueryClient, event: ServerEvent): void {
+export function readForAnnouncement(client: QueryClient, event: Exclude<ServerEvent, { type: 'remembered_sentences_changed' }>): void {
   const at = event.type === 'snapshot_invalidated' ? event.at : undefined;
+  const workspaceId = event.workspaceId === ACCOUNT_WIDE ? '' : event.workspaceId;
   if (at) {
-    const held = client.getQueryData<WorkspaceSnapshot>(['snapshot', event.workspaceId])?.upTo;
+    // For every Workspace, held only where every copy holds it.
+    const held = client.getQueryCache().findAll({ queryKey: workspaceId ? ['snapshot', workspaceId] : ['snapshot'] });
+    const holds = held.length > 0 && held.every((query) => ((query.state.data as WorkspaceSnapshot | undefined)?.upTo ?? '') >= at);
     // Owed for this Workspace, or for every one; nothing owed, or an answer without a stamp, is '' and covers nothing.
-    if ((held && held >= at) || (owed.get(event.workspaceId) ?? '') >= at || (owed.get('') ?? '') >= at) return;
+    if (holds || (owed.get(event.workspaceId) ?? '') >= at || (owed.get('') ?? '') >= at) return;
   }
-  read(client, event.workspaceId === ACCOUNT_WIDE ? '' : event.workspaceId, at ?? UNTIMED, true);
+  read(client, workspaceId, at ?? UNTIMED, true);
 }

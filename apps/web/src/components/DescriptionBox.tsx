@@ -43,7 +43,7 @@ export interface DescriptionBoxProps {
    */
   resetKey?: string | number;
   /** Where an image put into the formatted view is uploaded (`RichDescription`). */
-  uploadImage?: (file: File) => Promise<string>;
+  uploadImage?: (file: File) => { src: string; uploaded: Promise<void> };
   /**
    * On a phone's page for an Item: no heading, and *Source* in the toolbar's
    * own row, which scrolls sideways, rather than in a line of its own.

@@ -1,6 +1,6 @@
-import type { CommandResult, WorkspaceSnapshot } from '@cockpit/shared';
+import type { CommandPayload, CommandResult, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
-import { DRAWN_AHEAD, drawnOver } from './drawnAhead';
+import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver, type Drawn } from './drawnAhead';
 
 /**
  * The changes this tab has made, in the order it made them ("Show an Item or
@@ -24,6 +24,31 @@ import { DRAWN_AHEAD, drawnOver } from './drawnAhead';
  * first is never a question about milliseconds. The one exception is a read that
  * began earlier but whose `upTo` is at or after the stamp the answer gave: it
  * holds the change, so the change stops being drawn when it lands.
+ *
+ * **A Workspace change is drawn over the list of Workspaces, and read for
+ * there**: an add, a rename, a colour, a delete or an order stops being drawn
+ * when a read of the list that began after its answer lands, and no Workspace's
+ * own read ends it. A Workspace added here has nothing on the server to read
+ * until its add is answered (`adding`), and what is built on it waits behind it
+ * (`afterAdding`).
+ *
+ * **A window draws a list of its own by giving its changes a scope** ("Show a
+ * connection change the moment you make it", issue 1369): the queue keeps such a
+ * change drawn once answered, and only a read landing for that scope ends it. What
+ * the change draws, and which read it is, stay in the window's own chunk.
+ *
+ * **A capture is drawn from the outbox, which sends it** ("Show a capture in the
+ * Inbox the moment you make it", issue 1353): it joins ahead of the changes
+ * made to its row, so they have a row to land on, is never sent from here, and
+ * once it has landed is drawn like an answered change - until a read of its
+ * Workspace that began after the landing has landed.
+ *
+ * **An upload is held beside the queue, never in it** ("Keep an attachment's chip
+ * drawn from the moment you choose the file, and remove one at once", issue 1367):
+ * a large file's bytes may be minutes in flight, and nothing else waits for them.
+ * The form draws *Attaching…* itself while the upload is out, and hands the queue
+ * the file once the server has answered; from then it is drawn like an answered
+ * change. Removing one is an ordinary change.
  */
 export interface ChangeQueue {
   /**
@@ -32,18 +57,57 @@ export interface ChangeQueue {
    * hears of it: what lets a read owed for the change be registered before the queue is
    * seen to have emptied.
    */
-  enqueue(change: CommandArgs, answered?: (result: CommandResult) => void): Promise<CommandResult>;
+  enqueue(change: CommandArgs, answered?: (result: CommandResult) => void, scope?: string): Promise<CommandResult>;
   /** The copy as the server sent it, with every change not yet covered by a read drawn over it. */
   drawnOver(snapshot: WorkspaceSnapshot): WorkspaceSnapshot;
-  /** A read of a Workspace is starting: the mark to hand back when it lands. */
+  /**
+   * A list as the server sent it, with the changes not yet covered by a read of
+   * it drawn over it by `over`: the list of Workspaces by default ("Show a
+   * Workspace rename, colour, delete or reorder the moment you make it", issue
+   * 1365), or a list a window draws for itself.
+   */
+  drawnList(list: WorkspaceList): WorkspaceList;
+  drawnList<L>(list: L, over: (list: L, changes: readonly Drawn[]) => L): L;
+  /** Whether a delete of this Workspace has been made and its list not yet read: the Workspace is not there to read. */
+  deleting(workspaceId: string): boolean;
+  /**
+   * Whether the add of this Workspace is made and not yet answered ("Open a new
+   * Workspace the moment you add it", issue 1366): there is nothing on the
+   * server to read, and a read would find nothing.
+   */
+  adding(workspaceId: string): boolean;
+  /** That add itself, while `adding` says so: what the Workspace is drawn from until the server has it. */
+  beingAdded(workspaceId: string): CommandArgs | undefined;
+  /** Settles once any add of this Workspace has been answered or refused: what a change that cannot be drawn waits behind. */
+  afterAdding(workspaceId: string): Promise<void>;
+  /** A read of a Workspace, or of the list of them, is starting: the mark to hand back when it lands. */
   readStarted(): number;
   /**
-   * A read that started at `startedAt` has landed in the held copy. `upTo` is the
-   * newest change that read holds (`workspaceSnapshotSchema`): one begun before an
-   * answer still holds the change when its stamp is no later, so the change stops
-   * being drawn then too, instead of waiting for a read that need not be made.
+   * A read that started at `startedAt` has landed in the held copy: of the
+   * Workspace `scope` names, of the list of Workspaces for `null`, or of the
+   * list a window gave its changes the scope of (`enqueue`). Each
+   * covers its own changes only, so a Workspace's read landing never ends a
+   * rename the list has not yet been read for. `upTo` is the newest change that
+   * read holds (`workspaceSnapshotSchema`): one begun before an answer still
+   * holds the change when its stamp is no later, so the change stops being drawn
+   * then too, instead of waiting for a read that need not be made.
    */
-  readLanded(workspaceId: string, startedAt: number, upTo?: string): void;
+  readLanded(scope: string | null, startedAt: number, upTo?: string): void;
+  /**
+   * The captures the outbox holds and the Inbox is to draw, oldest first: any
+   * new one is drawn, and any not yet landed that is no longer here (refused,
+   * put back, taken back) is not. One that has landed stays drawn.
+   */
+  captures(shown: readonly CaptureCommand[]): void;
+  /**
+   * A capture has landed, with the `at` its answer gave if it did: from now it
+   * is covered by a read like an answered change. Whether this is news - false
+   * for one already landed and not yet read for, so a landing is read for once,
+   * and for one this tab never drew.
+   */
+  landed(capture: CaptureCommand, at?: string): boolean;
+  /** A file has been uploaded, with the `at` the server's answer gave if it did: drawn as its chip, like an answered change. */
+  attached(upload: CommandPayload<'add_attachment'>, at?: string): void;
   /** Stops drawing the changes the server has answered, without waiting for a read: what signing out does. */
   forgetAnswered(): void;
   /** How many changes are waiting to be sent or out unanswered. */
@@ -54,15 +118,30 @@ export interface ChangeQueue {
 }
 
 interface Entry {
-  change: CommandArgs;
+  change: Drawn;
+  /**
+   * What a read must be of to cover this change, when a window drew it for
+   * itself ("Show a connection change the moment you make it", issue 1369):
+   * such a change is kept drawn once answered whatever it is, and only a read of
+   * that scope ends it. Absent, the change is a Workspace's or the list of them.
+   */
+  scope?: string | undefined;
   state: 'waiting' | 'sending' | 'answered';
   /** The tick the answer arrived at, once it has. */
   answeredAt: number;
   /** When the server stored it, as its answer said, if it did (`commandResultSchema`'s `at`). */
   stamp: string | undefined;
-  answered: ((result: CommandResult) => void) | undefined;
-  settle: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void };
+  answered?: ((result: CommandResult) => void) | undefined;
+  /** Absent on a capture, which the outbox sends. */
+  settle?: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void } | undefined;
 }
+
+type CaptureCommand = CommandPayload<'capture_item'>;
+
+/** What `answeredAt` says of a capture that has not landed: no read can have begun after it. */
+const NOT_LANDED = Infinity;
+
+const capturedId = (entry: Entry) => (entry.change.name === 'capture_item' ? entry.change.payload.itemId : undefined);
 
 /** How long a change may be out before the queue gives up on it and goes on to the next. */
 export const SEND_TIMEOUT_MS = 15_000;
@@ -107,10 +186,48 @@ export function createChangeQueue(options: {
     listeners.forEach((listener) => listener());
   };
 
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+
+  const beingAdded = (workspaceId: string) =>
+    entries.find(
+      (entry) =>
+        entry.state !== 'answered' &&
+        entry.change.name === 'create_workspace' &&
+        entry.change.payload.workspaceId === workspaceId,
+    )?.change as CommandArgs | undefined;
+  const adding = (workspaceId: string) => beingAdded(workspaceId) !== undefined;
+
+  /** Settles once `done` holds, checked now and after every change to the queue. */
+  const until = (done: () => boolean) =>
+    new Promise<void>((resolve) => {
+      const check = () => {
+        if (!done()) return;
+        stop();
+        resolve();
+      };
+      const stop = subscribe(check);
+      check();
+    });
+
+  /** Whether a captured note the queue draws has yet to reach the server: there is no Item there to change. */
+  const notLanded = (itemId: unknown) => entries.some((entry) => entry.answeredAt === NOT_LANDED && capturedId(entry) === itemId);
+
   const drop = (entry: Entry) => {
     const at = entries.indexOf(entry);
     if (at !== -1) entries.splice(at, 1);
   };
+
+  function drawnList(list: WorkspaceList): WorkspaceList;
+  function drawnList<L>(list: L, over: (list: L, changes: readonly Drawn[]) => L): L;
+  function drawnList(list: unknown, over: (list: unknown, changes: readonly Drawn[]) => unknown = listDrawnOver as never) {
+    return over(
+      list,
+      entries.map((entry) => entry.change),
+    );
+  }
 
   async function pump() {
     if (running) return;
@@ -118,10 +235,13 @@ export function createChangeQueue(options: {
     try {
       for (let next = entries.find((e) => e.state === 'waiting'); next; next = entries.find((e) => e.state === 'waiting')) {
         next.state = 'sending';
+        // A change to a note still on its way waits for it to land, or to be refused and go.
+        const { itemId } = next.change.payload as { itemId?: unknown };
+        await until(() => !notLanded(itemId));
         const sending = new AbortController();
         let giveUp: ReturnType<typeof setTimeout> | undefined;
         try {
-          const sent = send(next.change, sending.signal);
+          const sent = send(next.change as CommandArgs, sending.signal);
           // A request given up on may still fail later; nobody is waiting on it then.
           sent.catch(() => {});
           const gaveUp = new Promise<never>((_, reject) => {
@@ -131,7 +251,7 @@ export function createChangeQueue(options: {
             }, sendTimeoutMs);
           });
           const result = await Promise.race([sent, gaveUp]);
-          if (DRAWN_AHEAD.has(next.change.name)) {
+          if (next.scope || DRAWN_AHEAD.has(next.change.name)) {
             next.state = 'answered';
             next.answeredAt = ++tick;
             next.stamp = result.at;
@@ -140,12 +260,12 @@ export function createChangeQueue(options: {
           }
           next.answered?.(result);
           changed();
-          next.settle.resolve(result);
+          next.settle?.resolve(result);
         } catch (error) {
           // Refused, or never reached the server: the screen goes back to what the server holds.
           drop(next);
           changed();
-          next.settle.reject(error);
+          next.settle?.reject(error);
         } finally {
           clearTimeout(giveUp);
         }
@@ -156,9 +276,9 @@ export function createChangeQueue(options: {
   }
 
   return {
-    enqueue(change, answered) {
+    enqueue(change, answered, scope) {
       return new Promise<CommandResult>((resolve, reject) => {
-        entries.push({ change, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
+        entries.push({ change, scope, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
         changed();
         void pump();
       });
@@ -169,16 +289,43 @@ export function createChangeQueue(options: {
         entries.map((entry) => entry.change),
       );
     },
+    drawnList,
+    deleting: (workspaceId) =>
+      entries.some((entry) => entry.change.name === 'delete_workspace' && entry.change.payload.workspaceId === workspaceId),
+    adding,
+    beingAdded,
+    afterAdding: (workspaceId) => until(() => !adding(workspaceId)),
     readStarted: () => ++tick,
-    readLanded(workspaceId, startedAt, upTo) {
+    readLanded(scope, startedAt, upTo) {
       const covered = entries.filter(
         (entry) =>
           entry.state === 'answered' &&
-          entry.change.payload.workspaceId === workspaceId &&
+          (entry.scope ?? (WORKSPACE_LIST_CHANGES.has(entry.change.name) ? null : entry.change.payload.workspaceId)) === scope &&
           (entry.answeredAt < startedAt || (entry.stamp !== undefined && upTo !== undefined && upTo >= entry.stamp)),
       );
       if (covered.length === 0) return;
       covered.forEach(drop);
+      changed();
+    },
+    captures(shown) {
+      entries.filter((entry) => entry.answeredAt === NOT_LANDED).forEach(drop);
+      // Behind the captures already drawn and ahead of every other change.
+      entries.splice(
+        entries.filter((entry) => capturedId(entry) !== undefined).length,
+        0,
+        ...shown.map((payload): Entry => ({ change: { name: 'capture_item', payload }, state: 'answered', answeredAt: NOT_LANDED, stamp: undefined })),
+      );
+      changed();
+    },
+    landed(capture, at) {
+      const drawn = entries.find((entry) => capturedId(entry) === capture.itemId);
+      if (drawn?.answeredAt !== NOT_LANDED) return false;
+      Object.assign(drawn, { answeredAt: ++tick, stamp: at });
+      changed();
+      return true;
+    },
+    attached(payload, at) {
+      entries.push({ change: { name: 'add_attachment', payload }, state: 'answered', answeredAt: ++tick, stamp: at });
       changed();
     },
     forgetAnswered() {
@@ -189,9 +336,6 @@ export function createChangeQueue(options: {
     },
     unanswered,
     version: () => version,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribe,
   };
 }

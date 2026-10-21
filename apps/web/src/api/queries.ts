@@ -25,6 +25,7 @@ import {
   checkConnectionNow,
 } from './client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
+import { noSnapshotYet } from '../drawnAhead';
 import { changes, readOfWorkspaceBegins, watchWorkspaceReads } from './changes';
 import { readAfterOwnChange } from './snapshotReads';
 
@@ -53,7 +54,12 @@ export const meQuery = queryOptions({
 
 export const workspacesQuery = queryOptions({
   queryKey: ['workspaces'],
-  queryFn: fetchWorkspaces,
+  queryFn: ({ client }) => {
+    // Marked as it starts, for the reason a Workspace's read is (`snapshotQuery`).
+    watchWorkspaceReads(client);
+    readOfWorkspaceBegins(null);
+    return fetchWorkspaces();
+  },
   staleTime: 60_000,
 });
 
@@ -172,6 +178,11 @@ export const snapshotQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ['snapshot', workspaceId],
     queryFn: ({ client }) => {
+      // A Workspace this tab has just added is not on the server yet, so a read
+      // would find nothing: it is held as the add makes it (`drawnAhead.ts`),
+      // then read for properly once the add is answered.
+      const added = changes.beingAdded(workspaceId);
+      if (added) return noSnapshotYet(added);
       // Marked as it starts, because whether the changes this tab has made are
       // in what comes back depends on when the read began (`changeQueue.ts`).
       watchWorkspaceReads(client);
@@ -330,41 +341,23 @@ const snapshotsReadAfter = (args: CommandArgs): string => (everyWorkspaceCanSee(
 /**
  * The changes `afterChanging` answers itself, and that leave their Workspace's
  * snapshot as it was or are read for in their own way: a deleted Workspace's is
- * dropped, a connection change reads its own query, and the Item form's
- * presentation reads every snapshot.
+ * dropped, and the Item form's presentation reads every snapshot. A connection
+ * change is sent from its window's own chunk (`api/sourceAccounts.ts`), never here.
  */
 const NOT_READ_BACK_WITH_THE_SNAPSHOT = new Set<ClientCommandName>([
   'delete_workspace',
-  'disconnect_source_account',
-  'set_connection_choice',
-  'set_connection_files_by_name',
   'set_item_form_presentation',
 ]);
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
-  if (
-    args.name === 'disconnect_source_account' ||
-    args.name === 'set_connection_choice' ||
-    args.name === 'set_connection_files_by_name'
-  ) {
-    // Its own query, outside any workspace snapshot. Waited for rather than
-    // dropped, so the row is gone from the list by the time the window stops
-    // saying the disconnect is in flight ("Connect a Microsoft Teams source
-    // account", issue 485) - or names its connector's choice as it was
-    // changed (issue 942).
-    return queryClient.invalidateQueries({
-      queryKey: ['sourceAccounts', args.payload.workspaceId],
-    });
-  }
-
   if (args.name === 'delete_workspace') {
-    // Dropped, not re-read. There is nothing to revalidate: the snapshot of a
+    // Its snapshot is dropped, not re-read. There is nothing to revalidate: the snapshot of a
     // deleted workspace is a 404 for good, so invalidating it would fetch one
     // on every delete. And the copy has to go rather than merely go stale - the
     // cache is persisted for a week (persistence.tsx), so leaving it there means a
     // deleted workspace's items can still be painted from it.
     queryClient.removeQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
-    return;
+    // And the list is read below, which is what ends drawing the delete.
   }
 
   if (args.name === 'set_item_form_presentation') {
@@ -428,7 +421,11 @@ function refuseUnlessCapture(args: CommandArgs): void {
  */
 async function sendChange(args: CommandArgs, queryClient: QueryClient): Promise<CommandResult> {
   refuseUnlessCapture(args);
-  if (args.name === 'capture_item') return sendCommand(args.name, args.payload);
+  if (args.name === 'capture_item') {
+    // Into a Workspace just added, behind its add: sent first, the server would not know the Workspace yet.
+    await changes.afterAdding(args.payload.workspaceId);
+    return sendCommand(args.name, args.payload);
+  }
   // Read again behind the change, not waited for: it is drawn already and stays
   // drawn until a read that began after its answer has landed (`changeQueue.ts`).
   // Registered as the answer comes in, so a burst is read once when it ends

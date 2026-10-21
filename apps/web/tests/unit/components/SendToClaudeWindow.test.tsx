@@ -68,6 +68,11 @@ vi.mock('../../../src/api/client', () => ({
       super(message);
     }
   },
+  // Remember goes through the tab's queue (issue 1370), which sends it from here.
+  sendCommand: async (name: string, payload: unknown) => {
+    held.sent.push({ name, payload });
+    return { ok: true, applied: true };
+  },
 }));
 
 vi.mock('../../../src/api/queries', async () => {
@@ -78,6 +83,7 @@ vi.mock('../../../src/api/queries', async () => {
       held.sent.push(args);
       return { ok: true, applied: true };
     },
+    whyNotDone: () => 'That could not be done.',
   };
 });
 

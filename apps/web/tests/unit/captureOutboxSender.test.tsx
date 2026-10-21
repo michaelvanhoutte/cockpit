@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { WorkspaceSnapshot } from '@cockpit/shared';
+import { changes } from '../../src/api/changes';
 import { CommandRefused } from '../../src/api/client';
 import { NOTHING_HEARD, needsWords, stateOf, type OutboxEntry } from '../../src/captureOutbox';
 import {
@@ -188,6 +190,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  // The tab's queue is the app's own, so a capture one case landed would be drawn in the next.
+  changes.forgetAnswered();
 });
 
 describe('Offline', () => {
@@ -994,6 +998,113 @@ describe('Offline', () => {
       expect(next.getShown()).toEqual([]);
       expect(await browserOutboxStore().all()).toEqual([]);
       next.stop();
+    });
+  });
+});
+
+describe('Capture', () => {
+  /** The Workspace as the server last sent it, which holds none of what is being captured. */
+  const read = { workspace: { id: 'ws-work', tenantId: 'tenant' }, items: [], filings: [], panels: [] } as unknown as WorkspaceSnapshot;
+  const inTheInbox = () => changes.drawnOver(read).items.map((item) => item.title);
+
+  describe('the Inbox draws the captures the outbox holds, ahead of the server', () => {
+    it('draws a capture made without a connection, still waiting to send', async () => {
+      const server = aServer();
+      server.online = false;
+      const outbox = aTab(server);
+      anOpenApp(outbox);
+
+      await outbox.add(capture('Ring the plumber'));
+      await act(settled);
+
+      expect(inTheInbox()).toEqual(['Ring the plumber']);
+      expect(stateOf(outbox.getShown()[0]!)).toEqual({ waiting: true });
+      outbox.stop();
+    });
+
+    it('keeps drawing it once it has landed, whole, and the outbox has let it go', async () => {
+      const server = aServer();
+      const outbox = aTab(server);
+      anOpenApp(outbox);
+
+      await outbox.add(capture('Ring the plumber'));
+      await act(settled);
+
+      expect(outbox.getShown()).toEqual([]);
+      expect(inTheInbox()).toEqual(['Ring the plumber']);
+      changes.readLanded('ws-work', changes.readStarted());
+      expect(inTheInbox()).toEqual([]);
+      outbox.stop();
+    });
+
+    it.each([
+      {
+        situation: 'a capture the server refused, which goes back in the box',
+        make: async (outbox: CaptureOutbox, server: Server) => {
+          server.refuseCapture = { message: 'Ring the plumber', because: new CommandRefused(400, 'No.') };
+          await outbox.add(capture('Ring the plumber'));
+        },
+      },
+      {
+        situation: 'a spoken note not yet heard, which has no words to draw',
+        make: async (outbox: CaptureOutbox, server: Server) => {
+          server.online = false;
+          await outbox.addRecorded(spoken('Ring the plumber'));
+        },
+      },
+      {
+        situation: 'a note filed on Panels, which is not an Inbox row once it lands',
+        make: async (outbox: CaptureOutbox, server: Server) => {
+          server.online = false;
+          await outbox.add({ ...capture('Ring the plumber'), panelIds: ['p-1'] });
+        },
+      },
+    ])('draws nothing for $situation', async ({ make }) => {
+      const server = aServer();
+      const outbox = aTab(server);
+      anOpenApp(outbox);
+
+      await make(outbox, server);
+      await act(settled);
+
+      expect(outbox.getShown()).toHaveLength(1);
+      expect(inTheInbox()).toEqual([]);
+      outbox.stop();
+    });
+
+    it('stops drawing a capture taken back before it was sent', async () => {
+      const server = aServer();
+      server.online = false;
+      const outbox = aTab(server);
+      anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await act(settled);
+
+      await act(async () => void (await outbox.takeBack(outbox.getShown()[0]!.id)));
+
+      expect(inTheInbox()).toEqual([]);
+      outbox.stop();
+    });
+  });
+
+  describe('a capture landed by another tab stays drawn in this one until this one reads', () => {
+    it('is drawn here from when the other tab kept it until a read of this tab’s begun after it landed', async () => {
+      const server = aServer();
+      // This tab cannot reach the server, so it is the other tab that lands it.
+      const here = aTab(server, { sender: { ...server.sender, capture: () => Promise.reject(new TypeError('Failed to fetch')) } });
+      anOpenApp(here);
+      const elsewhere = aTab(server, { announce: (news) => here.heard(news) });
+
+      await elsewhere.add(capture('Ring the plumber'));
+      await act(settled);
+
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      expect(here.getShown()).toEqual([]);
+      expect(inTheInbox()).toEqual(['Ring the plumber']);
+      changes.readLanded('ws-work', changes.readStarted());
+      expect(inTheInbox()).toEqual([]);
+      here.stop();
+      elsewhere.stop();
     });
   });
 });

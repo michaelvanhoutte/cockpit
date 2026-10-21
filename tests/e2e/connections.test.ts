@@ -95,8 +95,12 @@ test.describe('Connector management', () => {
       await expect(back.getByText(/Nothing was stored/)).toHaveCount(0);
 
       // The same account again is the same row, not a second one - the rule the
-      // store keeps, seen here as what a person is shown.
-      await press(back.getByRole('button', { name: 'Connect Microsoft Teams' }), isMobile);
+      // store keeps, seen here as what a person is shown. With something
+      // connected, adding is Add connection, then the source, then its Connect
+      // window (issue 1349).
+      await press(back.getByRole('button', { name: 'Add connection' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Connect Microsoft Teams' }), isMobile);
+      await press(page.getByRole('dialog', { name: 'Connect Microsoft Teams' }).getByRole('button', { name: 'Connect' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       await expect(page.getByRole('dialog').getByText('michael@example.com')).toHaveCount(1);
 
@@ -131,7 +135,7 @@ test.describe('Connector management', () => {
       await press(asked.getByRole('button', { name: 'Connect' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       const pagesBack = page.getByRole('dialog', { name: 'Settings' });
-      await expect(pagesBack.getByText('Fake Pages · Every page')).toBeVisible();
+      await expect(pagesBack.getByText('Every page', { exact: true })).toBeVisible();
 
       await chooseRowAction(page, 'michael@example.com', 'Change…', isMobile);
       const changing = page.getByRole('dialog', { name: 'Change michael@example.com' });
@@ -139,11 +143,11 @@ test.describe('Connector management', () => {
       await press(changing.getByText('Starred pages'), isMobile);
       await press(changing.getByRole('button', { name: 'Save' }), isMobile);
       await expect(changing).toHaveCount(0);
-      await expect(pagesBack.getByText('Fake Pages · Starred pages')).toBeVisible();
+      await expect(pagesBack.getByText('Starred pages', { exact: true })).toBeVisible();
 
       await closeSettings(page, isMobile);
       const pagesAgain = await openSettings(page, 'Connections', isMobile);
-      await expect(pagesAgain.getByText('Fake Pages · Starred pages')).toBeVisible();
+      await expect(pagesAgain.getByText('Starred pages', { exact: true })).toBeVisible();
       await disconnectMichael(page, isMobile);
       await putTheWorkspaceBack(page, workspace, isMobile);
     });
@@ -170,7 +174,7 @@ test.describe('Connector management', () => {
 
       const backFromGoogle = page.getByRole('dialog', { name: 'Settings' });
       await expect(backFromGoogle.getByText('Connected.')).toBeVisible();
-      await expect(backFromGoogle.getByText(/^Gmail · Labelled Cockpit/)).toBeVisible();
+      await expect(backFromGoogle.getByText('Labelled Cockpit', { exact: true })).toBeVisible();
 
       // The check connecting queued, run by the generic host, brings the
       // conversations labelled Cockpit in the stack's stand-in mailbox into
@@ -198,7 +202,8 @@ test.describe('Connector management', () => {
         .toBe(false);
 
       const checked = await openSettings(page, 'Connections', isMobile);
-      await expect(checked.getByText(/^Gmail · Labelled Cockpit · last checked /)).toBeVisible();
+      await expect(checked.getByText('Labelled Cockpit', { exact: true })).toBeVisible();
+      await expect(checked.getByText(/^Checked /)).toBeVisible();
 
       // Its history ("See when a pulled connection was checked, and why it
       // failed, from its row's History…", issue 1140): the checks it has had
@@ -216,7 +221,7 @@ test.describe('Connector management', () => {
       await expect(today.getByText(/New: .*Lunch on Thursday\?/)).toBeVisible();
       await expect(today.getByText('Sent back: Lunch on Thursday?')).toBeVisible();
       await press(history.getByRole('button', { name: '‹ Connections' }), isMobile);
-      await expect(checked.getByText(/^Gmail · Labelled Cockpit · last checked /)).toBeVisible();
+      await expect(checked.getByText('Labelled Cockpit', { exact: true })).toBeVisible();
 
       // Switched to the star without signing in again: the row names it.
       await chooseRowAction(page, 'michael@example.com', 'Change…', isMobile);
@@ -224,7 +229,7 @@ test.describe('Connector management', () => {
       await press(following.getByText('Starred (flagged in Outlook)'), isMobile);
       await press(following.getByRole('button', { name: 'Save' }), isMobile);
       await expect(following).toHaveCount(0);
-      await expect(checked.getByText(/^Gmail · Starred \(flagged in Outlook\)/)).toBeVisible();
+      await expect(checked.getByText('Starred (flagged in Outlook)', { exact: true })).toBeVisible();
 
       await disconnectMichael(page, isMobile);
       await putTheWorkspaceBack(page, workspace, isMobile);
@@ -241,24 +246,29 @@ test.describe('Connector management', () => {
       const gmailAsked = page.getByRole('dialog', { name: 'Connect Gmail' });
       const askedOf = async (email: string) =>
         (await (await fetch(`${issuer}/gmail-stub/asked?email=${encodeURIComponent(email)}`)).json()) as string[];
-      const connectByStar = async () => {
-        await press(page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      const connectByStar = async (connected: boolean) => {
+        const settings = page.getByRole('dialog', { name: 'Settings' });
+        if (connected) {
+          await press(settings.getByRole('button', { name: 'Add connection' }), isMobile);
+          await press(page.getByRole('menuitem', { name: 'Connect Gmail' }), isMobile);
+        } else await press(settings.getByRole('button', { name: 'Connect Gmail' }), isMobile);
         await press(gmailAsked.getByText('Starred (flagged in Outlook)'), isMobile);
         await press(gmailAsked.getByRole('button', { name: 'Connect' }), isMobile);
         await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       };
       const askedBefore = (await askedOf('michael@example.com')).length;
-      await connectByStar();
+      await connectByStar(false);
       const byStar = page.getByRole('dialog', { name: 'Settings' });
-      await expect(byStar.getByText(/^Gmail · Starred \(flagged in Outlook\)/)).toBeVisible();
+      await expect(byStar.getByText('Starred (flagged in Outlook)', { exact: true })).toBeVisible();
       await expect.poll(async () => (await askedOf('michael@example.com')).slice(askedBefore)).toContain('profile');
       await fetch(`${issuer}/gmail-stub/star?email=michael%40example.com&subject=Flagged%20in%20Outlook`, { method: 'POST' });
-      await connectByStar();
+      await connectByStar(true);
       await closeSettings(page, isMobile);
       await expect(page.getByText('Flagged in Outlook')).toBeVisible();
 
       const starred = await openSettings(page, 'Connections', isMobile);
-      await expect(starred.getByText(/^Gmail · Starred \(flagged in Outlook\) · last checked /)).toBeVisible();
+      await expect(starred.getByText('Starred (flagged in Outlook)', { exact: true })).toBeVisible();
+      await expect(starred.getByText(/^Checked /)).toBeVisible();
       await disconnectMichael(page, isMobile);
       await putTheWorkspaceBack(page, workspace, isMobile);
     });
@@ -287,7 +297,8 @@ test.describe('Connector management', () => {
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       const backFromMicrosoft = page.getByRole('dialog', { name: 'Settings' });
       await expect(backFromMicrosoft.getByText('Connected.')).toBeVisible();
-      await expect(backFromMicrosoft.getByText(/^Outlook · Flagged · files by category/)).toBeVisible();
+      await expect(backFromMicrosoft.getByText('Flagged', { exact: true })).toBeVisible();
+      await expect(backFromMicrosoft.getByText('Files by category', { exact: true })).toBeVisible();
 
       // The check connecting queued brings the messages flagged in the stack's
       // stand-in Graph mailbox in as Tasks from Outlook, openable there; Done
@@ -310,7 +321,8 @@ test.describe('Connector management', () => {
         .toBe('complete');
 
       const outlookChecked = await openSettings(page, 'Connections', isMobile);
-      await expect(outlookChecked.getByText(/^Outlook · Flagged · files by category · last checked /)).toBeVisible();
+      await expect(outlookChecked.getByText('Files by category', { exact: true })).toBeVisible();
+      await expect(outlookChecked.getByText(/^Checked /)).toBeVisible();
       await disconnectMichael(page, isMobile);
       await putTheWorkspaceBack(page, workspace, isMobile);
     });
@@ -336,7 +348,7 @@ test.describe('Connector management', () => {
       await press(filesByLabel, isMobile);
       await press(gmailAsked.getByRole('button', { name: 'Connect' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
-      await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(/^Gmail · Labelled Cockpit · files by label/)).toBeVisible();
+      await expect(page.getByRole('dialog', { name: 'Settings' }).getByText('Files by label', { exact: true })).toBeVisible();
 
       await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
       await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
@@ -378,7 +390,7 @@ test.describe('Connector management', () => {
       await press(connected.getByRole('button', { name: 'Done' }), isMobile);
       const connections = page.getByRole('dialog', { name: 'Settings' });
       await expect(connections.getByText('+32470123456', { exact: true })).toBeVisible();
-      await expect(connections.getByText(/^Text messages · text \+32460000000 to add a note/)).toBeVisible();
+      await expect(connections.getByText('Text +32460000000 to add a note')).toBeVisible();
 
       await chooseRowAction(page, '+32470123456', 'Disconnect', isMobile);
       await press(page.getByRole('button', { name: 'Yes, disconnect +32470123456' }), isMobile);
@@ -406,7 +418,7 @@ test.describe('Connector management', () => {
       await press(gmailAsked.getByRole('button', { name: 'Connect' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       const connections = page.getByRole('dialog', { name: 'Settings' });
-      await expect(connections.getByText(/^Gmail · Labelled Cockpit · last checked /)).toBeVisible();
+      await expect(connections.getByText(/^Checked /)).toBeVisible();
 
       await chooseRowAction(page, 'michael@example.com', 'History…', isMobile);
       const history = connections.getByRole('region', { name: 'History of michael@example.com' });

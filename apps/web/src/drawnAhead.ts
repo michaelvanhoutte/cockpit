@@ -1,14 +1,27 @@
 import {
+  DEFAULT_ITEM_FORM_PRESENTATION,
+  FIRST_DASHBOARD_NAME,
   FIRST_PANEL_NAME,
   NO_CONDITIONS,
+  firstDashboardId,
+  itemSchema,
+  textsFromCapture,
+  nextColor,
+  themeOf,
+  type CommandPayload,
   type Dashboard,
   type Item,
   type Panel,
   type PanelKind,
   type SaveLayoutCommand,
+  type Workspace,
+  type WorkspaceList,
   type WorkspaceSnapshot,
 } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
+
+/** A change the screen draws: those the queue sends, and an upload, which it holds but never sends. */
+export type Drawn = CommandArgs | { name: 'add_attachment'; payload: CommandPayload<'add_attachment'> };
 
 /**
  * What the screen shows of a change the server has not answered yet ("Show an
@@ -35,6 +48,12 @@ import type { CommandArgs } from './api/queries';
  * filings, and a rename the name rule would refuse drawn all the same until the
  * refusal puts the old name back.
  *
+ * **So is a captured note** ("Show a capture in the Inbox the moment you make it",
+ * issue 1353): an Inbox row with the note as typed - the priority and due date
+ * the strip chose, and none of what Cockpit makes of it - in the Workspace it was
+ * captured to, or in every one while it belongs to none. It comes from the outbox
+ * (`changeQueue.ts`), never from a change sent by the queue.
+ *
  * **So is a Panel change** ("Show a Panel change the moment you make it", issue
  * 1363): a new Panel at the foot of its Dashboard, the settings, filter and sort
  * as saved, a deleted Panel gone with its filings, a moved Panel on the other
@@ -42,9 +61,30 @@ import type { CommandArgs } from './api/queries';
  * (which is how a Section is added). **What the server decides is not
  * predicted**: a moved Panel keeps its own name until the rename arrives with the
  * next read.
+ *
+ * **So is an attachment** ("Keep an attachment's chip drawn from the moment you
+ * choose the file, and remove one at once", issue 1367): an uploaded file is a
+ * chip on its Item as the server will read it back, and a removed one is gone. An
+ * upload is held by the queue once the server has answered it, and never sent by
+ * it.
  */
-export function drawnAhead(snapshot: WorkspaceSnapshot, change: CommandArgs): WorkspaceSnapshot {
+export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): WorkspaceSnapshot {
   switch (change.name) {
+    case 'capture_item':
+      return capturedAhead(snapshot, change.payload);
+    case 'add_attachment': {
+      const { attachmentId: id, itemId, filename, size, contentType, issuedAt: createdAt, workspaceId } = change.payload;
+      // Once, whether or not a read begun before the answer already holds it.
+      return workspaceId !== snapshot.workspace.id ||
+        !snapshot.items.some((item) => item.id === itemId) ||
+        snapshot.attachments.some((held) => held.id === id)
+        ? snapshot
+        : { ...snapshot, attachments: [...snapshot.attachments, { id, tenantId: snapshot.workspace.tenantId, itemId, filename, size, contentType, createdAt }] };
+    }
+    case 'remove_attachment':
+      return change.payload.workspaceId !== snapshot.workspace.id
+        ? snapshot
+        : { ...snapshot, attachments: snapshot.attachments.filter((held) => held.id !== change.payload.attachmentId) };
     case 'set_done':
       return withItem(snapshot, change.payload.itemId, {
         completedAt: change.payload.done ? change.payload.issuedAt : null,
@@ -69,6 +109,8 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: CommandArgs): Wo
       return change.payload.dismissed
         ? { ...snapshot, items: snapshot.items.filter((item) => item.id !== change.payload.itemId) }
         : snapshot;
+    case 'set_duplicate_settled':
+      return pairSettled(snapshot, change.payload);
     case 'move_item_to_panel':
       return filedAhead(snapshot, change.payload, 'move');
     case 'add_item_to_panel':
@@ -119,9 +161,102 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: CommandArgs): Wo
           };
     case 'save_layout':
       return layoutSaved(snapshot, change.payload);
+    case 'create_workspace':
+      // A Workspace arrives with its first Dashboard and that Dashboard's Panel,
+      // which `noSnapshotYet` below holds. **Only over a Workspace with no
+      // Dashboard**: a read of a real one holds them already, and one the tab
+      // deleted since must not come back until the list is read.
+      return snapshot.dashboards.length > 0
+        ? snapshot
+        : dashboardAdded(snapshot, {
+            workspaceId: change.payload.workspaceId,
+            dashboardId: firstDashboardId(change.payload.workspaceId),
+            panelId: change.payload.panelId,
+            name: FIRST_DASHBOARD_NAME,
+          });
     default:
       return snapshot;
   }
+}
+
+/**
+ * The Workspace as the tab has it before the server has ever sent it: what the
+ * add makes and nothing else ("Open a new Workspace the moment you add it",
+ * issue 1366). Held in place of a read that would find nothing, and read for
+ * properly once the add is answered. **The first Dashboard and Panel are in the
+ * held copy itself**, because the list read that ends drawing the add can land
+ * before the Workspace's own read does.
+ */
+export function noSnapshotYet(added: CommandArgs): WorkspaceSnapshot {
+  const { workspaceId } = added.payload;
+  return drawnAhead(heldBlank(workspaceId), added);
+}
+
+function heldBlank(workspaceId: string): WorkspaceSnapshot {
+  return {
+    workspace: { id: workspaceId, tenantId: '', name: '', color: '', bar: '', ground: '', header: '' },
+    items: [],
+    dashboards: [],
+    panels: [],
+    layouts: [],
+    filings: [],
+    associations: [],
+    attachments: [],
+    itemFormPresentation: DEFAULT_ITEM_FORM_PRESENTATION,
+    duplicates: [],
+    agentRuns: [],
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * A captured note as an Inbox row, named as the server names it from the note
+ * (`textsFromCapture`): its words for the title, the note itself as the
+ * description where those differ. What Cockpit makes of it later - a better
+ * title, the readings - arrives with a read. **In the Workspace it names, or in every
+ * one while it belongs to none**, and not at all where the read holds the row.
+ */
+function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'capture_item'>): WorkspaceSnapshot {
+  const decided = note.workspaceDecided !== false;
+  if ((decided && note.workspaceId !== snapshot.workspace.id) || snapshot.items.some((item) => item.id === note.itemId)) {
+    return snapshot;
+  }
+  const item = {
+    // Nothing is read, proposed or settled yet: every field the note does not fill is null.
+    ...Object.fromEntries(Object.keys(itemSchema.shape).map((field) => [field, null])),
+    id: note.itemId,
+    tenantId: snapshot.workspace.tenantId,
+    workspaceId: note.workspaceId,
+    workspaceDecided: decided,
+    capturedMessage: note.message,
+    source: 'internal',
+    ...(note.title ? { title: note.title, description: note.message } : textsFromCapture(note.message)),
+    priority: note.priority ?? null,
+    dueDate: note.dueDate ?? null,
+    unseen: false,
+    createdAt: note.issuedAt,
+    updatedAt: note.issuedAt,
+  } as Item;
+  return { ...snapshot, items: [...snapshot.items, item] };
+}
+
+/**
+ * A pair settled as not a duplicate is gone from the Workspace's pairs, and one
+ * taken back is among them again ("Show a *Not a duplicate* the moment you say
+ * it, and its Undo", issue 1355) - **only while both Items are still in the copy**,
+ * since the server leaves out a pair it could no longer act on. A pair is one
+ * whichever Item is named first, so a row flagged against two others has two to
+ * settle, and the change names one.
+ */
+function pairSettled(snapshot: WorkspaceSnapshot, pair: CommandPayload<'set_duplicate_settled'>): WorkspaceSnapshot {
+  const { workspaceId, itemId, otherItemId, settled } = pair;
+  if (workspaceId !== snapshot.workspace.id) return snapshot;
+  const duplicates = snapshot.duplicates.filter(
+    (held) => ![[itemId, otherItemId], [otherItemId, itemId]].some(([a, b]) => held.itemId === a && held.otherItemId === b),
+  );
+  const bothHere = [itemId, otherItemId].every((id) => snapshot.items.some((item) => item.id === id));
+  if (settled || !bothHere) return { ...snapshot, duplicates };
+  return { ...snapshot, duplicates: [...duplicates, { itemId, otherItemId }] };
 }
 
 /** One Panel rewritten, in the Workspace the change names and no other. */
@@ -267,11 +402,73 @@ function filedAhead(
     : filed;
 }
 
-/** The changes `drawnAhead` draws something for, which are the ones kept drawn after their answer until a read covers them. */
-export const DRAWN_AHEAD: ReadonlySet<CommandArgs['name']> = new Set([
+/**
+ * The changes to the list of Workspaces, drawn over it rather than over a
+ * Workspace ("Show a Workspace rename, colour, delete or reorder the moment
+ * you make it", issue 1365): kept drawn until a read of *the list* that began
+ * after their answer lands, whichever Workspace's own read lands first. An add
+ * is one of them ("Open a new Workspace the moment you add it", issue 1366).
+ */
+export const WORKSPACE_LIST_CHANGES: ReadonlySet<Drawn['name']> = new Set([
+  'create_workspace',
+  'rename_workspace',
+  'set_workspace_theme',
+  'delete_workspace',
+  'reorder_workspaces',
+]);
+
+/**
+ * The list of Workspaces as the server will have it after one more change.
+ * **A colour the palette does not have is not drawn**, since the server refuses
+ * it; one it has brings its other three colours, which the palette decides.
+ * A rename the name rule would refuse is drawn all the same until the refusal
+ * puts the old name back. **A new Workspace goes at the end in the first colour
+ * no other wears**, as the server makes it; its `tenantId` is the account's, which
+ * nothing here reads.
+ */
+function workspacesDrawnAhead(list: WorkspaceList, change: Drawn): WorkspaceList {
+  const { workspaces } = list;
+  const rewrite = (id: string, fields: Partial<Workspace>) => ({
+    workspaces: workspaces.map((one) => (one.id === id ? { ...one, ...fields } : one)),
+  });
+  switch (change.name) {
+    case 'create_workspace': {
+      const { workspaceId: id, name } = change.payload;
+      if (workspaces.some((one) => one.id === id)) return list;
+      const { tint: color, bar, ground, header } = themeOf(nextColor(workspaces.map((one) => one.color)));
+      return { workspaces: [...workspaces, { id, tenantId: workspaces[0]?.tenantId ?? '', name, color, bar, ground, header }] };
+    }
+    case 'rename_workspace':
+      return rewrite(change.payload.workspaceId, { name: change.payload.name });
+    case 'set_workspace_theme': {
+      const { tint, bar, ground, header } = themeOf(change.payload.color);
+      return tint === change.payload.color ? rewrite(change.payload.workspaceId, { color: tint, bar, ground, header }) : list;
+    }
+    case 'delete_workspace':
+      return { workspaces: workspaces.filter((one) => one.id !== change.payload.workspaceId) };
+    case 'reorder_workspaces': {
+      const named = change.payload.workspaceIds;
+      return {
+        // One the order never named, arrived since it was drawn: kept on the end rather than taken off the strip.
+        workspaces: [...named.flatMap((id) => workspaces.filter((one) => one.id === id)), ...workspaces.filter((one) => !named.includes(one.id))],
+      };
+    }
+    default:
+      return list;
+  }
+}
+
+/**
+ * The changes `drawnAhead` draws something for, which are the ones kept drawn
+ * after their answer until a read covers them. A capture is drawn as well, but
+ * the outbox sends it and the queue only holds it (`changeQueue.ts`).
+ */
+export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
+  ...WORKSPACE_LIST_CHANGES,
   'move_item_to_panel',
   'add_item_to_panel',
   'remove_item_from_panel',
+  'remove_attachment',
   'set_done',
   'set_started',
   'set_priority',
@@ -280,6 +477,7 @@ export const DRAWN_AHEAD: ReadonlySet<CommandArgs['name']> = new Set([
   'set_description',
   'set_next_action',
   'set_dismissed',
+  'set_duplicate_settled',
   'add_dashboard',
   'rename_dashboard',
   'delete_dashboard',
@@ -294,8 +492,13 @@ export const DRAWN_AHEAD: ReadonlySet<CommandArgs['name']> = new Set([
 ]);
 
 /** The changes in the order they were made, each drawn over the one before. */
-export function drawnOver(snapshot: WorkspaceSnapshot, changes: readonly CommandArgs[]): WorkspaceSnapshot {
+export function drawnOver(snapshot: WorkspaceSnapshot, changes: readonly Drawn[]): WorkspaceSnapshot {
   return changes.reduce(drawnAhead, snapshot);
+}
+
+/** The list of Workspaces with the changes drawn over it, in the order they were made. */
+export function listDrawnOver(list: WorkspaceList, changes: readonly Drawn[]): WorkspaceList {
+  return changes.reduce(workspacesDrawnAhead, list);
 }
 
 function withItem(snapshot: WorkspaceSnapshot, itemId: string, fields: Partial<Item>): WorkspaceSnapshot {

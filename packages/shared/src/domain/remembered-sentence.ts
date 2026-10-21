@@ -77,5 +77,15 @@ export const rememberedSentenceViewSchema = z.object({
 export type RememberedSentenceView = z.infer<typeof rememberedSentenceViewSchema>;
 
 /** The account's remembered sentences, the newest first. */
-export const rememberedSentenceListSchema = z.object({ sentences: z.array(rememberedSentenceViewSchema) });
+export const rememberedSentenceListSchema = z.object({
+  sentences: z.array(rememberedSentenceViewSchema),
+  /**
+   * The newest change to a sentence this list holds, stamped by the account's
+   * own store, so a tab can skip reading again for an announcement it already
+   * holds (`workspaceSnapshotSchema`'s `upTo`, for the list of sentences).
+   * Optional: an account that has never changed one has none, and a list from
+   * an older Worker has none.
+   */
+  upTo: z.iso.datetime().optional(),
+});
 export type RememberedSentenceList = z.infer<typeof rememberedSentenceListSchema>;

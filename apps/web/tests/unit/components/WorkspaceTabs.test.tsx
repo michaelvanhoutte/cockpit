@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused, sendCommand } from '../../../src/api/client';
 import { changes } from '../../../src/api/changes';
-import { useCommand, useSendCommand } from '../../../src/api/queries';
+import { useSendCommand } from '../../../src/api/queries';
 import { WorkspaceTabs } from '../../../src/components/WorkspaceTabs';
 import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
 
@@ -63,7 +63,6 @@ vi.mock('../../../src/api/queries', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../../src/api/queries')>();
   return {
     ...real,
-    useCommand: vi.fn(),
     useSendCommand: vi.fn(),
     workspacesQuery: {
       queryKey: ['workspaces'],
@@ -80,7 +79,6 @@ vi.mock('../../../src/api/queries', async (importOriginal) => {
   };
 });
 
-const mockUseCommand = vi.mocked(useCommand);
 const mockUseSendCommand = vi.mocked(useSendCommand);
 
 const THEME = { color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
@@ -101,14 +99,12 @@ function aWorkspace(name: string, color = THEME.color): Workspace {
 /**
  * The strip holding these workspaces.
  *
- * The mutation behaves like the real one rather than returning a fixed value:
- * `reset` really clears the error, because "the refusal is not still there next
- * time" is a claim about what the screen shows afterwards.
+ * The sender stands in for the app's own: what the strip draws of a change is
+ * tests/unit/components/WorkspacesAtOnce.test.tsx, with the real queue.
  */
 function showTabs(
   names: string[],
   answer: {
-    error?: Error;
     here?: string;
     items?: number;
     onAllItemsOf?: string;
@@ -120,33 +116,6 @@ function showTabs(
   held.here = answer.here ?? held.workspaces[0]!.id;
   held.onAllItemsOf = answer.onAllItemsOf ?? null;
   wentTo.calls = [];
-  const asked: { error: Error | null; variables: unknown } = { error: null, variables: null };
-  const mutate = vi.fn((args: AskedFor, options?: { onSuccess?: () => void; onError?: () => void }) => {
-    asked.variables = args;
-    if (answer.error) {
-      asked.error = answer.error;
-      options?.onError?.();
-      return;
-    }
-    options?.onSuccess?.();
-  });
-  const reset = vi.fn(() => {
-    asked.error = null;
-  });
-  mockUseCommand.mockImplementation(
-    () =>
-      ({
-        mutate,
-        reset,
-        isPending: false,
-        get error() {
-          return asked.error;
-        },
-        get variables() {
-          return asked.variables;
-        },
-      }) as never,
-  );
   const sent = vi.fn((_args: AskedFor) =>
     answer.sendFails ? Promise.reject(answer.sendFails) : Promise.resolve(),
   );
@@ -166,7 +135,7 @@ function showTabs(
       </WorkspaceTabs>
     </QueryClientProvider>,
   );
-  return { mutate, sent, user: userEvent.setup() };
+  return { sent, user: userEvent.setup() };
 }
 
 /** The open menu's entries in order, a separator drawn as "---". */
@@ -408,42 +377,31 @@ describe('Workspace management', () => {
       );
     });
 
-    it('keeps the form open with what was typed when the server refuses it', async () => {
-      const { user } = showTabs(['Work', 'Personal'], {
-        sendFails: new CommandRefused(409, 'a workspace called Work already exists'),
-      });
+    it('closes the form at the click, whatever the server has yet to say', async () => {
+      const { sent, user } = showTabs(['Work', 'Personal']);
+      sent.mockReturnValue(new Promise(() => {}));
       await menuOf('Personal');
       await user.click(screen.getByRole('menuitem', { name: 'Edit…' }));
       await user.clear(screen.getByRole('textbox', { name: 'Name of Personal' }));
-      await user.type(screen.getByRole('textbox', { name: 'Name of Personal' }), 'Work');
+      await user.type(screen.getByRole('textbox', { name: 'Name of Personal' }), 'Client');
 
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        'a workspace called Work already exists',
-      );
-      expect(screen.getByRole('textbox', { name: 'Name of Personal' })).toHaveValue('Work');
+      expect(sent).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('textbox', { name: /^Name of/ })).toBeNull();
     });
   });
 
-  describe('a workspace you move is shown where you moved it before the server agrees', () => {
-    it('paints the new order at once', async () => {
-      // Not politeness: the order a move is computed from is the order in
-      // hand, so a second move made before the first came back would undo it.
-      const { mutate } = showTabs(['Work', 'Personal', 'Acme']);
+  describe('a workspace you move is sent as the whole order it leaves', () => {
+    it('sends the order the drag made', async () => {
+      // The order a move is computed from is the order in hand, drawn over the
+      // list (tests/unit/components/WorkspacesAtOnce.test.tsx).
+      const { sent } = showTabs(['Work', 'Personal', 'Acme']);
       await screen.findByRole('link', { name: 'Work' });
 
       dragTab('Work', 1);
 
-      await waitFor(() =>
-        expect(
-          screen
-            .getAllByRole('link')
-            .map((tab) => tab.textContent)
-            .filter((name) => name !== ''),
-        ).toEqual(['Personal', 'Work', 'Acme']),
-      );
-      expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+      expect(sent.mock.calls[0]?.[0]).toMatchObject({
         name: 'reorder_workspaces',
         payload: { workspaceIds: ['ws-personal', 'ws-work', 'ws-acme'] },
       });
@@ -457,7 +415,7 @@ describe('Workspace management', () => {
       // back across that tab must not read as that drag continuing, or the
       // strip reorders under a pointer holding nothing and sends a move
       // nobody asked for.
-      const { mutate } = showTabs(['Work', 'Personal', 'Acme']);
+      const { sent } = showTabs(['Work', 'Personal', 'Acme']);
       const tab = await screen.findByRole('link', { name: 'Work' });
 
       fireEvent.pointerDown(tab, { button: 0, pointerType: 'mouse', clientX: 100, buttons: 1 });
@@ -466,35 +424,13 @@ describe('Workspace management', () => {
       fireEvent.pointerMove(tab, { pointerType: 'mouse', clientX: 400, buttons: 0 });
       fireEvent.click(tab);
 
-      expect(mutate).not.toHaveBeenCalled();
+      expect(sent).not.toHaveBeenCalled();
       expect(
         screen
           .getAllByRole('link')
           .map((each) => each.textContent)
           .filter((name) => name !== ''),
       ).toEqual(['Work', 'Personal', 'Acme']);
-    });
-
-    it('puts the tabs back when the move is refused', async () => {
-      const { mutate } = showTabs(['Work', 'Personal', 'Acme'], {
-        error: new CommandRefused(409, 'the list of workspaces has changed'),
-      });
-      await screen.findByRole('link', { name: 'Work' });
-
-      dragTab('Work', 1);
-
-      // Otherwise this passes vacuously: the order it puts back is the order
-      // it started in, so a drag that silently did nothing would look the
-      // same as one that was sent and refused.
-      expect(mutate).toHaveBeenCalled();
-      await waitFor(() =>
-        expect(
-          screen
-            .getAllByRole('link')
-            .map((tab) => tab.textContent)
-            .filter((name) => name !== ''),
-        ).toEqual(['Work', 'Personal', 'Acme']),
-      );
     });
   });
 
@@ -533,12 +469,9 @@ describe('Workspace management', () => {
     });
 
     it('lands on a workspace that is left rather than on `/`, which opens Capture on a phone', async () => {
-      const { mutate, user } = showTabs(['Work', 'Personal'], { here: 'ws-personal' });
-      // The server's list, once the delete has gone through.
-      mutate.mockImplementation((_args, options) => {
-        held.workspaces = held.workspaces.filter((w) => w.id !== 'ws-personal');
-        options?.onSuccess?.();
-      });
+      const { sent, user } = showTabs(['Work', 'Personal'], { here: 'ws-personal' });
+      // Nothing answered: the next workspace is chosen from the list as drawn.
+      sent.mockReturnValue(new Promise(() => {}));
       await menuOf('Personal');
       await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
       await user.click(await screen.findByRole('button', { name: 'Yes, delete Personal' }));
@@ -549,15 +482,15 @@ describe('Workspace management', () => {
     });
 
     it('sends the delete only once the question has been answered', async () => {
-      const { mutate, user } = showTabs(['Work', 'Personal'], { items: 2 });
+      const { sent, user } = showTabs(['Work', 'Personal'], { items: 2 });
       await menuOf('Personal');
       await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
       await screen.findByRole('alertdialog');
-      expect(mutate).not.toHaveBeenCalled();
+      expect(sent).not.toHaveBeenCalled();
 
       await user.click(screen.getByRole('button', { name: 'Yes, delete Personal' }));
 
-      expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+      expect(sent.mock.calls[0]?.[0]).toMatchObject({
         name: 'delete_workspace',
         payload: { workspaceId: 'ws-personal' },
       });

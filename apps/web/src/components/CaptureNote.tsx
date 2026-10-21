@@ -11,7 +11,8 @@ import {
 } from '@cockpit/shared';
 import { FileOnLine, type FiledOn } from './FileOnLine';
 import { CommandRefused, uploadAttachment } from '../api/client';
-import { snapshotQuery, useSendCommand, workspacesQuery } from '../api/queries';
+import { snapshotQuery, useSendCommand } from '../api/queries';
+import { useWorkspaces } from '../api/useWorkspaces';
 import { useDrawnSelect } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
@@ -95,7 +96,7 @@ export function CaptureNote({
       }
     | undefined;
 }) {
-  const { data: list } = useQuery(workspacesQuery);
+  const { data: list } = useWorkspaces();
   const workspaces = list?.workspaces ?? [];
   /**
    * The workspace this is captured *from*, which every Item records even while

@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { parseDocument } from 'yaml';
 
 import { main } from '../../src/cli.js';
@@ -51,6 +51,19 @@ async function draw(root) {
   const code = await main(['--root', root, '--out', out, '--model', model]);
   return { code, out, model, page: existsSync(out), modelFile: existsSync(model), written: readdirSync(path.dirname(out)) };
 }
+
+/**
+ * This repository's own checkout, drawn once and read into memory for every test that reads it, since
+ * `afterEach` removes the files. Each describe reading it hooks `drawReal`, so a run of fixture tests alone
+ * never draws it. A draw grows with the repository and runs beside every other suite in `pnpm test`, so
+ * the hook gets a busy CI runner's time rather than vitest's five seconds.
+ */
+let real;
+let drawing;
+const drawReal = () => (drawing ??= draw(checkout).then((run) => {
+  real = { code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined };
+}));
+const REAL_DRAW_TIMEOUT = 60_000;
 
 describe('A run that cannot read a file it needs fails and writes nothing', () => {
   it('writes the page and the model beside it when every file reads', async () => {
@@ -95,10 +108,11 @@ describe('A flag that needs a path and is given none is refused', () => {
 });
 
 describe('This repository\'s own config and workflows draw without error', () => {
-  it('reads the real Worker config and every real workflow, including the environments it declares', async () => {
-    const run = await draw(checkout);
-    expect(run.code).toBe(0);
-    const { deployment } = JSON.parse(readFileSync(run.model, 'utf8'));
+  beforeAll(drawReal, REAL_DRAW_TIMEOUT);
+
+  it('reads the real Worker config and every real workflow, including the environments it declares', () => {
+    expect(real.code).toBe(0);
+    const { deployment } = real.model;
     expect(deployment.environments.map((each) => each.name)).toEqual(expect.arrayContaining(['production', 'staging', 'local']));
     expect(deployment.workflows.map((each) => each.file)).toEqual(expect.arrayContaining(['deploy-staging.yml', 'deploy-production.yml', 'nightly.yml']));
     const deploys = Object.fromEntries(deployment.workflows.map((each) => [each.file, each.deploys.map((d) => d.environment)]));
@@ -110,17 +124,18 @@ describe('This repository\'s own config and workflows draw without error', () =>
 });
 
 describe('Modules', () => {
+  beforeAll(drawReal, REAL_DRAW_TIMEOUT);
+
   const modelOf = async (root) => {
     const run = await draw(root);
     expect(run.code).toBe(0);
     return JSON.parse(readFileSync(run.model, 'utf8'));
   };
 
-  it('draws this repository’s own areas as boxes, one per area on disk, none overlapping, with arrows between them', async () => {
-    const run = await draw(checkout);
-    expect(run.code).toBe(0);
-    const { modules } = JSON.parse(readFileSync(run.model, 'utf8'));
-    const page = readFileSync(run.out, 'utf8');
+  it('draws this repository’s own areas as boxes, one per area on disk, none overlapping, with arrows between them', () => {
+    expect(real.code).toBe(0);
+    const { modules } = real.model;
+    const { page } = real;
     const boxes = [...page.matchAll(/<rect class="[a-z]+" data-area="([^"]*)" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)].map((each) => ({ area: each[1], x: +each[2], y: +each[3], w: +each[4], h: +each[5] }));
     // A package a source names is its connector's box, which the next test counts.
     const packages = modules.connectors.flatMap((each) => (each.package ? [each.package.path] : []));
@@ -129,11 +144,10 @@ describe('Modules', () => {
     expect(page.match(/<line class="edge"/g)?.length).toBeGreaterThan(5);
   });
 
-  it('draws a box for every source this repository declares, and the Worker round them', async () => {
-    const run = await draw(checkout);
-    expect(run.code).toBe(0);
+  it('draws a box for every source this repository declares, and the Worker round them', () => {
+    expect(real.code).toBe(0);
     const declared = parseDocument(readFileSync(path.join(checkout, 'tools/architecture/description.yml'), 'utf8')).toJS().sources.map((each) => each.id);
-    const page = readFileSync(run.out, 'utf8');
+    const { page } = real;
     expect(declared.length).toBeGreaterThan(0);
     const boxes = [...page.matchAll(/<rect class="[a-z]+" data-connector="([^"]*)"/g)].map((each) => each[1]);
     expect(boxes.sort()).toEqual([...declared].sort());
@@ -162,14 +176,17 @@ describe('Modules', () => {
     expect(found['apps/api/src/*'].files).toBe(1);
   });
 
-  it('describes every area on this repository’s disk today, and none that is no longer there', async () => {
-    const { modules } = await modelOf(checkout);
+  it('describes every area on this repository’s disk today, and none that is no longer there', () => {
+    expect(real.code).toBe(0);
+    const { modules } = real.model;
     expect(modules.layers.flatMap((layer) => layer.areas).filter((each) => each.state !== 'described').map((each) => `${each.state}: ${each.path}`)).toEqual([]);
     expect(modules.counts.areas).toBeGreaterThan(10);
   });
 });
 
 describe('Dependencies', () => {
+  beforeAll(drawReal, REAL_DRAW_TIMEOUT);
+
   const modelOf = async (root) => {
     const run = await draw(root);
     expect(run.code).toBe(0);
@@ -196,8 +213,9 @@ describe('Dependencies', () => {
     expect(dependencies.areas.map((each) => [each.path, each.lines])).toEqual([['apps/api/src/http', 2], ['apps/api/src/auth', 2], ['packages/shared', 1]]);
   });
 
-  it('draws this repository’s own areas: the web app leans on shared, the root files are muted, and every cell sits on two real areas', async () => {
-    const { dependencies } = await modelOf(checkout);
+  it('draws this repository’s own areas: the web app leans on shared, the root files are muted, and every cell sits on two real areas', () => {
+    expect(real.code).toBe(0);
+    const { dependencies } = real.model;
     const paths = dependencies.areas.map((each) => each.path);
     expect(dependencies.areas.find((each) => each.muted)?.path).toBe('apps/api/src/*');
     expect(dependencies.cells.find((each) => each.from === 'apps/web/src' && each.to === 'packages/shared')?.files).toBeGreaterThan(10);
@@ -206,8 +224,9 @@ describe('Dependencies', () => {
     expect(dependencies.cells.filter((each) => each.cycle && (each.from === 'apps/api/src/*' || each.to === 'apps/api/src/*'))).toEqual([]);
   });
 
-  it('orders this repository’s own areas by the exact search, so a repository that outgrows it shows here before it shows on a night', async () => {
-    const { dependencies } = await modelOf(checkout);
+  it('orders this repository’s own areas by the exact search, so a repository that outgrows it shows here before it shows on a night', () => {
+    expect(real.code).toBe(0);
+    const { dependencies } = real.model;
     expect(dependencies.order.method).toBe('exact');
     expect(dependencies.order.areas).toBeLessThanOrEqual(dependencies.order.limit);
     expect(dependencies.areas.at(-1).path).toBe('apps/api/src/*');

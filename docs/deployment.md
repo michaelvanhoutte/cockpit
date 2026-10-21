@@ -703,13 +703,14 @@ wrangler secret put MS_BOT_APP_ID                # production
 wrangler secret put MS_BOT_APP_ID --env staging
 ```
 
-3. **The Teams app itself**, from `packages/connectors/teams/teams-app/`: fill
-   in the App ID (it appears in three places: the app's own `id` and the `botId`
-   of both the `bots` and the `composeExtensions` entries), the origin and the
-   two icons, zip it, and upload it in Teams. The tenant's custom-app-upload
-   policy has to allow that — an admin toggle, not a licence. What a changed
-   manifest needs afterwards, and what is and is not known about where the
-   action is offered, is in `packages/connectors/teams/README.md`.
+3. **The Teams app itself**, from `packages/connectors/teams/teams-app/`:
+   `node scripts/teams-package.mjs <staging|production>` builds its package
+   from the App ID in `app-ids.json` and the origin in `apps/api/wrangler.jsonc`,
+   and the `teams-app-upload` skill uploads it in the Teams admin center. The
+   tenant's custom-app-upload policy has to allow that — an admin toggle, not a
+   licence. What a changed manifest needs afterwards, and what is and is not
+   known about where the action is offered, is in
+   `packages/connectors/teams/README.md`.
 
 Saving a message needs no Graph scope and no consent prompt: what is saved
 arrives in the call itself.

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import type { WorkspaceSnapshot } from '@cockpit/shared';
+import { ACCOUNT_WIDE, type WorkspaceSnapshot } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand } from '../../../src/api/queries';
+import { useChangeConnection } from '../../../src/api/sourceAccounts';
+import { useChangeSentence, useRememberedSentences } from '../../../src/rememberedSentences';
 import { fetchSnapshot, sendCommand } from '../../../src/api/client';
 import { useServerEvents } from '../../../src/api/useServerEvents';
 import { changes } from '../../../src/api/changes';
@@ -17,8 +19,21 @@ import { changes } from '../../../src/api/changes';
  * so "during a read" and "before the answer" are positions in the test and not
  * races.
  */
+/** What the list of sentences answers with, and how often it has been read. */
+const sentences = vi.hoisted(() => ({ reads: 0, upTo: undefined as string | undefined }));
+
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  api: {
+    v1: {
+      'remembered-sentences': {
+        $get: async () => {
+          sentences.reads += 1;
+          return Response.json({ sentences: [], ...(sentences.upTo ? { upTo: sentences.upTo } : {}) });
+        },
+      },
+    },
+  },
   fetchSnapshot: vi.fn(),
   sendCommand: vi.fn(),
 }));
@@ -65,12 +80,28 @@ const copy = (label: string, upTo?: string) =>
 const readsOpen: ((answer: WorkspaceSnapshot) => void)[] = [];
 const answersOpen: ((stamp: string | undefined) => void)[] = [];
 let sendNow: ReturnType<typeof useSendCommand>;
+let sendConnection: ReturnType<typeof useChangeConnection>;
+let sendSentence: ReturnType<typeof useChangeSentence>;
+
+/** Shown only where a test is about the list of sentences: it is what reads it. */
+let showingSentences = false;
+function SentenceList() {
+  useRememberedSentences();
+  return null;
+}
 
 function Screen() {
   useServerEvents();
   sendNow = useSendCommand();
+  sendConnection = useChangeConnection();
+  sendSentence = useChangeSentence();
   const { data } = useQuery(snapshotQuery(WORKSPACE));
-  return <p>{data ? `showing ${data.generatedAt}` : 'still loading'}</p>;
+  return (
+    <>
+      <p>{data ? `showing ${data.generatedAt}` : 'still loading'}</p>
+      {showingSentences && <SentenceList />}
+    </>
+  );
 }
 
 const stream = () => FakeStream.made.at(-1)!;
@@ -120,6 +151,9 @@ beforeEach(() => {
   readsOpen.length = 0;
   answersOpen.length = 0;
   priority = 0;
+  showingSentences = false;
+  sentences.reads = 0;
+  sentences.upTo = undefined;
   reads.mockReset();
   sends.mockReset();
   reads.mockImplementation(
@@ -221,16 +255,90 @@ describe('Live updates', () => {
     it('does not read a Workspace for a connection change', async () => {
       await openWithCopy();
 
-      const sent = sendNow({
+      const sent = sendConnection({
         name: 'set_connection_choice',
         payload: { commandId: 'c-conn', issuedAt: at(0), workspaceId: WORKSPACE },
-      } as unknown as Parameters<typeof sendNow>[0]);
+      } as unknown as Parameters<typeof sendConnection>[0]);
       await waitFor(() => expect(answersOpen).toHaveLength(1));
       await answerChange(at(2));
       await sent;
       await settle();
 
       expect(readsMade()).toBe(1);
+    });
+
+    it('does not read a Workspace for a sentence change', async () => {
+      await openWithCopy();
+
+      const sent = sendSentence({
+        name: 'remember_sentence',
+        // Naming the Workspace, as a sentence kept for one does: it is still no Workspace's change.
+        payload: { commandId: 'c-sentence', issuedAt: at(0), workspaceId: WORKSPACE },
+      } as unknown as Parameters<typeof sendSentence>[0]);
+      await waitFor(() => expect(answersOpen).toHaveLength(1));
+      await answerChange(at(2));
+      await sent;
+      await settle();
+
+      expect(readsMade()).toBe(1);
+    });
+
+    describe('the list of sentences is read once for its own change, and again for another device’s', () => {
+      const sentenceChange = () =>
+        sendSentence({
+          name: 'delete_remembered_sentence',
+          payload: { commandId: 'c-gone', issuedAt: at(0), workspaceId: ACCOUNT_WIDE, sentenceId: ITEM },
+        });
+      const announceSentences = (stamp: string | undefined) =>
+        act(() => stream().announces({ type: 'remembered_sentences_changed', ...(stamp ? { at: stamp } : {}) }));
+
+      /** The list is on screen, the tab changes a sentence, and the read it owes for it has been made. */
+      async function changedAndRead() {
+        showingSentences = true;
+        await openWithCopy();
+        await waitFor(() => expect(sentences.reads).toBe(1));
+        const sent = sentenceChange();
+        await waitFor(() => expect(answersOpen).toHaveLength(1));
+        sentences.upTo = at(2);
+        await answerChange(at(2));
+        await sent;
+        await waitFor(() => expect(sentences.reads).toBe(2));
+        await settle();
+      }
+
+      it('skips the announcement of its own change, which the list it read already holds', async () => {
+        await changedAndRead();
+
+        await announceSentences(at(2));
+        await settle();
+
+        expect(sentences.reads).toBe(2);
+      });
+
+      it('reads again for a change made on another device, announced after its own', async () => {
+        await changedAndRead();
+
+        sentences.upTo = at(3);
+        await announceSentences(at(3));
+
+        await waitFor(() => expect(sentences.reads).toBe(3));
+      });
+
+      it.each([
+        { situation: 'an announcement that gives no time, as an older Worker sends', stamp: undefined, listUpTo: at(2) },
+        { situation: 'a list that gives no time, as an older Worker sends', stamp: at(2), listUpTo: undefined },
+      ])('reads again for $situation', async ({ stamp, listUpTo }) => {
+        showingSentences = true;
+        await openWithCopy();
+        await waitFor(() => expect(sentences.reads).toBe(1));
+        sentences.upTo = listUpTo;
+        await announceSentences(stamp);
+        await waitFor(() => expect(sentences.reads).toBe(2));
+
+        await announceSentences(stamp);
+
+        await waitFor(() => expect(sentences.reads).toBe(3));
+      });
     });
 
     it('reads as before when the answer gave no time, as an older server does', async () => {
@@ -269,6 +377,18 @@ describe('Live updates', () => {
       await screen.findByText('showing the one more read');
       await settle();
       expect(readsMade()).toBe(3);
+    });
+
+    it.each([
+      { held: 'every copy holds it', second: 1, readsAfter: 1 },
+      { held: 'a copy does not hold it yet', second: 2, readsAfter: 2 },
+    ])('reads every Workspace for an account-wide announcement only where $held', async ({ second, readsAfter }) => {
+      await openWithCopy();
+
+      act(() => stream().announces({ type: 'snapshot_invalidated', workspaceId: ACCOUNT_WIDE, at: at(second) }));
+      await settle();
+
+      expect(readsMade()).toBe(readsAfter);
     });
 
     it('reads nothing more when the read that landed already holds what was announced', async () => {

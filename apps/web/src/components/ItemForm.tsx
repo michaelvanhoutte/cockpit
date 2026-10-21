@@ -21,15 +21,19 @@ import {
   itemStatus,
   uuidv7,
   type Attachment,
+  type AttachmentContentType,
   type Item,
   type ItemFormPresentation,
   type ItemStatus,
   type Priority,
   filingsThatFile,
 } from '@cockpit/shared';
-import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
-import { WorkingOffline, refuseWhileOffline } from '../offline';
-import { useSendCommand, workspacesQuery } from '../api/queries';
+import { attachmentUrl, uploadAttachment } from '../api/client';
+import { changes } from '../api/changes';
+import { readAfterOwnChange } from '../api/snapshotReads';
+import { refuseWhileOffline } from '../offline';
+import { useSendCommand, whyNotDone } from '../api/queries';
+import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshot } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
@@ -417,7 +421,7 @@ function TheForm({
    * 408). About the pair rather than about `itemId` alone, so it reads the
    * same whichever of the two Items' forms it was pressed from.
    */
-  const settleNotADuplicate = async (otherId: string, other: Item) => {
+  const settleNotADuplicate = (otherId: string, other: Item) => {
     const envelope = () => ({
       commandId: uuidv7(),
       issuedAt: new Date().toISOString(),
@@ -425,22 +429,25 @@ function TheForm({
       itemId,
       otherItemId: otherId,
     });
-    try {
-      await send({
-        name: 'set_duplicate_settled',
-        payload: { ...envelope(), settled: true },
-      });
-      offerToUndo({
-        what: `"${itemLabel(other)}" is not a duplicate`,
-        undo: () =>
-          send({
-            name: 'set_duplicate_settled',
-            payload: { ...envelope(), settled: false },
-          }),
-      });
-    } catch (failure) {
-      setRefusal(failure instanceof Error ? failure.message : 'That could not be settled');
-    }
+    // Drawn at the press, so the warning is gone and the way back offered at once;
+    // a refusal takes the offer back (`unlessRefused`) and is said here, where the
+    // warning returns.
+    const answer = send({
+      name: 'set_duplicate_settled',
+      payload: { ...envelope(), settled: true },
+    });
+    answer.catch((failure: unknown) =>
+      setRefusal(failure instanceof Error ? failure.message : 'That could not be settled'),
+    );
+    offerToUndo({
+      what: `"${itemLabel(other)}" is not a duplicate`,
+      unlessRefused: answer,
+      undo: () =>
+        send({
+          name: 'set_duplicate_settled',
+          payload: { ...envelope(), settled: false },
+        }),
+    });
   };
 
   /**
@@ -501,32 +508,29 @@ function TheForm({
     const { accepted, rejections } = checkAttachmentFiles(files);
     setAttachmentError(rejections.length > 0 ? rejections.join(' ') : null);
 
+    let at: string | undefined;
     for (const file of accepted) {
-      const attachmentId = uuidv7();
-      setPendingAttachments((was) => [...was, { id: attachmentId, filename: file.name }]);
+      const upload = { commandId: uuidv7(), workspaceId, itemId, attachmentId: uuidv7() };
+      setPendingAttachments((was) => [...was, { id: upload.attachmentId, filename: file.name }]);
       try {
         refuseWhileOffline();
-        await uploadAttachment({
-          itemId,
-          workspaceId,
-          attachmentId,
-          commandId: uuidv7(),
-          file,
-        });
+        ({ at } = await uploadAttachment({ ...upload, file }));
+        // Drawn as its chip before *Attaching…* goes, and kept until a read begun after this answer has landed.
+        changes.attached(
+          { ...upload, issuedAt: new Date().toISOString(), filename: file.name, size: file.size, contentType: file.type as AttachmentContentType },
+          at,
+        );
       } catch (failure) {
         setAttachmentError(
           failure instanceof Error ? failure.message : `"${file.name}" could not be attached`,
         );
       } finally {
-        setPendingAttachments((was) => was.filter((pending) => pending.id !== attachmentId));
+        setPendingAttachments((was) => was.filter((pending) => pending.id !== upload.attachmentId));
       }
     }
     // Once for the whole batch, not once per file - a drop of several files
     // has no reason to re-read the whole workspace that many times.
-    if (accepted.length > 0)
-      await queryClient.invalidateQueries({
-        queryKey: ['snapshot', workspaceId],
-      });
+    if (accepted.length > 0) readAfterOwnChange(queryClient, workspaceId, at);
   };
 
   const removeAttachment = async (attachment: Attachment) => {
@@ -548,29 +552,33 @@ function TheForm({
 
   /**
    * An image put into the description, attached to this Item like any other
-   * file and answered with the address the text points at ("Embed an image
-   * inline in an item's description", issue 442). Listed as "Attaching…"
-   * while it uploads. Rejects with what to say under the editor's toolbar:
-   * the server's own words for a refusal, and the file's name where the
-   * request never got an answer.
+   * file ("Embed an image inline in an item's description", issue 442). The
+   * address the text points at is known from the attachment's id, so it is
+   * answered at once and the editor draws the image before the upload ends
+   * ("Show an image in a description the moment you put it in", issue 1368).
+   * Listed as "Attaching…" while it uploads, then as its chip. A failure is said
+   * in the undo bar, and rejects so the editor takes the image back out.
    */
-  const uploadImage = async (file: File): Promise<string> => {
-    const attachmentId = uuidv7();
-    setPendingAttachments((was) => [...was, { id: attachmentId, filename: file.name }]);
-    try {
-      refuseWhileOffline();
-      await uploadAttachment({ itemId, workspaceId, attachmentId, commandId: uuidv7(), file });
-    } catch (failure) {
-      throw new Error(
-        failure instanceof CommandRefused || failure instanceof WorkingOffline
-          ? failure.message
-          : `${file.name} could not be uploaded - the connection dropped.`,
-      );
-    } finally {
-      setPendingAttachments((was) => was.filter((pending) => pending.id !== attachmentId));
-    }
-    void queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
-    return attachmentUrl(attachmentId);
+  const uploadImage = (file: File): { src: string; uploaded: Promise<void> } => {
+    const upload = { commandId: uuidv7(), workspaceId, itemId, attachmentId: uuidv7() };
+    setPendingAttachments((was) => [...was, { id: upload.attachmentId, filename: file.name }]);
+    const uploaded = (async () => {
+      try {
+        refuseWhileOffline();
+        const { at } = await uploadAttachment({ ...upload, file });
+        changes.attached(
+          { ...upload, issuedAt: new Date().toISOString(), filename: file.name, size: file.size, contentType: file.type as AttachmentContentType },
+          at,
+        );
+        readAfterOwnChange(queryClient, workspaceId, at);
+      } catch (failure) {
+        offerToUndo({ what: `${file.name} was not put in the description. ${whyNotDone(failure)}` });
+        throw failure;
+      } finally {
+        setPendingAttachments((was) => was.filter((pending) => pending.id !== upload.attachmentId));
+      }
+    })();
+    return { src: attachmentUrl(upload.attachmentId), uploaded };
   };
 
   /**
@@ -902,7 +910,7 @@ function TheForm({
   const setDraft =(now: Draft) => changeEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const { data: workspaceList } = useQuery(workspacesQuery);
+  const { data: workspaceList } = useWorkspaces();
   /** The *On panels* field: written at once docked, held for Save otherwise (issue 1106). */
   const onPanels = useItemPanels({ item, workspaceId, data, docked });
   /**
@@ -1895,12 +1903,11 @@ function TheForm({
                                 </button>
                                 {/* About this pair, not about either note ("Say a
                                   flagged pair is not a duplicate", issue 408) - it
-                                  is the settling that is offered undo, not a change
-                                  to what is drawn here. */}
+                                  is drawn settled at the press, and offered undo. */}
                                 <button
                                   type="button"
                                   disabled={saving}
-                                  onClick={() => void settleNotADuplicate(other.id, other)}
+                                  onClick={() => settleNotADuplicate(other.id, other)}
                                   title="Not a duplicate"
                                   aria-label="Not a duplicate"
                                   className="rounded-md border border-shade/10 bg-surface px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
@@ -2036,9 +2043,11 @@ function TheForm({
                           onChange={(description) => {
                             if (!onScreen.current) return;
                             setDraft({ ...draft, description });
-                            // Nothing but an image landing changes the text
-                            // with the cursor elsewhere. Docked, that is
-                            // written as leaving the description would have.
+                            // Nothing but an image put in (a drop with the
+                            // cursor elsewhere) or taken back out after a
+                            // failed upload changes the text with the cursor
+                            // elsewhere. Docked, that is written as leaving
+                            // the description would have.
                             if (docked && !descriptionCell.current?.contains(document.activeElement)) {
                               void commitFields(['description']);
                             }

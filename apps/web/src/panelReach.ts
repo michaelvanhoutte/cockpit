@@ -10,7 +10,8 @@ import {
   dayOf,
 } from '@cockpit/shared';
 import type { Panel, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
-import { snapshotQuery, workspacesQuery } from './api/queries';
+import { snapshotQuery } from './api/queries';
+import { useWorkspaces } from './api/useWorkspaces';
 import { useDrawnSelect } from './api/useSnapshot';
 import { readDashboardFilter } from './dashboardFilter';
 import { browserStore } from './lastVisited';
@@ -120,7 +121,7 @@ export function useReach(asked: Scope, ask: (scope: Scope) => void): Reach {
   const navigate = useNavigate();
   const workspaceId = params.workspaceId ?? '';
   const dashboardId = params.dashboardId ?? '';
-  const { data: list } = useQuery(workspacesQuery);
+  const { data: list } = useWorkspaces();
   const workspaces: readonly Workspace[] = list?.workspaces ?? [];
   // Drawn, so a Panel's count agrees with the board the moment an Item is filed.
   const select = useDrawnSelect();

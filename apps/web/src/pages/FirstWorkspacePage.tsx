@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { uuidv7 } from '@cockpit/shared';
+import { useQuery } from '@tanstack/react-query';
 import { usePageGround } from '../appearance';
-import { CommandRefused, NotSignedIn } from '../api/client';
-import { meQuery, useCommand } from '../api/queries';
+import { NotSignedIn } from '../api/client';
+import { meQuery } from '../api/queries';
+import { useAddWorkspace } from '../components/AddWorkspace';
 
 /**
  * What an account with no workspaces is shown: the one thing it can do.
@@ -25,9 +25,8 @@ import { meQuery, useCommand } from '../api/queries';
 export function FirstWorkspacePage() {
   const ground = usePageGround();
   const [name, setName] = useState('');
-  const command = useCommand();
+  const add = useAddWorkspace(null);
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
   /**
    * A sign-in that has gone, noticed while you are sitting here.
@@ -51,50 +50,14 @@ export function FirstWorkspacePage() {
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    // Made here rather than inside the payload, so the workspace to open is
-    // known before the answer comes back.
-    const workspaceId = uuidv7();
-    command.mutate(
-      {
-        name: 'create_workspace',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          // The panel its first dashboard arrives with, made here for the
-          // reason the workspace's own id is: the same id has to come back on a
-          // replay, and nothing on the server can derive a uuid.
-          panelId: uuidv7(),
-          name: trimmed,
-        },
-      },
-      {
-        onSuccess: async () => {
-          // Re-read the list before going there, for the reason adding a
-          // dashboard does (components/DashboardBar.tsx): the workspace route
-          // checks that the id is one of the account's, against the list in
-          // hand - and the list in hand is the empty one that sent you here,
-          // so without this it decides the workspace is not real and sends you
-          // straight back. `useCommand` asks for the same re-read but does not
-          // wait for it, and this is the caller that has to.
-          await queryClient.refetchQueries({ queryKey: ['workspaces'] });
-
-          // Straight into it: making your first workspace and then being left
-          // on the screen that asked for it is two gestures for what reads as
-          // one. A refusal leaves what was typed where it is, so the name can
-          // be fixed rather than typed again.
-          void navigate({ to: '/w/$workspaceId', params: { workspaceId } });
-        },
-      },
-    );
+    // Straight into it: making your first workspace and then being left on the
+    // screen that asked for it is two gestures for what reads as one. It opens
+    // before the server has answered; a refusal brings you back here, and says
+    // why in the undo bar (components/AddWorkspace.tsx).
+    add(trimmed);
+    // Emptied, so a second press before the page has gone sends nothing.
+    setName('');
   };
-
-  const refusal =
-    command.error instanceof CommandRefused
-      ? command.error.message
-      : command.error
-        ? 'That did not reach the server. Try again.'
-        : null;
 
   return (
     <div
@@ -119,16 +82,10 @@ export function FirstWorkspacePage() {
           />
           <button
             type="submit"
-            disabled={command.isPending}
-            className="milled rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+            className="milled rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover"
           >
             New workspace
           </button>
-          {refusal && (
-            <p role="alert" className="text-sm text-over-ink">
-              {refusal}
-            </p>
-          )}
         </form>
       </main>
     </div>

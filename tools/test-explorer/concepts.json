@@ -341,6 +341,9 @@
         "packages/shared/src/domain/item.ts",
         "packages/shared/src/domain/workspace-themes.ts",
         "apps/web/src/components/WorkspaceTabs.tsx",
+        "apps/web/src/drawnAhead.ts",
+        "apps/web/src/changeQueue.ts",
+        "apps/web/src/api/useWorkspaces.ts",
         "apps/web/src/pages/Layout.tsx",
         "apps/web/src/router.tsx",
         "apps/web/src/reorder.ts",
@@ -418,6 +421,9 @@
         "packages/connector-sdk/src/index.ts",
         "packages/shared/src/domain/source-account.ts",
         "apps/web/src/components/ManageConnections.tsx",
+        "apps/web/src/components/ConnectionChoice.tsx",
+        "apps/web/src/api/sourceAccounts.ts",
+        "apps/web/src/connectionsDrawnAhead.ts",
         "apps/web/src/connections.ts"
       ]
     },
@@ -448,7 +454,11 @@
         "apps/api/src/accounts/store.ts",
         "apps/web/src/pages/Layout.tsx",
         "apps/api/src/accounts/retire-agents.ts",
-        "apps/api/src/domain/agent-sentence.ts"
+        "apps/api/src/domain/agent-sentence.ts",
+        "apps/web/src/components/ManageRememberedSentences.tsx",
+        "apps/web/src/components/RememberASentence.tsx",
+        "apps/web/src/rememberedSentences.ts",
+        "apps/web/src/rememberedSentencesDrawnAhead.ts"
       ]
     },
     {

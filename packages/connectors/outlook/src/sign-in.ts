@@ -76,7 +76,8 @@ export function outlookAccountFrom(reply: SignInReply): ConnectedAccountIdentity
   if (!text(reply.tokenResponse.refresh_token)) return { refused: 'no-refresh-token' };
   if (!grants(text(reply.tokenResponse.scope))) return { refused: 'permission-missing' };
 
-  const displayName = text(claims.name) || text(claims.preferred_username) || text(claims.email);
+  // The sign-in address first, as Gmail names its connections, so two mailboxes under one name stay apart.
+  const displayName = text(claims.preferred_username) || text(claims.email) || text(claims.name);
   const key = `${tenant}:${object}`;
   return { key, displayName: displayName || `Microsoft account ${key}` };
 }
