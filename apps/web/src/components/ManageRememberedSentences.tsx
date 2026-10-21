@@ -46,6 +46,14 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
   // Which row is open for rewording *now*, for a refusal that comes back after the person moved on.
   const editingNow = useRef(editing);
   editingNow.current = editing;
+  // Whether the window is still open, since it may be closed before a refusal comes back.
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+    };
+  }, []);
 
   const sentences = useMemo(() => data?.sentences ?? [], [data]);
   const answered = data !== undefined;
@@ -64,7 +72,8 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
   /**
    * Rewords at the click: the form closes and the row has the new words at once.
    * Refused, the form comes back with the words typed and the reason, unless the
-   * person has opened another row meanwhile, and then the undo bar says it.
+   * person has opened another row or closed the window meanwhile, and then the
+   * undo bar says it.
    */
   const save = (one: RememberedSentenceView) => {
     const words = draft.trim();
@@ -74,7 +83,7 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
       name: 'edit_remembered_sentence',
       payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: ACCOUNT_WIDE, sentenceId: one.id, sentence: words },
     }).catch((failure: unknown) => {
-      if (editingNow.current !== null) return offerToUndo({ what: `“${one.sentence}” was not reworded. ${whyNotDone(failure)}` });
+      if (!open.current || editingNow.current !== null) return offerToUndo({ what: `“${one.sentence}” was not reworded. ${whyNotDone(failure)}` });
       setDraft(words);
       setEditing(one.id);
       setRefusal(whyNotDone(failure));

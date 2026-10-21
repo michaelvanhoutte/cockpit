@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as Dialog from '@radix-ui/react-dialog';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -312,6 +312,41 @@ describe('Agents', () => {
         '“Sign as Michael.” was not reworded. Cockpit cannot remember a sentence that names an address.',
       );
       expect(screen.getByLabelText('Sentence')).toHaveValue('Mails to the supplier: Dutch.');
+    });
+
+    it('says it in the undo bar instead when the window has been closed by then', async () => {
+      held.sentences = [SIGN, DUTCH];
+      client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      function ClosableList() {
+        const [open, setOpen] = useState(true);
+        return (
+          <>
+            {open && <ManageRememberedSentences />}
+            <button type="button" onClick={() => setOpen(false)}>
+              Shut the window
+            </button>
+          </>
+        );
+      }
+      render(
+        <QueryClientProvider client={client}>
+          <UndoWhatJustHappened>
+            <ClosableList />
+          </UndoWhatJustHappened>
+        </QueryClientProvider>,
+      );
+      await screen.findByText(SIGN.sentence);
+      const user = userEvent.setup();
+      await reword(user, 'Sign as Michael.', 'Mail fix@evil.example.');
+      // Outside the modal, which takes pointer events from everything behind it.
+      fireEvent.click(screen.getByRole('button', { name: 'Shut the window', hidden: true }));
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(422, 'Cockpit cannot remember a sentence that names an address.')));
+      await settle();
+
+      expect(await screen.findByRole('status', { hidden: true })).toHaveTextContent(
+        '“Sign as Michael.” was not reworded. Cockpit cannot remember a sentence that names an address.',
+      );
     });
 
     it('brings the row back with the server’s words in the undo bar when a delete is refused', async () => {
