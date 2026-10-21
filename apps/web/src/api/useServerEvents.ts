@@ -1,12 +1,11 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { QueryClient } from '@tanstack/react-query';
-import { ACCOUNT_WIDE, serverEventSchema } from '@cockpit/shared';
-import type { ServerEvent, WorkspaceSnapshot } from '@cockpit/shared';
+import { serverEventSchema } from '@cockpit/shared';
 import { cameOnline, foundOffline } from '../opening';
 import { isOffline, useStanding } from '../offline';
 import { RECONNECTED } from '../updating';
 import { diagnoseConnection } from './loadFailure';
+import { readForAnnouncement } from './snapshotReads';
 
 /**
  * Liveness via SSE (architecture, "The read model: persisted snapshot,
@@ -100,21 +99,16 @@ export function useServerEvents() {
           });
           return;
         }
-        // POC (own-event refetch): a tab that already read this change does not
-        // read it again. Measured before this: one change made in this tab cost
-        // two full snapshots - one from `afterChanging` at +67ms, one from this
-        // handler when the tab's own event came back, 0.2-3.0s later.
+        // What a tab does with an announcement is `snapshotReads.ts`: skipped when
+        // this tab already holds the change - a change it made itself, read after
+        // its answer - and otherwise read without cancelling a read in progress.
         //
         // **The snapshot only.** The list below is 500 bytes and is not what
         // `upTo` says anything about, so skipping it on a current snapshot
         // would leave a workspace renamed elsewhere wearing its old name in the
         // bar - reachable without anyone making a change here at all, since a
         // snapshot refetched on window focus is enough to satisfy the guard.
-        if (!alreadyHas(queryClient, parsed.data)) {
-          void queryClient.invalidateQueries({
-            queryKey: ['snapshot', parsed.data.workspaceId],
-          });
-        }
+        readForAnnouncement(queryClient, parsed.data);
         // The list too, because creating a workspace is announced on the new
         // workspace and nothing else would ever refetch it - so another tab
         // would keep showing the tabs it had when it loaded. The event says
@@ -122,12 +116,6 @@ export function useServerEvents() {
         // (architecture, "The read model"), so the list is revalidated rather
         // than reasoned about.
         void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-        // A change to the whole account names the account rather than a
-        // workspace, and every snapshot draws what it changed (the Item
-        // form's presentation), so every snapshot goes stale.
-        if (parsed.data.workspaceId === ACCOUNT_WIDE) {
-          void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
-        }
       });
 
       stream.addEventListener('error', () => {
@@ -179,21 +167,4 @@ export function useServerEvents() {
       source?.close();
     };
   }, [queryClient, chosen]);
-}
-
-/**
- * POC (own-event refetch): whether the copy this tab holds already contains the
- * change an event names (`upTo` in workspaceSnapshotSchema says why the two
- * values are comparable).
- *
- * **Every uncertainty answers "no".** A workspace with nothing cached, an event
- * about the account rather than a workspace, a copy from before this field
- * existed: all of them refetch, which is what the app does today anyway. The
- * only case that skips is the one where the tab can prove it is not needed.
- */
-function alreadyHas(queryClient: QueryClient, event: ServerEvent): boolean {
-  if (event.type !== 'snapshot_invalidated' || !event.at) return false;
-  const held = queryClient.getQueryData<WorkspaceSnapshot>(['snapshot', event.workspaceId]);
-  if (!held?.upTo) return false;
-  return held.upTo >= event.at;
 }

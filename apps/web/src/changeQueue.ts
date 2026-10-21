@@ -1,6 +1,6 @@
-import type { CommandResult, WorkspaceSnapshot } from '@cockpit/shared';
+import type { CommandResult, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
-import { DRAWN_AHEAD, drawnOver } from './drawnAhead';
+import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver } from './drawnAhead';
 
 /**
  * The changes this tab has made, in the order it made them ("Show an Item or
@@ -21,17 +21,45 @@ import { DRAWN_AHEAD, drawnOver } from './drawnAhead';
  * before the answer may not hold the change, so it must not flip the screen
  * back; one begun after must, so another device's later write wins from then on.
  * Both moments are counted on one clock (`tick`) rather than timed, so which came
- * first is never a question about milliseconds.
+ * first is never a question about milliseconds. The one exception is a read that
+ * began earlier but whose `upTo` is at or after the stamp the answer gave: it
+ * holds the change, so the change stops being drawn when it lands.
+ *
+ * **A Workspace change is drawn over the list of Workspaces, and read for
+ * there**: a rename, a colour, a delete or an order stops being drawn when a
+ * read of the list that began after its answer lands, and no Workspace's own
+ * read ends it.
  */
 export interface ChangeQueue {
-  /** Joins the queue, draws at once, and settles with the server's answer or its refusal. */
-  enqueue(change: CommandArgs): Promise<CommandResult>;
+  /**
+   * Joins the queue, draws at once, and settles with the server's answer or its refusal.
+   * `answered` is called the moment the answer is in, before anything watching the queue
+   * hears of it: what lets a read owed for the change be registered before the queue is
+   * seen to have emptied.
+   */
+  enqueue(change: CommandArgs, answered?: (result: CommandResult) => void): Promise<CommandResult>;
   /** The copy as the server sent it, with every change not yet covered by a read drawn over it. */
   drawnOver(snapshot: WorkspaceSnapshot): WorkspaceSnapshot;
-  /** A read of a Workspace is starting: the mark to hand back when it lands. */
+  /**
+   * The list of Workspaces as the server sent it, with the Workspace changes not
+   * yet covered by a read of the list drawn over it ("Show a Workspace rename,
+   * colour, delete or reorder the moment you make it", issue 1365).
+   */
+  drawnList(list: WorkspaceList): WorkspaceList;
+  /** Whether a delete of this Workspace has been made and its list not yet read: the Workspace is not there to read. */
+  deleting(workspaceId: string): boolean;
+  /** A read of a Workspace, or of the list of them, is starting: the mark to hand back when it lands. */
   readStarted(): number;
-  /** A read that started at `startedAt` has landed in the held copy. */
-  readLanded(workspaceId: string, startedAt: number): void;
+  /**
+   * A read that started at `startedAt` has landed in the held copy: of the
+   * Workspace `scope` names, or of the list of Workspaces for `null`. Each
+   * covers its own changes only, so a Workspace's read landing never ends a
+   * rename the list has not yet been read for. `upTo` is the newest change that
+   * read holds (`workspaceSnapshotSchema`): one begun before an answer still
+   * holds the change when its stamp is no later, so the change stops being drawn
+   * then too, instead of waiting for a read that need not be made.
+   */
+  readLanded(scope: string | null, startedAt: number, upTo?: string): void;
   /** Stops drawing the changes the server has answered, without waiting for a read: what signing out does. */
   forgetAnswered(): void;
   /** How many changes are waiting to be sent or out unanswered. */
@@ -46,6 +74,9 @@ interface Entry {
   state: 'waiting' | 'sending' | 'answered';
   /** The tick the answer arrived at, once it has. */
   answeredAt: number;
+  /** When the server stored it, as its answer said, if it did (`commandResultSchema`'s `at`). */
+  stamp: string | undefined;
+  answered: ((result: CommandResult) => void) | undefined;
   settle: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void };
 }
 
@@ -119,9 +150,11 @@ export function createChangeQueue(options: {
           if (DRAWN_AHEAD.has(next.change.name)) {
             next.state = 'answered';
             next.answeredAt = ++tick;
+            next.stamp = result.at;
           } else {
             drop(next);
           }
+          next.answered?.(result);
           changed();
           next.settle.resolve(result);
         } catch (error) {
@@ -139,9 +172,9 @@ export function createChangeQueue(options: {
   }
 
   return {
-    enqueue(change) {
+    enqueue(change, answered) {
       return new Promise<CommandResult>((resolve, reject) => {
-        entries.push({ change, state: 'waiting', answeredAt: 0, settle: { resolve, reject } });
+        entries.push({ change, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
         changed();
         void pump();
       });
@@ -152,11 +185,21 @@ export function createChangeQueue(options: {
         entries.map((entry) => entry.change),
       );
     },
+    drawnList: (list) =>
+      listDrawnOver(
+        list,
+        entries.map((entry) => entry.change),
+      ),
+    deleting: (workspaceId) =>
+      entries.some((entry) => entry.change.name === 'delete_workspace' && entry.change.payload.workspaceId === workspaceId),
     readStarted: () => ++tick,
-    readLanded(workspaceId, startedAt) {
+    readLanded(scope, startedAt, upTo) {
       const covered = entries.filter(
         (entry) =>
-          entry.state === 'answered' && entry.change.payload.workspaceId === workspaceId && entry.answeredAt < startedAt,
+          entry.state === 'answered' &&
+          WORKSPACE_LIST_CHANGES.has(entry.change.name) === (scope === null) &&
+          (scope === null || entry.change.payload.workspaceId === scope) &&
+          (entry.answeredAt < startedAt || (entry.stamp !== undefined && upTo !== undefined && upTo >= entry.stamp)),
       );
       if (covered.length === 0) return;
       covered.forEach(drop);

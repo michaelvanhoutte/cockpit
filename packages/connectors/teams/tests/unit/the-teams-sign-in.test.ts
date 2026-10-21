@@ -68,29 +68,49 @@ describe('Connector management', () => {
     });
   });
 
-  describe('a connected source account is listed under a name that says whose it is', () => {
+  describe('a connected source account is listed under the address it signs in with, and under the name only where there is none', () => {
     it.each([
       {
-        situation: 'the name the source gives',
+        situation: 'a name and a sign-in address',
         claims: { name: '  Ada Lovelace ', preferred_username: 'ada@atlas.example' },
-        called: 'Ada Lovelace',
+        called: 'ada@atlas.example',
       },
       {
-        situation: 'the address it signs in with, where the source gives no name',
+        situation: 'a sign-in address, where the source gives no name',
         claims: { preferred_username: 'ada@atlas.example' },
         called: 'ada@atlas.example',
       },
       {
-        situation: 'its other address, where there is no name and no username',
+        situation: 'an email, where there is no name and no sign-in address',
         claims: { email: 'ada@atlas.example' },
         called: 'ada@atlas.example',
       },
       {
-        situation: 'which account it is, where the source says nothing readable at all',
+        situation: 'a name and an email, with no sign-in address',
+        claims: { name: 'Ada Lovelace', email: 'ada@atlas.example' },
+        called: 'ada@atlas.example',
+      },
+      {
+        situation: 'a sign-in address and a different email',
+        claims: { preferred_username: 'ada@atlas.example', email: 'ada.lovelace@home.example' },
+        called: 'ada@atlas.example',
+      },
+      {
+        situation: 'a name and no address',
+        claims: { name: 'Ada Lovelace' },
+        called: 'Ada Lovelace',
+      },
+      {
+        situation: 'an address of spaces only, which is read as no address',
+        claims: { preferred_username: '   ', name: 'Ada Lovelace' },
+        called: 'Ada Lovelace',
+      },
+      {
+        situation: 'nothing readable at all',
         claims: { tid: 'atlas', oid: 'ada' },
         called: 'Microsoft account atlas:ada',
       },
-    ])('is called $situation', ({ claims, called }) => {
+    ])('$situation, listed as $called', ({ claims, called }) => {
       expect(accountFor({ sub: 's', ...claims })).toMatchObject({ displayName: called });
     });
 

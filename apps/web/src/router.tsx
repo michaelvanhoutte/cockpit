@@ -29,9 +29,12 @@ import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
 import { AllItemsPage } from './pages/AllItemsPage';
 const DemoPage = lazy(() => import('./pages/DemoPage'));
+// Seen once, by an account with no workspace, so not part of what every open downloads.
+const FirstWorkspacePage = lazy(() =>
+  import('./pages/FirstWorkspacePage').then((page) => ({ default: page.FirstWorkspacePage })),
+);
 import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
-import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
 import { whereToLand } from './landing';
 import { Layout } from './pages/Layout';
 import { LogonPage } from './pages/LogonPage';
@@ -95,7 +98,7 @@ async function orTheLogonPage<T>(read: Promise<T>): Promise<T> {
  * one at all.
  */
 const somewhereThatWorks = async (queryClient: QueryClient, room: boolean) => {
-  const { workspaces } = await orTheLogonPage(readFor(queryClient, workspacesQuery));
+  const { workspaces } = await workspacesOf(queryClient);
   // **Only from here**, so a link to a dashboard goes where it says. A phone
   // opens on Capture (`landing.ts`).
   const landing = whereToLand(workspaces, room);
@@ -110,7 +113,7 @@ const somewhereThatWorks = async (queryClient: QueryClient, room: boolean) => {
  * lands you on a workspace that works instead of on a failed snapshot read.
  */
 const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string) => {
-  const { workspaces } = await orTheLogonPage(readFor(queryClient, workspacesQuery));
+  const { workspaces } = await workspacesOf(queryClient);
   // At desk width whatever the screen: a link to a workspace is not a bare `/`,
   // so it never lands on Capture.
   if (!workspaces.some((w) => w.id === workspaceId)) await somewhereThatWorks(queryClient, true);
@@ -137,6 +140,16 @@ const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string)
  */
 const snapshotOf = async (queryClient: QueryClient, workspaceId: string) =>
   changes.drawnOver(await orTheLogonPage(readFor(queryClient, snapshotQuery(workspaceId))));
+
+/**
+ * The Workspaces, drawn over with this tab's unanswered changes, so a Workspace
+ * deleted a moment ago is one the routes below no longer find, and the one
+ * deleting the open Workspace lands on is chosen from the list as it now is
+ * ("Show a Workspace rename, colour, delete or reorder the moment you make it",
+ * issue 1365).
+ */
+const workspacesOf = async (queryClient: QueryClient) =>
+  changes.drawnList(await orTheLogonPage(readFor(queryClient, workspacesQuery)));
 
 /**
  * The logon page, and the only address that works before you have signed in.
@@ -180,13 +193,17 @@ const startRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/start',
   beforeLoad: async ({ context }) => {
-    const { workspaces } = await orTheLogonPage(
-      readFor(context.queryClient, workspacesQuery),
-    );
+    const { workspaces } = await workspacesOf(context.queryClient);
     const first = workspaces[0];
     if (first) throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
   },
-  component: FirstWorkspacePage,
+  component: function FirstWorkspaceRoute() {
+    return (
+      <Suspense fallback={null}>
+        <FirstWorkspacePage />
+      </Suspense>
+    );
+  },
 });
 
 /**
@@ -358,9 +375,7 @@ export const allItemsRoute = createRoute({
 const capturing =
   (loadView: () => Promise<unknown>) =>
   async ({ context }: { context: { queryClient: QueryClient } }) => {
-    const { workspaces } = await orTheLogonPage(
-      readFor(context.queryClient, workspacesQuery),
-    );
+    const { workspaces } = await workspacesOf(context.queryClient);
     // No workspace to capture from is an account with none, since every other
     // answer falls back to the first one there is (`lastVisited.ts`).
     if (!workspaceToCaptureFrom(browserStore(), workspaces)) throw redirect({ to: '/start' });

@@ -224,7 +224,7 @@ describe('Offline', () => {
       });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ ok: true, applied: false });
+      expect(await response.json()).toEqual({ ok: true, applied: false, at: expect.any(String) });
       const [item] = await storedIn('items', 'id', itemId);
       expect(item?.completed_at).toBe('2026-08-12T12:00:00.000Z');
       // Still recorded, so the history stays complete even when nothing moved.

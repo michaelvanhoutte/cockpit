@@ -28,7 +28,8 @@ import {
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
-import { useSendCommand, workspacesQuery } from '../api/queries';
+import { useSendCommand } from '../api/queries';
+import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshot } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
@@ -902,7 +903,7 @@ function TheForm({
   const setDraft =(now: Draft) => changeEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const { data: workspaceList } = useQuery(workspacesQuery);
+  const { data: workspaceList } = useWorkspaces();
   /** The *On panels* field: written at once docked, held for Save otherwise (issue 1106). */
   const onPanels = useItemPanels({ item, workspaceId, data, docked });
   /**

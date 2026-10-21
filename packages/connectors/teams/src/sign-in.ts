@@ -57,7 +57,8 @@ export function teamsAccountFrom(reply: SignInReply): ConnectedAccountIdentity |
   // **No `email_verified` here, unlike signing in.** Nothing is keyed on the
   // address - the key above is - so an address Microsoft has not checked is a
   // label on a row rather than a way into somebody's account.
-  const displayName = text(claims.name) || text(claims.preferred_username) || text(claims.email);
+  // The sign-in address first, as Gmail names its connections, so two accounts under one name stay apart.
+  const displayName = text(claims.preferred_username) || text(claims.email) || text(claims.name);
   return { key, displayName: displayName || `Microsoft account ${key}` };
 }
 

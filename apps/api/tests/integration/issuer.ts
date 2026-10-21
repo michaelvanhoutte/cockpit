@@ -40,6 +40,12 @@ export interface Claims {
   /** What Google calls them, which it gives for the `profile` scope. */
   name?: string;
   /**
+   * The address a person signs in with, which Microsoft puts on a token and
+   * Google does not - what an Outlook or Teams connection is named by before
+   * its email (packages/connectors/outlook/src/sign-in.ts).
+   */
+  preferredUsername?: string;
+  /**
    * The directory and the person inside it, which Microsoft puts on a token
    * and Google does not - what a connected Teams account is keyed on
    * (packages/connectors/teams/src/sign-in.ts), and so what an inbound saved message has to
@@ -222,6 +228,7 @@ export async function identityToken({
   subject = `google|${email}`,
   emailVerified = true,
   name,
+  preferredUsername,
   tenant,
   object,
 }: Claims): Promise<string> {
@@ -231,6 +238,7 @@ export async function identityToken({
     email,
     email_verified: emailVerified,
     ...(name ? { name } : {}),
+    ...(preferredUsername ? { preferred_username: preferredUsername } : {}),
     ...(tenant ? { tid: tenant } : {}),
     ...(object ? { oid: object } : {}),
   })

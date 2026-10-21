@@ -141,8 +141,6 @@ export interface PanelCardProps {
    * can tell a double-tap from two taps.
    */
   onTap?: ((at: number) => void) | null;
-  /** Why the last change to this panel did not happen, if it did not. */
-  refusal: string | null;
 }
 
 export function PanelCard({
@@ -163,7 +161,6 @@ export function PanelCard({
   collapsed = false,
   onPickUp,
   onTap = null,
-  refusal,
 }: PanelCardProps) {
   // What this panel is made of, and so what its well holds, what its header
   // says beside its name and what its menu offers.
@@ -566,15 +563,6 @@ export function PanelCard({
         data-drag-scroll={text ? undefined : 'panel'}
         className={`well m-1 min-h-0 flex-1 ${text ? 'flex flex-col overflow-hidden' : 'overflow-auto'}`}
       >
-        {/* Above the list rather than instead of it. Refusing a rename says
-            nothing about what the panel holds, and hiding the items while
-            somebody decides what else to call it takes away the thing they are
-            naming. */}
-        {refusal && (
-          <p role="alert" className="px-3 py-3 text-sm text-over-ink">
-            {refusal}
-          </p>
-        )}
         {text ? (
           <PanelText panel={panel} workspaceId={workspaceId} />
         ) : (

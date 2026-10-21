@@ -7,7 +7,8 @@ import { ADMIN, GUEST_USER_ID, paintedWorkspace, shellColours, uuidv7 } from '@c
 import { useAllItemsOnScreen } from '../allItemsTab';
 import { useAppearance } from '../appearance';
 import { NotSignedIn, signOut } from '../api/client';
-import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
+import { meQuery, refusalFrom, snapshotQuery, useCommand } from '../api/queries';
+import { useWorkspaces } from '../api/useWorkspaces';
 import { useServerEvents } from '../api/useServerEvents';
 // Out of the initial bundle - the same boundary `ManageConnections` draws
 // around itself in WorkspaceTabs.tsx - the Panel list column; its published
@@ -118,7 +119,7 @@ function TheShell() {
   useServerEvents();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data } = useQuery(workspacesQuery);
+  const { data } = useWorkspaces();
   const params = useParams({ strict: false });
   /**
    * Whether the Capture page is the page you are on, which is the only thing

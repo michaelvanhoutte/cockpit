@@ -1127,7 +1127,7 @@ describe('Panels', () => {
       const ask = () =>
         send('set_panel_never_propose', { workspaceId: WORKSPACE_ID, panelId, neverPropose: true, commandId });
 
-      expect(await (await ask()).json()).toEqual({ ok: true, applied: true });
+      expect(await (await ask()).json()).toEqual({ ok: true, applied: true, at: expect.any(String) });
       expect(await (await ask()).json()).toEqual({ ok: true, applied: false });
 
       const logged = await inTheStore(

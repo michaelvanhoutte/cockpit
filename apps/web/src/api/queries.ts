@@ -26,6 +26,7 @@ import {
 } from './client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
 import { changes, readOfWorkspaceBegins, watchWorkspaceReads } from './changes';
+import { readAfterOwnChange } from './snapshotReads';
 
 /** A change sent as it is, refused first while offline (`offline.ts`). */
 function unlessOffline<A, R>(send: (argument: A) => Promise<R>): (argument: A) => Promise<R> {
@@ -52,7 +53,12 @@ export const meQuery = queryOptions({
 
 export const workspacesQuery = queryOptions({
   queryKey: ['workspaces'],
-  queryFn: fetchWorkspaces,
+  queryFn: ({ client }) => {
+    // Marked as it starts, for the reason a Workspace's read is (`snapshotQuery`).
+    watchWorkspaceReads(client);
+    readOfWorkspaceBegins(null);
+    return fetchWorkspaces();
+  },
   staleTime: 60_000,
 });
 
@@ -249,7 +255,7 @@ export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> 
   const queryClient = useQueryClient();
   return useCallback(
     async (args: CommandArgs) => {
-      const answer = await sendChange(args);
+      const answer = await sendChange(args, queryClient);
       await afterChanging(queryClient, args);
       return answer;
     },
@@ -323,6 +329,23 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
   );
 }
 
+/** Which Workspace's snapshot a change leaves out of date: '' for every one. */
+const snapshotsReadAfter = (args: CommandArgs): string => (everyWorkspaceCanSee(args) ? '' : args.payload.workspaceId);
+
+/**
+ * The changes `afterChanging` answers itself, and that leave their Workspace's
+ * snapshot as it was or are read for in their own way: a deleted Workspace's is
+ * dropped, a connection change reads its own query, and the Item form's
+ * presentation reads every snapshot.
+ */
+const NOT_READ_BACK_WITH_THE_SNAPSHOT = new Set<ClientCommandName>([
+  'delete_workspace',
+  'disconnect_source_account',
+  'set_connection_choice',
+  'set_connection_files_by_name',
+  'set_item_form_presentation',
+]);
+
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
   if (
     args.name === 'disconnect_source_account' ||
@@ -340,13 +363,13 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
   }
 
   if (args.name === 'delete_workspace') {
-    // Dropped, not re-read. There is nothing to revalidate: the snapshot of a
+    // Its snapshot is dropped, not re-read. There is nothing to revalidate: the snapshot of a
     // deleted workspace is a 404 for good, so invalidating it would fetch one
     // on every delete. And the copy has to go rather than merely go stale - the
     // cache is persisted for a week (persistence.tsx), so leaving it there means a
     // deleted workspace's items can still be painted from it.
     queryClient.removeQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
-    return;
+    // And the list is read below, which is what ends drawing the delete.
   }
 
   if (args.name === 'set_item_form_presentation') {
@@ -359,13 +382,10 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     return queryClient.invalidateQueries({ queryKey: ['snapshot'] });
   }
 
-  // Read again behind the change, not waited for: it is drawn already and stays
-  // drawn until a read that began after its answer has landed (`changeQueue.ts`).
-  void queryClient.invalidateQueries(
-    everyWorkspaceCanSee(args)
-      ? { queryKey: ['snapshot'] }
-      : { queryKey: ['snapshot', args.payload.workspaceId] },
-  );
+  // A change that went through the queue is read for when its answer came in,
+  // and once the queue empties (`sendChange`): not once per change. A capture
+  // does not go through it, and is read for here.
+  if (args.name === 'capture_item') readAfterOwnChange(queryClient, snapshotsReadAfter(args));
   // Only the changes that alter which workspaces there are, so triaging an item
   // does not refetch the list on every click.
   if (CHANGES_THE_WORKSPACE_LIST.has(args.name)) {
@@ -389,6 +409,11 @@ export function refusalFrom(command: { error: unknown }): string | null {
   return command.error ? 'That did not reach the server. Try again.' : null;
 }
 
+/** Why a change did not happen, in the server's words where it gave any, for the undo bar to say. */
+export function whyNotDone(failure: unknown): string {
+  return refusalFrom({ error: failure }) ?? 'That could not be done.';
+}
+
 /**
  * Changes are refused while offline, found or chosen, before they are sent: a
  * paused request would sit unsent and read as saved. A capture is the exception;
@@ -406,16 +431,24 @@ function refuseUnlessCapture(args: CommandArgs): void {
  * own, is already shown the moment it is made, and must not wait behind a slow
  * change to something else.
  */
-async function sendChange(args: CommandArgs): Promise<CommandResult> {
+async function sendChange(args: CommandArgs, queryClient: QueryClient): Promise<CommandResult> {
   refuseUnlessCapture(args);
   if (args.name === 'capture_item') return sendCommand(args.name, args.payload);
-  return changes.enqueue(args);
+  // Read again behind the change, not waited for: it is drawn already and stays
+  // drawn until a read that began after its answer has landed (`changeQueue.ts`).
+  // Registered as the answer comes in, so a burst is read once when it ends
+  // (`snapshotReads.ts`).
+  return changes.enqueue(args, (answer) => {
+    if (!NOT_READ_BACK_WITH_THE_SNAPSHOT.has(args.name)) {
+      readAfterOwnChange(queryClient, snapshotsReadAfter(args), answer.at);
+    }
+  });
 }
 
 export function useCommand() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: sendChange,
+    mutationFn: (args: CommandArgs) => sendChange(args, queryClient),
     // Returned rather than called and dropped, because React Query waits on
     // what a mutation's own `onSuccess` returns. Only the changes that read a
     // query of their own back hand it a promise (`afterChanging`); for the rest

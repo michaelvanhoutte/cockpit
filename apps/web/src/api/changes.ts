@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { CommandResult } from '@cockpit/shared';
+import type { CommandResult, WorkspaceSnapshot } from '@cockpit/shared';
 import { createChangeQueue } from '../changeQueue';
 import { refuseWhileOffline } from '../offline';
 import { sendCommand } from './client';
@@ -37,25 +37,26 @@ export const changes = createChangeQueue({
 });
 
 /**
- * When each Workspace's read in flight began, on the queue's clock. A read
- * lands in the held copy as one success event, and whether the changes it
- * outlives are in it depends on when it *began*.
+ * When each read in flight began, on the queue's clock: a Workspace's by its
+ * id, the list of Workspaces' by `''`. A read lands in the held copy as one
+ * success event, and whether the changes it outlives are in it depends on when
+ * it *began*.
  */
 const readsBegunAt = new Map<string, number>();
 
-/** A Workspace read is starting. */
-export function readOfWorkspaceBegins(workspaceId: string): void {
-  readsBegunAt.set(workspaceId, changes.readStarted());
+/** A Workspace read is starting, or - with `null` - a read of the list of them. */
+export function readOfWorkspaceBegins(workspaceId: string | null): void {
+  readsBegunAt.set(workspaceId ?? '', changes.readStarted());
 }
 
 const watched = new WeakSet<QueryClient>();
 
 /**
- * Tells the queue each time a Workspace read lands in the held copy, so the
- * changes it covers stop being drawn over it. Done from the cache's own event
- * rather than from the read itself, so the held copy and the list of drawn
- * changes move in the same step and nothing is drawn without the change in
- * between.
+ * Tells the queue each time a Workspace read, or a read of the list of them,
+ * lands in the held copy, so the changes it covers stop being drawn over it.
+ * Done from the cache's own event rather than from the read itself, so the held
+ * copy and the list of drawn changes move in the same step and nothing is drawn
+ * without the change in between.
  */
 export function watchWorkspaceReads(client: QueryClient): void {
   if (watched.has(client)) return;
@@ -63,8 +64,12 @@ export function watchWorkspaceReads(client: QueryClient): void {
   client.getQueryCache().subscribe((event) => {
     if (event.type !== 'updated' || event.action.type !== 'success' || event.action.manual) return;
     const [kind, workspaceId] = event.query.queryKey;
-    if (kind !== 'snapshot' || typeof workspaceId !== 'string') return;
-    const begunAt = readsBegunAt.get(workspaceId);
-    if (begunAt !== undefined) changes.readLanded(workspaceId, begunAt);
+    const scope = kind === 'workspaces' ? null : kind === 'snapshot' && typeof workspaceId === 'string' ? workspaceId : undefined;
+    if (scope === undefined) return;
+    const begunAt = readsBegunAt.get(scope ?? '');
+    if (begunAt !== undefined) {
+      // The list holds no stamp, so only when its read began covers a change.
+      changes.readLanded(scope, begunAt, (event.query.state.data as WorkspaceSnapshot | undefined)?.upTo);
+    }
   });
 }

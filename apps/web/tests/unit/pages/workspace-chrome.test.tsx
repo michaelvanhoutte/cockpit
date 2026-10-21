@@ -3,6 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NEUTRAL_GROUND, NEUTRAL_HEADER, WORKSPACE_THEMES } from '@cockpit/shared';
+import { changes } from '../../../src/api/changes';
+import { sendCommand } from '../../../src/api/client';
 import { Layout } from '../../../src/pages/Layout';
 import { litForChrome } from '../../../src/chrome';
 import { WHAT_A_WORKSPACE_IS } from '../../../src/whatThingsAre';
@@ -61,6 +63,11 @@ vi.mock('@tanstack/react-router', () => ({
   // cases are inside a workspace, which is never that page.
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({ location: { pathname: '/w/a-workspace' } }),
+}));
+
+vi.mock('../../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  sendCommand: vi.fn(),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
@@ -273,6 +280,32 @@ describe('Workspace management', () => {
         expect(shell.topBarIsGraphite).toBe(true);
         expect(shell.topBarFill).toBe(rgb(NEUTRAL_HEADER));
       }
+    });
+
+    it('paints the band and the accent in a colour picked and not yet answered', async () => {
+      let answer = () => {};
+      vi.mocked(sendCommand).mockImplementationOnce(
+        () => new Promise((resolve) => (answer = () => resolve({ ok: true, applied: true }))),
+      );
+      const picked = changes.enqueue({
+        name: 'set_workspace_theme',
+        payload: {
+          commandId: 'c-teal',
+          issuedAt: '2026-10-21T09:00:00.000Z',
+          workspaceId: 'ws-blue',
+          color: TEAL.tint,
+          bar: TEAL.bar,
+          ground: TEAL.ground,
+          header: TEAL.header,
+        },
+      });
+
+      const shell = await worn('ws-blue', 'Blue workspace');
+      answer();
+      await picked;
+      changes.forgetAnswered();
+
+      expect(shell).toMatchObject({ band: rgb(TEAL.bar), tab: rgb(TEAL.bar), accent: TEAL.tint, deepAccent: TEAL.deep });
     });
 
     it('paints a workspace wearing colours the palette no longer has in the theme its tint belongs to', async () => {
