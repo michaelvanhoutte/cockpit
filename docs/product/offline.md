@@ -4,8 +4,9 @@
 
 - **Reads offline:** what was saved, where this version can still read it — the Workspaces, Dashboards and Items you have opened, and an Item's history once opened. Files are never saved.
 - **Nothing to show** says "Cockpit can't be reached" with *Try again*, and either that nothing is saved here to show, or that what is saved was saved in a shape this version can't read and will be again once you've been online with this version.
-- **While offline, every change except a capture is refused** with "You're working offline"; a capture waits in the outbox.
+- **While offline, every change except a capture is refused** with "You're working offline"; a capture waits in the outbox. Offline found while changes are queued behind the one being sent sends every one of them back the same way.
 - **The header shows an outlined ● Offline · saved 14:32 pill** left of the account menu while offline, found or chosen, the time being when the Workspace read on screen was saved (dropped on a phone). Pressing it opens the account menu.
+- **A small pulsing cloud with an up-arrow, the saving sign,** sits in the same place on desk and phone once a change this tab made has waited 500 ms for the server, and goes when the last is answered or refused; hovering or long-pressing says *Saving 2 changes…*. Each tab counts its own. Leaving the tab while it shows brings up the browser's *Leave site?* warning, since a change not yet sent is kept only in the tab and is lost with it.
 - **Offline also starts mid-visit** when a read gets no answer, or the live stream drops, and the server cannot be reached; it ends when the server answers again.
 - **Work offline**, above Sign out in the account menu on desk and phone, reads **Go online** while offline. Working offline reads nothing from the server, closes the live stream, keeps captures waiting in the outbox, and is remembered on this device (every tab of it follows) until Go online, which also re-reads everything on screen and sends the outbox. A refused change offers Go online. Reloading while working offline opens at once from what was saved, without the 3 s wait.
 - New incoming messages only arrive when online.

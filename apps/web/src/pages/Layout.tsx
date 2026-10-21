@@ -20,6 +20,9 @@ const SettingsWindow = lazy(() => import('../components/SettingsWindow'));
 const PlatformSettingsWindow = lazy(() => import('../components/PlatformSettingsWindow'));
 // And the shortcut tip's toast and wording, fetched with the first tip.
 const ShortcutTip = lazy(() => import('../components/ShortcutTip'));
+// The saving sign shows only once a change has waited half a second, so it is
+// fetched after the first paint; the queue and its leave-site guard stay in the bundle.
+const SavingMark = lazy(() => import('../components/SavingMark'));
 import { DashboardBar } from '../components/DashboardBar';
 import { GoOnlineOffer, OfflineMark } from '../components/OfflineMark';
 import { goOnline, workOffline } from '../opening';
@@ -896,6 +899,9 @@ function TheShell() {
           </WorkspaceTabs>
 
           <div className="flex shrink-0 items-end">
+            <Suspense fallback={null}>
+              <SavingMark />
+            </Suspense>
             <OfflineMark
               savedAt={workspace.data ? workspace.dataUpdatedAt : undefined}
               onPress={() => setProfileMenuOpen(true)}

@@ -1,5 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
-import { snapshotQuery } from '../api/queries';
+import { useSnapshot } from '../api/useSnapshot';
 import { dashboardRoute } from '../router';
 import { LoadFailure } from '../components/LoadFailure';
 import { PanelBoard } from '../components/PanelBoard';
@@ -17,7 +16,7 @@ import { itemsLeftOut } from '../persistence';
  */
 export function DashboardPage() {
   const { workspaceId, dashboardId } = dashboardRoute.useParams();
-  const { data, dataUpdatedAt, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
+  const { data, dataUpdatedAt, isLoading, error, refetch } = useSnapshot(workspaceId);
   const leftOut = itemsLeftOut(workspaceId, dataUpdatedAt);
 
   if (error && !data) {

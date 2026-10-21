@@ -28,7 +28,8 @@ import {
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
-import { snapshotQuery, useSendCommand, workspacesQuery } from '../api/queries';
+import { useSendCommand, workspacesQuery } from '../api/queries';
+import { useSnapshot } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
 import { useItemPanels } from '../useItemPanels';
@@ -253,7 +254,7 @@ function TheForm({
   fixedPresentation: ItemFormPresentation | null;
   setFixedPresentation: (presentation: ItemFormPresentation | null) => void;
 }) {
-  const { data, isLoading, isFetching } = useQuery(snapshotQuery(workspaceId));
+  const { data, isLoading, isFetching } = useSnapshot(workspaceId);
   const queryClient = useQueryClient();
   const send = useSendCommand();
   const offerToUndo = useUndo();
@@ -448,7 +449,7 @@ function TheForm({
    * same way back, and the form closes because the Item it was open on has
    * left every list. The other note stays.
    */
-  const dismissAsDuplicate = async () => {
+  const dismissAsDuplicate = () => {
     // Dismissing ends the Item's open run; the undo names it, as the row's does.
     const endedRunId = data?.agentRuns?.find((run) => run.itemId === itemId)?.id;
     const endedFor = (dismissed: boolean) => ({
@@ -459,14 +460,17 @@ function TheForm({
       dismissed,
       ...(!dismissed && endedRunId && { reopensRunId: endedRunId }),
     });
-    try {
-      await send({ name: 'set_dismissed', payload: endedFor(true) });
-    } catch (failure) {
-      setRefusal(failure instanceof Error ? failure.message : 'That could not be dismissed');
-      return;
-    }
+    const label = item ? itemLabel(item) : 'Note';
+    // Drawn at once, so the Item is already gone from every list and this form
+    // has nothing left to show: it closes and offers the way back at the click,
+    // and a refusal is said in the bar, where the offer was.
+    send({ name: 'set_dismissed', payload: endedFor(true) }).catch((failure: unknown) => {
+      offerToUndo({
+        what: `“${label}” was not dismissed. ${failure instanceof Error ? failure.message : 'That could not be dismissed'}`,
+      });
+    });
     offerToUndo({
-      what: `“${item ? itemLabel(item) : 'Note'}” dismissed`,
+      what: `“${label}” dismissed`,
       undo: () => send({ name: 'set_dismissed', payload: endedFor(false) }),
     });
     onClose();
@@ -1018,44 +1022,58 @@ function TheForm({
    * One field's change, or - for a status moving between To do, In progress and
    * Done - the two the row's own rules can make it, one after the other.
    *
+   * **Handed to the tab's queue before it returns**, so the change is drawn on
+   * the rows at once (`changeQueue.ts`); `settled` answers once the server has.
+   * `reaches` is what the item holds if every write lands, known without waiting.
+   *
    * **A refusal is returned, not thrown, with what the item holds.** A status
    * change from Done can land its first command and not its second, leaving the
    * item no longer Done and not yet what was chosen; the caller puts the box
    * and its baseline on `held` so the form shows the status the item has.
    */
-  const writeField = async (
+  const startField = (
     field: Field,
     value: ReturnType<typeof asStored>,
     from: Draft,
     /** An undo of a Done names the run that Done ended, so the server reopens exactly that one. */
     reopensRunId?: string,
-  ): Promise<{ failure: string | null; held: StatusState | null }> => {
-    let held: StatusState | null = null;
-    for (const write of fieldWrites(field, envelope, value, from)) {
-      const command =
+  ): { reaches: StatusState | null; settled: Promise<{ failure: string | null; held: StatusState | null }> } => {
+    const writes = fieldWrites(field, envelope, value, from).map((write) => ({
+      ...write,
+      command:
         reopensRunId && write.command.name === 'set_done' && !write.command.payload.done
           ? { ...write.command, payload: { ...write.command.payload, reopensRunId } }
-          : write.command;
-      let failure: string | null = null;
-      try {
-        if (!(await send(command)).applied) failure = CHANGED_ELSEWHERE;
-      } catch (error) {
-        failure = error instanceof Error ? error.message : 'That could not be saved';
+          : write.command,
+    }));
+    const sends = writes.map((write) => send(write.command));
+    // Awaited in order below; a refusal met before its turn is not unhandled.
+    sends.forEach((sent) => sent.catch(() => {}));
+    const settled = (async () => {
+      let held: StatusState | null = null;
+      for (const [at, write] of writes.entries()) {
+        let failure: string | null = null;
+        try {
+          if (!(await sends[at]!).applied) failure = CHANGED_ELSEWHERE;
+        } catch (error) {
+          failure = error instanceof Error ? error.message : 'That could not be saved';
+        }
+        if (failure !== null) {
+          return field === 'status'
+            ? {
+                failure: `The status change failed. ${failure}`,
+                held: held ?? { status: from.status, started: from.started },
+              }
+            : { failure, held: null };
+        }
+        held = write.held;
       }
-      if (failure !== null) {
-        return field === 'status'
-          ? {
-              failure: `The status change failed. ${failure}`,
-              held: held ?? { status: from.status, started: from.started },
-            }
-          : { failure, held: null };
-      }
-      held = write.held;
-    }
-    // A title or description the person has now set is one Cockpit's change to it no longer needs pointing out.
-    if (field === 'title' || field === 'description') markSeen.current();
-    return { failure: null, held };
+      // A title or description the person has now set is one Cockpit's change to it no longer needs pointing out.
+      if (field === 'title' || field === 'description') markSeen.current();
+      return { failure: null, held };
+    })();
+    return { reaches: writes.at(-1)?.held ?? null, settled };
   };
+  const writeField = (...args: Parameters<typeof startField>) => startField(...args).settled;
 
   const save = async () => {
     if (!item || !editing || tooLong) return;
@@ -1121,10 +1139,11 @@ function TheForm({
    * has no session boundary for Save to be, and would sit holding an hour of
    * unsaved edits. The same four commands `save` sends, one per field.
    *
-   * **Sent one at a time, each reading the boxes as they are when its turn
-   * comes.** A blur and the next blur can land a round trip apart, and a
-   * second commit started against a baseline the first has not yet moved would
-   * send the same field twice.
+   * **Handed to the queue at the gesture, each reading the boxes as they are
+   * then.** A blur and the next blur can land a round trip apart, and a second
+   * commit started against a baseline the first has not yet moved would send the
+   * same field twice - so the baseline moves as a write is handed over, and goes
+   * back if it is refused. Only what the answers say waits its turn (`inTurn`).
    *
    * **A field that has not moved sends nothing**, the same `whatChanged`
    * reading `save` uses, so leaving a box unchanged, or one field's commit
@@ -1136,12 +1155,6 @@ function TheForm({
    * item no longer has.
    */
   const inTurn = useRef<Promise<void>>(Promise.resolve());
-  /**
-   * How many undos have been pressed. A commit that was asked for before one
-   * was pressed and finishes after it must not offer to undo: the bar would
-   * be handed an inverse to a value the person has just gone back past.
-   */
-  const undoneCount = useRef(0);
   /**
    * Fields a refused write left unwritten. The refusal stays up until every
    * one of them is written or put back by hand, so an unrelated field's
@@ -1155,53 +1168,72 @@ function TheForm({
    */
   const closeRefused = useRef(false);
   const commitFields = (fields: readonly Field[]): Promise<void> => {
-    const undoneAtCall = undoneCount.current;
+    // Everything up to handing the writes to the queue happens now, at the
+    // gesture, so each field is drawn on the rows at once and a second commit
+    // never waits for the first to be answered. The baseline moves with each
+    // field as it is handed over and goes back if the write is refused.
+    const held = editingRef.current;
+    if (!held) return inTurn.current;
+    const changed = whatChanged(held.was, held.now);
+    // One put back by hand is no longer unwritten, so nothing is left to refuse.
+    const wasUnwritten = unwritten.current.size;
+    for (const field of unwritten.current) {
+      if (changed[field] === undefined) unwritten.current.delete(field);
+    }
+    if (wasUnwritten > 0 && unwritten.current.size === 0) {
+      closeRefused.current = false;
+      setRefusal(null);
+    }
+    const pending = fields.filter((field) => changed[field] !== undefined);
+    if (pending.length === 0) return inTurn.current;
+    /** `after` is what the box and baseline hold once it landed, which an undo starts from. */
+    const committed: { field: Field; before: Draft[Field]; after: Partial<Draft>; endedRunId?: string }[] = [];
+    const started: {
+      field: Field;
+      before: Draft[Field];
+      after: Partial<Draft>;
+      endedRunId?: string;
+      settled: Promise<{ failure: string | null; held: StatusState | null }>;
+    }[] = [];
+    for (const field of pending) {
+      // What would be written, not what is merely held: an over-long text
+      // is refused where it stands (`tooLong`, below) and left in its box.
+      const value = asStored(held.now, field);
+      if (
+        typeof value === 'string' &&
+        value.length > (field === 'title' ? TITLE_LENGTH : DESCRIPTION_LIMIT)
+      ) {
+        continue;
+      }
+      // Done ends the Item's open run on the server; the undo names it, as the row's does.
+      const endedRunId =
+        field === 'status' && value === 'done' ? data?.agentRuns?.find((run) => run.itemId === itemId)?.id : undefined;
+      const { reaches, settled } = startField(field, value, editingRef.current!.was);
+      const after = landedAs(field, held.now[field], reaches);
+      started.push({ field, before: held.was[field], after, ...(endedRunId && { endedRunId }), settled });
+      changeEditing((now) => (now ? { ...now, was: { ...now.was, ...after } } : now));
+    }
     const turn = inTurn.current.then(async () => {
-      const held = editingRef.current;
-      if (!held) return;
-      const changed = whatChanged(held.was, held.now);
-      // One put back by hand is no longer unwritten, so nothing is left to refuse.
-      const wasUnwritten = unwritten.current.size;
-      for (const field of unwritten.current) {
-        if (changed[field] === undefined) unwritten.current.delete(field);
-      }
-      if (wasUnwritten > 0 && unwritten.current.size === 0) {
-        closeRefused.current = false;
-        setRefusal(null);
-      }
-      const pending = fields.filter((field) => changed[field] !== undefined);
-      if (pending.length === 0) return;
-      /** `after` is what the box and baseline hold once it landed, which an undo starts from. */
-      const committed: { field: Field; before: Draft[Field]; after: Partial<Draft>; endedRunId?: string }[] = [];
       let stopped: string | null = null;
-      try {
-        for (const field of pending) {
-          // What would be written, not what is merely held: an over-long text
-          // is refused where it stands (`tooLong`, below) and left in its box.
-          const value = asStored(held.now, field);
-          if (
-            typeof value === 'string' &&
-            value.length > (field === 'title' ? TITLE_LENGTH : DESCRIPTION_LIMIT)
-          ) {
-            continue;
-          }
-          // Done ends the Item's open run on the server; the undo names it, as the row's does.
-          const endedRunId =
-            field === 'status' && value === 'done' ? data?.agentRuns?.find((run) => run.itemId === itemId)?.id : undefined;
-          const { failure, held: reached } = await writeField(field, value, editingRef.current!.was);
-          if (failure !== null) {
-            // A status that did not all land shows what the item holds.
-            if (reached) settleOn(reached);
-            stopped = failure;
-            break;
-          }
-          const after = landedAs(field, held.now[field], reached);
-          committed.push({ field, before: held.was[field], after, ...(endedRunId && { endedRunId }) });
-          unwritten.current.delete(field);
-          changeEditing((now) => (now ? { ...now, was: { ...now.was, ...after } } : now));
+      for (const write of started) {
+        const { failure, held: reached } = await write.settled;
+        if (failure === null) {
+          committed.push({
+            field: write.field,
+            before: write.before,
+            after: write.after,
+            ...(write.endedRunId && { endedRunId: write.endedRunId }),
+          });
+          unwritten.current.delete(write.field);
+          continue;
         }
-      } catch (failure) {
-        stopped = failure instanceof Error ? failure.message : 'That could not be saved';
+        stopped ??= failure;
+        if (reached) {
+          // A status that did not all land shows what the item holds.
+          settleOn(reached);
+        } else {
+          changeEditing((now) => (now ? { ...now, was: { ...now.was, [write.field]: write.before } } : now));
+        }
       }
       if (stopped !== null) {
         // What the box already shows as the item holds is not left unwritten.
@@ -1217,14 +1249,20 @@ function TheForm({
         closeRefused.current = false;
         setRefusal(null);
       }
-      if (committed.length === 0 || undoneCount.current !== undoneAtCall) return;
+    });
+    inTurn.current = turn;
+    if (started.length > 0) {
       offerToUndo({
-        what: `Changed the ${committed.map(({ field }) => FIELD_NAMES[field]).join(' and the ')}`,
-        // Queued behind any write still in flight, for the reason the writes
-        // are queued behind each other: run alongside one, it could land first
-        // and be overwritten by a value the person had already gone back past.
+        // Taken back if none of it landed: there is nothing to put back.
+        unlessRefused: turn.then(() => {
+          if (committed.length === 0) throw new Error('none of it landed');
+        }),
+        what: `Changed the ${started.map(({ field }) => FIELD_NAMES[field]).join(' and the ')}`,
+        // Offered at the gesture, and queued behind any write still in flight,
+        // for the reason the writes are queued behind each other: run alongside
+        // one, it could land first and be overwritten by a value the person had
+        // already gone back past. What it puts back is what had landed by then.
         undo: () => {
-          undoneCount.current += 1;
           const run = inTurn.current.then(async () => {
             for (const { field, before, after, endedRunId } of [...committed].reverse()) {
               const back = asStored({ ...held.now, [field]: before }, field);
@@ -1247,8 +1285,7 @@ function TheForm({
           return run;
         },
       });
-    });
-    inTurn.current = turn;
+    }
     return turn;
   };
 

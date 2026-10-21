@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { uuidv7, type Item } from '@cockpit/shared';
-import { snapshotQuery, useSendCommand } from '../api/queries';
+import { useSendCommand } from '../api/queries';
+import { useSnapshot } from '../api/useSnapshot';
 import {
   editSeveral,
   putBack,
@@ -38,7 +38,7 @@ export function useEditingSeveral({
   /** That a filing is going, which holds back a second kind of work. */
   filing: boolean;
 }) {
-  const { data } = useQuery(snapshotQuery(workspaceId));
+  const { data } = useSnapshot(workspaceId);
   const send = useSendCommand();
   const offerToUndo = useUndo();
 
@@ -76,19 +76,28 @@ export function useEditingSeveral({
     setRefusal(null);
     setPickingDate(false);
     try {
-      const { changed, refused } = await editSeveral(sending, {
+      const run = editSeveral(sending, {
         items: picked,
         field,
         value,
         runOf: (itemId) => data?.agentRuns?.find((run) => run.itemId === itemId)?.id,
         onProgress: (at, of) => setSaving({ at, of }),
+        // Offered at the click, before any answer: the Undo waits for the run to
+        // finish and then puts back exactly the Items that changed.
+        onStarted: (changing, answer) => {
+          if (changing.length === 0) return;
+          offerToUndo({
+            what: whatWasChanged(field, name, changing),
+            // Taken back if every Item was refused: there is nothing to put back.
+            unlessRefused: answer.then(({ changed }) => {
+              if (changed.length === 0) throw new Error('every Item was refused');
+            }),
+            undo: async () => putBack(sending, field, (await answer).changed),
+          });
+        },
       });
+      const { refused } = await run;
       setRefusal(saysWhatWasNotChanged(refused));
-      if (changed.length === 0) return;
-      offerToUndo({
-        what: whatWasChanged(field, name, changed),
-        undo: () => putBack(sending, field, changed),
-      });
     } finally {
       running.current = false;
       setSaving(null);

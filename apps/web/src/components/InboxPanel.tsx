@@ -1,6 +1,5 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { snapshotQuery } from '../api/queries';
+import { useSnapshot } from '../api/useSnapshot';
 import { filingsThatFile, itemsInTheInbox } from '../filing';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
@@ -19,7 +18,7 @@ const SmartRefinementsWindow = lazy(() => import('./SmartRefinementsWindow'));
 
 /** How many items the Inbox holds, or null until the snapshot has arrived. */
 function useInboxCount(workspaceId: string): number | null {
-  const { data } = useQuery(snapshotQuery(workspaceId));
+  const { data } = useSnapshot(workspaceId);
   return data
     ? itemsInTheInbox(data.items, filingsThatFile(data.filings, data.panels)).length
     : null;
@@ -189,7 +188,7 @@ export function InboxHeading({
  * it out of the Inbox, rather than a status change nobody made.
  */
 export function InboxPanel({ workspaceId }: { workspaceId: string }) {
-  const { data, isLoading, error } = useQuery(snapshotQuery(workspaceId));
+  const { data, isLoading, error } = useSnapshot(workspaceId);
 
   // Find's landing on an Item of the Inbox ("Find an open Item with F and
   // Shift+F, and land on its row", issue 828); the shell has opened the column.

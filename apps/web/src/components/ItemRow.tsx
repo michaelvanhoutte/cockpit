@@ -350,15 +350,12 @@ export function ItemRow({
   const markDone = () => {
     // Done ends the open run on the server; the Undo names it, to have it back.
     const endedRunId = run?.id;
-    command.mutate(
-      { name: 'set_done', payload: { ...envelope(), done: true } },
-      { onSuccess: () => offerDoneBack(endedRunId) },
-    );
-  };
-
-  function offerDoneBack(endedRunId?: string) {
+    const answer = command.mutateAsync({ name: 'set_done', payload: { ...envelope(), done: true } });
+    // Offered at the click rather than once the server has answered: the row is
+    // already gone, and the Undo waits its turn behind the change it reverses.
     offerToUndo({
       what: `“${itemLabel(item)}” marked done`,
+      unlessRefused: answer,
       undo: () =>
         send({
           name: 'set_done',
@@ -372,7 +369,7 @@ export function ItemRow({
           },
         }),
     });
-  }
+  };
 
   /**
    * Dismissing, with the way back offered for as long as the bar lasts ("Undo
@@ -391,27 +388,23 @@ export function ItemRow({
    */
   const dismiss = () => {
     const endedRunId = run?.id;
-    command.mutate(
-      { name: 'set_dismissed', payload: { ...envelope(), dismissed: true } },
-      {
-        onSuccess: () =>
-          offerToUndo({
-            what: `“${itemLabel(item)}” dismissed`,
-            undo: () =>
-              send({
-                name: 'set_dismissed',
-                payload: {
-                  commandId: uuidv7(),
-                  issuedAt: new Date().toISOString(),
-                  workspaceId,
-                  itemId: item.id,
-                  dismissed: false,
-                  ...(endedRunId && { reopensRunId: endedRunId }),
-                },
-              }),
-          }),
-      },
-    );
+    const answer = command.mutateAsync({ name: 'set_dismissed', payload: { ...envelope(), dismissed: true } });
+    offerToUndo({
+      what: `“${itemLabel(item)}” dismissed`,
+      unlessRefused: answer,
+      undo: () =>
+        send({
+          name: 'set_dismissed',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: item.id,
+            dismissed: false,
+            ...(endedRunId && { reopensRunId: endedRunId }),
+          },
+        }),
+    });
   };
 
   /**

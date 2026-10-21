@@ -80,6 +80,11 @@ vi.mock('../../../src/api/queries', async () => {
           if (held.refuses) setError(held.refuses);
           held.mutate(args, options);
         },
+        // Done and Dismiss are sent this way: the offer to undo is made at the click, so the row waits on nothing.
+        mutateAsync: (args: unknown) => {
+          held.mutate(args);
+          return Promise.resolve({ ok: true, applied: true });
+        },
         reset: () => setError(null),
         isPending: held.pending,
         error,
@@ -1908,7 +1913,6 @@ describe('Selection', () => {
 
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'set_dismissed', payload: expect.objectContaining({ itemId: BART.id }) }),
-        expect.anything(),
       );
     });
   });
@@ -2732,7 +2736,6 @@ describe('Triage', () => {
           name: 'set_dismissed',
           payload: expect.objectContaining({ itemId: BART.id, dismissed: true }),
         }),
-        expect.anything(),
       );
     });
 
