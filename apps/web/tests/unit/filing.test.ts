@@ -6,10 +6,10 @@ import {
   itemsInTheInbox,
   itemsOnPanel,
   itemsThatAreFiled,
-  orderPuttingBack,
   ordersForFilingSeveral,
   orderWithItemAt,
 } from '../../src/filing';
+import { orderPuttingBack } from '../../src/puttingBack';
 
 /**
  * F1: what a panel holds and what the Inbox holds are views over the snapshot

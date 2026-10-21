@@ -45,8 +45,10 @@ const held = vi.hoisted(() => ({
   variables: undefined as { payload?: { itemId?: string } } | undefined,
   /** What the next change is refused with, if anything. */
   refuses: null as Error | null,
-  /** That a change is still going, which is what stops a question being closed. */
+  /** That a change is still going. */
   pending: false,
+  /** What a filing waits for, to hold its answer back: the screen has to move without it. */
+  answer: null as Promise<unknown> | null,
   /** Every start of an agent asked for, and what it answers. */
   startAgent: vi.fn((_args?: unknown) => Promise.resolve()),
   /** Where the router was asked to go. */
@@ -80,10 +82,11 @@ vi.mock('../../../src/api/queries', async () => {
           if (held.refuses) setError(held.refuses);
           held.mutate(args, options);
         },
-        // Done and Dismiss are sent this way: the offer to undo is made at the click, so the row waits on nothing.
+        // Done, Dismiss and every filing are sent this way: the offer to undo is made at the click, so the row waits on nothing.
         mutateAsync: (args: unknown) => {
           held.mutate(args);
-          return Promise.resolve({ ok: true, applied: true });
+          if (held.answer) return held.answer;
+          return held.refuses ? Promise.reject(held.refuses) : Promise.resolve({ ok: true, applied: true });
         },
         reset: () => setError(null),
         isPending: held.pending,
@@ -372,6 +375,7 @@ beforeEach(() => {
   held.variables = { payload: { itemId: BART.id } };
   held.refuses = null;
   held.pending = false;
+  held.answer = null;
   held.mutate = vi.fn();
   held.send = vi.fn(() => Promise.resolve());
   held.navigate = vi.fn(() => Promise.resolve());
@@ -464,7 +468,6 @@ describe('Panels', () => {
             order: [BART.id, held.items[1]!.id],
           }),
         }),
-        expect.anything(),
       );
     });
 
@@ -492,7 +495,6 @@ describe('Panels', () => {
             order: expect.arrayContaining([BART.id, finished.id]),
           }),
         }),
-        expect.anything(),
       );
       expect(held.mutate.mock.calls[0]![0].payload.order).toHaveLength(2);
     });
@@ -508,12 +510,11 @@ describe('Panels', () => {
         expect.objectContaining({
           payload: expect.objectContaining({ panelId: null, order: [] }),
         }),
-        expect.anything(),
       );
     });
 
     it('remembers the panel once the move has happened, and not before', async () => {
-      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      held.mutate = vi.fn();
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
@@ -524,36 +525,42 @@ describe('Panels', () => {
       ]);
     });
 
-    it('takes the refusal away with the question it was shown on', async () => {
-      // A refusal outlives the dialog it was shown in, and the list says one of
-      // its own now — so cancelling used to leave the message stuck above the
-      // rows with nothing to explain it.
+    it('takes the refusal away when the next question is opened', async () => {
+      // A refusal is said above the rows once the picker has closed, and is about
+      // the move it followed: the next question starts without it.
       held.refuses = new CommandRefused(409, 'this panel changed while you were looking at it');
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
       await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
-      expect(await within(dialog).findByRole('alert')).toBeVisible();
+      expect(await screen.findByRole('alert')).toHaveTextContent('this panel changed while you were looking at it');
 
-      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      await openThePicker(user);
 
-      // What the person ends up seeing: no message anywhere, rather than one
-      // stuck above the rows with the dialog that explained it gone.
       expect(screen.queryByRole('alert')).toBeNull();
     });
 
-    it('cannot be cancelled while a choice is still going', async () => {
-      // Cancelling resets the change that is still running, so a move that goes
-      // on to happen loses what follows it - the panel is not remembered as a
-      // recent one, and no way back is offered.
-      held.pending = true;
+    it('closes the question and offers the way back at the click, before the server has answered', async () => {
+      // The screen moves on the press: nothing waits for the answer.
+      held.answer = new Promise(() => {});
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
       await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
-      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
-      expect(screen.getByRole('dialog')).toBeVisible();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('status')).toHaveTextContent('“Reply to Bart” moved to Falcon');
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeVisible();
+    });
+
+    it('takes the way back off the bar when the filing is refused', async () => {
+      held.refuses = new CommandRefused(409, 'this panel changed while you were looking at it');
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+
+      await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
     });
 
     it('sends nothing when the question is cancelled', async () => {
@@ -608,7 +615,6 @@ describe('Panels', () => {
           name: 'move_item_to_panel',
           payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
         }),
-        expect.anything(),
       );
     });
 
@@ -634,7 +640,6 @@ describe('Panels', () => {
           name: 'move_item_to_panel',
           payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
         }),
-        expect.anything(),
       );
     });
   });
@@ -906,7 +911,7 @@ describe('Panels', () => {
   describe('what just happened can be put back, until the offer runs out', () => {
     /** A move that really landed, which is what the offer of an undo waits for. */
     function movesFor(item: string) {
-      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      held.mutate = vi.fn();
       return item;
     }
 
@@ -1008,7 +1013,7 @@ describe('Panels', () => {
   });
 
   describe('a move that fails says why and leaves the item where it was', () => {
-    it('keeps the question open with the server’s own words on it', async () => {
+    it('says the server’s own words above the rows, with the item still there', async () => {
       held.refuses = new CommandRefused(
         409,
         'The order sent is not the order of that panel any more',
@@ -1018,10 +1023,20 @@ describe('Panels', () => {
       const dialog = await openThePicker(user);
       await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
 
-      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      expect(await screen.findByRole('alert')).toHaveTextContent(
         'The order sent is not the order of that panel any more',
       );
       expect(screen.getByText('Reply to Bart')).toBeVisible();
+    });
+
+    it('says a change that never reached the server in plain words', async () => {
+      held.refuses = new Error('network down');
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('That did not reach the server. Try again.');
     });
   });
 
@@ -1069,7 +1084,6 @@ describe('Panels', () => {
             order: expect.arrayContaining([BART.id, other.id]),
           }),
         }),
-        expect.anything(),
       );
       expect(held.mutate.mock.calls[0]![0].payload.order).toHaveLength(2);
     });
@@ -1084,7 +1098,6 @@ describe('Panels', () => {
         expect.objectContaining({
           payload: expect.objectContaining({ panelId: null, order: [] }),
         }),
-        expect.anything(),
       );
     });
 
@@ -1115,22 +1128,14 @@ describe('Panels', () => {
     });
 
     it('says why a drop was refused, where nothing else would say it', async () => {
-      held.error = new CommandRefused(409, 'this panel changed while you were looking at it');
-      await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      held.refuses = new CommandRefused(409, 'this panel changed while you were looking at it');
+      await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await dropOnto(BART.id);
 
       expect(await screen.findByRole('alert')).toHaveTextContent(
         'this panel changed while you were looking at it',
       );
-    });
-
-    it('leaves somebody else’s refusal alone', async () => {
-      // One `useCommand` is not one mutation: a panel's rename is refused by
-      // the board's, and a list drawn inside that panel must not say so too.
-      held.error = new CommandRefused(409, 'a panel called To read is already on this dashboard');
-      held.variables = { payload: {} };
-      await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
-
-      expect(screen.queryByRole('alert')).toBeNull();
     });
 
     it('sends nothing when a row is dropped exactly where it started', async () => {
@@ -1164,7 +1169,6 @@ describe('Panels', () => {
           name: 'add_item_to_panel',
           payload: expect.objectContaining({ panelId: 'p-falcon', order: [other.id, BART.id] }),
         }),
-        expect.anything(),
       );
     });
 
@@ -1192,7 +1196,6 @@ describe('Panels', () => {
         expect.objectContaining({
           payload: expect.objectContaining({ order: [finished.id, other.id, BART.id] }),
         }),
-        expect.anything(),
       );
     });
   });
@@ -1280,7 +1283,6 @@ describe('Panels', () => {
           name: 'move_item_to_panel',
           payload: expect.objectContaining({ panelId: 'p-falcon', order: [arriving.id, BART.id, other.id] }),
         }),
-        expect.anything(),
       );
     });
   });
@@ -1317,18 +1319,15 @@ describe('Panels', () => {
           name: sends,
           payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
         }),
-        expect.anything(),
       );
     });
 
     it.each([
       { situation: 'the question', open: 'ask' as const, cancel: 'Cancel' },
       { situation: 'the picker for adding', open: 'add' as const, cancel: 'Cancel' },
-    ])('takes the refusal away with $situation', async ({ open }) => {
-      // The same rule the move picker follows: a refusal outlives the dialog it
-      // was shown in, and the list says one of its own — so cancelling has to
-      // clear it or the message is stuck above the rows with nothing to
-      // explain it.
+    ])('takes the refusal away when $situation is opened again', async ({ open }) => {
+      // The same rule the move picker follows: a refusal is said above the rows
+      // once the question has closed, and the next question starts without it.
       held.refuses = new CommandRefused(409, 'this panel changed while you were looking at it');
       held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
 
@@ -1337,8 +1336,9 @@ describe('Panels', () => {
         await dropOnto(BART.id);
         const question = await screen.findByRole('alertdialog');
         await userEvent.click(within(question).getByRole('button', { name: 'Move it here' }));
-        expect(await within(question).findByRole('alert')).toBeVisible();
-        await userEvent.click(within(question).getByRole('button', { name: 'Cancel' }));
+        expect(await screen.findByRole('alert')).toBeVisible();
+        await dropOnto(BART.id);
+        await screen.findByRole('alertdialog');
       } else {
         held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
         const user = await showList({
@@ -1350,8 +1350,10 @@ describe('Panels', () => {
         await user.click(await screen.findByRole('menuitem', { name: 'Also show on…' }));
         const picker = await screen.findByRole('dialog');
         await user.click(within(picker).getByRole('button', { name: 'Anna' }));
-        expect(await within(picker).findByRole('alert')).toBeVisible();
-        await user.click(within(picker).getByRole('button', { name: 'Cancel' }));
+        expect(await screen.findByRole('alert')).toBeVisible();
+        await user.click(screen.getByRole('button', { name: 'Item actions' }));
+        await user.click(await screen.findByRole('menuitem', { name: 'Also show on…' }));
+        await screen.findByRole('dialog');
       }
 
       expect(screen.queryByRole('alert')).toBeNull();
@@ -1388,7 +1390,6 @@ describe('Panels', () => {
       if (drawn.length === 0) {
         expect(held.mutate).toHaveBeenCalledWith(
           expect.objectContaining({ name: 'move_item_to_panel' }),
-          expect.anything(),
         );
       }
     });
@@ -1432,7 +1433,6 @@ describe('Panels', () => {
           name: 'add_item_to_panel',
           payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-anna' }),
         }),
-        expect.anything(),
       );
     });
 
@@ -1460,7 +1460,6 @@ describe('Panels', () => {
           name: 'remove_item_from_panel',
           payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
         }),
-        expect.anything(),
       );
     });
   });
@@ -1493,7 +1492,6 @@ describe('Panels', () => {
           name: 'move_item_to_panel',
           payload: expect.objectContaining({ panelId: 'p-reading', fromPanelIds: ['p-falcon'] }),
         }),
-        expect.anything(),
       );
     });
 
@@ -1555,7 +1553,6 @@ describe('Panels', () => {
           name: 'move_item_to_panel',
           payload: expect.objectContaining({ panelId: 'p-falcon', fromPanelIds: ['p-anna'] }),
         }),
-        expect.anything(),
       );
     });
 
@@ -1574,7 +1571,6 @@ describe('Panels', () => {
       expect(screen.queryByRole('alertdialog')).toBeNull();
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'add_item_to_panel' }),
-        expect.anything(),
       );
     });
   });
@@ -1588,7 +1584,7 @@ describe('Panels', () => {
         undoes: 'add_item_to_panel',
       },
     ])('offers the way back after $situation', async ({ entry, undoes }) => {
-      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      held.mutate = vi.fn();
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
       const user = await showList({
         items: [BART],
@@ -1671,7 +1667,6 @@ describe('Capture', () => {
           // whole of what picking another workspace's Inbox means.
           payload: expect.objectContaining({ workspaceId: into, panelId: null, order: [] }),
         }),
-        expect.anything(),
       );
     });
   });
@@ -1691,7 +1686,7 @@ describe('Capture', () => {
     ])('$situation', async ({ item, offersTheWayBack }) => {
       held.items = [item];
       const user = await showList({ items: [item] });
-      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      held.mutate = vi.fn();
 
       const dialog = await openThePicker(user);
       await user.click(within(dialog).getAllByRole('button', { name: 'Falcon' })[0]!);
@@ -2251,8 +2246,8 @@ describe('Triage', () => {
     });
   });
 
-  describe('a filing that is refused stops the rest, and what did not move stays picked', () => {
-    it('sends nothing after the one that was refused', async () => {
+  describe('a filing that is refused goes back with the ones built on it, and what did not move is picked again', () => {
+    it('hands every row over before the first is answered, so each can be refused in turn', async () => {
       held.items = THREE;
       refusesAfter(1);
       const user = await showList({ items: THREE, openDashboardId: TODAY.id });
@@ -2260,10 +2255,24 @@ describe('Triage', () => {
 
       await fileWhatIsPicked(user, 'Falcon');
 
-      // Two: the one that went and the one that was refused. The third is
-      // never asked for.
-      await waitFor(() => expect(filingsSent()).toHaveLength(2));
-      expect(filingsSent()).toHaveLength(2);
+      // All three: the one that went and the two that were built on the Panel
+      // as it was drawn, which the server refuses in turn.
+      await waitFor(() => expect(filingsSent()).toHaveLength(3));
+    });
+
+    it('closes the question and offers the way back before the server has answered the first', async () => {
+      held.items = THREE;
+      held.send = vi.fn(() => new Promise(() => {}));
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+
+      await fileWhatIsPicked(user, 'Falcon');
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(held.send).toHaveBeenCalledTimes(3);
+      expect(screen.getByRole('status')).toHaveTextContent('3 items moved to Falcon');
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeVisible();
+      expect(screen.queryByText('3 selected')).not.toBeInTheDocument();
     });
 
     it.each([
@@ -2986,7 +2995,7 @@ describe('Panels', () => {
     }
 
     it('makes a panel of items on that dashboard, then moves the item into it, and the way back names it', async () => {
-      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      held.mutate = vi.fn();
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
@@ -3002,7 +3011,6 @@ describe('Panels', () => {
           name: 'move_item_to_panel',
           payload: expect.objectContaining({ itemId: BART.id, panelId: made.panelId, order: [BART.id] }),
         }),
-        expect.anything(),
       );
       // The snapshot this file serves does not hold the new panel - which is
       // the moment the sentence is written, and what the POC got wrong.
@@ -3011,7 +3019,7 @@ describe('Panels', () => {
 
     it('adds the item instead of moving it when the picker was opened by Also show on…', async () => {
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
-      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      held.mutate = vi.fn();
       const user = await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
       await user.click(screen.getByRole('button', { name: 'Item actions' }));
       await user.click(await screen.findByRole('menuitem', { name: 'Also show on…' }));
@@ -3025,7 +3033,6 @@ describe('Panels', () => {
             name: 'add_item_to_panel',
             payload: expect.objectContaining({ panelId: madePanel().panelId }),
           }),
-          expect.anything(),
         ),
       );
       expect(await screen.findByRole('status')).toHaveTextContent('“Reply to Bart” added to Waiting on');
@@ -3063,18 +3070,17 @@ describe('Panels', () => {
       expect(screen.getByRole('dialog')).toBeVisible();
     });
 
-    it('leaves the panel standing and the picker open on the filing’s refusal when the filing is refused', async () => {
+    it('leaves the panel standing and says the filing’s refusal above the rows when the filing is refused', async () => {
       held.refuses = new CommandRefused(409, 'The order sent is not the order of that panel any more');
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
       await nameOneUnder(user, dialog, 'Today', 'Waiting on');
 
-      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      expect(await screen.findByRole('alert')).toHaveTextContent(
         'The order sent is not the order of that panel any more',
       );
       expect(sentNames()).toEqual(['add_panel']);
-      expect(within(dialog).queryByRole('textbox', { name: /^Name of the new panel/ })).toBeNull();
     });
 
     it('offers no + on a dashboard filtered in this browser, though its panels are still offered', async () => {
@@ -3107,7 +3113,7 @@ describe('Panels', () => {
       .getAllByRole('button')
       .map((button) => button.textContent);
   const landing = () => {
-    held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+    held.mutate = vi.fn();
   };
   const proposed = { ...BART, proposedPanelId: 'p-falcon', proposedPanelReason: 'a Falcon question' };
 
@@ -3222,7 +3228,6 @@ describe('Panels', () => {
           name: 'add_item_to_panel',
           payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-reading' }),
         }),
-        expect.anything(),
       );
       expect(screen.getByRole('status')).toHaveTextContent('“Reply to Bart” added to To read');
       expect(barOffers()).toEqual(['Undo']);
@@ -3450,23 +3455,19 @@ describe('Triage', () => {
       );
     });
 
-    it('sends nothing more when pressed again while the first is still filing', async () => {
+    it('files every Item of the group at the press, before the server has answered the first', async () => {
       const items = group();
       held.items = items;
       const filing = Promise.withResolvers<void>();
       held.send = vi.fn(() => filing.promise);
       const user = await showInbox(items);
-      const fileAll = screen.getByRole('button', { name: 'File all' });
 
-      await user.click(fileAll);
-      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
-      await user.click(fileAll);
-      await user.click(fileAll);
-      filing.resolve();
+      await user.click(screen.getByRole('button', { name: 'File all' }));
 
-      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(3));
-      await screen.findByText('3 items moved to Falcon');
       expect(held.send).toHaveBeenCalledTimes(3);
+      expect(screen.getByRole('status')).toHaveTextContent('3 items moved to Falcon');
+      expect(barOffers()).toContain('Undo');
+      filing.resolve();
     });
 
     it('adds every moved Item to the Panel chosen in Also show on…, with one Undo of the add', async () => {
@@ -3519,7 +3520,6 @@ describe('Triage', () => {
           name: 'move_item_to_panel',
           payload: expect.objectContaining({ itemId: clear.id, panelId: 'p-falcon' }),
         }),
-        expect.anything(),
       );
     });
 
@@ -3830,7 +3830,7 @@ describe('Triage', () => {
       expect(held.send).not.toHaveBeenCalled();
     });
 
-    describe('filing runs one row at a time and stops at the first refusal', () => {
+    describe('filing hands every row over at once, and the ones refused go back', () => {
       it('leaves what did not move picked, and says what did and why the rest did not', async () => {
         held.items = THREE;
         refusesAfter(1);
@@ -3839,33 +3839,24 @@ describe('Triage', () => {
 
         await dropOnto(BART.id);
 
-        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(3));
         expect(await screen.findByText('1 of 3 items moved to Falcon')).toBeVisible();
-        expect([...pickedNow(inboxScope('ws-work'))]).toEqual([RENEW.id, CHASE.id]);
+        await waitFor(() => expect([...pickedNow(inboxScope('ws-work'))]).toEqual([RENEW.id, CHASE.id]));
         expect(screen.getByText('this panel changed while you were looking at it')).toBeVisible();
       });
 
-      it('sends nothing for a second drop while the run is still going', async () => {
+      it('sends the whole drop before the first is answered', async () => {
         held.items = THREE;
-        let finish: () => void = () => {};
-        // Only the first is held, so letting it go lets the whole run finish.
-        let first = true;
-        held.send = vi.fn(() => {
-          if (!first) return Promise.resolve();
-          first = false;
-          return new Promise<void>((resolve) => (finish = resolve));
-        });
+        const answer = Promise.withResolvers<void>();
+        held.send = vi.fn(() => answer.promise);
         await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
         carry(BART, THREE, inboxScope('ws-work'));
-        await dropOnto(BART.id);
-        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
 
-        carry(BART, THREE, inboxScope('ws-work'));
         await dropOnto(BART.id);
 
-        expect(held.send).toHaveBeenCalledTimes(1);
-        await act(async () => finish());
         await waitFor(() => expect(held.send).toHaveBeenCalledTimes(3));
+        expect(await screen.findByRole('status')).toHaveTextContent('3 items moved to Falcon');
+        await act(async () => answer.resolve());
       });
 
       it('counts the run in the bar, however many were picked', async () => {

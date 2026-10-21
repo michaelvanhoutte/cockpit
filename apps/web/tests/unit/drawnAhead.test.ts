@@ -158,3 +158,104 @@ describe('Item editing', () => {
     });
   });
 });
+
+const WORK = 'ws-work';
+const FALCON = 'p-falcon';
+const ANNA = 'p-anna';
+
+/** A Workspace with these Items and filings, each filing as `[panel, item]` in the order the Panel holds them. */
+const filedWorkspace = (items: Item[], filings: [string, string][], id = WORK): WorkspaceSnapshot =>
+  ({
+    workspace: { id },
+    items,
+    filings: filings.map(([panelId, itemId], position) => ({ panelId, itemId, position })),
+    panels: [{ id: FALCON }, { id: ANNA }],
+  }) as unknown as WorkspaceSnapshot;
+
+const orderOn = (copy: WorkspaceSnapshot, panelId: string) =>
+  copy.filings
+    .filter((filing) => filing.panelId === panelId)
+    .sort((a, b) => a.position - b.position)
+    .map((filing) => filing.itemId);
+
+const move = (panelId: string | null, order: string[], fromPanelIds?: string[]): CommandArgs => ({
+  name: 'move_item_to_panel',
+  payload: { ...envelope(BART), panelId, order, ...(fromPanelIds ? { fromPanelIds } : {}) },
+});
+
+describe('Panels', () => {
+  describe('a filing shows the moment it is made, before the server has answered', () => {
+    it.each([
+      {
+        situation: 'a move to a Panel takes the Item off the Panel it was on and puts it at the place in the order it carries',
+        from: [[FALCON, BART], [ANNA, LISA]] as [string, string][],
+        change: move(ANNA, [BART, LISA]),
+        expected: { [FALCON]: [], [ANNA]: [BART, LISA] },
+      },
+      {
+        situation: 'a move to the Inbox takes it off every Panel',
+        from: [[FALCON, BART], [ANNA, BART]] as [string, string][],
+        change: move(null, []),
+        expected: { [FALCON]: [], [ANNA]: [] },
+      },
+      {
+        situation: 'a move that names the Panel it leaves takes it off that one only',
+        from: [[FALCON, BART], [ANNA, BART]] as [string, string][],
+        change: move(FALCON, [BART], [ANNA]),
+        expected: { [FALCON]: [BART], [ANNA]: [] },
+      },
+      {
+        situation: 'an add leaves the Panels it is on alone',
+        from: [[FALCON, BART]] as [string, string][],
+        change: { name: 'add_item_to_panel', payload: { ...envelope(BART), panelId: ANNA, order: [BART] } } as CommandArgs,
+        expected: { [FALCON]: [BART], [ANNA]: [BART] },
+      },
+      {
+        situation: 'an add to a Panel it is on already is a reorder',
+        from: [[FALCON, BART], [FALCON, LISA]] as [string, string][],
+        change: { name: 'add_item_to_panel', payload: { ...envelope(BART), panelId: FALCON, order: [LISA, BART] } } as CommandArgs,
+        expected: { [FALCON]: [LISA, BART], [ANNA]: [] },
+      },
+      {
+        situation: 'a removal takes it off that Panel and no other',
+        from: [[FALCON, BART], [ANNA, BART], [ANNA, LISA]] as [string, string][],
+        change: { name: 'remove_item_from_panel', payload: { ...envelope(BART), panelId: ANNA } } as CommandArgs,
+        expected: { [FALCON]: [BART], [ANNA]: [LISA] },
+      },
+    ])('$situation', ({ from, change, expected }) => {
+      const copy = filedWorkspace([anItem(BART), anItem(LISA)], from);
+
+      const drawn = drawnAhead(copy, change);
+
+      for (const [panelId, order] of Object.entries(expected)) expect(orderOn(drawn, panelId)).toEqual(order);
+      // The copy the server sent is as it was.
+      expect(copy.filings).toHaveLength(from.length);
+    });
+
+    it('settles an Item that belonged to no Workspace in the Workspace it is filed in', () => {
+      const copy = filedWorkspace([anItem(BART, { workspaceDecided: false })], []);
+
+      const drawn = drawnAhead(copy, move(FALCON, [BART]));
+
+      expect(read(drawn, BART)).toMatchObject({ workspaceDecided: true, workspaceId: WORK });
+    });
+
+    it.each([
+      { situation: 'another Workspace’s copy', copy: filedWorkspace([anItem(BART)], [], 'ws-home') },
+      { situation: 'a copy that does not hold the Item', copy: filedWorkspace([anItem(LISA)], []) },
+    ])('leaves $situation as it is for a move', ({ copy }) => {
+      expect(drawnAhead(copy, move(FALCON, [BART]))).toBe(copy);
+    });
+
+    it('draws a second filing over the first, so it is built on the Panel as the first left it', () => {
+      const copy = filedWorkspace([anItem(BART), anItem(LISA)], []);
+
+      const drawn = drawnOver(copy, [
+        move(FALCON, [BART]),
+        { name: 'move_item_to_panel', payload: { ...envelope(LISA), panelId: FALCON, order: [LISA, BART] } },
+      ]);
+
+      expect(orderOn(drawn, FALCON)).toEqual([LISA, BART]);
+    });
+  });
+});
