@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
-import { TASK_TYPE_ID, WORKSPACE_ID, asUser, seedRegister, startFromEmpty } from '../seed.js';
+import type { ServerEvent } from '@cockpit/shared';
+import { ACCOUNT_NAME, WORKSPACE_ID, asUser, seedRegister, startFromEmpty, storeNamed } from '../seed.js';
 
 /**
  * POC (own-event refetch): what a snapshot says about how current it is.
@@ -104,6 +105,56 @@ describe('Live updates', () => {
         'An item that must be there too',
       );
       expect(read.upTo).toBeDefined();
+    });
+  });
+
+  /**
+   * "Read a Workspace once after your changes" (issue 1332): the tab skips an
+   * announcement it can prove it already read, which it can only do if the
+   * answer to its own change names the very time the announcement will. Both
+   * come from the account's store, through the real route, so this could be
+   * proved nowhere lower.
+   */
+  describe('the answer to a change says when it was stored, as its announcement will', () => {
+    async function change(name: string, payload: Record<string, unknown>) {
+      const res = await asUser(`http://cockpit.test/v1/commands/${name}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ issuedAt: '2026-09-08T10:00:00.000Z', workspaceId: WORKSPACE_ID, ...payload }),
+      });
+      expect(res.status).toBe(200);
+      return (await res.json()) as { applied: boolean; at?: string };
+    }
+
+    async function announcedAt(): Promise<string | undefined> {
+      const answer = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, '2026-09-08T00:00:00.000Z');
+      const { events } = (answer as { value: { events: ServerEvent[] } }).value;
+      for (const event of events) {
+        if (event.type === 'snapshot_invalidated' && event.workspaceId === WORKSPACE_ID) return event.at;
+      }
+      return undefined;
+    }
+
+    it('is the time the announcement of a field change carries', async () => {
+      const itemId = nextId();
+      await change('capture_item', { commandId: nextId(), itemId, message: 'A note', workspaceDecided: true });
+
+      const answer = await change('set_done', { commandId: nextId(), itemId, done: true });
+
+      expect(answer.at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      // The announcement speaks for the newest change in the workspace, which is this one.
+      expect(answer.at).toBe(await announcedAt());
+    });
+
+    it('is absent for a change replayed, which stores and announces nothing', async () => {
+      const itemId = nextId();
+      const commandId = nextId();
+      await change('capture_item', { commandId: nextId(), itemId, message: 'A note', workspaceDecided: true });
+      await change('set_done', { commandId, itemId, done: true });
+
+      const replay = await change('set_done', { commandId, itemId, done: true });
+
+      expect(replay).toEqual({ ok: true, applied: false });
     });
   });
 });

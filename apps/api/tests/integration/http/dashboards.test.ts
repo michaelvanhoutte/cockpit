@@ -169,7 +169,7 @@ describe('Dashboards', () => {
       const response = await addDashboard(WORKSPACE_ID, name);
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ ok: true, applied: true });
+      expect(await response.json()).toEqual({ ok: true, applied: true, at: expect.any(String) });
       expect(await namesOf(WORKSPACE_ID)).toContain(name);
     });
 
@@ -744,7 +744,7 @@ describe('Dashboards', () => {
       const response = await reorderDashboards(workspaceId, third, wanted);
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ ok: true, applied: true });
+      expect(await response.json()).toEqual({ ok: true, applied: true, at: expect.any(String) });
       // Asked twice rather than once: the order has to be what the store
       // holds, not something the request answered with. An order written
       // nowhere would pass the first of these.

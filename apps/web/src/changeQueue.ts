@@ -24,8 +24,13 @@ import { DRAWN_AHEAD, drawnOver } from './drawnAhead';
  * first is never a question about milliseconds.
  */
 export interface ChangeQueue {
-  /** Joins the queue, draws at once, and settles with the server's answer or its refusal. */
-  enqueue(change: CommandArgs): Promise<CommandResult>;
+  /**
+   * Joins the queue, draws at once, and settles with the server's answer or its refusal.
+   * `answered` is called the moment the answer is in, before anything watching the queue
+   * hears of it: what lets a read owed for the change be registered before the queue is
+   * seen to have emptied.
+   */
+  enqueue(change: CommandArgs, answered?: (result: CommandResult) => void): Promise<CommandResult>;
   /** The copy as the server sent it, with every change not yet covered by a read drawn over it. */
   drawnOver(snapshot: WorkspaceSnapshot): WorkspaceSnapshot;
   /** A read of a Workspace is starting: the mark to hand back when it lands. */
@@ -46,6 +51,7 @@ interface Entry {
   state: 'waiting' | 'sending' | 'answered';
   /** The tick the answer arrived at, once it has. */
   answeredAt: number;
+  answered: ((result: CommandResult) => void) | undefined;
   settle: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void };
 }
 
@@ -122,6 +128,7 @@ export function createChangeQueue(options: {
           } else {
             drop(next);
           }
+          next.answered?.(result);
           changed();
           next.settle.resolve(result);
         } catch (error) {
@@ -139,9 +146,9 @@ export function createChangeQueue(options: {
   }
 
   return {
-    enqueue(change) {
+    enqueue(change, answered) {
       return new Promise<CommandResult>((resolve, reject) => {
-        entries.push({ change, state: 'waiting', answeredAt: 0, settle: { resolve, reject } });
+        entries.push({ change, state: 'waiting', answeredAt: 0, answered, settle: { resolve, reject } });
         changed();
         void pump();
       });
