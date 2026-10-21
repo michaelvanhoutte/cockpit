@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
 import { callThrough, inRealTime, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
 import { providerCallsIn } from '../gateway/record.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v16.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v17.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v3.js';
 import { buildResolveAPlace } from './prompts/resolve-a-place.v1.js';
 import { buildProposeForClaude, type ItemToPropose } from './prompts/propose-for-claude.v4.js';
@@ -28,7 +28,7 @@ export type { ClaudeProposalsRead } from './claude-proposals.js';
  * The prompt file each call is built from, as a record names it -
  * changed with the import above them when a prompt gets a new version.
  */
-const CLEAN_UP_A_NOTE = 'clean-up-a-note.v16';
+const CLEAN_UP_A_NOTE = 'clean-up-a-note.v17';
 const CHOOSE_A_PANEL = 'choose-a-panel.v3';
 const RESOLVE_A_PLACE = 'resolve-a-place.v1';
 const PROPOSE_FOR_CLAUDE = 'propose-for-claude.v4';

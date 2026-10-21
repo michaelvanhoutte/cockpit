@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { savedMessageFrom } from '../../src/activity.js';
+import { NOTE_MARKER, savedMessageFrom } from '../../src/activity.js';
 import {
   ACTIVITY_ID,
   ANOTHER_BOT_APP_ID,
@@ -268,6 +268,79 @@ describe('Capture', () => {
       expect(typeof answer === 'string' ? answer : answer.item.capturedMessage).toBe(
         'Line one\n<not a tag> & more',
       );
+    });
+  });
+
+  describe('a note typed when saving is kept in the captured message, after the message', () => {
+    const SAID = 'Can you review the Q3 plan before Friday?';
+    const WITH_FRIDAY = `${SAID}\n\n${NOTE_MARKER}\ncall her back Friday`;
+
+    /** What the dialog sent back, under the name the box has in the manifest. */
+    function typed(data: Record<string, unknown>): Record<string, unknown> {
+      const activity = saveToCockpitCall() as { value: Record<string, unknown> };
+      activity.value.data = data;
+      return activity;
+    }
+
+    async function capturedWith(activity: unknown): Promise<string> {
+      const answer = await read({ activity });
+      if (typeof answer === 'string') throw new Error(`the save was refused: ${answer}`);
+      return answer.item.capturedMessage!;
+    }
+
+    it.each([
+      { situation: 'a note with a message', data: { note: 'call her back Friday' }, expected: WITH_FRIDAY },
+      { situation: 'a note left empty', data: { note: '' }, expected: SAID },
+      { situation: 'a note of only spaces and line breaks', data: { note: ' \n\t  \n' }, expected: SAID },
+      { situation: 'a call whose box was never sent', data: {}, expected: SAID },
+      { situation: 'a note that is not text', data: { note: 7 }, expected: SAID },
+      {
+        // An app package still on the old manifest names the box "saved".
+        situation: 'a save from the old package, its "Saved" box filled in',
+        data: { saved: 'call her back Friday' },
+        expected: WITH_FRIDAY,
+      },
+      {
+        situation: 'both boxes filled in',
+        data: { note: 'new box', saved: 'old box' },
+        expected: `${SAID}\n\n${NOTE_MARKER}\nnew box`,
+      },
+    ])('$situation', async ({ data, expected }) => {
+      expect(await capturedWith(typed(data))).toBe(expected);
+    });
+
+    describe('together longer than a capture may hold', () => {
+      const LIMIT = 60_000;
+
+      function withMessage(content: string, data: Record<string, unknown>): unknown {
+        const activity = typed(data) as { value: { messagePayload: { body: unknown } } };
+        activity.value.messagePayload.body = { contentType: 'text', content };
+        return activity;
+      }
+
+      it('is cut to the limit with the note whole, never refused', async () => {
+        const note = 'call her back Friday';
+
+        const captured = await capturedWith(withMessage('word '.repeat(20_000), { note }));
+
+        expect(captured.length).toBeLessThanOrEqual(LIMIT);
+        expect(captured.endsWith(`${NOTE_MARKER}\n${note}`)).toBe(true);
+        expect(captured.startsWith('word word')).toBe(true);
+      });
+
+      it('cuts a note that alone is past the limit, and still files it', async () => {
+        const captured = await capturedWith(withMessage('hello', { note: 'x'.repeat(LIMIT + 500) }));
+
+        expect(captured.length).toBeLessThanOrEqual(LIMIT);
+        expect(captured.startsWith(NOTE_MARKER)).toBe(true);
+      });
+
+      it('does not cut in the middle of a character', async () => {
+        const captured = await capturedWith(withMessage('\u{1F600}'.repeat(40_000), { note: 'n' }));
+
+        expect(captured.length).toBeLessThanOrEqual(LIMIT);
+        expect(captured).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+      });
     });
   });
 });

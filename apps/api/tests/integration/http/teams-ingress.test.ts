@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Item } from '@cockpit/shared';
+import { NOTE_MARKER } from '@cockpit/connector-teams';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { rememberConnection } from '../../../src/connectors/directory.js';
 import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
@@ -138,6 +139,30 @@ describe('Capture', () => {
         capturedMessage: 'Can you review the Q3 plan before Friday?',
         title: 'Can you review the Q3 plan before Friday?',
       });
+    });
+
+    /**
+     * Only the route proves where the Bot Framework puts what was typed in the
+     * dialog (`value.data`) and that the store keeps it. With no Claude key in
+     * a test, nothing reads the note, so what is seen is what survives without
+     * a reading ("Read the note you type when you save a Teams message to
+     * Cockpit", issue 1340); what the reading makes of it is the contract tier's.
+     */
+    it('files the note typed beside the message, still there without a reading', async () => {
+      await connectTeams();
+
+      const answer = await saveFromTeams({
+        activity: saveToCockpitCall({ note: 'no rush, call her back Friday' }),
+      });
+
+      expect(answer.status).toBe(200);
+      const items = await itemsIn();
+      expect(items).toHaveLength(1);
+      expect(items[0]!.description).toContain('Can you review the Q3 plan before Friday?');
+      expect(items[0]!.description).toContain('no rush, call her back Friday');
+      expect(items[0]!.capturedMessage).toBe(
+        `Can you review the Q3 plan before Friday?\n\n${NOTE_MARKER}\nno rush, call her back Friday`,
+      );
     });
 
     /**
