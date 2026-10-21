@@ -28,7 +28,12 @@ if (!ENVIRONMENTS.includes(environment)) {
 
 try {
   const manifest = JSON.parse(readFileSync(join(appDir, 'manifest.json'), 'utf8'));
-  const appIds = JSON.parse(readFileSync(join(appDir, 'app-ids.json'), 'utf8'));
+  let appIds;
+  try {
+    appIds = JSON.parse(readFileSync(join(appDir, 'app-ids.json'), 'utf8'));
+  } catch {
+    throw new Error('packages/connectors/teams/teams-app/app-ids.json is missing or not JSON: it maps staging and production to their bot App IDs');
+  }
   const origin = appOrigins(readFileSync(join(root, 'apps/api/wrangler.jsonc'), 'utf8'))[environment];
   const filled = filledManifest(manifest, { environment, appId: appIds[environment], origin });
 
