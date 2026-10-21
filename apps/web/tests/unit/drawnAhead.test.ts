@@ -749,14 +749,15 @@ describe('Capture', () => {
       expect(drawnAhead(inWork([anItem(LISA)]), captured()).items.map((item) => item.id)).toEqual([LISA, BART]);
     });
 
-    it('draws the note as typed, with the priority and due date the strip chose, and what the server decides left for the next read', () => {
+    it('names it as the server does, with the priority and due date the strip chose, and what the server decides left for the next read', () => {
       const copy = inWork();
 
-      const drawn = read(drawnAhead(copy, captured({ message: 'call bart\nabout the quote', priority: 'high', dueDate: '2026-10-23' })), BART)!;
+      const drawn = read(drawnAhead(copy, captured({ message: '**call bart**\nabout the quote', priority: 'high', dueDate: '2026-10-23' })), BART)!;
 
       expect(drawn).toMatchObject({
-        title: 'call bart\nabout the quote',
-        description: null,
+        // Its words on one line for the title, and the note itself as the description.
+        title: 'call bart about the quote',
+        description: '**call bart**\nabout the quote',
         priority: 'high',
         dueDate: '2026-10-23',
         createdAt: AT,
@@ -765,6 +766,12 @@ describe('Capture', () => {
         proposedPanelId: null,
       });
       expect(copy.items).toEqual([]);
+    });
+
+    it('takes the title a front door gave the note, with the note as the description', () => {
+      const drawn = read(drawnAhead(inWork(), captured({ title: 'Quote for Bart' })), BART)!;
+
+      expect(drawn).toMatchObject({ title: 'Quote for Bart', description: 'call bart' });
     });
 
     it('draws a whole Item, one the Inbox and the form can read like any other', () => {
