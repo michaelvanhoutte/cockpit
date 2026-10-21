@@ -145,10 +145,10 @@ interface SignedText {
  * nothing in the request is read before it is believed.
  */
 async function signedTextFrom(request: Request, authToken: string): Promise<SignedText | null> {
-  const length = Number(request.headers.get('content-length') ?? 0);
-  if (length > MOST_BYTES_READ) return null;
+  const body = await boundedBody(request);
+  if (body === null) return null;
   // The bytes as sent, decoded as the form they are rather than read as text.
-  const params = new URLSearchParams(new TextDecoder().decode(await request.arrayBuffer()));
+  const params = new URLSearchParams(new TextDecoder().decode(body));
   if (!(await isSignedByTwilio(authToken, request.url, params, request.headers.get('x-twilio-signature')))) {
     return null;
   }
@@ -157,6 +157,34 @@ async function signedTextFrom(request: Request, authToken: string): Promise<Sign
     messageSid: (params.get('MessageSid') ?? '').trim(),
     body: (params.get('Body') ?? '').trim(),
   };
+}
+
+/**
+ * The body as sent, or `null` once it runs past `MOST_BYTES_READ`. Counted as it
+ * arrives rather than taken from `Content-Length`, which a chunked request omits.
+ */
+async function boundedBody(request: Request): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let read = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    read += value.byteLength;
+    if (read > MOST_BYTES_READ) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const whole = new Uint8Array(read);
+  let at = 0;
+  for (const chunk of chunks) {
+    whole.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return whole;
 }
 
 /** The last four digits of a number, and nothing else of it, for a log line. */

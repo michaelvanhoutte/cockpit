@@ -168,17 +168,27 @@ describe('Capture', () => {
       expect(asked.filed).toHaveLength(status === 200 ? 1 : 0);
     });
 
-    it('does not read a form larger than any text can be unless it is signed', async () => {
+    it('refuses a form larger than any text can be, however it is sent and even if signed', async () => {
       const asked = hostThatHasConnected(PHONE);
-      const huge = new Request(ADDRESS, {
+      const params = aText({ Body: 'x'.repeat(70 * 1024) });
+      // A streamed body names no length, as a chunked request does not.
+      const bytes = new TextEncoder().encode(new URLSearchParams(params).toString());
+      const streamed = new Request(ADDRESS, {
         method: 'POST',
-        headers: { 'content-length': String(10 * 1024 * 1024), 'x-twilio-signature': 'anything' },
-        body: 'Body=x',
-      });
+        headers: { 'x-twilio-signature': await signedWith(TOKEN, ADDRESS, params) },
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(bytes);
+            controller.close();
+          },
+        }),
+        duplex: 'half',
+      } as RequestInit);
 
-      const answer = await connector.handleWebhook!(huge, asked.host);
+      const answer = await connector.handleWebhook!(streamed, asked.host);
 
       expect(answer.status).toBe(403);
+      expect(asked.askedAbout).toEqual([]);
     });
   });
 
