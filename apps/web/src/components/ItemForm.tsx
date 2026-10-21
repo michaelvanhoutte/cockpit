@@ -2080,7 +2080,7 @@ function TheForm({
                                 workspaces={workspaceList?.workspaces ?? []}
                                 filed={onPanels.shown.map((one) => ({ ...one, workspaceId }))}
                                 disabled={saving}
-                                onAdd={(option) => onPanels.add({ panelId: option.panelId, name: option.name })}
+                                onAdd={(option) => onPanels.add({ panelId: option.panelId, name: option.name }, option.made)}
                                 onRemove={onPanels.remove}
                               />
                             </Suspense>

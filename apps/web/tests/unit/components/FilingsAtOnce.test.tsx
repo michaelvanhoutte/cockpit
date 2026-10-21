@@ -124,7 +124,10 @@ const TITLES: Record<string, string> = { [BART]: 'Reply to Bart', [LISA]: 'Reply
 const REFUSED_AS_STALE = 'this panel changed while you were looking at it: try the move again';
 
 /** What the server holds. A filing changes it only when the test lets the server answer. */
-let stored: { items: Item[]; filings: Filing[] };
+let stored: { items: Item[]; filings: Filing[]; panels: Panel[] };
+
+/** How the Item form is presented, which decides whether a Panel chip is written at once or held for Save. */
+let presentation: 'docked' | 'centered';
 
 /** Every change the server has been sent and not yet answered, oldest first. */
 let waiting: { name: string; payload: Record<string, unknown>; answer: () => void; refuse: (error: Error) => void }[];
@@ -139,6 +142,14 @@ const heldOn = (panelId: string) =>
 function keep(name: string, payload: Record<string, unknown>) {
   const itemId = payload.itemId as string;
   const panelId = payload.panelId as string | null;
+  if (name === 'add_panel') {
+    stored.panels.push({ ...aPanel(panelId!, payload.name as string) });
+    return;
+  }
+  // As the real server refuses a filing that names a Panel it does not have.
+  if (panelId !== null && !stored.panels.some((one) => one.id === panelId)) {
+    throw new CommandRefused(404, 'that panel does not exist');
+  }
   if (name === 'remove_item_from_panel') {
     stored.filings = stored.filings.filter((f) => !(f.itemId === itemId && f.panelId === panelId));
     return;
@@ -164,11 +175,11 @@ function theWorkspace(): WorkspaceSnapshot {
     workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
     items: stored.items,
     dashboards: [TODAY],
-    panels: [aPanel('p-falcon', 'Falcon'), aPanel('p-anna', 'Anna')],
+    panels: stored.panels,
     layouts: [],
     associations: [],
     attachments: [],
-    itemFormPresentation: 'docked',
+    itemFormPresentation: presentation,
     duplicates: [],
     filings: stored.filings,
     agentRuns: [],
@@ -194,13 +205,24 @@ function PanelContents({ panelId, name }: { panelId: string; name: string }) {
   );
 }
 
+/** Every Panel of the drawn Workspace, as the board draws them. */
+function Board() {
+  const { data } = useSnapshot('ws-work');
+  return (
+    <>
+      {(data?.panels ?? []).map((one) => (
+        <PanelContents key={one.id} panelId={one.id} name={one.name} />
+      ))}
+    </>
+  );
+}
+
 function aScreen() {
   return (
     <QueryClientProvider client={client}>
       <UndoWhatJustHappened>
         <InboxPanel workspaceId="ws-work" />
-        <PanelContents panelId="p-falcon" name="Falcon" />
-        <PanelContents panelId="p-anna" name="Anna" />
+        <Board />
         <ItemForm />
       </UndoWhatJustHappened>
     </QueryClientProvider>
@@ -210,9 +232,10 @@ function aScreen() {
 async function show(
   items: Item[],
   filings: Filing[] = [],
-  options: { openItem?: string } = {},
+  options: { openItem?: string; presentation?: 'docked' | 'centered' } = {},
 ) {
-  stored = { items, filings };
+  presentation = options.presentation ?? 'docked';
+  stored = { items, filings, panels: [aPanel('p-falcon', 'Falcon'), aPanel('p-anna', 'Anna')] };
   opened.item = options.openItem;
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(aScreen());
@@ -241,6 +264,7 @@ beforeEach(() => {
   vi.mocked(fetchSnapshot).mockReset();
   vi.mocked(fetchSnapshot).mockImplementation(async () => structuredClone(theWorkspace()));
   vi.mocked(fetchWorkspaces).mockImplementation(async () => ({ workspaces: [theWorkspace().workspace] }) as never);
+  vi.mocked(sendCommand).mockReset();
   vi.mocked(sendCommand).mockImplementation(
     (name, payload) =>
       new Promise<CommandResult>((resolve, reject) => {
@@ -290,6 +314,25 @@ async function tick(user: ReturnType<typeof userEvent.setup>, title: string) {
 }
 
 const forms = () => within(document.querySelector<HTMLElement>('[data-docked-form]') ?? document.body);
+
+/** Makes a Panel on Today from the + beside its heading in Move to…, which moves the Item onto it. */
+async function makeAPanelInMoveTo(user: ReturnType<typeof userEvent.setup>, name: string) {
+  const dialog = within(await screen.findByRole('dialog'));
+  await user.click(dialog.getByRole('button', { name: 'Add a panel to Today' }));
+  await user.type(dialog.getByRole('textbox', { name: /^Name of the new panel/ }), name);
+  await user.click(dialog.getByRole('button', { name: 'Add & move' }));
+}
+
+/** Makes a Panel from the last option of the Item form's File on search, which files the Item on it. */
+async function makeAPanelInTheForm(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(forms().getByRole('textbox', { name: 'Find a Panel to file on' }));
+  await user.type(await forms().findByRole('searchbox', { name: 'Find a Panel to file on' }), name);
+  await user.click(await forms().findByRole('button', { name: new RegExp(`^\\+ New panel “${name}”`) }));
+}
+
+/** The Panel as the board draws it, even under a modal form, which hides the board from the accessibility tree. */
+const onTheBoard = (name: string) => screen.queryByRole('region', { name, hidden: true });
+const sentSoFar = () => vi.mocked(sendCommand).mock.calls.map(([name]) => name);
 
 describe('Panels', () => {
   describe('a filing shows the moment it is made, with the server still holding the answer', () => {
@@ -403,6 +446,63 @@ describe('Panels', () => {
       await waitFor(() => expect(waiting.map((request) => request.name)).toEqual(['add_item_to_panel']));
     });
   });
+  describe('a Panel made to file on shows with the Item on it the moment it is made, with the server still holding the answer', () => {
+    it('draws the new Panel with the row on it, and closes the question, when Move to… makes one', async () => {
+      const user = await show([anItem(BART, TITLES[BART]!)]);
+
+      await openRowMenu(user, 'inbox', 'Move to…');
+      await makeAPanelInMoveTo(user, 'Waiting on');
+
+      expect(titlesIn('Waiting on')).toEqual([expect.stringContaining('Reply to Bart')]);
+      expect(inboxRows().queryByText('Reply to Bart')).toBeNull();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      // The filing waits its turn behind the Panel.
+      expect(waiting.map((request) => request.name)).toEqual(['add_panel']);
+      await answerNext();
+      await waitFor(() => expect(waiting.map((request) => request.name)).toEqual(['move_item_to_panel']));
+      await answerNext();
+      expect(heldOn(stored.panels.find((one) => one.name === 'Waiting on')!.id)).toEqual([BART]);
+    });
+
+    it('draws the new Panel with every picked row on it when the bar’s Move to… makes one', async () => {
+      const user = await show([anItem(BART, TITLES[BART]!), anItem(LISA, TITLES[LISA]!)]);
+      await tick(user, 'Reply to Bart');
+      await tick(user, 'Reply to Lisa');
+
+      await user.click(screen.getByRole('button', { name: 'Move to…' }));
+      await makeAPanelInMoveTo(user, 'Waiting on');
+
+      await waitFor(() => expect(titlesIn('Waiting on')).toHaveLength(2));
+      expect(inboxRows().queryByText('Reply to Bart')).toBeNull();
+      expect(inboxRows().queryByText('Reply to Lisa')).toBeNull();
+      expect(waiting.map((request) => request.name)).toEqual(['add_panel']);
+    });
+
+    it('draws the chip and the new Panel with the row on it when the docked form’s File on makes one', async () => {
+      const user = await show([anItem(BART, TITLES[BART]!)], [], { openItem: BART });
+      await waitFor(() => expect(forms().getByRole('textbox', { name: 'Find a Panel to file on' })).toBeVisible());
+
+      await makeAPanelInTheForm(user, 'Waiting on');
+
+      expect(forms().getByRole('button', { name: 'Remove from Waiting on' })).toBeVisible();
+      expect(titlesIn('Waiting on')).toEqual([expect.stringContaining('Reply to Bart')]);
+      expect(waiting.map((request) => request.name)).toEqual(['add_panel']);
+      await answerNext();
+      await waitFor(() => expect(waiting.map((request) => request.name)).toEqual(['add_item_to_panel']));
+    });
+
+    it('draws the new Panel and the chip, but holds the filing for Save, when the form is not docked', async () => {
+      const user = await show([anItem(BART, TITLES[BART]!)], [], { openItem: BART, presentation: 'centered' });
+      await waitFor(() => expect(forms().getByRole('textbox', { name: 'Find a Panel to file on' })).toBeVisible());
+
+      await makeAPanelInTheForm(user, 'Waiting on');
+
+      expect(forms().getByRole('button', { name: 'Remove from Waiting on' })).toBeVisible();
+      expect(onTheBoard('Waiting on')).not.toBeNull();
+      expect(waiting.map((request) => request.name)).toEqual(['add_panel']);
+    });
+  });
+
   describe('a filing is sent without reading the Workspace first, unless the copy is marked out of date', () => {
     it('sends a docked ✕ with no read in between while announcements keep the copy current', async () => {
       const user = await show([anItem(BART, TITLES[BART]!)], filed(BART), { openItem: BART });
@@ -469,6 +569,76 @@ describe('Panels', () => {
       await answerNext();
 
       expect(stored.filings).toEqual([]);
+    });
+  });
+
+  describe('a Panel made to file on that is refused takes the filing back with it, and the undo bar says why once', () => {
+    const LOCKED = 'That dashboard is locked.';
+    const saidOnce = async () => {
+      expect(await screen.findByRole('status', { hidden: true })).toHaveTextContent(`The panel “Waiting on” was not added. ${LOCKED}`);
+      expect(screen.queryByRole('alert', { hidden: true })).toBeNull();
+      // The filing was never sent to be refused as well.
+      expect(sentSoFar()).toEqual(['add_panel']);
+    };
+
+    it('leaves the row in the Inbox, with no Panel, when Move to… made it', async () => {
+      const user = await show([anItem(BART, TITLES[BART]!)]);
+      await openRowMenu(user, 'inbox', 'Move to…');
+      await makeAPanelInMoveTo(user, 'Waiting on');
+      expect(titlesIn('Waiting on')).toHaveLength(1);
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(409, LOCKED)));
+      await settle();
+
+      expect(onTheBoard('Waiting on')).toBeNull();
+      expect(inboxRows().getByText('Reply to Bart')).toBeVisible();
+      await saidOnce();
+    });
+
+    it('leaves every picked row in the Inbox, and picked, when the bar’s Move to… made it', async () => {
+      const user = await show([anItem(BART, TITLES[BART]!), anItem(LISA, TITLES[LISA]!)]);
+      await tick(user, 'Reply to Bart');
+      await tick(user, 'Reply to Lisa');
+      await user.click(screen.getByRole('button', { name: 'Move to…' }));
+      await makeAPanelInMoveTo(user, 'Waiting on');
+      await waitFor(() => expect(titlesIn('Waiting on')).toHaveLength(2));
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(409, LOCKED)));
+      await settle();
+
+      expect(onTheBoard('Waiting on')).toBeNull();
+      expect(inboxRows().getByText('Reply to Bart')).toBeVisible();
+      expect(inboxRows().getByText('Reply to Lisa')).toBeVisible();
+      await saidOnce();
+    });
+
+    it('takes the chip and the Panel away, with the row still in the Inbox, when the docked form’s File on made it', async () => {
+      const user = await show([anItem(BART, TITLES[BART]!)], [], { openItem: BART });
+      await waitFor(() => expect(forms().getByRole('textbox', { name: 'Find a Panel to file on' })).toBeVisible());
+      await makeAPanelInTheForm(user, 'Waiting on');
+      expect(forms().getByRole('button', { name: 'Remove from Waiting on' })).toBeVisible();
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(409, LOCKED)));
+      await settle();
+
+      expect(forms().queryByRole('button', { name: 'Remove from Waiting on' })).toBeNull();
+      expect(onTheBoard('Waiting on')).toBeNull();
+      expect(inboxRows().getByText('Reply to Bart')).toBeVisible();
+      await saidOnce();
+    });
+
+    it('takes the held chip away, and the Panel, when the form that is not docked made it', async () => {
+      const user = await show([anItem(BART, TITLES[BART]!)], [], { openItem: BART, presentation: 'centered' });
+      await waitFor(() => expect(forms().getByRole('textbox', { name: 'Find a Panel to file on' })).toBeVisible());
+      await makeAPanelInTheForm(user, 'Waiting on');
+      expect(forms().getByRole('button', { name: 'Remove from Waiting on' })).toBeVisible();
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(409, LOCKED)));
+      await settle();
+
+      expect(forms().queryByRole('button', { name: 'Remove from Waiting on' })).toBeNull();
+      expect(onTheBoard('Waiting on')).toBeNull();
+      await saidOnce();
     });
   });
 

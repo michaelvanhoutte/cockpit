@@ -1,9 +1,11 @@
 import { useRef, useState, useSyncExternalStore } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { uuidv7, type Workspace } from '@cockpit/shared';
-import { refusalFrom, snapshotQuery, useSendCommand } from '../api/queries';
+import { refusalFrom, snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
 import { matchingPanels, newPanelOffer, panelsToFileOn, type FileOnOption } from '../fileOn';
 import { browserStore, rememberedIn } from '../lastVisited';
+import { refuseWhileOffline } from '../offline';
+import { useUndo } from '../undo';
 
 /** Said on the option while there is no connection, since the Panel is made when chosen. */
 export const NEW_PANEL_NEEDS_A_CONNECTION = 'Needs a connection to make a Panel.';
@@ -36,6 +38,7 @@ export default function FileOnSearch({
   from,
   workspaces,
   chosen,
+  instantly = false,
   onPick,
 }: {
   where: string | null;
@@ -43,10 +46,18 @@ export default function FileOnSearch({
   from: string | null;
   workspaces: readonly Workspace[];
   chosen: readonly string[];
+  /**
+   * Picks a Panel it makes at the click, before the server has answered, where
+   * Capture waits for it: the Item form's filing joins the queue behind the Panel
+   * (issue 1364), while a capture is sent outside the queue and needs the Panel
+   * to be there.
+   */
+  instantly?: boolean;
   onPick: (option: FileOnOption) => void;
 }) {
   const [typed, setTyped] = useState('');
   const send = useSendCommand();
+  const offerToUndo = useUndo();
   const online = useSyncExternalStore(
     subscribeToConnection,
     () => navigator.onLine !== false,
@@ -85,8 +96,16 @@ export default function FileOnSearch({
     setMaking(true);
     setRefusal(null);
     const panelId = uuidv7();
+    const option = {
+      panelId,
+      name: offer.name,
+      dashboardName: offer.dashboardName,
+      workspaceId: offer.workspaceId,
+      workspaceName: offer.workspaceName,
+    };
     try {
-      await send({
+      refuseWhileOffline();
+      const made = send({
         name: 'add_panel',
         payload: {
           commandId: uuidv7(),
@@ -98,21 +117,22 @@ export default function FileOnSearch({
           kind: 'items',
         },
       });
+      if (instantly) {
+        // Picked at the click, the filing behind the Panel in the queue: a refusal
+        // takes both back and is said once, in the undo bar.
+        made.catch((failure: unknown) => offerToUndo({ what: `The panel “${option.name}” was not added. ${whyNotDone(failure)}` }));
+        pick({ ...option, made });
+      } else {
+        await made;
+        pick(option);
+      }
     } catch (error) {
       // The text stays, so the name can be edited and tried again.
       setRefusal(refusalFrom({ error }));
-      return;
     } finally {
       makingNow.current = false;
       setMaking(false);
     }
-    pick({
-      panelId,
-      name: offer.name,
-      dashboardName: offer.dashboardName,
-      workspaceId: offer.workspaceId,
-      workspaceName: offer.workspaceName,
-    });
   };
 
   return (
