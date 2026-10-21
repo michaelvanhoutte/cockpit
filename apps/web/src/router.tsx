@@ -8,6 +8,7 @@ import {
   useRouter,
 } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
+import { changes } from './api/changes';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { setAllItemsTab } from './allItemsTab';
 import { connectionsSearch } from './connections';
@@ -127,15 +128,15 @@ const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string)
  * Reading what you already have is what memory and the checked saved reads are
  * for (functional definition, "Offline / local-first behavior").
  *
- * What that costs is freshness, and it is paid where the freshness is actually
- * needed rather than on every navigation: adding a dashboard re-reads the
- * snapshot before going to it (components/DashboardBar.tsx), because that is
- * the one moment the copy in hand is known to be a snapshot from before the
- * thing being navigated to existed - and the one moment the network is known to
- * be working, since the add just came back.
+ * What that costs is freshness, which a read behind each change pays back.
+ *
+ * **Drawn over with this tab's unanswered changes** (`changeQueue.ts`), so a
+ * Dashboard added a moment ago is one the route finds and opens before the
+ * server has answered, and one deleted a moment ago is one it moves on from
+ * ("Show a Dashboard change the moment you make it", issue 1362).
  */
-const snapshotOf = (queryClient: QueryClient, workspaceId: string) =>
-  orTheLogonPage(readFor(queryClient, snapshotQuery(workspaceId)));
+const snapshotOf = async (queryClient: QueryClient, workspaceId: string) =>
+  changes.drawnOver(await orTheLogonPage(readFor(queryClient, snapshotQuery(workspaceId))));
 
 /**
  * The logon page, and the only address that works before you have signed in.
