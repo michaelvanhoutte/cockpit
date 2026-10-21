@@ -462,7 +462,7 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 
 **Moved from 223KB to 230KB at once, by the engineer's decision** ("Ask on Connect whether a mail connection files by label or category", issue 1147): the gate had been moved 1KB per feature twice more with the entry left a few bytes under it each time, so any feature touching it failed.
 
-**Moved from 230KB to 233KB at once, for drawing Dashboard and Panel changes the moment they are made** ("Show a Panel or Dashboard change the moment you make it", issue 1351): the drawing code is in the entry because the first gesture on the board needs it, and a chunk of its own would delay that gesture.
+**Moved from 230KB to 233KB at once, for drawing changes the moment they are made** ("Show a Panel or Dashboard change the moment you make it", issue 1351, and the Workspace, capture, attachment and Not a duplicate tickets beside it, which share these 3KB): the drawing code is in the entry because the first gesture on the board needs it, and a chunk of its own would delay that gesture.
 
 One standing rule follows: **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 
