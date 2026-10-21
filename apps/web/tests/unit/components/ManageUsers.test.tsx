@@ -3,7 +3,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RegisteredUser } from '@cockpit/shared';
+import { changes as theTabsChanges } from '../../../src/api/changes';
 import ManageUsers, { isInactive } from '../../../src/components/ManageUsers';
+import { UndoWhatJustHappened } from '../../../src/undo';
 
 /**
  * F1: what the page draws from what it is given. That only an admin may read it
@@ -11,7 +13,8 @@ import ManageUsers, { isInactive } from '../../../src/components/ManageUsers';
  * apps/api/tests/integration/http/user-management.test.ts; what is asked here
  * is the half that lives in the browser - that every fact the register holds
  * reaches the screen, and that being refused reads as a refusal rather than as
- * an empty page.
+ * an empty page. What a change shows while the server has yet to answer is
+ * tests/unit/components/UsersAtOnce.test.tsx.
  */
 
 const PEOPLE: RegisteredUser[] = [
@@ -45,23 +48,42 @@ const holds = vi.fn();
 /** Who the page believes is asking, which one of the two role refusals is about. */
 const iAm = vi.fn();
 
-vi.mock('../../../src/api/queries', async () => {
-  const { useMutation } = await import('@tanstack/react-query');
-  return {
-    registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => reads() },
-    meQuery: { queryKey: ['me'], queryFn: () => iAm() },
-    accountHoldingsQuery: (userId: string) => ({
-      queryKey: ['accountHoldings', userId],
-      queryFn: () => holds(userId),
-    }),
-    // The real hooks, minus the cache invalidation they do on success - which
-    // needs a client these cases do not have and proves nothing about the form.
-    useAddUser: () => useMutation({ mutationFn: adds }),
-    useChangeUser: () => useMutation({ mutationFn: changes }),
-    useSetAccess: () => useMutation({ mutationFn: access }),
-    useDeleteUser: () => useMutation({ mutationFn: deletes }),
-  };
-});
+vi.mock('../../../src/api/queries', () => ({
+  meQuery: { queryKey: ['me'], queryFn: () => iAm() },
+  accountHoldingsQuery: (userId: string) => ({
+    queryKey: ['accountHoldings', userId],
+    queryFn: () => holds(userId),
+  }),
+}));
+
+// The network edge: the register and each change answer what the case says, or
+// throw what it says the server refused with. The window's own reads, requests and
+// queue are the app's.
+vi.mock('../../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  api: {
+    v1: {
+      admin: {
+        users: {
+          $get: async () => Response.json(await reads()),
+          $post: async ({ json }: { json: unknown }) => Response.json(await adds(json), { status: 201 }),
+          ':userId': {
+            $patch: async ({ param, json }: { param: { userId: string }; json: object }) =>
+              Response.json(await changes({ userId: param.userId, ...json })),
+            $delete: async ({ param }: { param: { userId: string } }) => {
+              await deletes(param.userId);
+              return Response.json({ deleted: true });
+            },
+            access: {
+              $patch: async ({ param, json }: { param: { userId: string }; json: object }) =>
+                Response.json(await access({ userId: param.userId, ...json })),
+            },
+          },
+        },
+      },
+    },
+  },
+}));
 
 // Signed in as the seeded admin unless a case says otherwise: React Query
 // refuses an undefined answer, so a query left unanswered would fail in the
@@ -79,6 +101,8 @@ afterEach(() => {
   deletes.mockReset();
   holds.mockReset();
   iAm.mockReset();
+  // What the tab drew over a list for a case is not for the next one.
+  theTabsChanges.forgetAnswered();
 });
 
 /**
@@ -89,7 +113,9 @@ function drawn() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <ManageUsers open onClose={() => {}} />
+      <UndoWhatJustHappened>
+        <ManageUsers open onClose={() => {}} />
+      </UndoWhatJustHappened>
     </QueryClientProvider>,
   );
   return client;
@@ -678,7 +704,7 @@ describe('Deleting', () => {
       expect(screen.getByText('ada@example.com')).toBeVisible();
     });
 
-    it('says what the server refused inside the question, which stays open', async () => {
+    it('says what the server refused in the undo bar, the question having closed at the click', async () => {
       adaHolds({ workspaces: 3, empty: false });
       deletes.mockRejectedValue(new Error('user-grace uses the same account'));
       const user = await askAbout(PEOPLE[1]!);
@@ -687,9 +713,9 @@ describe('Deleting', () => {
       await waitFor(() => expect(yes).toBeEnabled());
       await user.click(yes);
 
-      expect(await within(screen.getByRole('alertdialog')).findByRole('alert')).toHaveTextContent(
-        /same account/,
-      );
+      expect(await screen.findByText(/“Ada” was not deleted\. user-grace uses the same account/)).toBeVisible();
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(screen.getByText('ada@example.com')).toBeVisible();
     });
   });
 });

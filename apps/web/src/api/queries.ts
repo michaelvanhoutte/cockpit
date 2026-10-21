@@ -9,19 +9,14 @@ import type {
 } from '@cockpit/shared';
 import {
   CommandRefused,
-  addUser,
-  changeUser,
-  deleteUser,
   fetchAccountHoldings,
   fetchMe,
-  fetchRegisteredUsers,
   fetchUsage,
   fetchRewriteHistoryForItem,
   fetchRewriteHistoryForWorkspace,
   fetchSnapshot,
   fetchWorkspaces,
   sendCommand,
-  setAccess,
   checkConnectionNow,
 } from './client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
@@ -64,74 +59,11 @@ export const workspacesQuery = queryOptions({
 });
 
 /**
- * Everyone this Cockpit knows, for the admin page.
- *
- * **Not held as long as the others.** A workspace list goes stale when you
- * change it yourself; this one goes stale when somebody else does, and the
- * whole point of the page is to show who can currently sign in - so it is
- * re-read on opening rather than served from a copy taken minutes ago.
- */
-export const registeredUsersQuery = queryOptions({
-  queryKey: ['registeredUsers'],
-  queryFn: fetchRegisteredUsers,
-  staleTime: 0,
-});
-
-/**
  * What the Usage window reads, for a window of this many days. Re-read on
  * opening for the reason the register's list is: it is a question about now.
  */
 export const usageQuery = (days: number) =>
   queryOptions({ queryKey: ['usage', days], queryFn: () => fetchUsage(days), staleTime: 0 });
-/**
- * Adding somebody, and re-reading the list once they are in.
- *
- * The list is invalidated rather than written into: what a person's row says
- * includes things the server decided - the id derived from their name, the
- * account they were given - so reading it back is one round trip against
- * guessing.
- */
-export function useAddUser() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: unlessOffline(addUser),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
-  });
-}
-
-/**
- * Renaming somebody and setting their role ("Rename a user, and make somebody
- * an admin", issue 232).
- *
- * **The sign-in is re-read as well as the list**, because one of the people an
- * admin can rename is themselves, and the name in the header comes from `me`.
- * The role is the same story from the other side: an admin who takes another
- * admin's role away changes what that person is offered, and an admin renamed
- * by somebody else sees it on their next read - the register is what both are
- * read from.
- */
-export function useChangeUser() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: unlessOffline(changeUser),
-    onSuccess: () => bothReadAgain(queryClient),
-  });
-}
-
-/**
- * Taking somebody's access away, or giving it back ("Take somebody's access
- * away without taking their work", issue 233).
- *
- * The same two re-reads, for the same reason on both counts: the list says who
- * has access, and `me` is what the app draws its own name and menu from.
- */
-export function useSetAccess() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: unlessOffline(setAccess),
-    onSuccess: () => bothReadAgain(queryClient),
-  });
-}
 
 /**
  * What somebody's account holds, read when the question about deleting them
@@ -149,29 +81,6 @@ export const accountHoldingsQuery = (userId: string) =>
     staleTime: 0,
     gcTime: 0,
   });
-
-/**
- * Deleting somebody, and re-reading the list once they are gone. Only the list:
- * nobody can delete themselves, so what `me` says cannot have changed.
- */
-export function useDeleteUser() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: unlessOffline(deleteUser),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
-  });
-}
-
-/**
- * The list and the sign-in, re-read together: one after the other would hold a
- * form in its saving state through both round trips.
- */
-function bothReadAgain(queryClient: QueryClient) {
-  return Promise.all([
-    queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
-    queryClient.invalidateQueries({ queryKey: ['me'] }),
-  ]);
-}
 
 /** The read model: one snapshot per workspace (§5.2), revalidated in the background. */
 export const snapshotQuery = (workspaceId: string) =>

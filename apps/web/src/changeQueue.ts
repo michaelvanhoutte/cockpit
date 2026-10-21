@@ -1,6 +1,6 @@
 import type { CommandPayload, CommandResult, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
-import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver, type Drawn } from './drawnAhead';
+import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver, type Drawn, type Requested } from './drawnAhead';
 
 /**
  * The changes this tab has made, in the order it made them ("Show an Item or
@@ -35,7 +35,10 @@ import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver, type Dra
  * **A window draws a list of its own by giving its changes a scope** ("Show a
  * connection change the moment you make it", issue 1369): the queue keeps such a
  * change drawn once answered, and only a read landing for that scope ends it. What
- * the change draws, and which read it is, stay in the window's own chunk.
+ * the change draws, and which read it is, stay in the window's own chunk. **A change
+ * that is not a command** (the admin's user changes, disconnecting a connected app;
+ * "Show a connected app or user change the moment you make it", issue 1371) joins
+ * the same way with the `request` that sends it, in place of `send`.
  *
  * **A capture is drawn from the outbox, which sends it** ("Show a capture in the
  * Inbox the moment you make it", issue 1353): it joins ahead of the changes
@@ -57,7 +60,12 @@ export interface ChangeQueue {
    * hears of it: what lets a read owed for the change be registered before the queue is
    * seen to have emptied.
    */
-  enqueue(change: CommandArgs, answered?: (result: CommandResult) => void, scope?: string): Promise<CommandResult>;
+  enqueue(
+    change: CommandArgs | Requested,
+    answered?: (result: CommandResult) => void,
+    scope?: string,
+    request?: (signal: AbortSignal) => Promise<CommandResult>,
+  ): Promise<CommandResult>;
   /** The copy as the server sent it, with every change not yet covered by a read drawn over it. */
   drawnOver(snapshot: WorkspaceSnapshot): WorkspaceSnapshot;
   /**
@@ -126,6 +134,8 @@ interface Entry {
    * that scope ends it. Absent, the change is a Workspace's or the list of them.
    */
   scope?: string | undefined;
+  /** How a change that is not a command is sent, in place of `send`. */
+  request?: ((signal: AbortSignal) => Promise<CommandResult>) | undefined;
   state: 'waiting' | 'sending' | 'answered';
   /** The tick the answer arrived at, once it has. */
   answeredAt: number;
@@ -241,7 +251,7 @@ export function createChangeQueue(options: {
         const sending = new AbortController();
         let giveUp: ReturnType<typeof setTimeout> | undefined;
         try {
-          const sent = send(next.change as CommandArgs, sending.signal);
+          const sent = next.request ? next.request(sending.signal) : send(next.change as CommandArgs, sending.signal);
           // A request given up on may still fail later; nobody is waiting on it then.
           sent.catch(() => {});
           const gaveUp = new Promise<never>((_, reject) => {
@@ -276,9 +286,9 @@ export function createChangeQueue(options: {
   }
 
   return {
-    enqueue(change, answered, scope) {
+    enqueue(change, answered, scope, request) {
       return new Promise<CommandResult>((resolve, reject) => {
-        entries.push({ change, scope, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
+        entries.push({ change, scope, request, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
         changed();
         void pump();
       });
@@ -300,7 +310,7 @@ export function createChangeQueue(options: {
       const covered = entries.filter(
         (entry) =>
           entry.state === 'answered' &&
-          (entry.scope ?? (WORKSPACE_LIST_CHANGES.has(entry.change.name) ? null : entry.change.payload.workspaceId)) === scope &&
+          (entry.scope ?? (WORKSPACE_LIST_CHANGES.has(entry.change.name) ? null : (entry.change.payload as { workspaceId: string }).workspaceId)) === scope &&
           (entry.answeredAt < startedAt || (entry.stamp !== undefined && upTo !== undefined && upTo >= entry.stamp)),
       );
       if (covered.length === 0) return;
