@@ -335,6 +335,13 @@ describe('Capture', () => {
         expect(captured.startsWith(NOTE_MARKER)).toBe(true);
       });
 
+      it('cuts a message past the limit with no note too, rather than have it refused', async () => {
+        const captured = await capturedWith(withMessage('word '.repeat(20_000), {}));
+
+        expect(captured.length).toBeLessThanOrEqual(LIMIT);
+        expect(captured.startsWith('word word')).toBe(true);
+      });
+
       it('does not cut in the middle of a character', async () => {
         const captured = await capturedWith(withMessage('\u{1F600}'.repeat(40_000), { note: 'n' }));
 

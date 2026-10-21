@@ -213,15 +213,14 @@ function noteTyped(data: { note?: unknown; saved?: unknown } | undefined): strin
 
 /**
  * The captured message: the Teams message, and where the person typed a note
- * after it, a blank line, `NOTE_MARKER` and the note. No note leaves the
- * message exactly as it was.
+ * after it, a blank line, `NOTE_MARKER` and the note.
  *
  * **Cut to the limit with the note kept whole, never refused**, since what the
  * host refuses Teams delivers again forever: it is the Teams message that
  * gives way. A note alone past the limit is cut itself, last.
  */
 function withTheNote(said: string, note: string): string {
-  if (!note) return said;
+  if (!note) return cutTo(said, CAPTURE_LENGTH);
   const lead = `${NOTE_MARKER}\n`;
   const kept = cutTo(note, CAPTURE_LENGTH - lead.length);
   const tail = `${lead}${kept}`;
