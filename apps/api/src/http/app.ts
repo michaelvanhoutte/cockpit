@@ -26,6 +26,10 @@ import {
   setAccessSchema,
   signedInSchema,
   registeredConnectorListSchema,
+  sendPhoneCodeSchema,
+  phoneCodeSentSchema,
+  confirmPhoneCodeSchema,
+  phoneConnectedSchema,
   sourceAccountListSchema,
   connectionHistorySchema,
   checkedNowSchema,
@@ -136,6 +140,7 @@ import {
   clientOf,
   refuseConnection,
   signInOf,
+  textedCodeOf,
 } from '../connectors/sign-in.js';
 import { revokeAfterDisconnect } from '../connectors/revoke.js';
 import { guestConnectionGate } from '../auth/guest-connections.js';
@@ -148,7 +153,8 @@ import {
 } from '../auth/register.js';
 import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
-import { rememberConnection } from '../connectors/directory.js';
+import { rememberConnectionAfterStoring } from '../connectors/directory.js';
+import { confirmTextedCode, sendTextedCode } from '../connectors/texted-code.js';
 import type { Env } from '../env.js';
 
 type AppEnv = GatedEnv;
@@ -787,6 +793,78 @@ const registeredConnectorsRoute = createRoute({
 });
 
 /**
+ * Connecting a phone by confirming a code texted to it ("Connect a phone in
+ * Settings by confirming a code texted to it", issue 1335): two requests from
+ * the Connections window, each refusing in the connector's words. Sending a
+ * code is refused for a number the connector does not accept, for an account
+ * that has asked for its hour's codes, and where the source fails; confirming
+ * is refused for a code that is wrong or no longer valid, and connects the
+ * number only when it is approved. Behind the guest's gate like every
+ * connection change, and 404 where the connector is not registered here.
+ */
+const sendPhoneCodeRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/connections/{connectorId}/phone/code',
+  request: {
+    params: z.object({ workspaceId: z.string(), connectorId: z.string() }),
+    body: { required: true, content: { 'application/json': { schema: sendPhoneCodeSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'A code was texted to this number',
+      content: { 'application/json': { schema: phoneCodeSentSchema } },
+    },
+    400: {
+      description: 'The number is not one the connector accepts, or the code is wrong or no longer valid',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    404: {
+      description: 'Unknown workspace, or no such connector offered here',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    429: {
+      description: 'The account has asked for as many codes as an hour allows',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    502: {
+      description: 'The source could not be asked',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+const confirmPhoneCodeRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/connections/{connectorId}/phone/confirm',
+  request: {
+    params: z.object({ workspaceId: z.string(), connectorId: z.string() }),
+    body: { required: true, content: { 'application/json': { schema: confirmPhoneCodeSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The number is now connected to this workspace',
+      content: { 'application/json': { schema: phoneConnectedSchema } },
+    },
+    400: {
+      description: 'The number is not one the connector accepts, or the code is wrong or no longer valid',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    404: {
+      description: 'Unknown workspace, or no such connector offered here',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    429: {
+      description: 'The account has asked for as many codes as an hour allows',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    502: {
+      description: 'The source could not be asked',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * The apps the signed-in person has allowed into their Cockpit ("See the apps
  * connected to your Cockpit, and disconnect one", issue 600). Only their own:
  * what somebody else allowed, into the same account or not, is theirs to see.
@@ -1263,12 +1341,14 @@ const routes = app
   })
   .openapi(registeredConnectorsRoute, async (c) => {
     // Listed only where Connect would go through: the sign-in, client and
-    // sealing key the connect route requires.
+    // sealing key the connect route requires - or, for a phone, the key and
+    // the texted-code description the code routes require.
     const sealable = (await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY)) !== null;
     return c.json(
       {
         connectors: connectors(c.env)
           .filter(({ manifest }) => {
+            if (textedCodeOf(c.env, manifest.id)) return sealable;
             const sign = signInOf(c.env, manifest.id);
             return sealable && sign !== null && clientOf(c.env, sign.auth) !== null;
           })
@@ -1282,10 +1362,32 @@ const routes = app
               : {}),
             ...(manifest.names ? { names: { noun: manifest.names.noun, example: manifest.names.example } } : {}),
             refusals: signInOf(c.env, manifest.id)?.auth.refusals ?? {},
+            ...(manifest.auth.kind === 'texted-code' ? { textedCode: { textTo: manifest.auth.textTo } } : {}),
           })),
       },
       200,
     );
+  })
+  // --- connecting a phone: two requests, nothing pending between them ---------
+  .openapi(sendPhoneCodeRoute, async (c) => {
+    const { workspaceId, connectorId } = c.req.valid('param');
+    const { number } = c.req.valid('json');
+    const sent = await sendTextedCode(c.env, c.get('visitor').accountName, workspaceId, connectorId, number, new Date());
+    return sent.done ? c.json({ number: sent.number }, 200) : c.json({ error: sent.error }, sent.status);
+  })
+  .openapi(confirmPhoneCodeRoute, async (c) => {
+    const { workspaceId, connectorId } = c.req.valid('param');
+    const { number, code } = c.req.valid('json');
+    const connected = await confirmTextedCode(
+      c.env,
+      c.get('visitor').accountName,
+      workspaceId,
+      connectorId,
+      number,
+      code,
+      new Date(),
+    );
+    return connected.done ? c.json({ number: connected.number }, 200) : c.json({ error: connected.error }, connected.status);
   })
   .openapi(rememberedSentencesRoute, async (c) => {
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -1928,43 +2030,15 @@ const routes = app
         ...(asked ? { choice: attempt!.choice! } : {}),
         ...(reportsNames && attempt!.filesByName !== undefined ? { filesByName: attempt!.filesByName } : {}),
       });
-      // **After the connection is stored, and only then.** The register's index
-      // is what lets a saved message find this Workspace later ("Save a Teams
-      // message to Cockpit", issue 486) - and it is a hint rather than the
-      // authority, so writing it before the row it points at would be pointing
-      // at something that may never arrive. Only a source that pushes has
-      // anything to be found by.
-      //
-      // **Its own failure never reaches the outer `catch`.** By this point
-      // `connect_source_account` above has already committed - a DO
-      // transaction and this D1 write can't share one - so a transient
-      // failure here must not fall into `refuseConnection` below, which
-      // would tell the user nothing was saved when the connection is
-      // already live (found in review, PR 491). Retried once first, since
-      // the write upserts on the same four key columns reconnecting the
-      // same account would anyway; a repair by hand is exactly a reconnect.
-      // And a source that revokes: the register is where a disconnect finds
-      // out whether another Workspace holds the same account.
+      // The register's index, after the connection is stored and never failing
+      // it (`rememberConnectionAfterStoring`, connectors/directory.ts): what
+      // lets a push find this Workspace later ("Save a Teams message to
+      // Cockpit", issue 486). Only a source that pushes has anything to be
+      // found by, and a source that revokes is where a disconnect finds out
+      // whether another Workspace holds the same account.
       if (sign.connector.manifest.supportsPush || sign.connector.revoke) {
         const where = { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId };
-        try {
-          await rememberConnection(c.env, where, connectorId, account.key, connectedAt);
-        } catch (firstError) {
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          try {
-            await rememberConnection(c.env, where, connectorId, account.key, connectedAt);
-          } catch (secondError) {
-            console.error(
-              JSON.stringify({
-                level: 'error',
-                message:
-                  'a source account connected, but is not in the register of connections - a saved message cannot find it, and a disconnect elsewhere may revoke its sign-in for it; reconnecting the same account repairs it',
-                cause: secondError instanceof Error ? secondError.message : String(secondError),
-                firstAttempt: firstError instanceof Error ? firstError.message : String(firstError),
-              }),
-            );
-          }
-        }
+        await rememberConnectionAfterStoring(c.env, where, connectorId, account.key, connectedAt);
       }
       return backToConnections(c, attempt!.workspaceId, 'connected');
     } catch (error) {

@@ -1,4 +1,9 @@
-import type { ConnectedAccountIdentity, Connector, OAuthDescriptor } from '@cockpit/connector-sdk';
+import type {
+  ConnectedAccountIdentity,
+  Connector,
+  OAuthDescriptor,
+  TextedCodeDescriptor,
+} from '@cockpit/connector-sdk';
 import type { Context } from 'hono';
 import { authorizationUrl, claimsFrom, type Attempt } from '../auth/oidc.js';
 import { endpointsFor, exchangeCode, keysOf, spendCode } from '../auth/issuer.js';
@@ -34,6 +39,25 @@ export function signInOf(env: Env, connectorId: string): SignIn | null {
   const connector = getConnector(env, connectorId);
   if (!connector || connector.manifest.auth.kind !== 'oauth2') return null;
   return { connector, auth: connector.manifest.auth };
+}
+
+/** A registered connector that connects by confirming a code texted to a phone, and how (issue 1335). */
+export interface TextedCode {
+  readonly connector: Connector & Required<Pick<Connector, 'numberFrom' | 'sendCode' | 'checkCode'>>;
+  readonly auth: TextedCodeDescriptor;
+}
+
+/**
+ * The texted-code connection the connector registered under this id
+ * describes, or `null` for an id nothing is registered under and for a
+ * connector that connects another way - the same "nothing to connect here" as
+ * `signInOf`.
+ */
+export function textedCodeOf(env: Env, connectorId: string): TextedCode | null {
+  const connector = getConnector(env, connectorId);
+  if (!connector || connector.manifest.auth.kind !== 'texted-code') return null;
+  if (!connector.numberFrom || !connector.sendCode || !connector.checkCode) return null;
+  return { connector: connector as TextedCode['connector'], auth: connector.manifest.auth };
 }
 
 /**

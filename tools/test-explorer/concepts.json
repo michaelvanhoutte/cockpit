@@ -385,7 +385,7 @@
     {
       "key": "Connector management",
       "label": "Connector management",
-      "browserWalks": 8,
+      "browserWalks": 9,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/connectors/credential-crypto.ts",
@@ -399,6 +399,10 @@
         "packages/connectors/outlook/src/credential.ts",
         "packages/connectors/outlook/src/graph.ts",
         "packages/connectors/outlook/src/mirroring.ts",
+        "packages/connectors/twilio/src/number.ts",
+        "packages/connectors/twilio/src/verify.ts",
+        "apps/api/src/connectors/texted-code.ts",
+        "apps/web/src/components/ConnectPhone.tsx",
         "apps/api/src/connectors/registry.ts",
         "apps/api/src/connectors/directory.ts",
         "packages/connector-sdk/src/index.ts",

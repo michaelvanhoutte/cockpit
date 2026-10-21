@@ -68,6 +68,48 @@ export async function rememberConnection(
 }
 
 /**
+ * `rememberConnection` for a connection already stored, which never fails the
+ * connect it follows.
+ *
+ * **After the connection is stored, and only then.** The register's index is
+ * what lets a push find this Workspace later - and it is a hint rather than
+ * the authority, so writing it before the row it points at would be pointing
+ * at something that may never arrive. **Its own failure never reaches the
+ * caller**: by now the store's connect has committed - a DO transaction and
+ * this D1 write can't share one - so a transient failure here must not tell the
+ * person nothing was saved when the connection is already live (found in
+ * review, PR 491). Retried once first, since the write upserts on the same
+ * four key columns reconnecting the same account would anyway; a repair by
+ * hand is exactly a reconnect.
+ */
+export async function rememberConnectionAfterStoring(
+  env: Env,
+  pointer: ConnectionPointer,
+  connectorId: string,
+  externalAccountKey: string,
+  connectedAt: string,
+): Promise<void> {
+  try {
+    await rememberConnection(env, pointer, connectorId, externalAccountKey, connectedAt);
+  } catch (firstError) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    try {
+      await rememberConnection(env, pointer, connectorId, externalAccountKey, connectedAt);
+    } catch (secondError) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message:
+            'a source account connected, but is not in the register of connections - a push cannot find it, and a disconnect elsewhere may revoke its sign-in for it; reconnecting the same account repairs it',
+          cause: secondError instanceof Error ? secondError.message : String(secondError),
+          firstAttempt: firstError instanceof Error ? firstError.message : String(firstError),
+        }),
+      );
+    }
+  }
+}
+
+/**
  * Every Workspace that has connected this account at this source, most recently
  * connected first.
  *

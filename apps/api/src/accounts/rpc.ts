@@ -292,6 +292,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   transcriptionArrived(at: string): Awaitable<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
   sentenceCallArrived(kind: 'offer' | 'remember', at: string): Awaitable<'admitted' | 'too-many'>;
+  /** A code asked for a source to text, counted against the account's hour (issue 1335). */
+  textedCodeAsked(connectorId: string, limit: number, at: string): Awaitable<'admitted' | 'too-many'>;
   /** One connection's history, newest line first (issue 1140). */
   connectionHistory(
     accountName: string,

@@ -4,6 +4,7 @@ import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 // true to Gmail (packages/connectors/gmail/tests/contract).
 import { modifyAnswer } from '../../../../packages/connectors/gmail/tests/gmail-payloads.js';
 import { GRAPH_API, graphAnswer, graphIsEmpty } from './graph.js';
+import { VERIFY_API, verifyAnswer, verifyIsEmpty } from './verify.js';
 
 /**
  * A Google that can be reached from inside a test.
@@ -121,6 +122,7 @@ export async function issuerIsReachable(): Promise<void> {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     if (url.origin === GMAIL_API) return gmailAnswer(url, init);
     if (url.origin === GRAPH_API) return graphAnswer(url, init);
+    if (url.origin === VERIFY_API) return verifyAnswer(url, init);
     if (url.origin !== ISSUER) {
       throw new Error(`nothing in a test may reach ${url.origin}`);
     }
@@ -207,6 +209,7 @@ export function issuerIsForgotten(): void {
   vi.unstubAllGlobals();
   gmailIsEmpty();
   graphIsEmpty();
+  verifyIsEmpty();
   answers.clear();
   gate = null;
   revoking = 'answers';

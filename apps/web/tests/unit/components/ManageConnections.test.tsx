@@ -27,6 +27,7 @@ const held = vi.hoisted(() => ({
     asksFirst: boolean;
     refusals?: Record<string, string>;
     choice?: { question: string; options: { value: string; label: string }[] };
+    textedCode?: { textTo: string };
   }[],
   /** What the Workspace's snapshot calls each source (issue 927). */
   sourceNames: {} as Record<string, string> | undefined,
@@ -38,6 +39,14 @@ const held = vi.hoisted(() => ({
   historyAskedFor: [] as string[],
   /** The Items a press on a named Item asked to open (issue 1141). */
   opened: [] as string[],
+  /** What the two requests that connect a phone answer, and what each was sent (issue 1335). */
+  phone: {
+    code: { status: 200, body: {} as unknown },
+    confirm: { status: 200, body: {} as unknown, connects: null as SourceAccount | null },
+    sent: [] as { which: 'code' | 'confirm'; json: Record<string, string> }[],
+    /** Whether a request fails before an answer arrives. */
+    unreachable: false,
+  },
 }));
 
 vi.mock('../../../src/itemForm', () => ({
@@ -72,6 +81,27 @@ vi.mock('../../../src/api/client', () => ({
           connections: {
             $get: () =>
               Promise.resolve(new Response(JSON.stringify({ sourceAccounts: held.sourceAccounts }))),
+            ':connectorId': {
+              phone: {
+                code: {
+                  $post: ({ json }: { json: Record<string, string> }) => {
+                    held.phone.sent.push({ which: 'code', json });
+                    if (held.phone.unreachable) return Promise.reject(new TypeError('network'));
+                    return Promise.resolve(Response.json(held.phone.code.body, { status: held.phone.code.status }));
+                  },
+                },
+                confirm: {
+                  $post: ({ json }: { json: Record<string, string> }) => {
+                    held.phone.sent.push({ which: 'confirm', json });
+                    if (held.phone.unreachable) return Promise.reject(new TypeError('network'));
+                    if (held.phone.confirm.status === 200 && held.phone.confirm.connects) {
+                      held.sourceAccounts = [...held.sourceAccounts, held.phone.confirm.connects];
+                    }
+                    return Promise.resolve(Response.json(held.phone.confirm.body, { status: held.phone.confirm.status }));
+                  },
+                },
+              },
+            },
             ':sourceAccountId': {
               history: {
                 $get: ({ param }: { param: { sourceAccountId: string } }) => {
@@ -173,6 +203,10 @@ beforeEach(() => {
   held.opened = [];
   checkedNow = [];
   checkNowReaches = true;
+  held.phone.code = { status: 200, body: { number: '+32470123456' } };
+  held.phone.confirm = { status: 200, body: { number: '+32470123456' }, connects: null };
+  held.phone.sent = [];
+  held.phone.unreachable = false;
   held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail' };
   vi.restoreAllMocks();
 });
@@ -840,6 +874,158 @@ describe('Connector management', () => {
       showWindow();
 
       expect(await screen.findByText(TEAMS_CARD.cardText)).toBeInTheDocument();
+    });
+  });
+});
+
+/** "Connect a phone in Settings by confirming a code texted to it", issue 1335. */
+describe('Connector management', () => {
+  const TEXT_MESSAGES_CARD = {
+    id: 'twilio',
+    displayName: 'Text messages',
+    cardText: 'Text a note to Cockpit from your phone.',
+    asksFirst: false,
+    textedCode: { textTo: '+32460000000' },
+  };
+  const PHONE: SourceAccount = {
+    id: 'account-phone',
+    connectorId: 'twilio',
+    displayName: '+32470123456',
+    connectedAt: '2026-10-20T09:00:00.000Z',
+    lastTestedAt: '2026-10-20T09:00:00.000Z',
+    failingBecause: null,
+    filesByName: false,
+  };
+
+  beforeEach(() => {
+    held.registry = [TEAMS_CARD, TEXT_MESSAGES_CARD];
+    held.sourceNames = { teams: 'Microsoft Teams', twilio: 'Text messages' };
+  });
+
+  /** Opens the form from the card and types a number into it. */
+  async function typeANumber(number = '0470 12 34 56') {
+    await userEvent.click(await screen.findByRole('button', { name: 'Connect Text messages' }));
+    await userEvent.type(await screen.findByLabelText('Mobile number'), number);
+  }
+
+  describe('the Text messages entry goes from number to code to connected', () => {
+    it('asks for a number rather than leaving, and shows the code field once a code is sent', async () => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      showWindow();
+      await typeANumber();
+      expect(screen.queryByLabelText('Code')).toBeNull();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Send code' }));
+
+      expect(await screen.findByLabelText('Code')).toBeInTheDocument();
+      expect(held.phone.sent).toEqual([{ which: 'code', json: { number: '0470 12 34 56' } }]);
+      expect(leaving).not.toHaveBeenCalled();
+    });
+
+    it('lists the number with the Cockpit number to text once the code is confirmed', async () => {
+      held.phone.confirm.connects = PHONE;
+      showWindow();
+      await typeANumber();
+      await userEvent.click(screen.getByRole('button', { name: 'Send code' }));
+      await userEvent.type(await screen.findByLabelText('Code'), '123456');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      expect(await screen.findByText(/is connected\. Text \+32460000000/)).toBeInTheDocument();
+      expect(held.phone.sent.at(-1)).toEqual({
+        which: 'confirm',
+        json: { number: '0470 12 34 56', code: '123456' },
+      });
+      await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+      expect(await screen.findByText('+32470123456')).toBeInTheDocument();
+      expect(screen.getByText(/^Text messages · text \+32460000000 to add a note/)).toBeInTheDocument();
+    });
+
+    it.each([
+      {
+        situation: 'a number the server refuses',
+        arrange: () => {
+          held.phone.code = { status: 400, body: { error: 'Only Belgian mobile numbers can be connected, like +32 470 12 34 56.' } };
+        },
+        says: 'Only Belgian mobile numbers can be connected, like +32 470 12 34 56.',
+        codeField: false,
+      },
+      {
+        situation: 'an hour’s codes already asked for',
+        arrange: () => {
+          held.phone.code = { status: 429, body: { error: 'Too many codes were asked for in the last hour. Try again later.' } };
+        },
+        says: 'Too many codes were asked for in the last hour. Try again later.',
+        codeField: false,
+      },
+      {
+        situation: 'Twilio failing to send',
+        arrange: () => {
+          held.phone.code = { status: 502, body: { error: 'Twilio could not be reached. Try again shortly.' } };
+        },
+        says: 'Twilio could not be reached. Try again shortly.',
+        codeField: false,
+      },
+      {
+        situation: 'a code the server refuses',
+        arrange: () => {
+          held.phone.confirm = { status: 400, body: { error: 'That is not the code. Check it and try again.' }, connects: null };
+        },
+        says: 'That is not the code. Check it and try again.',
+        codeField: true,
+      },
+      {
+        situation: 'Twilio unreachable on Confirm',
+        arrange: () => {
+          held.phone.confirm = { status: 502, body: { error: 'Twilio could not be reached. Try again shortly.' }, connects: null };
+        },
+        says: 'Twilio could not be reached. Try again shortly.',
+        codeField: true,
+      },
+      {
+        situation: 'a server that cannot be reached at all',
+        arrange: () => {
+          held.phone.unreachable = true;
+        },
+        says: 'That did not reach the server. Try again.',
+        codeField: false,
+      },
+    ])('says $situation under the field, with the number and code kept as typed', async ({ arrange, says, codeField }) => {
+      showWindow();
+      await typeANumber('0471 99 99 99');
+      if (codeField) {
+        await userEvent.click(screen.getByRole('button', { name: 'Send code' }));
+        await userEvent.type(await screen.findByLabelText('Code'), '654321');
+      }
+      arrange();
+
+      await userEvent.click(screen.getByRole('button', { name: codeField ? 'Confirm' : 'Send code' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(says);
+      expect(screen.getByLabelText('Mobile number')).toHaveValue('0471 99 99 99');
+      if (codeField) expect(screen.getByLabelText('Code')).toHaveValue('654321');
+      expect(screen.queryByText(/is connected\./)).toBeNull();
+    });
+
+    it('offers a connected phone Disconnect and nothing that signs in again', async () => {
+      held.sourceAccounts = [PHONE];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for +32470123456' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Reconnect' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'Change…' })).toBeNull();
+    });
+
+    it('offers no Text messages where the environment has not configured it', async () => {
+      held.registry = [TEAMS_CARD];
+
+      showWindow();
+
+      expect(await screen.findByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Connect Text messages' })).toBeNull();
     });
   });
 });

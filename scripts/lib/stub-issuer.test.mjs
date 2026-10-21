@@ -470,3 +470,45 @@ describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Gra
     assert.deepEqual(read.categories, ['Customer Atlas', 'Admin']);
   });
 });
+
+//
+// Twilio Verify's stand-in ("Connect a phone in Settings by confirming a code
+// texted to it", issue 1335): the part a real Verify would refuse. A stand-in
+// approving any code for any number would let a Cockpit that skipped asking
+// Verify pass here and connect nobody's phone in production.
+//
+describe('the stand-in Twilio Verify', () => {
+  const verify = (resource, form, { credentials = true } = {}) =>
+    fetch(`${issuer.origin}/v2/Services/VAstub/${resource}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        ...(credentials ? { authorization: `Basic ${Buffer.from('AC:token').toString('base64')}` } : {}),
+      },
+      body: new URLSearchParams(form),
+    });
+
+  it('approves the fixed code for a number it was asked to text, once', async () => {
+    assert.equal((await verify('Verifications', { To: '+32470000001', Channel: 'sms' })).status, 201);
+
+    const approved = await (await verify('VerificationCheck', { To: '+32470000001', Code: '123456' })).json();
+    assert.equal(approved.status, 'approved');
+    assert.equal((await verify('VerificationCheck', { To: '+32470000001', Code: '123456' })).status, 404);
+  });
+
+  it('leaves a wrong code pending, and ends the verification at the fifth', async () => {
+    await verify('Verifications', { To: '+32470000002', Channel: 'sms' });
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const wrong = await (await verify('VerificationCheck', { To: '+32470000002', Code: '000000' })).json();
+      assert.equal(wrong.status, 'pending');
+    }
+    await verify('VerificationCheck', { To: '+32470000002', Code: '000000' });
+    assert.equal((await verify('VerificationCheck', { To: '+32470000002', Code: '123456' })).status, 404);
+  });
+
+  it('answers 404 to a number nothing was sent to, and 401 to a call without credentials', async () => {
+    assert.equal((await verify('VerificationCheck', { To: '+32470000003', Code: '123456' })).status, 404);
+    assert.equal((await verify('Verifications', { To: '+32470000003' }, { credentials: false })).status, 401);
+  });
+});

@@ -114,6 +114,13 @@ export const registeredConnectorSchema = z.object({
    * it, which reads as none.
    */
   refusals: z.record(z.string(), z.string()).default({}),
+  /**
+   * Present for a connector connected by confirming a code texted to a phone
+   * rather than by signing in at a source (issue 1335): its card asks for a
+   * number instead of leaving, and `textTo` is the number a connected phone
+   * texts, which its rows say.
+   */
+  textedCode: z.object({ textTo: z.string() }).optional(),
 });
 export type RegisteredConnector = z.infer<typeof registeredConnectorSchema>;
 
@@ -121,3 +128,25 @@ export const registeredConnectorListSchema = z.object({
   connectors: registeredConnectorSchema.array(),
 });
 export type RegisteredConnectorList = z.infer<typeof registeredConnectorListSchema>;
+
+/**
+ * What the person typed to connect a phone ("Connect a phone in Settings by
+ * confirming a code texted to it", issue 1335): a number as people write one,
+ * which the connector reads. Unbounded by the schema on purpose - what is not a
+ * number it accepts is refused in the connector's own words, which the form
+ * shows, rather than as a validation failure.
+ */
+export const sendPhoneCodeSchema = z.object({ number: z.string().max(64) });
+export type SendPhoneCode = z.infer<typeof sendPhoneCodeSchema>;
+
+/** The number a code was texted to, as the connector read it - what the form then asks the code of. */
+export const phoneCodeSentSchema = z.object({ number: z.string() });
+export type PhoneCodeSent = z.infer<typeof phoneCodeSentSchema>;
+
+/** The code typed back, with the number it was texted to. */
+export const confirmPhoneCodeSchema = z.object({ number: z.string().max(64), code: z.string().max(32) });
+export type ConfirmPhoneCode = z.infer<typeof confirmPhoneCodeSchema>;
+
+/** The phone that is now connected, in the form its connection holds it. */
+export const phoneConnectedSchema = z.object({ number: z.string() });
+export type PhoneConnected = z.infer<typeof phoneConnectedSchema>;

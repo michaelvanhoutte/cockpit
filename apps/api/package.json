@@ -29,6 +29,7 @@
     "@cockpit/connector-outlook": "workspace:*",
     "@cockpit/connector-sdk": "workspace:*",
     "@cockpit/connector-teams": "workspace:*",
+    "@cockpit/connector-twilio": "workspace:*",
     "@cockpit/shared": "workspace:*",
     "@hono/zod-openapi": "^1.5.2",
     "@modelcontextprotocol/sdk": "^1.31.0",
