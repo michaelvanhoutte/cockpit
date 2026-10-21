@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
@@ -120,10 +120,11 @@ describe('Item editing', () => {
   /**
    * Images in a description ("Embed an image inline in an item's description",
    * issue 442), with the upload replaced: what it attaches is the form's, in
-   * tests/unit/components/ItemForm.test.tsx. Where a drop lands needs layout,
-   * so that is the walk in tests/e2e/item-editing.test.ts.
+   * tests/unit/components/ItemForm.test.tsx. A drop needs layout to say where it
+   * lands - ProseMirror measures it before the editor is asked - so a dropped
+   * image is the walk in tests/e2e/item-editing.test.ts.
    */
-  describe('an image put into the description lands where it was put, once uploaded', () => {
+  describe('an image put into the description is drawn at once, where it was put, from the file on the device', () => {
     it.each([
       { situation: 'picked with the image button', put: pick },
       { situation: 'pasted with the cursor in the text', put: paste },
@@ -132,20 +133,53 @@ describe('Item editing', () => {
       await caretIn(user, box, 0, 5);
 
       await put(user, box, [aFile('photo.png', 'image/png')]);
+
+      // The upload has not answered: the text already holds the final address.
+      expect(changes.at(-1)).toBe(`Toler![photo.png](${ADDRESS}1)ances\n`);
+      expect(within(box).getByRole('img', { name: 'photo.png' })).toHaveAttribute('src', 'blob:device/photo.png');
+      expect(uploading.files()).toEqual(['photo.png']);
+    });
+
+    it('draws it from its address once it has uploaded, and lets go of the file', async () => {
+      const { box, changes, uploading, user } = await anEditor('Tolerances');
+      await caretIn(user, box, 0, 5);
+      await paste(user, box, [aFile('photo.png', 'image/png')]);
+
       uploading.landAll();
 
-      await waitFor(() => expect(changes.at(-1)).toBe(`Toler![photo.png](${ADDRESS}1)ances\n`));
-      expect(within(box).getByRole('img', { name: 'photo.png' })).toHaveAttribute('src', `${ADDRESS}1`);
+      await waitFor(() =>
+        expect(within(box).getByRole('img', { name: 'photo.png' })).toHaveAttribute('src', `${ADDRESS}1`),
+      );
+      expect(changes.at(-1)).toBe(`Toler![photo.png](${ADDRESS}1)ances\n`);
+      expect(device.released).toEqual(['blob:device/photo.png']);
+    });
+
+    it('keeps drawing it from the file until the browser has the address ready, so it does not flicker', async () => {
+      const decoding = holdDecoding();
+      const { box, uploading, user } = await anEditor('Tolerances');
+      await caretIn(user, box, 0, 5);
+      await paste(user, box, [aFile('photo.png', 'image/png')]);
+
+      uploading.landAll();
+      await waitFor(() => expect(decoding.asked).toEqual([`${ADDRESS}1`]));
+      expect(within(box).getByRole('img', { name: 'photo.png' })).toHaveAttribute('src', 'blob:device/photo.png');
+      expect(device.released).toEqual([]);
+
+      decoding.finish();
+
+      await waitFor(() =>
+        expect(within(box).getByRole('img', { name: 'photo.png' })).toHaveAttribute('src', `${ADDRESS}1`),
+      );
+      expect(device.released).toEqual(['blob:device/photo.png']);
     });
 
     it('takes the file and not the HTML a browser copied with it', async () => {
-      const { box, changes, uploading, user } = await anEditor('Tolerances');
+      const { changes, box, uploading, user } = await anEditor('Tolerances');
       await caretIn(user, box, 0, 5);
 
       await paste(user, box, [aFile('photo.png', 'image/png')], '<img src="https://elsewhere.example/photo.png">');
-      uploading.landAll();
 
-      await waitFor(() => expect(changes.at(-1)).toBe(`Toler![photo.png](${ADDRESS}1)ances\n`));
+      expect(changes.at(-1)).toBe(`Toler![photo.png](${ADDRESS}1)ances\n`);
       expect(uploading.files()).toEqual(['photo.png']);
     });
 
@@ -157,95 +191,116 @@ describe('Item editing', () => {
       uploading.land(1);
       uploading.land(0);
 
-      await waitFor(() =>
-        expect(changes.at(-1)).toBe(`Tolerances\n\n![one.png](${ADDRESS}1)\n\n![two.png](${ADDRESS}2)\n`),
-      );
-    });
-
-    it('lands where its marker has moved to when text is typed ahead of it', async () => {
-      const { box, changes, uploading, user } = await anEditor('Tolerances');
-      await caretIn(user, box, 0, 5);
-      await paste(user, box, [aFile('photo.png', 'image/png')]);
-
-      await caretIn(user, box, 0, 2);
-      await user.keyboard('XY');
-      uploading.landAll();
-
-      await waitFor(() => expect(changes.at(-1)).toBe(`ToXYler![photo.png](${ADDRESS}1)ances\n`));
+      expect(changes.at(-1)).toBe(`Tolerances\n\n![one.png](${ADDRESS}1)\n\n![two.png](${ADDRESS}2)\n`);
+      await waitFor(() => expect(device.released).toHaveLength(2));
     });
 
     it('puts what is typed right after it after the image, as after a pasted word', async () => {
-      const { box, changes, uploading, user } = await anEditor('Tolerances');
+      const { box, changes, user } = await anEditor('Tolerances');
       await caretIn(user, box, 0, 5);
       await paste(user, box, [aFile('photo.png', 'image/png')]);
 
       await user.keyboard('XY');
-      uploading.landAll();
 
-      await waitFor(() => expect(changes.at(-1)).toBe(`Toler![photo.png](${ADDRESS}1)XYances\n`));
+      expect(changes.at(-1)).toBe(`Toler![photo.png](${ADDRESS}1)XYances\n`);
     });
 
-    it('lands just after a code block it was put in, which takes no image', async () => {
-      const { box, changes, uploading, user } = await anEditor('```\nnpm test\n```');
+    it('goes just after a code block it was put in, which takes no image', async () => {
+      const { box, changes, user } = await anEditor('```\nnpm test\n```');
       await caretIn(user, box, 0, 3, 'code');
 
       await paste(user, box, [aFile('photo.png', 'image/png')]);
-      uploading.landAll();
 
-      await waitFor(() => expect(changes.at(-1)).toBe(`\`\`\`\nnpm test\n\`\`\`\n\n![photo.png](${ADDRESS}1)\n`));
+      expect(changes.at(-1)).toBe(`\`\`\`\nnpm test\n\`\`\`\n\n![photo.png](${ADDRESS}1)\n`);
     });
   });
 
-  describe('while an image uploads, the text says so where it will land', () => {
-    it('shows the marker at the cursor, and nothing in what is stored', async () => {
-      const { box, changes, user } = await anEditor('Tolerances');
-      await caretIn(user, box, 0, 5);
+  describe('an image whose upload fails is taken back out of the text', () => {
+    it.each([
+      { situation: 'in the middle of a line', offset: 5, left: 'Tolerances\n' },
+      { situation: 'at the end of a line, where it had a paragraph to itself', offset: 10, left: 'Tolerances\n' },
+    ])('$situation', async ({ offset, left }) => {
+      const { box, changes, uploading, user } = await anEditor('Tolerances');
+      await caretIn(user, box, 0, offset);
+      await paste(user, box, [aFile('photo.png', 'image/png')]);
+      expect(within(box).getByRole('img', { name: 'photo.png' })).toBeVisible();
 
+      uploading.refuse(0, 'That upload was refused by the server.');
+
+      await waitFor(() => expect(within(box).queryByRole('img')).toBeNull());
+      expect(changes.at(-1)).toBe(left);
+      expect(device.released).toEqual(['blob:device/photo.png']);
+    });
+
+    it('leaves what was typed beside it, and the other images', async () => {
+      const { box, changes, uploading, user } = await anEditor('Tolerances');
+      await caretIn(user, box, 0, 5);
+      await paste(user, box, [aFile('one.png', 'image/png'), aFile('two.png', 'image/png')]);
+      await user.keyboard('XY');
+
+      uploading.refuse(0, 'No.');
+      uploading.land(1);
+
+      await waitFor(() =>
+        expect(changes.at(-1)).toBe(`Toler![two.png](${ADDRESS}2)XYances\n`),
+      );
+    });
+
+    it('cannot be brought back with Undo, which undoes what was typed before it went', async () => {
+      const { box, changes, uploading, user } = await anEditor('Tolerances');
+      await caretIn(user, box, 0, 5);
+      await paste(user, box, [aFile('photo.png', 'image/png')]);
+      // Away from the image, so the typing is an undo step of its own.
+      await caretIn(user, box, 0, 0);
+      await user.keyboard('Z');
+      uploading.refuse(0, 'No.');
+      await waitFor(() => expect(within(box).queryByRole('img')).toBeNull());
+      expect(changes.at(-1)).toBe('ZTolerances\n');
+
+      await user.keyboard('{Control>}z{/Control}');
+
+      expect(within(box).queryByRole('img')).toBeNull();
+      expect(changes.at(-1)).toBe('Tolerances\n');
+    });
+
+    it('is not said under the toolbar, the form having said it in the undo bar', async () => {
+      const { box, uploading, user } = await anEditor('Tolerances');
+      await caretIn(user, box, 0, 5);
       await paste(user, box, [aFile('photo.png', 'image/png')]);
 
-      expect(within(box).getByRole('status')).toHaveTextContent('Uploading photo.png…');
-      expect(box).toHaveTextContent('TolerUploading photo.png…ances');
-      expect(changes).toEqual([]);
+      uploading.refuse(0, 'That upload was refused by the server.');
+
+      await waitFor(() => expect(within(box).queryByRole('img')).toBeNull());
+      expect(screen.queryByRole('alert')).toBeNull();
     });
   });
 
-  describe('an image that does not land leaves nothing in the text and says why under the toolbar', () => {
+  describe('a file that cannot go in the text is refused under the toolbar, and never uploaded', () => {
     it.each([
-      {
-        situation: 'the upload is refused',
-        file: aFile('photo.png', 'image/png'),
-        refusal: 'That upload was refused by the server.',
-        said: 'That upload was refused by the server.',
-        uploaded: ['photo.png'],
-      },
       {
         situation: 'an image over the size limit',
         file: aFile('huge.png', 'image/png', MAX_ATTACHMENT_SIZE + 1),
         said: 'huge.png is over the 25 MB limit.',
-        uploaded: [],
       },
       {
         situation: 'an SVG',
         file: aFile('drawing.svg', 'image/svg+xml'),
         said: 'drawing.svg is not an image Cockpit can show. Use PNG, JPEG, GIF or WebP.',
-        uploaded: [],
       },
       {
         situation: 'a HEIC photo',
         file: aFile('phone.heic', 'image/heic'),
         said: 'phone.heic is not an image Cockpit can show. Use PNG, JPEG, GIF or WebP.',
-        uploaded: [],
       },
-    ])('$situation', async ({ file, refusal, said, uploaded }) => {
+    ])('$situation', async ({ file, said }) => {
       const { box, changes, uploading, user } = await anEditor('Tolerances');
       await caretIn(user, box, 0, 5);
 
       await paste(user, box, [file]);
-      if (refusal) uploading.refuse(0, refusal);
 
       await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(said));
-      expect(within(box).queryByRole('status')).toBeNull();
-      expect(uploading.files()).toEqual(uploaded);
+      expect(within(box).queryByRole('img')).toBeNull();
+      expect(uploading.files()).toEqual([]);
       expect(changes).toEqual([]);
     });
   });
@@ -325,15 +380,13 @@ function aFile(name: string, type: string, size?: number): File {
  */
 function heldUploads() {
   const waiting: { file: File; land: () => void; refuse: (why: string) => void }[] = [];
-  const upload = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const nth = waiting.length + 1;
-      waiting.push({
-        file,
-        land: () => resolve(`${ADDRESS}${nth}`),
-        refuse: (why) => reject(new Error(why)),
-      });
+  const upload = (file: File) => {
+    const nth = waiting.length + 1;
+    const uploaded = new Promise<void>((resolve, reject) => {
+      waiting.push({ file, land: resolve, refuse: (why) => reject(new Error(why)) });
     });
+    return { src: `${ADDRESS}${nth}`, uploaded };
+  };
   return {
     upload,
     files: () => waiting.map(({ file }) => file.name),
@@ -374,6 +427,36 @@ async function caretIn(user: User, box: HTMLElement, line: number, offset: numbe
 
 async function pick(user: User, _box: HTMLElement, files: File[]) {
   await user.upload(screen.getByLabelText('Image to put in the description'), files);
+}
+
+/**
+ * The files on this device, as the editor draws and lets go of them: jsdom has
+ * no object URLs, so each is named after its file and every release is noted.
+ */
+const device = { released: [] as string[] };
+
+beforeEach(() => {
+  device.released = [];
+  URL.createObjectURL = (file) => `blob:device/${(file as File).name}`;
+  URL.revokeObjectURL = (url) => void device.released.push(url);
+});
+
+afterEach(() => {
+  delete (URL as Partial<typeof URL>).createObjectURL;
+  delete (URL as Partial<typeof URL>).revokeObjectURL;
+  delete (HTMLImageElement.prototype as Partial<HTMLImageElement>).decode;
+});
+
+/** The browser fetching an address to draw, held until `finish`. jsdom loads no images, and has no `decode`. */
+function holdDecoding() {
+  const asked: string[] = [];
+  let finish = () => {};
+  const held = new Promise<void>((resolve) => (finish = resolve));
+  HTMLImageElement.prototype.decode = function (this: HTMLImageElement) {
+    asked.push(this.getAttribute('src') ?? '');
+    return held;
+  };
+  return { asked, finish: () => finish() };
 }
 
 /** A paste, carrying files and whatever HTML the clipboard held beside them. */
