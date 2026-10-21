@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { itemLabel, itemStatus, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
+import { WORKSPACE_THEMES, itemLabel, itemStatus, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
-import { drawnAhead, drawnOver } from '../../src/drawnAhead';
+import { drawnAhead, drawnOver, listDrawnOver } from '../../src/drawnAhead';
 
 /**
  * F1: what the screen shows of a change before the server has answered it -
@@ -580,3 +580,77 @@ describe('Panels', () => {
     });
   });
 });
+
+describe('Workspace management', () => {
+  describe('a Workspace change shows the moment it is made, before the server has answered', () => {
+    const THEMES = WORKSPACE_THEMES;
+    const aWorkspace = (id: string, name: string, color: string): Workspace =>
+      ({ id, tenantId: 'tenant', name, color, bar: '#000001', ground: '#000002', header: '#000003' }) as Workspace;
+    const listed = (): WorkspaceList => ({
+      workspaces: [aWorkspace('ws-work', 'Work', THEMES[0].tint), aWorkspace('ws-home', 'Home', THEMES[1].tint), aWorkspace('ws-acme', 'Acme', THEMES[2].tint)],
+    });
+    const envelope = (workspaceId: string) => ({ commandId: 'c1', issuedAt: AT, workspaceId });
+    const shown = (list: WorkspaceList) => list.workspaces.map((one) => one.name);
+
+    it('shows the new name on a renamed Workspace and no other', () => {
+      const copy = listed();
+
+      const drawn = listDrawnOver(copy, [{ name: 'rename_workspace', payload: { ...envelope('ws-home'), name: 'Family' } }]);
+
+      expect(shown(drawn)).toEqual(['Work', 'Family', 'Acme']);
+      // The list the server sent is as it was.
+      expect(shown(copy)).toEqual(['Work', 'Home', 'Acme']);
+    });
+
+    it('shows the palette’s colours on a recoloured Workspace', () => {
+      const drawn = listDrawnOver(listed(), [
+        { name: 'set_workspace_theme', payload: { ...envelope('ws-home'), color: THEMES[3].tint, bar: '#111111', ground: '#222222', header: '#333333' } },
+      ]);
+
+      // The tint alone is what the server stores; the other three are the palette's.
+      expect(drawn.workspaces[1]).toMatchObject({ color: THEMES[3].tint, bar: THEMES[3].bar, ground: THEMES[3].ground, header: THEMES[3].header });
+      expect(drawn.workspaces[0]!.color).toBe(THEMES[0].tint);
+    });
+
+    it('draws no colour the palette does not have, since the server refuses it', () => {
+      const copy = listed();
+
+      const drawn = listDrawnOver(copy, [
+        { name: 'set_workspace_theme', payload: { ...envelope('ws-home'), color: '#123456', bar: '#111111', ground: '#222222', header: '#333333' } },
+      ]);
+
+      expect(drawn).toEqual(copy);
+    });
+
+    it('takes a deleted Workspace out of the list', () => {
+      const drawn = listDrawnOver(listed(), [{ name: 'delete_workspace', payload: envelope('ws-home') }]);
+
+      expect(shown(drawn)).toEqual(['Work', 'Acme']);
+    });
+
+    it('shows the order a reorder carries, with one it never named kept on the end', () => {
+      const drawn = listDrawnOver(listed(), [
+        { name: 'reorder_workspaces', payload: { ...envelope('ws-acme'), workspaceIds: ['ws-acme', 'ws-work'] } },
+      ]);
+
+      expect(shown(drawn)).toEqual(['Acme', 'Work', 'Home']);
+    });
+
+    it('builds each change on the one before it', () => {
+      const drawn = listDrawnOver(listed(), [
+        { name: 'rename_workspace', payload: { ...envelope('ws-home'), name: 'Family' } },
+        { name: 'reorder_workspaces', payload: { ...envelope('ws-home'), workspaceIds: ['ws-home', 'ws-work', 'ws-acme'] } },
+        { name: 'delete_workspace', payload: envelope('ws-acme') },
+      ]);
+
+      expect(shown(drawn)).toEqual(['Family', 'Work']);
+    });
+
+    it('draws nothing over a Workspace’s own copy', () => {
+      const copy = withDashboards();
+
+      expect(drawnAhead(copy, { name: 'rename_workspace', payload: { ...envelope('ws-work'), name: 'Family' } })).toBe(copy);
+    });
+  });
+});
+

@@ -1,6 +1,6 @@
 import { lazy, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { workspacesQuery } from '../api/queries';
+import { useWorkspaces } from '../api/useWorkspaces';
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { SettingsModal } from './SettingsModal';
 
@@ -93,7 +93,7 @@ function ConnectionsOf({
   outcome?: ConnectOutcomeFor | undefined;
   onClose: () => void;
 }) {
-  const { data } = useQuery(workspacesQuery);
+  const { data } = useWorkspaces();
   const workspaces = data?.workspaces ?? [];
   const [picked, setPicked] = useState(outcome?.workspaceId ?? startsIn);
   const chosen = workspaces.find((ws) => ws.id === picked) ?? workspaces[0];

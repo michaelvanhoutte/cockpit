@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CommandResult, Item, WorkspaceSnapshot } from '@cockpit/shared';
+import type { CommandResult, Item, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
 
@@ -388,6 +388,109 @@ describe('Dashboards', () => {
       queue.readLanded('ws-work', late);
 
       expect(nameShown(queue.drawnOver(holding('Reading room')))).toBe('Reading room');
+    });
+  });
+});
+
+describe('Workspace management', () => {
+  describe('a Workspace change waiting for its answer never flips back while the list is read', () => {
+    const renamed = (name: string): CommandArgs => ({
+      name: 'rename_workspace',
+      payload: { commandId: `c-${name}`, issuedAt: AT, workspaceId: 'ws-work', name },
+    });
+    const deleted = (): CommandArgs => ({
+      name: 'delete_workspace',
+      payload: { commandId: 'c-delete', issuedAt: AT, workspaceId: 'ws-work' },
+    });
+    /** The list as a read holds it, with the Workspace going by `name`. */
+    const holding = (name: string) =>
+      ({ workspaces: [{ id: 'ws-work', tenantId: 'tenant', name, color: '#6f62b5', bar: '', ground: '', header: '' }] }) as WorkspaceList;
+    const nameShown = (list: WorkspaceList) => list.workspaces[0]?.name;
+
+    it('keeps drawing the change under a read of the list that began before its answer', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(renamed('Client'));
+      await settle();
+      const early = queue.readStarted();
+      server.arrived[0]!.answer();
+      await settle();
+
+      queue.readLanded(null, early);
+
+      expect(nameShown(queue.drawnList(holding('Work')))).toBe('Client');
+    });
+
+    it('shows the server’s list once a read that began after the answer has landed, another device’s later rename included', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(renamed('Client'));
+      await settle();
+      server.arrived[0]!.answer();
+      await settle();
+      const late = queue.readStarted();
+
+      queue.readLanded(null, late);
+
+      expect(nameShown(queue.drawnList(holding('Working')))).toBe('Working');
+    });
+
+    it('keeps drawing the change when only the Workspace’s own read lands', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(renamed('Client'));
+      await settle();
+      server.arrived[0]!.answer();
+      await settle();
+      const late = queue.readStarted();
+
+      queue.readLanded('ws-work', late);
+
+      expect(nameShown(queue.drawnList(holding('Work')))).toBe('Client');
+    });
+
+    it('lets a read of the list leave an Item change alone', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(priority('high'));
+      await settle();
+      server.arrived[0]!.answer();
+      await settle();
+      const late = queue.readStarted();
+
+      queue.readLanded(null, late);
+
+      expect(priorityShown(queue.drawnOver(sent()))).toBe('high');
+    });
+
+    it('knows a Workspace is being deleted from the click until the list is read after the answer', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      expect(queue.deleting('ws-work')).toBe(false);
+      void queue.enqueue(deleted());
+      await settle();
+      expect(queue.deleting('ws-work')).toBe(true);
+      expect(queue.deleting('ws-home')).toBe(false);
+      server.arrived[0]!.answer();
+      await settle();
+      expect(queue.deleting('ws-work')).toBe(true);
+
+      queue.readLanded(null, queue.readStarted());
+
+      expect(queue.deleting('ws-work')).toBe(false);
+    });
+
+    it('stops drawing a refused delete, and the Workspace is there to read again', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(deleted()).catch(() => {});
+      await settle();
+
+      server.arrived[0]!.refuse(new Error('refused'));
+      await settle();
+
+      expect(queue.deleting('ws-work')).toBe(false);
+      expect(nameShown(queue.drawnList(holding('Work')))).toBe('Work');
     });
   });
 });

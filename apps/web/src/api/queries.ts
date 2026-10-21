@@ -53,7 +53,12 @@ export const meQuery = queryOptions({
 
 export const workspacesQuery = queryOptions({
   queryKey: ['workspaces'],
-  queryFn: fetchWorkspaces,
+  queryFn: ({ client }) => {
+    // Marked as it starts, for the reason a Workspace's read is (`snapshotQuery`).
+    watchWorkspaceReads(client);
+    readOfWorkspaceBegins(null);
+    return fetchWorkspaces();
+  },
   staleTime: 60_000,
 });
 
@@ -358,13 +363,13 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
   }
 
   if (args.name === 'delete_workspace') {
-    // Dropped, not re-read. There is nothing to revalidate: the snapshot of a
+    // Its snapshot is dropped, not re-read. There is nothing to revalidate: the snapshot of a
     // deleted workspace is a 404 for good, so invalidating it would fetch one
     // on every delete. And the copy has to go rather than merely go stale - the
     // cache is persisted for a week (persistence.tsx), so leaving it there means a
     // deleted workspace's items can still be painted from it.
     queryClient.removeQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
-    return;
+    // And the list is read below, which is what ends drawing the delete.
   }
 
   if (args.name === 'set_item_form_presentation') {

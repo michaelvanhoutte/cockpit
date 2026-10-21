@@ -2,21 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, themeOf, uuidv7 } from '@cockpit/shared';
-import type { Workspace, WorkspaceList, WorkspaceTheme } from '@cockpit/shared';
-import { CommandRefused } from '../api/client';
+import type { Workspace, WorkspaceTheme } from '@cockpit/shared';
 import { changes } from '../api/changes';
-import {
-  refusalFrom,
-  snapshotQuery,
-  useCommand,
-  useSendCommand,
-  workspacesQuery,
-} from '../api/queries';
+import { snapshotQuery, useSendCommand, whyNotDone as whyNot } from '../api/queries';
+import { useWorkspaces } from '../api/useWorkspaces';
 import { setAllItemsTab, useAllItemsOnScreen, useAllItemsTabs } from '../allItemsTab';
 import { litForChrome } from '../chrome';
 import { keepingTheOpenItem } from '../itemForm';
 import { survivingWorkspace } from '../landing';
 import { useTabDrag } from '../tabDrag';
+import { useUndo } from '../undo';
 import { DeleteQuestion } from './DeleteQuestion';
 import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { RowForm } from './RowForm';
@@ -39,9 +34,11 @@ import { RowForm } from './RowForm';
  * (functional definition, "Container hierarchy"), so there is nothing on it to
  * rename, move or delete - and it stays in the shell rather than here.
  *
- * One `useCommand` for the strip rather than one per tab, so a refusal can only
- * belong to the last thing asked for. The form keeps its own (`send`), because
- * a Save is up to two changes rather than one.
+ * **Every change is shown the moment it is made** ("Show a Workspace rename,
+ * colour, delete or reorder the moment you make it", issue 1365): drawn over
+ * the list of Workspaces (`drawnAhead.ts`), the form and the question closing at
+ * the click. A refusal that arrives later puts the tab back and says why in the
+ * undo bar.
  */
 export function WorkspaceTabs({
   /** The `+` at the end of the strip, which makes a workspace rather than changing one. */
@@ -55,13 +52,13 @@ export function WorkspaceTabs({
   bar: string;
   bringIntoView: (tab: HTMLAnchorElement) => void;
 }) {
-  const { data } = useQuery(workspacesQuery);
+  const { data } = useWorkspaces();
   const workspaces = data?.workspaces ?? [];
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const params = useParams({ strict: false });
-  const command = useCommand();
   const send = useSendCommand();
+  const offerToUndo = useUndo();
   const allItemsTabOn = useAllItemsTabs();
 
   /**
@@ -82,8 +79,6 @@ export function WorkspaceTabs({
      */
     theme: WorkspaceTheme | null;
   } | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
   /** The workspace whose delete is waiting to be confirmed. */
   const [deleting, setDeleting] = useState<string | null>(null);
   /**
@@ -107,41 +102,25 @@ export function WorkspaceTabs({
   /**
    * Moves a workspace, and shows it moved before the server has agreed.
    *
-   * **Shown first, put back if it is refused**, which is correctness rather
-   * than feel: the order a move is computed from is the order in hand, so a
-   * second move made before the first came back would be computed from the list
-   * *before* the first and would undo it. Writing the new order where the list
-   * is held is what makes two moves in a row compose.
-   *
-   * Both answers to a refusal, and each covers what the other cannot. The copy
-   * in hand goes back first, because it is the only answer available when the
-   * request never reached the server at all. Then a re-read, because that copy
-   * is only right when this was the one move in flight.
+   * **Drawn over the list, put back if it is refused**, which is correctness
+   * rather than feel: the order a move is computed from is the order in hand, so
+   * a second move made before the first came back would be computed from the
+   * list *before* the first and would undo it. The order is drawn where the
+   * list is read (`drawnAhead.ts`), which is what makes two moves in a row
+   * compose. A refusal puts the tabs back and says why in the undo bar.
    */
   const move = (workspaceId: string, moved: string[]) => {
-    const held = queryClient.getQueryData<WorkspaceList>(workspacesQuery.queryKey);
-    if (held) {
-      queryClient.setQueryData<WorkspaceList>(workspacesQuery.queryKey, {
-        workspaces: moved.flatMap((id) => held.workspaces.filter((w) => w.id === id)),
-      });
-    }
-    command.mutate(
-      {
-        name: 'reorder_workspaces',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          workspaceIds: moved,
-        },
+    send({
+      name: 'reorder_workspaces',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        workspaceIds: moved,
       },
-      {
-        onError: () => {
-          if (held) queryClient.setQueryData(workspacesQuery.queryKey, held);
-          void queryClient.invalidateQueries({ queryKey: workspacesQuery.queryKey });
-        },
-      },
-    );
+    }).catch((failure: unknown) => {
+      offerToUndo({ what: `The workspaces were not put in that order. ${whyNot(failure)}` });
+    });
   };
 
   const drag = useTabDrag({ order, onDrop: move });
@@ -154,11 +133,11 @@ export function WorkspaceTabs({
    * meantime - and a colour nobody touched would bump the theme on every
    * rename.
    *
-   * The name goes first and the colour second, so a refused colour leaves a
-   * rename that already landed - which is what the form then shows, since it
-   * compares against the list rather than against what it opened with.
+   * **The form closes at the click.** The tab shows the new name and colour at
+   * once, and each half is its own change, so a name the server refuses puts the
+   * old name back and says why in the undo bar without undoing the colour.
    */
-  const saveForm = async () => {
+  const saveForm = () => {
     if (!editing) return;
     const was = workspaces.find((w) => w.id === editing.id);
     const named = editing.name.trim();
@@ -169,38 +148,28 @@ export function WorkspaceTabs({
       workspaceId: editing.id,
     });
 
-    setSaving(true);
-    setSaveRefusal(null);
-    try {
-      if (named !== was.name) {
-        await send({ name: 'rename_workspace', payload: { ...envelope(), name: named } });
-      }
-      if (editing.theme && editing.theme.tint !== was.color) {
-        await send({
-          name: 'set_workspace_theme',
-          payload: {
-            // All four, because the command still carries them. The server
-            // checks only the tint is a palette accent, and stores its theme.
-            ...envelope(),
-            color: editing.theme.tint,
-            bar: editing.theme.bar,
-            ground: editing.theme.ground,
-            header: editing.theme.header,
-          },
-        });
-      }
-      closeForm();
-    } catch (failure) {
-      // The form stays open with what was typed still in it, so a name the
-      // server would not take can be corrected rather than typed again.
-      setSaveRefusal(
-        failure instanceof CommandRefused
-          ? failure.message
-          : 'That did not reach the server. Try again.',
-      );
-    } finally {
-      setSaving(false);
+    if (named !== was.name) {
+      send({ name: 'rename_workspace', payload: { ...envelope(), name: named } }).catch((failure: unknown) => {
+        offerToUndo({ what: `“${was.name}” was not renamed to “${named}”. ${whyNot(failure)}` });
+      });
     }
+    if (editing.theme && editing.theme.tint !== was.color) {
+      send({
+        name: 'set_workspace_theme',
+        payload: {
+          // All four, because the command still carries them. The server
+          // checks only the tint is a palette accent, and stores its theme.
+          ...envelope(),
+          color: editing.theme.tint,
+          bar: editing.theme.bar,
+          ground: editing.theme.ground,
+          header: editing.theme.header,
+        },
+      }).catch((failure: unknown) => {
+        offerToUndo({ what: `“${was.name}” was not recoloured. ${whyNot(failure)}` });
+      });
+    }
+    setEditing(null);
   };
 
   /**
@@ -228,48 +197,35 @@ export function WorkspaceTabs({
    */
   const openWorkspace = workspaces.find((w) => w.id === params.workspaceId);
 
+  /**
+   * Deletes at the click: the tab is gone at once, and deleting the one you are
+   * on lands on the next in the list as drawn, or on the screen that makes one
+   * when it was the last. A refusal brings the tab back and says why in the
+   * undo bar.
+   *
+   * Not `/`, which opens on Capture on a phone: you were deleting a workspace,
+   * not jotting something down (`landing.ts`). **Only where the screen behind
+   * the question stops working**, which is two cases: the one you are looking
+   * at, and the last one, which names no workspace at all (capture is under the
+   * shell in no workspace, so `params.workspaceId` is undefined there).
+   */
   const confirmDelete = (workspaceId: string) => {
-    command.mutate(
-      {
-        name: 'delete_workspace',
-        payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId },
-      },
-      {
-        onSuccess: async () => {
-          setDeleting(null);
-          focusOwedAfterDeleting.current = workspaceId;
-          /*
-           * Only where the screen behind the question stops working, which is
-           * two cases rather than one. The one you are looking at is the
-           * obvious one. **The last one is the other**, and it does not name a
-           * workspace at all: capture is under the shell in no workspace, so
-           * `params.workspaceId` is undefined there and a check for the one
-           * behind you passes straight over it.
-           *
-           * `workspaces` is the list as it stands before the re-read below, and
-           * it still holds the workspace just deleted - deleting is the one
-           * change that does not invalidate the list on its own
-           * (api/queries.ts, `afterChanging`) - so one row means it was the
-           * last.
-           */
-          const wasTheOneBehind = params.workspaceId === workspaceId;
-          const wasTheLast = workspaces.length === 1;
-          if (!wasTheOneBehind && !wasTheLast) return;
-          // Re-read before going anywhere: the list in hand still holds the one
-          // just deleted - so without this it lands you straight back on it, or
-          // fails to notice the account is now empty. Not `/`, which opens on
-          // Capture on a phone: you were deleting a workspace, not jotting
-          // something down (`landing.ts`).
-          await queryClient.refetchQueries({ queryKey: ['workspaces'] });
-          const left = queryClient.getQueryData<WorkspaceList>(workspacesQuery.queryKey);
-          const next = survivingWorkspace(left?.workspaces ?? []);
-          void navigate(
-            next.to === 'start'
-              ? { to: '/start' }
-              : { to: '/w/$workspaceId', params: { workspaceId: next.workspaceId } },
-          );
-        },
-      },
+    const was = workspaces.find((w) => w.id === workspaceId)?.name ?? 'The workspace';
+    // Before the question closes, which is what the focus effect below runs after.
+    focusOwedAfterDeleting.current = workspaceId;
+    send({
+      name: 'delete_workspace',
+      payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId },
+    }).catch((failure: unknown) => {
+      if (focusOwedAfterDeleting.current === workspaceId) focusOwedAfterDeleting.current = null;
+      offerToUndo({ what: `“${was}” was not deleted. ${whyNot(failure)}` });
+    });
+    setDeleting(null);
+    const left = workspaces.filter((w) => w.id !== workspaceId);
+    if (params.workspaceId !== workspaceId && left.length > 0) return;
+    const next = survivingWorkspace(left);
+    void navigate(
+      next.to === 'start' ? { to: '/start' } : { to: '/w/$workspaceId', params: { workspaceId: next.workspaceId } },
     );
   };
 
@@ -315,20 +271,13 @@ export function WorkspaceTabs({
   /** Starting one leaves the others, so at most one tab is ever asking something. */
   const startEditing = (ws: Workspace, openedFrom: HTMLElement | null) => {
     setDeleting(null);
-    command.reset();
-    setSaveRefusal(null);
     askedFrom.current = openedFrom;
     setEditing({ id: ws.id, name: ws.name, theme: null });
   };
   const startDeleting = (ws: Workspace, openedFrom: HTMLElement | null) => {
-    closeForm();
-    command.reset();
+    setEditing(null);
     askedFrom.current = openedFrom;
     setDeleting(ws.id);
-  };
-  const closeForm = () => {
-    setEditing(null);
-    setSaveRefusal(null);
   };
 
   /**
@@ -487,11 +436,10 @@ export function WorkspaceTabs({
                 key={theme.name}
                 type="button"
                 onClick={() => setEditing({ ...editing, theme })}
-                disabled={saving}
                 aria-label={`${theme.name} for ${beingEdited.name}`}
                 aria-pressed={pressed}
                 title={theme.name}
-                className={`flex size-8 flex-col justify-end overflow-hidden rounded-md border disabled:opacity-50 ${
+                className={`flex size-8 flex-col justify-end overflow-hidden rounded-md border ${
                   pressed ? 'border-ink ring-2 ring-ink/20' : 'border-shade/10 hover:border-shade/30'
                 }`}
                 style={{
@@ -505,11 +453,10 @@ export function WorkspaceTabs({
               </button>
             );
           })}
-          refusal={saveRefusal}
-          saving={saving}
+          saving={false}
           returnFocusTo={askedFrom.current}
-          onCancel={closeForm}
-          onSave={() => void saveForm()}
+          onCancel={() => setEditing(null)}
+          onSave={saveForm}
         />
       )}
 
@@ -523,16 +470,9 @@ export function WorkspaceTabs({
           // many" is part of what is being asked. A count that could not be
           // read is not a reason to trap someone in the dialog, so a failed
           // read lets it through.
-          canConfirm={!command.isPending && (counted !== undefined || contents.isError)}
-          // The refusal belongs to the control that asked for it, and
-          // `variables` is the last thing sent with only ever one in flight -
-          // so a refused move cannot surface inside the delete question.
-          refusal={command.variables?.name === 'delete_workspace' ? refusalFrom(command) : null}
+          canConfirm={counted !== undefined || contents.isError}
           returnFocusTo={askedFrom.current}
-          onCancel={() => {
-            setDeleting(null);
-            command.reset();
-          }}
+          onCancel={() => setDeleting(null)}
           onConfirm={() => confirmDelete(beingDeleted.id)}
         />
       )}

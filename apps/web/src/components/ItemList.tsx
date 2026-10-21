@@ -14,10 +14,10 @@ import {
   useCommand,
   useLatestSnapshot,
   useSendCommand,
-  workspacesQuery,
   type CommandArgs,
 } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
+import { useWorkspaces } from '../api/useWorkspaces';
 import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import {
   ITEM_BEING_DRAGGED,
@@ -188,7 +188,7 @@ export function ItemList({
   const openItem = useOpenItem();
   // Every workspace, for the Inboxes the picker offers an item that belongs to
   // none of them. The same cached read the tabs above are already doing.
-  const { data: allWorkspaces } = useQuery(workspacesQuery);
+  const { data: allWorkspaces } = useWorkspaces();
   /**
    * The filings that file - the one reading this list asks whenever it needs to
    * know whether an Item is in the Inbox, so the four places below cannot come
