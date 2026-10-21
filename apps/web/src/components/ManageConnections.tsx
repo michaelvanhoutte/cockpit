@@ -184,6 +184,7 @@ function AddConnection({
   onPick: (card: Card, openedFrom: HTMLElement | null) => void;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
+  const chose = useRef(false);
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
@@ -200,6 +201,13 @@ function AddConnection({
         <DropdownMenu.Content
           align="end"
           sideOffset={6}
+          // Every entry opens a window that takes the focus, so the restore to this
+          // button is skipped after a pick and kept on a plain dismiss (`RowMenu`'s rule).
+          onCloseAutoFocus={(event) => {
+            if (!chose.current) return;
+            chose.current = false;
+            event.preventDefault();
+          }}
           className="z-floating w-[24rem] max-w-[calc(100vw-2rem)] rounded-xl border border-shade/10 bg-surface p-1.5 shadow-lg"
         >
           {cards.map((card) => (
@@ -207,7 +215,10 @@ function AddConnection({
               key={card.id}
               // Named for what it does, as the gallery's Connect is.
               aria-label={`Connect ${card.name}`}
-              onSelect={() => onPick(card, trigger.current)}
+              onSelect={() => {
+                chose.current = true;
+                onPick(card, trigger.current);
+              }}
               className="flex cursor-pointer items-start gap-3 rounded-lg p-2.5 outline-none data-[highlighted]:bg-accent-tint"
             >
               <SourceMark connectorId={card.id} />
@@ -228,11 +239,10 @@ function AddConnection({
  * source account", issue 485; "Connect a workspace to Claude Code", issue
  * 569): what is connected, and what can be added.
  *
- * **Two lists, not a list with one connector's card fixed above it.** What is
- * connected can be acted on - Disconnect for Teams, and for Claude Code also
- * Test again and Edit…; what can be added is a compact row per connector,
- * each offering Connect except Claude Code once one is already held, a
- * workspace being allowed only one (rule 6).
+ * **A card per connection, and one way to add** ("Show each connection as its
+ * own card", issue 1349). Each card says its health and carries its fix; what
+ * can be added is the header's Add connection menu once anything is connected,
+ * and a gallery of every source before.
  *
  * **Workspace-scoped.** A connection belongs
  * to the Workspace that made it and no other Workspace ever sees it, which is
@@ -414,12 +424,6 @@ export default function ManageConnections({
   const namesOf = (connectorId: string): ConnectorNames | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.names;
   /**
-   * Signs a failing row in again through its connector: the question first
-   * where it asks one, starting at the row's own answer, and the same trip as
-   * Connect - which stores the new sign-in on the same row, ending what said
-   * it was failing (issue 944).
-   */
-  /**
    * What picking a source does from Add connection, or Connect on a card that
    * asks something: a phone asks for its number, every other source opens its
    * Connect window - the sentence, then its question where it has one.
@@ -433,6 +437,12 @@ export default function ManageConnections({
       setAsking({ ...card });
     }
   };
+  /**
+   * Signs a failing row in again through its connector: the question first
+   * where it asks one, starting at the row's own answer, and the same trip as
+   * Connect - which stores the new sign-in on the same row, ending what said
+   * it was failing (issue 944).
+   */
   const reconnect = (account: SourceAccount, openedFrom: HTMLElement | null) => {
     const card = registered.find((one) => one.id === account.connectorId);
     if (!card) return;
@@ -520,6 +530,10 @@ export default function ManageConnections({
                 const failing = Boolean(account.failingBecause);
                 const noun = namesOf(account.connectorId)?.noun;
                 const textTo = textToOf(account.connectorId);
+                // A failing row of a connector this environment can sign in to:
+                // signing in again is what ends it (issue 944).
+                const canReconnect =
+                  failing && !guest && registered.some((card) => card.id === account.connectorId);
                 return (
                   <li
                     key={account.id}
@@ -572,7 +586,7 @@ export default function ManageConnections({
                             ) : (
                               <p className="min-w-0 flex-1 text-sm text-over-ink">{account.failingBecause}</p>
                             )}
-                            {!guest && registered.some((card) => card.id === account.connectorId) && (
+                            {canReconnect && (
                               <button
                                 type="button"
                                 onClick={(event) => reconnect(account, event.currentTarget)}
@@ -599,9 +613,7 @@ export default function ManageConnections({
                           <RowMenu
                             label={`Actions for ${account.displayName}`}
                             entries={[
-                              // A failing row of a connector this environment can sign
-                              // in to: signing in again is what ends it (issue 944).
-                              ...(account.failingBecause && registered.some((card) => card.id === account.connectorId)
+                              ...(canReconnect
                                 ? [
                                     {
                                       label: 'Reconnect',
