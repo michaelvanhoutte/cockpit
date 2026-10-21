@@ -22,7 +22,7 @@ Prose that reads fine fails on contact — two designs agreed in discussion over
 | | Answers | Costs | Take it when |
 |---|---|---|---|
 | **Nothing** | — | — | the default: the surface exists and the change follows a pattern already settled in the app |
-| **A design canvas** (`design` skill) | what it should look like, with the arrangements you rejected beside it | minutes, no branch | the surface is new and more than one layout is defensible, or it is a data view whose scale, colour ramp, sort order, default bucket or size constants are numbers to pick (draw it from real rows: a number picked on a mock-up is redone once the data is on screen) |
+| **A design canvas** (`design` skill) | what it should look like, with the arrangements you rejected beside it | minutes, no branch | the surface is new and more than one layout is defensible, or it is a data view with a scale, colour ramp, sort order, default bucket or size constant to pick — drawn from real rows, since a number picked without them is redone once they are on screen |
 | **A POC** on a branch in the real app | whether it survives contact with what is already there | a branch and a sitting, thrown away | the doubt is about affordance, interaction, or fit with existing behaviour — none of which a mockup shows |
 
 **Escalate only against a named doubt.** Write down the question the artifact will answer; if you cannot write one, take *Nothing*.
@@ -43,7 +43,7 @@ Resolve any term used inconsistently with those docs, and any unstated product d
 
 Use the `grilling` skill's round-based interview (mattpocock-skills): number each open question, give a recommended answer, work one round at a time until nothing about the scope is fuzzy. Skip only when the request is already small and unambiguous.
 
-**Ask two questions of anything new.** For each new control, which existing control already does this, and is it easier than the primary action (a secondary action easier than the primary one gets used instead of it)? For each new concept or setting, who uses it and how often (one used only occasionally gets no permanent place on screen).
+**Put two questions to anything new in that round.** For each new control: which existing control already does this, and is the new one easier than the primary action, since a secondary action that is easier gets used instead? For each new concept or setting: who uses it, and how often, since one used only occasionally gets no permanent place on screen.
 
 **Open with the concrete scenario, not the column name or the doc citation.** A question framed first around implementation detail costs a round trip the same question would not have asked plainly: "Learn how you write from the titles you correct" (issue 394) opened with `items.unseen`, functional-definition.md's own undecided routing question, and an unbuilt-feature reference, came back "I don't understand your question," and only landed once restated as what the person would actually see - a title proposed a moment ago, still unread in the Inbox.
 
