@@ -44,8 +44,9 @@ gate of `scoping` or `engineering-plan` would refuse belongs there, not here.
 
 ## Technical design             <- engineering-plan (design)
 
-[The decisions, three lines each. "No design needed: <the trigger check in one line>" where
-it found nothing; omit the section only for a bug fix.]
+[The request-path rows, one per action, then the decisions, three lines each. "No design
+needed: <the trigger check in one line>" with the rows where it found nothing; omit the
+section only for a bug fix that is not about speed.]
 
 ## Failure modes                <- engineering-plan (design)
 

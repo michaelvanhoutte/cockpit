@@ -60,4 +60,4 @@ Do not hand off if any of these holds:
 
 **File the whole piece of work as one ticket**, unsliced, through the [github-issue](../github-issue/SKILL.md) skill: Problem, What to build and Out of scope, labelled `unsliced`, which tells `/build` and any reader that the engineering plan has not run. Product can stop here; an engineer picks the ticket up by number.
 
-Name what runs next and who runs it; nothing here calls it: [engineering-plan](../engineering-plan/SKILL.md), by the engineer. It designs where the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back, then — once the engineer agrees the design — finishes the ticket or splits it into children under it.
+Name what runs next and who runs it; nothing here calls it: [engineering-plan](../engineering-plan/SKILL.md), by the engineer. It traces each action's request path and designs where the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back, then — once the engineer agrees the design — finishes the ticket or splits it into children under it.
