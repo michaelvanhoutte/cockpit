@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, type WorkspaceSnapshot } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand } from '../../../src/api/queries';
+import { useChangeConnection } from '../../../src/api/sourceAccounts';
 import { fetchSnapshot, sendCommand } from '../../../src/api/client';
 import { useServerEvents } from '../../../src/api/useServerEvents';
 import { changes } from '../../../src/api/changes';
@@ -65,10 +66,12 @@ const copy = (label: string, upTo?: string) =>
 const readsOpen: ((answer: WorkspaceSnapshot) => void)[] = [];
 const answersOpen: ((stamp: string | undefined) => void)[] = [];
 let sendNow: ReturnType<typeof useSendCommand>;
+let sendConnection: ReturnType<typeof useChangeConnection>;
 
 function Screen() {
   useServerEvents();
   sendNow = useSendCommand();
+  sendConnection = useChangeConnection();
   const { data } = useQuery(snapshotQuery(WORKSPACE));
   return <p>{data ? `showing ${data.generatedAt}` : 'still loading'}</p>;
 }
@@ -221,10 +224,10 @@ describe('Live updates', () => {
     it('does not read a Workspace for a connection change', async () => {
       await openWithCopy();
 
-      const sent = sendNow({
+      const sent = sendConnection({
         name: 'set_connection_choice',
         payload: { commandId: 'c-conn', issuedAt: at(0), workspaceId: WORKSPACE },
-      } as unknown as Parameters<typeof sendNow>[0]);
+      } as unknown as Parameters<typeof sendConnection>[0]);
       await waitFor(() => expect(answersOpen).toHaveLength(1));
       await answerChange(at(2));
       await sent;

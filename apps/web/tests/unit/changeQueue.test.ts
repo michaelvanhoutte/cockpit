@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CommandResult, Item, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
+import type { CommandResult, Item, SourceAccount, SourceAccountList, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
+import { connectionsDrawnOver } from '../../src/connectionsDrawnAhead';
 
 /**
  * F1: the changes a tab has made and not yet had answered - which of them are
@@ -833,6 +834,95 @@ describe('Item editing', () => {
       await settle();
 
       expect(queue.drawnOver(holding()).attachments).toHaveLength(1);
+    });
+  });
+});
+
+describe('Connector management', () => {
+  describe('a connection change waiting for its answer never flips back while the connections are read', () => {
+    const disconnected: CommandArgs = {
+      name: 'disconnect_source_account',
+      payload: { commandId: 'c-gone', issuedAt: AT, workspaceId: 'ws-work', sourceAccountId: 'account-teams' },
+    };
+    const TEAMS = { id: 'account-teams' } as SourceAccount;
+    const MAIL = { id: 'account-mail' } as SourceAccount;
+    const holding = (): SourceAccountList => ({ sourceAccounts: [MAIL, TEAMS] });
+    const shown = (queue: ReturnType<typeof createChangeQueue>) =>
+      queue.drawnList(holding(), connectionsDrawnOver('ws-work', () => undefined)).sourceAccounts.map((row) => row.id);
+    const scope = 'sourceAccounts:ws-work';
+
+    /** Sent under the scope its window gives its connection changes, and answered. */
+    async function answered() {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      queue.enqueue(disconnected, undefined, scope).catch(() => {});
+      await settle();
+      return { server, queue };
+    }
+
+    it('draws the change from the moment it is made', async () => {
+      const { queue } = await answered();
+
+      expect(shown(queue)).toEqual(['account-mail']);
+    });
+
+    it('keeps drawing the change under a read of the connections that began before its answer', async () => {
+      const { server, queue } = await answered();
+      const early = queue.readStarted();
+      server.arrived[0]!.answer();
+      await settle();
+
+      queue.readLanded(scope, early);
+
+      expect(shown(queue)).toEqual(['account-mail']);
+    });
+
+    it('shows the server’s list once a read that began after the answer has landed', async () => {
+      const { server, queue } = await answered();
+      server.arrived[0]!.answer();
+      await settle();
+      const late = queue.readStarted();
+
+      queue.readLanded(scope, late);
+
+      expect(shown(queue)).toEqual(['account-mail', 'account-teams']);
+    });
+
+    it.each([
+      { situation: 'the Workspace’s own read', landed: 'ws-work' },
+      { situation: 'the list of Workspaces', landed: null },
+      { situation: 'another Workspace’s connections', landed: 'sourceAccounts:ws-other' },
+    ])('keeps drawing the change when only $situation lands', async ({ landed }) => {
+      const { server, queue } = await answered();
+      server.arrived[0]!.answer();
+      await settle();
+      const late = queue.readStarted();
+
+      queue.readLanded(landed, late);
+
+      expect(shown(queue)).toEqual(['account-mail']);
+    });
+
+    it('lets a read of the connections leave a Workspace’s change alone', async () => {
+      const { server, queue } = await answered();
+      void queue.enqueue(priority('high'));
+      server.arrived[0]!.answer();
+      await settle();
+      server.arrived[1]!.answer();
+      await settle();
+
+      queue.readLanded(scope, queue.readStarted());
+
+      expect(priorityShown(queue.drawnOver(sent()))).toBe('high');
+    });
+
+    it('draws the connection back when the server refuses the change', async () => {
+      const { server, queue } = await answered();
+
+      server.arrived[0]!.refuse(new Error('That connection is in use.'));
+      await settle();
+
+      expect(shown(queue)).toEqual(['account-mail', 'account-teams']);
     });
   });
 });

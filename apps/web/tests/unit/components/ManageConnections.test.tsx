@@ -5,7 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SourceAccount } from '@cockpit/shared';
 import ManageConnections from '../../../src/components/ManageConnections';
 import type { ConnectOutcome, RefusedBecause } from '../../../src/connections';
-import { useCheckConnectionNow, useCommand } from '../../../src/api/queries';
+import { useCheckConnectionNow } from '../../../src/api/queries';
+import { changes } from '../../../src/api/changes';
 
 /**
  * F1: what this window draws and what it sends, and nothing about what the
@@ -58,10 +59,8 @@ vi.mock('../../../src/itemForm', () => ({
 }));
 
 vi.mock('../../../src/api/queries', () => ({
-  useCommand: vi.fn(),
   useCheckConnectionNow: vi.fn(),
-  refusalFrom: (command: { error: unknown }) =>
-    command.error ? 'That did not reach the server. Try again.' : null,
+  whyNotDone: () => 'That did not reach the server. Try again.',
   // The Workspace's snapshot, of which the window reads only what each source is called.
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
@@ -155,20 +154,11 @@ let checkNowReaches = true;
 
 function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBecause) {
   sent = vi.fn();
-  // Cast through `unknown`: the window reads a few of a mutation's fields and
-  // a whole `UseMutationResult` would be thirty lines of stand-in for the
-  // ones it never touches.
-  vi.mocked(useCommand).mockReturnValue({
-    mutate: sent,
-    mutateAsync: (args: unknown) => {
-      (sent as (sent: unknown) => void)(args);
-      return Promise.resolve();
-    },
-    reset: vi.fn(),
-    isPending: false,
-    error: null,
-    variables: undefined,
-  } as unknown as ReturnType<typeof useCommand>);
+  // The queue is where a change is sent from; what it draws is ConnectionsAtOnce.test.tsx.
+  vi.spyOn(changes, 'enqueue').mockImplementation((change) => {
+    (sent as (sent: unknown) => void)(change);
+    return Promise.resolve({ ok: true, applied: true });
+  });
   vi.mocked(useCheckConnectionNow).mockReturnValue({
     mutate: (id: string, opts: { onSuccess?: () => void; onError?: () => void }) => {
       checkedNow.push(id);

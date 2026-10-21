@@ -32,6 +32,11 @@ import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver, type Dra
  * until its add is answered (`adding`), and what is built on it waits behind it
  * (`afterAdding`).
  *
+ * **A window draws a list of its own by giving its changes a scope** ("Show a
+ * connection change the moment you make it", issue 1369): the queue keeps such a
+ * change drawn once answered, and only a read landing for that scope ends it. What
+ * the change draws, and which read it is, stay in the window's own chunk.
+ *
  * **A capture is drawn from the outbox, which sends it** ("Show a capture in the
  * Inbox the moment you make it", issue 1353): it joins ahead of the changes
  * made to its row, so they have a row to land on, is never sent from here, and
@@ -52,15 +57,17 @@ export interface ChangeQueue {
    * hears of it: what lets a read owed for the change be registered before the queue is
    * seen to have emptied.
    */
-  enqueue(change: CommandArgs, answered?: (result: CommandResult) => void): Promise<CommandResult>;
+  enqueue(change: CommandArgs, answered?: (result: CommandResult) => void, scope?: string): Promise<CommandResult>;
   /** The copy as the server sent it, with every change not yet covered by a read drawn over it. */
   drawnOver(snapshot: WorkspaceSnapshot): WorkspaceSnapshot;
   /**
-   * The list of Workspaces as the server sent it, with the Workspace changes not
-   * yet covered by a read of the list drawn over it ("Show a Workspace rename,
-   * colour, delete or reorder the moment you make it", issue 1365).
+   * A list as the server sent it, with the changes not yet covered by a read of
+   * it drawn over it by `over`: the list of Workspaces by default ("Show a
+   * Workspace rename, colour, delete or reorder the moment you make it", issue
+   * 1365), or a list a window draws for itself.
    */
   drawnList(list: WorkspaceList): WorkspaceList;
+  drawnList<L>(list: L, over: (list: L, changes: readonly Drawn[]) => L): L;
   /** Whether a delete of this Workspace has been made and its list not yet read: the Workspace is not there to read. */
   deleting(workspaceId: string): boolean;
   /**
@@ -77,7 +84,8 @@ export interface ChangeQueue {
   readStarted(): number;
   /**
    * A read that started at `startedAt` has landed in the held copy: of the
-   * Workspace `scope` names, or of the list of Workspaces for `null`. Each
+   * Workspace `scope` names, of the list of Workspaces for `null`, or of the
+   * list a window gave its changes the scope of (`enqueue`). Each
    * covers its own changes only, so a Workspace's read landing never ends a
    * rename the list has not yet been read for. `upTo` is the newest change that
    * read holds (`workspaceSnapshotSchema`): one begun before an answer still
@@ -111,6 +119,13 @@ export interface ChangeQueue {
 
 interface Entry {
   change: Drawn;
+  /**
+   * What a read must be of to cover this change, when a window drew it for
+   * itself ("Show a connection change the moment you make it", issue 1369):
+   * such a change is kept drawn once answered whatever it is, and only a read of
+   * that scope ends it. Absent, the change is a Workspace's or the list of them.
+   */
+  scope?: string | undefined;
   state: 'waiting' | 'sending' | 'answered';
   /** The tick the answer arrived at, once it has. */
   answeredAt: number;
@@ -205,6 +220,15 @@ export function createChangeQueue(options: {
     if (at !== -1) entries.splice(at, 1);
   };
 
+  function drawnList(list: WorkspaceList): WorkspaceList;
+  function drawnList<L>(list: L, over: (list: L, changes: readonly Drawn[]) => L): L;
+  function drawnList(list: unknown, over: (list: unknown, changes: readonly Drawn[]) => unknown = listDrawnOver as never) {
+    return over(
+      list,
+      entries.map((entry) => entry.change),
+    );
+  }
+
   async function pump() {
     if (running) return;
     running = true;
@@ -227,7 +251,7 @@ export function createChangeQueue(options: {
             }, sendTimeoutMs);
           });
           const result = await Promise.race([sent, gaveUp]);
-          if (DRAWN_AHEAD.has(next.change.name)) {
+          if (next.scope || DRAWN_AHEAD.has(next.change.name)) {
             next.state = 'answered';
             next.answeredAt = ++tick;
             next.stamp = result.at;
@@ -252,9 +276,9 @@ export function createChangeQueue(options: {
   }
 
   return {
-    enqueue(change, answered) {
+    enqueue(change, answered, scope) {
       return new Promise<CommandResult>((resolve, reject) => {
-        entries.push({ change, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
+        entries.push({ change, scope, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
         changed();
         void pump();
       });
@@ -265,11 +289,7 @@ export function createChangeQueue(options: {
         entries.map((entry) => entry.change),
       );
     },
-    drawnList: (list) =>
-      listDrawnOver(
-        list,
-        entries.map((entry) => entry.change),
-      ),
+    drawnList,
     deleting: (workspaceId) =>
       entries.some((entry) => entry.change.name === 'delete_workspace' && entry.change.payload.workspaceId === workspaceId),
     adding,
@@ -280,8 +300,7 @@ export function createChangeQueue(options: {
       const covered = entries.filter(
         (entry) =>
           entry.state === 'answered' &&
-          WORKSPACE_LIST_CHANGES.has(entry.change.name) === (scope === null) &&
-          (scope === null || entry.change.payload.workspaceId === scope) &&
+          (entry.scope ?? (WORKSPACE_LIST_CHANGES.has(entry.change.name) ? null : entry.change.payload.workspaceId)) === scope &&
           (entry.answeredAt < startedAt || (entry.stamp !== undefined && upTo !== undefined && upTo >= entry.stamp)),
       );
       if (covered.length === 0) return;

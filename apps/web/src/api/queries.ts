@@ -341,33 +341,15 @@ const snapshotsReadAfter = (args: CommandArgs): string => (everyWorkspaceCanSee(
 /**
  * The changes `afterChanging` answers itself, and that leave their Workspace's
  * snapshot as it was or are read for in their own way: a deleted Workspace's is
- * dropped, a connection change reads its own query, and the Item form's
- * presentation reads every snapshot.
+ * dropped, and the Item form's presentation reads every snapshot. A connection
+ * change is sent from its window's own chunk (`api/sourceAccounts.ts`), never here.
  */
 const NOT_READ_BACK_WITH_THE_SNAPSHOT = new Set<ClientCommandName>([
   'delete_workspace',
-  'disconnect_source_account',
-  'set_connection_choice',
-  'set_connection_files_by_name',
   'set_item_form_presentation',
 ]);
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
-  if (
-    args.name === 'disconnect_source_account' ||
-    args.name === 'set_connection_choice' ||
-    args.name === 'set_connection_files_by_name'
-  ) {
-    // Its own query, outside any workspace snapshot. Waited for rather than
-    // dropped, so the row is gone from the list by the time the window stops
-    // saying the disconnect is in flight ("Connect a Microsoft Teams source
-    // account", issue 485) - or names its connector's choice as it was
-    // changed (issue 942).
-    return queryClient.invalidateQueries({
-      queryKey: ['sourceAccounts', args.payload.workspaceId],
-    });
-  }
-
   if (args.name === 'delete_workspace') {
     // Its snapshot is dropped, not re-read. There is nothing to revalidate: the snapshot of a
     // deleted workspace is a 404 for good, so invalidating it would fetch one

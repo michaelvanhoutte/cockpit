@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { uuidv7, type RegisteredConnector, type SourceAccount } from '@cockpit/shared';
-import { refusalFrom, useCommand } from '../api/queries';
+import { whyNotDone } from '../api/queries';
+import { useChangeConnection } from '../api/sourceAccounts';
+import { useUndo } from '../undo';
 import { Segmented } from './Segmented';
 
 /** What a connector asks once per connection: its question and the options that answer it (issue 942). */
@@ -185,8 +187,10 @@ function FilesByName({
  * the choice held now, and - for a connector that reports names - whether it
  * files by them, at the value held now; nothing to sign in to. **A form, not a
  * question**: nothing is sent until Save, Save with nothing changed sends
- * nothing, and Cancel, Escape and pressing outside close it without asking. Its
- * row says what changed once the server has agreed to it.
+ * nothing, and Cancel, Escape and pressing outside close it without asking.
+ * **Save closes it at the click** and the row says what changed at once ("Show a
+ * connection change the moment you make it", issue 1369); a change the server
+ * refuses puts the row back and says why in the undo bar.
  */
 export function ChangeConnectionChoice({
   account,
@@ -251,27 +255,26 @@ function Changing({
       : choice.options[0]!.value;
   const [value, setValue] = useState(heldNow);
   const [filesByName, setFilesByName] = useState(account.filesByName);
-  const command = useCommand();
-  const refusal = refusalFrom(command);
+  const changeConnection = useChangeConnection();
+  const offerToUndo = useUndo();
 
-  const save = async () => {
+  const save = () => {
     const envelope = { issuedAt: new Date().toISOString(), workspaceId, sourceAccountId: account.id };
-    try {
-      if (choice && value !== undefined && value !== account.follows) {
-        await command.mutateAsync({
-          name: 'set_connection_choice',
-          payload: { ...envelope, commandId: uuidv7(), choice: value },
-        });
-      }
-      if (names && filesByName !== account.filesByName) {
-        await command.mutateAsync({
-          name: 'set_connection_files_by_name',
-          payload: { ...envelope, commandId: uuidv7(), filesByName },
-        });
-      }
-    } catch {
-      // Said under the form (`refusal`), which stays open.
-      return;
+    const refused = (failure: unknown) => {
+      offerToUndo({ what: `“${account.displayName}” was not changed. ${whyNotDone(failure)}` });
+    };
+    // Each half is its own change, so one the server refuses does not undo the other.
+    if (choice && value !== undefined && value !== account.follows) {
+      changeConnection({
+        name: 'set_connection_choice',
+        payload: { ...envelope, commandId: uuidv7(), choice: value },
+      }).catch(refused);
+    }
+    if (names && filesByName !== account.filesByName) {
+      changeConnection({
+        name: 'set_connection_files_by_name',
+        payload: { ...envelope, commandId: uuidv7(), filesByName },
+      }).catch(refused);
     }
     onClose();
   };
@@ -283,24 +286,15 @@ function Changing({
         <Dialog.Description className="sr-only">Choose again without signing in.</Dialog.Description>
         {choice && value !== undefined && <ChoiceQuestion choice={choice} value={value} onChange={setValue} />}
         {names && <FilesByName names={names} checked={filesByName} onChange={setFilesByName} />}
-        {refusal && (
-          <p role="alert" className="pt-3 text-sm text-over">
-            {refusal}
-          </p>
-        )}
       </div>
       <div className="flex justify-end gap-2 pt-4">
-        <Dialog.Close
-          disabled={command.isPending}
-          className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-        >
+        <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
           Cancel
         </Dialog.Close>
         <button
           type="button"
-          onClick={() => void save()}
-          disabled={command.isPending}
-          className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+          onClick={save}
+          className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover"
         >
           Save
         </button>
