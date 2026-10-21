@@ -154,6 +154,16 @@ export function toSend(entries: readonly OutboxEntry[], owner: string | null): O
   );
 }
 
+/**
+ * Whether the Inbox draws an entry as the Item it will be ("Show a capture in
+ * the Inbox the moment you make it", issue 1353): a typed note nobody has
+ * refused. A spoken one has no words yet, and one filed on Panels is not an
+ * Inbox row once it lands - both arrive with the next read.
+ */
+export function showsInTheInbox(entry: OutboxEntry): boolean {
+  return entry.refused === null && entry.message !== '' && !entry.panelIds?.length;
+}
+
 /** What a row of Just captured says about an entry still in the outbox. */
 export type EntryState = { waiting: true } | { waiting: false; notSent: string };
 

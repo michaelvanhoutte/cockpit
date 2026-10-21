@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_THEMES, itemLabel, itemStatus, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
+import { WORKSPACE_THEMES, itemLabel, itemSchema, itemStatus, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
 import { drawnAhead, drawnOver, listDrawnOver, noSnapshotYet } from '../../src/drawnAhead';
+import { itemsInTheInbox } from '../../src/filing';
 
 /**
  * F1: what the screen shows of a change before the server has answered it -
@@ -715,3 +716,60 @@ describe('Workspace management', () => {
   });
 });
 
+
+describe('Capture', () => {
+  describe('a capture shows in the Inbox the moment it is made, before the server has it', () => {
+    const captured = (over: Record<string, unknown> = {}): CommandArgs =>
+      ({
+        name: 'capture_item',
+        payload: { ...envelope(BART), commandId: 'c-capture', message: 'call bart', ...over },
+      }) as CommandArgs;
+    const inWork = (items: Item[] = []) =>
+      ({ workspace: { id: 'ws-work', tenantId: 'tenant' }, items, filings: [], panels: [] }) as unknown as WorkspaceSnapshot;
+    const inTheInbox = (copy: WorkspaceSnapshot) => itemsInTheInbox(copy.items, []).map((item) => item.id);
+
+    it.each([
+      { situation: 'captured to this Workspace', over: {}, shown: [BART] },
+      { situation: 'captured to Any workspace, from another Workspace', over: { workspaceId: 'ws-home', workspaceDecided: false }, shown: [BART] },
+      { situation: 'captured to another Workspace', over: { workspaceId: 'ws-home' }, shown: [] },
+    ])('$situation', ({ over, shown }) => {
+      expect(inTheInbox(drawnAhead(inWork(), captured(over)))).toEqual(shown);
+    });
+
+    it('draws it once when the read already holds the row, as the server has it', () => {
+      const held = anItem(BART, { title: 'Call Bart.' });
+
+      const drawn = drawnAhead(inWork([held]), captured());
+
+      expect(drawn.items).toEqual([held]);
+    });
+
+    it('draws it after the Items the Workspace already holds, as the server orders them', () => {
+      expect(drawnAhead(inWork([anItem(LISA)]), captured()).items.map((item) => item.id)).toEqual([LISA, BART]);
+    });
+
+    it('draws the note as typed, with the priority and due date the strip chose, and what the server decides left for the next read', () => {
+      const copy = inWork();
+
+      const drawn = read(drawnAhead(copy, captured({ message: 'call bart\nabout the quote', priority: 'high', dueDate: '2026-10-23' })), BART)!;
+
+      expect(drawn).toMatchObject({
+        title: 'call bart\nabout the quote',
+        description: null,
+        priority: 'high',
+        dueDate: '2026-10-23',
+        createdAt: AT,
+        completedAt: null,
+        readings: null,
+        proposedPanelId: null,
+      });
+      expect(copy.items).toEqual([]);
+    });
+
+    it('draws a whole Item, one the Inbox and the form can read like any other', () => {
+      const drawn = read(drawnAhead(inWork(), captured()), BART);
+
+      expect(itemSchema.safeParse(drawn).success).toBe(true);
+    });
+  });
+});

@@ -556,3 +556,136 @@ describe('Workspace management', () => {
     });
   });
 });
+
+describe('Capture', () => {
+  const note = { commandId: 'c-capture', issuedAt: AT, workspaceId: 'ws-work', itemId: BART, message: 'call bart' };
+  /** The Workspace as a read holds it, with or without the Item the server made of the note. */
+  const holding = (held: boolean): WorkspaceSnapshot =>
+    ({
+      workspace: { id: 'ws-work', tenantId: 'tenant' },
+      items: held ? [{ id: BART, title: 'Call Bart.', completedAt: null }] : [],
+      filings: [],
+      panels: [],
+    }) as unknown as WorkspaceSnapshot;
+  const titlesShown = (copy: WorkspaceSnapshot) => copy.items.map((item) => item.title);
+
+  describe('a capture the outbox holds is drawn, and never sent from here', () => {
+    it('draws it through every read of the Workspace, and does not hold the page or the reads behind it', () => {
+      const server = aServer();
+      const leaving = { arm: vi.fn(), disarm: vi.fn() };
+      const queue = createChangeQueue({ send: server.send, leaveGuard: leaving });
+
+      queue.captures([note]);
+      queue.readLanded('ws-work', queue.readStarted());
+
+      expect(titlesShown(queue.drawnOver(holding(false)))).toEqual(['call bart']);
+      expect(server.send).not.toHaveBeenCalled();
+      expect(queue.unanswered()).toBe(0);
+      expect(leaving.arm).not.toHaveBeenCalled();
+    });
+
+    it('stops drawing it once the outbox no longer holds it, as when it is refused or put back', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.captures([note]);
+
+      queue.captures([]);
+
+      expect(titlesShown(queue.drawnOver(holding(false)))).toEqual([]);
+    });
+
+    it.each([
+      { situation: 'after the capture was drawn', capturedFirst: true },
+      { situation: 'before the capture was drawn, as for a note the outbox lets this tab see late', capturedFirst: false },
+    ])('draws a change made to its row on top of it, made $situation', async ({ capturedFirst }) => {
+      const queue = createChangeQueue({ send: aServer().send });
+      if (capturedFirst) queue.captures([note]);
+      void queue.enqueue(priority('high'));
+      if (!capturedFirst) queue.captures([note]);
+      await settle();
+
+      expect(queue.drawnOver(holding(false)).items.map((item) => item.priority)).toEqual(['high']);
+    });
+  });
+
+  describe('a landed capture stays drawn until a read that began after it landed has landed', () => {
+    it('keeps drawing it under a read that began before it landed, once, whether or not that read holds it', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.captures([note]);
+      const early = queue.readStarted();
+      queue.landed(note);
+
+      queue.readLanded('ws-work', early);
+
+      expect(titlesShown(queue.drawnOver(holding(false)))).toEqual(['call bart']);
+      expect(titlesShown(queue.drawnOver(holding(true)))).toEqual(['Call Bart.']);
+    });
+
+    it('shows the server’s row once a read that began after it landed has landed', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.captures([note]);
+      queue.landed(note);
+      const late = queue.readStarted();
+
+      queue.readLanded('ws-work', late);
+
+      expect(titlesShown(queue.drawnOver(holding(true)))).toEqual(['Call Bart.']);
+      // Another device dismissed it first: the read says so, and it is not drawn back.
+      expect(titlesShown(queue.drawnOver(holding(false)))).toEqual([]);
+    });
+
+    it('stops drawing it when a read that began before it landed holds the stamp its answer gave', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.captures([note]);
+      const early = queue.readStarted();
+      queue.landed(note, '2026-10-21T10:00:02.000Z');
+
+      queue.readLanded('ws-work', early, '2026-10-21T10:00:03.000Z');
+
+      expect(titlesShown(queue.drawnOver(holding(false)))).toEqual([]);
+    });
+
+    it('keeps drawing it when only another Workspace is read', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.captures([note]);
+      queue.landed(note);
+
+      queue.readLanded('ws-home', queue.readStarted());
+      queue.readLanded(null, queue.readStarted());
+
+      expect(titlesShown(queue.drawnOver(holding(false)))).toEqual(['call bart']);
+    });
+
+    it('keeps drawing it after the outbox has let it go, which is when it is removed once it has landed whole', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.captures([note]);
+      queue.landed(note);
+
+      queue.captures([]);
+
+      expect(titlesShown(queue.drawnOver(holding(false)))).toEqual(['call bart']);
+    });
+
+    it('says a landing is news once, so it is read for once', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.captures([note]);
+
+      expect([queue.landed(note), queue.landed(note)]).toEqual([true, false]);
+    });
+
+    it('says a landing is not news for a capture it was never drawing', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+
+      expect(queue.landed(note)).toBe(false);
+    });
+
+    it('stops drawing every capture when the tab forgets what it was answered, as signing out does', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.captures([note]);
+      queue.landed(note);
+
+      queue.forgetAnswered();
+
+      expect(titlesShown(queue.drawnOver(holding(false)))).toEqual([]);
+    });
+  });
+});

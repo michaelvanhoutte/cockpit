@@ -4,8 +4,10 @@ import {
   FIRST_PANEL_NAME,
   NO_CONDITIONS,
   firstDashboardId,
+  itemSchema,
   nextColor,
   themeOf,
+  type CommandPayload,
   type Dashboard,
   type Item,
   type Panel,
@@ -42,6 +44,12 @@ import type { CommandArgs } from './api/queries';
  * filings, and a rename the name rule would refuse drawn all the same until the
  * refusal puts the old name back.
  *
+ * **So is a captured note** ("Show a capture in the Inbox the moment you make it",
+ * issue 1353): an Inbox row with the note as typed - the priority and due date
+ * the strip chose, and none of what Cockpit makes of it - in the Workspace it was
+ * captured to, or in every one while it belongs to none. It comes from the outbox
+ * (`changeQueue.ts`), never from a change sent by the queue.
+ *
  * **So is a Panel change** ("Show a Panel change the moment you make it", issue
  * 1363): a new Panel at the foot of its Dashboard, the settings, filter and sort
  * as saved, a deleted Panel gone with its filings, a moved Panel on the other
@@ -52,6 +60,8 @@ import type { CommandArgs } from './api/queries';
  */
 export function drawnAhead(snapshot: WorkspaceSnapshot, change: CommandArgs): WorkspaceSnapshot {
   switch (change.name) {
+    case 'capture_item':
+      return capturedAhead(snapshot, change.payload);
     case 'set_done':
       return withItem(snapshot, change.payload.itemId, {
         completedAt: change.payload.done ? change.payload.issuedAt : null,
@@ -172,6 +182,36 @@ function heldBlank(workspaceId: string): WorkspaceSnapshot {
     agentRuns: [],
     generatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * A captured note as an Inbox row, with the note as typed: its title, and no
+ * description. What Cockpit makes of it - the title, the description, the
+ * readings - arrives with the next read. **In the Workspace it names, or in every
+ * one while it belongs to none**, and not at all where the read holds the row.
+ */
+function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'capture_item'>): WorkspaceSnapshot {
+  const decided = note.workspaceDecided !== false;
+  if ((decided && note.workspaceId !== snapshot.workspace.id) || snapshot.items.some((item) => item.id === note.itemId)) {
+    return snapshot;
+  }
+  const item = {
+    // Nothing is read, proposed or settled yet: every field the note does not fill is null.
+    ...Object.fromEntries(Object.keys(itemSchema.shape).map((field) => [field, null])),
+    id: note.itemId,
+    tenantId: snapshot.workspace.tenantId,
+    workspaceId: note.workspaceId,
+    workspaceDecided: decided,
+    capturedMessage: note.message,
+    source: 'internal',
+    title: note.message,
+    priority: note.priority ?? null,
+    dueDate: note.dueDate ?? null,
+    unseen: false,
+    createdAt: note.issuedAt,
+    updatedAt: note.issuedAt,
+  } as Item;
+  return { ...snapshot, items: [...snapshot.items, item] };
 }
 
 /** One Panel rewritten, in the Workspace the change names and no other. */
@@ -373,7 +413,11 @@ function workspacesDrawnAhead(list: WorkspaceList, change: CommandArgs): Workspa
   }
 }
 
-/** The changes `drawnAhead` draws something for, which are the ones kept drawn after their answer until a read covers them. */
+/**
+ * The changes `drawnAhead` draws something for, which are the ones kept drawn
+ * after their answer until a read covers them. A capture is drawn as well, but
+ * the outbox sends it and the queue only holds it (`changeQueue.ts`).
+ */
 export const DRAWN_AHEAD: ReadonlySet<CommandArgs['name']> = new Set([
   ...WORKSPACE_LIST_CHANGES,
   'move_item_to_panel',
