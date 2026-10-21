@@ -7,7 +7,10 @@
 // Usage: node scripts/merge-recheck.mjs <pull request number>
 //
 // Exit 0: nothing to re-check, or the re-check passed. Exit 1: refused, with
-// what failed on the last line. Nothing is committed or pushed, and this
+// what failed on the last line - merge main in and fix. Exit 2: could not
+// re-check (no CI run for the head yet, or a fetch, gh call or install
+// failed) - fix that cause and run it again, since merging main fixes
+// nothing there. Nothing is committed or pushed, and this
 // session's branch and working tree are never touched: the merge exists in a
 // temporary worktree under the OS temp directory, removed afterwards and
 // cleared first if a killed run left it.
@@ -31,6 +34,14 @@ if (!/^\d+$/.test(number ?? '')) {
   process.exit(2);
 }
 
+// Anything that stops the re-check itself (a failed fetch, gh call or install) is exit 2, never a refusal's 1.
+const couldNotCheck = (error) => {
+  console.error(`Could not re-check: ${error?.message ?? error}`);
+  process.exit(2);
+};
+process.on('uncaughtException', couldNotCheck);
+process.on('unhandledRejection', couldNotCheck);
+
 function sh(file, args, options = {}) {
   const result = spawnSync(file, args, { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, ...options });
   if (result.error) throw result.error;
@@ -51,12 +62,18 @@ async function testedBase() {
   const runs = JSON.parse(gh('api', `repos/{owner}/{repo}/actions/runs?head_sha=${head}&event=pull_request&per_page=30`, '--jq', '.workflow_runs'));
   if (runs.length === 0) return null;
   const newest = runs.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.run_attempt - a.run_attempt)[0];
+  // Any job that ran checked the merge out; a skipped one has no log, so each is tried in turn.
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const jobs = JSON.parse(gh('api', `repos/{owner}/{repo}/actions/runs/${newest.id}/jobs?per_page=1`, '--jq', '.jobs'));
-      const log = gh('api', `repos/{owner}/{repo}/actions/jobs/${jobs[0].id}/logs`);
-      const base = baseFromCheckoutLog(log, head);
-      if (base) return base;
+      const jobs = JSON.parse(gh('api', `repos/{owner}/{repo}/actions/runs/${newest.id}/jobs?per_page=50`, '--jq', '.jobs'));
+      for (const job of jobs.filter((j) => j.conclusion !== 'skipped')) {
+        try {
+          const base = baseFromCheckoutLog(gh('api', `repos/{owner}/{repo}/actions/jobs/${job.id}/logs`), head);
+          if (base) return base;
+        } catch {
+          // This job's log is unreadable; the next one may not be.
+        }
+      }
     } catch {
       // Retried once, then the conservative base below.
     }
@@ -117,4 +134,4 @@ const result = await recheck({
 });
 
 console.log(result.message);
-process.exit(result.pass ? 0 : 1);
+process.exit(result.pass ? 0 : result.noRun ? 2 : 1);

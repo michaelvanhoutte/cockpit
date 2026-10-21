@@ -146,7 +146,7 @@ It names a SHA because for the seconds after a push GitHub's head is still the p
 
 **List each declined finding of a local `/code-review` or `/security-review` in the pull request body's `## Review` paragraph, with a one-line reason**, because local reviews post no thread and `/periodic-review` learns what the reviewer got wrong from the body.
 
-**Merge `main` into the branch only when GitHub reports the pull request conflicted, or when `node scripts/merge-recheck.mjs <number>` refuses the merge.** That script, which `/build` runs before every merge, re-checks a branch whose CI ran against an older `main`: typecheck, the bundle gate and the selected suites on the branch merged with today's `origin/main`, without pushing that merge. Any other merge buys nothing that lands, since the pull request lands squashed, and only restarts CI.
+**Merge `main` into the branch only when GitHub reports the pull request conflicted, or when `node scripts/merge-recheck.mjs <number>` refuses the merge against today's `main`.** Any other merge buys nothing that lands, since the pull request lands squashed and CI already tests the branch merged with `main`, and only restarts CI.
 
 **Read what `main` has gained before finishing, not only what it has changed.** This file is read into a session once, at the start, so a rule that merges while you work changes nothing you believe until you look. Diff against the commit you started from — not the merge-base with `origin/main`, which the conflict-merge above moves to `origin/main` itself, silencing the diff on exactly what that merge brought in.
 

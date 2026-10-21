@@ -91,7 +91,7 @@ function nameFailure(check, output) {
 export async function recheck(io) {
   const head = io.head();
   const base = await io.testedBase();
-  if (!base) return { pass: false, message: `Refused: no CI run found for ${head}. Push it and let CI run first.` };
+  if (!base) return { pass: false, noRun: true, message: `Refused: no CI run found for ${head}. Push it and let CI run first.` };
 
   const tip = io.tip();
   const paths = tip === base ? [] : io.gained(base, head, tip);

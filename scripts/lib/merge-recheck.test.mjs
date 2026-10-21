@@ -69,6 +69,7 @@ describe('a pull request is re-checked exactly when main has gained commits sinc
     const edge = { ...io(), testedBase: async () => null };
     const result = await recheck(edge);
     assert.equal(result.pass, false);
+    assert.equal(result.noRun, true);
     assert.match(result.message, /no CI run found/);
   });
 });
