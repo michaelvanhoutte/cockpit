@@ -28,7 +28,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v16.test.ts).
+ * (tests/contract/clean-up-a-note.v17.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does

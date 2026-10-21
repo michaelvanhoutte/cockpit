@@ -40,7 +40,7 @@ const A_PNG_BASE64 =
  * fake, which would prove the walk and nothing about the feature. What holds it
  * instead: apps/api/tests/integration/http/note-cleanup.test.ts drives a real
  * capture through the real queue to the real consumer, and
- * apps/api/tests/contract/clean-up-a-note.v16.test.ts asks the real model
+ * apps/api/tests/contract/clean-up-a-note.v17.test.ts asks the real model
  * whenever the prompt changes. A note filed where it says it goes ("File a
  * capture on the panels you name, read from the spoken path", issue 1116) has
  * no walk for the same reason: this stack has no model stand-in ("No model

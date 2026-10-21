@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v16.js';
+import { NOTE_MARKER } from '@cockpit/connector-teams';
+import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v17.js';
 import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
@@ -339,6 +340,28 @@ describe('Capture', () => {
       for (const part of Object.values(bare)) expect(part.trim()).not.toBe('');
       expect(bare.stable).not.toContain('Corrections');
       expect(bare.stable).not.toContain('What stood');
+    });
+  });
+
+  /**
+   * The Teams connector stores a person's note inside the captured message
+   * after a marker line, and the prompt has to quote that same line to tell
+   * the sender's words from the person's ("Read the note you type when you save
+   * a Teams message to Cockpit", issue 1340). Held here because the two live in
+   * packages that may not import each other.
+   */
+  describe("the reading knows the line a Teams save puts before the person's own words", () => {
+    it('quotes the marker the Teams connector writes, in the rules every account shares', () => {
+      const { instructions } = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null, null).system;
+
+      expect(instructions).toContain(`"${NOTE_MARKER}"`);
+    });
+
+    it("says the person's words win and the sender's still count for what the person left unsaid", () => {
+      const { instructions } = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null, null).system;
+
+      expect(instructions).toContain("the person's words decide it");
+      expect(instructions).toContain("Where the person's words say nothing about a field, the sender's words still decide it");
     });
   });
 });
