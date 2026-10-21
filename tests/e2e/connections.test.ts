@@ -378,7 +378,7 @@ test.describe('Connector management', () => {
       await press(connected.getByRole('button', { name: 'Done' }), isMobile);
       const connections = page.getByRole('dialog', { name: 'Settings' });
       await expect(connections.getByText('+32470123456', { exact: true })).toBeVisible();
-      await expect(connections.getByText(/^Text messages · text \+32460000000 to add a note/)).toBeVisible();
+      await expect(connections.getByText(/^Text message · text \+32460000000 to add a note/)).toBeVisible();
 
       await chooseRowAction(page, '+32470123456', 'Disconnect', isMobile);
       await press(page.getByRole('button', { name: 'Yes, disconnect +32470123456' }), isMobile);

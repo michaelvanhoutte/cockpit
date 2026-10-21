@@ -188,9 +188,9 @@ export interface Env {
    */
   GRAPH_API_ORIGIN?: string;
   /**
-   * What the Twilio connector needs to text a code to a phone and, with the
-   * next unit, to check a text it is sent ("Connect a phone in Settings by
-   * confirming a code texted to it", issue 1335): the account, its auth token
+   * What the Twilio connector needs to text a code to a phone and to check a text it is sent
+   * ("Connect a phone in Settings by confirming a code texted to it", issue
+   * 1335; "Text the Cockpit number and the note lands in the Inbox", issue 1336): the account, its auth token
    * (which also checks the signature of a text), the Verify service the codes go
    * through, and the Cockpit number a connected phone texts.
    *
