@@ -17,6 +17,8 @@ pnpm dev
 
 **Nothing may delete, re-seed, wipe or restore over production or staging.** Both hold real data, and staging's existing rows are the only proof that a migration, and the code either side of it, still reads what is already there. So migrations are expand-then-contract, and `pnpm backup:export` runs before anything that writes to either. Restated here from `docs/deployment.md`, the document of record, because a session that never opens it still has to obey; the exceptions it allows are in its "The environments" and "Migrations and rollback".
 
+**Measuring or investigating there only reads.** Say what it reads, and that it changes nothing, before proposing it, and leave any click that changes data to the person or to a local copy of the same shape, since an offer to "time a few actions" in production left unsaid whether it would write ("Show an Item or filing change the moment you make it, with a saving sign while the server answers", issue 1329).
+
 ## Writing
 
 **Say it once, in as few sentences as it takes.** Documents, issues, pull request bodies and review replies are all read by agents on a context budget, so length is a cost paid on every future read.
