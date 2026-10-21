@@ -1,24 +1,19 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   registeredConnectorListSchema,
-  sourceAccountListSchema,
   uuidv7,
   type RegisteredConnectorList,
   type SourceAccount,
-  type SourceAccountList,
 } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
-import {
-  refusalFrom,
-  snapshotQuery,
-  useCheckConnectionNow,
-  useCommand,
-} from '../api/queries';
+import { snapshotQuery, useCheckConnectionNow, whyNotDone } from '../api/queries';
+import { useChangeConnection, useSourceAccounts } from '../api/sourceAccounts';
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { whenCaptured } from '../duplicates';
 import { sourceNamed, type SourceNames } from '../itemSource';
+import { useUndo } from '../undo';
 import { ChangeConnectionChoice, ConnectWithChoice, type ConnectAnswer, type ConnectorChoice, type ConnectorNames } from './ConnectionChoice';
 import { ConnectionHistory } from './ConnectionHistory';
 import { ConnectPhone, type PhoneConnector } from './ConnectPhone';
@@ -27,18 +22,6 @@ import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
 import { SourceMark } from './SourceMark';
-
-/**
- * The source accounts one Workspace has connected, oldest first. Kept here
- * rather than in `api/client.ts`/`api/queries.ts` with every other read - the
- * one thing this window alone asks for is the one thing worth this chunk's
- * own weight rather than the initial bundle's (`bundle:budget`).
- */
-async function fetchSourceAccounts(workspaceId: string): Promise<SourceAccountList> {
-  const res = await api.v1.workspaces[':workspaceId'].connections.$get({ param: { workspaceId } });
-  if (!res.ok) throw refusal('connections', res.status);
-  return sourceAccountListSchema.parse(await res.json());
-}
 
 /** The connectors the registry holds, which the Add-a-connection cards are drawn from (issue 894). */
 async function fetchRegisteredConnectors(): Promise<RegisteredConnectorList> {
@@ -52,26 +35,6 @@ async function fetchRegisteredConnectors(): Promise<RegisteredConnectorList> {
  * of its own: trying again is the whole advice.
  */
 const REFUSED = 'That did not connect. Nothing was stored. Try again.';
-
-/**
- * **Never served from a copy.** The window says what is connected *now*, and
- * the two moments it is read are the two where a copy would be wrong: coming
- * back from Microsoft, where the row was made a redirect ago, and reopening
- * it after a disconnect made in another tab. The issue asks for exactly
- * this - "Reopening Manage Connections always shows current stored state,
- * never an optimistic guess."
- *
- * The query key (`['sourceAccounts', workspaceId]`) is matched by
- * `api/queries.ts`'s own `afterChanging` invalidation on
- * `disconnect_source_account`, and by `useConnectClaudeCode`/
- * `useTestClaudeCodeConnection`'s own invalidation there.
- */
-const sourceAccountsQuery = (workspaceId: string) =>
-  queryOptions({
-    queryKey: ['sourceAccounts', workspaceId],
-    queryFn: () => fetchSourceAccounts(workspaceId),
-    staleTime: 0,
-  });
 
 /**
  * Connecting a registered source is a navigation, not a request: the browser
@@ -176,11 +139,9 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
 /** The header's one button that offers every source, each with its mark and its sentence clamped to two lines. */
 function AddConnection({
   cards,
-  disabled,
   onPick,
 }: {
   cards: Card[];
-  disabled: boolean;
   onPick: (card: Card, openedFrom: HTMLElement | null) => void;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
@@ -189,7 +150,6 @@ function AddConnection({
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
         ref={trigger}
-        disabled={disabled}
         className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent shadow-sm hover:bg-accent-hover disabled:opacity-50"
       >
         <span aria-hidden className="text-base leading-none">
@@ -249,12 +209,16 @@ function AddConnection({
  * why it is opened from the Workspace's own tab rather than from the header's
  * menu, and why every read and every change here names a Workspace.
  *
- * **What it shows is always what is stored.** The list is never served from a
- * copy (`sourceAccountsQuery`) and nothing here is drawn before the server has
- * agreed to it: connecting Teams comes back from Microsoft as a fresh read,
- * connecting or testing Claude Code waits for the server's own answer, and
- * disconnecting waits for the row to be gone. An optimistic row is the one
- * thing this window must not draw - it would say a credential exists.
+ * **The list is never served from a copy** (`sourceAccountsQuery`), and a
+ * connection that is not there is never drawn: connecting Teams comes back from
+ * Microsoft as a fresh read, and connecting a phone waits for the server's own
+ * answer - a drawn row would say a credential exists. **What is taken away or
+ * changed is drawn at the click** ("Show a connection change the moment you make
+ * it", issue 1369): a disconnect, a new choice, files by name, and *Check now*'s
+ * note, over the list as read until a read that began after the answer lands
+ * (`useSourceAccounts`). The questions close at the click, so a refusal puts the
+ * row back and says why in the undo bar; the note, in a window that stays open,
+ * says it where it stands.
  */
 export default function ManageConnections({
   workspaceId,
@@ -285,13 +249,6 @@ export default function ManageConnections({
   onClose: () => void;
   returnFocusTo?: HTMLElement | null | undefined;
 }) {
-  const { data, error, refetch, isFetching } = useQuery({
-    ...sourceAccountsQuery(workspaceId),
-    // Said rather than assumed: the tabs only render this while it is open
-    // (`WorkspaceTabs.tsx`), and a list read for a shut window would be a
-    // request nobody asked for.
-    enabled: open,
-  });
   // What each source is called, from the Workspace's own snapshot, which is
   // read anyway - and kept, so the rows are named offline too. Never stale
   // here, so opening this window never re-reads the whole snapshot (which
@@ -308,6 +265,7 @@ export default function ManageConnections({
     queryFn: fetchRegisteredConnectors,
     enabled: open,
   });
+  const { data, error, refetch, isFetching } = useSourceAccounts(workspaceId, open, registry.data?.connectors);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   /**
    * The card whose connector's question is being asked before Connect leaves
@@ -330,7 +288,8 @@ export default function ManageConnections({
   const [connectingPhone, setConnectingPhone] = useState<PhoneConnector | null>(null);
   const phoneOpenedFrom = useRef<HTMLElement | null>(null);
   const queryClient = useQueryClient();
-  const command = useCommand();
+  const changeConnection = useChangeConnection();
+  const offerToUndo = useUndo();
   const checkNow = useCheckConnectionNow(workspaceId);
   /** What pressing *Check now* last came to, said where the person is looking (issue 1143). */
   const [checkNowNote, setCheckNowNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -364,7 +323,6 @@ export default function ManageConnections({
   const now = Date.now();
 
   const startDisconnecting = (account: SourceAccount, openedFrom: HTMLElement | null) => {
-    command.reset();
     askedFrom.current = openedFrom;
     setDisconnecting(account.id);
   };
@@ -374,20 +332,19 @@ export default function ManageConnections({
     setHistoryOf(account);
   };
 
-  /** Asks for the connection's check at once; the line it writes arrives over the stream, so nothing here waits for it. */
+  /**
+   * Asks for the connection's check at once, and says so at the click; the line it
+   * writes arrives over the stream, so nothing here waits for it. A request that
+   * did not reach the server takes the note back and says so in its place.
+   */
   const pressCheckNow = (account: SourceAccount) => {
-    setCheckNowNote(null);
+    setCheckNowNote({ ok: true, text: `Checking ${account.displayName} now.` });
     checkNow.mutate(account.id, {
-      onSuccess: () =>
-        setCheckNowNote({ ok: true, text: `Checking ${account.displayName} now.` }),
       onError: () => setCheckNowNote({ ok: false, text: 'That did not reach the server. Try again.' }),
     });
   };
 
-  const stopAsking = () => {
-    setDisconnecting(null);
-    command.reset();
-  };
+  const stopAsking = () => setDisconnecting(null);
 
   /**
    * Closing drops the disconnect being asked about as well as shutting the
@@ -452,16 +409,25 @@ export default function ManageConnections({
     } else connectRegistered(card.id);
   };
 
-  // Named apart from the imported `refusal` above, which builds an Error from
-  // a failed read rather than the string this reads off a failed command.
-  const commandRefusal = refusalFrom(command);
+  /**
+   * Disconnects at the click: the question closes and the card is gone at once.
+   * Refused, the card comes back and the undo bar says why.
+   */
+  const disconnect = (account: SourceAccount) => {
+    changeConnection({
+      name: 'disconnect_source_account',
+      payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, sourceAccountId: account.id },
+    }).catch((failure: unknown) => {
+      offerToUndo({ what: `“${account.displayName}” was not disconnected. ${whyNotDone(failure)}` });
+    });
+    setDisconnecting(null);
+  };
 
   return (
     <ManageWindow
       title={`Connections of ${workspaceName}`}
       open={open}
       onClose={close}
-      canClose={!command.isPending}
       returnFocusTo={returnFocusTo}
       ref={list}
     >
@@ -521,7 +487,7 @@ export default function ManageConnections({
               (guest ? (
                 <span className="shrink-0 text-sm text-ink-faint">{GUEST_SENTENCE}</span>
               ) : (
-                <AddConnection cards={cards} disabled={command.isPending} onPick={connectCard} />
+                <AddConnection cards={cards} onPick={connectCard} />
               ))}
           </div>
           <section className="mt-3">
@@ -667,24 +633,9 @@ export default function ManageConnections({
                 }`}
                 confirmLabel={`Yes, disconnect ${beingDisconnected.displayName}`}
                 confirmText="Disconnect"
-                canConfirm={!command.isPending}
-                refusal={commandRefusal}
                 returnFocusTo={askedFrom.current}
                 onCancel={stopAsking}
-                onConfirm={() =>
-                  command.mutate(
-                    {
-                      name: 'disconnect_source_account',
-                      payload: {
-                        commandId: uuidv7(),
-                        issuedAt: new Date().toISOString(),
-                        workspaceId,
-                        sourceAccountId: beingDisconnected.id,
-                      },
-                    },
-                    { onSuccess: () => setDisconnecting(null) },
-                  )
-                }
+                onConfirm={() => disconnect(beingDisconnected)}
               />
             )}
             {listFailed && (
@@ -738,7 +689,6 @@ export default function ManageConnections({
                           if (card.textedCode || card.choice || card.names) connectCard(card, event.currentTarget);
                           else connectRegistered(card.id);
                         }}
-                        disabled={command.isPending}
                         className="self-start rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
                       >
                         Connect
@@ -787,7 +737,7 @@ export default function ManageConnections({
         onClose={() => setChangingChoice(null)}
       />
 
-      <CloseWindow disabled={command.isPending} />
+      <CloseWindow />
     </ManageWindow>
   );
 }

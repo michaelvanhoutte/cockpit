@@ -413,6 +413,9 @@
         "packages/connector-sdk/src/index.ts",
         "packages/shared/src/domain/source-account.ts",
         "apps/web/src/components/ManageConnections.tsx",
+        "apps/web/src/components/ConnectionChoice.tsx",
+        "apps/web/src/api/sourceAccounts.ts",
+        "apps/web/src/connectionsDrawnAhead.ts",
         "apps/web/src/connections.ts"
       ]
     },
