@@ -2542,6 +2542,9 @@ export function runCommand<N extends CommandName>(
   return {
     ok: true,
     applied,
+    // The stamp the change's announcement carries (`collectInvalidations`),
+    // so a tab can tell the announcement is its own.
+    at: commandRow.receivedAt,
     ...(settledRouting ? { settledRouting } : {}),
     ...(recordedCorrection ? { recordedCorrection } : {}),
     ...(fieldsSet ? { fieldsSet } : {}),

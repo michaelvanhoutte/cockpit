@@ -1016,12 +1016,20 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * the note named, `settledRouting` is `true` as for a person's first filing
  * (issue 1116).
  *
+ * `at` is when the account's store logged this change - the stamp the change's
+ * `snapshot_invalidated` announcement carries (`serverEventSchema`) - so a tab
+ * can tell that announcement is its own and already covered by a read that
+ * began after this answer ("Read a Workspace once after your changes", issue
+ * 1332). Absent when nothing was logged: a replay of a change already applied.
+ * Optional so an answer from a Worker older than this field reads as before.
+ *
  * All absent, not `false`, everywhere else - every other command answers
  * `applied` alone, exactly as before any of them existed.
  */
 export const commandResultSchema = z.object({
   ok: z.literal(true),
   applied: z.boolean(),
+  at: z.iso.datetime().optional(),
   settledRouting: z.boolean().optional(),
   recordedCorrection: z.boolean().optional(),
   fieldsSet: z

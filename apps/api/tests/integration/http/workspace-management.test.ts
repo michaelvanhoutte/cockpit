@@ -179,7 +179,7 @@ describe('Workspace management', () => {
       const response = await makeWorkspace(name);
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ ok: true, applied: true });
+      expect(await response.json()).toEqual({ ok: true, applied: true, at: expect.any(String) });
       expect((await theWorkspaces()).map((w) => w.name)).toContain(name);
     });
 
@@ -440,7 +440,7 @@ describe('Workspace management', () => {
       const response = await reorderWorkspaces('ws-personal', wanted);
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ ok: true, applied: true });
+      expect(await response.json()).toEqual({ ok: true, applied: true, at: expect.any(String) });
       expect(await theOrder()).toEqual(wanted);
     });
 

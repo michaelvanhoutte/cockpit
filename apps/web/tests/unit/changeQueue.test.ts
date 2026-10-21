@@ -92,6 +92,35 @@ describe('Item editing', () => {
       expect(priorityShown(queue.drawnOver(sent({ priority: 'low' })))).toBe('low');
     });
 
+    it('stops drawing the change when a read that began before the answer holds its stamp', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(priority('high'));
+      await settle();
+      const read = queue.readStarted();
+      server.arrived[0]!.answer({ ok: true, applied: true, at: '2026-10-21T10:00:02.000Z' });
+      await settle();
+
+      // Another device wrote after this one, and the read, begun first, already shows both.
+      queue.readLanded('ws-work', read, '2026-10-21T10:00:03.000Z');
+
+      expect(priorityShown(queue.drawnOver(sent({ priority: 'low' })))).toBe('low');
+    });
+
+    it('keeps drawing the change when a read that began before the answer is older than its stamp', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(priority('high'));
+      await settle();
+      const read = queue.readStarted();
+      server.arrived[0]!.answer({ ok: true, applied: true, at: '2026-10-21T10:00:02.000Z' });
+      await settle();
+
+      queue.readLanded('ws-work', read, '2026-10-21T10:00:01.000Z');
+
+      expect(priorityShown(queue.drawnOver(sent()))).toBe('high');
+    });
+
     it('draws the later of two changes to the same field while both wait', async () => {
       const server = aServer();
       const queue = createChangeQueue({ send: server.send });
