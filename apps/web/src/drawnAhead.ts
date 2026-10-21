@@ -86,6 +86,8 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: CommandArgs): Wo
       return change.payload.dismissed
         ? { ...snapshot, items: snapshot.items.filter((item) => item.id !== change.payload.itemId) }
         : snapshot;
+    case 'set_duplicate_settled':
+      return pairSettled(snapshot, change.payload);
     case 'move_item_to_panel':
       return filedAhead(snapshot, change.payload, 'move');
     case 'add_item_to_panel':
@@ -212,6 +214,25 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
     updatedAt: note.issuedAt,
   } as Item;
   return { ...snapshot, items: [...snapshot.items, item] };
+}
+
+/**
+ * A pair settled as not a duplicate is gone from the Workspace's pairs, and one
+ * taken back is among them again ("Show a *Not a duplicate* the moment you say
+ * it, and its Undo", issue 1355) - **only while both Items are still in the copy**,
+ * since the server leaves out a pair it could no longer act on. A pair is one
+ * whichever Item is named first, so a row flagged against two others has two to
+ * settle, and the change names one.
+ */
+function pairSettled(snapshot: WorkspaceSnapshot, pair: CommandPayload<'set_duplicate_settled'>): WorkspaceSnapshot {
+  const { workspaceId, itemId, otherItemId, settled } = pair;
+  if (workspaceId !== snapshot.workspace.id) return snapshot;
+  const duplicates = snapshot.duplicates.filter(
+    (held) => ![[itemId, otherItemId], [otherItemId, itemId]].some(([a, b]) => held.itemId === a && held.otherItemId === b),
+  );
+  const bothHere = [itemId, otherItemId].every((id) => snapshot.items.some((item) => item.id === id));
+  if (settled || !bothHere) return { ...snapshot, duplicates };
+  return { ...snapshot, duplicates: [...duplicates, { itemId, otherItemId }] };
 }
 
 /** One Panel rewritten, in the Workspace the change names and no other. */
@@ -431,6 +452,7 @@ export const DRAWN_AHEAD: ReadonlySet<CommandArgs['name']> = new Set([
   'set_description',
   'set_next_action',
   'set_dismissed',
+  'set_duplicate_settled',
   'add_dashboard',
   'rename_dashboard',
   'delete_dashboard',

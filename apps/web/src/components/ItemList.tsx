@@ -14,6 +14,7 @@ import {
   useCommand,
   useLatestSnapshot,
   useSendCommand,
+  whyNotDone,
   type CommandArgs,
 } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
@@ -568,25 +569,29 @@ export function ItemList({
           settled,
         },
       });
-      // `allSettled`, not `all`: several pairs are independent commands, and
-      // one being refused (the other note dismissed a moment earlier) must
-      // not cost the offer to undo the ones that landed.
-      Promise.allSettled(others.map((otherId) => send(envelopeWith(otherId, true)))).then(
-        (results) => {
-          const landed = others.filter((_, at) => results[at]!.status === 'fulfilled');
-          for (const result of results) {
-            if (result.status === 'rejected') console.error(result.reason);
-          }
-          if (landed.length === 0) return;
-          offerToUndo({
-            what:
-              landed.length === 1
-                ? `"${itemLabel(item)}" is not a duplicate`
-                : `"${itemLabel(item)}" is not a duplicate of ${landed.length} notes`,
-            undo: () => Promise.all(landed.map((otherId) => send(envelopeWith(otherId, false)))),
-          });
-        },
+      // Every pair is drawn settled at the click and the way back is offered
+      // there, as if all of them will land. Each is answered on its own: one
+      // being refused (the other note dismissed a moment earlier) must not cost
+      // the offer to undo the ones that landed, nor put back the one that did not.
+      const refused = new Map<string, unknown>();
+      const answers = Promise.all(
+        others.map((otherId) => send(envelopeWith(otherId, true)).catch((error: unknown) => void refused.set(otherId, error))),
       );
+      offerToUndo({
+        what:
+          others.length === 1
+            ? `"${itemLabel(item)}" is not a duplicate`
+            : `"${itemLabel(item)}" is not a duplicate of ${others.length} notes`,
+        undo: () => Promise.all(others.filter((otherId) => !refused.has(otherId)).map((otherId) => send(envelopeWith(otherId, false)))),
+        saidAfter: answers.then(() =>
+          refused.size === 0
+            ? undefined
+            : {
+                what: `"${itemLabel(item)}" is still marked as a possible duplicate. ${whyNotDone([...refused.values()][0])}`,
+                ...(refused.size === others.length ? { nothingLanded: true as const } : {}),
+              },
+        ),
+      });
     };
   };
 

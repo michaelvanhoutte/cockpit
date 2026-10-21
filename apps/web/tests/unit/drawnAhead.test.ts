@@ -3,6 +3,7 @@ import { WORKSPACE_THEMES, itemLabel, itemSchema, itemStatus, type Item, type Wo
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
 import { drawnAhead, drawnOver, listDrawnOver, noSnapshotYet } from '../../src/drawnAhead';
+import { itemsThatMayBeDuplicates } from '../../src/duplicates';
 import { itemsInTheInbox } from '../../src/filing';
 
 /**
@@ -770,6 +771,71 @@ describe('Capture', () => {
       const drawn = read(drawnAhead(inWork(), captured()), BART);
 
       expect(itemSchema.safeParse(drawn).success).toBe(true);
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('a pair said not to be a duplicate shows as settled the moment it is said, before the server has answered', () => {
+    const MAGGIE = '11111111-1111-7111-8111-000000000003';
+    const settled = (itemId: string, otherItemId: string, settledOrNot = true): CommandArgs =>
+      ({ name: 'set_duplicate_settled', payload: { ...envelope(itemId), otherItemId, settled: settledOrNot } }) as CommandArgs;
+    const flaggedPairs = (pairs: { itemId: string; otherItemId: string }[], items = [BART, LISA, MAGGIE]) =>
+      ({
+        workspace: { id: 'ws-work' },
+        items: items.map((id) => anItem(id)),
+        filings: [],
+        panels: [],
+        duplicates: pairs,
+      }) as unknown as WorkspaceSnapshot;
+    const marked = (copy: WorkspaceSnapshot) => [...itemsThatMayBeDuplicates(copy.items, [], copy.duplicates)].sort();
+
+    it.each([
+      { situation: 'said from the first note of the pair', change: settled(BART, LISA) },
+      { situation: 'said from the second note of the pair', change: settled(LISA, BART) },
+    ])('clears both notes’ marks when $situation', ({ change }) => {
+      const copy = flaggedPairs([{ itemId: BART, otherItemId: LISA }]);
+
+      const drawn = drawnAhead(copy, change);
+
+      expect(marked(drawn)).toEqual([]);
+      // The copy the server sent is as it was.
+      expect(marked(copy)).toEqual([BART, LISA]);
+    });
+
+    it('clears both pairs of a note flagged against two others, and no pair it was not said of', () => {
+      const copy = flaggedPairs([
+        { itemId: BART, otherItemId: LISA },
+        { itemId: BART, otherItemId: MAGGIE },
+      ]);
+
+      expect(marked(drawnAhead(copy, settled(BART, LISA)))).toEqual([BART, MAGGIE]);
+      expect(marked(drawnOver(copy, [settled(BART, LISA), settled(BART, MAGGIE)]))).toEqual([]);
+    });
+
+    it('brings the pair back when the settling is taken back', () => {
+      const drawn = drawnAhead(flaggedPairs([]), settled(LISA, BART, false));
+
+      expect(marked(drawn)).toEqual([BART, LISA]);
+    });
+
+    it('draws a pair taken back once when the read already holds it, whichever way round', () => {
+      const copy = flaggedPairs([{ itemId: BART, otherItemId: LISA }]);
+
+      expect(drawnAhead(copy, settled(LISA, BART, false)).duplicates).toHaveLength(1);
+    });
+
+    it('does not bring a pair back whose other note has left the Workspace since', () => {
+      const copy = flaggedPairs([], [BART]);
+
+      expect(drawnAhead(copy, settled(BART, LISA, false)).duplicates).toEqual([]);
+    });
+
+    it('draws nothing in another Workspace', () => {
+      const copy = flaggedPairs([{ itemId: BART, otherItemId: LISA }]);
+      const change = { name: 'set_duplicate_settled', payload: { ...envelope(BART), workspaceId: 'ws-home', otherItemId: LISA, settled: true } } as CommandArgs;
+
+      expect(drawnAhead(copy, change)).toBe(copy);
     });
   });
 });

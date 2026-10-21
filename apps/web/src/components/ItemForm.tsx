@@ -418,7 +418,7 @@ function TheForm({
    * 408). About the pair rather than about `itemId` alone, so it reads the
    * same whichever of the two Items' forms it was pressed from.
    */
-  const settleNotADuplicate = async (otherId: string, other: Item) => {
+  const settleNotADuplicate = (otherId: string, other: Item) => {
     const envelope = () => ({
       commandId: uuidv7(),
       issuedAt: new Date().toISOString(),
@@ -426,22 +426,25 @@ function TheForm({
       itemId,
       otherItemId: otherId,
     });
-    try {
-      await send({
-        name: 'set_duplicate_settled',
-        payload: { ...envelope(), settled: true },
-      });
-      offerToUndo({
-        what: `"${itemLabel(other)}" is not a duplicate`,
-        undo: () =>
-          send({
-            name: 'set_duplicate_settled',
-            payload: { ...envelope(), settled: false },
-          }),
-      });
-    } catch (failure) {
-      setRefusal(failure instanceof Error ? failure.message : 'That could not be settled');
-    }
+    // Drawn at the press, so the warning is gone and the way back offered at once;
+    // a refusal takes the offer back (`unlessRefused`) and is said here, where the
+    // warning returns.
+    const answer = send({
+      name: 'set_duplicate_settled',
+      payload: { ...envelope(), settled: true },
+    });
+    answer.catch((failure: unknown) =>
+      setRefusal(failure instanceof Error ? failure.message : 'That could not be settled'),
+    );
+    offerToUndo({
+      what: `"${itemLabel(other)}" is not a duplicate`,
+      unlessRefused: answer,
+      undo: () =>
+        send({
+          name: 'set_duplicate_settled',
+          payload: { ...envelope(), settled: false },
+        }),
+    });
   };
 
   /**
@@ -1896,12 +1899,11 @@ function TheForm({
                                 </button>
                                 {/* About this pair, not about either note ("Say a
                                   flagged pair is not a duplicate", issue 408) - it
-                                  is the settling that is offered undo, not a change
-                                  to what is drawn here. */}
+                                  is drawn settled at the press, and offered undo. */}
                                 <button
                                   type="button"
                                   disabled={saving}
-                                  onClick={() => void settleNotADuplicate(other.id, other)}
+                                  onClick={() => settleNotADuplicate(other.id, other)}
                                   title="Not a duplicate"
                                   aria-label="Not a duplicate"
                                   className="rounded-md border border-shade/10 bg-surface px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"

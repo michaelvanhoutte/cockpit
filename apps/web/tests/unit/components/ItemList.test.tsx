@@ -99,9 +99,9 @@ vi.mock('../../../src/api/queries', async () => {
     },
     useSendCommand: () => held.send,
     useStartAgent: () => ({ mutateAsync: held.startAgent }),
-    refusalFrom: (
-      await vi.importActual<typeof import('../../../src/api/queries')>('../../../src/api/queries')
-    ).refusalFrom,
+    ...(({ refusalFrom, whyNotDone }) => ({ refusalFrom, whyNotDone }))(
+      await vi.importActual<typeof import('../../../src/api/queries')>('../../../src/api/queries'),
+    ),
     workspacesQuery: {
       queryKey: ['workspaces'],
       queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
@@ -2736,7 +2736,8 @@ describe('Triage', () => {
       await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
       await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
 
-      expect(await screen.findByRole('status')).toHaveTextContent('is not a duplicate');
+      // The bar says which pair stayed marked and why, and keeps the way back for the other.
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('is still marked as a possible duplicate. That did not reach the server.'));
 
       held.send.mockClear();
       held.send.mockImplementation(() => Promise.resolve());
