@@ -159,6 +159,8 @@
 
   /* Field and opaque-white surfaces (light appearance). */
   --color-field: #ffffff;
+  /* The tile a source's own logo sits on: white in every appearance, since a logo is drawn for white (Settings › Connections). */
+  --color-mark-tile: #ffffff;
 
   /* Small marks, buttons and inputs, cards and panels (brand.css). */
   --radius-sm: 4px;

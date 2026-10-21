@@ -38,6 +38,8 @@ function ChoiceQuestion({
 /** The connector being connected, as the question needs to name it. */
 interface Asked {
   displayName: string;
+  /** The connector's own sentence, said above its question - for a connector that asks nothing, the whole of what the window says. */
+  text?: string | undefined;
   /** What the connector asks, where it asks a question. */
   choice?: ConnectorChoice | undefined;
   /** How the connector speaks of names, where it reports any: the tick box is drawn when present (issue 1147). */
@@ -110,6 +112,7 @@ function Question({ connector, onConnect }: { connector: Asked; onConnect: (answ
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Dialog.Title className="text-base font-semibold">Connect {connector.displayName}</Dialog.Title>
         <Dialog.Description className="sr-only">Choose before signing in.</Dialog.Description>
+        {connector.text && <p className="pt-2 text-sm text-ink-faint">{connector.text}</p>}
         {choice && value !== undefined && (
           <ChoiceQuestion choice={choice} value={value} onChange={setValue} />
         )}

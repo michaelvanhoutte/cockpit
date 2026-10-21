@@ -31,6 +31,8 @@ const held = vi.hoisted(() => ({
   }[],
   /** What the Workspace's snapshot calls each source (issue 927). */
   sourceNames: {} as Record<string, string> | undefined,
+  /** Whether the list of connections itself fails to read. */
+  listFails: false,
   /** What a connection's history read answers with, or that it fails (issue 1140). */
   history: [] as unknown[] | 'fails',
   /** Whether that read says older lines remain than it carries (issue 1145). */
@@ -80,7 +82,11 @@ vi.mock('../../../src/api/client', () => ({
         ':workspaceId': {
           connections: {
             $get: () =>
-              Promise.resolve(new Response(JSON.stringify({ sourceAccounts: held.sourceAccounts }))),
+              Promise.resolve(
+                held.listFails
+                  ? new Response('', { status: 500 })
+                  : new Response(JSON.stringify({ sourceAccounts: held.sourceAccounts })),
+              ),
             ':connectorId': {
               phone: {
                 code: {
@@ -196,6 +202,7 @@ const TEAMS_CARD = {
 
 beforeEach(() => {
   held.sourceAccounts = [];
+  held.listFails = false;
   held.registry = [TEAMS_CARD];
   held.history = [];
   held.olderRemain = false;
@@ -220,7 +227,8 @@ describe('Connector management', () => {
 
       expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
       expect(screen.getByText('Michael')).toBeInTheDocument();
-      await waitFor(() => expect(screen.getAllByText('Microsoft Teams')).toHaveLength(3));
+      // One card each says its source; with something connected there is no gallery to say it a third time.
+      await waitFor(() => expect(screen.getAllByText('Microsoft Teams')).toHaveLength(2));
     });
 
     /** "Take source names out of the shared contract", issue 927. */
@@ -228,25 +236,25 @@ describe('Connector management', () => {
       {
         situation: 'a source the environment no longer registers reads as its id',
         account: { ...ADA, connectorId: 'outlook' },
-        reads: 'outlook',
+        reads: ['outlook'],
       },
       {
         situation: 'a source that follows something says it in its own words',
         account: { ...ADA, connectorId: 'outlook', follows: 'folder-7', followsLabel: 'folder Follow up' },
         names: { outlook: 'Outlook' },
-        reads: 'Outlook · folder Follow up',
+        reads: ['Outlook', 'folder Follow up'],
       },
       {
         situation: 'a row from a release that sent no words for what it follows reads the value itself',
         account: { ...ADA, connectorId: 'outlook', follows: 'folder-7' },
         names: { outlook: 'Outlook' },
-        reads: 'Outlook · folder-7',
+        reads: ['Outlook', 'folder-7'],
       },
       {
         situation: 'a stored copy from before the names were carried reads each as its id',
         account: ADA,
         names: undefined,
-        reads: 'teams',
+        reads: ['teams'],
       },
     ])('$situation', async ({ account, reads, ...rest }) => {
       if ('names' in rest) held.sourceNames = rest.names;
@@ -254,7 +262,7 @@ describe('Connector management', () => {
 
       showWindow();
 
-      expect(await screen.findByText(reads)).toBeInTheDocument();
+      for (const text of reads) expect(await screen.findByText(text)).toBeInTheDocument();
     });
 
     /**
@@ -414,12 +422,13 @@ describe('Connector management', () => {
       expect(screen.queryByRole('dialog', { name: /^Connect / })).toBeNull();
     });
 
-    it('the row shows the label of the choice it was connected under', async () => {
+    it('the card shows the label of the choice it was connected under, as a chip under its source', async () => {
       held.sourceAccounts = [PAGES];
 
       showWindow();
 
-      expect(await screen.findByText('Notion · Starred pages')).toBeInTheDocument();
+      expect(await screen.findByText('Starred pages')).toBeInTheDocument();
+      expect(screen.getByText('Notion')).toBeInTheDocument();
     });
 
     it.each([
@@ -537,7 +546,9 @@ describe('Connector management', () => {
       ];
       showWindow();
 
-      expect(await screen.findByText(/^Gmail · Labelled Cockpit · files by label · last checked /)).toBeInTheDocument();
+      expect(await screen.findByText('Labelled Cockpit')).toBeInTheDocument();
+      expect(screen.getByText('Files by label')).toBeInTheDocument();
+      expect(screen.getByText(/^Checked /)).toBeInTheDocument();
       const changing = await change('Ada’s Gmail');
 
       expect(within(changing).getByRole('checkbox', { name: 'File it on the panel named after its label' })).toBeChecked();
@@ -584,14 +595,15 @@ describe('Connector management', () => {
     });
 
     it.each([
-      { situation: 'a row filing by name says so, in the connector’s noun', on: true, says: /^Outlook · Flagged · files by category · last checked / },
-      { situation: 'a row not filing by name says nothing of it', on: false, says: /^Outlook · Flagged · last checked / },
-    ])('$situation', async ({ on, says }) => {
+      { situation: 'a card filing by name says so, in the connector’s noun', on: true },
+      { situation: 'a card not filing by name says nothing of it', on: false },
+    ])('$situation', async ({ on }) => {
       held.sourceAccounts = [{ ...MAIL, filesByName: on }];
 
       showWindow();
 
-      expect(await screen.findByText(says)).toBeInTheDocument();
+      expect(await screen.findByText('Flagged')).toBeInTheDocument();
+      expect(screen.queryByText('Files by category') !== null).toBe(on);
     });
   });
 
@@ -753,7 +765,7 @@ describe('Connector management', () => {
       held.sourceAccounts = [account];
       showWindow();
 
-      expect(await screen.findByText(`Failing: ${ANNA.failingBecause}`)).toBeInTheDocument();
+      expect(await screen.findByText(ANNA.failingBecause!)).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: 'Actions for anna@example.com' }));
       await userEvent.click(await screen.findByRole('menuitem', { name: 'Reconnect' }));
       const asked = await screen.findByRole('dialog', { name: 'Connect Gmail' });
@@ -940,7 +952,8 @@ describe('Connector management', () => {
       });
       await userEvent.click(screen.getByRole('button', { name: 'Done' }));
       expect(await screen.findByText('+32470123456')).toBeInTheDocument();
-      expect(screen.getByText(/^Text messages · text \+32460000000 to add a note/)).toBeInTheDocument();
+      expect(screen.getByText('Text messages')).toBeInTheDocument();
+      expect(screen.getByText('Text +32460000000 to add a note')).toBeInTheDocument();
     });
 
     it.each([
@@ -1080,7 +1093,7 @@ describe('Connector management', () => {
     return screen.findByRole('region', { name: `History of ${account.displayName}` });
   }
 
-  describe('History… is on the menu of a connection that keeps a history, and its Failing: line opens it', () => {
+  describe('History… is on the menu of a connection that keeps a history, and a failing card’s reason opens it', () => {
     it.each([
       { situation: 'a connected Gmail row', account: ANNA, offered: true },
       { situation: 'a connected Outlook row', account: { ...ANNA, connectorId: 'outlook' }, offered: true },
@@ -1096,11 +1109,11 @@ describe('Connector management', () => {
       expect(screen.queryByRole('menuitem', { name: 'History…' }) !== null).toBe(offered);
     });
 
-    it('opens the history of a failing row from its Failing: line', async () => {
+    it('opens the history of a failing card from its reason', async () => {
       held.sourceAccounts = [{ ...ANNA, failingBecause: 'Google refused the sign-in' }];
       showWindow();
 
-      await userEvent.click(await screen.findByRole('button', { name: 'Failing: Google refused the sign-in' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Google refused the sign-in' }));
 
       expect(await screen.findByRole('region', { name: 'History of anna@example.com' })).toBeInTheDocument();
       expect(held.historyAskedFor).toEqual(['account-anna']);
@@ -1110,11 +1123,11 @@ describe('Connector management', () => {
       held.sourceAccounts = [ANNA];
       showWindow();
       await openHistory();
-      expect(screen.queryByText('Add a connection')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Add connection' })).toBeNull();
 
       await userEvent.click(screen.getByRole('button', { name: '‹ Connections' }));
 
-      expect(await screen.findByText('Add a connection')).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Add connection' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Actions for anna@example.com' })).toBeInTheDocument();
       expect(screen.queryByRole('region', { name: /^History of/ })).toBeNull();
     });
@@ -1459,6 +1472,439 @@ describe('Connector management', () => {
       await within(history).findByText('Worked');
 
       expect(within(history).queryByText(/^Older days follow/)?.textContent ?? null).toBe(says);
+    });
+  });
+});
+/** "Show each connection as its own card, with its health and its fix, and add new ones from one button", issue 1349. */
+describe('Connector management', () => {
+  /** The moment the window is drawn at: only the clock is replaced, so the reads still settle on their own. */
+  const NOW = new Date('2026-10-21T12:00:00.000Z');
+  const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
+
+  const GMAIL_CARD = {
+    id: 'gmail',
+    displayName: 'Gmail',
+    cardText: 'Conversations you label or star arrive as items.',
+    asksFirst: true,
+    choice: {
+      question: 'Bring in conversations',
+      options: [
+        { value: 'label', label: 'Labelled Cockpit' },
+        { value: 'star', label: 'Starred (flagged in Outlook)' },
+      ],
+    },
+    names: { noun: 'label', example: 'a conversation labelled' },
+  };
+  const TEXT_MESSAGES_CARD = {
+    id: 'twilio',
+    displayName: 'Text messages',
+    cardText: 'Text a note to Cockpit from your phone.',
+    asksFirst: false,
+    textedCode: { textTo: '+32460000000' },
+  };
+  /** A Gmail connection Cockpit pulls from, following the star. */
+  const PULLED: SourceAccount = {
+    id: 'account-gmail',
+    connectorId: 'gmail',
+    displayName: 'anna@example.com',
+    connectedAt: '2026-10-01T09:00:00.000Z',
+    lastTestedAt: minutesAgo(2),
+    filesByName: false,
+    failingBecause: null,
+    follows: 'star',
+    followsLabel: 'Starred (flagged in Outlook)',
+    keepsHistory: true,
+    pulled: true,
+  };
+  /** A Teams connection its source pushes to. */
+  const PUSHED: SourceAccount = { ...ADA, keepsHistory: true };
+  const FAILING = 'Google no longer accepts the sign-in.';
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    held.registry = [TEAMS_CARD, GMAIL_CARD, TEXT_MESSAGES_CARD];
+    held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message' };
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function leavingTo(): ReturnType<typeof vi.fn> {
+    const leaving = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+    return leaving;
+  }
+
+  async function openAddConnection(): Promise<HTMLElement> {
+    await userEvent.click(await screen.findByRole('button', { name: 'Add connection' }));
+    return screen.findByRole('menu');
+  }
+
+  describe('the header says how many are connected and how many need attention, once the list has answered', () => {
+    const failing = (id: string): SourceAccount => ({ ...PULLED, id, failingBecause: FAILING });
+    const working = (id: string): SourceAccount => ({ ...PULLED, id });
+
+    it.each([
+      {
+        situation: 'three connected, none failing',
+        accounts: [working('a'), working('b'), working('c')],
+        says: '3 connected',
+      },
+      {
+        situation: 'five connected, two failing',
+        accounts: [working('a'), working('b'), working('c'), failing('d'), failing('e')],
+        says: '5 connected · 2 need attention',
+      },
+      {
+        situation: 'five connected, one failing',
+        accounts: [working('a'), working('b'), working('c'), working('d'), failing('e')],
+        says: '5 connected · 1 needs attention',
+      },
+    ])('$situation', async ({ accounts, says }) => {
+      held.sourceAccounts = accounts;
+
+      showWindow();
+
+      const header = await screen.findByText((_, element) => element?.tagName === 'P' && /^[0-9]+ connected/.test(element.textContent ?? ''));
+      expect(header.textContent).toBe(says);
+    });
+
+    it('says no count where the list read failed, but its load failure and the way to try again', async () => {
+      held.listFails = true;
+
+      showWindow();
+
+      expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+      expect(screen.queryByText(/\d+ connected/)).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Add connection' })).toBeNull();
+    });
+  });
+
+  describe('with anything connected, adding is the one Add connection button; with nothing, a card per source', () => {
+    it('offers Add connection and no source cards once one is connected', async () => {
+      held.sourceAccounts = [PUSHED];
+
+      showWindow();
+
+      expect(await screen.findByRole('button', { name: 'Add connection' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Connect / })).toBeNull();
+      expect(screen.queryByText(GMAIL_CARD.cardText)).toBeNull();
+    });
+
+    it('lists, in its menu, each registered connector by name and sentence, and none the registry lacks', async () => {
+      held.registry = [TEAMS_CARD, GMAIL_CARD];
+      held.sourceAccounts = [PUSHED];
+      showWindow();
+
+      const menu = await openAddConnection();
+
+      expect(within(menu).getAllByRole('menuitem').map((item) => item.getAttribute('aria-label'))).toEqual([
+        'Connect Microsoft Teams',
+        'Connect Gmail',
+      ]);
+      expect(within(menu).getByText(TEAMS_CARD.cardText)).toBeInTheDocument();
+      expect(within(menu).getByText(GMAIL_CARD.cardText)).toBeInTheDocument();
+      expect(within(menu).queryByText('Text messages')).toBeNull();
+    });
+
+    it('opens a Connect window with Teams’ sentence when Teams is picked, whose Connect leaves for Teams’ connect address', async () => {
+      const leaving = leavingTo();
+      held.sourceAccounts = [PUSHED];
+      showWindow();
+      const menu = await openAddConnection();
+
+      await userEvent.click(within(menu).getByRole('menuitem', { name: 'Connect Microsoft Teams' }));
+
+      const asked = await screen.findByRole('dialog', { name: 'Connect Microsoft Teams' });
+      expect(leaving).not.toHaveBeenCalled();
+      expect(within(asked).getByText(TEAMS_CARD.cardText)).toBeInTheDocument();
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/teams/connect');
+    });
+
+    it('opens a Connect window saying Gmail’s sentence above its question when Gmail is picked', async () => {
+      leavingTo();
+      held.sourceAccounts = [PUSHED];
+      showWindow();
+      const menu = await openAddConnection();
+
+      await userEvent.click(within(menu).getByRole('menuitem', { name: 'Connect Gmail' }));
+
+      const asked = await screen.findByRole('dialog', { name: 'Connect Gmail' });
+      const sentence = within(asked).getByText(GMAIL_CARD.cardText);
+      const question = within(asked).getByText('Bring in conversations', { selector: 'p' });
+      expect(sentence.compareDocumentPosition(question) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('asks for the number rather than leaving when Text messages is picked', async () => {
+      const leaving = leavingTo();
+      held.sourceAccounts = [PUSHED];
+      showWindow();
+      const menu = await openAddConnection();
+
+      await userEvent.click(within(menu).getByRole('menuitem', { name: 'Connect Text messages' }));
+
+      expect(await screen.findByLabelText('Mobile number')).toBeInTheDocument();
+      expect(leaving).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog', { name: 'Connect Text messages' })).toBeNull();
+    });
+
+    it('draws a card per connector, each with its own Connect, and no Add connection, with nothing connected', async () => {
+      showWindow();
+
+      expect(await screen.findByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Connect Text messages' })).toBeInTheDocument();
+      expect(screen.getByText(GMAIL_CARD.cardText)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add connection' })).toBeNull();
+    });
+
+    it('leaves at once from the Connect of a card whose connector asks nothing', async () => {
+      const leaving = leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Microsoft Teams' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/teams/connect');
+      expect(screen.queryByRole('dialog', { name: /^Connect / })).toBeNull();
+    });
+
+    it('opens the Connect window, sentence first, from the Connect of a card whose connector asks something', async () => {
+      const leaving = leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+
+      const asked = await screen.findByRole('dialog', { name: 'Connect Gmail' });
+      expect(within(asked).getByText(GMAIL_CARD.cardText)).toBeInTheDocument();
+      expect(leaving).not.toHaveBeenCalled();
+    });
+
+    it('says to sign in with Google in place of Add connection to the guest, with something connected', async () => {
+      held.sourceAccounts = [PUSHED];
+
+      showWindow(undefined, true);
+
+      expect(await screen.findByText('Sign in with Google to connect your own')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add connection' })).toBeNull();
+    });
+  });
+
+  describe('each card names its source and says its health in words', () => {
+    it.each([
+      { situation: 'a pulled connection, working', account: PULLED, says: 'Healthy' },
+      { situation: 'a pushed connection, working', account: PUSHED, says: 'Listening' },
+      { situation: 'a pulled connection, failing', account: { ...PULLED, failingBecause: FAILING }, says: 'Needs attention' },
+      { situation: 'a pushed connection, failing', account: { ...PUSHED, failingBecause: FAILING }, says: 'Needs attention' },
+    ])('$situation', async ({ account, says }) => {
+      held.sourceAccounts = [account];
+
+      showWindow();
+
+      expect(await screen.findByText(says)).toBeInTheDocument();
+      expect(screen.getByText(account.displayName)).toBeInTheDocument();
+      expect(screen.queryAllByText(/^(Healthy|Listening|Needs attention)$/)).toHaveLength(1);
+    });
+
+    it('still names the source of a connector that has no mark of its own', async () => {
+      held.registry = [{ id: 'notion', displayName: 'Notion', cardText: 'Pages.', asksFirst: false }];
+      held.sourceNames = { notion: 'Notion' };
+      held.sourceAccounts = [{ ...PUSHED, connectorId: 'notion', displayName: 'Ada’s pages' }];
+
+      showWindow();
+
+      expect(await screen.findByText('Ada’s pages')).toBeInTheDocument();
+      expect(screen.getByText('Notion')).toBeInTheDocument();
+    });
+  });
+
+  describe('each card says what the connection follows, whether it files by name, and when it last worked', () => {
+    it.each([
+      { situation: 'Gmail following the star', account: PULLED, chips: ['Starred (flagged in Outlook)'], absent: [] },
+      {
+        situation: 'a choice with no label given',
+        account: { ...PULLED, followsLabel: undefined, follows: 'folder-7' },
+        chips: ['folder-7'],
+        absent: [],
+      },
+      {
+        situation: 'filing by name, the connector naming its noun',
+        account: { ...PULLED, follows: 'label', followsLabel: 'Labelled Cockpit', filesByName: true },
+        chips: ['Labelled Cockpit', 'Files by label'],
+        absent: [],
+      },
+      {
+        situation: 'filing by name, the connector naming no noun',
+        account: { ...PULLED, connectorId: 'notion', filesByName: true },
+        chips: ['Starred (flagged in Outlook)'],
+        absent: [/^Files by/],
+      },
+    ])('$situation', async ({ account, chips, absent }) => {
+      held.registry = [TEAMS_CARD, GMAIL_CARD, { id: 'notion', displayName: 'Notion', cardText: 'Pages.', asksFirst: false }];
+      held.sourceAccounts = [account];
+
+      showWindow();
+
+      for (const chip of chips) expect(await screen.findByText(chip)).toBeInTheDocument();
+      for (const none of absent) expect(screen.queryByText(none)).toBeNull();
+    });
+
+    it.each([
+      {
+        situation: 'following something, checked 2 minutes before now',
+        account: PULLED,
+        says: 'Checked 2 minutes ago',
+        at: minutesAgo(2),
+      },
+      {
+        situation: 'following nothing, worked an hour before now',
+        account: { ...PUSHED, lastTestedAt: minutesAgo(60) },
+        says: 'Worked 1 hour ago',
+        at: minutesAgo(60),
+      },
+    ])('says, $situation, $says with the exact time on hover', async ({ account, says, at }) => {
+      held.sourceAccounts = [account];
+
+      showWindow();
+
+      expect(await screen.findByText(says)).toHaveAttribute('title', new Date(at).toLocaleString());
+    });
+
+    it('says a pushed connection never tested sends to Cockpit as it happens', async () => {
+      held.sourceAccounts = [PUSHED];
+
+      showWindow();
+
+      expect(await screen.findByText('Sends to Cockpit as it happens')).toBeInTheDocument();
+      expect(screen.queryByText(/^(Checked|Worked) /)).toBeNull();
+    });
+
+    it('keeps saying the number to text on a connected phone', async () => {
+      held.sourceAccounts = [
+        { ...PUSHED, id: 'account-phone', connectorId: 'twilio', displayName: '+32470123456', keepsHistory: true },
+      ];
+
+      showWindow();
+
+      expect(await screen.findByText('Text +32460000000 to add a note')).toBeInTheDocument();
+      expect(screen.getByText('Text messages')).toBeInTheDocument();
+    });
+  });
+
+  describe('a failing card says why inside the card, and offers Reconnect where signing in again ends it', () => {
+    const FAILING_GMAIL: SourceAccount = { ...PULLED, failingBecause: FAILING };
+
+    it('says the reason and Reconnect, which asks its question starting at the row’s answer', async () => {
+      const leaving = leavingTo();
+      held.sourceAccounts = [FAILING_GMAIL];
+      showWindow();
+
+      expect(await screen.findByText(FAILING)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+
+      const asked = await screen.findByRole('dialog', { name: 'Connect Gmail' });
+      expect(within(asked).getByRole('radio', { name: 'Starred (flagged in Outlook)' })).toBeChecked();
+      expect(leaving).not.toHaveBeenCalled();
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+      expect(leaving).toHaveBeenCalledWith(
+        '/v1/workspaces/ws-work/connections/gmail/connect?choice=star&filesByName=false',
+      );
+    });
+
+    it('says the reason and no Reconnect where its connector is not offered here', async () => {
+      held.registry = [TEAMS_CARD];
+      held.sourceAccounts = [FAILING_GMAIL];
+
+      showWindow();
+
+      expect(await screen.findByText(FAILING)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+    });
+
+    it('draws the reason of a connection that keeps no history as text rather than a control', async () => {
+      held.sourceAccounts = [{ ...ADA, failingBecause: 'Microsoft no longer accepts the sign-in.' }];
+
+      showWindow();
+
+      expect(await screen.findByText('Microsoft no longer accepts the sign-in.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Microsoft no longer accepts the sign-in.' })).toBeNull();
+    });
+
+    it('says the reason to the guest, with no Reconnect', async () => {
+      held.sourceAccounts = [FAILING_GMAIL];
+
+      showWindow(undefined, true);
+
+      expect(await screen.findByText(FAILING)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+    });
+  });
+
+  describe('Check now and History are buttons on the cards that have them, and the menu keeps every entry', () => {
+    it('asks for the check of the card’s own connection from its Check now, and says so on the list', async () => {
+      held.sourceAccounts = [PULLED];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Check anna@example.com now' }));
+
+      expect(checkedNow).toEqual(['account-gmail']);
+      expect(await screen.findByRole('status')).toHaveTextContent('Checking anna@example.com now.');
+    });
+
+    it('draws no Check now on a pushed connection', async () => {
+      held.sourceAccounts = [PUSHED];
+
+      showWindow();
+
+      expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Check .* now$/ })).toBeNull();
+    });
+
+    it.each([
+      { situation: 'a connection that keeps a history', account: PULLED, drawn: true },
+      { situation: 'a connection that keeps none', account: ADA, drawn: false },
+    ])('draws History for $situation: $drawn', async ({ account, drawn }) => {
+      held.sourceAccounts = [account];
+      showWindow();
+
+      expect(await screen.findByText(account.displayName)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: `History of ${account.displayName}` }) !== null).toBe(drawn);
+    });
+
+    it('opens the history of the card’s connection from its History', async () => {
+      held.sourceAccounts = [PULLED];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'History of anna@example.com' }));
+
+      expect(await screen.findByRole('region', { name: 'History of anna@example.com' })).toBeInTheDocument();
+      expect(held.historyAskedFor).toEqual(['account-gmail']);
+    });
+
+    it('lists, on the menu of a failing pulled Gmail, Reconnect, Check now, History…, Change… and Disconnect', async () => {
+      held.sourceAccounts = [{ ...PULLED, failingBecause: FAILING }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for anna@example.com' }));
+
+      expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual([
+        'Reconnect',
+        'Check now',
+        'History…',
+        'Change…',
+        'Disconnect',
+      ]);
+    });
+
+    it('shows the guest History, and neither Check now nor a menu', async () => {
+      held.sourceAccounts = [PULLED];
+
+      showWindow(undefined, true);
+
+      expect(await screen.findByRole('button', { name: 'History of anna@example.com' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Check anna@example.com now' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Actions for / })).toBeNull();
     });
   });
 });
