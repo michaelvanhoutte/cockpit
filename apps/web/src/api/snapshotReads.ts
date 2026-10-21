@@ -112,10 +112,13 @@ function read(client: QueryClient, workspaceId: string, upTo: string, marked: bo
  */
 export function readForAnnouncement(client: QueryClient, event: ServerEvent): void {
   const at = event.type === 'snapshot_invalidated' ? event.at : undefined;
+  const workspaceId = event.workspaceId === ACCOUNT_WIDE ? '' : event.workspaceId;
   if (at) {
-    const held = client.getQueryData<WorkspaceSnapshot>(['snapshot', event.workspaceId])?.upTo;
+    // For every Workspace, held only where every copy holds it.
+    const held = client.getQueryCache().findAll({ queryKey: workspaceId ? ['snapshot', workspaceId] : ['snapshot'] });
+    const holds = held.length > 0 && held.every((query) => ((query.state.data as WorkspaceSnapshot | undefined)?.upTo ?? '') >= at);
     // Owed for this Workspace, or for every one; nothing owed, or an answer without a stamp, is '' and covers nothing.
-    if ((held && held >= at) || (owed.get(event.workspaceId) ?? '') >= at || (owed.get('') ?? '') >= at) return;
+    if (holds || (owed.get(event.workspaceId) ?? '') >= at || (owed.get('') ?? '') >= at) return;
   }
-  read(client, event.workspaceId === ACCOUNT_WIDE ? '' : event.workspaceId, at ?? UNTIMED, true);
+  read(client, workspaceId, at ?? UNTIMED, true);
 }

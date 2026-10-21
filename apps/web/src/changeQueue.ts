@@ -1,4 +1,4 @@
-import type { CommandResult, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
+import type { CommandPayload, CommandResult, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
 import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver } from './drawnAhead';
 
@@ -31,6 +31,12 @@ import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver } from '.
  * own read ends it. A Workspace added here has nothing on the server to read
  * until its add is answered (`adding`), and what is built on it waits behind it
  * (`afterAdding`).
+ *
+ * **A capture is drawn from the outbox, which sends it** ("Show a capture in the
+ * Inbox the moment you make it", issue 1353): it joins ahead of the changes
+ * made to its row, so they have a row to land on, is never sent from here, and
+ * once it has landed is drawn like an answered change - until a read of its
+ * Workspace that began after the landing has landed.
  */
 export interface ChangeQueue {
   /**
@@ -72,6 +78,19 @@ export interface ChangeQueue {
    * then too, instead of waiting for a read that need not be made.
    */
   readLanded(scope: string | null, startedAt: number, upTo?: string): void;
+  /**
+   * The captures the outbox holds and the Inbox is to draw, oldest first: any
+   * new one is drawn, and any not yet landed that is no longer here (refused,
+   * put back, taken back) is not. One that has landed stays drawn.
+   */
+  captures(shown: readonly CaptureCommand[]): void;
+  /**
+   * A capture has landed, with the `at` its answer gave if it did: from now it
+   * is covered by a read like an answered change. Whether this is news - false
+   * for one already landed and not yet read for, so a landing is read for once,
+   * and for one this tab never drew.
+   */
+  landed(capture: CaptureCommand, at?: string): boolean;
   /** Stops drawing the changes the server has answered, without waiting for a read: what signing out does. */
   forgetAnswered(): void;
   /** How many changes are waiting to be sent or out unanswered. */
@@ -88,9 +107,17 @@ interface Entry {
   answeredAt: number;
   /** When the server stored it, as its answer said, if it did (`commandResultSchema`'s `at`). */
   stamp: string | undefined;
-  answered: ((result: CommandResult) => void) | undefined;
-  settle: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void };
+  answered?: ((result: CommandResult) => void) | undefined;
+  /** Absent on a capture, which the outbox sends. */
+  settle?: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void } | undefined;
 }
+
+type CaptureCommand = CommandPayload<'capture_item'>;
+
+/** What `answeredAt` says of a capture that has not landed: no read can have begun after it. */
+const NOT_LANDED = Infinity;
+
+const capturedId = (entry: Entry) => (entry.change.name === 'capture_item' ? entry.change.payload.itemId : undefined);
 
 /** How long a change may be out before the queue gives up on it and goes on to the next. */
 export const SEND_TIMEOUT_MS = 15_000;
@@ -149,6 +176,21 @@ export function createChangeQueue(options: {
     )?.change;
   const adding = (workspaceId: string) => beingAdded(workspaceId) !== undefined;
 
+  /** Settles once `done` holds, checked now and after every change to the queue. */
+  const until = (done: () => boolean) =>
+    new Promise<void>((resolve) => {
+      const check = () => {
+        if (!done()) return;
+        stop();
+        resolve();
+      };
+      const stop = subscribe(check);
+      check();
+    });
+
+  /** Whether a captured note the queue draws has yet to reach the server: there is no Item there to change. */
+  const notLanded = (itemId: unknown) => entries.some((entry) => entry.answeredAt === NOT_LANDED && capturedId(entry) === itemId);
+
   const drop = (entry: Entry) => {
     const at = entries.indexOf(entry);
     if (at !== -1) entries.splice(at, 1);
@@ -160,6 +202,9 @@ export function createChangeQueue(options: {
     try {
       for (let next = entries.find((e) => e.state === 'waiting'); next; next = entries.find((e) => e.state === 'waiting')) {
         next.state = 'sending';
+        // A change to a note still on its way waits for it to land, or to be refused and go.
+        const { itemId } = next.change.payload as { itemId?: unknown };
+        await until(() => !notLanded(itemId));
         const sending = new AbortController();
         let giveUp: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -182,12 +227,12 @@ export function createChangeQueue(options: {
           }
           next.answered?.(result);
           changed();
-          next.settle.resolve(result);
+          next.settle?.resolve(result);
         } catch (error) {
           // Refused, or never reached the server: the screen goes back to what the server holds.
           drop(next);
           changed();
-          next.settle.reject(error);
+          next.settle?.reject(error);
         } finally {
           clearTimeout(giveUp);
         }
@@ -220,16 +265,7 @@ export function createChangeQueue(options: {
       entries.some((entry) => entry.change.name === 'delete_workspace' && entry.change.payload.workspaceId === workspaceId),
     adding,
     beingAdded,
-    afterAdding: (workspaceId) =>
-      new Promise((resolve) => {
-        const check = () => {
-          if (adding(workspaceId)) return;
-          stop();
-          resolve();
-        };
-        const stop = subscribe(check);
-        check();
-      }),
+    afterAdding: (workspaceId) => until(() => !adding(workspaceId)),
     readStarted: () => ++tick,
     readLanded(scope, startedAt, upTo) {
       const covered = entries.filter(
@@ -242,6 +278,23 @@ export function createChangeQueue(options: {
       if (covered.length === 0) return;
       covered.forEach(drop);
       changed();
+    },
+    captures(shown) {
+      entries.filter((entry) => entry.answeredAt === NOT_LANDED).forEach(drop);
+      // Behind the captures already drawn and ahead of every other change.
+      entries.splice(
+        entries.filter((entry) => capturedId(entry) !== undefined).length,
+        0,
+        ...shown.map((payload): Entry => ({ change: { name: 'capture_item', payload }, state: 'answered', answeredAt: NOT_LANDED, stamp: undefined })),
+      );
+      changed();
+    },
+    landed(capture, at) {
+      const drawn = entries.find((entry) => capturedId(entry) === capture.itemId);
+      if (drawn?.answeredAt !== NOT_LANDED) return false;
+      Object.assign(drawn, { answeredAt: ++tick, stamp: at });
+      changed();
+      return true;
     },
     forgetAnswered() {
       const answered = entries.filter((entry) => entry.state === 'answered');

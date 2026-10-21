@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createStore, del, set, values, type UseStore } from 'idb-keyval';
-import { uuidv7, type Priority } from '@cockpit/shared';
+import { ACCOUNT_WIDE, uuidv7, type CommandResult, type Priority } from '@cockpit/shared';
 import { changes } from './api/changes';
 import { sendCommand, uploadAttachment } from './api/client';
+import { readForAnnouncement } from './api/snapshotReads';
 import { deviceTimeZone } from './deviceTimeZone';
 import { currentStanding, onStandingChange } from './offline';
 import {
@@ -21,6 +22,7 @@ import {
   uploadTimeoutMs,
   readEntry,
   shownTo,
+  showsInTheInbox,
   toSend,
   type OutboxEntry,
   type WaitingFile,
@@ -67,7 +69,7 @@ export function browserOutboxStore(): OutboxStore {
  * abandoned for taking too long is not still running beside its own retry.
  */
 export interface Sender {
-  capture: (payload: ReturnType<typeof capturePayload>, signal: AbortSignal) => Promise<unknown>;
+  capture: (payload: ReturnType<typeof capturePayload>, signal: AbortSignal) => Promise<CommandResult | undefined>;
   upload: (args: Parameters<typeof uploadAttachment>[0] & { signal: AbortSignal }) => Promise<unknown>;
   /** A spoken note's recording, as words. */
   transcribe: (recording: Blob, signal: AbortSignal) => Promise<string>;
@@ -157,13 +159,17 @@ export type Heard = 'words' | 'nothing' | 'waiting';
  */
 export type OutboxNews =
   | { kind: 'changed' }
-  | { kind: 'landed'; entry: OutboxEntry }
+  | { kind: 'landed'; entry: OutboxEntry; at?: string | undefined }
   | { kind: 'discarding' };
 
-/** A capture reaching the server: its note (`note`), or the whole of it (`whole`). */
+/**
+ * A capture reaching the server: its note (`note`), or the whole of it
+ * (`whole`). `at` is when the server stored the note, if its answer said.
+ */
 export interface Landing {
   kind: 'note' | 'whole';
   entry: OutboxEntry;
+  at?: string | undefined;
 }
 
 type PassResult = 'clear' | 'waits';
@@ -276,7 +282,7 @@ export class CaptureOutbox {
 
   /** What another tab said: re-read, show a capture it landed as landed here too, or stop sending. */
   heard(news: OutboxNews): void {
-    if (news.kind === 'landed') this.tell({ kind: 'whole', entry: news.entry });
+    if (news.kind === 'landed') this.tell({ kind: 'whole', entry: news.entry, at: news.at });
     else if (news.kind === 'discarding') this.abortInFlight();
     else void this.refresh();
   }
@@ -523,12 +529,13 @@ export class CaptureOutbox {
       await this.save(current);
       this.told(current.id, 'words');
     }
+    let at: string | undefined;
     if (!current.landed) {
       try {
         const payload = capturePayload(current);
         this.sending = current.id;
         try {
-          await this.timed((signal) => this.deps.sender.capture(payload, signal), this.noteTimeout());
+          at = (await this.timed((signal) => this.deps.sender.capture(payload, signal), this.noteTimeout()))?.at;
         } finally {
           this.sending = null;
         }
@@ -543,7 +550,7 @@ export class CaptureOutbox {
       }
       current = { ...current, landed: true };
       await this.save(current);
-      this.tell({ kind: 'note', entry: current });
+      this.tell({ kind: 'note', entry: current, at });
     }
     for (const file of current.files) {
       if (file.landed || file.refused !== null) continue;
@@ -581,8 +588,8 @@ export class CaptureOutbox {
     if (landedWhole(current)) {
       // Told before it is forgotten, so a list drawing both never draws it in
       // neither - here, and in any other tab with Capture open.
-      this.tell({ kind: 'whole', entry: current });
-      this.deps.announce?.({ kind: 'landed', entry: { ...current, files: [] } });
+      this.tell({ kind: 'whole', entry: current, at });
+      this.deps.announce?.({ kind: 'landed', entry: { ...current, files: [] }, at });
       await this.deps.store.remove(current.id);
       await this.changedHere();
     }
@@ -716,6 +723,19 @@ export function useSendingCaptures(owner: string | null): void {
     return () => outbox.signedInAs(null);
   }, [outbox, owner]);
 
+  // The Inbox draws what the outbox holds, ahead of any read ("Show a capture in
+  // the Inbox the moment you make it", issue 1353); a change to it is drawn on
+  // top (`changeQueue.ts`).
+  useEffect(() => {
+    const draw = () => changes.captures(outbox.getShown().filter(showsInTheInbox).map(capturePayload));
+    draw();
+    const stop = outbox.subscribe(draw);
+    return () => {
+      stop();
+      changes.captures([]);
+    };
+  }, [outbox]);
+
   useEffect(() => {
     const kick = () => void outbox.send();
     const backInView = () => {
@@ -741,11 +761,15 @@ export function useSendingCaptures(owner: string | null): void {
     document.addEventListener('visibilitychange', backInView);
     const fromQueries = queryClient.getQueryCache().subscribe(succeeded);
     const fromChanges = queryClient.getMutationCache().subscribe(succeeded);
-    // What a landed capture changes, as `afterChanging` re-reads it for one
-    // sent online (api/queries.ts): every workspace for one left undecided.
-    const landed = outbox.onLanding(({ entry }) => {
-      void queryClient.invalidateQueries({
-        queryKey: entry.decided ? ['snapshot', entry.workspaceId] : ['snapshot'],
+    // What a landed capture changes is read once per tab, the way an announcement
+    // of it is (`readForAnnouncement`): every workspace for one left undecided.
+    // Told twice - the note, then the whole - it is read for the first time only.
+    const landed = outbox.onLanding(({ entry, at }) => {
+      if (!changes.landed(capturePayload(entry), at)) return;
+      readForAnnouncement(queryClient, {
+        type: 'snapshot_invalidated',
+        workspaceId: entry.decided ? entry.workspaceId : ACCOUNT_WIDE,
+        ...(at ? { at } : {}),
       });
     });
     return () => {
