@@ -99,6 +99,17 @@ Two of its rules are restated here because this file is in context always and th
 
 **Type the level into the command** — `/code-review xhigh`, never a bare `/code-review`, which reuses whatever level was typed last rather than the one the table gives. Never `max`, slow enough on a real diff to get skipped, and never `ultra`: a billed cloud review only the user can start.
 
+**Leave these kinds out of a review's findings**, since each is declined on sight and a decline still costs a read and a written reason:
+
+- **Already decided**: what the issue, its design, its Decisions or the approved POC specify, wording included.
+- **Outside the diff**: another issue's scope, code the diff did not change, a deliberate copy of a sibling path's rule.
+- **Not worth a round**: an efficiency point at a small bounded size, an edge needing an unlikely coincidence, a style-only point.
+- **Untraced**: an unguarded state or a race. Name the writers or the event order that reach it, or drop it.
+- **Wrong level**: a test that re-proves lower-level coverage, or one its level cannot fail (see Tests).
+- **Deliberate**: code shared between tools kept apart by design, deployed rows blanked in an expand step (expand-then-contract requires it), and, in a security review, a risk an existing control in another layer already bounds.
+
+A point that may still matter, such as a pre-existing defect or a gap another issue owns, becomes a spawned task under "Working in parallel", not a finding.
+
 **Recheck a round of fixes instead of re-reviewing the whole diff.** One targeted `/code-review` pass over the files the fixes touched, and a targeted `/security-review` pass only where a fix itself touches a security path. Run a full second pass, at the diff's own row above, only where a fix touches a stored-data path, or the fixes change more than 25% of the original diff or 40 lines, whichever is larger. Fix or decline whatever the recheck finds without another local pass.
 
 **Where the table asks for a security review, run it as its own foregrounded `general-purpose` `Agent` call, never inline via `Skill`.** Its prompt ends "your final reply must contain the markdown report and nothing else", which inline becomes the session's own last turn, leaving the work reviewed on an unpushed commit. As a subagent, on the session's model or stronger, that line binds the subagent instead and the session gets a report back to fix against and push in the same turn. `/code-review` carries no such line and runs inline.
