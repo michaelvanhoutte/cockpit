@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { createStubGraph } from './stub-graph.mjs';
+import { createStubVerify } from './stub-verify.mjs';
 
 //
 // An OpenID Connect issuer, for local development and the browser suite.
@@ -189,6 +190,9 @@ export async function startStubIssuer({ port, seedPath }) {
   // access token this issuer issued (stub-graph.mjs).
   const graph = createStubGraph({ mailboxOfToken: (token) => mailboxOf(token, 'access'), json });
 
+  // Twilio Verify's stand-in, at Verify's own paths (stub-verify.mjs).
+  const verify = createStubVerify({ json });
+
   const server = createServer((request, response) => {
     const url = new URL(request.url, issuer);
     if (url.pathname === '/.well-known/openid-configuration') {
@@ -259,6 +263,7 @@ export async function startStubIssuer({ port, seedPath }) {
     }
 
     if (graph.handle(url, request, response, issuer)) return;
+    if (verify.handle(url, request, response)) return;
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
     const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star|unstar)$/);
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);

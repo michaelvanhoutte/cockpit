@@ -9,6 +9,9 @@
     "teams": {
       "package": "@cockpit/connector-teams"
     },
+    "twilio": {
+      "package": "@cockpit/connector-twilio"
+    },
     "claude-code": {
       "engine": true
     }
