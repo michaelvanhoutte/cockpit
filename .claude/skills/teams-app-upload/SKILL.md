@@ -9,7 +9,7 @@ The Teams app is a custom app uploaded per tenant, never a store listing. A chan
 
 ## 1. Build the package
 
-Ask which environment, `staging` or `production`, unless the request named one, then run:
+**Start by asking which to publish: staging, production, or both**, even where the request seems to name one, since the person chooses each time. For both, run every step below for staging first, then for production.
 
 ```bash
 node scripts/teams-package.mjs <environment>
