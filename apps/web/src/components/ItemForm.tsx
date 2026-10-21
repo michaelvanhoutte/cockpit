@@ -21,12 +21,15 @@ import {
   itemStatus,
   uuidv7,
   type Attachment,
+  type AttachmentContentType,
   type Item,
   type ItemFormPresentation,
   type ItemStatus,
   type Priority,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
+import { changes } from '../api/changes';
+import { readAfterOwnChange } from '../api/snapshotReads';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
 import { useSendCommand } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
@@ -505,32 +508,29 @@ function TheForm({
     const { accepted, rejections } = checkAttachmentFiles(files);
     setAttachmentError(rejections.length > 0 ? rejections.join(' ') : null);
 
+    let at: string | undefined;
     for (const file of accepted) {
-      const attachmentId = uuidv7();
-      setPendingAttachments((was) => [...was, { id: attachmentId, filename: file.name }]);
+      const upload = { commandId: uuidv7(), workspaceId, itemId, attachmentId: uuidv7() };
+      setPendingAttachments((was) => [...was, { id: upload.attachmentId, filename: file.name }]);
       try {
         refuseWhileOffline();
-        await uploadAttachment({
-          itemId,
-          workspaceId,
-          attachmentId,
-          commandId: uuidv7(),
-          file,
-        });
+        ({ at } = await uploadAttachment({ ...upload, file }));
+        // Drawn as its chip before *Attaching…* goes, and kept until a read begun after this answer has landed.
+        changes.attached(
+          { ...upload, issuedAt: new Date().toISOString(), filename: file.name, size: file.size, contentType: file.type as AttachmentContentType },
+          at,
+        );
       } catch (failure) {
         setAttachmentError(
           failure instanceof Error ? failure.message : `"${file.name}" could not be attached`,
         );
       } finally {
-        setPendingAttachments((was) => was.filter((pending) => pending.id !== attachmentId));
+        setPendingAttachments((was) => was.filter((pending) => pending.id !== upload.attachmentId));
       }
     }
     // Once for the whole batch, not once per file - a drop of several files
     // has no reason to re-read the whole workspace that many times.
-    if (accepted.length > 0)
-      await queryClient.invalidateQueries({
-        queryKey: ['snapshot', workspaceId],
-      });
+    if (accepted.length > 0) readAfterOwnChange(queryClient, workspaceId, at);
   };
 
   const removeAttachment = async (attachment: Attachment) => {

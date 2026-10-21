@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_THEMES, itemLabel, itemSchema, itemStatus, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
+import { WORKSPACE_THEMES, attachmentSchema, itemLabel, itemSchema, itemStatus, type Attachment, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
-import { drawnAhead, drawnOver, listDrawnOver, noSnapshotYet } from '../../src/drawnAhead';
+import { drawnAhead, drawnOver, listDrawnOver, noSnapshotYet, type Drawn } from '../../src/drawnAhead';
 import { itemsThatMayBeDuplicates } from '../../src/duplicates';
 import { itemsInTheInbox } from '../../src/filing';
 
@@ -836,6 +836,71 @@ describe('Triage', () => {
       const change = { name: 'set_duplicate_settled', payload: { ...envelope(BART), workspaceId: 'ws-home', otherItemId: LISA, settled: true } } as CommandArgs;
 
       expect(drawnAhead(copy, change)).toBe(copy);
+    });
+  });
+});
+
+describe('Item editing', () => {
+  describe('an attachment shows the moment it is uploaded or removed, before a read holds it', () => {
+    const SCAN = '11111111-1111-7111-8111-0000000000a1';
+    const NOTE = '11111111-1111-7111-8111-0000000000a2';
+    const uploaded = (over: Record<string, unknown> = {}): Drawn => ({
+      name: 'add_attachment',
+      payload: { ...envelope(BART), attachmentId: SCAN, filename: 'scan.pdf', size: 5, contentType: 'application/pdf', ...over },
+    });
+    const removed = (attachmentId: string, over: Record<string, unknown> = {}): CommandArgs =>
+      ({ name: 'remove_attachment', payload: { ...envelope(BART), attachmentId, ...over } }) as CommandArgs;
+    const held = (id: string, filename: string): Attachment => ({
+      id,
+      tenantId: 'tenant',
+      itemId: BART,
+      filename,
+      size: 5,
+      contentType: 'application/pdf',
+      createdAt: AT,
+    });
+    const inWork = (attachments: Attachment[] = [], items = [anItem(BART)]) =>
+      ({ workspace: { id: 'ws-work', tenantId: 'tenant' }, items, filings: [], panels: [], attachments }) as unknown as WorkspaceSnapshot;
+
+    it('draws an uploaded file as the chip the server reads back: its id, its Item, its name, size and type', () => {
+      const drawn = drawnAhead(inWork(), uploaded());
+
+      expect(drawn.attachments).toEqual([held(SCAN, 'scan.pdf')]);
+      expect(attachmentSchema.safeParse(drawn.attachments[0]).success).toBe(true);
+    });
+
+    it('draws it after the files the Item already holds, and once when the read already holds it', () => {
+      const earlier = held(NOTE, 'note.pdf');
+
+      expect(drawnAhead(inWork([earlier]), uploaded()).attachments.map((one) => one.id)).toEqual([NOTE, SCAN]);
+      const holding = inWork([held(SCAN, 'scan.pdf')]);
+      expect(drawnAhead(holding, uploaded())).toBe(holding);
+    });
+
+    it.each([
+      { situation: 'another Workspace', copy: { ...inWork(), workspace: { id: 'ws-home', tenantId: 'tenant' } } as unknown as WorkspaceSnapshot },
+      { situation: 'a Workspace that no longer holds the Item', copy: inWork([], []) },
+    ])('draws nothing in $situation', ({ copy }) => {
+      expect(drawnAhead(copy, uploaded())).toBe(copy);
+    });
+
+    it('takes a removed file away and no other, and leaves the copy the server sent as it was', () => {
+      const copy = inWork([held(SCAN, 'scan.pdf'), held(NOTE, 'note.pdf')]);
+
+      const drawn = drawnAhead(copy, removed(SCAN));
+
+      expect(drawn.attachments.map((one) => one.id)).toEqual([NOTE]);
+      expect(copy.attachments).toHaveLength(2);
+    });
+
+    it('draws nothing of a removal in another Workspace', () => {
+      const copy = inWork([held(SCAN, 'scan.pdf')]);
+
+      expect(drawnAhead(copy, removed(SCAN, { workspaceId: 'ws-home' })).attachments).toEqual(copy.attachments);
+    });
+
+    it('draws a removal over an upload made before it, so a file added and taken away is not there', () => {
+      expect(drawnOver(inWork(), [uploaded(), removed(SCAN)]).attachments).toEqual([]);
     });
   });
 });

@@ -14,6 +14,7 @@ import type {
   RewriteHistoryEntry,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
+import { changes } from '../../../src/api/changes';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
@@ -207,6 +208,7 @@ vi.mock('../../../src/api/queries', () => ({
     queryFn: async (): Promise<WorkspaceSnapshot> => {
       await held.gate;
       return {
+        workspace: { id: 'ws-work', tenantId: 'tenant' },
         items: held.items,
         filings: held.filings,
         panels: held.panels,
@@ -383,6 +385,8 @@ const sent = () =>
 beforeEach(() => {
   cleanup();
   localStorage.clear();
+  // A file uploaded by the last test is still drawn on its Item until a read has covered it.
+  changes.forgetAnswered();
   held.send.mockClear();
   held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
   held.close.mockClear();

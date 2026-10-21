@@ -1,6 +1,6 @@
 import type { CommandPayload, CommandResult, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
-import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver } from './drawnAhead';
+import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver, type Drawn } from './drawnAhead';
 
 /**
  * The changes this tab has made, in the order it made them ("Show an Item or
@@ -37,6 +37,13 @@ import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver } from '.
  * made to its row, so they have a row to land on, is never sent from here, and
  * once it has landed is drawn like an answered change - until a read of its
  * Workspace that began after the landing has landed.
+ *
+ * **An upload is held beside the queue, never in it** ("Keep an attachment's chip
+ * drawn from the moment you choose the file, and remove one at once", issue 1367):
+ * a large file's bytes may be minutes in flight, and nothing else waits for them.
+ * The form draws *Attaching…* itself while the upload is out, and hands the queue
+ * the file once the server has answered; from then it is drawn like an answered
+ * change. Removing one is an ordinary change.
  */
 export interface ChangeQueue {
   /**
@@ -91,6 +98,8 @@ export interface ChangeQueue {
    * and for one this tab never drew.
    */
   landed(capture: CaptureCommand, at?: string): boolean;
+  /** A file has been uploaded, with the `at` the server's answer gave if it did: drawn as its chip, like an answered change. */
+  attached(upload: CommandPayload<'add_attachment'>, at?: string): void;
   /** Stops drawing the changes the server has answered, without waiting for a read: what signing out does. */
   forgetAnswered(): void;
   /** How many changes are waiting to be sent or out unanswered. */
@@ -101,7 +110,7 @@ export interface ChangeQueue {
 }
 
 interface Entry {
-  change: CommandArgs;
+  change: Drawn;
   state: 'waiting' | 'sending' | 'answered';
   /** The tick the answer arrived at, once it has. */
   answeredAt: number;
@@ -173,7 +182,7 @@ export function createChangeQueue(options: {
         entry.state !== 'answered' &&
         entry.change.name === 'create_workspace' &&
         entry.change.payload.workspaceId === workspaceId,
-    )?.change;
+    )?.change as CommandArgs | undefined;
   const adding = (workspaceId: string) => beingAdded(workspaceId) !== undefined;
 
   /** Settles once `done` holds, checked now and after every change to the queue. */
@@ -208,7 +217,7 @@ export function createChangeQueue(options: {
         const sending = new AbortController();
         let giveUp: ReturnType<typeof setTimeout> | undefined;
         try {
-          const sent = send(next.change, sending.signal);
+          const sent = send(next.change as CommandArgs, sending.signal);
           // A request given up on may still fail later; nobody is waiting on it then.
           sent.catch(() => {});
           const gaveUp = new Promise<never>((_, reject) => {
@@ -295,6 +304,10 @@ export function createChangeQueue(options: {
       Object.assign(drawn, { answeredAt: ++tick, stamp: at });
       changed();
       return true;
+    },
+    attached(payload, at) {
+      entries.push({ change: { name: 'add_attachment', payload }, state: 'answered', answeredAt: ++tick, stamp: at });
+      changed();
     },
     forgetAnswered() {
       const answered = entries.filter((entry) => entry.state === 'answered');
