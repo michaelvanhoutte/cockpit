@@ -55,6 +55,8 @@ export function FirstWorkspacePage() {
     // before the server has answered; a refusal brings you back here, and says
     // why in the undo bar (components/AddWorkspace.tsx).
     add(trimmed);
+    // Emptied, so a second press before the page has gone sends nothing.
+    setName('');
   };
 
   return (

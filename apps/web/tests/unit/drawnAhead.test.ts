@@ -686,8 +686,8 @@ describe('Workspace management', () => {
         expect(listDrawnOver(copy, [made('ws-home', 'Elsewhere')])).toEqual(copy);
       });
 
-      it('gives it its first Dashboard, named as the server names it, and that Dashboard’s Panel', () => {
-        const drawn = drawnAhead(noSnapshotYet('ws-new'), made('ws-new'));
+      it('holds its first Dashboard, named as the server names it, and that Dashboard’s Panel', () => {
+        const drawn = noSnapshotYet(made('ws-new'));
 
         expect(drawn.dashboards).toEqual([expect.objectContaining({ id: 'ws-new-dashboard-1', workspaceId: 'ws-new', name: 'Dashboard 1' })]);
         expect(drawn.panels).toEqual([
@@ -702,7 +702,7 @@ describe('Workspace management', () => {
       });
 
       it('leaves another Workspace’s copy alone', () => {
-        const copy = noSnapshotYet('ws-other');
+        const copy = { ...noSnapshotYet(made('ws-other')), dashboards: [], panels: [] };
 
         expect(drawnAhead(copy, made('ws-new'))).toBe(copy);
       });

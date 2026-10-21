@@ -56,6 +56,8 @@ export interface ChangeQueue {
    * server to read, and a read would find nothing.
    */
   adding(workspaceId: string): boolean;
+  /** That add itself, while `adding` says so: what the Workspace is drawn from until the server has it. */
+  beingAdded(workspaceId: string): CommandArgs | undefined;
   /** Settles once any add of this Workspace has been answered or refused: what a change that cannot be drawn waits behind. */
   afterAdding(workspaceId: string): Promise<void>;
   /** A read of a Workspace, or of the list of them, is starting: the mark to hand back when it lands. */
@@ -138,13 +140,14 @@ export function createChangeQueue(options: {
     return () => listeners.delete(listener);
   };
 
-  const adding = (workspaceId: string) =>
-    entries.some(
+  const beingAdded = (workspaceId: string) =>
+    entries.find(
       (entry) =>
         entry.state !== 'answered' &&
         entry.change.name === 'create_workspace' &&
         entry.change.payload.workspaceId === workspaceId,
-    );
+    )?.change;
+  const adding = (workspaceId: string) => beingAdded(workspaceId) !== undefined;
 
   const drop = (entry: Entry) => {
     const at = entries.indexOf(entry);
@@ -216,6 +219,7 @@ export function createChangeQueue(options: {
     deleting: (workspaceId) =>
       entries.some((entry) => entry.change.name === 'delete_workspace' && entry.change.payload.workspaceId === workspaceId),
     adding,
+    beingAdded,
     afterAdding: (workspaceId) =>
       new Promise((resolve) => {
         const check = () => {

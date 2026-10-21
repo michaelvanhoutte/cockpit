@@ -449,6 +449,33 @@ describe('Workspace management', () => {
       expect(waitingFor()).toEqual(['create_workspace']);
     });
 
+    it('keeps its first Dashboard and Panel when the list is read again before the Workspace is', async () => {
+      const user = await show([WORK, PERSONAL], WORK.id);
+      await addAWorkspace(user, NEW);
+      // A change behind the add, so the Workspace's own read waits for the queue to empty.
+      await renameTo(user, NEW, 'Ledger');
+
+      await answerNext();
+
+      expect(waitingFor()).toEqual(['rename_workspace']);
+      expect(readsOf(theNewId())).toBe(0);
+      expect(page().getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      expect(page().getAllByText('Panel 1')).toHaveLength(1);
+    });
+
+    it('sends one add from the first-Workspace page however often it is pressed before the page has gone', async () => {
+      const user = await show([], null);
+      router.frozen = true;
+
+      await user.type(screen.getByLabelText('Name of the new workspace'), NEW);
+      await user.click(screen.getByRole('button', { name: 'New workspace' }));
+      await user.click(screen.getByRole('button', { name: 'New workspace' }));
+      await settle();
+
+      // The queue sends one at a time, so a second add would be waiting behind the first.
+      expect(changes.unanswered()).toBe(1);
+    });
+
     it('draws it in the colour the server will give it', async () => {
       const user = await show([WORK, PERSONAL], WORK.id);
 

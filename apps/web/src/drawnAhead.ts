@@ -128,7 +128,7 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: CommandArgs): Wo
       return layoutSaved(snapshot, change.payload);
     case 'create_workspace':
       // A Workspace arrives with its first Dashboard and that Dashboard's Panel,
-      // drawn over `noSnapshotYet` below. **Only over a Workspace with no
+      // which `noSnapshotYet` below holds. **Only over a Workspace with no
       // Dashboard**: a read of a real one holds them already, and one the tab
       // deleted since must not come back until the list is read.
       return snapshot.dashboards.length > 0
@@ -145,12 +145,19 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: CommandArgs): Wo
 }
 
 /**
- * The Workspace as the tab has it before the server has ever sent it: nothing
- * in it, for a Workspace this tab has just added to be drawn over ("Open a new
- * Workspace the moment you add it", issue 1366). Held in place of a read that
- * would find nothing, and read for properly once the add is answered.
+ * The Workspace as the tab has it before the server has ever sent it: what the
+ * add makes and nothing else ("Open a new Workspace the moment you add it",
+ * issue 1366). Held in place of a read that would find nothing, and read for
+ * properly once the add is answered. **The first Dashboard and Panel are in the
+ * held copy itself**, because the list read that ends drawing the add can land
+ * before the Workspace's own read does.
  */
-export function noSnapshotYet(workspaceId: string): WorkspaceSnapshot {
+export function noSnapshotYet(added: CommandArgs): WorkspaceSnapshot {
+  const { workspaceId } = added.payload;
+  return drawnAhead(heldBlank(workspaceId), added);
+}
+
+function heldBlank(workspaceId: string): WorkspaceSnapshot {
   return {
     workspace: { id: workspaceId, tenantId: '', name: '', color: '', bar: '', ground: '', header: '' },
     items: [],

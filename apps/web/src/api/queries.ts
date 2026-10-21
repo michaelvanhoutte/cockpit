@@ -179,9 +179,10 @@ export const snapshotQuery = (workspaceId: string) =>
     queryKey: ['snapshot', workspaceId],
     queryFn: ({ client }) => {
       // A Workspace this tab has just added is not on the server yet, so a read
-      // would find nothing: it is held blank and drawn over by the add
-      // (`drawnAhead.ts`), then read for properly once the add is answered.
-      if (changes.adding(workspaceId)) return noSnapshotYet(workspaceId);
+      // would find nothing: it is held as the add makes it (`drawnAhead.ts`),
+      // then read for properly once the add is answered.
+      const added = changes.beingAdded(workspaceId);
+      if (added) return noSnapshotYet(added);
       // Marked as it starts, because whether the changes this tab has made are
       // in what comes back depends on when the read began (`changeQueue.ts`).
       watchWorkspaceReads(client);
