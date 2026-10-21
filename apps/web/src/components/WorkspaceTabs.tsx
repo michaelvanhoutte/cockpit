@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, themeOf, uuidv7 } from '@cockpit/shared';
 import type { Workspace, WorkspaceList, WorkspaceTheme } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
+import { changes } from '../api/changes';
 import {
   refusalFrom,
   snapshotQuery,
@@ -335,13 +336,15 @@ export function WorkspaceTabs({
    * workspace's first dashboard when that workspace's *All items* is the page on
    * screen - a page that is not in the bar is not somewhere to stay - and never
    * moves you for another workspace's tab. The first dashboard is read from the
-   * snapshot the page on screen already holds, since its route loaded it.
+   * snapshot the page on screen already holds, since its route loaded it, as
+   * drawn: a Dashboard deleted or moved first a moment ago counts as done.
    */
   const onItemsOf = useAllItemsOnScreen();
   const switchAllItemsTab = (workspaceId: string, on: boolean) => {
     setAllItemsTab(workspaceId, on);
     if (on || onItemsOf !== workspaceId) return;
-    const first = queryClient.getQueryData(snapshotQuery(workspaceId).queryKey)?.dashboards[0];
+    const held = queryClient.getQueryData(snapshotQuery(workspaceId).queryKey);
+    const first = held ? changes.drawnOver(held).dashboards[0] : undefined;
     if (first) {
       void navigate({
         to: '/w/$workspaceId/d/$dashboardId',

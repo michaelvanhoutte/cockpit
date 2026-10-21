@@ -789,7 +789,10 @@ function AddDashboard({
     });
     close();
     // You are put on the dashboard you just made: adding one and then having
-    // to find it in the bar is two gestures for what reads as one.
+    // to find it in the bar is two gestures for what reads as one. Counted as
+    // on screen from here, so a refusal that settles before the route has
+    // landed (one refused offline, before it is sent) still puts you back.
+    onScreen.current = dashboardId;
     void navigate({
       to: '/w/$workspaceId/d/$dashboardId',
       params: { workspaceId, dashboardId },

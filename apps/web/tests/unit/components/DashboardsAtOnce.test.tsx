@@ -9,7 +9,7 @@ import { changes } from '../../../src/api/changes';
 import { CommandRefused, fetchSnapshot, fetchWorkspaces, sendCommand } from '../../../src/api/client';
 import { useSnapshot } from '../../../src/api/useSnapshot';
 import { DashboardBar } from '../../../src/components/DashboardBar';
-import { resetStanding } from '../../../src/offline';
+import { resetStanding, stand } from '../../../src/offline';
 import { UndoWhatJustHappened } from '../../../src/undo';
 
 /**
@@ -62,10 +62,8 @@ vi.mock('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
-  useNavigate: () => (to: unknown) => {
-    router.go(to);
-    return Promise.resolve();
-  },
+  // Lands a step later, as the real router's does once the route has loaded.
+  useNavigate: () => (to: unknown) => Promise.resolve().then(() => router.go(to)),
 }));
 
 const WORK = 'ws-work';
@@ -422,6 +420,18 @@ describe('Dashboards', () => {
       expect(await screen.findByRole('status')).toHaveTextContent(
         '“Research” was not added. a dashboard called Research already exists in this workspace',
       );
+    });
+
+    it('puts the board back where it was when an add is refused before it is sent', async () => {
+      const user = await show([TODAY, READING], READING.id);
+      stand({ chosen: true });
+
+      await addADashboard(user, 'Research');
+      await settle();
+
+      expect(theBar()).toEqual(['Inbox', 'Today', 'Reading']);
+      expect(board().getByRole('heading', { name: 'Reading' })).toBeVisible();
+      expect(await screen.findByRole('status')).toHaveTextContent('“Research” was not added.');
     });
 
     it('brings the tab back when a delete is refused', async () => {
