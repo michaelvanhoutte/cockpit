@@ -109,8 +109,8 @@ export function readForAnnouncement(client: QueryClient, event: ServerEvent): vo
   const at = event.type === 'snapshot_invalidated' ? event.at : undefined;
   if (at) {
     const held = client.getQueryData<WorkspaceSnapshot>(['snapshot', event.workspaceId])?.upTo;
-    // Owed for this Workspace, or for every one: `undefined >= at` is false.
-    if ((held && held >= at) || owed.get(event.workspaceId)! >= at || owed.get('')! >= at) return;
+    // Owed for this Workspace, or for every one; nothing owed, or an answer without a stamp, is '' and covers nothing.
+    if ((held && held >= at) || (owed.get(event.workspaceId) ?? '') >= at || (owed.get('') ?? '') >= at) return;
   }
   read(client, event.workspaceId === ACCOUNT_WIDE ? '' : event.workspaceId, at ?? UNTIMED, true);
 }
