@@ -4,7 +4,7 @@ import type { CommandResult } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
 import { sendCommand } from '../../../src/api/client';
 import type { CommandArgs } from '../../../src/api/queries';
-import { SavingMark } from '../../../src/components/SavingMark';
+import SavingMark from '../../../src/components/SavingMark';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),

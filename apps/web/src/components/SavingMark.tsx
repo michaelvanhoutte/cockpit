@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useUnansweredChanges } from '../api/changes';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { changes } from '../api/changes';
 
 /** Shown only once a change has waited this long, so a quick save never flickers it. */
 const AFTER_MS = 500;
@@ -10,8 +10,9 @@ const AFTER_MS = 500;
  * made has been unanswered for longer than `AFTER_MS`, and says how many on
  * hover or a long press.
  */
-export function SavingMark() {
-  const count = useUnansweredChanges();
+export default function SavingMark() {
+  // How many of this tab's changes are waiting to be sent or out unanswered.
+  const count = useSyncExternalStore(changes.subscribe, changes.unanswered, changes.unanswered);
   const [shown, setShown] = useState(false);
   // Keyed on whether anything is waiting, not on how many: a second change joining
   // a first must not restart the half second the first has been waiting.

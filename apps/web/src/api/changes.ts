@@ -1,4 +1,3 @@
-import { useSyncExternalStore } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { CommandResult } from '@cockpit/shared';
 import { createChangeQueue } from '../changeQueue';
@@ -36,11 +35,6 @@ export const changes = createChangeQueue({
         },
       }),
 });
-
-/** How many of this tab's changes are waiting to be sent or out unanswered: what the saving sign counts. */
-export function useUnansweredChanges(): number {
-  return useSyncExternalStore(changes.subscribe, changes.unanswered, changes.unanswered);
-}
 
 /**
  * When each Workspace's read in flight began, on the queue's clock. A read
