@@ -1165,13 +1165,13 @@ describe('Panels', () => {
 
   describe('adding a panel asks for the title you typed, on the dashboard you are on', () => {
     it('sends it without the blanks around it', async () => {
-      const { user, mutate } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
+      const { user, sent } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
 
       await user.click(await screen.findByRole('button', { name: '+ Panel' }));
       await user.type(screen.getByLabelText('Name of the new panel'), '  Project Falcon  ');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
-      const [asked] = mutate.mock.calls[0]!;
+      const [asked] = sent.mock.calls[0]!;
       expect(asked.name).toBe('add_panel');
       expect(asked.payload.name).toBe('Project Falcon');
       expect(asked.payload.dashboardId).toBe(OPEN);
@@ -1197,14 +1197,14 @@ describe('Panels', () => {
       { situation: 'asked for a panel of items', choose: 'Items', kind: 'items' },
       { situation: 'asked for a panel of text', choose: 'Text', kind: 'text' },
     ])('$situation', async ({ choose, kind }) => {
-      const { user, mutate } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
+      const { user, sent } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
 
       await user.click(await screen.findByRole('button', { name: '+ Panel' }));
       if (choose) await user.click(screen.getByRole('radio', { name: new RegExp(choose) }));
       await user.type(screen.getByLabelText('Name of the new panel'), 'What matters');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
-      const [asked] = mutate.mock.calls[0]!;
+      const [asked] = sent.mock.calls[0]!;
       expect(asked.name).toBe('add_panel');
       expect(asked.payload.kind).toBe(kind);
     });
@@ -1215,7 +1215,7 @@ describe('Panels', () => {
      * somebody who never looked at it.
      */
     it('starts from Items again every time it is opened', async () => {
-      const { user, mutate } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
+      const { user, sent } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
       await user.click(await screen.findByRole('button', { name: '+ Panel' }));
       await user.click(screen.getByRole('radio', { name: /Text/ }));
       await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -1224,7 +1224,7 @@ describe('Panels', () => {
       await user.type(screen.getByLabelText('Name of the new panel'), 'Project Falcon');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
-      expect(mutate.mock.calls[0]![0].payload.kind).toBe('items');
+      expect(sent.mock.calls[0]![0].payload.kind).toBe('items');
     });
   });
 });
@@ -1283,7 +1283,7 @@ describe('Layouts', () => {
       },
     ])('puts it after the last row of $situation', async ({ layouts, drawnOnTheBoard, layoutId, before }) => {
       if (drawnOnTheBoard) publishBoardRows(OPEN, drawnOnTheBoard);
-      const { user, mutate } = showBar(['Dashboard 1'], {
+      const { user, sent } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
         panels: [falcon, anna],
         layouts,
@@ -1294,7 +1294,7 @@ describe('Layouts', () => {
       await user.type(screen.getByLabelText('Title of the new section'), '  This week  ');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
-      const [asked] = mutate.mock.calls[0]! as unknown as [{ name: string; payload: Record<string, unknown> }];
+      const [asked] = sent.mock.calls[0]! as unknown as [{ name: string; payload: Record<string, unknown> }];
       expect(asked.name).toBe('save_layout');
       expect(asked.payload).toMatchObject({
         dashboardId: OPEN,

@@ -47,10 +47,9 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
  * a real answer: the Filter goes back to saying it has nothing chosen, which is
  * the state a new one arrives in.
  *
- * It follows `NameQuestion` on the three things every dialog in this app
- * settles - near the top of a phone so the keyboard does not cover the answer, a
- * refusal keeping it open with what was typed still in it, and the focus going
- * back to the control it was opened from.
+ * It follows `NameQuestion` on the two things every dialog in this app
+ * settles - near the top of a phone so the keyboard does not cover the answer,
+ * and the focus going back to the control it was opened from.
  *
  * **Exported as a default, and lazy-loaded from `PanelBoard.tsx`.** A Filter's
  * own question is opened by choosing *Filter…* from a Panel's menu, never on
@@ -70,8 +69,6 @@ function FilterQuestion({
   open,
   onSave,
   onCancel,
-  refusal,
-  busy = false,
   returnFocusTo,
 }: {
   panelName: string;
@@ -94,8 +91,6 @@ function FilterQuestion({
   open: boolean;
   onSave: (rows: FilterCondition[][], groupBy: FilterGrouping) => void;
   onCancel: () => void;
-  refusal?: string | null;
-  busy?: boolean;
   returnFocusTo?: HTMLElement | null;
 }) {
   /**
@@ -107,8 +102,7 @@ function FilterQuestion({
    * remembered. Not re-read from `conditions` afterwards either: the same
    * Filter saved from another device would otherwise take the rows somebody is
    * halfway through adding out from under them, where the rule everywhere else
-   * here is that the later save stands - and a refusal leaves what was chosen
-   * on the form.
+   * here is that the later save stands.
    */
   const [rows, setRows] = useState<FilterCondition[][]>(() => initialRows.map((row) => [...row]));
   /** What the rows are grouped under, saved with the conditions ("Group a Filter panel's items by the Dashboard or Panel they are filed on", issue 805). */
@@ -136,7 +130,7 @@ function FilterQuestion({
   const numberOf = (row: number, at: number) => rows.slice(0, row).reduce((n, was) => n + was.length, 0) + at;
 
   return (
-    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
+    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
@@ -225,22 +219,15 @@ function FilterQuestion({
             </div>
             <p className="pt-1.5 text-xs text-ink-faint">{GROUPING_HINTS[groupBy]}</p>
 
-            {refusal && (
-              <p role="alert" className="pt-3 text-sm text-over-ink">
-                {refusal}
-              </p>
-            )}
 
             <div className="flex justify-end gap-2 pt-5">
               <Dialog.Close
-                disabled={busy}
                 className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
               >
                 Cancel
               </Dialog.Close>
               <button
                 type="submit"
-                disabled={busy}
                 className="milled shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
               >
                 Save

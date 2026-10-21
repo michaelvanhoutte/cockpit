@@ -1,6 +1,5 @@
 import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import {
   GRID_COLUMNS,
   isPhoneWidth,
@@ -29,8 +28,9 @@ import type {
   Panel,
   PanelSort,
 } from '@cockpit/shared';
-import { CommandRefused } from '../api/client';
-import { useCommand } from '../api/queries';
+import { useSendCommand, whyNotDone } from '../api/queries';
+import type { CommandArgs } from '../api/queries';
+import { useUndo } from '../undo';
 import { scrollWhileDragging } from '../dragScroll';
 import { groupFilterRows } from '../filterGroups';
 import { filtersUsingPanel, isGrouped, joinedBy } from '../filters';
@@ -47,7 +47,6 @@ import {
   movedBeside,
   rowsDrawnWithout,
   rowsToSave,
-  stacked,
   stackedOnPhone,
   sameArrangement,
   sharesOf,
@@ -136,10 +135,8 @@ const MovePanelToDashboardPicker = lazy(() => import('./MovePanelToDashboardPick
  * has to happen where the thing being edited is drawn. The issue says so in as
  * many words.
  *
- * **One `useCommand` for the whole board** rather than one per control, so a
- * refusal can only belong to the last thing asked for - and `variables` says
- * which control that was, which is how a refused rename ends up inside the
- * panel it was refused for.
+ * **Nothing on the board waits for the server** (`sendAhead`): a change is drawn
+ * and its dialog closed at the click, and a refusal is said in the undo bar.
  *
  * State here is all about *this* dashboard, so the page mounts one of these per
  * dashboard with the dashboard's id as its key: switching dashboards drops the
@@ -211,25 +208,18 @@ export function PanelBoard({
   const filteringOn = isFiltering(dashboardFilter);
   const phone = isPhoneWidth(screenWidth);
   const arrangeable = !phone && !filteringOn;
-  const command = useCommand();
-  const queryClient = useQueryClient();
+  const send = useSendCommand();
+  const offerToUndo = useUndo();
+  /**
+   * Hands a change to the tab's queue, which has drawn it already (`drawnAhead.ts`).
+   * **Nothing here waits on the server**: a refusal takes the change off the
+   * board and says why in the undo bar, with `notDone` naming what did not happen.
+   */
+  const sendAhead = (change: CommandArgs, notDone: string) => {
+    send(change).catch((failure: unknown) => offerToUndo({ what: `${notDone} ${whyNotDone(failure)}` }));
+  };
+  const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId });
 
-  /**
-   * An arrangement that has been made but not yet stored. It is what the board
-   * draws while it exists, so the panel really does move under the hand that
-   * moved it, and it is dropped once the store has been re-read and agrees.
-   */
-  const [draft, setDraft] = useState<LayoutRow[] | null>(null);
-  /**
-   * The last arrangement actually sent, which is what a new gesture is compared
-   * against.
-   *
-   * Not what is *drawn*, and the difference is a gesture that puts the panels
-   * back where the store has them: after one move, that is a real second change
-   * and has to be sent, but against the drawn arrangement it would look like
-   * every panel already being where it was asked to go, and be dropped.
-   */
-  const sent = useRef<LayoutRow[] | null>(null);
   /** Which Panel's settings form is open, if any. */
   const [settling, setSettling] = useState<string | null>(null);
   /** How wide the Panel being set draws its list, read when its form opened: what the form's columns line is worked out from. */
@@ -353,7 +343,7 @@ export function PanelBoard({
    * The arrangement a size being dragged is asking for, which is what the board
    * draws while the hand is down.
    *
-   * Its own state rather than the draft, because a draft has been *sent*: this
+   * Its own state rather than the Layout, because a Layout has been *sent*: this
    * one is redrawn on every pointer move and sent once, when the hand stops. A
    * command per pointer move would be a command per pixel.
    */
@@ -406,16 +396,15 @@ export function PanelBoard({
    * A Section is changed on a phone and while filtered too, since neither
    * gesture moves a Panel.
    */
-  const arrangement = draft ?? drawnRows(ownLayout, panels, acrossWidth);
+  const arrangement = drawnRows(ownLayout, panels, acrossWidth);
   useEffect(() => {
     publishBoardRows(dashboard.id, arrangement);
   });
   useEffect(() => () => withdrawBoardRows(dashboard.id), [dashboard.id]);
   const [renamingSection, setRenamingSection] = useState<{ nth: number; title: string } | null>(null);
-  // The preview while a drag is on, then a draft that has been sent and is
-  // waiting for the store to agree, then what the store holds. A phone draws
-  // its stacking of the draft, which only a Section's change makes there.
-  const shown = dragging?.preview ?? sizing ?? (draft && phone ? stacked(draft) : draft) ?? stored;
+  // The preview while a drag is on, then the Layout as drawn, which holds an
+  // arrangement sent and not yet answered.
+  const shown = dragging?.preview ?? sizing ?? stored;
   /**
    * Read from the list rather than kept beside the id, for the reason the list
    * of dashboards does it: a panel deleted in another tab is gone
@@ -482,50 +471,17 @@ export function PanelBoard({
   const drawn = rowsDrawnWithout(shown, hidden);
   const hiddenCount = hidden ? hidden.size : 0;
 
-  const refusal =
-    command.error instanceof CommandRefused
-      ? command.error.message
-      : command.error
-        ? 'That did not reach the server. Try again.'
-        : null;
-
-  /** The refusal belongs to the control that asked for it. */
-  const refusalFor = (
-    what:
-      | 'set_panel_settings'
-      | 'delete_panel'
-      | 'save_layout'
-      | 'set_panel_filter'
-      | 'set_panel_sort'
-      | 'move_panel_to_dashboard',
-    id?: string,
-  ) => {
-    if (!refusal || command.variables?.name !== what) return null;
-    if (!id) return refusal;
-    const payload = command.variables.payload as { panelId?: string };
-    return payload.panelId === id ? refusal : null;
-  };
-
   /**
-   * Re-read before letting go of the draft. The snapshot in hand is the one
-   * from before this change, so dropping the draft first would put the panels
-   * back where they were for as long as the refetch takes - the change would
-   * visibly undo itself and then redo itself.
+   * Keeps an arrangement, drawn at once as the Dashboard's one Layout
+   * (`drawnAhead.ts`): a refusal puts the Panels back and says why in the undo
+   * bar. **It asks for no read of its own**; the one behind the change covers it.
    */
-  const settle = async () => {
-    await queryClient.refetchQueries({ queryKey: ['snapshot', workspaceId] });
-    setDraft(null);
-    sent.current = null;
-  };
-
-  const saveArrangement = (layoutId: string, rows: readonly LayoutRow[], afterwards?: () => void) => {
-    command.mutate(
+  const saveArrangement = (layoutId: string, rows: readonly LayoutRow[]) => {
+    sendAhead(
       {
         name: 'save_layout',
         payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
+          ...envelope(),
           dashboardId: dashboard.id,
           layoutId,
           // This client sends every Section it has, so none sent means none.
@@ -533,47 +489,8 @@ export function PanelBoard({
           rows: rowsToSave(rows),
         },
       },
-      {
-        onSuccess: () => {
-          void settle();
-          afterwards?.();
-        },
-        /**
-         * A refused arrangement is put back, rather than left on screen under
-         * the message saying it did not happen.
-         *
-         * The draft is what the grid draws while a change is in flight, and
-         * with only `onSuccess` wired it outlived a refusal: the panels stayed
-         * where the gesture put them, the notice above them said the change was
-         * refused, and the two disagreed until the next snapshot arrived. That
-         * is the same "looks like it worked" failure the questions elsewhere in
-         * the app are shaped to avoid.
-         *
-         * Dropping `sent` with the draft is what lets the same gesture be made
-         * again once the snapshot has caught up.
-         */
-        onError: () => {
-          setDraft(null);
-          sent.current = null;
-        },
-      },
+      'The arrangement was not saved.',
     );
-    sent.current = [...rows];
-  };
-
-  /**
-   * The id of the layout this board made, kept until the snapshot has it.
-   *
-   * Two gestures can both find the dashboard with no layout: the first sends
-   * one and the second happens before the re-read lands. Sending the same id
-   * keeps the second gesture plainly about the layout the first one made; the
-   * server would put a save naming any other id into that one anyway.
-   */
-  const justMade = useRef<string | null>(null);
-  const firstLayoutId = (): string => {
-    if (justMade.current) return justMade.current;
-    justMade.current = uuidv7();
-    return justMade.current;
   };
 
   /**
@@ -591,33 +508,23 @@ export function PanelBoard({
     // has nothing to keep: a phone is never arranged, and sending it would
     // replace the one Layout every wider screen draws.
     if (!arrangeable) return;
-    // Against what has been *sent* - or the store, where nothing has - rather
-    // than against what is drawn: a gesture that puts a panel back where the
-    // snapshot has it still has to be sent when an earlier one moved
-    // it; and a gesture that really changes nothing must send nothing.
-    //
-    if (sameArrangement(next, sent.current ?? stored)) return;
-    command.reset();
-    // The rename's refusal is said in its band, so a rename left open would
-    // claim this gesture's refusal as its own.
-    setRenamingSection(null);
-    setDraft(next);
+    // Against the Layout as drawn, which already holds an earlier gesture still
+    // unanswered: one that puts the panels back where it found them is a real
+    // change, and one that changes nothing sends nothing.
+    if (sameArrangement(next, stored)) return;
     // A dashboard nobody has arranged gets its one layout from this first
     // move, under an id made here (`save_layout`).
-    saveArrangement(drawnWith?.id ?? firstLayoutId(), next);
+    saveArrangement(drawnWith?.id ?? uuidv7(), next);
   };
 
   /**
-   * A Section renamed or deleted, kept in the Dashboard's own arrangement and
-   * held as the draft until the store agrees - on a phone too, so a second
-   * change made before the re-read is made to this one rather than undoing it.
+   * A Section renamed or deleted, kept in the Dashboard's own arrangement - on a
+   * phone too, so a second change made before the answer is made to this one
+   * rather than undoing it.
    */
-  const changeSections = (next: LayoutRow[], afterwards?: () => void) => {
-    command.reset();
-    setDraft(next);
-    saveArrangement(ownLayout?.id ?? firstLayoutId(), next, afterwards);
+  const changeSections = (next: LayoutRow[]) => {
+    saveArrangement(ownLayout?.id ?? uuidv7(), next);
   };
-
   /** A Section is told apart only by its place, so it is named by how many come before it. */
   const sectionNth = new Map<number, number>();
   shown.forEach((row, place) => {
@@ -628,9 +535,8 @@ export function PanelBoard({
     if (!renamingSection) return;
     const trimmed = renamingSection.title.trim();
     if (!trimmed) return;
-    changeSections(withSectionRenamed(arrangement, renamingSection.nth, trimmed), () =>
-      setRenamingSection(null),
-    );
+    changeSections(withSectionRenamed(arrangement, renamingSection.nth, trimmed));
+    setRenamingSection(null);
   };
 
   /**
@@ -683,7 +589,6 @@ export function PanelBoard({
     // picked up off the row the line belongs to.
     event.preventDefault();
     event.stopPropagation();
-    command.reset();
     setSettling(null);
     setDeleting(null);
     setMovingPanel(null);
@@ -756,7 +661,6 @@ export function PanelBoard({
    */
   const fitRowToContents = (rowIndex: number) => {
     abandonLine();
-    command.reset();
     propose(withRowHeight(shown, rowIndex, null));
   };
 
@@ -1052,7 +956,6 @@ export function PanelBoard({
    */
   const pickUp = (panelId: string, pointerId: number, whole = false, section: number | null = null) => {
     anchorOn(panelId);
-    command.reset();
     setSettling(null);
     // A Section is named by its place, which this drag moves.
     setRenamingSection(null);
@@ -1148,10 +1051,7 @@ export function PanelBoard({
    * captured on the board itself (`pickUp`), which is also listening for
    * `pointerup` on `window` for a release outside it (below) - so a release
    * *inside* the board reaches both listeners for the one event, and without
-   * this a single drop would ask for the move twice. The arrangement path
-   * below already happened to swallow a second call through `propose`'s own
-   * dedup against `sent.current`; the move does not have an equivalent, so a
-   * duplicate here would send two commands rather than silently repeat one.
+   * this a single drop would send its change twice.
    */
   const letGo = (point: { x: number; y: number }) => {
     if (!draggingNow.current) return;
@@ -1264,88 +1164,45 @@ export function PanelBoard({
   }, [sizing]);
 
   /**
-   * What the Panel settings form changed, written as one command ("Change a
-   * Panel's name and settings in one Panel settings form", issue 1206). Closed
-   * only once it lands: a refusal leaves the form up with the edits in it.
+   * **A Panel change closes its dialog at the click** and is drawn at once
+   * (`drawnAhead.ts`); a refusal puts it back and says why in the undo bar.
    */
+  const nameOf = (panelId: string) => panels.find((panel) => panel.id === panelId)?.name ?? 'The panel';
+
+  /** What the Panel settings form changed, written as one command ("Change a Panel's name and settings in one Panel settings form", issue 1206). */
   const saveSettings = (panelId: string, changes: PanelSettingsChanges) => {
-    command.mutate(
-      {
-        name: 'set_panel_settings',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          panelId,
-          ...changes,
-        },
-      },
-      { onSuccess: () => setSettling(null) },
+    sendAhead(
+      { name: 'set_panel_settings', payload: { ...envelope(), panelId, ...changes } },
+      `The settings of “${nameOf(panelId)}” were not saved.`,
     );
+    setSettling(null);
   };
 
-  /**
-   * What a Filter shows, saved whole ("Add a Filter panel that shows every
-   * filed item due in a window", issue 463) - as the question's rows.
-   *
-   * Closed only once it lands, the way the rename is: a refusal leaves the
-   * question up with the rows still in it rather than losing what was chosen.
-   */
+  /** What a Filter shows, saved whole ("Add a Filter panel that shows every filed item due in a window", issue 463) - as the question's rows. */
   const setFilter = (
     panelId: string,
     rows: FilterCondition[][],
     groupBy: FilterGrouping,
   ) => {
-    command.mutate(
-      {
-        name: 'set_panel_filter',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          panelId,
-          rows,
-          groupBy,
-        },
-      },
-      { onSuccess: () => setFiltering(null) },
+    sendAhead(
+      { name: 'set_panel_filter', payload: { ...envelope(), panelId, rows, groupBy } },
+      `The filter of “${nameOf(panelId)}” was not saved.`,
     );
+    setFiltering(null);
   };
 
-  /**
-   * How a Panel of items is sorted, saved whole, or null for Manual ("Sort a
-   * panel of items by the fields you choose", issue 526). Closed only once it
-   * lands, for the reason the Filter's is.
-   */
+  /** How a Panel of items is sorted, saved whole, or null for Manual ("Sort a panel of items by the fields you choose", issue 526). */
   const setSort = (panelId: string, sort: PanelSort | null) => {
-    command.mutate(
-      {
-        name: 'set_panel_sort',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          panelId,
-          sort,
-        },
-      },
-      { onSuccess: () => setSorting(null) },
+    sendAhead(
+      { name: 'set_panel_sort', payload: { ...envelope(), panelId, sort } },
+      `The sort of “${nameOf(panelId)}” was not saved.`,
     );
+    setSorting(null);
   };
 
   const deletePanel = (panelId: string) => {
-    command.mutate(
-      {
-        name: 'delete_panel',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          panelId,
-        },
-      },
-      { onSuccess: () => setDeleting(null) },
-    );
+    sendAhead({ name: 'delete_panel', payload: { ...envelope(), panelId } }, `“${nameOf(panelId)}” was not deleted.`);
+    setDeleting(null);
   };
 
   /**
@@ -1356,21 +1213,13 @@ export function PanelBoard({
    * going.
    */
   const movePanelToDashboard = (panelId: string, targetDashboardId: string) => {
-    command.mutate(
-      {
-        name: 'move_panel_to_dashboard',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          panelId,
-          dashboardId: targetDashboardId,
-        },
-      },
-      { onSuccess: () => setMovingPanel(null) },
+    const target = dashboards.find((one) => one.id === targetDashboardId)?.name ?? 'the other dashboard';
+    sendAhead(
+      { name: 'move_panel_to_dashboard', payload: { ...envelope(), panelId, dashboardId: targetDashboardId } },
+      `“${nameOf(panelId)}” was not moved to “${target}”.`,
     );
+    setMovingPanel(null);
   };
-
   /**
    * The dashboard tabs on the page right now, so a drop can ask which one the
    * pointer let go over. Global rather than scoped to this board's own
@@ -1403,15 +1252,6 @@ export function PanelBoard({
         <p className="sr-only" role="status">
           This dashboard is filtered
           {hiddenCount > 0 && `, ${hiddenCount === 1 ? '1 panel' : `${hiddenCount} panels`} hidden`}
-        </p>
-      )}
-
-      {/* Only the arrangement's. A refused add or rename is said where the
-          name still is - in the dialog, or in the panel's own header. */}
-      {/* A Section being renamed says its own, in its band. */}
-      {refusalFor('save_layout') && !renamingSection && (
-        <p role="alert" className="px-4 py-2 text-sm text-over-ink">
-          {refusalFor('save_layout')}
         </p>
       )}
 
@@ -1466,22 +1306,16 @@ export function PanelBoard({
                       renaming={renamingSection?.nth === nth ? renamingSection.title : null}
                       onRenamingChange={(next) => setRenamingSection({ nth, title: next })}
                       onStartRenaming={() => {
-                        command.reset();
                         setSettling(null);
                         setDeleting(null);
                         setRenamingSection({ nth, title });
                       }}
                       onRename={renameSection}
-                      onStopRenaming={() => {
-                        setRenamingSection(null);
-                        command.reset();
-                      }}
+                      onStopRenaming={() => setRenamingSection(null)}
                       onDelete={() => {
                         setRenamingSection(null);
                         changeSections(withSectionDeleted(arrangement, nth));
                       }}
-                      refusal={renamingSection?.nth === nth ? refusalFor('save_layout') : null}
-                      busy={command.isPending}
                       lifted={dragging?.id === sectionKey(rowIndex)}
                       onPickUp={
                         arrangeable ? (pointerId) => pickUp(sectionKey(rowIndex), pointerId, true, rowIndex) : null
@@ -1576,7 +1410,6 @@ export function PanelBoard({
                           panelsInWorkspace={panelsInWorkspace}
                           dashboards={dashboards}
                           onSettings={(openedFrom) => {
-                            command.reset();
                             setDeleting(null);
                             setMovingPanel(null);
                             setFiltering(null);
@@ -1586,7 +1419,6 @@ export function PanelBoard({
                             setSettling(panel.id);
                           }}
                           onDelete={(openedFrom) => {
-                            command.reset();
                             setSettling(null);
                             setMovingPanel(null);
                             setFiltering(null);
@@ -1596,7 +1428,6 @@ export function PanelBoard({
                           }}
                           canMoveToAnotherDashboard={otherDashboards.length > 0}
                           onMoveToAnotherDashboard={(openedFrom) => {
-                            command.reset();
                             setSettling(null);
                             setDeleting(null);
                             setFiltering(null);
@@ -1605,7 +1436,6 @@ export function PanelBoard({
                             setMovingPanel(panel.id);
                           }}
                           onFilter={(openedFrom) => {
-                            command.reset();
                             setSettling(null);
                             setDeleting(null);
                             setMovingPanel(null);
@@ -1614,7 +1444,6 @@ export function PanelBoard({
                             setFiltering(panel.id);
                           }}
                           onSort={(openedFrom) => {
-                            command.reset();
                             setSettling(null);
                             setDeleting(null);
                             setMovingPanel(null);
@@ -1630,21 +1459,6 @@ export function PanelBoard({
                           collapsed={collapsed}
                           onTap={phone ? (at) => tappedHeader(panel.id, at) : null}
                           onPickUp={arrangeable ? (pointerId) => pickUp(panel.id, pointerId) : null}
-                          refusal={
-                            // Only where the form is shut, for the same reason.
-                            (settling === panel.id
-                              ? null
-                              : refusalFor('set_panel_settings', panel.id)) ??
-                            refusalFor('delete_panel', panel.id) ??
-                            refusalFor('move_panel_to_dashboard', panel.id) ??
-                            // Only where the question is shut: while it is
-                            // open it says its own, which is where somebody
-                            // looking at it would read it.
-                            (filtering === panel.id
-                              ? null
-                              : refusalFor('set_panel_filter', panel.id)) ??
-                            (sorting === panel.id ? null : refusalFor('set_panel_sort', panel.id))
-                          }
                         />
                       </Fragment>
                     );
@@ -1702,10 +1516,7 @@ export function PanelBoard({
               onSave={(rows, groupBy) => setFilter(beingFiltered.id, rows, groupBy)}
               onCancel={() => {
                 setFiltering(null);
-                command.reset();
               }}
-              refusal={refusalFor('set_panel_filter', beingFiltered.id)}
-              busy={command.isPending}
               returnFocusTo={askedFrom.current}
             />
           </Suspense>
@@ -1723,10 +1534,7 @@ export function PanelBoard({
               onSave={(changes) => saveSettings(beingSet.id, changes)}
               onCancel={() => {
                 setSettling(null);
-                command.reset();
               }}
-              refusal={refusalFor('set_panel_settings', beingSet.id)}
-              busy={command.isPending}
               returnFocusTo={askedFrom.current}
               drawnWidth={settlingWidth}
             />
@@ -1753,10 +1561,7 @@ export function PanelBoard({
               onSave={(sort) => setSort(beingSorted.id, sort)}
               onCancel={() => {
                 setSorting(null);
-                command.reset();
               }}
-              refusal={refusalFor('set_panel_sort', beingSorted.id)}
-              busy={command.isPending}
               returnFocusTo={askedFrom.current}
             />
           </Suspense>
@@ -1773,12 +1578,9 @@ export function PanelBoard({
           // panel's deletion affects", issue 465).
           question={deletePanelQuestion(beingDeleted, panelsInWorkspace)}
           confirmLabel={`Yes, delete ${beingDeleted.name}`}
-          canConfirm={!command.isPending}
-          refusal={refusalFor('delete_panel', beingDeleted.id)}
           returnFocusTo={askedFrom.current}
           onCancel={() => {
             setDeleting(null);
-            command.reset();
           }}
           onConfirm={() => deletePanel(beingDeleted.id)}
         />
@@ -1791,12 +1593,9 @@ export function PanelBoard({
               open
               panelName={beingMoved.name}
               dashboards={otherDashboards}
-              refusal={refusalFor('move_panel_to_dashboard', beingMoved.id)}
-              busy={command.isPending}
               returnFocusTo={askedFrom.current}
               onCancel={() => {
                 setMovingPanel(null);
-                command.reset();
               }}
               onPick={(dashboardId) => movePanelToDashboard(beingMoved.id, dashboardId)}
             />

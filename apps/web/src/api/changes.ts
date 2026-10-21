@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { CommandResult } from '@cockpit/shared';
+import type { CommandResult, WorkspaceSnapshot } from '@cockpit/shared';
 import { createChangeQueue } from '../changeQueue';
 import { refuseWhileOffline } from '../offline';
 import { sendCommand } from './client';
@@ -65,6 +65,8 @@ export function watchWorkspaceReads(client: QueryClient): void {
     const [kind, workspaceId] = event.query.queryKey;
     if (kind !== 'snapshot' || typeof workspaceId !== 'string') return;
     const begunAt = readsBegunAt.get(workspaceId);
-    if (begunAt !== undefined) changes.readLanded(workspaceId, begunAt);
+    if (begunAt !== undefined) {
+      changes.readLanded(workspaceId, begunAt, (event.query.state.data as WorkspaceSnapshot | undefined)?.upTo);
+    }
   });
 }

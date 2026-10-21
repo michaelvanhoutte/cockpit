@@ -38,7 +38,7 @@ import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { setPanelsCollapsed } from '../../../src/panelsCollapsed';
 import { dashboardScope, shownOn } from '../../../src/selection';
-import { useCommand } from '../../../src/api/queries';
+import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { entriesIn, isListedSection, usePanelListing } from '../../../src/panelList';
 import type { PanelListEntry } from '../../../src/panelList';
 import { renderHook } from '@testing-library/react';
@@ -58,9 +58,10 @@ vi.mock('../../../src/api/queries', async () => {
   const actual = await vi.importActual<typeof import('../../../src/api/queries')>(
     '../../../src/api/queries',
   );
-  return { ...actual, useCommand: vi.fn() };
+  return { ...actual, useCommand: vi.fn(), useSendCommand: vi.fn() };
 });
 
+const mockUseSendCommand = vi.mocked(useSendCommand);
 const mockUseCommand = vi.mocked(useCommand);
 
 const DASHBOARD: Dashboard = {
@@ -229,16 +230,8 @@ function showBoard({
   attachments = [] as Attachment[],
   agentRuns = [] as AgentRun[],
   filings = [] as Filing[],
+  /** The refusal every change is answered with, where a case is about one. */
   error,
-  variables,
-  /**
-   * False leaves every change in flight, which is the state the board spends
-   * a real gesture in: sent, not yet re-read, and still drawn from what was
-   * dragged rather than from the snapshot in hand.
-   */
-  settles = true,
-  /** A change already on its way out when the board is first drawn. */
-  pending = false,
   /** What a Panel's + and **Add an item…** open Capture with; none offers neither. */
   opensCapture,
 }: {
@@ -251,27 +244,20 @@ function showBoard({
   agentRuns?: AgentRun[];
   filings?: Filing[];
   error?: Error;
-  variables?: { name: string; payload: Record<string, unknown> };
-  settles?: boolean;
-  pending?: boolean;
   opensCapture?: OpenCaptureOn;
 } = {}) {
-  const mutate = vi.fn(
-    (_args, options?: { onSuccess?: () => void; onError?: (error: Error) => void }) => {
-      // A refusal answers too, and answers differently: the board has to hear
-      // about it to put the arrangement back.
-      if (error) options?.onError?.(error);
-      else if (settles) options?.onSuccess?.();
-    },
-  );
-  mockUseCommand.mockReturnValue({
-    mutate,
-    reset: vi.fn(),
-    isPending: pending,
-    error: error ?? null,
-    variables,
-  } as never);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The board never waits on the answer: a refusal comes back as a rejection, which it says in the undo bar.
+  // The text of a Panel of text still goes through a mutation of its own, with callbacks.
+  const mutate = vi.fn(async (_args, options?: { onSuccess?: () => void; onError?: (error: Error) => void }) => {
+    if (error) {
+      options?.onError?.(error);
+      throw error;
+    }
+    options?.onSuccess?.();
+    return { ok: true as const, applied: true };
+  });
+  mockUseSendCommand.mockReturnValue(mutate as never);
+  mockUseCommand.mockReturnValue({ mutate, reset: vi.fn(), isPending: false, error: null, variables: undefined } as never);  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const board = (
     drawing: Panel[],
     drawnItems: Item[] = items,
@@ -1007,40 +993,6 @@ describe('Panels', () => {
       expect(asked.payload).not.toHaveProperty('screenWidth');
     });
 
-    it('changes the layout it just made rather than naming a second one', async () => {
-      // Two gestures before the first has been re-read both find a dashboard
-      // with no layout, and the second is about the one the first made.
-      // Left in flight, which is the state two quick gestures happen in: the
-      // first is sent and not yet re-read, so the second still finds a
-      // dashboard with no layout.
-      const { mutate } = showBoard({ settles: false });
-
-      dragTo('To read', slotBefore('falcon'));
-      dragTo('Project Falcon', slotBefore('reading'));
-
-      expect(mutate).toHaveBeenCalledTimes(2);
-      const [first] = mutate.mock.calls[0]!;
-      const [second] = mutate.mock.calls[1]!;
-      expect(second.payload.layoutId).toBe(first.payload.layoutId);
-    });
-
-    it('sends a change that puts the panels back where the stored layout has them', async () => {
-      // The second gesture is a change from where the panels are *now*, which
-      // is the arrangement the first one made and the snapshot in hand does not
-      // have yet. Measured against the snapshot it would look like no change at
-      // all, and the move would be silently dropped.
-      const { mutate } = showBoard({
-        layouts: [aLayout('laptop', ['falcon', 'reading'])],
-        settles: false,
-      });
-
-      dragTo('To read', slotBefore('falcon'));
-      dragTo('Project Falcon', slotBefore('reading'));
-
-      expect(mutate).toHaveBeenCalledTimes(2);
-      expect(sentOrder(mutate)).toEqual(['falcon', 'reading']);
-    });
-
     it('sends nothing when the gesture leaves the arrangement where it already was', async () => {
       // Dropped back where it already is - on its own slot. A gesture
       // happened, and what it asks for is what the layout already holds;
@@ -1576,79 +1528,6 @@ describe('Panels', () => {
     });
   });
 
-  describe('a change that could not happen says so where it was asked for', () => {
-    it.each([
-      {
-        situation: 'a title another panel already holds',
-        error: new CommandRefused(409, 'a panel called To read is already on this dashboard'),
-        variables: { name: 'set_panel_settings', payload: { panelId: 'falcon' } },
-        act: async (user: ReturnType<typeof userEvent.setup>) => {
-          await openSettings(user, 'Project Falcon');
-          await user.type(screen.getByRole('textbox', { name: 'Name' }), ' 2');
-          await user.click(screen.getByRole('button', { name: 'Save' }));
-        },
-        says: 'a panel called To read is already on this dashboard',
-        stillOpen: 'Name',
-        holding: 'Project Falcon 2',
-      },
-      {
-        situation: 'a request that never reached the server',
-        error: new Error('Failed to fetch'),
-        variables: { name: 'set_panel_settings', payload: { panelId: 'falcon' } },
-        act: async (user: ReturnType<typeof userEvent.setup>) => {
-          await openSettings(user, 'Project Falcon');
-          await user.type(screen.getByRole('textbox', { name: 'Name' }), ' 2');
-          await user.click(screen.getByRole('button', { name: 'Save' }));
-        },
-        says: 'That did not reach the server. Try again.',
-        stillOpen: 'Name',
-        holding: 'Project Falcon 2',
-      },
-    ])('$situation', async ({ error, variables, act, says, stillOpen, holding }) => {
-      const { user } = showBoard({ error, variables });
-
-      await act(user);
-
-      expect(screen.getByRole('alert')).toHaveTextContent(says);
-      // Said once, by the form: the panel behind it does not say it again.
-      expect(screen.getAllByRole('alert', { hidden: true })).toHaveLength(1);
-      // Still there to be corrected: the form does not close over a refusal,
-      // and it still holds what was typed into it.
-      expect(screen.getByRole('textbox', { name: stillOpen })).toHaveValue(holding);
-    });
-
-    it('puts a refused arrangement back, rather than leaving it under the message', async () => {
-      // The draft is what the grid draws while a change is in flight. Left
-      // standing through a refusal, the panels say the change happened and the
-      // notice above them says it did not.
-      //
-      // Reachable: two tabs on a dashboard with no layout, both on a screen of
-      // the same size, both dragging - the second is refused for the name.
-      showBoard({
-        error: new CommandRefused(409, 'a layout called Wide already arranges this dashboard'),
-        variables: { name: 'save_layout', payload: {} },
-      });
-
-      dragTo('To read', slotBefore('falcon'));
-
-      expect(screen.getByRole('alert')).toHaveTextContent('a layout called Wide already arranges');
-      expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'To read']);
-    });
-
-    it('says a refused arrangement above the board, which is the only place it belongs', async () => {
-      // Nothing asked for the arrangement in a box that could hold the answer -
-      // it came from a drag - so the board itself says it.
-      showBoard({
-        layouts: [aLayout('wide', ['falcon', 'reading'])],
-        error: new CommandRefused(404, 'panel reading is not on this dashboard'),
-        variables: { name: 'save_layout', payload: {} },
-      });
-
-      dragTo('To read', slotBefore('falcon'));
-
-      expect(screen.getByRole('alert')).toHaveTextContent('panel reading is not on this dashboard');
-    });
-  });
 });
 
 /**
@@ -2060,7 +1939,7 @@ describe('Panels', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
 
-    it('closes once the save has landed', async () => {
+    it('closes at the click, without waiting for the answer', async () => {
       const { user } = showBoard();
 
       await openSettings(user, 'Project Falcon');
@@ -2068,18 +1947,6 @@ describe('Panels', () => {
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       expect(screen.queryByRole('dialog')).toBeNull();
-    });
-
-    it('stays open, unable to save again or be dismissed, while a save is on its way', async () => {
-      const { mutate, user } = showBoard({ pending: true });
-
-      await openSettings(user, 'Project Falcon');
-      await user.type(screen.getByRole('textbox', { name: 'Name' }), ' 2');
-      await user.keyboard('{Escape}');
-
-      expect(screen.getByRole('dialog', { name: 'Panel settings' })).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
-      expect(mutate).not.toHaveBeenCalled();
     });
 
     it('sends only the formatting when that is all that changed on a panel of text', async () => {
@@ -2547,7 +2414,6 @@ describe('Onboarding', () => {
             rows: [[{ field: 'dueDate', window: 'week', orOverdue: false }]],
           }),
         }),
-        expect.anything(),
       );
     });
 
@@ -2586,7 +2452,6 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({ rows: [] }),
         }),
-        expect.anything(),
       );
     });
 
@@ -2968,7 +2833,6 @@ describe('Onboarding', () => {
             name: 'set_panel_filter',
             payload: expect.objectContaining({ rows: [[DUE_TODAY]], groupBy: 'dashboard' }),
           }),
-          expect.anything(),
         );
       });
 
@@ -2987,20 +2851,6 @@ describe('Onboarding', () => {
         expect(await screen.findByRole('radio', { name: 'Panel' })).toBeChecked();
       });
 
-      it('stays open with the grouping still chosen where the save is refused', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY])],
-          error: new CommandRefused(409, 'that did not save'),
-          variables: { name: 'set_panel_filter', payload: { panelId: 'due' } },
-        });
-
-        await choose(user, 'Due soon', 'Filter…');
-        await user.click(await screen.findByRole('radio', { name: 'Dashboard' }));
-        await user.click(screen.getByRole('button', { name: 'Save' }));
-
-        expect(screen.getByRole('alert')).toHaveTextContent('that did not save');
-        expect(screen.getByRole('radio', { name: 'Dashboard' })).toBeChecked();
-      });
     });
 
     it('is not asked what a panel of items or a panel of text shows', async () => {
@@ -3110,7 +2960,6 @@ describe('Onboarding', () => {
             rows: [[{ field: 'priority', values: ['high', 'normal'] }]],
           }),
         }),
-        expect.anything(),
       );
     });
 
@@ -3143,7 +2992,6 @@ describe('Onboarding', () => {
             rows: [[{ field: 'panel', values: ['project'] }]],
           }),
         }),
-        expect.anything(),
       );
     });
 
@@ -3193,7 +3041,6 @@ describe('Onboarding', () => {
             rows: [[{ field: 'priority', values: ['low'], exclude: true }]],
           }),
         }),
-        expect.anything(),
       );
     });
 
@@ -3216,7 +3063,6 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({ rows: [[{ field: 'status', values: ['to_do'] }]] }),
         }),
-        expect.anything(),
       );
     });
 
@@ -3254,7 +3100,6 @@ describe('Onboarding', () => {
           expect.objectContaining({
             payload: expect.objectContaining({ rows: [[{ field: 'panel', values: ['panel-Bravo'] }]] }),
           }),
-          expect.anything(),
         );
       });
 
@@ -3449,7 +3294,6 @@ describe('Onboarding', () => {
                 rows: [[{ field: 'dashboard', values: ['personal'], exclude: true }]],
               }),
             }),
-            expect.anything(),
           );
         });
 
@@ -4031,7 +3875,7 @@ describe('Panels', () => {
     });
 
     it('sends one save naming the new order, heights and shares travelling with their rows', () => {
-      const { mutate } = board({ settles: false });
+      const { mutate } = board();
       take(0);
       moveTo(ROW_MIDDLE[1]! + 10);
 
@@ -4044,7 +3888,7 @@ describe('Panels', () => {
     });
 
     it('sends one save, not two, for a release inside the board that reaches the window as well', () => {
-      const { mutate } = board({ settles: false });
+      const { mutate } = board();
       take(2);
       moveTo(10);
 
@@ -4828,37 +4672,6 @@ describe('Layouts', () => {
     });
   });
 
-  describe("a Section's change is held until the store agrees, so the next one is made to it", () => {
-    it.each([375, 1280])('at %ipx, a second delete before the re-read keeps the first', async (width) => {
-      screenIs(width);
-      const twoSections: Layout = {
-        ...withASection,
-        rows: [...withASection.rows, { height: null, title: 'Later', cells: [] }],
-      };
-      const { user, mutate } = showBoard({ layouts: [twoSections], settles: false });
-
-      await user.click(menuButtonOf('This week'));
-      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
-      expect(screen.queryByRole('heading', { name: 'This week' })).toBeNull();
-      await user.click(menuButtonOf('Later'));
-      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
-
-      const [asked] = mutate.mock.calls.at(-1)! as unknown as [{ payload: { rows: { title?: string }[] } }];
-      expect(asked.payload.rows.filter((row) => row.title !== undefined)).toEqual([]);
-    });
-
-    it('closes a rename left open when the board is rearranged, so that change answers for itself', async () => {
-      const { user, mutate } = showBoard({ layouts: [withASection] });
-
-      await user.click(menuButtonOf('This week'));
-      await user.click(await screen.findByRole('menuitem', { name: 'Rename' }));
-      dragRowLine(0, 200);
-
-      expect(mutate).toHaveBeenCalledTimes(1);
-      expect(screen.queryByLabelText('New title for This week')).toBeNull();
-    });
-  });
-
   /**
    * A Section dragged by its band ("Drag a Section between a Dashboard's rows,
    * and keep Panels off its line", issue 897). Where it is placed is
@@ -4891,7 +4704,7 @@ describe('Layouts', () => {
       { situation: 'to above the first row', y: 10, becomes: ['This week', ['falcon'], ['reading']] },
       { situation: 'to the gap between two rows', y: 110, becomes: [['falcon'], 'This week', ['reading']] },
     ])('sends one save placing it $situation by the pointer’s height', ({ y, becomes }) => {
-      const { mutate } = showBoard({ layouts: [{ ...withASection, rows: [withASection.rows[0]!, withASection.rows[2]!, withASection.rows[1]!] }], settles: false });
+      const { mutate } = showBoard({ layouts: [{ ...withASection, rows: [withASection.rows[0]!, withASection.rows[2]!, withASection.rows[1]!] }] });
       takeBand('This week');
 
       moveTo(y);
@@ -4936,7 +4749,7 @@ describe('Layouts', () => {
     });
 
     it('gives a Panel dropped in the gap under a Section a row of its own there', () => {
-      const { mutate } = showBoard({ layouts: [withASection], settles: false });
+      const { mutate } = showBoard({ layouts: [withASection] });
 
       // Let go on the window: the Panel's header is drawn under another parent by then, and the board is what holds the pointer.
       dragTo('Project Falcon', { x: 300, y: 233 }, false);

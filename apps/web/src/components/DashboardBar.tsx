@@ -8,10 +8,9 @@ import {
   NO_DASHBOARD_FILTER,
   isFiltering,
 } from '@cockpit/shared';
-import { CommandRefused } from '../api/client';
 import { dashboardScope, pickAll, shownOn } from '../selection';
 import { filtersUsingDashboard, joinedBy } from '../filters';
-import { refusalFrom, useCommand, useSendCommand } from '../api/queries';
+import { useSendCommand, whyNotDone as whyNot } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import { useDashboardFilter, useFilterBarOpen, useFilteredDashboardIds } from '../dashboardFilter';
 import { usePanelsCollapsed } from '../panelsCollapsed';
@@ -635,11 +634,6 @@ export function DashboardBar({
   );
 }
 
-/** Why a change did not happen, in the server's words where it gave any, for the undo bar to say. */
-function whyNot(failure: unknown): string {
-  return refusalFrom({ error: failure }) ?? 'That could not be done.';
-}
-
 /**
  * Opening the filter bar starts from the first Panels with the bar above them,
  * so the press is never out of sight. Only opening does this: clearing, and
@@ -870,21 +864,23 @@ function AddPanel({
    * of items nobody chose.
    */
   const [kind, setKind] = useState<PanelKind | 'section'>('items');
-  const command = useCommand();
+  const send = useSendCommand();
+  const offerToUndo = useUndo();
   const button = useRef<HTMLButtonElement>(null);
   const { data } = useSnapshot(workspaceId);
   const section = kind === 'section';
 
-  const refusal =
-    command.error instanceof CommandRefused
-      ? command.error.message
-      : command.error
-        ? 'That did not reach the server. Try again.'
-        : null;
-
+  /**
+   * Adds at the click: the dialog closes and the Panel or Section is on the
+   * board before the server has answered (`drawnAhead.ts`), and a refusal takes
+   * it away and says why in the undo bar.
+   */
   const add = () => {
     const trimmed = (naming ?? '').trim();
     if (!trimmed) return;
+    const notAdded = (failure: unknown) =>
+      offerToUndo({ what: `The ${section ? 'section ' : ''}“${trimmed}” was not added. ${whyNot(failure)}` });
+    setNaming(null);
     if (section) {
       // A Section is a row of the Dashboard's one Layout, so it is added by
       // saving the arrangement on screen with it at the foot - which makes the
@@ -897,40 +893,32 @@ function AddPanel({
           (data?.panels ?? []).filter((panel) => panel.dashboardId === dashboardId),
           window.innerWidth,
         );
-      command.mutate(
-        {
-          name: 'save_layout',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            workspaceId,
-            dashboardId,
-            layoutId: layout?.id ?? uuidv7(),
-            carriesSections: true,
-            rows: rowsToSave(withSectionAdded(rows, trimmed)),
-          },
-        },
-        { onSuccess: () => setNaming(null) },
-      );
-      return;
-    }
-    command.mutate(
-      {
-        name: 'add_panel',
+      send({
+        name: 'save_layout',
         payload: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId,
           dashboardId,
-          panelId: uuidv7(),
-          name: trimmed,
-          kind,
+          layoutId: layout?.id ?? uuidv7(),
+          carriesSections: true,
+          rows: rowsToSave(withSectionAdded(rows, trimmed)),
         },
+      }).catch(notAdded);
+      return;
+    }
+    send({
+      name: 'add_panel',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        dashboardId,
+        panelId: uuidv7(),
+        name: trimmed,
+        kind,
       },
-      // Closed and emptied only once it worked, so a refused title is still
-      // there to be corrected rather than typed again.
-      { onSuccess: () => setNaming(null) },
-    );
+    }).catch(notAdded);
   };
 
   return (
@@ -941,7 +929,6 @@ function AddPanel({
         disabled={locked}
         title={locked ? 'Clear the dashboard filter to add a panel' : undefined}
         onClick={() => {
-          command.reset();
           // Back to Items every time it opens. The kind is not a preference -
           // it is a question about the panel being made now, and carrying the
           // last answer into it would decide it for somebody who never looked.
@@ -963,12 +950,7 @@ function AddPanel({
         name={naming ?? ''}
         onNameChange={setNaming}
         onSubmit={add}
-        onCancel={() => {
-          setNaming(null);
-          command.reset();
-        }}
-        refusal={refusal}
-        busy={command.isPending}
+        onCancel={() => setNaming(null)}
         returnFocusTo={button.current}
       />
     </>
