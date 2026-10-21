@@ -1457,6 +1457,16 @@ describe('Cycle time', () => {
     });
   });
 
+  describe('the stacked job lanes of a round read as separate bars', () => {
+    it("parts a round's stacked job lanes and leads with a hairline in the page's background along their top edge, drawn on the lane so nothing moves", () => {
+      const css = cssOf(render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 1, 3, 9)])] })] }));
+      // Scoped to a round, so a parallel stretch's local lanes do not match; not under .zoomed, so a closed and a zoomed strip draw it alike.
+      expect(css).toMatch(/(^|\n)\.seg\.round \.lane\.job, \.seg\.round \.lane\.lead \{ border-top: 1px solid var\(--card\); \}/);
+      // A border takes from the lane's own box only while every box on the page is border-box.
+      expect(css).toContain('* { box-sizing: border-box; }');
+    });
+  });
+
   describe('hover outlines the element under the pointer and nothing around it', () => {
     const css = cssOf(render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12)])] })] }));
 

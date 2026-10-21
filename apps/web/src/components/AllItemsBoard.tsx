@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { snapshotQuery } from '../api/queries';
+import { useSnapshot } from '../api/useSnapshot';
 import {
   ALL_ITEMS_COLUMNS,
   ALL_ITEMS_PAGE,
@@ -37,7 +36,7 @@ import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFi
  * is landed on, as a Dashboard's board does for an open one.
  */
 export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) {
-  const { data, error, refetch } = useQuery(snapshotQuery(workspaceId));
+  const { data, error, refetch } = useSnapshot(workspaceId);
   const openItem = useOpenItem();
   const [sort, setSort] = useState<AllItemsSort>(DEFAULT_SORT);
   const [filter] = useDashboardFilter(browserStore(), allItemsFilterId(workspaceId));

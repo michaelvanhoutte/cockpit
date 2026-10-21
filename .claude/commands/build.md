@@ -60,12 +60,12 @@ gh api graphql -F n=<number> -f query='query($n:Int!){repository(owner:"michaelv
 
 | Phase | Steps | Runs as | Model |
 |---|---|---|---|
-| Build | 3–6, then commit, push and open the draft pull request | a subagent | the child's |
+| Build | 3–6, then commit; no push | a subagent | the child's |
 | Review | 7's `/code-review`, its fixes and recheck | a subagent, kept to fix later findings through `SendMessage` | the child's |
 | Security review | 7's `/security-review`, where Review findings' table asks for it | its own subagent, spawned from this session | the child's |
-| Ship | 8: ready, the waiter, merge | this session; a failing check goes to the Review subagent to fix | — |
+| Ship | 8: the push and the draft pull request, ready, the waiter, merge | this session; a failing check goes to the Review subagent to fix | — |
 
-A child's reviews run on its own model, overriding step 7's stronger-of rule: a parent's children are where that cost multiplies. The security review is spawned from this session because a subagent can't spawn one of its own, and running it inline there ends that subagent on the report. Likewise a subagent returning never ends this session's turn: read its report and start the next phase.
+The push waits for both reviews, as step 7 says, so their fixes are in the push that opens the pull request rather than a second push whose first CI run is wasted. A child's reviews run on its own model, overriding step 7's stronger-of rule: a parent's children are where that cost multiplies. The security review is spawned from this session because a subagent can't spawn one of its own, and running it inline there ends that subagent on the report. Likewise a subagent returning never ends this session's turn: read its report and start the next phase.
 
 - **Report once every child is done**, per step 10, one line per child naming its pull request. Step 8 has already closed the parent after the last child merged, per **Close the parent**.
 

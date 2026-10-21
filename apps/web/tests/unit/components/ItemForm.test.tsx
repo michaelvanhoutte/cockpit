@@ -3224,12 +3224,8 @@ describe('Item editing', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(/changed somewhere else/);
     });
 
-    it('waits for a write still in flight before undoing an earlier one, and offers nothing stale after', async () => {
+    it('offers the way back at the gesture, and an undo waits for a write still in flight', async () => {
       const user = await dockedForm(anItem({ title: 'A' }), true);
-      await user.type(titleBox(), ' B');
-      await user.tab();
-      const undo = await screen.findByText('Undo');
-      held.send.mockClear();
       let land!: () => void;
       held.send.mockImplementationOnce(
         () =>
@@ -3237,10 +3233,12 @@ describe('Item editing', () => {
             land = () => resolve({ ok: true as const, applied: true });
           }),
       );
-      await user.type(titleBox(), ' C');
+      await user.type(titleBox(), ' B');
       await user.tab();
       await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
 
+      // Offered while the write is still out, which is the gesture.
+      const undo = await screen.findByText('Undo');
       fireEvent.click(undo);
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(held.send).toHaveBeenCalledTimes(1);
@@ -3358,7 +3356,8 @@ describe('Item editing', () => {
         );
         expect(sent().map((change) => change.name)).toEqual(['set_done', 'set_started']);
         expect(statusChip()).toHaveTextContent('To do');
-        expect(screen.queryByText('Undo')).toBeNull();
+        // Offered at the gesture, so it is taken back when the status as a whole did not land.
+        await waitFor(() => expect(screen.queryByText('Undo')).toBeNull());
       });
     });
 
@@ -3441,7 +3440,8 @@ describe('Item editing', () => {
         await user.click(priorityFlag('High'));
 
         expect(await screen.findByRole('alert')).toHaveTextContent(said);
-        expect(screen.queryByText('Undo')).toBeNull();
+        // Offered at the gesture, so it is taken back when the answer is the refusal.
+        await waitFor(() => expect(screen.queryByText('Undo')).toBeNull());
       });
     });
   });

@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NotSignedIn } from '../../../src/api/client';
 import { CapturePage } from '../../../src/pages/CapturePage';
+import type { PanelOpening } from '../../../src/captureOpener';
 import { aShare, aSharedPhoto, holdAShare, howManyAreHeld } from '../support/shares';
 
 /**
@@ -43,9 +44,9 @@ const navigated = vi.hoisted(() => vi.fn());
 
 vi.mock('@tanstack/react-router', () => ({
   // Takes effect on the mocked address as the router's would.
-  useNavigate: () => (args: { search: Record<string, unknown> }) => {
+  useNavigate: () => (args: { search?: Record<string, unknown> }) => {
     navigated(args);
-    at.search = args.search;
+    at.search = args.search ?? at.search;
     return Promise.resolve();
   },
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
@@ -73,11 +74,13 @@ vi.mock('../../../src/components/CaptureNote', () => ({
     arrived,
     onPutOn,
     onCaptured,
+    onKept,
   }: {
     startsIn: string | null;
     arrived?: { message: string; files: File[] } | null;
     onPutOn?: () => void;
     onCaptured?: () => void;
+    onKept?: () => void;
   }) => {
     drawn.startsIn = startsIn;
     // As the form does once it has put what it was handed on the note.
@@ -88,6 +91,7 @@ vi.mock('../../../src/components/CaptureNote', () => ({
     return (
       <div data-testid="the-form">
         <button onClick={onCaptured}>a capture lands</button>
+        <button onClick={onKept}>a note is kept</button>
         {arrived && <p data-testid="on-the-note">{[arrived.message, ...arrived.files.map((f) => f.name)].join(' + ')}</p>}
       </div>
     );
@@ -171,7 +175,7 @@ describe('Capture', () => {
     });
 
     it('carries the Panel a + opened it for over the switch', async () => {
-      const on = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' };
+      const on = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work', dashboardId: 'd-today' };
       opened('/capture/car', { captureFrom: 'ws-work', captureOn: on });
 
       expect(JSON.parse(writeSide().dataset.state!)).toEqual({ captureFrom: 'ws-work', captureOn: on });
@@ -181,6 +185,51 @@ describe('Capture', () => {
       opened('/capture');
 
       expect(JSON.parse(carSide().dataset.state!)).toEqual({});
+    });
+  });
+
+  /**
+   * "Close Capture after one note when a Panel's + opened it" (issue 1320): the
+   * page's half of the window going once a note is kept. When the form says so
+   * is components/CaptureNote.test.tsx.
+   */
+  describe('Capture opened from a Panel’s + returns to its Dashboard once one note is kept, and from the tab it stays', () => {
+    const keepANote = () => userEvent.click(screen.getByRole('button', { name: 'a note is kept' }));
+
+    it('shows the Dashboard the + was on in place of the page, so Back does not return to a finished form', async () => {
+      const on = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work', dashboardId: 'd-today' };
+      opened('/capture', { captureFrom: 'ws-work', captureOn: on });
+      await screen.findByTestId('the-form');
+
+      await keepANote();
+
+      expect(navigated).toHaveBeenCalledWith({
+        to: '/w/$workspaceId/d/$dashboardId',
+        params: { workspaceId: 'ws-work', dashboardId: 'd-today' },
+        replace: true,
+      });
+    });
+
+    it('goes to the Workspace where the page was opened before the Dashboard was carried with the Panel', async () => {
+      navigated.mockClear();
+      // What a tab open since before the Dashboard travelled with the Panel still holds.
+      const on = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' } as unknown as PanelOpening;
+      opened('/capture', { captureFrom: 'ws-work', captureOn: on });
+      await screen.findByTestId('the-form');
+
+      await keepANote();
+
+      expect(navigated).toHaveBeenCalledWith({ to: '/w/$workspaceId', params: { workspaceId: 'ws-work' }, replace: true });
+    });
+
+    it('stays on the page from the tab, for the next note', async () => {
+      navigated.mockClear();
+      opened('/capture', { captureFrom: 'ws-work' });
+      await screen.findByTestId('the-form');
+
+      await keepANote();
+
+      expect(navigated).not.toHaveBeenCalled();
     });
   });
 

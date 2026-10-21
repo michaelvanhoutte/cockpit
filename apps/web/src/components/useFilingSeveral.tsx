@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
-import { snapshotQuery, useLatestSnapshot, useSendCommand } from '../api/queries';
+import { useLatestSnapshot, useSendCommand } from '../api/queries';
+import { useSnapshot } from '../api/useSnapshot';
 import { CommandRefused } from '../api/client';
 import {
   filedOrderOnPanel,
@@ -52,7 +52,7 @@ export function useFilingSeveral({
   /** The Items picked, in the order they are to be filed. */
   picked: readonly Item[];
 }) {
-  const { data } = useQuery(snapshotQuery(workspaceId));
+  const { data } = useSnapshot(workspaceId);
   const send = useSendCommand();
   const latestSnapshot = useLatestSnapshot();
   const offerToUndo = useUndo();

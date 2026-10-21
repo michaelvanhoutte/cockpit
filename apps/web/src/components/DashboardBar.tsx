@@ -14,6 +14,7 @@ import { CommandRefused } from '../api/client';
 import { dashboardScope, pickAll, shownOn } from '../selection';
 import { filtersUsingDashboard, joinedBy } from '../filters';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
+import { useSnapshot } from '../api/useSnapshot';
 import { useDashboardFilter, useFilterBarOpen, useFilteredDashboardIds } from '../dashboardFilter';
 import { usePanelsCollapsed } from '../panelsCollapsed';
 import { useScreenWidth } from '../panels/useScreenWidth';
@@ -81,7 +82,7 @@ export function DashboardBar({
   /** The page's color, which the tab you are on is filled with so it meets it. */
   ground: string;
 }) {
-  const { data } = useQuery(snapshotQuery(workspaceId));
+  const { data } = useSnapshot(workspaceId);
   const dashboards = data?.dashboards ?? [];
   const allItemsOn = useAllItemsTab(workspaceId);
   const roomForTheInbox = useRoomForTheInbox();
@@ -966,7 +967,7 @@ function AddPanel({
   const [kind, setKind] = useState<PanelKind | 'section'>('items');
   const command = useCommand();
   const button = useRef<HTMLButtonElement>(null);
-  const { data } = useQuery(snapshotQuery(workspaceId));
+  const { data } = useSnapshot(workspaceId);
   const section = kind === 'section';
 
   const refusal =

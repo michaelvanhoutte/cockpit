@@ -15,13 +15,13 @@ import {
   itemIdsWithRun,
 } from '@cockpit/shared';
 import {
-  snapshotQuery,
   useCommand,
   useLatestSnapshot,
   useSendCommand,
   workspacesQuery,
 } from '../api/queries';
 import { CommandRefused } from '../api/client';
+import { useSnapshot } from '../api/useSnapshot';
 import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import {
   ITEM_BEING_DRAGGED,
@@ -181,7 +181,7 @@ export function ItemList({
    */
   fillsTheRestOfItsColumn?: boolean;
 }) {
-  const { data } = useQuery(snapshotQuery(workspaceId));
+  const { data } = useSnapshot(workspaceId);
   const openItem = useOpenItem();
   // Every workspace, for the Inboxes the picker offers an item that belongs to
   // none of them. The same cached read the tabs above are already doing.

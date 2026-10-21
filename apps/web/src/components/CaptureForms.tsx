@@ -6,7 +6,7 @@ import { NotSignedIn } from '../api/client';
 import { meQuery } from '../api/queries';
 import { CarCapture, CaptureNote } from '../captureForm';
 import { useArrived } from '../shareClaim';
-import type { FiledOn } from './FileOnLine';
+import type { PanelOpening } from '../captureOpener';
 
 /**
  * Both sides of the Capture page's Write | Car switch, and what was shared into
@@ -30,7 +30,7 @@ export function CaptureForms({
 }: {
   startsIn: string | null;
   /** The Panel a + on its header opened this for (issue 1105). */
-  startsOn?: FiledOn | null;
+  startsOn?: PanelOpening | null;
   inCar: boolean;
   /** The page's navigation state, kept when the signal is taken out of the address. */
   carried: never;
@@ -65,6 +65,23 @@ export function CaptureForms({
             startsOn={startsOn}
             arrived={arrived}
             onPutOn={() => setShareFailed(false)}
+            // A Panel's + came to add one note: back to its Dashboard once it is kept, in place of
+            // the Capture page so Back does not return to a finished form. The Panel comes from
+            // the navigation's state, which a page open since before the Dashboard was carried
+            // in it still holds without one; that goes to the Workspace instead of to an address
+            // with a hole in it.
+            onKept={
+              startsOn
+                ? () =>
+                    void (startsOn.dashboardId
+                      ? navigate({
+                          to: '/w/$workspaceId/d/$dashboardId',
+                          params: { workspaceId: startsOn.workspaceId, dashboardId: startsOn.dashboardId },
+                          replace: true,
+                        })
+                      : navigate({ to: '/w/$workspaceId', params: { workspaceId: startsOn.workspaceId }, replace: true }))
+                : undefined
+            }
             onCaptured={() => {
               taken();
               setShareFailed(false);

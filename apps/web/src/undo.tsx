@@ -51,6 +51,12 @@ export interface Undoable {
    * moved to Admin & money.
    */
   split?: { title: string; rest: string };
+  /**
+   * The server's answer to the change being offered back, for a change offered
+   * before it has been answered. If it is refused the offer goes, unless a later
+   * change has replaced it: there is nothing to put back.
+   */
+  unlessRefused?: Promise<unknown>;
 }
 
 const Remembering = createContext<((change: Undoable) => void) | null>(null);
@@ -68,7 +74,9 @@ export function useUndo(): (change: Undoable) => void {
   return useContext(Remembering) ?? noteNothing;
 }
 
-const noteNothing = () => {};
+const noteNothing = (change: Undoable) => {
+  change.unlessRefused?.catch(() => {});
+};
 
 const Offering = createContext(false);
 
@@ -149,12 +157,16 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
     (change: Undoable) => {
       if (goesAt.current) clearTimeout(goesAt.current);
       offer.current += 1;
+      const mine = offer.current;
       setHeld(change);
       setFailure(null);
       setUndoing(false);
       goesAt.current = setTimeout(forgetNow, THE_BAR_LASTS_MS);
+      change.unlessRefused?.catch(() => {
+        if (offer.current === mine) forget();
+      });
     },
-    [forgetNow],
+    [forget, forgetNow],
   );
 
   /**
