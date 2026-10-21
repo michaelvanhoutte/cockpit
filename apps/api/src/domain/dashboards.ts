@@ -1,4 +1,4 @@
-import { FIRST_DASHBOARD_NAME } from '@cockpit/shared';
+import { FIRST_DASHBOARD_NAME, firstDashboardId } from '@cockpit/shared';
 import type { AddDashboardCommand, Dashboard } from '@cockpit/shared';
 import { foldName, namedTheSame } from './names.js';
 
@@ -106,16 +106,4 @@ export function firstDashboardFor(
     createdAt: workspace.createdAt,
     deletedAt: null,
   };
-}
-
-/**
- * The id of a workspace's first dashboard, derived from the workspace's own.
- *
- * Derived rather than generated so that a change which fails partway and is
- * applied again cannot produce a second dashboard that merely looks different
- * from the first - the second insert collides with the first on the primary key
- * instead of adding a row.
- */
-export function firstDashboardId(workspaceId: string): string {
-  return `${workspaceId}-dashboard-1`;
 }

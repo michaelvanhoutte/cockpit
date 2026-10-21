@@ -3,11 +3,11 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ADMIN, GUEST_USER_ID, paintedWorkspace, shellColours, uuidv7 } from '@cockpit/shared';
+import { ADMIN, GUEST_USER_ID, paintedWorkspace, shellColours } from '@cockpit/shared';
 import { useAllItemsOnScreen } from '../allItemsTab';
 import { useAppearance } from '../appearance';
 import { NotSignedIn, signOut } from '../api/client';
-import { meQuery, refusalFrom, snapshotQuery, useCommand } from '../api/queries';
+import { meQuery, snapshotQuery } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { useServerEvents } from '../api/useServerEvents';
 // Out of the initial bundle - the same boundary `ManageConnections` draws
@@ -35,9 +35,8 @@ import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { MenuContent, menuItemClass, type MenuEntry } from '../components/Menu';
 import { creditLine } from '../credit';
-import { NameQuestion } from '../components/NameQuestion';
+import { AddWorkspace } from '../components/AddWorkspace';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
-import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
 import { Logo } from '../components/Logo';
@@ -896,7 +895,7 @@ function TheShell() {
               the shell: which workspace is open, what it is painted in, and
               the `+` that makes another. */}
           <WorkspaceTabs bar={theme.bar} bringIntoView={bringIntoView}>
-            <AddWorkspace />
+            <AddWorkspace openWorkspaceId={params.workspaceId ?? null} />
           </WorkspaceTabs>
 
           <div className="flex shrink-0 items-end">
@@ -1230,94 +1229,5 @@ function TheShell() {
     </div>
     </SettingsOpener.Provider>
     </CaptureOpenerContext.Provider>
-  );
-}
-
-/**
- * The `+` at the end of the workspace tabs, and the dialog it opens.
- *
- * **Adding a workspace was reachable only through the header's menu**, two
- * presses in, on the deliberate grounds that you make three or four workspaces
- * in a lifetime and a control for that does not earn a place on the chrome.
- * What changed is that the same dialog now says *what a workspace is*, and an
- * account arrives holding one - so the explanation sat behind a door nobody new
- * would open, which is the one case that reasoning did not cover. It is also
- * the asymmetry that made workspaces feel hidden: the dashboards have a `+` on
- * the strip below this one, and the panels one at its right.
- *
- * **The rest of what can be done to one is on the tab itself**, exactly as it
- * is for dashboards: adding is a one-gesture thing you do from the strip the
- * new tab will appear on, and renaming, recolouring, moving and deleting are
- * the tab's own menu (components/WorkspaceTabs.tsx).
- */
-function AddWorkspace() {
-  const [naming, setNaming] = useState<string | null>(null);
-  const command = useCommand();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const button = useRef<HTMLButtonElement>(null);
-
-  const add = () => {
-    const trimmed = (naming ?? '').trim();
-    if (!trimmed) return;
-    // Made here rather than inside the payload, so the workspace to open is
-    // known before the answer comes back.
-    const workspaceId = uuidv7();
-    command.mutate(
-      {
-        name: 'create_workspace',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          // The panel its first dashboard arrives with.
-          panelId: uuidv7(),
-          name: trimmed,
-        },
-      },
-      {
-        onSuccess: async () => {
-          setNaming(null);
-          // Re-read before going there, for the reason adding a dashboard does
-          // (components/DashboardBar.tsx): the workspace route checks the id
-          // against the list in hand, and the list in hand is the one from
-          // before this workspace existed.
-          await queryClient.refetchQueries({ queryKey: ['workspaces'] });
-          void navigate({ to: '/w/$workspaceId', params: { workspaceId } });
-        },
-      },
-    );
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        ref={button}
-        onClick={() => {
-          command.reset();
-          setNaming('');
-        }}
-        aria-label="Add a workspace"
-        className="mb-1 shrink-0 rounded-md px-2.5 py-1 text-sm text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink"
-      >
-        +
-      </button>
-      <NameQuestion
-        open={naming !== null}
-        question="What is the new workspace called?"
-        explains={WHAT_A_WORKSPACE_IS}
-        fieldLabel="Name of the new workspace"
-        placeholder="Work, Personal, a customer…"
-        submitLabel="Add"
-        name={naming ?? ''}
-        onNameChange={setNaming}
-        onSubmit={add}
-        onCancel={() => setNaming(null)}
-        refusal={refusalFrom(command)}
-        busy={command.isPending}
-        returnFocusTo={button.current}
-      />
-    </>
   );
 }

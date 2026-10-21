@@ -1,6 +1,10 @@
 import {
+  DEFAULT_ITEM_FORM_PRESENTATION,
+  FIRST_DASHBOARD_NAME,
   FIRST_PANEL_NAME,
   NO_CONDITIONS,
+  firstDashboardId,
+  nextColor,
   themeOf,
   type Dashboard,
   type Item,
@@ -122,9 +126,52 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: CommandArgs): Wo
           };
     case 'save_layout':
       return layoutSaved(snapshot, change.payload);
+    case 'create_workspace':
+      // A Workspace arrives with its first Dashboard and that Dashboard's Panel,
+      // which `noSnapshotYet` below holds. **Only over a Workspace with no
+      // Dashboard**: a read of a real one holds them already, and one the tab
+      // deleted since must not come back until the list is read.
+      return snapshot.dashboards.length > 0
+        ? snapshot
+        : dashboardAdded(snapshot, {
+            workspaceId: change.payload.workspaceId,
+            dashboardId: firstDashboardId(change.payload.workspaceId),
+            panelId: change.payload.panelId,
+            name: FIRST_DASHBOARD_NAME,
+          });
     default:
       return snapshot;
   }
+}
+
+/**
+ * The Workspace as the tab has it before the server has ever sent it: what the
+ * add makes and nothing else ("Open a new Workspace the moment you add it",
+ * issue 1366). Held in place of a read that would find nothing, and read for
+ * properly once the add is answered. **The first Dashboard and Panel are in the
+ * held copy itself**, because the list read that ends drawing the add can land
+ * before the Workspace's own read does.
+ */
+export function noSnapshotYet(added: CommandArgs): WorkspaceSnapshot {
+  const { workspaceId } = added.payload;
+  return drawnAhead(heldBlank(workspaceId), added);
+}
+
+function heldBlank(workspaceId: string): WorkspaceSnapshot {
+  return {
+    workspace: { id: workspaceId, tenantId: '', name: '', color: '', bar: '', ground: '', header: '' },
+    items: [],
+    dashboards: [],
+    panels: [],
+    layouts: [],
+    filings: [],
+    associations: [],
+    attachments: [],
+    itemFormPresentation: DEFAULT_ITEM_FORM_PRESENTATION,
+    duplicates: [],
+    agentRuns: [],
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 /** One Panel rewritten, in the Workspace the change names and no other. */
@@ -274,9 +321,11 @@ function filedAhead(
  * The changes to the list of Workspaces, drawn over it rather than over a
  * Workspace ("Show a Workspace rename, colour, delete or reorder the moment
  * you make it", issue 1365): kept drawn until a read of *the list* that began
- * after their answer lands, whichever Workspace's own read lands first.
+ * after their answer lands, whichever Workspace's own read lands first. An add
+ * is one of them ("Open a new Workspace the moment you add it", issue 1366).
  */
 export const WORKSPACE_LIST_CHANGES: ReadonlySet<CommandArgs['name']> = new Set([
+  'create_workspace',
   'rename_workspace',
   'set_workspace_theme',
   'delete_workspace',
@@ -288,7 +337,9 @@ export const WORKSPACE_LIST_CHANGES: ReadonlySet<CommandArgs['name']> = new Set(
  * **A colour the palette does not have is not drawn**, since the server refuses
  * it; one it has brings its other three colours, which the palette decides.
  * A rename the name rule would refuse is drawn all the same until the refusal
- * puts the old name back.
+ * puts the old name back. **A new Workspace goes at the end in the first colour
+ * no other wears**, as the server makes it; its `tenantId` is the account's, which
+ * nothing here reads.
  */
 function workspacesDrawnAhead(list: WorkspaceList, change: CommandArgs): WorkspaceList {
   const { workspaces } = list;
@@ -296,6 +347,12 @@ function workspacesDrawnAhead(list: WorkspaceList, change: CommandArgs): Workspa
     workspaces: workspaces.map((one) => (one.id === id ? { ...one, ...fields } : one)),
   });
   switch (change.name) {
+    case 'create_workspace': {
+      const { workspaceId: id, name } = change.payload;
+      if (workspaces.some((one) => one.id === id)) return list;
+      const { tint: color, bar, ground, header } = themeOf(nextColor(workspaces.map((one) => one.color)));
+      return { workspaces: [...workspaces, { id, tenantId: workspaces[0]?.tenantId ?? '', name, color, bar, ground, header }] };
+    }
     case 'rename_workspace':
       return rewrite(change.payload.workspaceId, { name: change.payload.name });
     case 'set_workspace_theme': {

@@ -480,6 +480,68 @@ describe('Workspace management', () => {
       expect(queue.deleting('ws-work')).toBe(false);
     });
 
+    describe('a Workspace just added is not on the server yet', () => {
+      const added = (workspaceId = 'ws-new'): CommandArgs => ({
+        name: 'create_workspace',
+        payload: { commandId: `c-add-${workspaceId}`, issuedAt: AT, workspaceId, panelId: 'p-first', name: 'Bookkeeping' },
+      });
+
+      it('knows it is being added from the click until the answer, and no longer after', async () => {
+        const server = aServer();
+        const queue = createChangeQueue({ send: server.send });
+        expect(queue.adding('ws-new')).toBe(false);
+        void queue.enqueue(added());
+        expect(queue.adding('ws-new')).toBe(true);
+        expect(queue.adding('ws-other')).toBe(false);
+        await settle();
+        expect(queue.adding('ws-new')).toBe(true);
+
+        server.arrived[0]!.answer();
+        await settle();
+
+        expect(queue.adding('ws-new')).toBe(false);
+        // Still drawn, until the list is read after the answer.
+        expect(queue.drawnList({ workspaces: [] }).workspaces).toHaveLength(1);
+        queue.readLanded(null, queue.readStarted());
+        expect(queue.drawnList({ workspaces: [] }).workspaces).toHaveLength(0);
+      });
+
+      it('lets what waits on the add go once it is answered, and not before', async () => {
+        const server = aServer();
+        const queue = createChangeQueue({ send: server.send });
+        void queue.enqueue(added());
+        const released = vi.fn();
+        void queue.afterAdding('ws-new').then(released);
+        await settle();
+        expect(released).not.toHaveBeenCalled();
+
+        server.arrived[0]!.answer();
+        await settle();
+
+        expect(released).toHaveBeenCalledTimes(1);
+      });
+
+      it('lets what waits on the add go once it is refused, to meet the refusal of its own', async () => {
+        const server = aServer();
+        const queue = createChangeQueue({ send: server.send });
+        void queue.enqueue(added()).catch(() => {});
+        const released = vi.fn();
+        void queue.afterAdding('ws-new').then(released);
+
+        await settle();
+        server.arrived[0]!.refuse(new Error('refused'));
+        await settle();
+
+        expect(released).toHaveBeenCalledTimes(1);
+        expect(queue.adding('ws-new')).toBe(false);
+      });
+
+      it('has nothing to wait for when no add of that Workspace is out', async () => {
+        const queue = createChangeQueue({ send: aServer().send });
+
+        await expect(queue.afterAdding('ws-new')).resolves.toBeUndefined();
+      });
+    });
     it('stops drawing a refused delete, and the Workspace is there to read again', async () => {
       const server = aServer();
       const queue = createChangeQueue({ send: server.send });

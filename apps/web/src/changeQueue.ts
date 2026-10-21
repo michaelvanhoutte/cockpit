@@ -26,9 +26,11 @@ import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver } from '.
  * holds the change, so the change stops being drawn when it lands.
  *
  * **A Workspace change is drawn over the list of Workspaces, and read for
- * there**: a rename, a colour, a delete or an order stops being drawn when a
- * read of the list that began after its answer lands, and no Workspace's own
- * read ends it.
+ * there**: an add, a rename, a colour, a delete or an order stops being drawn
+ * when a read of the list that began after its answer lands, and no Workspace's
+ * own read ends it. A Workspace added here has nothing on the server to read
+ * until its add is answered (`adding`), and what is built on it waits behind it
+ * (`afterAdding`).
  */
 export interface ChangeQueue {
   /**
@@ -48,6 +50,16 @@ export interface ChangeQueue {
   drawnList(list: WorkspaceList): WorkspaceList;
   /** Whether a delete of this Workspace has been made and its list not yet read: the Workspace is not there to read. */
   deleting(workspaceId: string): boolean;
+  /**
+   * Whether the add of this Workspace is made and not yet answered ("Open a new
+   * Workspace the moment you add it", issue 1366): there is nothing on the
+   * server to read, and a read would find nothing.
+   */
+  adding(workspaceId: string): boolean;
+  /** That add itself, while `adding` says so: what the Workspace is drawn from until the server has it. */
+  beingAdded(workspaceId: string): CommandArgs | undefined;
+  /** Settles once any add of this Workspace has been answered or refused: what a change that cannot be drawn waits behind. */
+  afterAdding(workspaceId: string): Promise<void>;
   /** A read of a Workspace, or of the list of them, is starting: the mark to hand back when it lands. */
   readStarted(): number;
   /**
@@ -123,6 +135,20 @@ export function createChangeQueue(options: {
     listeners.forEach((listener) => listener());
   };
 
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+
+  const beingAdded = (workspaceId: string) =>
+    entries.find(
+      (entry) =>
+        entry.state !== 'answered' &&
+        entry.change.name === 'create_workspace' &&
+        entry.change.payload.workspaceId === workspaceId,
+    )?.change;
+  const adding = (workspaceId: string) => beingAdded(workspaceId) !== undefined;
+
   const drop = (entry: Entry) => {
     const at = entries.indexOf(entry);
     if (at !== -1) entries.splice(at, 1);
@@ -192,6 +218,18 @@ export function createChangeQueue(options: {
       ),
     deleting: (workspaceId) =>
       entries.some((entry) => entry.change.name === 'delete_workspace' && entry.change.payload.workspaceId === workspaceId),
+    adding,
+    beingAdded,
+    afterAdding: (workspaceId) =>
+      new Promise((resolve) => {
+        const check = () => {
+          if (adding(workspaceId)) return;
+          stop();
+          resolve();
+        };
+        const stop = subscribe(check);
+        check();
+      }),
     readStarted: () => ++tick,
     readLanded(scope, startedAt, upTo) {
       const covered = entries.filter(
@@ -213,9 +251,6 @@ export function createChangeQueue(options: {
     },
     unanswered,
     version: () => version,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribe,
   };
 }
