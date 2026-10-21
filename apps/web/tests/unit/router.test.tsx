@@ -249,6 +249,47 @@ describe('Workspace management', () => {
       expect(await screen.findByRole('navigation', { name: 'Dashboards' })).toBeVisible();
     });
   });
+
+  describe('the address decides whether a workspace exists from the list as drawn', () => {
+    let release: () => void;
+    const deleted = (workspaceId: string) => {
+      sends.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ ok: true, applied: true });
+          }),
+      );
+      void changes.enqueue({
+        name: 'delete_workspace',
+        payload: { commandId: 'c-delete', issuedAt: '2026-10-21T09:00:00.000Z', workspaceId },
+      });
+    };
+
+    afterEach(async () => {
+      cleanup();
+      release?.();
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      changes.forgetAnswered();
+    });
+
+    it('moves on from a workspace deleted a moment ago, to the first that is left', async () => {
+      deleted('ws-personal');
+
+      await open('/w/ws-personal', [work, personal]);
+
+      expect(await screen.findByRole('navigation', { name: 'Dashboards' })).toBeVisible();
+      expect(screen.getByRole('link', { name: 'Work' })).toHaveClass('active');
+      expect(screen.queryByRole('link', { name: 'Personal' })).toBeNull();
+    });
+
+    it('invites you to make one when the one you have was deleted a moment ago', async () => {
+      deleted('ws-work');
+
+      await open('/w/ws-work', [work]);
+
+      expect(await screen.findByLabelText('Name of the new workspace')).toBeVisible();
+    });
+  });
 });
 
 describe('Triage', () => {

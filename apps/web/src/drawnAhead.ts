@@ -1,11 +1,14 @@
 import {
   FIRST_PANEL_NAME,
   NO_CONDITIONS,
+  themeOf,
   type Dashboard,
   type Item,
   type Panel,
   type PanelKind,
   type SaveLayoutCommand,
+  type Workspace,
+  type WorkspaceList,
   type WorkspaceSnapshot,
 } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
@@ -267,8 +270,55 @@ function filedAhead(
     : filed;
 }
 
+/**
+ * The changes to the list of Workspaces, drawn over it rather than over a
+ * Workspace ("Show a Workspace rename, colour, delete or reorder the moment
+ * you make it", issue 1365): kept drawn until a read of *the list* that began
+ * after their answer lands, whichever Workspace's own read lands first.
+ */
+export const WORKSPACE_LIST_CHANGES: ReadonlySet<CommandArgs['name']> = new Set([
+  'rename_workspace',
+  'set_workspace_theme',
+  'delete_workspace',
+  'reorder_workspaces',
+]);
+
+/**
+ * The list of Workspaces as the server will have it after one more change.
+ * **A colour the palette does not have is not drawn**, since the server refuses
+ * it; one it has brings its other three colours, which the palette decides.
+ * A rename the name rule would refuse is drawn all the same until the refusal
+ * puts the old name back.
+ */
+function workspacesDrawnAhead(list: WorkspaceList, change: CommandArgs): WorkspaceList {
+  const { workspaces } = list;
+  const rewrite = (id: string, fields: Partial<Workspace>) => ({
+    workspaces: workspaces.map((one) => (one.id === id ? { ...one, ...fields } : one)),
+  });
+  switch (change.name) {
+    case 'rename_workspace':
+      return rewrite(change.payload.workspaceId, { name: change.payload.name });
+    case 'set_workspace_theme': {
+      const { tint, bar, ground, header } = themeOf(change.payload.color);
+      return tint === change.payload.color ? rewrite(change.payload.workspaceId, { color: tint, bar, ground, header }) : list;
+    }
+    case 'delete_workspace':
+      return { workspaces: workspaces.filter((one) => one.id !== change.payload.workspaceId) };
+    case 'reorder_workspaces': {
+      const named = change.payload.workspaceIds;
+      return {
+        // One the order never named, arrived since it was drawn: kept on the end rather than taken off the strip.
+        workspaces: [...named.flatMap((id) => workspaces.filter((one) => one.id === id)), ...workspaces.filter((one) => !named.includes(one.id))],
+      };
+    }
+    default:
+      return list;
+  }
+}
+
 /** The changes `drawnAhead` draws something for, which are the ones kept drawn after their answer until a read covers them. */
 export const DRAWN_AHEAD: ReadonlySet<CommandArgs['name']> = new Set([
+  ...WORKSPACE_LIST_CHANGES,
   'move_item_to_panel',
   'add_item_to_panel',
   'remove_item_from_panel',
@@ -296,6 +346,11 @@ export const DRAWN_AHEAD: ReadonlySet<CommandArgs['name']> = new Set([
 /** The changes in the order they were made, each drawn over the one before. */
 export function drawnOver(snapshot: WorkspaceSnapshot, changes: readonly CommandArgs[]): WorkspaceSnapshot {
   return changes.reduce(drawnAhead, snapshot);
+}
+
+/** The list of Workspaces with the changes drawn over it, in the order they were made. */
+export function listDrawnOver(list: WorkspaceList, changes: readonly CommandArgs[]): WorkspaceList {
+  return changes.reduce(workspacesDrawnAhead, list);
 }
 
 function withItem(snapshot: WorkspaceSnapshot, itemId: string, fields: Partial<Item>): WorkspaceSnapshot {

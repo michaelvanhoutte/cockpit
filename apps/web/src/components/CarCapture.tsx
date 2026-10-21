@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { uuidv7 } from '@cockpit/shared';
-import { workspacesQuery } from '../api/queries';
+import { useWorkspaces } from '../api/useWorkspaces';
 import { useAppearance } from '../appearance';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
@@ -186,7 +186,7 @@ function Driving({
   vibrate: (pattern: number | number[]) => unknown;
   capturedFor: number;
 }) {
-  const { data: list } = useQuery(workspacesQuery);
+  const { data: list } = useWorkspaces();
   const workspaces = list?.workspaces ?? [];
   // The workspace this is captured *from*, which every Item records even while
   // it belongs to none: the same answer the Capture form gives
