@@ -27,11 +27,11 @@ import {
   type ItemStatus,
   type Priority,
 } from '@cockpit/shared';
-import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
+import { attachmentUrl, uploadAttachment } from '../api/client';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
-import { WorkingOffline, refuseWhileOffline } from '../offline';
-import { useSendCommand } from '../api/queries';
+import { refuseWhileOffline } from '../offline';
+import { useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshot } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
@@ -552,29 +552,33 @@ function TheForm({
 
   /**
    * An image put into the description, attached to this Item like any other
-   * file and answered with the address the text points at ("Embed an image
-   * inline in an item's description", issue 442). Listed as "Attaching…"
-   * while it uploads. Rejects with what to say under the editor's toolbar:
-   * the server's own words for a refusal, and the file's name where the
-   * request never got an answer.
+   * file ("Embed an image inline in an item's description", issue 442). The
+   * address the text points at is known from the attachment's id, so it is
+   * answered at once and the editor draws the image before the upload ends
+   * ("Show an image in a description the moment you put it in", issue 1368).
+   * Listed as "Attaching…" while it uploads, then as its chip. A failure is said
+   * in the undo bar, and rejects so the editor takes the image back out.
    */
-  const uploadImage = async (file: File): Promise<string> => {
-    const attachmentId = uuidv7();
-    setPendingAttachments((was) => [...was, { id: attachmentId, filename: file.name }]);
-    try {
-      refuseWhileOffline();
-      await uploadAttachment({ itemId, workspaceId, attachmentId, commandId: uuidv7(), file });
-    } catch (failure) {
-      throw new Error(
-        failure instanceof CommandRefused || failure instanceof WorkingOffline
-          ? failure.message
-          : `${file.name} could not be uploaded - the connection dropped.`,
-      );
-    } finally {
-      setPendingAttachments((was) => was.filter((pending) => pending.id !== attachmentId));
-    }
-    void queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
-    return attachmentUrl(attachmentId);
+  const uploadImage = (file: File): { src: string; uploaded: Promise<void> } => {
+    const upload = { commandId: uuidv7(), workspaceId, itemId, attachmentId: uuidv7() };
+    setPendingAttachments((was) => [...was, { id: upload.attachmentId, filename: file.name }]);
+    const uploaded = (async () => {
+      try {
+        refuseWhileOffline();
+        const { at } = await uploadAttachment({ ...upload, file });
+        changes.attached(
+          { ...upload, issuedAt: new Date().toISOString(), filename: file.name, size: file.size, contentType: file.type as AttachmentContentType },
+          at,
+        );
+        readAfterOwnChange(queryClient, workspaceId, at);
+      } catch (failure) {
+        offerToUndo({ what: `${file.name} was not put in the description. ${whyNotDone(failure)}` });
+        throw failure;
+      } finally {
+        setPendingAttachments((was) => was.filter((pending) => pending.id !== upload.attachmentId));
+      }
+    })();
+    return { src: attachmentUrl(upload.attachmentId), uploaded };
   };
 
   /**
@@ -2039,9 +2043,11 @@ function TheForm({
                           onChange={(description) => {
                             if (!onScreen.current) return;
                             setDraft({ ...draft, description });
-                            // Nothing but an image landing changes the text
-                            // with the cursor elsewhere. Docked, that is
-                            // written as leaving the description would have.
+                            // Nothing but an image put in (a drop with the
+                            // cursor elsewhere) or taken back out after a
+                            // failed upload changes the text with the cursor
+                            // elsewhere. Docked, that is written as leaving
+                            // the description would have.
                             if (docked && !descriptionCell.current?.contains(document.activeElement)) {
                               void commitFields(['description']);
                             }
