@@ -241,7 +241,7 @@ describe('AI usage', () => {
 
       expect(record).toMatchObject({
         operation: 'clean-up-a-note',
-        prompt_version: 'clean-up-a-note.v16',
+        prompt_version: 'clean-up-a-note.v17',
         triggered_by: 'captured-in-app',
         account_name: ACCOUNT_NAME,
         user_id: USER_ID,

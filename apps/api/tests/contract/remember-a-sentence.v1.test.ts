@@ -8,7 +8,7 @@ const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, t
  * The contract tier for offering a sentence to remember ("Remember an edit as a
  * sentence you confirm", issue 1163): the real Claude API and the real prompt,
  * run on a pull request that changes a prompt and by hand -
- * `clean-up-a-note.v16.test.ts`'s class comment says why.
+ * `clean-up-a-note.v17.test.ts`'s class comment says why.
  *
  * **Behaviours, not shapes**: an edit that shows a way of working gets a
  * sentence about the way and none of the facts; one that only corrects a fact

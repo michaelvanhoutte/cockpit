@@ -456,7 +456,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v16.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v17.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {

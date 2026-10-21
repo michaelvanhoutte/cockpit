@@ -36,6 +36,12 @@ host does the rest ("Save a Teams message to Cockpit", issue 486).
   invoke; if it does not, a retry saves a second Item, which the mark may then
   flag. A call with no usable `id` is refused with a 400 rather than given one
   made up here, since an invented key would make every retry a new Item.
+- **The dialog's one box is an optional note, and arrives in `value.data`.**
+  Keyed by the manifest's parameter name, `note`; a package still on the old
+  manifest names it `saved` and is read as the note too. It is stored inside
+  the captured message after `NOTE_MARKER`, which the note-reading prompt
+  quotes. **Unverified against real Teams:** that `value.data` is where it
+  arrives, and that Send goes through with the box empty.
 - **A message body is HTML unless it says otherwise**, so what is captured is
   the text with its tags taken out.
 - **The reply is a task-module message.** `{ task: { type: "message", value } }`

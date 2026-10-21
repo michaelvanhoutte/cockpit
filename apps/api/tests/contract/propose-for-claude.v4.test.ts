@@ -11,7 +11,7 @@ const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, t
  * The contract tier for proposing what to do with an Item ("Propose what to do
  * with each item before you look", issue 1161): the real Claude API and the real
  * prompt, run on a pull request that changes a prompt and by hand -
- * `clean-up-a-note.v16.test.ts`'s class comment says why.
+ * `clean-up-a-note.v17.test.ts`'s class comment says why.
  *
  * **The set is modelled on the 15 Items graded by hand on 16 October 2026, never
  * those Items themselves**: the repository is public, so each is rewritten as an
