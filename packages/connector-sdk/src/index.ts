@@ -33,9 +33,41 @@ export class SourceError extends Error {
   }
 }
 
+/**
+ * What a connector throws for a delivery that can never be filed, however often
+ * the source sends it again (a text with no words in it): the host writes the
+ * *Failed* line of the connection the delivery was attributed to, exactly as for
+ * any other `SourceError`, and then answers with `response` instead of letting
+ * the error out, so the source is not told to retry what will fail the same way.
+ * Thrown before attribution it writes no line, as any error would not.
+ */
+export class RefusedDelivery extends SourceError {
+  readonly response: Response;
+
+  constructor(message: string, response: Response) {
+    super(message);
+    this.response = response;
+  }
+}
+
 export interface ConnectorManifest {
   id: string;
   displayName: string;
+  /**
+   * What one Item the source made is called on screen, where the source's own
+   * name does not read as one ("Text message" for a source called "Text
+   * messages"). Absent: `displayName`. The Connections window keeps naming the
+   * source by `displayName`.
+   */
+  itemSourceName?: string;
+  /**
+   * Whether an Item a push files belongs to the Workspace of the connection it
+   * arrived on. Absent is yes, as for every pushed Item so far. `false`: the
+   * host captures it on *Any workspace*, and that Workspace is only where it
+   * was captured from, as the Car view's captures are, because the source says
+   * nothing of where a note belongs.
+   */
+  pushDecidesWorkspace?: boolean;
   /** What the source's card in the Connections window says it does. */
   cardText: string;
   /**
@@ -74,8 +106,42 @@ export interface ConnectorManifest {
    * a source that is only pushed to is never woken for nothing.
    */
   pulled?: boolean;
-  auth: OAuthDescriptor | { kind: 'none' };
+  auth: OAuthDescriptor | TextedCodeDescriptor | { kind: 'none' };
 }
+
+/**
+ * A connector's description of connecting by confirming a code texted to a
+ * phone, the second way to connect besides OAuth ("Connect a phone in Settings
+ * by confirming a code texted to it", issue 1335). The host runs it: it reads
+ * the number through `Connector.numberFrom`, has the source text a code
+ * (`sendCode`), and connects the number once the person types the code back
+ * and `checkCode` approves it.
+ *
+ * **Only the phone's holder ever sees the code**, which is what makes the
+ * number theirs; nothing a sender claims about itself is believed. The
+ * connection seals an empty credential, since nothing about the person is
+ * secret.
+ *
+ * Data only, like `OAuthDescriptor`, so a manifest can be listed and compared
+ * without running anything.
+ */
+export interface TextedCodeDescriptor {
+  kind: 'texted-code';
+  /**
+   * How many codes one account may ask for in an hour, which the host counts in
+   * the account's store and refuses the next beyond. Each code is a text the
+   * operator pays for.
+   */
+  codesPerHour: number;
+  /**
+   * The number a person texts once connected, in the form to show them.
+   * Configuration of the environment, not of the person.
+   */
+  textTo: string;
+}
+
+/** What `Connector.checkCode` answers: the code `approved`, a `wrong` one, or one the source `gone` off accepting (expired, attempts used up, or never sent). */
+export type CodeChecked = 'approved' | 'wrong' | 'gone';
 
 /**
  * What a connector asks of a person once per connection: a question and the
@@ -423,6 +489,29 @@ export interface Connector {
    * with `auth` of `none` is never signed in and is never asked.
    */
   accountFrom?(reply: SignInReply): ConnectedAccountIdentity | SignInRefused | null;
+
+  /**
+   * For a connector whose manifest `auth` is `texted-code`: reads what a
+   * person typed as the number a code may be sent to. Pure. Answers the number
+   * in the one form the connection is keyed on and a push names it by, or
+   * `{ refused }` with the sentence the Connections window shows. Checked
+   * before anything is sent, so a refused number costs nothing.
+   */
+  numberFrom?(typed: string): { number: string } | { refused: string };
+
+  /**
+   * For a `texted-code` connector: has the source text a code to the number
+   * `numberFrom` accepted. Throws `SourceError`, worded for the person, where
+   * it could not.
+   */
+  sendCode?(number: string): Promise<void>;
+
+  /**
+   * For a `texted-code` connector: whether the code typed back is the one the
+   * source texted to that number. Throws `SourceError` where the source could
+   * not be asked, which is neither a right nor a wrong answer.
+   */
+  checkCode?(number: string, code: string): Promise<CodeChecked>;
 
   /**
    * Ends the sign-in at the source, for a connector whose source keeps a grant

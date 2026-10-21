@@ -197,4 +197,4 @@ export function botFrameworkKeys(metadataUrl: string): JWTVerifyGetKey {
   return getKey;
 }
 
-export { SAVE_COMMAND_ID, OPEN_ID_METADATA_URL, BOT_FRAMEWORK_ISSUER } from './activity.js';
+export { SAVE_COMMAND_ID, OPEN_ID_METADATA_URL, BOT_FRAMEWORK_ISSUER, NOTE_MARKER } from './activity.js';

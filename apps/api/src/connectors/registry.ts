@@ -2,6 +2,7 @@ import type { Connector } from '@cockpit/connector-sdk';
 import { GMAIL_IDENTITY, createGmailConnector } from '@cockpit/connector-gmail';
 import { OUTLOOK_IDENTITY, createOutlookConnector } from '@cockpit/connector-outlook';
 import { TEAMS_IDENTITY, createTeamsConnector } from '@cockpit/connector-teams';
+import { TWILIO_IDENTITY, createTwilioConnector } from '@cockpit/connector-twilio';
 import type { Env } from '../env.js';
 import { NAMED_SOURCES } from '../domain/named-sources.js';
 
@@ -39,6 +40,7 @@ export function connectors(env: Env): Connector[] {
   const standInIssuer = standIn(env.OIDC_ISSUER);
   const gmailApi = standIn(env.GMAIL_API_ORIGIN);
   const graphApi = standIn(env.GRAPH_API_ORIGIN);
+  const verifyApi = standIn(env.TWILIO_VERIFY_ORIGIN);
   return [
     ...(env.GMAIL_CLIENT_ID?.trim() && env.GMAIL_CLIENT_SECRET?.trim()
       ? [
@@ -80,6 +82,25 @@ export function connectors(env: Env): Connector[] {
           }),
         ]
       : []),
+    // Texting a number: registered only where Twilio is wholly configured,
+    // which is production alone, and nowhere a number to text does not exist
+    // ("Connect a phone in Settings by confirming a code texted to it", issue
+    // 1335). Locally the stub issuer stands in for Verify, believed only at a
+    // local address (`standIn`).
+    ...(env.TWILIO_ACCOUNT_SID?.trim() &&
+    env.TWILIO_AUTH_TOKEN?.trim() &&
+    env.TWILIO_VERIFY_SERVICE_SID?.trim() &&
+    env.TWILIO_NUMBER?.trim()
+      ? [
+          createTwilioConnector({
+            accountSid: env.TWILIO_ACCOUNT_SID.trim(),
+            authToken: env.TWILIO_AUTH_TOKEN.trim(),
+            verifyServiceSid: env.TWILIO_VERIFY_SERVICE_SID.trim(),
+            number: env.TWILIO_NUMBER.trim(),
+            ...(verifyApi ? { verifyOrigin: verifyApi } : {}),
+          }),
+        ]
+      : []),
     // Set by the backend suite alone (`src/env.ts`).
     ...(env.TEST_CONNECTORS ?? []),
   ];
@@ -112,24 +133,32 @@ export function standIn(value: string | undefined): string | null {
  * environment configures it: an Item it made keeps its name where it can no
  * longer connect or push. One line per package, beside its line above.
  */
-const KNOWN_CONNECTORS: readonly { readonly id: string; readonly displayName: string }[] = [
+const KNOWN_CONNECTORS: readonly {
+  readonly id: string;
+  readonly displayName: string;
+  readonly itemSourceName?: string;
+}[] = [
   GMAIL_IDENTITY,
   OUTLOOK_IDENTITY,
   TEAMS_IDENTITY,
+  TWILIO_IDENTITY,
 ];
 
 /**
  * What each source is called on screen, by connector id ("Take source names
  * out of the shared contract", issue 927): every connector package by its own
- * name, configured here or not, every registered connector by its manifest's,
+ * name, configured here or not, every registered connector by its manifest's
+ * (the name of one of its Items, where it gives one apart from `displayName`),
  * and the sources the core still names itself (`domain/named-sources.ts`),
  * which win over a connector of the same id. An id nothing names is absent,
  * and so reads as itself.
  */
 export function sourceNames(env: Env): Record<string, string> {
   return {
-    ...Object.fromEntries(KNOWN_CONNECTORS.map(({ id, displayName }) => [id, displayName])),
-    ...Object.fromEntries(connectors(env).map(({ manifest }) => [manifest.id, manifest.displayName])),
+    ...Object.fromEntries(KNOWN_CONNECTORS.map(({ id, displayName, itemSourceName }) => [id, itemSourceName ?? displayName])),
+    ...Object.fromEntries(
+      connectors(env).map(({ manifest }) => [manifest.id, manifest.itemSourceName ?? manifest.displayName]),
+    ),
     ...NAMED_SOURCES,
   };
 }

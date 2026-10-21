@@ -259,3 +259,114 @@ describe('Panels', () => {
     });
   });
 });
+
+const TODAY = 'd-today';
+const READING = 'd-reading';
+const ADMIN = 'd-admin';
+
+/** A Workspace with three Dashboards, a Panel and a Layout on each, and an Item filed on Reading's Panel. */
+const withDashboards = (id = WORK): WorkspaceSnapshot =>
+  ({
+    workspace: { id, tenantId: 'tenant' },
+    items: [anItem(BART)],
+    dashboards: [TODAY, READING, ADMIN].map((dashboardId) => ({
+      id: dashboardId,
+      tenantId: 'tenant',
+      workspaceId: id,
+      name: dashboardId.slice(2),
+    })),
+    panels: [TODAY, READING, ADMIN].map((dashboardId) => ({ id: `p-${dashboardId}`, dashboardId, name: 'Panel 1' })),
+    layouts: [TODAY, READING, ADMIN].map((dashboardId) => ({ id: `l-${dashboardId}`, dashboardId, rows: [] })),
+    filings: [{ panelId: `p-${READING}`, itemId: BART, position: 0 }],
+  }) as unknown as WorkspaceSnapshot;
+
+const dashboardEnvelope = (workspaceId = WORK) => ({ commandId: 'c1', issuedAt: AT, workspaceId });
+const names = (copy: WorkspaceSnapshot) => copy.dashboards.map((one) => one.name);
+const added = (name: string, workspaceId = WORK): CommandArgs => ({
+  name: 'add_dashboard',
+  payload: { ...dashboardEnvelope(workspaceId), dashboardId: 'd-new', panelId: 'p-new', name },
+});
+const deleted = (dashboardId: string, workspaceId = WORK): CommandArgs => ({
+  name: 'delete_dashboard',
+  payload: { ...dashboardEnvelope(workspaceId), dashboardId },
+});
+const reordered = (dashboardId: string, dashboardIds: string[]): CommandArgs => ({
+  name: 'reorder_dashboards',
+  payload: { ...dashboardEnvelope(), dashboardId, dashboardIds },
+});
+
+describe('Dashboards', () => {
+  describe('a Dashboard change shows the moment it is made, before the server has answered', () => {
+    it('puts an added Dashboard at the end of the bar with the Panel it arrives with', () => {
+      const copy = withDashboards();
+
+      const drawn = drawnAhead(copy, added('Research'));
+
+      expect(names(drawn)).toEqual(['today', 'reading', 'admin', 'Research']);
+      expect(drawn.panels.filter((panel) => panel.dashboardId === 'd-new')).toEqual([
+        expect.objectContaining({ id: 'p-new', name: 'Panel 1', kind: 'items', tenantId: 'tenant' }),
+      ]);
+      expect(drawn.dashboards[3]).toEqual({ id: 'd-new', tenantId: 'tenant', workspaceId: WORK, name: 'Research' });
+      // The copy the server sent is as it was.
+      expect(copy.dashboards).toHaveLength(3);
+    });
+
+    it('draws a Dashboard added twice once, as the server makes it once', () => {
+      const drawn = drawnOver(withDashboards(), [added('Research'), added('Research')]);
+
+      expect(names(drawn)).toEqual(['today', 'reading', 'admin', 'Research']);
+      expect(drawn.panels.filter((panel) => panel.dashboardId === 'd-new')).toHaveLength(1);
+    });
+
+    it('shows the new name on a renamed Dashboard and no other', () => {
+      const drawn = drawnAhead(withDashboards(), {
+        name: 'rename_dashboard',
+        payload: { ...dashboardEnvelope(), dashboardId: READING, name: 'Library' },
+      });
+
+      expect(names(drawn)).toEqual(['today', 'Library', 'admin']);
+    });
+
+    it('takes a deleted Dashboard off the bar with its Panels, its Layout and what was filed on them', () => {
+      const drawn = drawnAhead(withDashboards(), deleted(READING));
+
+      expect(names(drawn)).toEqual(['today', 'admin']);
+      expect(drawn.panels.map((panel) => panel.dashboardId)).toEqual([TODAY, ADMIN]);
+      expect(drawn.layouts.map((layout) => layout.dashboardId)).toEqual([TODAY, ADMIN]);
+      expect(drawn.filings).toEqual([]);
+    });
+
+    it('leaves the other Dashboards’ boards as they were when one is deleted', () => {
+      const copy = withDashboards();
+
+      const drawn = drawnAhead(copy, deleted(READING));
+
+      expect(drawn.panels.filter((panel) => panel.dashboardId === TODAY)).toEqual(
+        copy.panels.filter((panel) => panel.dashboardId === TODAY),
+      );
+    });
+
+    it('does not draw the last Dashboard deleted, which the server refuses', () => {
+      const one = { ...withDashboards(), dashboards: [withDashboards().dashboards[0]!] } as WorkspaceSnapshot;
+
+      expect(drawnAhead(one, deleted(TODAY))).toBe(one);
+    });
+
+    it('shows the order a reorder carries, and keeps a Dashboard it never named on the end', () => {
+      const copy = withDashboards();
+
+      expect(names(drawnAhead(copy, reordered(TODAY, [READING, TODAY, ADMIN])))).toEqual(['reading', 'today', 'admin']);
+      // Added on another device since the order was drawn: kept, not taken off the bar.
+      expect(names(drawnAhead(copy, reordered(ADMIN, [ADMIN, TODAY])))).toEqual(['admin', 'today', 'reading']);
+    });
+
+    it.each([
+      { situation: 'an add', change: added('Research', 'ws-home') },
+      { situation: 'a delete', change: deleted(READING, 'ws-home') },
+    ])('leaves another Workspace’s copy as it is for $situation', ({ change }) => {
+      const copy = withDashboards();
+
+      expect(drawnAhead(copy, change)).toBe(copy);
+    });
+  });
+});

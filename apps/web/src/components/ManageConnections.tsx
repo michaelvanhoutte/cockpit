@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { queryOptions, useQuery } from '@tanstack/react-query';
+import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   registeredConnectorListSchema,
   sourceAccountListSchema,
@@ -19,6 +19,7 @@ import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { ChangeConnectionChoice, ConnectWithChoice, type ConnectAnswer, type ConnectorChoice, type ConnectorNames } from './ConnectionChoice';
 import { ConnectionHistory } from './ConnectionHistory';
+import { ConnectPhone, type PhoneConnector } from './ConnectPhone';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
@@ -99,6 +100,8 @@ interface Card {
   choice?: ConnectorChoice | undefined;
   /** How its connector speaks of names, where it reports any: Connect asks whether to file by them too (issue 1147). */
   names?: ConnectorNames | undefined;
+  /** Present where its connector connects a phone by a texted code rather than by leaving: Connect asks for a number (issue 1335). */
+  textedCode?: { textTo: string } | undefined;
 }
 
 /** What the guest is told in place of every way to connect. */
@@ -110,9 +113,23 @@ const GUEST_SENTENCE = 'Sign in with Google to connect your own';
  * whether it files by name (issue 1146), and when it last worked - for a
  * connection that made a choice, when it was last checked (issue 725).
  */
-function rowDetail(account: SourceAccount, names: SourceNames, noun?: string): string {
-  const source = sourceNamed(names, account.connectorId);
-  const followed = account.follows ? `${source} · ${account.followsLabel ?? account.follows}` : source;
+function rowDetail(
+  account: SourceAccount,
+  names: SourceNames,
+  noun?: string,
+  textTo?: string,
+  connectorName?: string,
+): string {
+  // The connector's own name where its listing has loaded and the names map knows the
+  // source: the map calls an Item of it what the Item is ("Text message"), not what the entry is.
+  const named = sourceNamed(names, account.connectorId);
+  const source = connectorName && named !== account.connectorId ? connectorName : named;
+  // A connected phone says which number to text, since that is what it is for (issue 1335).
+  const followed = account.follows
+    ? `${source} · ${account.followsLabel ?? account.follows}`
+    : textTo
+      ? `${source} · text ${textTo} to add a note`
+      : source;
   // Said while the connection files by name, in its connector's noun (issue 1146).
   const what = account.filesByName && noun ? `${followed} · files by ${noun}` : followed;
   if (!account.lastTestedAt) return what;
@@ -212,6 +229,10 @@ export default function ManageConnections({
    * taken the row's menu with the row.
    */
   const list = useRef<HTMLDivElement>(null);
+  /** The card whose phone is being connected with a texted code, and what to focus when it closes (issue 1335). */
+  const [connectingPhone, setConnectingPhone] = useState<PhoneConnector | null>(null);
+  const phoneOpenedFrom = useRef<HTMLElement | null>(null);
+  const queryClient = useQueryClient();
   const command = useCommand();
   const checkNow = useCheckConnectionNow(workspaceId);
   /** What pressing *Check now* last came to, said where the person is looking (issue 1143). */
@@ -223,6 +244,7 @@ export default function ManageConnections({
       text: connector.cardText,
       choice: connector.choice,
       names: connector.names,
+      textedCode: connector.textedCode,
     }));
   /** The connector's own sentence for why it refused, where the listing holds one for the code. */
   const refusalGiven = because
@@ -275,6 +297,7 @@ export default function ManageConnections({
     stopAsking();
     setAsking(null);
     setChangingChoice(null);
+    setConnectingPhone(null);
     setHistoryOf(null);
     setCheckNowNote(null);
     onClose();
@@ -291,6 +314,12 @@ export default function ManageConnections({
   /** What a connected row's connector asks, where it asks anything - and so whether the row offers *Change…*. */
   const choiceOf = (connectorId: string): ConnectorChoice | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.choice;
+  /** What a connected row's connector is called in Settings, which is not always what one of its Items is called. */
+  const connectorNameOf = (connectorId: string): string | undefined =>
+    registry.data?.connectors.find((connector) => connector.id === connectorId)?.displayName;
+  /** The number a connected row's connector has a phone text, where it connects phones (issue 1335). */
+  const textToOf = (connectorId: string): string | undefined =>
+    registry.data?.connectors.find((connector) => connector.id === connectorId)?.textedCode?.textTo;
   /** How a connected row's connector speaks of names, where it reports any - which also offers *Change…* (issue 1146). */
   const namesOf = (connectorId: string): ConnectorNames | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.names;
@@ -354,156 +383,168 @@ export default function ManageConnections({
             </p>
           )}
 
-          <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-            Connected
-          </h3>
-          <section className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto">
-            <ul>
-              {connected.map((account) => (
-                <li key={account.id} className="border-b border-shade/5 px-4 py-2 last:border-b-0">
-                  <div className="flex items-center gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm">{account.displayName}</p>
-                      <p className="text-sm text-ink-faint">{rowDetail(account, names, namesOf(account.connectorId)?.noun)}</p>
-                      {/* A connection that keeps a history opens it from here,
-                          where its checks say when it began failing (issue 1140). */}
-                      {account.failingBecause &&
-                        (account.keepsHistory ? (
-                          <button
-                            type="button"
-                            onClick={() => openHistory(account)}
-                            className="block text-left text-sm text-over-ink underline-offset-2 hover:underline"
-                          >
-                            Failing: {account.failingBecause}
-                          </button>
-                        ) : (
-                          <p className="text-sm text-over-ink">Failing: {account.failingBecause}</p>
-                        ))}
-                    </div>
-                    {!guest && <RowMenu
-                      label={`Actions for ${account.displayName}`}
-                      entries={[
-                        // A failing row of a connector this environment can sign
-                        // in to: signing in again is what ends it (issue 944).
-                        ...(account.failingBecause && registered.some((card) => card.id === account.connectorId)
-                          ? [
-                              {
-                                label: 'Reconnect',
-                                onSelect: (openedFrom: HTMLElement | null) => reconnect(account, openedFrom),
-                              },
-                            ]
-                          : []),
-                        // Its check made due at once, and when it was checked and
-                        // why it failed (issues 1143, 1140).
-                        ...(account.pulled
-                          ? [{ label: 'Check now', onSelect: () => pressCheckNow(account) }]
-                          : []),
-                        ...(account.keepsHistory
-                          ? [{ label: 'History…', onSelect: () => openHistory(account) }]
-                          : []),
-                        // The connector's own choice, changed without signing in
-                        // again (issue 942).
-                        ...(choiceOf(account.connectorId) || namesOf(account.connectorId)
-                          ? [
-                              {
-                                label: 'Change…',
-                                onSelect: (openedFrom: HTMLElement | null) => {
-                                  choiceOpenedFrom.current = openedFrom;
-                                  setChangingChoice(account);
+          {/* One scroll for both lists, so a long list of cards to add never squeezes the
+              connected rows out of reach on a short screen. */}
+          <div className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+              Connected
+            </h3>
+            <section className="-mx-2 mt-2">
+              <ul>
+                {connected.map((account) => (
+                  <li key={account.id} className="border-b border-shade/5 px-4 py-2 last:border-b-0">
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm">{account.displayName}</p>
+                        <p className="text-sm text-ink-faint">{rowDetail(account, names, namesOf(account.connectorId)?.noun, textToOf(account.connectorId), connectorNameOf(account.connectorId))}</p>
+                        {/* A connection that keeps a history opens it from here,
+                            where its checks say when it began failing (issue 1140). */}
+                        {account.failingBecause &&
+                          (account.keepsHistory ? (
+                            <button
+                              type="button"
+                              onClick={() => openHistory(account)}
+                              className="block text-left text-sm text-over-ink underline-offset-2 hover:underline"
+                            >
+                              Failing: {account.failingBecause}
+                            </button>
+                          ) : (
+                            <p className="text-sm text-over-ink">Failing: {account.failingBecause}</p>
+                          ))}
+                      </div>
+                      {!guest && <RowMenu
+                        label={`Actions for ${account.displayName}`}
+                        entries={[
+                          // A failing row of a connector this environment can sign
+                          // in to: signing in again is what ends it (issue 944).
+                          ...(account.failingBecause && registered.some((card) => card.id === account.connectorId)
+                            ? [
+                                {
+                                  label: 'Reconnect',
+                                  onSelect: (openedFrom: HTMLElement | null) => reconnect(account, openedFrom),
                                 },
-                              },
-                            ]
-                          : []),
-                        {
-                          label: 'Disconnect',
-                          destructive: true,
-                          onSelect: (openedFrom) => startDisconnecting(account, openedFrom),
+                              ]
+                            : []),
+                          // Its check made due at once, and when it was checked and
+                          // why it failed (issues 1143, 1140).
+                          ...(account.pulled
+                            ? [{ label: 'Check now', onSelect: () => pressCheckNow(account) }]
+                            : []),
+                          ...(account.keepsHistory
+                            ? [{ label: 'History…', onSelect: () => openHistory(account) }]
+                            : []),
+                          // The connector's own choice, changed without signing in
+                          // again (issue 942).
+                          ...(choiceOf(account.connectorId) || namesOf(account.connectorId)
+                            ? [
+                                {
+                                  label: 'Change…',
+                                  onSelect: (openedFrom: HTMLElement | null) => {
+                                    choiceOpenedFrom.current = openedFrom;
+                                    setChangingChoice(account);
+                                  },
+                                },
+                              ]
+                            : []),
+                          {
+                            label: 'Disconnect',
+                            destructive: true,
+                            onSelect: (openedFrom) => startDisconnecting(account, openedFrom),
+                          },
+                        ]}
+                      />}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {beingDisconnected && (
+                <DeleteQuestion
+                  open
+                  question={`Disconnect ${beingDisconnected.displayName}? ${
+                    // A phone has no sign-in to forget (issue 1335).
+                    textToOf(beingDisconnected.connectorId) !== undefined
+                      ? 'Cockpit forgets the number.'
+                      : 'Cockpit forgets the sign-in it was connected with.'
+                  }`}
+                  confirmLabel={`Yes, disconnect ${beingDisconnected.displayName}`}
+                  confirmText="Disconnect"
+                  canConfirm={!command.isPending}
+                  refusal={commandRefusal}
+                  returnFocusTo={askedFrom.current}
+                  onCancel={stopAsking}
+                  onConfirm={() =>
+                    command.mutate(
+                      {
+                        name: 'disconnect_source_account',
+                        payload: {
+                          commandId: uuidv7(),
+                          issuedAt: new Date().toISOString(),
+                          workspaceId,
+                          sourceAccountId: beingDisconnected.id,
                         },
-                      ]}
-                    />}
-                  </div>
-                </li>
-              ))}
-            </ul>
-            {beingDisconnected && (
-              <DeleteQuestion
-                open
-                question={`Disconnect ${beingDisconnected.displayName}? Cockpit forgets the sign-in it was connected with.`}
-                confirmLabel={`Yes, disconnect ${beingDisconnected.displayName}`}
-                confirmText="Disconnect"
-                canConfirm={!command.isPending}
-                refusal={commandRefusal}
-                returnFocusTo={askedFrom.current}
-                onCancel={stopAsking}
-                onConfirm={() =>
-                  command.mutate(
-                    {
-                      name: 'disconnect_source_account',
-                      payload: {
-                        commandId: uuidv7(),
-                        issuedAt: new Date().toISOString(),
-                        workspaceId,
-                        sourceAccountId: beingDisconnected.id,
                       },
-                    },
-                    { onSuccess: () => setDisconnecting(null) },
-                  )
-                }
-              />
-            )}
-            {listFailed && (
-              <div className="px-4 py-4">
-                <LoadFailure error={error} onRetry={() => void refetch()} />
-              </div>
-            )}
-            {answered && connected.length === 0 && !isFetching && (
-              <p className="px-4 py-4 text-sm text-ink-faint">Nothing connected yet. Add one below.</p>
-            )}
-            {checkNowNote && (
-              <p
-                role={checkNowNote.ok ? 'status' : 'alert'}
-                className={`px-4 py-2 text-sm ${checkNowNote.ok ? 'text-ink-soft' : 'text-over-ink'}`}
-              >
-                {checkNowNote.text}
-              </p>
-            )}
-          </section>
-
-          <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-            Add a connection
-          </h3>
-          <div className="mt-2 flex flex-col gap-2">
-            {cards.map((card) => (
-              <div
-                key={card.id}
-                className="flex items-center gap-3 rounded-md border border-shade/10 p-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{card.name}</p>
-                  <p className="text-sm text-ink-faint">{card.text}</p>
+                      { onSuccess: () => setDisconnecting(null) },
+                    )
+                  }
+                />
+              )}
+              {listFailed && (
+                <div className="px-4 py-4">
+                  <LoadFailure error={error} onRetry={() => void refetch()} />
                 </div>
-                {guest ? (
-                  <span className="shrink-0 text-sm text-ink-faint">{GUEST_SENTENCE}</span>
-                ) : (
-                  <button
-                    type="button"
-                    // Two rows both reading "Connect" need two names for anyone
-                    // not reading them side by side - a screen reader, or a test.
-                    aria-label={`Connect ${card.name}`}
-                    onClick={(event) => {
-                      if (card.choice || card.names) {
-                        askingOpenedFrom.current = event.currentTarget;
-                        setAsking({ ...card });
-                      } else connectRegistered(card.id);
-                    }}
-                    disabled={command.isPending}
-                    className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
-                  >
-                    Connect
-                  </button>
-                )}
-              </div>
-            ))}
+              )}
+              {answered && connected.length === 0 && !isFetching && (
+                <p className="px-4 py-4 text-sm text-ink-faint">Nothing connected yet. Add one below.</p>
+              )}
+              {checkNowNote && (
+                <p
+                  role={checkNowNote.ok ? 'status' : 'alert'}
+                  className={`px-4 py-2 text-sm ${checkNowNote.ok ? 'text-ink-soft' : 'text-over-ink'}`}
+                >
+                  {checkNowNote.text}
+                </p>
+              )}
+            </section>
+
+            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+              Add a connection
+            </h3>
+            <div className="mt-2 flex flex-col gap-2">
+              {cards.map((card) => (
+                <div
+                  key={card.id}
+                  className="flex items-center gap-3 rounded-md border border-shade/10 p-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">{card.name}</p>
+                    <p className="text-sm text-ink-faint">{card.text}</p>
+                  </div>
+                  {guest ? (
+                    <span className="shrink-0 text-sm text-ink-faint">{GUEST_SENTENCE}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      // Two rows both reading "Connect" need two names for anyone
+                      // not reading them side by side - a screen reader, or a test.
+                      aria-label={`Connect ${card.name}`}
+                      onClick={(event) => {
+                        if (card.textedCode) {
+                          phoneOpenedFrom.current = event.currentTarget;
+                          setConnectingPhone({ id: card.id, displayName: card.name, textTo: card.textedCode.textTo });
+                        } else if (card.choice || card.names) {
+                          askingOpenedFrom.current = event.currentTarget;
+                          setAsking({ ...card });
+                        } else connectRegistered(card.id);
+                      }}
+                      disabled={command.isPending}
+                      className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      Connect
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}
@@ -523,6 +564,14 @@ export default function ManageConnections({
         onConnect={(answer) => asking && connectRegistered(asking.id, answer)}
         onClose={() => setAsking(null)}
         returnFocusTo={askingOpenedFrom.current}
+      />
+
+      <ConnectPhone
+        connector={connectingPhone}
+        workspaceId={workspaceId}
+        onConnected={() => void queryClient.invalidateQueries({ queryKey: ['sourceAccounts', workspaceId] })}
+        onClose={() => setConnectingPhone(null)}
+        returnFocusTo={phoneOpenedFrom.current}
       />
 
       <ChangeConnectionChoice

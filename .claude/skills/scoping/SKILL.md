@@ -22,7 +22,7 @@ Prose that reads fine fails on contact — two designs agreed in discussion over
 | | Answers | Costs | Take it when |
 |---|---|---|---|
 | **Nothing** | — | — | the default: the surface exists and the change follows a pattern already settled in the app |
-| **A design canvas** (`design` skill) | what it should look like, with the arrangements you rejected beside it | minutes, no branch | the surface is new and more than one layout is defensible |
+| **A design canvas** (`design` skill) | what it should look like, with the arrangements you rejected beside it | minutes, no branch | the surface is new and more than one layout is defensible, or it is a data view with a scale, colour ramp, sort order, default bucket or size constant to pick — drawn from real rows, since a number picked without them is redone once they are on screen |
 | **A POC** on a branch in the real app | whether it survives contact with what is already there | a branch and a sitting, thrown away | the doubt is about affordance, interaction, or fit with existing behaviour — none of which a mockup shows |
 
 **Escalate only against a named doubt.** Write down the question the artifact will answer; if you cannot write one, take *Nothing*.
@@ -42,6 +42,8 @@ Resolve any term used inconsistently with those docs, and any unstated product d
 **A question is unresolved scope, not open scope, whenever two answers to it would produce different diffs.** Close it here through discussion, or — where the doubt is about a surface nobody has seen — via step 2's POC; never carry it forward for whoever builds the issue to answer. "Take the width and the name off a layout, now that its size carries them" (issue 264) is a case discussion alone would have closed: its body named wiping every Layout's arrangement as "the agreed trade," described the alternative, said "Decide before building," and then listed that same question as out of scope anyway; a full review round went on the question that was already known to be open before a line was written.
 
 Use the `grilling` skill's round-based interview (mattpocock-skills): number each open question, give a recommended answer, work one round at a time until nothing about the scope is fuzzy. Skip only when the request is already small and unambiguous.
+
+**Put two questions to anything new, even where the round is skipped.** For each new control: which existing control already does this, and is the new one easier than the primary action, since a secondary action that is easier gets used instead? For each new concept or setting: who uses it, and how often, since one used only occasionally gets no permanent place on screen.
 
 **Open with the concrete scenario, not the column name or the doc citation.** A question framed first around implementation detail costs a round trip the same question would not have asked plainly: "Learn how you write from the titles you correct" (issue 394) opened with `items.unseen`, functional-definition.md's own undecided routing question, and an unbuilt-feature reference, came back "I don't understand your question," and only landed once restated as what the person would actually see - a title proposed a moment ago, still unread in the Inbox.
 

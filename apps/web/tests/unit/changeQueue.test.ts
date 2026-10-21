@@ -343,3 +343,51 @@ describe('Panels', () => {
     });
   });
 });
+
+describe('Dashboards', () => {
+  describe('a Dashboard change waiting for its answer never flips back while a read lands', () => {
+    const renamed = (name: string): CommandArgs => ({
+      name: 'rename_dashboard',
+      payload: { commandId: `c-${name}`, issuedAt: AT, workspaceId: 'ws-work', dashboardId: 'd-reading', name },
+    });
+    /** The Workspace as a read holds it, with the Dashboard going by `name`. */
+    const holding = (name: string) =>
+      ({
+        workspace: { id: 'ws-work' },
+        dashboards: [{ id: 'd-reading', tenantId: 'tenant', workspaceId: 'ws-work', name }],
+        items: [],
+        panels: [],
+        filings: [],
+        layouts: [],
+      }) as unknown as WorkspaceSnapshot;
+    const nameShown = (copy: WorkspaceSnapshot) => copy.dashboards[0]!.name;
+
+    it('keeps drawing the change under a read that began before its answer', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(renamed('Library'));
+      await settle();
+      const early = queue.readStarted();
+      server.arrived[0]!.answer();
+      await settle();
+
+      queue.readLanded('ws-work', early);
+
+      expect(nameShown(queue.drawnOver(holding('Reading')))).toBe('Library');
+    });
+
+    it('shows the server’s copy once a read that began after the answer has landed, another device’s later rename included', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(renamed('Library'));
+      await settle();
+      server.arrived[0]!.answer();
+      await settle();
+      const late = queue.readStarted();
+
+      queue.readLanded('ws-work', late);
+
+      expect(nameShown(queue.drawnOver(holding('Reading room')))).toBe('Reading room');
+    });
+  });
+});

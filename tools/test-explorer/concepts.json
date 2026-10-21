@@ -110,7 +110,7 @@
     {
       "key": "Capture",
       "label": "Capture",
-      "browserWalks": 16,
+      "browserWalks": 17,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -145,7 +145,7 @@
         "apps/web/src/components/InboxPanel.tsx",
         "apps/api/src/ai/index.ts",
         "apps/api/src/ai/note-texts.ts",
-        "apps/api/src/ai/prompts/clean-up-a-note.v16.ts",
+        "apps/api/src/ai/prompts/clean-up-a-note.v17.ts",
         "apps/api/src/ai/prompts/resolve-a-place.v1.ts",
         "apps/api/src/domain/spoken-path.ts",
         "apps/api/src/jobs/index.ts",
@@ -197,6 +197,8 @@
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/DashboardBar.tsx",
+        "apps/web/src/drawnAhead.ts",
+        "apps/web/src/changeQueue.ts",
         "apps/web/src/pages/DashboardPage.tsx",
         "apps/web/src/allItems.ts",
         "apps/web/src/allItemsTab.ts",
@@ -385,7 +387,7 @@
     {
       "key": "Connector management",
       "label": "Connector management",
-      "browserWalks": 8,
+      "browserWalks": 9,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/connectors/credential-crypto.ts",
@@ -399,6 +401,10 @@
         "packages/connectors/outlook/src/credential.ts",
         "packages/connectors/outlook/src/graph.ts",
         "packages/connectors/outlook/src/mirroring.ts",
+        "packages/connectors/twilio/src/number.ts",
+        "packages/connectors/twilio/src/verify.ts",
+        "apps/api/src/connectors/texted-code.ts",
+        "apps/web/src/components/ConnectPhone.tsx",
         "apps/api/src/connectors/registry.ts",
         "apps/api/src/connectors/directory.ts",
         "packages/connector-sdk/src/index.ts",

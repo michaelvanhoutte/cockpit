@@ -216,7 +216,7 @@ vi.mock('../../../src/api/queries', () => ({
         agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
         // What the Workspace calls each source (issue 927).
-        sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail' },
+        sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message' },
       } as unknown as WorkspaceSnapshot;
     },
   }),
@@ -2515,6 +2515,12 @@ describe('Item editing', () => {
       expect(screen.getByText(new RegExp(`From ${reads} - Anna`))).toBeInTheDocument();
       expect(screen.getByRole('link', { name: `Open in ${reads}` })).toBeInTheDocument();
       if (hidden) expect(screen.queryByText(hidden)).toBeNull();
+    });
+
+    it('names an item from a text message with no sender and no separator left hanging', async () => {
+      await theForm(anItem({ source: 'twilio', sender: null, sourceLink: null }));
+
+      expect(screen.getByText(/^From Text message$/)).toBeInTheDocument();
     });
 
     it('names the app that captured it, and not the protocol it came through', async () => {

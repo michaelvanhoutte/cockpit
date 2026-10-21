@@ -29,6 +29,25 @@ export const SAVE_COMMAND_ID = 'saveToCockpit';
 /** How long an Item's title may be, which the contract also says (`TITLE_LENGTH`). */
 const TITLE_LENGTH = 200;
 
+/**
+ * How long a captured message may be, which the contract also says (the
+ * capture's `message`, packages/shared). Said again here because a connector
+ * may not import the application's contract.
+ */
+const CAPTURE_LENGTH = 60_000;
+
+/**
+ * The line that starts the person's own words inside a captured message,
+ * after the Teams message ("Read the note you type when you save a Teams
+ * message to Cockpit", issue 1340).
+ *
+ * **The note-reading prompt quotes this exact line** (`NOTE_FROM_TEAMS` in
+ * apps/api/src/ai/prompts/clean-up-a-note.v17.ts), and a test in apps/api holds
+ * the two together: the shape is the only thing that tells the reading whose
+ * words are whose, since the note is stored inside the message and not beside it.
+ */
+export const NOTE_MARKER = 'My note, typed when saving this message:';
+
 /** The one activity a message action arrives as. */
 const SUBMIT_ACTION = 'composeExtension/submitAction';
 
@@ -78,7 +97,12 @@ interface Activity {
   conversation?: { id?: unknown; tenantId?: unknown };
   channelData?: { tenant?: { id?: unknown } };
   from?: { aadObjectId?: unknown };
-  value?: { commandId?: unknown; messagePayload?: MessagePayload };
+  value?: {
+    commandId?: unknown;
+    messagePayload?: MessagePayload;
+    /** What was typed into the action's dialog, keyed by the manifest's parameter names. */
+    data?: { note?: unknown; saved?: unknown };
+  };
 }
 
 interface MessagePayload {
@@ -171,9 +195,38 @@ export async function savedMessageFrom(
       sender: cutTo(text(message.from?.user?.displayName), TITLE_LENGTH) || null,
       sourceTimestamp: timestamp(message.createdDateTime),
       title: oneLine(said),
-      capturedMessage: said,
+      capturedMessage: withTheNote(said, noteTyped(activity.value?.data)),
     },
   };
+}
+
+/**
+ * What the person typed in the dialog, or the empty string.
+ *
+ * **A package still on the old manifest names the box `saved`** and is read as
+ * the note too, so a Teams app nobody has uploaded again loses nothing. The
+ * new name wins where both are filled in.
+ */
+function noteTyped(data: { note?: unknown; saved?: unknown } | undefined): string {
+  return text(data?.note) || text(data?.saved);
+}
+
+/**
+ * The captured message: the Teams message, and where the person typed a note
+ * after it, a blank line, `NOTE_MARKER` and the note.
+ *
+ * **Cut to the limit with the note kept whole, never refused**, since what the
+ * host refuses Teams delivers again forever: it is the Teams message that
+ * gives way. A note alone past the limit is cut itself, last.
+ */
+function withTheNote(said: string, note: string): string {
+  if (!note) return cutTo(said, CAPTURE_LENGTH);
+  const lead = `${NOTE_MARKER}\n`;
+  const kept = cutTo(note, CAPTURE_LENGTH - lead.length);
+  const tail = `${lead}${kept}`;
+  const room = CAPTURE_LENGTH - tail.length - 2;
+  const message = room > 0 ? cutTo(said, room) : '';
+  return message ? `${message}\n\n${tail}` : tail;
 }
 
 /** The bearer token a call carries, or the empty string where it carries none. */

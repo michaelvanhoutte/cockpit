@@ -35,6 +35,7 @@ import {
   TRANSCRIPTIONS_PER_MINUTE,
   REMEMBER_OFFERS_PER_MINUTE,
   SENTENCES_REMEMBERED_PER_MINUTE,
+  CODE_WINDOW_MS,
   admittedCalls,
   countedCalls,
 } from './call-window.js';
@@ -221,6 +222,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   #transcriptions: number[] = [];
   /** The offers to remember and the Remember presses this account made, refused ones included, newest last - see `sentenceCallArrived`. */
   #sentenceCalls: Record<'offer' | 'remember', number[]> = { offer: [], remember: [] };
+  /** The codes this account was admitted to ask a source to text, by connector, newest last - see `textedCodeAsked`. */
+  #textedCodes = new Map<string, number[]>();
 
   /** All workspaces of the account. */
   workspaces(accountName: string): Answer<Workspace[]> {
@@ -785,6 +788,26 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     const { admitted, calls } = countedCalls(this.#transcriptions, Date.parse(at), TRANSCRIPTIONS_PER_MINUTE);
     this.#transcriptions = calls;
     return admitted ? 'admitted' : 'too-many';
+  }
+
+  /**
+   * A code being asked for a source to text ("Connect a phone in Settings by
+   * confirming a code texted to it", issue 1335): admitted, or refused as one
+   * more than `limit` in the last hour from this account, whatever Workspace it
+   * is asked from.
+   *
+   * **Only admitted codes are counted**, unlike the per-minute counts here: a
+   * refused one sends nothing, so asking again costs nothing and the hour runs
+   * from the codes that were actually texted. **Counted in memory** for the
+   * reason `transcriptionArrived` is: a count lost to the object being evicted
+   * starts the hour over, and the source's own geographic limits still bound
+   * where a text can go. Answers before the account is brought up to date.
+   */
+  textedCodeAsked(connectorId: string, limit: number, at: string): 'admitted' | 'too-many' {
+    const calls = admittedCalls(this.#textedCodes.get(connectorId) ?? [], Date.parse(at), limit, CODE_WINDOW_MS);
+    if (!calls) return 'too-many';
+    this.#textedCodes.set(connectorId, calls);
+    return 'admitted';
   }
 
   /**

@@ -1,0 +1,28 @@
+{
+  "name": "@cockpit/connector-twilio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Twilio connector: a phone is connected by confirming a code Twilio Verify texts to it, so a text from it can be captured.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:fast": "pnpm test:unit",
+    "test:all": "pnpm test:unit",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@cockpit/connector-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260812.1",
+    "@cockpit/config": "workspace:*",
+    "@vitest/coverage-v8": "4.1.10",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.10"
+  }
+}
