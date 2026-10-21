@@ -282,6 +282,26 @@ describe('Workspace management', () => {
       expect(screen.queryByRole('link', { name: 'Personal' })).toBeNull();
     });
 
+    it('opens a workspace added a moment ago on its first dashboard, without reading it', async () => {
+      sends.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ ok: true, applied: true });
+          }),
+      );
+      void changes.enqueue({
+        name: 'create_workspace',
+        payload: { commandId: 'c-add', issuedAt: '2026-10-21T09:00:00.000Z', workspaceId: 'ws-new', panelId: 'p-first', name: 'Bookkeeping' },
+      });
+
+      await open('/w/ws-new', [work]);
+
+      // The server has no such workspace yet, so a read of it would be refused.
+      expect(await screen.findByRole('link', { name: 'Dashboard 1' })).toBeVisible();
+      expect(screen.getByRole('link', { name: 'Bookkeeping' })).toHaveClass('active');
+      expect(readsSnapshot.mock.calls.map(([workspaceId]) => workspaceId)).not.toContain('ws-new');
+    });
+
     it('invites you to make one when the one you have was deleted a moment ago', async () => {
       deleted('ws-work');
 

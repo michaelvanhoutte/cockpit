@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { WORKSPACE_THEMES, itemLabel, itemStatus, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
-import { drawnAhead, drawnOver, listDrawnOver } from '../../src/drawnAhead';
+import { drawnAhead, drawnOver, listDrawnOver, noSnapshotYet } from '../../src/drawnAhead';
 
 /**
  * F1: what the screen shows of a change before the server has answered it -
@@ -646,6 +646,67 @@ describe('Workspace management', () => {
       expect(shown(drawn)).toEqual(['Family', 'Work']);
     });
 
+    describe('a new Workspace is drawn whole from what the tab made', () => {
+      const made = (workspaceId: string, name = 'Bookkeeping'): CommandArgs => ({
+        name: 'create_workspace',
+        payload: { ...envelope(workspaceId), name, panelId: 'p-first' },
+      });
+
+      it('puts it at the end of the list in the first colour no other wears, with the palette’s other three', () => {
+        const copy = listed();
+
+        const drawn = listDrawnOver(copy, [made('ws-new')]);
+
+        expect(shown(drawn)).toEqual(['Work', 'Home', 'Acme', 'Bookkeeping']);
+        expect(drawn.workspaces[3]).toMatchObject({
+          id: 'ws-new',
+          color: THEMES[3].tint,
+          bar: THEMES[3].bar,
+          ground: THEMES[3].ground,
+          header: THEMES[3].header,
+        });
+        expect(copy.workspaces).toHaveLength(3);
+      });
+
+      it('gives two Workspaces added in a row a colour each', () => {
+        const drawn = listDrawnOver(listed(), [made('ws-new'), made('ws-newer', 'Reading')]);
+
+        expect(drawn.workspaces.slice(3).map((one) => one.color)).toEqual([THEMES[3].tint, THEMES[4].tint]);
+      });
+
+      it('draws the first Workspace of an account on an empty list', () => {
+        const drawn = listDrawnOver({ workspaces: [] }, [made('ws-new')]);
+
+        expect(drawn.workspaces).toEqual([expect.objectContaining({ id: 'ws-new', name: 'Bookkeeping', color: THEMES[0].tint })]);
+      });
+
+      it('draws a Workspace the list holds already once, as it is held', () => {
+        const copy = listed();
+
+        expect(listDrawnOver(copy, [made('ws-home', 'Elsewhere')])).toEqual(copy);
+      });
+
+      it('gives it its first Dashboard, named as the server names it, and that Dashboard’s Panel', () => {
+        const drawn = drawnAhead(noSnapshotYet('ws-new'), made('ws-new'));
+
+        expect(drawn.dashboards).toEqual([expect.objectContaining({ id: 'ws-new-dashboard-1', workspaceId: 'ws-new', name: 'Dashboard 1' })]);
+        expect(drawn.panels).toEqual([
+          expect.objectContaining({ id: 'p-first', dashboardId: 'ws-new-dashboard-1', name: 'Panel 1', kind: 'items' }),
+        ]);
+      });
+
+      it('leaves a Workspace the server has sent alone, so a Dashboard deleted since does not come back', () => {
+        const copy = withDashboards('ws-new');
+
+        expect(drawnAhead(copy, made('ws-new'))).toBe(copy);
+      });
+
+      it('leaves another Workspace’s copy alone', () => {
+        const copy = noSnapshotYet('ws-other');
+
+        expect(drawnAhead(copy, made('ws-new'))).toBe(copy);
+      });
+    });
     it('draws nothing over a Workspace’s own copy', () => {
       const copy = withDashboards();
 

@@ -68,6 +68,26 @@ export const WORKSPACE_THEMES = [
   { name: 'Olive', tint: '#7d8f3f', bar: '#637132', ground: GROUND, header: HEADER, deep: '#5d6a2f', onAccent: ON_ACCENT_INK },
 ] as const satisfies readonly WorkspaceTheme[];
 
+/** The tints, in the order they are handed out - one per theme, so a theme added to the palette is a colour handed out. */
+export const WORKSPACE_PALETTE: readonly string[] = WORKSPACE_THEMES.map((theme) => theme.tint);
+
+/**
+ * The first colour no live Workspace is using, so Workspaces are distinguishable
+ * for as long as the palette lasts. **Shared because both halves pick it**: the
+ * server when it makes a Workspace, and the tab when it draws one before the
+ * server has answered ("Open a new Workspace the moment you add it", issue 1366).
+ *
+ * Past the palette there is nothing left to be distinct from, and refusing a
+ * ninth Workspace over a colour would be absurd, so it wraps. Wrapping on the
+ * *count* rather than restarting at the first entry keeps two made one after the
+ * other from matching, the only part of "distinguishable" still available.
+ */
+export function nextColor(taken: readonly string[]): string {
+  const unused = WORKSPACE_PALETTE.find((color) => !taken.includes(color));
+  // In range by construction; the fallback is for `noUncheckedIndexedAccess`.
+  return unused ?? WORKSPACE_PALETTE.at(taken.length % WORKSPACE_PALETTE.length) ?? WORKSPACE_THEMES[0].tint;
+}
+
 /**
  * The tint of a theme in the palette, as a type. `themeOf` answers an unknown
  * tint with the default rather than refusing it, which is right for a column

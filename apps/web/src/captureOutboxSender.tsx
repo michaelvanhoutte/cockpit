@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useSyncExternalStore } from 'reac
 import { useQueryClient } from '@tanstack/react-query';
 import { createStore, del, set, values, type UseStore } from 'idb-keyval';
 import { uuidv7, type Priority } from '@cockpit/shared';
+import { changes } from './api/changes';
 import { sendCommand, uploadAttachment } from './api/client';
 import { deviceTimeZone } from './deviceTimeZone';
 import { currentStanding, onStandingChange } from './offline';
@@ -73,7 +74,11 @@ export interface Sender {
 }
 
 export const serverSender: Sender = {
-  capture: (payload, signal) => sendCommand('capture_item', payload, signal),
+  capture: async (payload, signal) => {
+    // Into a Workspace just added, behind its add: sent first, the server would not know the Workspace yet.
+    await changes.afterAdding(payload.workspaceId);
+    return sendCommand('capture_item', payload, signal);
+  },
   upload: uploadAttachment,
   // Fetched when a recording is first sent, so none of it is in the first bundle.
   transcribe: async (recording, signal) =>

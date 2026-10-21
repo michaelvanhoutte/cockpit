@@ -4,13 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { WORKSPACE_THEMES, type CommandResult, type Workspace, type WorkspaceSnapshot } from '@cockpit/shared';
+import { WORKSPACE_THEMES, nextColor, themeOf, uuidv7, type CommandResult, type Workspace, type WorkspaceSnapshot } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
-import { CommandRefused, fetchSnapshot, fetchWorkspaces, sendCommand } from '../../../src/api/client';
+import { CommandRefused, fetchMe, fetchSnapshot, fetchWorkspaces, sendCommand } from '../../../src/api/client';
+import { workspacesQuery, useSendCommand } from '../../../src/api/queries';
 import { readForAnnouncement } from '../../../src/api/snapshotReads';
 import { useSnapshot } from '../../../src/api/useSnapshot';
 import { useWorkspaces } from '../../../src/api/useWorkspaces';
+import { AddWorkspace } from '../../../src/components/AddWorkspace';
 import { WorkspaceTabs } from '../../../src/components/WorkspaceTabs';
+import { FirstWorkspacePage } from '../../../src/pages/FirstWorkspacePage';
 import { litForChrome } from '../../../src/chrome';
 import { resetStanding } from '../../../src/offline';
 import { UndoWhatJustHappened } from '../../../src/undo';
@@ -42,6 +45,7 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
   fetchSnapshot: vi.fn(),
   fetchWorkspaces: vi.fn(),
+  fetchMe: vi.fn(),
   sendCommand: vi.fn(),
 }));
 
@@ -70,9 +74,9 @@ vi.mock('@tanstack/react-router', () => ({
 const TEAL = WORKSPACE_THEMES[3]!;
 const VIOLET = WORKSPACE_THEMES[0]!;
 
-function aWorkspace(name: string, theme = VIOLET): Workspace {
+function aWorkspace(name: string, theme: { tint: string; bar: string; ground: string; header: string } = VIOLET, id = `ws-${name.toLowerCase()}`): Workspace {
   return {
-    id: `ws-${name.toLowerCase()}`,
+    id,
     tenantId: 'tenant',
     name,
     color: theme.tint,
@@ -95,6 +99,12 @@ let waiting: { name: string; payload: Record<string, unknown>; answer: () => voi
 function keep(name: string, payload: Record<string, unknown>) {
   const held = stored.workspaces;
   const id = payload.workspaceId as string;
+  if (name === 'create_workspace') {
+    const taken = held.find((one) => one.name.toLowerCase() === (payload.name as string).toLowerCase());
+    if (taken) throw new CommandRefused(409, `a workspace called ${taken.name} already exists`);
+    stored.workspaces = [...held, aWorkspace(payload.name as string, themeOf(nextColor(held.map((one) => one.color))), id)];
+    return;
+  }
   if (!held.some((one) => one.id === id)) throw new CommandRefused(404, 'that workspace is not there');
   if (name === 'rename_workspace') {
     const taken = held.find((one) => one.id !== id && one.name.toLowerCase() === (payload.name as string).toLowerCase());
@@ -117,11 +127,15 @@ function keep(name: string, payload: Record<string, unknown>) {
 }
 
 function theWorkspace(workspaceId: string): WorkspaceSnapshot {
+  const held = stored.workspaces.find((one) => one.id === workspaceId);
   return {
-    workspace: stored.workspaces.find((one) => one.id === workspaceId) ?? aWorkspace(workspaceId),
+    workspace: held ?? aWorkspace(workspaceId),
     items: [],
-    dashboards: [],
-    panels: [],
+    // A Workspace the server holds arrives with its first Dashboard and that Dashboard's Panel.
+    dashboards: held ? [{ id: `${workspaceId}-dashboard-1`, tenantId: 'tenant', workspaceId, name: 'Dashboard 1' }] : [],
+    panels: held
+      ? [{ id: `${workspaceId}-panel-1`, tenantId: 'tenant', dashboardId: `${workspaceId}-dashboard-1`, name: 'Panel 1', kind: 'items' }]
+      : [],
     layouts: [],
     associations: [],
     attachments: [],
@@ -137,13 +151,38 @@ let client: QueryClient;
 /** The page of the open Workspace: its name from the list as drawn, and its read held the way a page holds it. */
 function Page({ workspaceId }: { workspaceId: string | null }) {
   const { data } = useWorkspaces();
-  useSnapshot(workspaceId ?? '', { enabled: workspaceId !== null });
+  const { data: drawn } = useSnapshot(workspaceId ?? '', { enabled: workspaceId !== null });
   const here = data?.workspaces.find((one) => one.id === workspaceId);
-  return <section aria-label="Page">{here ? <h2>{here.name}</h2> : <p>nothing open</p>}</section>;
+  const dashboard = drawn?.dashboards[0];
+  return (
+    <section aria-label="Page">
+      {here ? <h2>{here.name}</h2> : <p>nothing open</p>}
+      {dashboard && <h3>{dashboard.name}</h3>}
+      {drawn?.panels.filter((panel) => panel.dashboardId === dashboard?.id).map((panel) => <p key={panel.id}>{panel.name}</p>)}
+    </section>
+  );
+}
+
+/** What captures into a Workspace, with a note already made: sent as the app sends one made on its own page. */
+function CaptureInto({ workspaceId }: { workspaceId: string }) {
+  const send = useSendCommand();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        void send({
+          name: 'capture_item',
+          payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId: uuidv7(), message: 'Call Bart' },
+        }).catch(() => {})
+      }
+    >
+      Capture here
+    </button>
+  );
 }
 
 /** Where an address would take the strip: the Workspace asked for if the drawn list has it, else the first. */
-function aScreen(opening: string) {
+function aScreen(opening: string | null) {
   function Screen() {
     const [open, setOpen] = useState<string | null>(opening);
     router.open = open;
@@ -155,12 +194,15 @@ function aScreen(opening: string) {
       const wanted = params?.workspaceId;
       setOpen(wanted && drawn.workspaces.some((one) => one.id === wanted) ? wanted : (drawn.workspaces[0]?.id ?? null));
     };
+    // Where an address would take an account with no Workspace: the screen that makes the first.
+    if (open === null) return <FirstWorkspacePage />;
     return (
       <>
         <WorkspaceTabs bar={VIOLET.bar} bringIntoView={() => {}}>
-          <span />
+          <AddWorkspace openWorkspaceId={open} />
         </WorkspaceTabs>
         <Page workspaceId={open} />
+        <CaptureInto workspaceId={open} />
       </>
     );
   }
@@ -173,10 +215,16 @@ function aScreen(opening: string) {
   );
 }
 
-async function show(workspaces: Workspace[], opening: string) {
+async function show(workspaces: Workspace[], opening: string | null) {
   stored = { workspaces: [...workspaces] };
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(aScreen(opening));
+  if (opening === null) {
+    // The address read the list on the way in, which is what the stand-in for it decides from.
+    await act(async () => void (await client.fetchQuery(workspacesQuery)));
+    await screen.findByLabelText('Name of the new workspace');
+    return userEvent.setup();
+  }
   await screen.findByRole('link', { name: workspaces[0]!.name });
   await waitFor(() => expect(client.getQueryData(['workspaces'])).toBeDefined());
   return userEvent.setup();
@@ -197,6 +245,15 @@ async function answerNext() {
   await act(async () => waiting.shift()!.answer());
   await settle();
 }
+
+async function addAWorkspace(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole('button', { name: 'Add a workspace' }));
+  await user.type(screen.getByLabelText('Name of the new workspace'), name);
+  await user.click(screen.getByRole('button', { name: 'Add' }));
+}
+
+/** The Workspace on screen, whose id the app made. */
+const theNewId = () => router.open!;
 
 async function chooseOnTab(user: ReturnType<typeof userEvent.setup>, tabName: string, entry: string) {
   fireEvent.contextMenu(tab(tabName));
@@ -239,6 +296,7 @@ beforeEach(() => {
   resetStanding();
   waiting = [];
   router.frozen = false;
+  vi.mocked(fetchMe).mockResolvedValue({ user: { id: 'user-michael', name: 'Michael', role: 'user' } } as never);
   vi.mocked(fetchSnapshot).mockReset();
   vi.mocked(fetchSnapshot).mockImplementation(async (workspaceId: string) => structuredClone(theWorkspace(workspaceId)));
   vi.mocked(fetchWorkspaces).mockImplementation(async () => ({ workspaces: structuredClone(stored.workspaces) }));
@@ -362,6 +420,99 @@ describe('Workspace management', () => {
     });
   });
 
+  describe('a new Workspace opens the moment it is added, with the server still holding the answer', () => {
+    const NEW = 'Bookkeeping';
+
+    it('opens it from the bar on its first Dashboard with one Panel, and closes the question', async () => {
+      const user = await show([WORK, PERSONAL], WORK.id);
+
+      await addAWorkspace(user, NEW);
+
+      expect(theStrip()).toEqual(['Work', 'Personal', NEW]);
+      expect(screen.queryByRole('dialog')).toBeNull();
+      await waitFor(() => expect(page().getByRole('heading', { name: NEW })).toBeVisible());
+      expect(page().getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      expect(page().getAllByText('Panel 1')).toHaveLength(1);
+      expect(waitingFor()).toEqual(['create_workspace']);
+    });
+
+    it('opens it from the first-Workspace page the same way', async () => {
+      const user = await show([], null);
+
+      await user.type(screen.getByLabelText('Name of the new workspace'), NEW);
+      await user.click(screen.getByRole('button', { name: 'New workspace' }));
+
+      await waitFor(() => expect(page().getByRole('heading', { name: NEW })).toBeVisible());
+      expect(page().getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      expect(page().getAllByText('Panel 1')).toHaveLength(1);
+      expect(theStrip()).toEqual([NEW]);
+      expect(waitingFor()).toEqual(['create_workspace']);
+    });
+
+    it('draws it in the colour the server will give it', async () => {
+      const user = await show([WORK, PERSONAL], WORK.id);
+
+      await addAWorkspace(user, NEW);
+
+      // Violet is Work's and Personal's, so the first free one is the palette's second.
+      expect(markOf(NEW)).toBe(litForChrome(WORKSPACE_THEMES[1].tint));
+    });
+  });
+
+  describe('a new Workspace is not read before its answer, and the list and the Workspace are read once after it', () => {
+    it('asks for neither before the answer, and for each once after it', async () => {
+      const user = await show([WORK, PERSONAL], WORK.id);
+      const listReads = vi.mocked(fetchWorkspaces).mock.calls.length;
+
+      await addAWorkspace(user, 'Bookkeeping');
+      await waitFor(() => expect(page().getByRole('heading', { name: 'Dashboard 1' })).toBeVisible());
+      await settle();
+      expect(readsOf(theNewId())).toBe(0);
+      expect(vi.mocked(fetchWorkspaces).mock.calls.length).toBe(listReads);
+
+      await answerNext();
+
+      expect(readsOf(theNewId())).toBe(1);
+      expect(vi.mocked(fetchWorkspaces).mock.calls.length).toBe(listReads + 1);
+      // And it stays open on what the server has sent.
+      expect(theStrip()).toEqual(['Work', 'Personal', 'Bookkeeping']);
+      expect(page().getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      expect(page().getAllByText('Panel 1')).toHaveLength(1);
+    });
+
+    it('asks for neither before the answer when it is added from the first-Workspace page', async () => {
+      const user = await show([], null);
+      const listReads = vi.mocked(fetchWorkspaces).mock.calls.length;
+
+      await user.type(screen.getByLabelText('Name of the new workspace'), 'Bookkeeping');
+      await user.click(screen.getByRole('button', { name: 'New workspace' }));
+      await waitFor(() => expect(page().getByRole('heading', { name: 'Dashboard 1' })).toBeVisible());
+      await settle();
+      expect(readsOf(theNewId())).toBe(0);
+      expect(vi.mocked(fetchWorkspaces).mock.calls.length).toBe(listReads);
+
+      await answerNext();
+
+      expect(readsOf(theNewId())).toBe(1);
+      expect(vi.mocked(fetchWorkspaces).mock.calls.length).toBe(listReads + 1);
+    });
+  });
+
+  describe('a change built on a Workspace still being added goes behind its add', () => {
+    it('sends a capture into it only once the add is answered', async () => {
+      const user = await show([WORK, PERSONAL], WORK.id);
+      await addAWorkspace(user, 'Bookkeeping');
+      await waitFor(() => expect(page().getByRole('heading', { name: 'Dashboard 1' })).toBeVisible());
+
+      await user.click(screen.getByRole('button', { name: 'Capture here' }));
+      await settle();
+
+      expect(waitingFor()).toEqual(['create_workspace']);
+      await answerNext();
+      await waitFor(() => expect(waitingFor()).toEqual(['capture_item']));
+    });
+  });
+
   describe('a deleted Workspace is not read while its delete is unanswered', () => {
     it('starts no read of it when the server announces a change to it', async () => {
       const user = await show([WORK, PERSONAL], PERSONAL.id);
@@ -405,6 +556,33 @@ describe('Workspace management', () => {
   });
 
   describe('a refused Workspace change goes back and says why in the undo bar', () => {
+    it('takes the new tab away and puts the page back on the Workspace you were on when an add is refused', async () => {
+      const user = await show([WORK, PERSONAL], PERSONAL.id);
+      await addAWorkspace(user, 'Bookkeeping');
+      await waitFor(() => expect(page().getByRole('heading', { name: 'Dashboard 1' })).toBeVisible());
+      // Another device took the name first.
+      stored.workspaces.push(aWorkspace('Bookkeeping'));
+
+      await answerNext();
+
+      expect(theStrip()).toEqual(['Work', 'Personal']);
+      await waitFor(() => expect(page().getByRole('heading', { name: 'Personal' })).toBeVisible());
+      expect(await screen.findByRole('status')).toHaveTextContent('“Bookkeeping” was not added. a workspace called Bookkeeping already exists');
+    });
+
+    it('brings the first-Workspace page back when its add is refused', async () => {
+      const user = await show([], null);
+      await user.type(screen.getByLabelText('Name of the new workspace'), 'Bookkeeping');
+      await user.click(screen.getByRole('button', { name: 'New workspace' }));
+      await waitFor(() => expect(page().getByRole('heading', { name: 'Dashboard 1' })).toBeVisible());
+      stored.workspaces.push(aWorkspace('Bookkeeping'));
+
+      await answerNext();
+
+      expect(await screen.findByLabelText('Name of the new workspace')).toBeVisible();
+      expect(await screen.findByRole('status')).toHaveTextContent('“Bookkeeping” was not added.');
+    });
+
     it('brings the old name back, with the server’s words, when a rename takes a name already used', async () => {
       const user = await show([WORK, PERSONAL], WORK.id);
       await renameTo(user, 'Personal', 'Work');

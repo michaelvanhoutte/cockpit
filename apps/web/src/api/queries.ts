@@ -25,6 +25,7 @@ import {
   checkConnectionNow,
 } from './client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
+import { noSnapshotYet } from '../drawnAhead';
 import { changes, readOfWorkspaceBegins, watchWorkspaceReads } from './changes';
 import { readAfterOwnChange } from './snapshotReads';
 
@@ -177,6 +178,10 @@ export const snapshotQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ['snapshot', workspaceId],
     queryFn: ({ client }) => {
+      // A Workspace this tab has just added is not on the server yet, so a read
+      // would find nothing: it is held blank and drawn over by the add
+      // (`drawnAhead.ts`), then read for properly once the add is answered.
+      if (changes.adding(workspaceId)) return noSnapshotYet(workspaceId);
       // Marked as it starts, because whether the changes this tab has made are
       // in what comes back depends on when the read began (`changeQueue.ts`).
       watchWorkspaceReads(client);
@@ -433,7 +438,11 @@ function refuseUnlessCapture(args: CommandArgs): void {
  */
 async function sendChange(args: CommandArgs, queryClient: QueryClient): Promise<CommandResult> {
   refuseUnlessCapture(args);
-  if (args.name === 'capture_item') return sendCommand(args.name, args.payload);
+  if (args.name === 'capture_item') {
+    // Into a Workspace just added, behind its add: sent first, the server would not know the Workspace yet.
+    await changes.afterAdding(args.payload.workspaceId);
+    return sendCommand(args.name, args.payload);
+  }
   // Read again behind the change, not waited for: it is drawn already and stays
   // drawn until a read that began after its answer has landed (`changeQueue.ts`).
   // Registered as the answer comes in, so a burst is read once when it ends

@@ -1,4 +1,3 @@
-import { DEFAULT_WORKSPACE_THEME, WORKSPACE_THEMES } from '@cockpit/shared';
 import type { CreateWorkspaceCommand, Workspace } from '@cockpit/shared';
 import { foldName, namedTheSame } from './names.js';
 
@@ -6,34 +5,6 @@ import { foldName, namedTheSame } from './names.js';
  * Pure handlers for workspaces (architecture, "Hono + Zod on Cloudflare
  * Workers": domain imports nothing from the other layers).
  */
-
-/**
- * The tints, in the order they are handed out - one per theme, derived rather
- * than written twice, so a theme added to the palette is a color handed out
- * and the two cannot disagree about which colors exist.
- */
-export const WORKSPACE_PALETTE = WORKSPACE_THEMES.map((theme) => theme.tint);
-
-/**
- * The first color no live workspace is using, so workspaces are distinguishable
- * for as long as the palette lasts.
- *
- * Past that there is nothing left to be distinct from, and refusing to create
- * a ninth workspace over a color would be absurd, so it wraps. Wrapping on the
- * *count* rather than restarting at the first entry is what keeps two
- * workspaces created one after the other from matching, which is the only part
- * of "distinguishable" still available once every color is spoken for.
- */
-export function nextColor(taken: readonly string[]): string {
-  const unused = WORKSPACE_PALETTE.find((color) => !taken.includes(color));
-  if (unused) return unused;
-  // In range by construction. The `??` is there only because a computed index
-  // is `| undefined` under noUncheckedIndexedAccess and the checker cannot see
-  // that a modulo of the length never leaves the array.
-  return (
-    WORKSPACE_PALETTE.at(taken.length % WORKSPACE_PALETTE.length) ?? DEFAULT_WORKSPACE_THEME.tint
-  );
-}
 
 /**
  * Where a workspace made now goes: after every workspace the account has, so it

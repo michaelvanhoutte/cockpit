@@ -59,11 +59,25 @@ test.describe('Workspace management', () => {
      * opens says what a workspace is - which is the moment somebody pressing it
      * is asking.
      */
-    test('makes one from the tab strip, on a question that says what a workspace is', async ({
+    test('makes one from the tab strip, on a question that says what a workspace is, and opens it before the server has answered', async ({
       page,
       isMobile,
     }) => {
+      const HELD_FOR_MS = 3_000;
+      const AT_ONCE_MS = 1_500;
       await openFirstWorkspace(page, isMobile);
+      // The answer is held, so what is on screen is what the tab drew itself.
+      let madeId = '';
+      await page.route('**/v1/commands/create_workspace', async (route) => {
+        madeId = route.request().postDataJSON().workspaceId;
+        await new Promise((resolve) => setTimeout(resolve, HELD_FOR_MS));
+        await route.continue();
+      });
+      const answered = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.endsWith('/commands/create_workspace'),
+      );
 
       await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
 
@@ -81,19 +95,27 @@ test.describe('Workspace management', () => {
       // At the end of the strip, and opened: a new workspace goes after every
       // one the account has ever had, and making one then having to find it is
       // two gestures for what reads as one.
-      await expect(workspaceTab(page, name)).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      await expect(workspaceTab(page, name)).toBeVisible({ timeout: AT_ONCE_MS });
+      await expect
+        .poll(() => madeId !== '' && page.url().includes(`/w/${madeId}/d/`), { timeout: AT_ONCE_MS })
+        .toBe(true);
+      await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible({ timeout: AT_ONCE_MS });
       // Holding the panel every dashboard arrives with, so it can be filed
       // into from the moment it exists.
+      await expect(page.getByRole('region', { name: 'Panel 1' })).toBeVisible({ timeout: AT_ONCE_MS });
+      // And it is still there once the server's copy has landed.
+      expect((await answered).status()).toBe(200);
       await expect(page.getByRole('region', { name: 'Panel 1' })).toBeVisible();
+      expect(page.url()).toContain(`/w/${madeId}/d/`);
       await expectNoSidewaysScroll(page);
+      await page.unroute('**/v1/commands/create_workspace');
 
       // Put back: the run shares one database, and every workspace left behind
       // is one more tab in every other spec's strip.
       await deleteWorkspace(page, name, isMobile);
     });
 
-    test('refuses a name another workspace already has, and says which', async ({
+    test('takes the new tab away and says which name is taken when another workspace has it', async ({
       page,
       isMobile,
     }) => {
@@ -105,12 +127,11 @@ test.describe('Workspace management', () => {
       await page.getByLabel('Name of the new workspace').fill(taken);
       await page.getByLabel('Name of the new workspace').press('Enter');
 
-      // Still open, with what was typed in it, so the name is corrected rather
-      // than typed again from nothing.
-      await expect(page.getByRole('alert')).toContainText(taken);
-      await expect(page.getByLabel('Name of the new workspace')).toHaveValue(taken);
+      // Said in the undo bar rather than in the question, which closed at the
+      // click: the new tab was drawn, and goes again with the refusal.
+      await expect(page.getByRole('status').filter({ hasText: 'was not added' })).toContainText(taken);
+      await expect(workspaceTab(page, taken)).toHaveCount(1);
 
-      await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
       await deleteWorkspace(page, taken, isMobile);
     });
   });
