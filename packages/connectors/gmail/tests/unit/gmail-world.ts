@@ -7,6 +7,8 @@ import {
   historyRecord,
   labelsAnswer,
   message,
+  messageModifyAnswer,
+  messagesPage,
   modifyAnswer,
   plainThread,
   profileAnswer,
@@ -61,8 +63,10 @@ export class GmailWorld {
   };
   revoked: string[] = [];
   revokeStatus = 200;
-  /** What `threads.modify` answers for a conversation: a status other than 200 refuses it. */
-  modifyStatus: (threadId: string) => number = () => 200;
+  /** What `threads.modify` answers for a conversation, or `messages.modify` for an email, by id: a status other than 200 refuses it. */
+  modifyStatus: (id: string) => number = () => 200;
+  /** Emails Gmail answers per list page of `messages.list`; the real ceiling is 500. */
+  emailPageSize = 500;
 
   readonly fetch: typeof fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
@@ -91,9 +95,12 @@ export class GmailWorld {
     }
     if (path === 'profile') return json({ ...profileAnswer(String(this.#historyId)), emailAddress: ADDRESS });
     if (path === 'threads') return this.#list(url);
+    if (path === 'messages') return this.#listEmails(url);
     if (path === 'history') return this.#history(url);
     const modify = /^threads\/([^/]+)\/modify$/.exec(path);
     if (modify) return this.#modify(decodeURIComponent(modify[1]!), JSON.parse(String(init?.body)));
+    const modifyEmail = /^messages\/([^/]+)\/modify$/.exec(path);
+    if (modifyEmail) return this.#modifyEmail(decodeURIComponent(modifyEmail[1]!), JSON.parse(String(init?.body)));
     const read = /^threads\/([^/]+)$/.exec(path);
     if (read) {
       const thread = this.#threads.find((one) => one.id === decodeURIComponent(read[1]!));
@@ -141,6 +148,65 @@ export class GmailWorld {
     this.#record({ added: reply.id, threadId, labelIds: reply.labelIds });
   }
 
+  /**
+   * Another email in a conversation, with its own id, subject and text, carrying the marks and user labels given -
+   * which is how two unrelated emails come to share one conversation.
+   */
+  emailArrives(
+    threadId: string,
+    emailId: string,
+    subject: string,
+    text = `The text of ${emailId}.`,
+    { marks = [], labels = [] }: { marks?: readonly ('label' | 'star')[]; labels?: readonly string[] } = {},
+  ): void {
+    const thread = this.#thread(threadId);
+    const sentAt = new Date(Date.UTC(2026, 9, 1 + thread.messages.length, 8, 30)).toISOString();
+    const email = message(threadId, {
+      id: emailId,
+      sentAt,
+      subject,
+      plain: text,
+      labelled: marks.includes('label'),
+      starred: marks.includes('star'),
+    });
+    email.labelIds = [...email.labelIds, ...labels.map((name) => this.#idOfLabel(name))];
+    thread.messages.push(email);
+    this.#record({ added: email.id, threadId, labelIds: email.labelIds });
+  }
+
+  /** One email starred, as a person does it in Gmail's list of messages: the others of its conversation are not. */
+  star(emailId: string): void {
+    this.#changeEmail(emailId, STARRED, true);
+  }
+
+  unstar(emailId: string): void {
+    this.#changeEmail(emailId, STARRED, false);
+  }
+
+  /** One email moved to the bin, which keeps its labels. */
+  binEmail(emailId: string): void {
+    this.#changeEmail(emailId, 'TRASH', true);
+  }
+
+  /** One email deleted for good: gone from its conversation, which goes with its last. */
+  deleteEmail(emailId: string): void {
+    const thread = this.#threads.find((one) => one.messages.some((email) => email.id === emailId));
+    if (!thread) throw new Error(`no email ${emailId}`);
+    thread.messages = thread.messages.filter((email) => email.id !== emailId);
+    if (thread.messages.length === 0) this.#threads = this.#threads.filter((one) => one !== thread);
+    this.#record({ deleted: emailId, threadId: thread.id });
+  }
+
+  /** The labels of one email. */
+  labelsOfEmail(emailId: string): string[] {
+    return this.#email(emailId).labelIds;
+  }
+
+  /** The conversations read, in order, whatever the format - what a run spent on reading. */
+  threadReads(): string[] {
+    return this.requests.filter((one) => /GET .*threads\/[^/?]+\?format=/.test(one)).map((one) => /threads\/([^/?]+)/.exec(one)![1]!);
+  }
+
   #idOfLabel(name: string): string {
     if (name === 'Cockpit') return COCKPIT_LABEL_ID;
     if (name === name.toUpperCase()) return name; // Gmail's own: INBOX, UNREAD, CATEGORY_PROMOTIONS
@@ -167,10 +233,10 @@ export class GmailWorld {
   }
 
   bin(threadId: string): void {
-    const thread = this.#thread(threadId);
-    for (const message of thread.messages) message.labelIds = [...message.labelIds.filter((one) => one !== 'INBOX'), 'TRASH'];
-    const message = thread.messages[0]!;
-    this.#record({ labelled: message.id, threadId, with: ['TRASH'], labelIds: message.labelIds });
+    for (const message of this.#thread(threadId).messages) {
+      message.labelIds = message.labelIds.filter((one) => one !== 'INBOX');
+      this.#changeEmail(message.id, 'TRASH', true);
+    }
   }
 
   /** Gmail forgetting its history up to now, as it does after about a week. */
@@ -212,13 +278,24 @@ export class GmailWorld {
     return thread;
   }
 
+  #email(emailId: string): ReturnType<typeof message> {
+    for (const thread of this.#threads) {
+      const found = thread.messages.find((one) => one.id === emailId);
+      if (found) return found;
+    }
+    throw new Error(`no email ${emailId}`);
+  }
+
+  /** A mark put on, or taken off, every email of a conversation - as a label does in conversation view - leaving the history Gmail does: one record for each email changed. */
   #change(threadId: string, mark: 'label' | 'star', on: boolean): void {
     const markId = mark === 'label' ? COCKPIT_LABEL_ID : STARRED;
-    const thread = this.#thread(threadId);
-    for (const message of thread.messages) {
-      message.labelIds = on ? [...new Set([...message.labelIds, markId])] : message.labelIds.filter((one) => one !== markId);
-    }
-    const message = thread.messages[0]!;
+    for (const message of this.#thread(threadId).messages) this.#changeEmail(message.id, markId, on);
+  }
+
+  #changeEmail(emailId: string, markId: string, on: boolean): void {
+    const message = this.#email(emailId);
+    message.labelIds = on ? [...new Set([...message.labelIds, markId])] : message.labelIds.filter((one) => one !== markId);
+    const threadId = message.threadId;
     this.#record(
       on
         ? { labelled: message.id, threadId, with: [markId], labelIds: message.labelIds }
@@ -246,6 +323,31 @@ export class GmailWorld {
     return json(threadsPage(page, offset + size < all.length ? String(offset + size) : undefined));
   }
 
+  /** `messages.list` by label: the emails carrying it, newest first, the bin and spam left out as Gmail leaves them. */
+  #listEmails(url: URL): Response {
+    const markId = url.searchParams.get('labelIds')!;
+    const size = Math.min(Number(url.searchParams.get('maxResults')), this.emailPageSize);
+    const offset = Number(url.searchParams.get('pageToken') ?? 0);
+    const all = this.#threads.flatMap((thread) =>
+      [...thread.messages]
+        .reverse()
+        .filter((one) => one.labelIds.includes(markId) && !one.labelIds.includes('TRASH'))
+        .map((one) => ({ id: one.id, threadId: thread.id })),
+    );
+    const page = all.slice(offset, offset + size);
+    return json(messagesPage(page, offset + size < all.length ? String(offset + size) : undefined));
+  }
+
+  #modifyEmail(emailId: string, body: { addLabelIds?: string[]; removeLabelIds?: string[] }): Response {
+    const status = this.modifyStatus(emailId);
+    if (status !== 200) return json({ error: { code: status } }, status);
+    const exists = this.#threads.some((thread) => thread.messages.some((one) => one.id === emailId));
+    if (!exists) return json({}, 404);
+    const [markId, on] = body.addLabelIds ? [body.addLabelIds[0]!, true] : [body.removeLabelIds![0]!, false];
+    if (this.#email(emailId).labelIds.includes(markId) !== on) this.#changeEmail(emailId, markId, on);
+    return json(messageModifyAnswer(this.#email(emailId)));
+  }
+
   #history(url: URL): Response {
     const start = Number(url.searchParams.get('startHistoryId'));
     if (start < this.#oldestKept) return json({ error: { code: 404 } }, 404);
@@ -270,7 +372,7 @@ export class GmailWorld {
     if (!thread) return json({}, 404);
     const [markId, on] = body.addLabelIds ? [body.addLabelIds[0]!, true] : [body.removeLabelIds![0]!, false];
     for (const message of thread.messages) {
-      message.labelIds = on ? [...new Set([...message.labelIds, markId])] : message.labelIds.filter((one) => one !== markId);
+      if (message.labelIds.includes(markId) !== on) this.#changeEmail(message.id, markId, on);
     }
     return json(modifyAnswer({ id: thread.id, historyId: String(this.#historyId), messages: thread.messages }));
   }

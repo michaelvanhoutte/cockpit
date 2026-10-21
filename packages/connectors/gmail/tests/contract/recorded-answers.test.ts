@@ -4,11 +4,21 @@ import {
   cockpitLabelIn,
   conversationFrom,
   conversationPage,
+  emailPage,
   historyPage,
   labelChange,
   stillMarked,
 } from '../../src/messages.js';
-import { historyAnswer, historyRecord, labelsAnswer, modifyAnswer, plainThread, profileAnswer, threadsPage } from '../gmail-payloads.js';
+import {
+  historyAnswer,
+  historyRecord,
+  labelsAnswer,
+  messagesPage,
+  modifyAnswer,
+  plainThread,
+  profileAnswer,
+  threadsPage,
+} from '../gmail-payloads.js';
 
 /**
  * The contract tier: the calls the Gmail connector reads, and the one change
@@ -154,6 +164,23 @@ describe.skipIf(!provisioned)('Capture', () => {
 
       expect(missingFrom(live, historyAnswer([]), ['historyId'])).toEqual([]);
       expect(historyPage(live, STARRED).gained).toEqual([]);
+    });
+
+    // What a connection following the star lists ("Bring in each email you star
+    // in Gmail as its own Item", issue 1398): emails, not conversations.
+    it('lists the emails carrying a label, ids only, each with its conversation', async () => {
+      const labelId = cockpitLabelIn(await gmail('labels'))!;
+      const listed = await gmail(`messages?${new URLSearchParams({ labelIds: labelId, maxResults: '1' })}`);
+
+      expect(
+        missingFrom(listed, messagesPage([{ id: 'a-message', threadId: 'a-thread' }], 'a-page'), [
+          'messages',
+          'messages[].id',
+          'messages[].threadId',
+          'resultSizeEstimate',
+        ]),
+      ).toEqual([]);
+      expect(emailPage(listed).emails).toHaveLength(1);
     });
 
     it('lists the conversations carrying the label, a page at a time, and reads one whole', async () => {

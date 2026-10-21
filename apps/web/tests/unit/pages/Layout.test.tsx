@@ -97,15 +97,18 @@ vi.mock('../../../src/components/InboxPanel', () => ({
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
 
+// What Platform settings reads and changes, in the cases that open it as an admin.
+vi.mock('../../../src/api/registeredUsers', () => ({
+  useRegisteredUsers: () => ({ data: { users: [] }, error: null, isPending: false }),
+  useAddUser: () => () => Promise.resolve({ accountReady: true }),
+  useChangeUser: () => () => Promise.resolve({}),
+  useSetAccess: () => () => Promise.resolve({}),
+  useDeleteUser: () => () => Promise.resolve(),
+}));
+
 vi.mock('../../../src/api/queries', () => ({
-  // What Platform settings reads, in the cases that open it as an admin.
-  registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => Promise.resolve({ users: [] }) },
   usageQuery: (days: number) => ({ queryKey: ['usage', days], queryFn: () => Promise.resolve({ days, analyticsUrl: null, named: [], guests: { perDay: [], byCountry: [], byReferrer: [] } }) }),
   accountHoldingsQuery: (userId: string) => ({ queryKey: ['accountHoldings', userId], queryFn: () => Promise.resolve({ workspaces: 0, empty: true }) }),
-  useAddUser: () => ({ mutate: () => undefined, isPending: false, error: null, data: undefined }),
-  useChangeUser: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
-  useSetAccess: () => ({ mutate: () => undefined, isPending: false, error: null }),
-  useDeleteUser: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
   // The shell draws the account's management windows over the workspace
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.

@@ -59,7 +59,10 @@
         "apps/api/src/mcp/find-items.ts",
         "apps/api/src/domain/item-search.ts",
         "apps/api/src/mcp/connected-apps.ts",
-        "apps/web/src/components/ManageConnectedApps.tsx"
+        "apps/web/src/components/ManageConnectedApps.tsx",
+        "apps/web/src/api/connectedApps.ts",
+        "apps/web/src/connectedAppsDrawnAhead.ts",
+        "apps/web/src/api/ownList.ts"
       ]
     },
     {
@@ -73,6 +76,9 @@
         "apps/api/src/accounts/new-user.ts",
         "packages/shared/src/api/users.ts",
         "apps/web/src/components/ManageUsers.tsx",
+        "apps/web/src/api/registeredUsers.ts",
+        "apps/web/src/registeredUsersDrawnAhead.ts",
+        "apps/web/src/api/ownList.ts",
         "apps/web/src/pages/Layout.tsx"
       ]
     },
@@ -423,6 +429,7 @@
         "apps/web/src/components/ManageConnections.tsx",
         "apps/web/src/components/ConnectionChoice.tsx",
         "apps/web/src/api/sourceAccounts.ts",
+        "apps/web/src/api/ownList.ts",
         "apps/web/src/connectionsDrawnAhead.ts",
         "apps/web/src/connections.ts"
       ]
@@ -458,7 +465,8 @@
         "apps/web/src/components/ManageRememberedSentences.tsx",
         "apps/web/src/components/RememberASentence.tsx",
         "apps/web/src/rememberedSentences.ts",
-        "apps/web/src/rememberedSentencesDrawnAhead.ts"
+        "apps/web/src/rememberedSentencesDrawnAhead.ts",
+        "apps/web/src/api/ownList.ts"
       ]
     },
     {

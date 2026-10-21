@@ -1,8 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CommandResult, Item, SourceAccount, SourceAccountList, WorkspaceList, WorkspaceSnapshot } from '@cockpit/shared';
+import type {
+  CommandResult,
+  ConnectedApp,
+  ConnectedAppList,
+  Item,
+  RegisteredUser,
+  SourceAccount,
+  SourceAccountList,
+  WorkspaceList,
+  WorkspaceSnapshot,
+} from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
+import { connectedAppsDrawnOver } from '../../src/connectedAppsDrawnAhead';
 import { connectionsDrawnOver } from '../../src/connectionsDrawnAhead';
+import type { Requested } from '../../src/drawnAhead';
+import { usersDrawnOver, type ShownUsers } from '../../src/registeredUsersDrawnAhead';
 
 /**
  * F1: the changes a tab has made and not yet had answered - which of them are
@@ -923,6 +936,199 @@ describe('Connector management', () => {
       await settle();
 
       expect(shown(queue)).toEqual(['account-mail', 'account-teams']);
+    });
+  });
+});
+
+describe('User management', () => {
+  describe('a change made with a request of its own joins the queue as it is', () => {
+    const scope = '["registeredUsers"]';
+    const ADA: RegisteredUser = {
+      id: 'user-ada',
+      name: 'Ada',
+      email: 'ada@example.com',
+      role: 'user',
+      accountName: 'Ada',
+      lastSignedInAt: null,
+      disabled: false,
+    };
+    const holding = (): ShownUsers => ({ users: [ADA] });
+    const shown = (queue: ReturnType<typeof createChangeQueue>, list: ShownUsers = holding()) =>
+      queue.drawnList(list, usersDrawnOver).users.map((row) => `${row.id}:${row.name}`);
+    const anAdd: Requested = { name: 'add_user', payload: { userId: 'pending-1', name: 'Anna', email: 'anna@example.com' } };
+    const aRename: Requested = { name: 'change_user', payload: { userId: 'user-ada', name: 'Ada Lovelace', role: 'user' } };
+
+    /** A request left open until the test answers it, with the signal it was sent under. */
+    function aRequest() {
+      const sentWith: { signal: AbortSignal; answer: () => void; refuse: (error: Error) => void }[] = [];
+      const request = vi.fn(
+        (signal: AbortSignal) =>
+          new Promise<CommandResult>((resolve, reject) => {
+            sentWith.push({ signal, answer: () => resolve({ ok: true, applied: true }), refuse: reject });
+          }),
+      );
+      return { request, sentWith };
+    }
+
+    it('sends it by its own request, behind the change made before it, and never through the queue’s own send', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      const { request } = aRequest();
+
+      void queue.enqueue(priority('high'));
+      queue.enqueue(anAdd, undefined, scope, request).catch(() => {});
+      await settle();
+      expect(request).not.toHaveBeenCalled();
+
+      server.arrived[0]!.answer();
+      await settle();
+
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(server.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('is drawn from the moment it is made, and counted as unanswered until its request answers', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      const { request, sentWith } = aRequest();
+
+      queue.enqueue(anAdd, undefined, scope, request).catch(() => {});
+      await settle();
+
+      expect(shown(queue)).toEqual(['user-ada:Ada', 'pending-1:Anna']);
+      expect(queue.unanswered()).toBe(1);
+
+      sentWith[0]!.answer();
+      await settle();
+
+      expect(queue.unanswered()).toBe(0);
+      expect(shown(queue)).toEqual(['user-ada:Ada', 'pending-1:Anna']);
+    });
+
+    it('arms the leave-site prompt while its request is unanswered, and lets go once it is answered', async () => {
+      const guard = { arm: vi.fn(), disarm: vi.fn() };
+      const queue = createChangeQueue({ send: aServer().send, leaveGuard: guard });
+      const { request, sentWith } = aRequest();
+
+      queue.enqueue(aRename, undefined, scope, request).catch(() => {});
+      await settle();
+      expect(guard.arm).toHaveBeenCalledTimes(1);
+      expect(guard.disarm).not.toHaveBeenCalled();
+
+      sentWith[0]!.answer();
+      await settle();
+
+      expect(guard.disarm).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps drawing it under a read of the register that began before its answer, and stops once one that began after has landed', async () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      const { request, sentWith } = aRequest();
+      queue.enqueue(aRename, undefined, scope, request).catch(() => {});
+      await settle();
+      const early = queue.readStarted();
+      sentWith[0]!.answer();
+      await settle();
+
+      queue.readLanded(scope, early);
+      expect(shown(queue)).toEqual(['user-ada:Ada Lovelace']);
+
+      queue.readLanded(scope, queue.readStarted());
+      expect(shown(queue)).toEqual(['user-ada:Ada']);
+    });
+
+    it('fills in the id the server decided when the register is read after the answer', async () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      const { request, sentWith } = aRequest();
+      queue.enqueue(anAdd, undefined, scope, request).catch(() => {});
+      await settle();
+      sentWith[0]!.answer();
+      await settle();
+      const read = queue.readStarted();
+
+      // The register as the server now holds it: the id and the account are its own.
+      const registered: ShownUsers = {
+        users: [ADA, { ...ADA, id: 'user-anna', name: 'Anna', email: 'anna@example.com', accountName: 'Anna' }],
+      };
+      expect(shown(queue)).toEqual(['user-ada:Ada', 'pending-1:Anna']);
+      queue.readLanded(scope, read);
+
+      // Not drawn any more over a list that does not hold them, and the server's list is shown as it is.
+      expect(shown(queue)).toEqual(['user-ada:Ada']);
+      expect(shown(queue, registered)).toEqual(['user-ada:Ada', 'user-anna:Anna']);
+      expect(queue.drawnList(registered, usersDrawnOver).users.some((row) => row.pending)).toBe(false);
+    });
+
+    it('draws the register back when the server refuses the change', async () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      const { request, sentWith } = aRequest();
+      const refused = queue.enqueue(anAdd, undefined, scope, request);
+      refused.catch(() => {});
+      await settle();
+      expect(shown(queue)).toEqual(['user-ada:Ada', 'pending-1:Anna']);
+
+      sentWith[0]!.refuse(new Error('anna@example.com is already how user-anna signs in'));
+      await settle();
+
+      expect(shown(queue)).toEqual(['user-ada:Ada']);
+      await expect(refused).rejects.toThrow('already how user-anna signs in');
+    });
+
+    it('gives up on a request that never answers, aborts it, and goes on to the next change', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send, sendTimeoutMs: 20 });
+      const { request, sentWith } = aRequest();
+      const hung = queue.enqueue(anAdd, undefined, scope, request);
+      hung.catch(() => {});
+      // It hangs too, in its turn; nobody is waiting on that here.
+      queue.enqueue(priority('high')).catch(() => {});
+      await settle();
+
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      await expect(hung).rejects.toThrow('That did not reach the server. Try again.');
+      expect(sentWith[0]!.signal.aborted).toBe(true);
+      expect(server.arrived.map((arrived) => arrived.change)).toEqual([priority('high')]);
+    });
+  });
+});
+
+describe('MCP connections', () => {
+  describe('a disconnected app waiting for its answer never flips back while the apps are read', () => {
+    const scope = '["connectedApps"]';
+    const CLAUDE = { id: 'grant-claude', name: 'Claude' } as ConnectedApp;
+    const QUIET = { id: 'grant-quiet', name: 'Quiet app' } as ConnectedApp;
+    const gone: Requested = { name: 'disconnect_app', payload: { appId: 'grant-claude' } };
+    const shown = (queue: ReturnType<typeof createChangeQueue>) =>
+      queue.drawnList({ apps: [CLAUDE, QUIET] } as ConnectedAppList, connectedAppsDrawnOver).apps.map((app) => app.id);
+
+    async function disconnected() {
+      const queue = createChangeQueue({ send: aServer().send });
+      let answer = () => {};
+      queue
+        .enqueue(gone, undefined, scope, () => new Promise<CommandResult>((resolve) => (answer = () => resolve({ ok: true, applied: true }))))
+        .catch(() => {});
+      await settle();
+      return { queue, answer };
+    }
+
+    it('draws the app gone from the moment it is disconnected', async () => {
+      const { queue } = await disconnected();
+
+      expect(shown(queue)).toEqual(['grant-quiet']);
+    });
+
+    it('keeps it gone under a read that began before the answer, and shows the server’s list after one that began later', async () => {
+      const { queue, answer } = await disconnected();
+      const early = queue.readStarted();
+      answer();
+      await settle();
+
+      queue.readLanded(scope, early);
+      expect(shown(queue)).toEqual(['grant-quiet']);
+
+      queue.readLanded(scope, queue.readStarted());
+      expect(shown(queue)).toEqual(['grant-claude', 'grant-quiet']);
     });
   });
 });

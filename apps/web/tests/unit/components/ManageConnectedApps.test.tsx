@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ConnectedApp } from '@cockpit/shared';
+import { changes } from '../../../src/api/changes';
 import ManageConnectedApps from '../../../src/components/ManageConnectedApps';
 
 /**
@@ -10,14 +11,17 @@ import ManageConnectedApps from '../../../src/components/ManageConnectedApps';
  * and that only your own are listed, are the server's rules, proved against
  * the real Worker in apps/api/tests/integration/http/connected-apps.test.ts;
  * that a person can find the window, copy the address and disconnect an app is
- * the browser walk in tests/e2e/connected-apps.test.ts.
+ * the browser walk in tests/e2e/connected-apps.test.ts; what a disconnect shows
+ * while the server has yet to answer is
+ * tests/unit/components/ConnectedAppsAtOnce.test.tsx.
  */
 const held = vi.hoisted(() => ({
   apps: [] as unknown[],
   deleted: [] as string[],
 }));
 
-vi.mock('../../../src/api/client', () => ({
+vi.mock('../../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/client')>()),
   api: {
     v1: {
       'connected-apps': {
@@ -32,7 +36,6 @@ vi.mock('../../../src/api/client', () => ({
       },
     },
   },
-  refusal: (what: string, status: number) => new Error(`${what} failed: ${status}`),
 }));
 
 const CLAUDE: ConnectedApp = {
@@ -60,6 +63,10 @@ function showWindow() {
 beforeEach(() => {
   held.apps = [];
   held.deleted = [];
+});
+
+afterEach(() => {
+  changes.forgetAnswered();
 });
 
 describe('MCP connections', () => {
@@ -122,7 +129,7 @@ describe('MCP connections', () => {
       expect(screen.getByText('Claude')).toBeInTheDocument();
     });
 
-    it('disconnects exactly that app and takes its row away once the server has agreed', async () => {
+    it('disconnects exactly that app and takes its row away', async () => {
       held.apps = [CLAUDE, QUIET];
       const user = userEvent.setup();
       showWindow();

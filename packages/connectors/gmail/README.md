@@ -1,8 +1,9 @@
 # @cockpit/connector-gmail
 
-Conversations a person labels `Cockpit`, or stars, arrive in Cockpit as Tasks. A
-label or star taken off closes the Task, put back reopens it, and closing or
-reopening the Task in Cockpit does the same to the label or star. Built on the
+Conversations a person labels `Cockpit`, or emails they star, arrive in Cockpit
+as Tasks. A label or star taken off closes the Task, put back reopens it, and
+closing or reopening the Task in Cockpit does the same to the label or star.
+Built on the
 connector SDK alone ("Build Gmail as a connector package on the SDK,
 unregistered", issue 943), and registered wherever `GMAIL_CLIENT_ID` and
 `GMAIL_CLIENT_SECRET` are set ("Switch Gmail onto the generic host, and take it
@@ -18,23 +19,46 @@ out of the core", issue 944).
   Gmail's system label `STARRED`, which is what Outlook's flag for follow-up sets.
 - **Labels belong to messages, not conversations.** Labelling a conversation
   labels the messages it holds then, and a reply after it arrives without the
-  label. So the message read for an Item is the most recent one *carrying the
-  mark* (the last message where none does), and a reply never makes a
-  conversation look unmarked or new.
+  label. So the message read for an Item by label is the most recent one
+  *carrying the mark* (the last message where none does), and a reply never
+  makes a conversation look unmarked or new.
+- **A star belongs to one email, so by star every email is an Item of its own**
+  ("Bring in each email you star in Gmail as its own Item", issue 1398): two
+  starred emails in one conversation are two Items, each with its own subject,
+  plain text, sender, time and link (`#all/<message id>`), and with only its own
+  user labels as names. Gmail gives a conversation the id of its first email, so
+  an email's source id is `message:<id>`, a namespace no conversation id can
+  take; a bare email id would name the conversation's Item. By label an Item is
+  still a conversation.
+- **Conversation Items from before only close.** An Item a connection following
+  the star made of a whole conversation keeps its bare conversation id. It is
+  marked done once no email in the conversation is starred, and is never
+  reopened: Done in Cockpit still unstars the whole conversation (`threads.modify`),
+  but reopening one is given up on, since starring the conversation stars every
+  email in it and each would come in as a new Item. An email starred in its
+  conversation afterwards comes in beside it as its own Item.
 - **A marked message in the bin or spam keeps its labels** and no longer counts
   as marked, as Gmail's own listing leaves it out. A conversation counts as
   marked while some message carries the mark outside the bin and spam.
-- **A star counts only from the moment of connecting**, because Gmail says a
-  conversation is starred and never when. So a connection following the star
-  records a position and brings in only what its history says was starred after
-  it. Its complete listing of starred conversations **only closes** (it reports
-  them as seen and files nothing), and reopens come from the history.
+- **A star counts only from the moment of connecting**, because Gmail says an
+  email is starred and never when. So a connection following the star records a
+  position and brings in only what its history says was starred after it. Its
+  complete listing of starred emails (`messages.list`, ids only, 500 a page)
+  **only closes**: it reports each starred email's Item id and its
+  conversation's, so both kinds of Item stay open while they should, and files
+  nothing. Reopens come from the history. It lists about as many ids as there
+  are starred emails, and is kept in the state as it goes: a mailbox with tens
+  of thousands spends several runs on connecting.
 - **History is read, not listed.** `users.history.list` restricted to the mark
   (`messageAdded`, `messageDeleted`, `labelAdded`, `labelRemoved`) names the
   conversations that *gained* the mark, and the ones whose mark *may* have come
   off or gone back (removed or added again, a marked message binned, unbinned or
   deleted for good). Only a read of the conversation says which. A mark added
-  and taken off again within a page is nothing new.
+  and taken off again within a page is nothing new. **By star the entries are
+  read per email** (they carry the email's id and its conversation's), grouped
+  by conversation: one `threads.get` per conversation changed answers for every
+  email of it that changed and for the conversation Item from before, so the
+  call budget is spent per conversation changed however many of its emails did.
 - **A history position lapses after about a week**, and Gmail answers `404` for
   it. That is the signal to start over with a complete listing from a fresh
   position. The position is saved only once a page's conversations are all done.
@@ -55,12 +79,14 @@ out of the core", issue 944).
 - **A conversation's user labels are its Item's names** (`names` in the
   manifest; "File Gmail conversations on the Panel named after their label",
   issue 1148): the labels of type `user` in `labels.list`, on any
-  message, resolved from the list the label choice reads anyway for the mark.
+  message (by star, on the Item's own email only), resolved from the list the
+  label choice reads anyway for the mark.
   Gmail's own labels (`type` `system`, including `CATEGORY_*`) and the followed
   `Cockpit` label are left out; by star `Cockpit` is a label like any other.
   They go with the item when emitted, and are reported again (`reportNames`)
   for a conversation whose history shows a label other than the mark and
-  Gmail's own added or taken off. That read is `format=minimal`, one call per
+  Gmail's own added or taken off (an email by star, and a conversation Item
+  from before still open). That read is `format=minimal`, one call per
   conversation, spent from the run's budget (so at most about 40 reports a run,
   and no separate cap as Outlook has: every report here follows a Gmail call).
   By label the list costs nothing; by star it is one extra `labels` call, the
@@ -76,11 +102,16 @@ out of the core", issue 944).
   reaches it saves where it was and answers `{ moreToDo: true }`. **Where it was
   includes the place inside a page** (`history.done`, `listing.done`): a page
   with more conversations than a run can read would otherwise start over every
-  time and never end.
+  time and never end. `history.done` counts the conversations of a page done,
+  which by star group its emails; the saved state's `version` says which
+  meaning a saved place has, and one saved under another is read again from its
+  page's start (everything emitted is idempotent).
 - **Open states are pushed before anything is read** (`mirrorOpenState`), so
   what the history then reports of them agrees with the Items and changes
-  nothing. The change is `threads.modify` on the whole conversation, adding or
-  removing the one mark and touching no other label. A conversation that is gone
+  nothing. The change adds or removes the one mark and touches no other label:
+  `threads.modify` on the whole conversation by label, `messages.modify` on the
+  one email by star (a conversation Item from before is closed with
+  `threads.modify` and never reopened). A conversation or email that is gone
   (`404`) has nothing to mark and counts as confirmed. `408`, `429`, any `5xx`
   and a `403` for a rate limit (`rateLimitExceeded`, `userRateLimitExceeded`,
   `dailyLimitExceeded`, `quotaExceeded`) mean Gmail is holding the mailbox back:
@@ -115,12 +146,17 @@ out of the core", issue 944).
 - **A title and a sender are cut to 200 characters** (the host's cap, restated
   here because a connector package may import nothing but the SDK), and the text
   to 60,000. A conversation with no subject is titled `(no subject)`; with no
-  text, its subject stands in. Text is the plain part, else the HTML part with
-  its tags taken out; a body that cannot be decoded is brought in under its
-  subject rather than stopping everything after it.
+  text, its subject stands in (by star, the email's own). Text is the plain
+  part, else the HTML part with its tags taken out; a body that cannot be
+  decoded is brought in under its subject rather than stopping everything after
+  it.
 
 ## Not yet known
 
+- **Whether Gmail opens a link to one email (`#all/<message id>`) at that email
+  in conversation view as well as with it off.** The Item links the email by
+  its own id; only a real mailbox shows how each view treats it.
 - **Whether `tests/contract/` still passes.** It reaches a dedicated mailbox and
   skips without the three `GMAIL_CONTRACT_*` secrets, so it did not run when this
-  was written; it carries over the core's suite unchanged.
+  was written; it carries over the core's suite, plus one case listing emails
+  (`messages.list`), which has never run against a real mailbox either.

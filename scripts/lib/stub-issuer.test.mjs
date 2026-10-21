@@ -320,10 +320,10 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
       history.map((record) => [record.labelsAdded[0].message.threadId, record.labelsAdded[0].labelIds]),
       [[starred.thread, ['STARRED']]],
     );
-    const { threads } = await (await read(token, 'threads?labelIds=STARRED')).json();
-    assert.deepEqual(threads.map((thread) => thread.id), [starred.thread]);
+    const { messages } = await (await read(token, 'messages?labelIds=STARRED')).json();
+    assert.deepEqual(messages, [{ id: starred.message, threadId: starred.thread }]);
     const asked = await (await fetch(`${issuer.origin}/gmail-stub/asked?email=no-label-starred%40example.com`)).json();
-    assert.deepEqual(asked, ['profile', 'history', 'threads']);
+    assert.deepEqual(asked, ['profile', 'history', 'messages']);
   });
 
   // Unstarring in Gmail, or clearing the flag in Outlook, and starring again
@@ -334,7 +334,7 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
       fetch(`${issuer.origin}/gmail-stub/${what}?email=no-label-unstarred%40example.com&${query}`, { method: 'POST' }).then(
         (answer) => answer.json(),
       );
-    const listed = async () => (await (await read(token, 'threads?labelIds=STARRED')).json()).threads.map((thread) => thread.id);
+    const listed = async () => (await (await read(token, 'messages?labelIds=STARRED')).json()).messages.map((email) => email.threadId);
     const starred = async (thread) =>
       (await (await fetch(`${issuer.origin}/gmail-stub/thread?email=no-label-unstarred%40example.com&thread=${thread}`)).json())
         .starred;
@@ -356,6 +356,79 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
         ['labelsAdded', ['STARRED']],
       ],
     );
+  });
+
+  // A star belongs to one email ("Bring in each email you star in Gmail as its
+  // own Item", issue 1398): the stand-in answers per email as Gmail does.
+  it('stars one email of a conversation alone, as history and in the listing, naming the email and its conversation', async () => {
+    const email = 'per-email@example.com';
+    const token = await accessTokenFor(email);
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=${encodeURIComponent(email)}&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const labelsOf = async (message) =>
+      (await (await fetch(`${issuer.origin}/gmail-stub/message?email=${encodeURIComponent(email)}&message=${message}`)).json()).labelIds;
+    const { thread, message: first } = await act('label', 'subject=Invoice%20one');
+    const { message: second } = await act('reply', `thread=${thread}`);
+    const { historyId: before } = await (await read(token, 'profile')).json();
+
+    await act('star', `message=${second}`);
+
+    assert.equal((await labelsOf(second)).includes('STARRED'), true);
+    assert.equal((await labelsOf(first)).includes('STARRED'), false);
+    const { history } = await (await read(token, `history?startHistoryId=${before}`)).json();
+    assert.deepEqual(
+      history.map((record) => [record.labelsAdded[0].message.id, record.labelsAdded[0].message.threadId, record.labelsAdded[0].labelIds]),
+      [[second, thread, ['STARRED']]],
+    );
+    const listed = await (await read(token, 'messages?labelIds=STARRED')).json();
+    assert.deepEqual(listed.messages, [{ id: second, threadId: thread }]);
+  });
+
+  it('takes the star off one email alone, leaving the history record Gmail leaves and the other starred email listed', async () => {
+    const email = 'per-email-off@example.com';
+    const token = await accessTokenFor(email);
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=${encodeURIComponent(email)}&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const { thread, message: first } = await act('star', 'subject=Invoice%20one');
+    const { message: second } = await act('reply', `thread=${thread}`);
+    await act('star', `message=${second}`);
+    const { historyId: before } = await (await read(token, 'profile')).json();
+
+    await act('unstar', `message=${first}`);
+
+    const { history } = await (await read(token, `history?startHistoryId=${before}`)).json();
+    assert.deepEqual(
+      history.map((record) => [Object.keys(record).find((key) => key.startsWith('labels')), record.labelsRemoved[0].message.id, record.labelsRemoved[0].labelIds]),
+      [['labelsRemoved', first, ['STARRED']]],
+    );
+    const listed = await (await read(token, 'messages?labelIds=STARRED')).json();
+    assert.deepEqual(listed.messages, [{ id: second, threadId: thread }]);
+  });
+
+  it('unstars one email through messages.modify alone, recording that email and no other', async () => {
+    const email = 'per-email-modify@example.com';
+    const token = await accessTokenFor(email);
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=${encodeURIComponent(email)}&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const { thread, message: first } = await act('star', 'subject=Invoice%20one');
+    const { message: second } = await act('reply', `thread=${thread}`);
+    await act('star', `message=${second}`);
+    const { historyId: before } = await (await read(token, 'profile')).json();
+
+    const modified = await fetch(`${issuer.origin}/gmail/v1/users/me/messages/${second}/modify`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ removeLabelIds: ['STARRED'] }),
+    });
+
+    assert.equal(modified.status, 200);
+    assert.equal((await modified.json()).labelIds.includes('STARRED'), false);
+    const { history } = await (await read(token, `history?startHistoryId=${before}`)).json();
+    assert.deepEqual(history.map((record) => record.labelsRemoved[0].message.id), [second]);
+    const listed = await (await read(token, 'messages?labelIds=STARRED')).json();
+    assert.deepEqual(listed.messages, [{ id: first, threadId: thread }]);
+    const asked = await (await fetch(`${issuer.origin}/gmail-stub/modified?email=${encodeURIComponent(email)}`)).json();
+    assert.deepEqual(asked, [{ email, thread, message: second, removeLabelIds: ['STARRED'] }]);
   });
 
   // What Cockpit asks of the mailbox when a task is done or reopened there
@@ -387,7 +460,7 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
       history.map((record) => Object.keys(record).find((key) => key.startsWith('labels'))),
       ['labelsRemoved', 'labelsAdded'],
     );
-    const asked = await (await fetch(`${issuer.origin}/gmail-stub/modified`)).json();
+    const asked = await (await fetch(`${issuer.origin}/gmail-stub/modified?email=mirrored%40example.com`)).json();
     assert.equal(asked.filter((one) => one.thread === thread).length, 3);
   });
 });

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ADDRESS_LIMIT,
@@ -11,15 +11,16 @@ import {
 } from '@cockpit/shared';
 import { NotSignedIn, SIGN_IN_PATH } from '../api/client';
 import { statusOf } from '../api/loadFailure';
+import { accountHoldingsQuery, meQuery } from '../api/queries';
 import {
-  accountHoldingsQuery,
-  meQuery,
-  registeredUsersQuery,
   useAddUser,
   useChangeUser,
   useDeleteUser,
+  useRegisteredUsers,
   useSetAccess,
-} from '../api/queries';
+} from '../api/registeredUsers';
+import type { ShownUser } from '../registeredUsersDrawnAhead';
+import { useUndo } from '../undo';
 import { DeleteQuestion } from './DeleteQuestion';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
@@ -43,6 +44,14 @@ import { RowForm, wasOnTheRow } from './RowForm';
  * from an ordinary user, and hiding is a courtesy: whoever reaches it anyway is
  * refused by the gate in `auth/admin.ts`, and what they see here is that
  * refusal drawn.
+ *
+ * **A change shows at the click** ("Show a connected app or user change the
+ * moment you make it", issue 1371): a person added is in the list with the name
+ * typed, a rename, a role, a block and an unblock are on the row, and a deleted
+ * person is gone, with the server still to answer. A refusal puts it back and
+ * says why where the change was made if that is still open - under the box that
+ * added, back in the form that edited, above the list for access - and in the
+ * undo bar where the question or the window closed at the click.
  */
 export default function ManageUsers({
   open,
@@ -55,7 +64,7 @@ export default function ManageUsers({
 }) {
   // Read only while open: the register holds other people's addresses and is
   // never fetched for somebody who has not asked for it.
-  const { data, error, isPending } = useQuery({ ...registeredUsersQuery, enabled: open });
+  const { data, error, isPending } = useRegisteredUsers(open);
   // Who is asking, which one of the two refusals is about. A read that has not
   // settled or has failed simply leaves that refusal to the server, which makes
   // it either way.
@@ -76,8 +85,24 @@ export default function ManageUsers({
     name: string | null;
     role: Role | null;
   } | null>(null);
-  const changing = useChangeUser();
-  const access = useSetAccess();
+  const change = useChangeUser();
+  const setAccess = useSetAccess();
+  const offerToUndo = useUndo();
+  /** Why the last change from the form did not happen, said in the form it comes back to. */
+  const [refusal, setRefusal] = useState<string | null>(null);
+  /** Why the last Disable or Enable did not happen: a menu entry has nowhere of its own to say it. */
+  const [accessRefusal, setAccessRefusal] = useState<string | null>(null);
+  /** Which row is being edited *now*, for a refusal that comes back after the person moved on. */
+  const editingNow = useRef(editing);
+  editingNow.current = editing;
+  /** Whether the window is still here, since it may be closed before a refusal comes back. */
+  const here = useRef(true);
+  useEffect(() => {
+    here.current = true;
+    return () => {
+      here.current = false;
+    };
+  }, []);
   /**
    * Whose deletion is being asked about ("Delete a user, and the account they
    * owned with them", issue 234), and what their account holds - read when the
@@ -89,7 +114,7 @@ export default function ManageUsers({
     ...accountHoldingsQuery(deleting ?? ''),
     enabled: deleting !== null,
   });
-  const remover = useDeleteUser();
+  const remove = useDeleteUser();
   const askedFrom = useRef<HTMLElement | null>(null);
   /**
    * The admins a lockout rule counts, for a change about one particular
@@ -116,13 +141,45 @@ export default function ManageUsers({
   const beingDeleted = data?.users.find((user) => user.id === deleting);
 
   const startDeleting = (user: RegisteredUser, openedFrom: HTMLElement | null) => {
-    remover.reset();
     askedFrom.current = openedFrom;
     setDeleting(user.id);
   };
-  const stopDeleting = () => {
+  const stopDeleting = () => setDeleting(null);
+
+  /** Deletes at the click: the question closes and the row is gone at once. Refused, the row comes back and the undo bar says why. */
+  const deleteOne = (user: RegisteredUser) => {
+    remove(user.id).catch((failure: unknown) => {
+      offerToUndo({ what: `“${user.name}” was not deleted. ${whatItSaid(failure)}` });
+    });
     setDeleting(null);
-    remover.reset();
+  };
+
+  /**
+   * Saves a rename or a role at the click: the form closes and the row has them at
+   * once. Refused, the form comes back with what was typed and the reason, unless
+   * the person has opened another row or closed the window meanwhile, and then the
+   * undo bar says it.
+   */
+  const save = (user: RegisteredUser, name: string, role: Role) => {
+    setRefusal(null);
+    setEditing(null);
+    change({ userId: user.id, name, role }).catch((failure: unknown) => {
+      if (!here.current || editingNow.current !== null) {
+        return offerToUndo({ what: `“${user.name}” was not changed. ${whatItSaid(failure)}` });
+      }
+      setEditing({ id: user.id, name, role });
+      setRefusal(whatItSaid(failure));
+    });
+  };
+
+  /** Takes access away or gives it back at the click. Refused, the row goes back and the reason is said above the list. */
+  const changeAccess = (user: RegisteredUser, disabled: boolean) => {
+    setAccessRefusal(null);
+    setAccess({ userId: user.id, disabled }).catch((failure: unknown) => {
+      const why = whatItSaid(failure);
+      if (here.current) return setAccessRefusal(why);
+      offerToUndo({ what: `Access was not ${disabled ? 'taken away from' : 'given back to'} “${user.name}”. ${why}` });
+    });
   };
 
   /**
@@ -139,31 +196,24 @@ export default function ManageUsers({
   );
 
   const startEditing = (user: RegisteredUser, openedFrom: HTMLElement | null) => {
-    changing.reset();
+    setRefusal(null);
     askedFrom.current = openedFrom;
     setEditing({ id: user.id, name: null, role: null });
   };
   const closeForm = () => {
     setEditing(null);
-    changing.reset();
+    setRefusal(null);
   };
 
   const close = () => {
     setEditing(null);
-    changing.reset();
+    setRefusal(null);
     stopDeleting();
     onClose();
   };
 
   return (
-    <ManageWindow
-      title="Manage users"
-      wide
-      open={open}
-      onClose={close}
-      canClose={!changing.isPending && !remover.isPending}
-      returnFocusTo={returnFocusTo}
-    >
+    <ManageWindow title="Manage users" wide open={open} onClose={close} returnFocusTo={returnFocusTo}>
       <p className="mt-2 text-sm text-ink-faint">
         Everyone this Cockpit knows. Add somebody and they can sign in straight away.
       </p>
@@ -192,9 +242,9 @@ export default function ManageUsers({
               above the list, where the row it was about is. Without this, a refused
               Disable is a row that simply did not change, which reads exactly like
               a slow one. */}
-          {access.error && (
+          {accessRefusal && (
             <p role="alert" className="mb-4 text-sm text-over-ink">
-              {whatItSaid(access.error)}
+              {accessRefusal}
             </p>
           )}
           <section className="-mx-2 min-h-0 flex-1 overflow-y-auto">
@@ -204,7 +254,7 @@ export default function ManageUsers({
                     key={user.id}
                     user={user}
                     onEdit={startEditing}
-                    onAccess={(disabled) => access.mutate({ userId: user.id, disabled })}
+                    onAccess={(disabled) => changeAccess(user, disabled)}
                     onDelete={startDeleting}
                     deleteStuck={whyDeletingIsStuck(user, {
                       me: me.data?.user.id,
@@ -262,7 +312,7 @@ export default function ManageUsers({
                   name="role"
                   value={role}
                   checked={(editing.role ?? beingEdited.role) === role}
-                  disabled={changing.isPending || Boolean(stuck)}
+                  disabled={Boolean(stuck)}
                   onChange={() => setEditing({ ...editing, role })}
                 />
                 <span>
@@ -274,19 +324,10 @@ export default function ManageUsers({
               </label>
             );
           })}
-          refusal={changing.error ? whatItSaid(changing.error) : null}
-          saving={changing.isPending}
+          refusal={refusal}
+          saving={false}
           onCancel={closeForm}
-          onSave={() =>
-            changing.mutate(
-              {
-                userId: editing.id,
-                name: (editing.name ?? beingEdited.name).trim(),
-                role: editing.role ?? beingEdited.role,
-              },
-              { onSuccess: () => setEditing(null) },
-            )
-          }
+          onSave={() => save(beingEdited, (editing.name ?? beingEdited.name).trim(), editing.role ?? beingEdited.role)}
           returnFocusTo={askedFrom.current}
         />
       )}
@@ -299,14 +340,13 @@ export default function ManageUsers({
           // Nothing goes before the question has an answer in it, and a count
           // that could not be read lets it through rather than trapping you -
           // the trade the workspace question makes.
-          canConfirm={!remover.isPending && (holdings.data !== undefined || holdings.isError)}
-          refusal={remover.error ? whatItSaid(remover.error) : null}
+          canConfirm={holdings.data !== undefined || holdings.isError}
           returnFocusTo={askedFrom.current}
           onCancel={stopDeleting}
-          onConfirm={() => remover.mutate(beingDeleted.id, { onSuccess: () => setDeleting(null) })}
+          onConfirm={() => deleteOne(beingDeleted)}
         />
       )}
-      <CloseWindow disabled={changing.isPending || remover.isPending} />
+      <CloseWindow />
     </ManageWindow>
   );
 }
@@ -486,11 +526,13 @@ function deleteQuestion(
  * leave an admin retrying a request that cannot work - the same reason the box
  * above says it, and the same sentence.
  */
-function whatItSaid(failure: Error): string {
-  return failure instanceof NotSignedIn
-    ? 'Your sign-in has ended, so nothing was changed. Sign in again to continue.'
-    : failure.message;
+function whatItSaid(failure: unknown): string {
+  if (failure instanceof NotSignedIn) return 'Your sign-in has ended, so nothing was changed. Sign in again to continue.';
+  return failure instanceof Error ? failure.message : 'That could not be done.';
 }
+
+/** What is said of somebody who was added when their account could not be prepared, after their name. */
+const NOT_READY = 'was added, but their account could not be prepared. It will be made when they first sign in.';
 
 /**
  * The box that adds somebody, above the list rather than on a page of its own:
@@ -503,22 +545,57 @@ function whatItSaid(failure: Error): string {
  * rules protecting that role live; the account is made with the person rather
  * than chosen. So a field for either would be asking for something this box
  * does not decide.
+ *
+ * **The boxes are cleared at the click**, because the person is in the list with
+ * the name typed. A refusal puts what was typed back, so fixing an address is an
+ * edit rather than typing it all again - unless something else has been typed
+ * since - and says why under the box; with the window closed by then, the undo
+ * bar says it.
  */
 function AddSomebody() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const adding = useAddUser();
+  /** Why the last add did not happen. */
+  const [refused, setRefused] = useState<unknown>(null);
+  /** Somebody added whose account could not be prepared, which is said rather than swallowed. */
+  const [notReady, setNotReady] = useState<string | null>(null);
+  const add = useAddUser();
+  const offerToUndo = useUndo();
+  /** What is in the boxes *now*, for an answer that comes back after the person typed on. */
+  const typed = useRef({ name, email });
+  typed.current = { name, email };
+  const here = useRef(true);
+  useEffect(() => {
+    here.current = true;
+    return () => {
+      here.current = false;
+    };
+  }, []);
 
   return (
     <form
       className="mb-6 flex flex-wrap items-end gap-3"
       onSubmit={(event) => {
         event.preventDefault();
-        adding.mutate(
-          { name: name.trim(), email: email.trim() },
-          // Cleared only once it worked: a refusal keeps what was typed, so
-          // fixing an address is an edit rather than typing it all again.
-          { onSuccess: () => { setName(''); setEmail(''); } },
+        const sent = { name: name.trim(), email: email.trim() };
+        setName('');
+        setEmail('');
+        setRefused(null);
+        setNotReady(null);
+        add(sent).then(
+          (added) => {
+            if (added.accountReady) return;
+            if (here.current) setNotReady(added.user.name);
+            else offerToUndo({ what: `${added.user.name} ${NOT_READY}` });
+          },
+          (failure: unknown) => {
+            if (!here.current) return offerToUndo({ what: `“${sent.name}” was not added. ${whatItSaid(failure)}` });
+            if (typed.current.name === '' && typed.current.email === '') {
+              setName(sent.name);
+              setEmail(sent.email);
+            }
+            setRefused(failure);
+          },
         );
       }}
     >
@@ -546,19 +623,19 @@ function AddSomebody() {
       <button
         type="submit"
         className="rounded bg-scrim/80 px-3 py-1.5 text-sm text-white disabled:opacity-40"
-        disabled={adding.isPending || name.trim() === '' || email.trim() === ''}
+        disabled={name.trim() === '' || email.trim() === ''}
       >
-        {adding.isPending ? 'Adding…' : 'Add'}
+        Add
       </button>
       {/* The server's own words, because they name which address is already
           somebody's and what a name left nothing of. */}
-      {adding.error && (
+      {refused !== null && (
         <p role="alert" className="w-full text-sm text-ink-faint">
           {/* A sign-in that lapsed while the page sat open is not a refusal of
               what was typed, and saying "401" under the box would leave an
               admin retrying a request that cannot work. Everywhere else in the
               app a lost sign-in offers the way back in; so does this. */}
-          {adding.error instanceof NotSignedIn ? (
+          {refused instanceof NotSignedIn ? (
             <>
               Your sign-in has ended, so nobody was added.{' '}
               <a className="underline" href={SIGN_IN_PATH}>
@@ -567,17 +644,16 @@ function AddSomebody() {
               .
             </>
           ) : (
-            adding.error.message
+            whatItSaid(refused)
           )}
         </p>
       )}
       {/* Said rather than swallowed: the person is added either way, and an
           admin who is not told would find out when that person could not get
           in. */}
-      {adding.data?.accountReady === false && (
+      {notReady !== null && (
         <p role="status" className="w-full text-sm text-ink-faint">
-          {adding.data.user.name} was added, but their account could not be prepared. It will be
-          made when they first sign in.
+          {notReady} {NOT_READY}
         </p>
       )}
     </form>
@@ -589,6 +665,9 @@ function AddSomebody() {
  * **Edit…** in its own menu, which is the only way a keyboard has and the
  * comfortable one on a phone, where a double-tap is a gesture the browser has
  * already spent on zooming (`components/RowForm.tsx`).
+ *
+ * **Somebody just added has neither** until the list is read: the id the server
+ * decides is not known yet, so there is nothing to change them by.
  */
 function Row({
   user,
@@ -598,7 +677,7 @@ function Row({
   onDelete,
   deleteStuck,
 }: {
-  user: RegisteredUser;
+  user: ShownUser;
   onEdit: (user: RegisteredUser, openedFrom: HTMLElement | null) => void;
   onAccess: (disabled: boolean) => void;
   /** Why this person's access cannot be taken away, when it cannot. */
@@ -611,7 +690,7 @@ function Row({
     <li
       className="border-b border-shade/5 px-4 py-2 last:border-b-0"
       onDoubleClick={(event) => {
-        if (wasOnTheRow(event)) onEdit(user, null);
+        if (!user.pending && wasOnTheRow(event)) onEdit(user, null);
       }}
     >
       <div className="flex items-center gap-3">
@@ -647,31 +726,33 @@ function Row({
             {roleName(user.role)} · {user.accountName} · {lastSignedInLabel(user.lastSignedInAt)}
           </p>
         </div>
-        <RowMenu
-          label={`Actions for ${user.name}`}
-          entries={[
-            { label: 'Edit…', onSelect: (openedFrom) => onEdit(user, openedFrom) },
-            {
-              // One entry that says which way it goes, rather than two with one
-              // of them always meaningless.
-              label: user.disabled ? 'Enable' : 'Disable',
-              keepsFocus: true,
-              // Present and unavailable with the reason on it, the way the role
-              // it repeats refuses - and the server refuses it as well.
-              unavailable: accessStuck ?? undefined,
-              destructive: !user.disabled,
-              onSelect: () => onAccess(!user.disabled),
-            },
-            {
-              // Opens the question rather than acting, so the focus goes to it
-              // and back to this menu's button afterwards.
-              label: 'Delete',
-              unavailable: deleteStuck ?? undefined,
-              destructive: true,
-              onSelect: (openedFrom) => onDelete(user, openedFrom),
-            },
-          ]}
-        />
+        {!user.pending && (
+          <RowMenu
+            label={`Actions for ${user.name}`}
+            entries={[
+              { label: 'Edit…', onSelect: (openedFrom) => onEdit(user, openedFrom) },
+              {
+                // One entry that says which way it goes, rather than two with one
+                // of them always meaningless.
+                label: user.disabled ? 'Enable' : 'Disable',
+                keepsFocus: true,
+                // Present and unavailable with the reason on it, the way the role
+                // it repeats refuses - and the server refuses it as well.
+                unavailable: accessStuck ?? undefined,
+                destructive: !user.disabled,
+                onSelect: () => onAccess(!user.disabled),
+              },
+              {
+                // Opens the question rather than acting, so the focus goes to it
+                // and back to this menu's button afterwards.
+                label: 'Delete',
+                unavailable: deleteStuck ?? undefined,
+                destructive: true,
+                onSelect: (openedFrom) => onDelete(user, openedFrom),
+              },
+            ]}
+          />
+        )}
       </div>
     </li>
   );

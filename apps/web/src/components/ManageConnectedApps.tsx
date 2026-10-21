@@ -1,36 +1,12 @@
 import { useRef, useState } from 'react';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { appDisconnectedSchema, connectedAppListSchema, type ConnectedApp } from '@cockpit/shared';
-import { api, refusal } from '../api/client';
+import type { ConnectedApp } from '@cockpit/shared';
+import { useConnectedApps, useDisconnectApp } from '../api/connectedApps';
+import { whyNotDone } from '../api/queries';
+import { useUndo } from '../undo';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
-
-/**
- * Its own chunk's own reads, kept here rather than in `api/client.ts` with the
- * rest, for the reason `ManageConnections` keeps its list here: the one thing
- * this window alone asks for is worth its own weight rather than the initial
- * bundle's (`bundle:budget`).
- */
-export const connectedAppsQuery = queryOptions({
-  queryKey: ['connectedApps'],
-  queryFn: async () => {
-    const res = await api.v1['connected-apps'].$get();
-    if (!res.ok) throw refusal('connected apps', res.status);
-    return connectedAppListSchema.parse(await res.json());
-  },
-  // What is connected *now*, never a copy: another tab may have disconnected one.
-  staleTime: 0,
-});
-
-async function disconnect(appId: string): Promise<void> {
-  const res = await api.v1['connected-apps'][':appId'].$delete({ param: { appId } });
-  // Already gone, from another tab: the list is simply out of date.
-  if (res.status === 404) return;
-  if (!res.ok) throw refusal('disconnecting an app', res.status);
-  appDisconnectedSchema.parse(await res.json());
-}
 
 /** Where an app is pointed to reach this Cockpit: this environment's own origin, then `/mcp`. */
 export const connectAddress = () => `${window.location.origin}/mcp`;
@@ -46,6 +22,11 @@ const when = (iso: string) => new Date(iso).toLocaleString();
  *
  * **The address is shown whether or not anything is connected**, because the
  * first app is connected by pasting it, which is when this is wanted most.
+ *
+ * **A disconnect shows at the click** ("Show a connected app or user change the
+ * moment you make it", issue 1371): the question closes and the row is gone
+ * with the server still to answer. One the server refuses brings the row back,
+ * and the undo bar says why, since the question closed at the click.
  */
 export default function ManageConnectedApps({
   open,
@@ -56,32 +37,20 @@ export default function ManageConnectedApps({
   onClose: () => void;
   returnFocusTo?: HTMLElement | null | undefined;
 }) {
-  const { data, error, refetch, isFetching } = useQuery({ ...connectedAppsQuery, enabled: open });
-  const queryClient = useQueryClient();
+  const { data, error, refetch, isFetching } = useConnectedApps(open);
+  const disconnect = useDisconnectApp();
+  const offerToUndo = useUndo();
   const [asking, setAsking] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const askedFrom = useRef<HTMLElement | null>(null);
   const list = useRef<HTMLDivElement>(null);
-
-  const ending = useMutation({
-    mutationFn: disconnect,
-    onSuccess: async () => {
-      setAsking(null);
-      await queryClient.invalidateQueries({ queryKey: connectedAppsQuery.queryKey });
-      // The row's menu went with the row: the focus has to land somewhere.
-      list.current?.focus();
-    },
-  });
 
   const apps = data?.apps ?? [];
   const answered = data !== undefined;
   const beingAsked = apps.find((app) => app.id === asking);
   const address = connectAddress();
 
-  const stopAsking = () => {
-    setAsking(null);
-    ending.reset();
-  };
+  const stopAsking = () => setAsking(null);
   const close = () => {
     stopAsking();
     setCopied(false);
@@ -95,20 +64,25 @@ export default function ManageConnectedApps({
     );
   };
   const startAsking = (app: ConnectedApp, openedFrom: HTMLElement | null) => {
-    ending.reset();
     askedFrom.current = openedFrom;
     setAsking(app.id);
   };
 
+  /**
+   * Disconnects at the click: the question closes and the row is gone at once.
+   * Refused, the row comes back and the undo bar says why.
+   */
+  const end = (app: ConnectedApp) => {
+    disconnect(app.id).catch((failure: unknown) => {
+      offerToUndo({ what: `“${app.name}” was not disconnected. ${whyNotDone(failure)}` });
+    });
+    setAsking(null);
+    // The row's menu went with the row: the focus has to land somewhere, once the question has gone.
+    setTimeout(() => list.current?.focus(), 0);
+  };
+
   return (
-    <ManageWindow
-      title="MCP connections"
-      open={open}
-      onClose={close}
-      canClose={!ending.isPending}
-      returnFocusTo={returnFocusTo}
-      ref={list}
-    >
+    <ManageWindow title="MCP connections" open={open} onClose={close} returnFocusTo={returnFocusTo} ref={list}>
       <p className="mt-2 text-sm text-ink-faint">
         Apps you allowed to capture items into your Cockpit and to read your items in every workspace. To
         connect Claude, paste this address into claude.ai.
@@ -157,11 +131,9 @@ export default function ManageConnectedApps({
             question={`Disconnect ${beingAsked.name}? It can no longer reach your Cockpit until you allow it again. The items it captured stay.`}
             confirmLabel={`Yes, disconnect ${beingAsked.name}`}
             confirmText="Disconnect"
-            canConfirm={!ending.isPending}
-            refusal={ending.error ? 'That did not reach the server. Try again.' : null}
             returnFocusTo={askedFrom.current}
             onCancel={stopAsking}
-            onConfirm={() => ending.mutate(beingAsked.id)}
+            onConfirm={() => end(beingAsked)}
           />
         )}
         {Boolean(error) && !answered && (
@@ -174,7 +146,7 @@ export default function ManageConnectedApps({
         )}
       </section>
 
-      <CloseWindow disabled={ending.isPending} />
+      <CloseWindow />
     </ManageWindow>
   );
 }
