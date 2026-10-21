@@ -1,6 +1,6 @@
 ---
 name: periodic-review
-description: Cockpit's process for periodically reading what had to be corrected after a build, the review comments left on merged pull requests and the review findings declined there since the last run, working out where each mistake got through or what the review got wrong, and proposing the fix that stops the next build or review repeating it - a short list of plain-language proposals ranked by impact for the person to pick from, then one `unsliced` ticket per approved proposal and one closed record issue per run. Use every few weeks, or when asked to review recent pull requests or issues for process gaps. Hands each approved lesson through `scoping`, `engineering-plan` and `github-issue`; never edits code, workflows, or guidance itself.
+description: Cockpit's process for periodically reading what had to be corrected after a build, the review comments left on merged pull requests and the review findings declined there over the last four weeks, working out where each mistake got through or what the review got wrong, and proposing the fix that stops the next build or review repeating it - a short list of plain-language proposals ranked by impact for the person to pick from, then one `unsliced` ticket per approved proposal. Use every few weeks, or when asked to review recent pull requests or issues for process gaps. Hands each approved lesson through `scoping`, `engineering-plan` and `github-issue`; never edits code, workflows, or guidance itself.
 ---
 
 # Learning from what got through
@@ -13,13 +13,7 @@ Every read and filing uses REST (`gh api repos/{owner}/{repo}/...`) or the GitHu
 
 ### 1. Find the window
 
-The window starts at the `closed_at` of the latest closed issue labelled `periodic-review`, the record step 6 writes; four weeks before this run's own clock if there is none.
-
-```bash
-gh api "repos/{owner}/{repo}/issues?labels=periodic-review&state=closed&per_page=1" --jq '.[0] | {number, closed_at, body}'
-```
-
-Its body lists each rejected lesson, which step 4 must not re-propose.
+The window is the four weeks before this run's own clock, whenever the last run was. A lesson not chosen last time is offered again while its instances are still in the window, since not chosen means not now.
 
 ### 2. Read what shipped
 
@@ -27,7 +21,7 @@ Merged pull requests and closed issues since the window start, bodies included �
 
 ```bash
 gh api "search/issues?q=repo:{owner}/{repo}+is:pr+is:merged+merged:>=<start>&per_page=100" --jq '.items[] | {number, title, body}'
-gh api "search/issues?q=repo:{owner}/{repo}+is:issue+is:closed+closed:>=<start>+-label:periodic-review&per_page=100" --jq '.items[] | {number, title, body}'
+gh api "search/issues?q=repo:{owner}/{repo}+is:issue+is:closed+closed:>=<start>&per_page=100" --jq '.items[] | {number, title, body}'
 ```
 
 Three kinds of instance count:
@@ -60,7 +54,7 @@ Open the original issue and pull request and decide where the mistake got throug
 
 Group instances that teach the same lesson, by the mistake and not the wording. A lesson qualifies on one correction, or on at least two review comments, or two declined findings, of the same kind. Where a class of mistakes has two or more instances, the fix is one invariant test, not a patch per instance; a reviewer lesson's fix stays the rule step 3 names.
 
-Drop a lesson whose fix already landed, that an open issue covers (match on body, not title), or that the previous record rejected, unless an instance since then is new.
+Drop a lesson whose fix already landed, or that an open issue covers (match on body, not title).
 
 ### 5. Keep the guidance lean
 
@@ -68,7 +62,7 @@ Drop a lesson whose fix already landed, that an open issue covers (match on body
 - A prose proposal edits an existing rule in place or names the rule it replaces, and its ticket states the net change in lines.
 - A proposal whose check makes a rule redundant also removes that rule.
 
-### 6. Propose, file, record
+### 6. Propose and file
 
 **Show at most seven proposals, ranked by impact — how often the mistake happened times what it cost — each written for a person who has not read this skill.** Lessons that land as one change are one proposal: every reviewer lesson becomes one list for "Review findings", every scoping lesson one set of questions scoping asks. Each proposal is a numbered heading saying what keeps happening, then:
 
@@ -79,7 +73,5 @@ Drop a lesson whose fix already landed, that an open issue covers (match on body
 Step 3's placement and step 5's line counts choose the fix and go in the ticket; the person reads only the outcome, in the product's words. Fold the one-off lessons into one closing line, and leave out what step 4 dropped. End with which to file first and why, and ask for the numbers to file ("1, 3, 6; drop the rest"). File nothing before they answer.
 
 Hand each approved one through [scoping](../scoping/SKILL.md), [engineering-plan](../engineering-plan/SKILL.md) and [github-issue](../github-issue/SKILL.md), as an `unsliced` ticket, its instances in **Problem**.
-
-End with one record: create an issue labelled `periodic-review` with the MCP `issue_write` (creating the label first with `gh api repos/{owner}/{repo}/labels -f name=periodic-review -f color=5319e7` if absent), listing every candidate with its outcome, a ticket number or a one-line reason for rejecting it, then close it. Its close date anchors the next run, so create it even when nothing was approved.
 
 The skill itself edits nothing.
