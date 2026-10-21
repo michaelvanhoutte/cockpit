@@ -36,6 +36,7 @@ import {
 } from '../itemInTheAir';
 import { columnsStyle, landingOnRow } from '../panelColumns';
 import {
+  fetchedChunk,
   filedOrderOnPanel,
   filingsThatFile,
   stillOpen,
@@ -235,17 +236,24 @@ export function ItemList({
    * **Held here rather than read off the mutation**, which keeps only the latest
    * change: with a second filing made while the first waited, the first's refusal
    * would go unsaid and its row would come back with no reason.
+   *
+   * **Kept with the Item it was about**, so a question open for another Item when
+   * the answer arrives does not say it as its own.
    */
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ itemId: string; why: string } | null>(null);
   /**
    * Hands a filing to the tab's queue (`changeQueue.ts`): drawn at once, sent
    * when those made before it have been answered. Answers with the server's
    * answer, which a refusal turns into `failure`.
    */
-  const file = (args: CommandArgs): Promise<unknown> => {
+  const file = (
+    args: Extract<CommandArgs, { name: 'move_item_to_panel' | 'add_item_to_panel' | 'remove_item_from_panel' }>,
+  ): Promise<unknown> => {
     setFailure(null);
     const answer = command.mutateAsync(args);
-    answer.catch((error: unknown) => setFailure(refusalFrom({ error })));
+    answer.catch((error: unknown) =>
+      setFailure({ itemId: args.payload.itemId, why: refusalFrom({ error }) ?? 'That did not reach the server. Try again.' }),
+    );
     return answer;
   };
   const send = useSendCommand();
@@ -336,7 +344,7 @@ export function ItemList({
    * (`puttingBack.ts`, fetched when Undo is pressed).
    */
   const putItBackOn = async (item: Item, panels: { panelId: string; order: string[] }[]) =>
-    (await import('../puttingBack')).putItBackOn({ workspaceId, send, latest: latestSnapshot }, item, panels);
+    (await fetchedChunk(() => import('../puttingBack'))).putItBackOn({ workspaceId, send, latest: latestSnapshot }, item, panels);
 
   /**
    * Files an item, at a place counted among the rows the target panel *draws*.
@@ -422,7 +430,7 @@ export function ItemList({
     // Offered at the click rather than once the server has answered, and taken
     // back if it refuses: Undo waits its turn behind the move it reverses. Its
     // code is fetched now, so pressing it puts the item back at once.
-    if (!decides) void import('../puttingBack');
+    if (!decides) void import('../puttingBack').catch(() => {});
     offerToUndo({
       what: `“${itemLabel(item)}” moved to ${nameOf(panelId)}`,
       unlessRefused: answer,
@@ -945,8 +953,10 @@ export function ItemList({
     move(moving, panelId, gap);
   };
 
-  /** Why the last filing this list made did not happen (ile). */
-  const refusal = failure;
+  /** Why the last filing of `item` did not happen, for a question open about that Item and no other. */
+  const refusalFor = (item: Item | null) => (item && failure?.itemId === item.id ? failure.why : null);
+  /** Why the last filing this list made did not happen, said above the rows unless a question about that Item says it. */
+  const refusal = failure && failure.itemId !== (moving ?? adding ?? asking?.item)?.id ? failure.why : null;
 
   /**
    * One row of the list. `alsoNotIn` is the Panel a grouped Filter's heading is,
@@ -1095,7 +1105,7 @@ export function ItemList({
           {filingSeveral.refusal}
         </p>
       )}
-      {refusal && !moving && !adding && !asking && (
+      {refusal && (
         <p role="alert" className="px-4 py-2 text-sm text-over-ink">
           {refusal}
         </p>
@@ -1334,7 +1344,7 @@ export function ItemList({
                 setFailure(null);
                 setAsking(null);
               }}
-              refusal={refusal}
+              refusal={refusalFor(asking.item)}
             />
           </Suspense>
         </WhateverTheQuestionDoes>
@@ -1373,7 +1383,7 @@ export function ItemList({
             setFailure(null);
             setAdding(null);
           }}
-          refusal={refusal}
+          refusal={refusalFor(adding)}
           returnFocusTo={openedFrom.current}
           alreadyOn={whereItIs(adding).map((at) => at.panelId)}
         />
@@ -1428,7 +1438,7 @@ export function ItemList({
             setFailure(null);
             setMoving(null);
           }}
-          refusal={refusal}
+          refusal={refusalFor(moving)}
           returnFocusTo={openedFrom.current}
         />
       )}

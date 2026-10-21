@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { uuidv7, type Filing, type Item } from '@cockpit/shared';
 import { useLatestSnapshot, useSendCommand } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
-import { filedOrderOnPanel } from '../filing';
+import { fetchedChunk, filedOrderOnPanel } from '../filing';
 import { useFilteredDashboardIds } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn } from '../recentPanels';
@@ -145,6 +145,7 @@ export function useFilingSeveral({
       void Promise.resolve(moved).then(setAddingSeveral);
     },
   });
+
   /**
    * Makes a panel of items for the picker, with the command + Panel sends, and
    * answers its id for the filing that follows ("Add a panel from the Move to
@@ -173,7 +174,7 @@ export function useFilingSeveral({
   // press has the code already: the filing is drawn the moment it is made.
   const somethingToFile = picked.length > 0 || addingSeveral !== null;
   useEffect(() => {
-    if (somethingToFile) void import('../filingSeveral');
+    if (somethingToFile) void import('../filingSeveral').catch(() => {});
   }, [somethingToFile]);
 
   /**
@@ -210,14 +211,30 @@ export function useFilingSeveral({
     // Held back by the state, and by the module's own flag once it has loaded: a
     // drop is handled by the Panel it lands on, whose hook is not the one a run began in.
     if (filing || chosen.length === 0) return;
-    await (await import('../filingSeveral')).fileOnto(filingSeveralDeps(), chosen, target, landing);
+    let loaded: typeof import('../filingSeveral');
+    try {
+      loaded = await fetchedChunk(() => import('../filingSeveral'));
+    } catch (error) {
+      // Nothing was sent: said where a refusal is, and the question closed.
+      setRefusal(error instanceof Error ? error.message : null);
+      setFilingSeveral(false);
+      return;
+    }
+    await loaded.fileOnto(filingSeveralDeps(), chosen, target, landing);
   };
   const fileSeveral = (target: string | null) => fileOnto(picked, target);
 
   /** Adds everything a selection moved to one more panel, from the undo bar's Also show on… (`addSeveral` in `filingSeveral.ts`). */
   const addSeveral = async (items: readonly Item[], panelId: string) => {
     if (filing) return;
-    await (await import('../filingSeveral')).addSeveral(filingSeveralDeps(), items, panelId);
+    let loaded: typeof import('../filingSeveral');
+    try {
+      loaded = await fetchedChunk(() => import('../filingSeveral'));
+    } catch (error) {
+      setAddingRefusal(error instanceof Error ? error.message : null);
+      return;
+    }
+    await loaded.addSeveral(filingSeveralDeps(), items, panelId);
   };
 
   /**
@@ -227,7 +244,7 @@ export function useFilingSeveral({
   const putSeveralBack = async (
     moved: readonly Item[],
     wasOn: ReadonlyMap<string, { panelId: string; order: string[] }[]>,
-  ) => (await import('../puttingBack')).putSeveralBack(putting, moved, wasOn);
+  ) => (await fetchedChunk(() => import('../puttingBack'))).putSeveralBack(putting, moved, wasOn);
 
   const pickers = (
     <>

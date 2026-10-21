@@ -231,6 +231,19 @@ export async function unlessNoneLanded(answered: Answered<unknown>): Promise<voi
 }
 
 /**
+ * Fetches the code a filing gesture runs, saying so in words when it cannot be
+ * had: a tab left open across a deploy asks for a file that is gone, and the
+ * browser's own message names a URL. Nothing is sent when it fails.
+ */
+export async function fetchedChunk<T>(fetch: () => Promise<T>): Promise<T> {
+  try {
+    return await fetch();
+  } catch {
+    throw new Error('That could not load. Reload the page and try again.');
+  }
+}
+
+/**
  * What filing one picked item onto a panel sends ("Move a selection off only
  * the Panels of the Dashboard it was selected on", issue 924).
  *

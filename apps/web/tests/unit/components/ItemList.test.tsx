@@ -540,6 +540,26 @@ describe('Panels', () => {
       expect(screen.queryByRole('alert')).toBeNull();
     });
 
+    it('does not say one Item’s refusal in the question open about another', async () => {
+      const lateAnswer = Promise.withResolvers<unknown>();
+      held.answer = lateAnswer.promise;
+      const other = anItem('11111111-1111-7111-8111-000000000002', 'Call Anna');
+      const user = await showList({ items: [BART, other], openDashboardId: TODAY.id });
+
+      const [first, second] = await screen.findAllByRole('button', { name: 'Item actions' });
+      await user.click(first!);
+      await user.click(await screen.findByRole('menuitem', { name: 'Move to…' }));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Falcon' }));
+      // The second Item's question is open when the first one's refusal arrives.
+      await user.click(second!);
+      await user.click(await screen.findByRole('menuitem', { name: 'Move to…' }));
+      const dialog = await screen.findByRole('dialog');
+      lateAnswer.reject(new CommandRefused(409, 'this panel changed while you were looking at it'));
+
+      await screen.findByText('this panel changed while you were looking at it');
+      expect(within(dialog).queryByText('this panel changed while you were looking at it')).toBeNull();
+    });
+
     it('closes the question and offers the way back at the click, before the server has answered', async () => {
       // The screen moves on the press: nothing waits for the answer.
       held.answer = new Promise(() => {});

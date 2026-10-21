@@ -10,7 +10,7 @@ import {
   type HowToFileSelected,
 } from './filing';
 import { browserStore } from './lastVisited';
-import { putSeveralBack, type Putting, type WasOn } from './puttingBack';
+import { putSeveralBack, takeOffAgain, type Putting, type WasOn } from './puttingBack';
 import { rememberRecentPanel } from './recentPanels';
 import { dashboardOfScope, updateSelection } from './selection';
 import type { Undoable } from './undo';
@@ -279,7 +279,7 @@ export async function addSeveral(d: FilingSeveral, items: readonly Item[], panel
         ? { what: `${landed.length} of ${toAdd.length} items added to ${where}` }
         : undefined,
     ),
-    undo: async () => (await import('./puttingBack')).takeOffAgain({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, (await answered).landed, panelId),
+    undo: async () => takeOffAgain({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, (await answered).landed, panelId),
   });
   const { landed, refused } = await answered;
   if (landed.length > 0) rememberRecentPanel(browserStore(), d.workspaceId, panelId);
@@ -297,7 +297,7 @@ export async function addSeveral(d: FilingSeveral, items: readonly Item[], panel
  * Panel, nowhere else.
  */
 function whatMoved(moved: readonly Item[], asked: number, target: string, reordering = false): string {
-  if (!reordering && moved.length === 1 && asked === 1) return `“${itemLabel(moved[0]!)}” moved ${reordering ? 'in' : 'to'} ${target}`;
+  if (!reordering && moved.length === 1 && asked === 1) return `“${itemLabel(moved[0]!)}” moved to ${target}`;
   const how = moved.length === asked ? `${asked} items` : `${moved.length} of ${asked} items`;
   return `${how} moved ${reordering ? 'in' : 'to'} ${target}`;
 }

@@ -169,6 +169,7 @@ export function useItemPanels({
   const inTurnDo = (work: () => Promise<void>) => {
     inTurn.current = inTurn.current.then(work).catch(() => undefined);
   };
+
   return {
     /** The Panels the field lists. */
     shown,
