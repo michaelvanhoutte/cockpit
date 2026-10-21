@@ -706,3 +706,133 @@ describe('Capture', () => {
     });
   });
 });
+
+describe('Item editing', () => {
+  describe('an uploaded file stays drawn until a read that began after its answer has landed', () => {
+    const SCAN = '11111111-1111-7111-8111-0000000000a1';
+    const upload = { commandId: 'c-upload', issuedAt: AT, workspaceId: 'ws-work', itemId: BART, attachmentId: SCAN, filename: 'scan.pdf', size: 5, contentType: 'application/pdf' } as const;
+    /** The Workspace as a read holds it, with or without the file. */
+    const holding = (held: boolean): WorkspaceSnapshot =>
+      ({
+        workspace: { id: 'ws-work', tenantId: 'tenant' },
+        items: [{ id: BART }],
+        attachments: held ? [{ id: SCAN, itemId: BART, filename: 'scan.pdf' }] : [],
+        filings: [],
+        panels: [],
+      }) as unknown as WorkspaceSnapshot;
+    const filesShown = (copy: WorkspaceSnapshot) => copy.attachments.map((file) => file.id);
+
+    it('draws it through a read that began before the answer, once, whether or not that read holds it', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      const early = queue.readStarted();
+      queue.attached(upload);
+
+      queue.readLanded('ws-work', early);
+
+      expect(filesShown(queue.drawnOver(holding(false)))).toEqual([SCAN]);
+      expect(filesShown(queue.drawnOver(holding(true)))).toEqual([SCAN]);
+    });
+
+    it('shows the server’s copy once a read that began after the answer has landed', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.attached(upload);
+      const late = queue.readStarted();
+
+      queue.readLanded('ws-work', late);
+
+      expect(filesShown(queue.drawnOver(holding(true)))).toEqual([SCAN]);
+      // Another device removed it first: the read says so, and it is not drawn back.
+      expect(filesShown(queue.drawnOver(holding(false)))).toEqual([]);
+    });
+
+    it('stops drawing it when a read that began before the answer holds the stamp the answer gave', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      const early = queue.readStarted();
+      queue.attached(upload, '2026-10-21T10:00:02.000Z');
+
+      queue.readLanded('ws-work', early, '2026-10-21T10:00:03.000Z');
+
+      expect(filesShown(queue.drawnOver(holding(false)))).toEqual([]);
+    });
+
+    it('keeps drawing it when only another Workspace, or the list of Workspaces, is read', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.attached(upload);
+
+      queue.readLanded('ws-home', queue.readStarted());
+      queue.readLanded(null, queue.readStarted());
+
+      expect(filesShown(queue.drawnOver(holding(false)))).toEqual([SCAN]);
+    });
+
+    it('is never sent from here, and holds neither the page nor the reads and changes behind it', async () => {
+      const server = aServer();
+      const leaving = { arm: vi.fn(), disarm: vi.fn() };
+      const queue = createChangeQueue({ send: server.send, leaveGuard: leaving });
+
+      queue.attached(upload);
+      void queue.enqueue(priority('high'));
+      await settle();
+
+      expect(server.send).toHaveBeenCalledTimes(1);
+      expect(server.arrived[0]!.change.name).toBe('set_priority');
+      expect(leaving.arm).toHaveBeenCalledTimes(1);
+      server.arrived[0]!.answer();
+      await settle();
+      expect(queue.unanswered()).toBe(0);
+    });
+
+    it('stops drawing it when the tab forgets what it was answered, as signing out does', () => {
+      const queue = createChangeQueue({ send: aServer().send });
+      queue.attached(upload);
+
+      queue.forgetAnswered();
+
+      expect(filesShown(queue.drawnOver(holding(false)))).toEqual([]);
+    });
+  });
+
+  describe('a removed attachment stays drawn as gone until a read that began after its answer has landed', () => {
+    const SCAN = '11111111-1111-7111-8111-0000000000a1';
+    const removal: CommandArgs = { name: 'remove_attachment', payload: { commandId: 'c-remove', issuedAt: AT, workspaceId: 'ws-work', itemId: BART, attachmentId: SCAN } };
+    const holding = (): WorkspaceSnapshot =>
+      ({
+        workspace: { id: 'ws-work', tenantId: 'tenant' },
+        items: [{ id: BART }],
+        attachments: [{ id: SCAN, itemId: BART, filename: 'scan.pdf' }],
+        filings: [],
+        panels: [],
+      }) as unknown as WorkspaceSnapshot;
+
+    it('is gone at once, stays gone under a read that began before the answer, and the server’s copy wins after one that began later', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(removal);
+      await settle();
+      expect(queue.drawnOver(holding()).attachments).toEqual([]);
+      const early = queue.readStarted();
+      server.arrived[0]!.answer();
+      await settle();
+
+      queue.readLanded('ws-work', early);
+      expect(queue.drawnOver(holding()).attachments).toEqual([]);
+
+      queue.readLanded('ws-work', queue.readStarted());
+      // Another device attached it again after this one’s removal, and the read says so.
+      expect(queue.drawnOver(holding()).attachments).toHaveLength(1);
+    });
+
+    it('is drawn back when the server refuses it', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      const answer = queue.enqueue(removal);
+      answer.catch(() => {});
+      await settle();
+
+      server.arrived[0]!.refuse(new Error('That item is locked.'));
+      await settle();
+
+      expect(queue.drawnOver(holding()).attachments).toHaveLength(1);
+    });
+  });
+});

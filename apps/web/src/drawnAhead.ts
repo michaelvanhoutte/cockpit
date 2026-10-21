@@ -19,6 +19,9 @@ import {
 } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
 
+/** A change the screen draws: those the queue sends, and an upload, which it holds but never sends. */
+export type Drawn = CommandArgs | { name: 'add_attachment'; payload: CommandPayload<'add_attachment'> };
+
 /**
  * What the screen shows of a change the server has not answered yet ("Show an
  * Item or filing change the moment you make it", issue 1329).
@@ -57,11 +60,30 @@ import type { CommandArgs } from './api/queries';
  * (which is how a Section is added). **What the server decides is not
  * predicted**: a moved Panel keeps its own name until the rename arrives with the
  * next read.
+ *
+ * **So is an attachment** ("Keep an attachment's chip drawn from the moment you
+ * choose the file, and remove one at once", issue 1367): an uploaded file is a
+ * chip on its Item as the server will read it back, and a removed one is gone. An
+ * upload is held by the queue once the server has answered it, and never sent by
+ * it.
  */
-export function drawnAhead(snapshot: WorkspaceSnapshot, change: CommandArgs): WorkspaceSnapshot {
+export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): WorkspaceSnapshot {
   switch (change.name) {
     case 'capture_item':
       return capturedAhead(snapshot, change.payload);
+    case 'add_attachment': {
+      const { attachmentId: id, itemId, filename, size, contentType, issuedAt: createdAt, workspaceId } = change.payload;
+      // Once, whether or not a read begun before the answer already holds it.
+      return workspaceId !== snapshot.workspace.id ||
+        !snapshot.items.some((item) => item.id === itemId) ||
+        snapshot.attachments.some((held) => held.id === id)
+        ? snapshot
+        : { ...snapshot, attachments: [...snapshot.attachments, { id, tenantId: snapshot.workspace.tenantId, itemId, filename, size, contentType, createdAt }] };
+    }
+    case 'remove_attachment':
+      return change.payload.workspaceId !== snapshot.workspace.id
+        ? snapshot
+        : { ...snapshot, attachments: snapshot.attachments.filter((held) => held.id !== change.payload.attachmentId) };
     case 'set_done':
       return withItem(snapshot, change.payload.itemId, {
         completedAt: change.payload.done ? change.payload.issuedAt : null,
@@ -385,7 +407,7 @@ function filedAhead(
  * after their answer lands, whichever Workspace's own read lands first. An add
  * is one of them ("Open a new Workspace the moment you add it", issue 1366).
  */
-export const WORKSPACE_LIST_CHANGES: ReadonlySet<CommandArgs['name']> = new Set([
+export const WORKSPACE_LIST_CHANGES: ReadonlySet<Drawn['name']> = new Set([
   'create_workspace',
   'rename_workspace',
   'set_workspace_theme',
@@ -402,7 +424,7 @@ export const WORKSPACE_LIST_CHANGES: ReadonlySet<CommandArgs['name']> = new Set(
  * no other wears**, as the server makes it; its `tenantId` is the account's, which
  * nothing here reads.
  */
-function workspacesDrawnAhead(list: WorkspaceList, change: CommandArgs): WorkspaceList {
+function workspacesDrawnAhead(list: WorkspaceList, change: Drawn): WorkspaceList {
   const { workspaces } = list;
   const rewrite = (id: string, fields: Partial<Workspace>) => ({
     workspaces: workspaces.map((one) => (one.id === id ? { ...one, ...fields } : one)),
@@ -439,11 +461,12 @@ function workspacesDrawnAhead(list: WorkspaceList, change: CommandArgs): Workspa
  * after their answer until a read covers them. A capture is drawn as well, but
  * the outbox sends it and the queue only holds it (`changeQueue.ts`).
  */
-export const DRAWN_AHEAD: ReadonlySet<CommandArgs['name']> = new Set([
+export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   ...WORKSPACE_LIST_CHANGES,
   'move_item_to_panel',
   'add_item_to_panel',
   'remove_item_from_panel',
+  'remove_attachment',
   'set_done',
   'set_started',
   'set_priority',
@@ -467,12 +490,12 @@ export const DRAWN_AHEAD: ReadonlySet<CommandArgs['name']> = new Set([
 ]);
 
 /** The changes in the order they were made, each drawn over the one before. */
-export function drawnOver(snapshot: WorkspaceSnapshot, changes: readonly CommandArgs[]): WorkspaceSnapshot {
+export function drawnOver(snapshot: WorkspaceSnapshot, changes: readonly Drawn[]): WorkspaceSnapshot {
   return changes.reduce(drawnAhead, snapshot);
 }
 
 /** The list of Workspaces with the changes drawn over it, in the order they were made. */
-export function listDrawnOver(list: WorkspaceList, changes: readonly CommandArgs[]): WorkspaceList {
+export function listDrawnOver(list: WorkspaceList, changes: readonly Drawn[]): WorkspaceList {
   return changes.reduce(workspacesDrawnAhead, list);
 }
 
