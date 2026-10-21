@@ -68,6 +68,11 @@ Places count as separate only when they are separate queries with different filt
 >
 > Good: assignment situations against the panels involved and the Inbox, which are complementary filters; the action list only on the situations that change what it returns, which is deletion and workspace.
 
+**A case that changes how a surface is laid out is checked at phone width and at desk width, as two places, each saying what that screen shows**, because F3 asserts only what the list asks and a layout that fits a desk can wrap on a phone. The phone place is dropped only where the interaction does not exist on a phone, and that interaction is then its own capability.
+
+> Bad: "the toolbar shows its four controls" passes on a desk while the controls wrap on a phone.
+> Good: "on a desk the four controls sit in one row" and "on a phone they stack in two rows".
+
 ## Who prunes what
 
 - **Whether a plausible implementation could get it wrong** is often a product fact only Michael has, so those cuts happen at review. Both shape changes in the issue 36 experiment came from him.
