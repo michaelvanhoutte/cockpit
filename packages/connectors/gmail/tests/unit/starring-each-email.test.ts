@@ -313,6 +313,17 @@ describe('Capture', () => {
       expect([...ids].sort()).toEqual(['message:t-1', 'message:t-3', 't-1', 't-3']);
     });
 
+    it('says how many emails are starred, not how many ids it names', async () => {
+      const { host } = await listed((world) => {
+        world.star('t-1');
+        world.star('m-2');
+        world.star('t-3');
+      });
+
+      expect(host.listings.at(-1)!.sourceIds).toHaveLength(5);
+      expect(host.listings.at(-1)!.count).toBe(3);
+    });
+
     it('resumes at the next page when a run stops between pages, closing nothing it had not yet listed', async () => {
       const world = new GmailWorld();
       world.emailPageSize = 1;

@@ -289,9 +289,13 @@ class Reading {
       byStar
         ? starredSourceIds(emailPage(await this.mailbox.get(this.#listQuery(markId, null))).emails)
         : conversationPage(await this.mailbox.get(this.#listQuery(markId, null))).threadIds;
+    const sourceIds = [...new Set([...listing.seen, ...frontIds])];
     await this.host.reportCompleteListing({
       choice: this.choice,
-      sourceIds: [...new Set([...listing.seen, ...frontIds])],
+      sourceIds,
+      // By star the ids name each email's Item and its conversation's: what is
+      // starred is the emails.
+      ...(byStar ? { count: sourceIds.filter((id) => emailIdIn(id) !== null).length } : {}),
     });
     state.listing = null;
     this.#unsaved = true;

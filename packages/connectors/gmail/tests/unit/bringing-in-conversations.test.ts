@@ -146,7 +146,7 @@ describe('Capture', () => {
       byStar.choice = 'star';
       await run(world, byStar);
 
-      expect(byStar.listings).toEqual([{ choice: 'star', sourceIds: ['message:t-star', 't-star'] }]);
+      expect(byStar.listings).toEqual([{ choice: 'star', sourceIds: ['message:t-star', 't-star'], count: 1 }]);
       // A star listing only closes: what was starred before it counts is not brought in.
       expect([...byStar.filed.keys()]).toEqual(['t-label']);
     });
