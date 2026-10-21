@@ -899,7 +899,8 @@ describe('Connector management', () => {
 
   beforeEach(() => {
     held.registry = [TEAMS_CARD, TEXT_MESSAGES_CARD];
-    held.sourceNames = { teams: 'Microsoft Teams', twilio: 'Text messages' };
+    // What one Item of the source is called, which the connected row must not borrow (issue 1336).
+    held.sourceNames = { teams: 'Microsoft Teams', twilio: 'Text message' };
   });
 
   /** Opens the form from the card and types a number into it. */

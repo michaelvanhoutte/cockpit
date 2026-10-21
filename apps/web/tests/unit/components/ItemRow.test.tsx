@@ -60,7 +60,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
 }
 
 /** What the Workspace's snapshot calls each source, as the list hands it to every row (issue 927). */
-const SOURCE_NAMES = { teams: 'Microsoft Teams', gmail: 'Gmail' };
+const SOURCE_NAMES = { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message' };
 
 /**
  * Renders one row and hands back the changes it asks for.
@@ -727,6 +727,8 @@ describe('Triage', () => {
       // source names out of the shared contract", issue 927).
       { situation: 'came from Teams', item: { source: 'teams', sender: 'Ada' }, shows: 'Microsoft Teams · Ada' },
       { situation: 'came from Gmail', item: { source: 'gmail', sender: 'Anna' }, shows: 'Gmail · Anna' },
+      // A text names no sender, so nothing is left hanging after the name (issue 1336).
+      { situation: 'came as a text message', item: { source: 'twilio', sender: null }, shows: 'Text message' },
       // A source the environment no longer registers reads as its id (issue 925).
       { situation: 'came from a source nothing names', item: { source: 'outlook', sender: 'Anna' }, shows: 'outlook · Anna' },
       {

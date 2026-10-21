@@ -33,9 +33,41 @@ export class SourceError extends Error {
   }
 }
 
+/**
+ * What a connector throws for a delivery that can never be filed, however often
+ * the source sends it again (a text with no words in it): the host writes the
+ * *Failed* line of the connection the delivery was attributed to, exactly as for
+ * any other `SourceError`, and then answers with `response` instead of letting
+ * the error out, so the source is not told to retry what will fail the same way.
+ * Thrown before attribution it writes no line, as any error would not.
+ */
+export class RefusedDelivery extends SourceError {
+  readonly response: Response;
+
+  constructor(message: string, response: Response) {
+    super(message);
+    this.response = response;
+  }
+}
+
 export interface ConnectorManifest {
   id: string;
   displayName: string;
+  /**
+   * What one Item the source made is called on screen, where the source's own
+   * name does not read as one ("Text message" for a source called "Text
+   * messages"). Absent: `displayName`. The Connections window keeps naming the
+   * source by `displayName`.
+   */
+  itemSourceName?: string;
+  /**
+   * Whether an Item a push files belongs to the Workspace of the connection it
+   * arrived on. Absent is yes, as for every pushed Item so far. `false`: the
+   * host captures it on *Any workspace*, and that Workspace is only where it
+   * was captured from, as the Car view's captures are, because the source says
+   * nothing of where a note belongs.
+   */
+  pushDecidesWorkspace?: boolean;
   /** What the source's card in the Connections window says it does. */
   cardText: string;
   /**

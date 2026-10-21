@@ -113,8 +113,17 @@ const GUEST_SENTENCE = 'Sign in with Google to connect your own';
  * whether it files by name (issue 1146), and when it last worked - for a
  * connection that made a choice, when it was last checked (issue 725).
  */
-function rowDetail(account: SourceAccount, names: SourceNames, noun?: string, textTo?: string): string {
-  const source = sourceNamed(names, account.connectorId);
+function rowDetail(
+  account: SourceAccount,
+  names: SourceNames,
+  noun?: string,
+  textTo?: string,
+  connectorName?: string,
+): string {
+  // The connector's own name where its listing has loaded and the names map knows the
+  // source: the map calls an Item of it what the Item is ("Text message"), not what the entry is.
+  const named = sourceNamed(names, account.connectorId);
+  const source = connectorName && named !== account.connectorId ? connectorName : named;
   // A connected phone says which number to text, since that is what it is for (issue 1335).
   const followed = account.follows
     ? `${source} · ${account.followsLabel ?? account.follows}`
@@ -305,6 +314,9 @@ export default function ManageConnections({
   /** What a connected row's connector asks, where it asks anything - and so whether the row offers *Change…*. */
   const choiceOf = (connectorId: string): ConnectorChoice | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.choice;
+  /** What a connected row's connector is called in Settings, which is not always what one of its Items is called. */
+  const connectorNameOf = (connectorId: string): string | undefined =>
+    registry.data?.connectors.find((connector) => connector.id === connectorId)?.displayName;
   /** The number a connected row's connector has a phone text, where it connects phones (issue 1335). */
   const textToOf = (connectorId: string): string | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.textedCode?.textTo;
@@ -384,7 +396,7 @@ export default function ManageConnections({
                     <div className="flex items-center gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm">{account.displayName}</p>
-                        <p className="text-sm text-ink-faint">{rowDetail(account, names, namesOf(account.connectorId)?.noun, textToOf(account.connectorId))}</p>
+                        <p className="text-sm text-ink-faint">{rowDetail(account, names, namesOf(account.connectorId)?.noun, textToOf(account.connectorId), connectorNameOf(account.connectorId))}</p>
                         {/* A connection that keeps a history opens it from here,
                             where its checks say when it began failing (issue 1140). */}
                         {account.failingBecause &&

@@ -716,7 +716,7 @@ arrives in the call itself.
 
 ### Twilio
 
-**Production alone**, and the first half of the runbook: what connecting a phone needs ("Connect a phone in Settings by confirming a code texted to it", issue 1335). **Nothing is texted until somebody asks for a code in Settings**, and each code is a text Cockpit pays for, so the steps that limit where one can go come before the secrets. In the Twilio console:
+**Production alone.** Steps 1 to 3 are what connecting a phone needs ("Connect a phone in Settings by confirming a code texted to it", issue 1335). **Nothing is texted until somebody asks for a code in Settings**, and each code is a text Cockpit pays for, so the steps that limit where one can go come before the secrets. In the Twilio console:
 
 1. **A Verify service**, under *Verify* › *Services*: the *SMS* channel, a name people recognise on the text (`Cockpit`), and *Fraud Guard* on. Verify holds the code, its ten-minute expiry and its limit on wrong attempts, so Cockpit keeps none of them.
 2. **SMS geographic permissions limited to Belgium**, under *Messaging* › *Settings* › *Geo permissions*: only *Belgium* ticked. Cockpit already refuses any number but a Belgian mobile and counts five codes an hour per account; this is the third guard, and the one that still holds if the first two are bypassed.
@@ -730,7 +730,21 @@ wrangler secret put TWILIO_VERIFY_SERVICE_SID
 
    `CONNECTOR_CREDENTIAL_KEY` has to be set as well (the last step of "An Entra application" above), since a connection is stored sealed under it. `TWILIO_NUMBER` waits for the number to be bought; the connector is not registered, and *Text messages* not offered, until all four are set.
 
-Buying the number, pointing it at Cockpit and rotating the auth token are written down with receiving texts, not here.
+**Receiving texts** ("Text the Cockpit number and the note lands in the Inbox", issue 1336). The Belgian *Mobile-Business* regulatory bundle on the Twilio account has to be approved before a number can be bought; it blocks nothing in the build or the suites.
+
+4. **Buy a Belgian mobile number** under *Phone Numbers* › *Buy a number*, with the SMS capability, on that approved bundle.
+5. **Point it at Cockpit**: on the number, under *Messaging Configuration*, *A message comes in* is a *Webhook*, method `HTTP POST`, to
+
+   ```
+   <APP_ORIGIN>/ingress/twilio/sms#rc=3&rp=ct,rt,5xx
+   ```
+
+   The part after `#` is Twilio's retry override: it retries three times on a connection or read timeout and on a 5xx, so a text arriving while Cockpit is down is not lost, and `MessageSid` makes a retry one Item. **It is unchecked for incoming messages**, which Twilio documents for webhooks in general: on the first live number, send a text while the Worker is failing and see it delivered again. Without the override a text arriving during an outage is lost and shows only as error 11200 in Twilio's log. Twilio signs the address without the part after `#`, which is also unchecked against a real signed request: if every text is refused with 403 on the first live number, that is the first thing to compare.
+6. **Set `TWILIO_NUMBER`** (international format, `+32…`) as in the table above; the connector is registered once all four settings are set, and from then on Settings offers *Text messages* and the address answers.
+
+Cockpit never texts back, so nothing else is configured on the number. A text from a number nobody connected, and any request Twilio did not sign, is dropped; only the signature (`TWILIO_AUTH_TOKEN`) vouches for a request.
+
+**Rotating the auth token** replaces the key every text is checked with, so the order matters: **set the new `TWILIO_AUTH_TOKEN` secret first, then promote the new token in Twilio** (*Account* › *API keys & tokens*, *Auth tokens*: create the secondary token, set the secret to it, promote it). Promoted before the secret is set, every text fails its signature check with 403 in between, and a text arriving then is retried only if the override above works. The same token is Verify's credential for codes, so connecting a phone fails in the same window.
 
 ### A Google Cloud project for Gmail
 
