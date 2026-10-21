@@ -18,7 +18,9 @@ import { dashboardBar, expect, inbox, itemRow, openFirstWorkspace, press, test, 
  * since a signature is over the address that was called and not over a proxy's.
  * The phone is connected through the same two requests Settings sends, which is
  * arrangement here - Settings' own walk is connections.test.ts - and
- * disconnected afterwards, so the stack is as it was found.
+ * disconnected afterwards and its texts moved into the workspace looked at, so
+ * the stack is as it was found: a text waiting in every Inbox would otherwise
+ * count in a workspace another spec makes.
  */
 const root = resolve(__dirname, '..', '..');
 const api = `http://127.0.0.1:${portsFor(root, { linked: isLinkedWorktree(root), env: process.env }).e2eApi}`;
@@ -58,6 +60,22 @@ async function disconnectPhones(page: Page, workspaceId: string): Promise<void> 
   }
 }
 
+/**
+ * Moves each text this walk captured into the workspace being looked at. A text
+ * waits in every Inbox of the one account all specs share until it is filed, and
+ * would count in a workspace another spec has just made ("There is nothing in
+ * it"). One that never arrived is left be.
+ */
+async function putTheTextsAway(page: Page, titles: string[], isMobile: boolean): Promise<void> {
+  for (const title of titles) {
+    const row = itemRow(page, title);
+    if ((await row.count()) === 0) continue;
+    await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+    await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
+    await expect(row).toHaveCount(1);
+  }
+}
+
 /** A text as Twilio delivers it, signed with the stack's token over the address it was sent to. */
 async function text(page: Page, params: Record<string, string>, signed = true): Promise<number> {
   const address = `${api}/ingress/twilio/sms`;
@@ -81,13 +99,14 @@ test.describe('Capture', () => {
       const workspaceId = workspaceOf(page);
       const phone = aPhone();
       await connectPhone(page, workspaceId, phone);
+      const said = uniqueTitle('Call the plumber');
+      const next = uniqueTitle('Book the dentist');
 
       try {
         // On a phone the Inbox is a screen of its own, reached from the workspace.
         if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
         await expect(inbox(page)).toBeVisible();
 
-        const said = uniqueTitle('Call the plumber');
         const delivery = { MessageSid: `SM${randomUUID().replaceAll('-', '')}`, From: phone, To: COCKPIT_NUMBER, Body: said };
         expect(await text(page, delivery)).toBe(200);
         const row = itemRow(page, said);
@@ -95,7 +114,6 @@ test.describe('Capture', () => {
         await expect(row.getByText('Text message', { exact: true })).toBeVisible();
 
         // The same text again, then one more behind it: when the second has landed the repeat has had its chance.
-        const next = uniqueTitle('Book the dentist');
         expect(await text(page, delivery)).toBe(200);
         expect(await text(page, { ...delivery, MessageSid: `SM${randomUUID().replaceAll('-', '')}`, Body: next })).toBe(200);
         await expect(itemRow(page, next)).toBeVisible();
@@ -112,6 +130,7 @@ test.describe('Capture', () => {
         await expect(page.getByRole('dialog').getByText(/^From Text message$/)).toBeVisible();
         await press(page.getByRole('dialog').getByRole('button', { name: 'Cancel' }), isMobile);
       } finally {
+        await putTheTextsAway(page, [said, next], isMobile);
         await disconnectPhones(page, workspaceId);
       }
     });
