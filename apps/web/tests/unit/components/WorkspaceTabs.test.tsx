@@ -3,7 +3,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Workspace, WorkspaceSnapshot } from '@cockpit/shared';
-import { CommandRefused } from '../../../src/api/client';
+import { CommandRefused, sendCommand } from '../../../src/api/client';
+import { changes } from '../../../src/api/changes';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { WorkspaceTabs } from '../../../src/components/WorkspaceTabs';
 import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
@@ -51,6 +52,11 @@ vi.mock('@tanstack/react-router', () => ({
     select({
       location: { pathname: held.onAllItemsOf ? `/w/${held.onAllItemsOf}/items` : `/w/${held.here}` },
     }),
+}));
+
+vi.mock('../../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  sendCommand: vi.fn(),
 }));
 
 vi.mock('../../../src/api/queries', async (importOriginal) => {
@@ -149,6 +155,7 @@ function showTabs(
   // The page on screen holds its workspace's snapshot, its route having loaded it.
   if (held.onAllItemsOf) {
     client.setQueryData(['snapshot', held.onAllItemsOf], {
+      workspace: { id: held.onAllItemsOf },
       dashboards: [{ id: `${held.onAllItemsOf}-first` }, { id: `${held.onAllItemsOf}-second` }],
     });
   }
@@ -316,6 +323,35 @@ describe('Workspace management', () => {
           { to: '/w/$workspaceId/d/$dashboardId', params: { workspaceId: 'ws-work', dashboardId: 'ws-work-first' } },
         ]),
       );
+    });
+
+    it('returns to the first dashboard as drawn, with a reorder still unanswered', async () => {
+      let answer = () => {};
+      vi.mocked(sendCommand).mockImplementationOnce(
+        () => new Promise((resolve) => (answer = () => resolve({ ok: true, applied: true }))),
+      );
+      setAllItemsTab('ws-work', true);
+      showTabs(['Work', 'Personal'], { here: 'ws-work', onAllItemsOf: 'ws-work' });
+      const moved = changes.enqueue({
+        name: 'reorder_dashboards',
+        payload: {
+          commandId: 'c-1',
+          issuedAt: '2026-10-21T09:00:00.000Z',
+          workspaceId: 'ws-work',
+          dashboardId: 'ws-work-second',
+          dashboardIds: ['ws-work-second', 'ws-work-first'],
+        },
+      });
+
+      await menuOf('Work');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Hide All items tab' }));
+
+      await waitFor(() =>
+        expect(wentTo.calls).toMatchObject([{ params: { workspaceId: 'ws-work', dashboardId: 'ws-work-second' } }]),
+      );
+      answer();
+      await moved;
+      changes.forgetAnswered();
     });
 
     it('stays on the dashboard when hidden while on a dashboard', async () => {
