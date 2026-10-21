@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { itemLabel, uuidv7, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 import { useLatestSnapshot, useSendCommand } from './api/queries';
+import { PanelNotMade } from './changeQueue';
 import { filedOrderOnPanel, ordersForFilingSeveral } from './filing';
 import {
   NO_PANEL_EDITS,
@@ -125,7 +126,9 @@ export function useItemPanels({
   const writeAdd = async (one: PanelOn) => {
     if (!item) return;
     setRefusal(null);
-    const failed = (error: unknown) => setRefusal(`It was not filed on “${one.name}”. ${failureOf(error)}`);
+    // A Panel made for this and refused has said so itself, in the undo bar, and taken the chip with it.
+    const failed = (error: unknown) =>
+      error instanceof PanelNotMade ? undefined : setRefusal(`It was not filed on “${one.name}”. ${failureOf(error)}`);
     let sent: Awaited<ReturnType<typeof startFileOn>>;
     try {
       sent = await startFileOn(one);
@@ -181,10 +184,15 @@ export function useItemPanels({
       change(() => NO_PANEL_EDITS);
       setRefusal(null);
     },
-    add: (one: PanelOn) => {
+    /** `made` is the answer to a Panel made a moment ago for this, where one was (`FileOnOption`). */
+    add: (one: PanelOn, made?: Promise<unknown>) => {
       // A removal still held (a refused one, from before the form was docked) is just put back.
       if (docked && !editsRef.current.removed.includes(one.panelId)) inTurnDo(() => writeAdd(one));
-      else change((was) => afterAdding(was, heldRef.current, one));
+      else {
+        change((was) => afterAdding(was, heldRef.current, one));
+        // Held for Save, there is no filing in the queue to be sent back with a Panel that was refused: the chip goes.
+        made?.catch(() => change((was) => afterRemoving(was, heldRef.current, one.panelId)));
+      }
     },
     remove: (panelId: string) => {
       const one = shown.find((there) => there.panelId === panelId);

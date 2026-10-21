@@ -21,6 +21,7 @@ import {
 } from './client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
 import { noSnapshotYet } from '../drawnAhead';
+import { PanelNotMade } from '../changeQueue';
 import { changes, readOfWorkspaceBegins, watchWorkspaceReads } from './changes';
 import { readAfterOwnChange } from './snapshotReads';
 
@@ -298,8 +299,12 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
  * twelve times across nine files, which is twelve places to edit the sentence
  * somebody reads when their network drops - and twelve chances for one of them
  * to say something slightly different about the same failure.
+ *
+ * **Null for a filing sent back with the Panel it was built on**: that Panel's
+ * own refusal is the one thing said (`PanelNotMade`).
  */
 export function refusalFrom(command: { error: unknown }): string | null {
+  if (command.error instanceof PanelNotMade) return null;
   if (command.error instanceof CommandRefused || command.error instanceof WorkingOffline) {
     return command.error.message;
   }

@@ -12,6 +12,11 @@ import { DRAWN_AHEAD, WORKSPACE_LIST_CHANGES, drawnOver, listDrawnOver, type Dra
  * drawn (`drawnAhead.ts`) the moment it joins, and the cost is that a burst of
  * ten takes ten round trips to land.
  *
+ * **A filing onto a Panel made here goes behind the Panel, and is refused in turn
+ * if the Panel is** ("Show a Panel made from Move to or File on, with the Item on
+ * it, the moment you make it", issue 1364): the screen goes back at once, with
+ * the Panel's refusal the only one said (`PanelNotMade`).
+ *
  * **Memory only.** Nothing here is saved or replayed: an offline write queue is
  * deliberately not built (architecture.md, "The local-first decision,
  * recorded"), so a tab that closes mid-save loses what was not yet sent, and the
@@ -159,6 +164,14 @@ export const SEND_TIMEOUT_MS = 15_000;
 /** What a change that was given up on says, the same as one the network dropped. */
 export const NOT_REACHED = 'That did not reach the server. Try again.';
 
+/**
+ * What a filing built on a Panel that was refused is sent back with ("Show a Panel
+ * made from Move to or File on, with the Item on it, the moment you make it", issue
+ * 1364). **It says the reason the Panel gave, and callers that report a refusal say
+ * nothing for it** (`refusalFrom`), because whoever made the Panel has said so once.
+ */
+export class PanelNotMade extends Error {}
+
 export function createChangeQueue(options: {
   /**
    * Sends one change; throwing is how it reports a refusal or that it did not
@@ -274,6 +287,18 @@ export function createChangeQueue(options: {
         } catch (error) {
           // Refused, or never reached the server: the screen goes back to what the server holds.
           drop(next);
+          // A filing onto a Panel that was not made is refused with it, not sent to be refused again.
+          if (next.change.name === 'add_panel') {
+            const { panelId } = next.change.payload;
+            const filings = entries.filter((e) => {
+              const named = e.change.payload as { itemId?: unknown; panelId?: unknown };
+              return e.state === 'waiting' && named.itemId !== undefined && named.panelId === panelId;
+            });
+            for (const filing of filings) {
+              drop(filing);
+              filing.settle?.reject(new PanelNotMade(error instanceof Error ? error.message : NOT_REACHED));
+            }
+          }
           changed();
           next.settle?.reject(error);
         } finally {

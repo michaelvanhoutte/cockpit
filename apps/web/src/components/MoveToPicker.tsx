@@ -71,13 +71,14 @@ function MoveToPicker({
   filteredDashboardIds,
 }: {
   /**
-   * Makes a panel of items on a dashboard, answering its id - or rejecting with
-   * the refusal ("Add a panel from the Move to picker", issue 709). Absent where
-   * the picker may not make one, which draws no + at all. The filing that
-   * follows is the ordinary `onPick`, so a panel made and then refused its
-   * filing stays.
+   * Makes a panel of items on a dashboard, answering its id at once, before the
+   * server has - or throwing when nothing could be sent ("Add a panel from the
+   * Move to picker", issue 709). Absent where the picker may not make one, which
+   * draws no + at all. The filing that follows is the ordinary `onPick`, behind
+   * the panel in the queue: refused if the panel is, and a panel made and then
+   * refused its filing stays.
    */
-  onAddPanel?: (dashboardId: string, name: string) => Promise<string>;
+  onAddPanel?: (dashboardId: string, name: string) => string;
   /** The dashboards filtered in this browser, which + Panel is locked on and so is the + here. */
   filteredDashboardIds?: ReadonlySet<string>;
   /**
@@ -152,9 +153,6 @@ function MoveToPicker({
   const [naming, setNaming] = useState<{ dashboardId: string; name: string } | null>(null);
   /** Why the panel could not be made, said under the field and gone once the name is edited. */
   const [namingRefusal, setNamingRefusal] = useState<string | null>(null);
-  /** That the panel is being made, so Add cannot send it twice. A ref as well, which a second press in the same tick reads. */
-  const [making, setMaking] = useState(false);
-  const makingNow = useRef(false);
   const fieldRef = useRef<HTMLFormElement>(null);
   const addButtons = useRef(new Map<string, HTMLButtonElement>());
   useEffect(() => {
@@ -174,29 +172,25 @@ function MoveToPicker({
   };
 
   /**
-   * Makes the panel, then files into it: the two commands in sequence, so a
-   * filing that is refused leaves the panel standing. The panel's id is handed
-   * to the pick, whose own wording names it - the caller knows the name because
-   * it made the panel (ItemList), which is what the POC's toast got wrong.
+   * Makes the panel and files into it at the click: the two commands go to the
+   * queue together, the filing behind the panel, so a panel that is refused takes
+   * the filing with it ("Show a Panel made from Move to or File on, with the Item
+   * on it, the moment you make it", issue 1364). The panel's id is handed to the
+   * pick, whose own wording names it - the caller knows the name because it made
+   * the panel (ItemList), which is what the POC's toast got wrong. **Only a
+   * refusal found before anything is sent stays here**, under the name.
    */
-  const addAndPick = async () => {
-    if (!naming || !onAddPanel || makingNow.current) return;
+  const addAndPick = () => {
+    if (!naming || !onAddPanel) return;
     const name = naming.name.trim();
     if (!name) return;
-    makingNow.current = true;
-    setMaking(true);
-    setNamingRefusal(null);
     let panelId: string;
     try {
-      panelId = await onAddPanel(naming.dashboardId, name);
+      panelId = onAddPanel(naming.dashboardId, name);
     } catch (error) {
       setNamingRefusal(refusalFrom({ error }));
-      makingNow.current = false;
-      setMaking(false);
       return;
     }
-    makingNow.current = false;
-    setMaking(false);
     setNaming(null);
     onPick({ panel: panelId });
   };
@@ -271,7 +265,7 @@ function MoveToPicker({
     // only on the control.
     <Dialog.Root
       open={open}
-      onOpenChange={(nowOpen) => !nowOpen && !busy && !making && onCancel()}
+      onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
@@ -279,12 +273,11 @@ function MoveToPicker({
           ref={contentRef}
           // Escape in the name field closes the field and leaves the picker.
           // Radix listens on the document before the field's own handler could
-          // stop it, so it is told here not to dismiss. Nothing closes while the
-          // panel is being made, since the filing would follow it regardless.
+          // stop it, so it is told here not to dismiss.
           onEscapeKeyDown={(event) => {
             if (naming && fieldRef.current?.contains(event.target as Node | null)) {
               event.preventDefault();
-              if (!makingNow.current) closeField();
+              closeField();
             }
           }}
           style={openedHeight ? { minHeight: openedHeight } : undefined}
@@ -406,7 +399,7 @@ function MoveToPicker({
                   canAddTo(dashboard)
                     ? {
                         open: naming?.dashboardId === dashboard.id,
-                        disabled: busy || making,
+                        disabled: busy,
                         buttonRef: (node) => {
                           if (node) addButtons.current.set(dashboard.id, node);
                           else addButtons.current.delete(dashboard.id);
@@ -427,7 +420,7 @@ function MoveToPicker({
                     ref={fieldRef}
                     onSubmit={(event) => {
                       event.preventDefault();
-                      void addAndPick();
+                      addAndPick();
                     }}
                     className="pb-1 pl-7 pr-2"
                   >
@@ -453,7 +446,7 @@ function MoveToPicker({
                       />
                       <button
                         type="submit"
-                        disabled={naming.name.trim() === '' || busy || making}
+                        disabled={naming.name.trim() === '' || busy}
                         className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
                       >
                         {adding ? 'Add & show' : 'Add & move'}
