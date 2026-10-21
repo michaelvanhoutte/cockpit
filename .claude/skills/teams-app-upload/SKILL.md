@@ -34,7 +34,7 @@ Uploading replaces the app for the whole organisation, so ask in chat, once per 
 Use Claude in Chrome, the person's own signed-in browser: only it can attach a file to a page. Load the `chrome-browser` skill first, and work in a new tab.
 
 1. Open `https://admin.teams.microsoft.com/policies/manage-apps`. On a sign-in page, stop and ask the person to sign in; never type a credential.
-2. Search for *Cockpit*, and take the app whose App ID is the package's bot App ID, which the script printed. Match by the ID, not the name: an app uploaded before staging was named *Cockpit (staging)* is still called *Cockpit*.
+2. Search for *Cockpit*, and take the app whose App ID is the package's bot App ID, which the script printed. Match by the ID, not the name: production is *Cockpit* and staging *Cockpit Staging*, and a package built by hand may have named either otherwise.
 3. **Stop if the listed version equals the package's**: the manifest changed without its `version` being raised, which Teams needs to tell the packages apart. Say so; never upload over it.
 4. Found: open it and use its control for uploading a new version. Not found: use *Upload new app*.
 5. Attach the zip with `file_upload` on the page's file input, never by clicking the button, which opens a picker you cannot see. Confirm what the dialog asks only where it names this app and this version.

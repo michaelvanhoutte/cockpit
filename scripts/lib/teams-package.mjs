@@ -106,7 +106,7 @@ export function filledManifest(manifest, { environment, appId, origin }) {
       .replaceAll(PLACEHOLDER_ORIGIN, host),
   );
   if (environment === 'staging') {
-    filled.name = { short: `${manifest.name.short} (staging)`, full: `${manifest.name.full} (staging)` };
+    filled.name = { short: `${manifest.name.short} Staging`, full: `${manifest.name.full} Staging` };
   }
   const left = /REPLACE_WITH_[A-Z_]+/.exec(JSON.stringify(filled));
   if (left) throw new Error(`the manifest has a placeholder nothing fills: ${left[0]}`);

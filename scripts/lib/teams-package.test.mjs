@@ -103,7 +103,8 @@ describe('a package names the environment it was built for', () => {
     const staging = filledManifest(manifest, { environment: 'staging', appId: STAGING_ID, origin: origins.staging });
     const production = filledManifest(manifest, { environment: 'production', appId: PRODUCTION_ID, origin: origins.production });
 
-    assert.equal(staging.name.short, 'Cockpit (staging)');
+    // The name the tenant's staging app already has, so an upload never renames it.
+    assert.equal(staging.name.short, 'Cockpit Staging');
     assert.equal(production.name.short, 'Cockpit');
   });
 
