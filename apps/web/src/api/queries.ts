@@ -327,6 +327,20 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
 /** Which Workspace's snapshot a change leaves out of date: '' for every one. */
 const snapshotsReadAfter = (args: CommandArgs): string => (everyWorkspaceCanSee(args) ? '' : args.payload.workspaceId);
 
+/**
+ * The changes `afterChanging` answers itself, and that leave their Workspace's
+ * snapshot as it was or are read for in their own way: a deleted Workspace's is
+ * dropped, a connection change reads its own query, and the Item form's
+ * presentation reads every snapshot.
+ */
+const NOT_READ_BACK_WITH_THE_SNAPSHOT = new Set<ClientCommandName>([
+  'delete_workspace',
+  'disconnect_source_account',
+  'set_connection_choice',
+  'set_connection_files_by_name',
+  'set_item_form_presentation',
+]);
+
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
   if (
     args.name === 'disconnect_source_account' ||
@@ -415,8 +429,9 @@ async function sendChange(args: CommandArgs, queryClient: QueryClient): Promise<
   // Registered as the answer comes in, so a burst is read once when it ends
   // (`snapshotReads.ts`).
   return changes.enqueue(args, (answer) => {
-    // A deleted workspace's snapshot is dropped, not read (`afterChanging`).
-    if (args.name !== 'delete_workspace') readAfterOwnChange(queryClient, snapshotsReadAfter(args), answer.at);
+    if (!NOT_READ_BACK_WITH_THE_SNAPSHOT.has(args.name)) {
+      readAfterOwnChange(queryClient, snapshotsReadAfter(args), answer.at);
+    }
   });
 }
 

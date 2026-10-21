@@ -21,7 +21,9 @@ import { DRAWN_AHEAD, drawnOver } from './drawnAhead';
  * before the answer may not hold the change, so it must not flip the screen
  * back; one begun after must, so another device's later write wins from then on.
  * Both moments are counted on one clock (`tick`) rather than timed, so which came
- * first is never a question about milliseconds.
+ * first is never a question about milliseconds. The one exception is a read that
+ * began earlier but whose `upTo` is at or after the stamp the answer gave: it
+ * holds the change, so the change stops being drawn when it lands.
  */
 export interface ChangeQueue {
   /**
@@ -35,8 +37,13 @@ export interface ChangeQueue {
   drawnOver(snapshot: WorkspaceSnapshot): WorkspaceSnapshot;
   /** A read of a Workspace is starting: the mark to hand back when it lands. */
   readStarted(): number;
-  /** A read that started at `startedAt` has landed in the held copy. */
-  readLanded(workspaceId: string, startedAt: number): void;
+  /**
+   * A read that started at `startedAt` has landed in the held copy. `upTo` is the
+   * newest change that read holds (`workspaceSnapshotSchema`): one begun before an
+   * answer still holds the change when its stamp is no later, so the change stops
+   * being drawn then too, instead of waiting for a read that need not be made.
+   */
+  readLanded(workspaceId: string, startedAt: number, upTo?: string): void;
   /** Stops drawing the changes the server has answered, without waiting for a read: what signing out does. */
   forgetAnswered(): void;
   /** How many changes are waiting to be sent or out unanswered. */
@@ -51,6 +58,8 @@ interface Entry {
   state: 'waiting' | 'sending' | 'answered';
   /** The tick the answer arrived at, once it has. */
   answeredAt: number;
+  /** When the server stored it, as its answer said, if it did (`commandResultSchema`'s `at`). */
+  stamp: string | undefined;
   answered: ((result: CommandResult) => void) | undefined;
   settle: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void };
 }
@@ -125,6 +134,7 @@ export function createChangeQueue(options: {
           if (DRAWN_AHEAD.has(next.change.name)) {
             next.state = 'answered';
             next.answeredAt = ++tick;
+            next.stamp = result.at;
           } else {
             drop(next);
           }
@@ -148,7 +158,7 @@ export function createChangeQueue(options: {
   return {
     enqueue(change, answered) {
       return new Promise<CommandResult>((resolve, reject) => {
-        entries.push({ change, state: 'waiting', answeredAt: 0, answered, settle: { resolve, reject } });
+        entries.push({ change, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
         changed();
         void pump();
       });
@@ -160,10 +170,12 @@ export function createChangeQueue(options: {
       );
     },
     readStarted: () => ++tick,
-    readLanded(workspaceId, startedAt) {
+    readLanded(workspaceId, startedAt, upTo) {
       const covered = entries.filter(
         (entry) =>
-          entry.state === 'answered' && entry.change.payload.workspaceId === workspaceId && entry.answeredAt < startedAt,
+          entry.state === 'answered' &&
+          entry.change.payload.workspaceId === workspaceId &&
+          (entry.answeredAt < startedAt || (entry.stamp !== undefined && upTo !== undefined && upTo >= entry.stamp)),
       );
       if (covered.length === 0) return;
       covered.forEach(drop);

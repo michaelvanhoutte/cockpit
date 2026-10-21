@@ -100,8 +100,10 @@ function change() {
 const answerChange = (stamp: string | undefined) => act(async () => answersOpen.shift()!(stamp));
 const settle = () => act(async () => {});
 
+let client: QueryClient;
+
 async function openWithCopy() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <Screen />
@@ -180,6 +182,55 @@ describe('Live updates', () => {
       await answerRead('the read for the other device', at(3));
       await screen.findByText('showing the read for the other device');
       expect(readsMade()).toBe(3);
+    });
+
+    it('reads nothing more when its own announcement started the read the answer found on its way', async () => {
+      await openWithCopy();
+      const sent = change();
+      await waitFor(() => expect(answersOpen).toHaveLength(1));
+
+      // The announcement beats the answer, as a poll landing between the two does.
+      announce(2);
+      await waitFor(() => expect(readsMade()).toBe(2));
+      await answerChange(at(2));
+      await sent;
+      await settle();
+      await answerRead('the read the announcement started', at(2));
+      await screen.findByText('showing the read the announcement started');
+      await settle();
+
+      expect(readsMade()).toBe(2);
+    });
+
+    it('does not mark the copy out of date for the one more read behind its own change', async () => {
+      await openWithCopy();
+      announce(2);
+      await waitFor(() => expect(readsMade()).toBe(2));
+      const sent = change();
+      await waitFor(() => expect(answersOpen).toHaveLength(1));
+      await answerChange(at(3));
+      await sent;
+      await answerRead('a read that began before the answer', at(2));
+      await waitFor(() => expect(readsMade()).toBe(3));
+
+      // A filing made now builds on the copy held, without waiting for the read.
+      expect(client.getQueryState(snapshotQuery(WORKSPACE).queryKey)?.isInvalidated).toBe(false);
+      await answerRead('the read after the change', at(3));
+    });
+
+    it('does not read a Workspace for a connection change', async () => {
+      await openWithCopy();
+
+      const sent = sendNow({
+        name: 'set_connection_choice',
+        payload: { commandId: 'c-conn', issuedAt: at(0), workspaceId: WORKSPACE },
+      } as unknown as Parameters<typeof sendNow>[0]);
+      await waitFor(() => expect(answersOpen).toHaveLength(1));
+      await answerChange(at(2));
+      await sent;
+      await settle();
+
+      expect(readsMade()).toBe(1);
     });
 
     it('reads as before when the answer gave no time, as an older server does', async () => {

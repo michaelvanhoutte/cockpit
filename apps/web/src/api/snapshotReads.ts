@@ -76,13 +76,17 @@ function read(client: QueryClient, workspaceId: string, upTo: string, marked: bo
     const filters = { queryKey: query.queryKey, exact: true };
     const alongside = { cancelRefetch: false };
     const flying = query.state.fetchStatus === 'fetching';
-    if (marked || !query.isActive()) void client.invalidateQueries(filters, alongside);
-    else void client.refetchQueries(filters, alongside);
+    // Marked only when the copy is out of date or nothing shows it; a read for
+    // this tab's own changes leaves a showing copy usable meanwhile, the one
+    // more read included.
+    const start = () => {
+      if (marked || !query.isActive()) void client.invalidateQueries(filters, alongside);
+      else void client.refetchQueries(filters, alongside);
+    };
+    start();
     if (flying) {
       const andOneMore = () => {
-        if (upTo > ((query.state.data as WorkspaceSnapshot | undefined)?.upTo ?? '')) {
-          void client.invalidateQueries(filters, alongside);
-        }
+        if (upTo > ((query.state.data as WorkspaceSnapshot | undefined)?.upTo ?? '')) start();
       };
       void query.promise?.then(andOneMore, andOneMore);
     }
