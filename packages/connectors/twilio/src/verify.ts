@@ -44,10 +44,14 @@ export async function checkCode(config: VerifyConfig, number: string, code: stri
   if (answer.status === 404) return 'gone';
   // A code Verify could not read as one, which is as wrong as one that does not match.
   if (answer.status === 400) return 'wrong';
+  // Verify's limit on checks of one verification (error 60202): nothing typed now can be right.
+  if (answer.status === 429) return 'gone';
   if (!answer.ok) throw new SourceError(UNREACHABLE, answer.status);
 
+  // An answer that cannot be read is neither a right nor a wrong code: the person is not told to send a new one.
   const body = (await answer.json().catch(() => null)) as { status?: unknown } | null;
-  switch (body?.status) {
+  if (body === null) throw new SourceError(UNREACHABLE, answer.status);
+  switch (body.status) {
     case 'approved':
       return 'approved';
     case 'pending':

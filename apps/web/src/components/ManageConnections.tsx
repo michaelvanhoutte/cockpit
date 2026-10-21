@@ -448,7 +448,12 @@ export default function ManageConnections({
               {beingDisconnected && (
                 <DeleteQuestion
                   open
-                  question={`Disconnect ${beingDisconnected.displayName}? Cockpit forgets the sign-in it was connected with.`}
+                  question={`Disconnect ${beingDisconnected.displayName}? ${
+                    // A phone has no sign-in to forget (issue 1335).
+                    textToOf(beingDisconnected.connectorId) !== undefined
+                      ? 'Cockpit forgets the number.'
+                      : 'Cockpit forgets the sign-in it was connected with.'
+                  }`}
                   confirmLabel={`Yes, disconnect ${beingDisconnected.displayName}`}
                   confirmText="Disconnect"
                   canConfirm={!command.isPending}

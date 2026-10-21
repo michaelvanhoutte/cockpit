@@ -4,7 +4,7 @@ import { sessionRunReporter } from '../../../scripts/lib/vitest-session-reporter
 /**
  * Unit tests only: reading a number is pure. What Twilio Verify is asked, and
  * how its answers are read, is held one tier up against `fetch`
- * (apps/api/tests/integration/connectors/texting-a-code.test.ts).
+ * (apps/api/tests/integration/connectors/connecting-a-phone.test.ts).
  */
 export default defineConfig({
   test: {

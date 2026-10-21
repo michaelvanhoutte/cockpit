@@ -1019,6 +1019,16 @@ describe('Connector management', () => {
       expect(screen.queryByRole('menuitem', { name: 'Change…' })).toBeNull();
     });
 
+    it('asks about forgetting the number, not a sign-in, before disconnecting a phone', async () => {
+      held.sourceAccounts = [PHONE];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for +32470123456' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Disconnect' }));
+
+      expect(await screen.findByText('Disconnect +32470123456? Cockpit forgets the number.')).toBeInTheDocument();
+    });
+
     it('offers no Text messages where the environment has not configured it', async () => {
       held.registry = [TEAMS_CARD];
 

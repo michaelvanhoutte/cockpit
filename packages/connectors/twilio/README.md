@@ -16,8 +16,10 @@ next unit, not here.
   status of an ended verification (`canceled`, `max_attempts_reached`,
   `expired`) is `gone` too, since nothing typed now can be right.
 - **A 400 on a check is `wrong`**, which is how Verify answers a code it could
-  not read as one. A 401, a 5xx or no answer at all is neither: the check
-  throws `SourceError`, and nothing is connected.
+  not read as one, and **a 429 is `gone`**: Verify's limit on checks of one
+  verification (error 60202). A 401, a 5xx, no answer at all or a 200 whose body
+  cannot be read is neither: the check throws `SourceError`, and nothing is
+  connected.
 - **A send refused with 429 is Verify's own limit on codes to one number**, said
   as such; any other 4xx is "would not text that number", and a 5xx or no answer
   is "could not be reached". None of the messages names an address or a

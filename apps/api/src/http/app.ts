@@ -815,7 +815,7 @@ const sendPhoneCodeRoute = createRoute({
       content: { 'application/json': { schema: phoneCodeSentSchema } },
     },
     400: {
-      description: 'The number is not one the connector accepts, or the code is wrong or no longer valid',
+      description: 'The number is not one the connector accepts',
       content: { 'application/json': { schema: errorSchema } },
     },
     404: {

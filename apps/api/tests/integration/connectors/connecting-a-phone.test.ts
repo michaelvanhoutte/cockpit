@@ -149,6 +149,15 @@ describe('Connector management', () => {
         says: /no longer valid/i,
       },
       {
+        situation: 'the right code once Verify answers that the checks of this verification are used up',
+        arrange: async () => {
+          await sendCode(TYPED);
+          verifyWill({ check: 'is out of attempts' });
+        },
+        code: THE_CODE,
+        says: /no longer valid/i,
+      },
+      {
         situation: 'a number that was never sent a code',
         arrange: async () => {},
         code: THE_CODE,
@@ -284,9 +293,12 @@ describe('Connector management', () => {
       expect(await directory()).toEqual([]);
     });
 
-    it('answers an error, and connects nothing, when Verify is unreachable on Confirm', async () => {
+    it.each([
+      { situation: 'Verify is unreachable on Confirm', how: 'is down' as const },
+      { situation: 'Verify answers Confirm with something unreadable', how: 'is unreadable' as const },
+    ])('answers an error, and connects nothing, when $situation', async ({ how }) => {
       await sendCode(TYPED);
-      verifyWill({ check: 'is down' });
+      verifyWill({ check: how });
 
       const res = await confirmCode(TYPED, THE_CODE);
 

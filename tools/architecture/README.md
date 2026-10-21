@@ -73,7 +73,7 @@ excluded. How an import is attributed:
 A file importing an area twice counts once; type-only imports and re-exports count.
 
 **The order** leaves the fewest import files pointing up, so each area stands above what it imports. It is
-searched exactly (every set of areas already placed is weighed) for up to 20 areas, `EXACT_LIMIT` in `src/order.js`,
+searched exactly (every set of areas already placed is weighed) for up to 22 areas, `EXACT_LIMIT` in `src/order.js`,
 and by a greedy order improved by moving one area at a time beyond that; the page says which it used, and a
 tie goes to the order the layers list. `readByEveryone` in the description file lists the areas every other
 area reads (today the API's root files, which hold `env.ts`): they stand last, every cell on their row or

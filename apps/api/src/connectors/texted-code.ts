@@ -38,13 +38,15 @@ const CODE_GONE = {
 const COULD_NOT_ASK = 'That could not be checked just now. Nothing was connected. Try again shortly.';
 
 /**
- * The texting source this connector is, where it is offered here: registered,
- * texted-code, and able to store what it connects (a sealing key). Offered
- * nowhere else, for the reason the listing leaves such a card out.
+ * The texting source this connector is, with the key its connection is sealed
+ * under, where it is offered here: registered, texted-code, and able to store
+ * what it connects. Offered nowhere else, for the reason the listing leaves
+ * such a card out.
  */
 async function offered(env: Env, connectorId: string) {
   const texted = textedCodeOf(env, connectorId);
-  return texted && (await sealingKey(env.CONNECTOR_CREDENTIAL_KEY)) ? texted : null;
+  const key = texted ? await sealingKey(env.CONNECTOR_CREDENTIAL_KEY) : null;
+  return texted && key ? { texted, key } : null;
 }
 
 /** What a connector's own failure says to the person, and what an unexpected one does not. */
@@ -75,8 +77,9 @@ export async function sendTextedCode(
   typed: string,
   now: Date,
 ): Promise<{ done: true; number: string } | Refusal> {
-  const texted = await offered(env, connectorId);
-  if (!texted) return UNKNOWN;
+  const found = await offered(env, connectorId);
+  if (!found) return UNKNOWN;
+  const { texted } = found;
   const account = await openAccount(env, accountName);
   if (!(await account.workspaces()).some((workspace) => workspace.id === workspaceId)) return NO_SUCH_WORKSPACE;
 
@@ -109,9 +112,9 @@ export async function confirmTextedCode(
   code: string,
   now: Date,
 ): Promise<{ done: true; number: string } | Refusal> {
-  const texted = await offered(env, connectorId);
-  const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
-  if (!texted || !key) return UNKNOWN;
+  const found = await offered(env, connectorId);
+  if (!found) return UNKNOWN;
+  const { texted, key } = found;
   const account = await openAccount(env, accountName);
   if (!(await account.workspaces()).some((workspace) => workspace.id === workspaceId)) return NO_SUCH_WORKSPACE;
 

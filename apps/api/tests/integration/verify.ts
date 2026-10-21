@@ -22,7 +22,7 @@ export const THE_CODE = '123456';
 export const verifyCalls: { call: 'send' | 'check'; to: string; code?: string }[] = [];
 
 /** How Verify answers each call: as it does, with a refusal, or with a failure of its own. */
-const answering = { send: 'texts' as 'texts' | 'refuses' | 'is down', check: 'answers' as 'answers' | 'is down' };
+const answering = { send: 'texts' as 'texts' | 'refuses' | 'is down', check: 'answers' as 'answers' | 'is down' | 'is out of attempts' | 'is unreadable' };
 
 /** The wrong codes tried against each number Verify has a verification for. */
 const pending = new Map<string, number>();
@@ -72,6 +72,10 @@ export async function verifyAnswer(url: URL, init?: RequestInit): Promise<Respon
   }
 
   if (answering.check === 'is down') return Response.json({ code: 20500, message: 'Internal Server Error', status: 500 }, { status: 500 });
+  if (answering.check === 'is unreadable') return new Response('<html>not what Verify sends</html>', { status: 200 });
+  if (answering.check === 'is out of attempts') {
+    return Response.json({ code: 60202, message: 'Max check attempts reached', status: 429 }, { status: 429 });
+  }
   if (!pending.has(to)) {
     return Response.json({ code: 20404, message: 'The requested resource was not found', status: 404 }, { status: 404 });
   }
