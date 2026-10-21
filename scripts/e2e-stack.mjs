@@ -275,6 +275,20 @@ const api = start(
     // Outlook's Graph is its stand-in mailbox too, never Microsoft's (issue 1048).
     '--var',
     `GRAPH_API_ORIGIN:${issuer.origin}`,
+    // Texting a number, against the stub's stand-in for Twilio Verify, which
+    // approves the code 123456 - scripts/dev.mjs passes the same five for the
+    // same reason ("Connect a phone in Settings by confirming a code texted to
+    // it", issue 1335).
+    '--var',
+    'TWILIO_ACCOUNT_SID:ACcockpite2e',
+    '--var',
+    'TWILIO_AUTH_TOKEN:no-secret-is-needed-to-talk-to-the-stub',
+    '--var',
+    'TWILIO_VERIFY_SERVICE_SID:VAcockpite2e',
+    '--var',
+    'TWILIO_NUMBER:+32460000000',
+    '--var',
+    `TWILIO_VERIFY_ORIGIN:${issuer.origin}`,
     // Set, because a walk about continuing as a guest needs the environment to
     // offer it. That it is *absent* somewhere - which is what refuses the route
     // on staging - is held one tier down, where taking a variable away is a

@@ -57,6 +57,15 @@ export interface Undoable {
    * change has replaced it: there is nothing to put back.
    */
   unlessRefused?: Promise<unknown>;
+  /**
+   * What the line says once a run of changes has been answered, when that is not
+   * what it was offered as: the bar tells what happened, not what was asked for.
+   * Offered as if all of them would land; replaced only while this is still the
+   * offer on the bar, and left alone when it answers with nothing.
+   * `nothingLanded` leaves the line alone, with nothing to put back, show or add
+   * to.
+   */
+  saidAfter?: Promise<{ what: string; split?: { title: string; rest: string }; nothingLanded?: true } | undefined>;
 }
 
 const Remembering = createContext<((change: Undoable) => void) | null>(null);
@@ -165,6 +174,18 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
       change.unlessRefused?.catch(() => {
         if (offer.current === mine) forget();
       });
+      change.saidAfter?.then(
+        (said) => {
+          if (!said || offer.current !== mine) return;
+          setHeld((now) => {
+            if (now !== change) return now;
+            if (said.nothingLanded) return { what: said.what };
+            const { split: _was, ...rest } = change;
+            return { ...rest, what: said.what, ...(said.split ? { split: said.split } : {}) };
+          });
+        },
+        () => {},
+      );
     },
     [forget, forgetNow],
   );

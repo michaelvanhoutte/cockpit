@@ -1,7 +1,7 @@
 import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
-import { CommandRefused } from './api/client';
-import type { CommandArgs } from './api/queries';
+import { refusalFrom, type CommandArgs } from './api/queries';
 import { plainKey, type Press } from './inboxKeys';
+import { allAnswered } from './filing';
 import { updateSelection, type Selection } from './selection';
 import type { Undoable } from './undo';
 
@@ -197,23 +197,26 @@ export interface AcceptingSelection {
   putSeveralBack: (moved: readonly Item[], wasOn: ReadonlyMap<string, { panelId: string; order: string[] }[]>) => Promise<void>;
   offerToUndo: (change: Undoable) => void;
   /** Show and Also show on… for what moved, offered where it all went to one Panel. */
-  nextSteps: (moved: Item[], panelId: string) => Pick<Undoable, 'show' | 'alsoShowOn'>;
+  nextSteps: (moved: readonly Item[] | Promise<readonly Item[]>, panelId: string) => Pick<Undoable, 'show' | 'alsoShowOn'>;
 }
 
 let accepting = false;
 
 /**
- * Enter with a selection held: files each picked Item on its own proposed
- * Panel, one filing each as a single acceptance sends it. Those without a
+ * Enter with a selection held in the Inbox: files each picked Item on its own
+ * proposed Panel, one filing each as a single acceptance sends it. Those without a
  * proposal stay picked and where they are, and the undo bar says what happened
- * - how many moved, how many had none, which was refused - with one Undo for
- * the Items that moved.
+ * - how many moved, how many had none - with one Undo for the Items that moved.
  *
- * **A refusal stops only its own Item.** The Items are on different Panels, so
- * one refused leaves the rest to go; the order each carries is built from the
- * Items already filed onto that Panel, never from one that was refused.
+ * **Every filing is handed to the queue before any is answered**, so the whole
+ * selection leaves the Inbox at once and the Undo is offered at the press; the
+ * queue sends them in the order the Items are listed. The order each carries is
+ * built from the Items filed onto that Panel before it in this run, so one
+ * refused is refused again for any that were built on it, and they go back
+ * together. What was refused is said above the rows, and those Items are picked
+ * again.
  */
-export async function acceptSelection(d: AcceptingSelection): Promise<void> {
+export function acceptSelection(d: AcceptingSelection): void {
   if (accepting) return;
   const chosen = d.picked.filter((item) => d.panelFor(item));
   const none = d.picked.length - chosen.length;
@@ -225,59 +228,79 @@ export async function acceptSelection(d: AcceptingSelection): Promise<void> {
   accepting = true;
   const wasOn = new Map(chosen.map((item) => [item.id, d.whereItIs(item)] as const));
   const sentTo = new Map<string, string[]>();
-  const moved: Item[] = [];
-  const refused: { item: Item; why: string }[] = [];
+  let answers: Promise<unknown>[];
   try {
-    for (const item of chosen) {
+    answers = chosen.map((item) => {
       const panelId = d.panelFor(item)!;
       const filed = sentTo.get(panelId) ?? [];
       const held = d.filings.filter((f) => f.panelId === panelId).sort((a, b) => a.position - b.position).map((f) => f.itemId);
-      try {
-        await d.send({
-          name: 'move_item_to_panel',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            workspaceId: d.workspaceId,
-            itemId: item.id,
-            panelId,
-            order: [...filed, item.id, ...held.filter((id) => id !== item.id && !filed.includes(id))],
-          },
-        });
-        sentTo.set(panelId, [...filed, item.id]);
-        moved.push(item);
-      } catch (error) {
-        refused.push({ item, why: error instanceof CommandRefused ? error.message : 'It could not be moved.' });
-      }
-    }
+      sentTo.set(panelId, [...filed, item.id]);
+      return d.send({
+        name: 'move_item_to_panel',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: d.workspaceId,
+          itemId: item.id,
+          panelId,
+          order: [...filed, item.id, ...held.filter((id) => id !== item.id && !filed.includes(id))],
+        },
+      });
+    });
   } finally {
     accepting = false;
   }
-  const filed = new Set(moved.map((item) => item.id));
-  if (filed.size > 0) {
-    updateSelection(d.scope, (was) => ({ picked: new Set([...was.picked].filter((id) => !filed.has(id))), reachingFrom: null }));
-  }
-  const panels = new Set(moved.map((item) => d.panelFor(item)));
-  const [only] = moved.length === 1 ? moved : [];
-  const where = panels.size === 1 ? d.nameOf([...panels][0]!) : 'their proposed Panels';
-  // What is said of the Items that did not move, whole at the bar's end.
-  const rest = [
-    none > 0 && `${none} had no proposal`,
-    refused.length > 0 &&
-      `“${itemLabel(refused[0]!.item)}”${refused.length > 1 ? ` and ${refused.length - 1} more were` : ' was'} refused: ${refused[0]!.why}`,
-  ].filter(Boolean);
-  // A single Item keeps its title, which the bar shortens, never what follows it.
-  const split = only && { title: `“${itemLabel(only)}”`, rest: [` moved to ${where}`, ...rest].join(', ') };
-  const what = split ? split.title + split.rest : [moved.length > 0 && `${moved.length} items moved to ${where}`, ...rest].filter(Boolean).join(', ');
-  // Withheld where one of them belonged to no Workspace: moving it decided
+  const answered = allAnswered(answers, chosen);
+  // Out of the selection at the press, like the rows leaving the Inbox; back in
+  // it where one is refused.
+  const filing = new Set(chosen.map((item) => item.id));
+  updateSelection(d.scope, (was) => ({ picked: new Set([...was.picked].filter((id) => !filing.has(id))), reachingFrom: null }));
+
+  const panelsOf = (items: readonly Item[]) => new Set(items.map((item) => d.panelFor(item)));
+  const whereOf = (items: readonly Item[]) => {
+    const panels = panelsOf(items);
+    return panels.size === 1 ? d.nameOf([...panels][0]!) : 'their proposed Panels';
+  };
+  const panels = panelsOf(chosen);
+  /**
+   * What the bar says of the run: what moved, how many had no proposal, which was
+   * refused and why. A single Item keeps its title, which the bar shortens, never
+   * what follows it.
+   */
+  const said = (landed: readonly Item[], refused: readonly { item: Item; error: unknown }[]) => {
+    const rest = [
+      none > 0 && `${none} had no proposal`,
+      refused.length > 0 &&
+        `“${itemLabel(refused[0]!.item)}”${refused.length > 1 ? ` and ${refused.length - 1} more were` : ' was'} refused: ${refusalFrom({ error: refused[0]!.error })}`,
+    ].filter(Boolean);
+    const where = whereOf(landed.length > 0 ? landed : chosen);
+    const [only] = landed.length === 1 ? landed : [];
+    const split = only && { title: `“${itemLabel(only)}”`, rest: [` moved to ${where}`, ...rest].join(', ') };
+    const what = split
+      ? split.title + split.rest
+      : [landed.length > 0 && `${landed.length} items moved to ${where}`, ...rest].filter(Boolean).join(', ');
+    return { what, ...(split ? { split } : {}) };
+  };
+  // Withheld where one of them belonged to no Workspace: moving it decides
   // which, and that cannot be put back (`fileSeveral`).
-  const decides = moved.some((item) => !workspaceIsDecided(item));
+  const decides = chosen.some((item) => !workspaceIsDecided(item));
   d.offerToUndo({
-    what,
-    ...(split ? { split } : {}),
-    ...(moved.length === 0 || decides ? {} : { undo: () => d.putSeveralBack(moved, wasOn) }),
+    // Offered at the press as if every one will land, and corrected once the run
+    // is answered: the bar says what happened, not what was asked for.
+    ...said(chosen, []),
+    saidAfter: answered.then(({ landed, refused }) =>
+      refused.length === 0 ? undefined : { ...said(landed, refused), ...(landed.length === 0 ? { nothingLanded: true as const } : {}) },
+    ),
+    ...(decides ? {} : { undo: async () => d.putSeveralBack((await answered).landed, wasOn) }),
     // Only when everything that moved went to one Panel: with several, there is
     // no one Panel to show or to also show them on.
-    ...(moved.length > 0 && panels.size === 1 ? d.nextSteps(moved, [...panels][0]!) : {}),
+    ...(panels.size === 1 ? d.nextSteps(answered.then(({ landed }) => landed), [...panels][0]!) : {}),
+  });
+
+  void answered.then(({ refused }) => {
+    if (refused.length === 0) return;
+    // What stopped is picked again, so asking again files exactly the remainder.
+    const back = new Set(refused.map(({ item }) => item.id));
+    updateSelection(d.scope, (was) => ({ picked: new Set([...was.picked, ...back]), reachingFrom: null }));
   });
 }

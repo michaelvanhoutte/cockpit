@@ -326,6 +326,8 @@ export interface Account {
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
   sentenceCallArrived(kind: 'offer' | 'remember', at: string): Promise<'admitted' | 'too-many'>;
+  /** A code asked for a source to text, counted against the account's hour (issue 1335). */
+  textedCodeAsked(connectorId: string, limit: number, at: string): Promise<'admitted' | 'too-many'>;
   /** One connection of this Workspace's history, newest line first (issue 1140). */
   connectionHistory(workspaceId: string, sourceAccountId: string): Promise<ConnectionHistory>;
   /** A delivery a source pushed to one of this account's connections, filed with its history line (issue 1144). */
@@ -463,6 +465,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     findItems: async (search) => unwrap(await store.findItems(accountName, search)),
     transcriptionArrived: async (at) => store.transcriptionArrived(at),
     sentenceCallArrived: async (kind, at) => store.sentenceCallArrived(kind, at),
+    textedCodeAsked: async (connectorId, limit, at) => store.textedCodeAsked(connectorId, limit, at),
     connectionHistory: async (workspaceId, sourceAccountId) =>
       unwrap(await store.connectionHistory(accountName, workspaceId, sourceAccountId)),
     capturePushed: async (sourceAccountId, capture) =>

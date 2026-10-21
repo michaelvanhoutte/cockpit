@@ -68,22 +68,49 @@ export function useItemPanels({
     itemId,
   });
 
-  /** Files the Item on one more Panel, leaving the others alone. Answers whether it sent anything. */
-  const fileOn = async (one: PanelOn): Promise<boolean> => {
+  /**
+   * Hands the queue the Item's filing on one more Panel, leaving the others
+   * alone, and answers its answer - or null where it is on that Panel already
+   * and nothing was sent. **Built on the screen's copy, with no read first**
+   * (`useLatestSnapshot`), so it joins the queue in the same breath as the click.
+   */
+  const startFileOn = async (one: PanelOn): Promise<{ answer: Promise<unknown> } | null> => {
     const filings = (await latestSnapshot(workspaceId)).filings;
-    if (filings.some((filing) => filing.itemId === itemId && filing.panelId === one.panelId)) return false;
+    if (filings.some((filing) => filing.itemId === itemId && filing.panelId === one.panelId)) return null;
     const [order] = ordersForFilingSeveral(filedOrderOnPanel(filings, one.panelId), [itemId]);
-    await send({ name: 'add_item_to_panel', payload: { ...envelope(), panelId: one.panelId, order: order! } });
-    rememberRecentPanel(browserStore(), workspaceId, one.panelId);
+    const answer = send({ name: 'add_item_to_panel', payload: { ...envelope(), panelId: one.panelId, order: order! } }).then(
+      (result) => {
+        rememberRecentPanel(browserStore(), workspaceId, one.panelId);
+        return result;
+      },
+    );
+    return { answer };
+  };
+
+  /** Files the Item on one more Panel and waits for the server. Answers whether it sent anything. */
+  const fileOn = async (one: PanelOn): Promise<boolean> => {
+    const sent = await startFileOn(one);
+    if (!sent) return false;
+    await sent.answer;
     return true;
   };
 
-  /** Takes the Item off one Panel. Answers the order the Panel was in, or null where it was not on it. */
-  const takeOff = async (panelId: string): Promise<string[] | null> => {
+  /**
+   * Hands the queue the Item's removal from one Panel, answering its answer and
+   * the order the Panel was in - or null where the Item was not on it.
+   */
+  const startTakeOff = async (panelId: string): Promise<{ answer: Promise<unknown>; before: string[] } | null> => {
     const filings = (await latestSnapshot(workspaceId)).filings;
     if (!filings.some((filing) => filing.itemId === itemId && filing.panelId === panelId)) return null;
-    await send({ name: 'remove_item_from_panel', payload: { ...envelope(), panelId } });
-    return filedOrderOnPanel(filings, panelId);
+    return {
+      answer: send({ name: 'remove_item_from_panel', payload: { ...envelope(), panelId } }),
+      before: filedOrderOnPanel(filings, panelId),
+    };
+  };
+
+  /** Takes the Item off one Panel and waits for the server. */
+  const takeOff = async (panelId: string): Promise<void> => {
+    await (await startTakeOff(panelId))?.answer;
   };
 
   const putOn = (panelId: string, order: string[]) =>
@@ -91,33 +118,54 @@ export function useItemPanels({
   const putOff = (panelId: string) =>
     send({ name: 'remove_item_from_panel', payload: { ...envelope(), panelId } });
 
+  /**
+   * Docked, a chip is written at the click and offered back with Undo before the
+   * server has answered; a refusal puts the chip back and says why under the field.
+   */
   const writeAdd = async (one: PanelOn) => {
     if (!item) return;
     setRefusal(null);
+    const failed = (error: unknown) => setRefusal(`It was not filed on “${one.name}”. ${failureOf(error)}`);
+    let sent: Awaited<ReturnType<typeof startFileOn>>;
     try {
-      if (!(await fileOn(one))) return;
+      sent = await startFileOn(one);
     } catch (error) {
-      setRefusal(`It was not filed on “${one.name}”. ${failureOf(error)}`);
+      failed(error);
       return;
     }
-    offerToUndo({ what: `“${itemLabel(item)}” added to ${one.name}`, undo: () => putOff(one.panelId) });
+    if (!sent) return;
+    offerToUndo({ what: `“${itemLabel(item)}” added to ${one.name}`, unlessRefused: sent.answer, undo: () => putOff(one.panelId) });
+    sent.answer.catch(failed);
   };
 
   const writeRemove = async (one: PanelOn) => {
     if (!item) return;
     setRefusal(null);
-    let before: string[] | null;
+    const failed = (error: unknown) => setRefusal(`It was not taken off “${one.name}”. ${failureOf(error)}`);
+    let sent: Awaited<ReturnType<typeof startTakeOff>>;
     try {
-      before = await takeOff(one.panelId);
+      sent = await startTakeOff(one.panelId);
     } catch (error) {
-      setRefusal(`It was not taken off “${one.name}”. ${failureOf(error)}`);
+      failed(error);
       return;
     }
-    if (before === null) return;
+    if (!sent) return;
+    const { before } = sent;
     // Back on in the order the Panel was in, which still names it: read before it was taken off.
-    offerToUndo({ what: `“${itemLabel(item)}” removed from ${one.name}`, undo: () => putOn(one.panelId, before) });
+    offerToUndo({
+      what: `“${itemLabel(item)}” removed from ${one.name}`,
+      unlessRefused: sent.answer,
+      undo: () => putOn(one.panelId, before),
+    });
+    sent.answer.catch(failed);
   };
 
+  /**
+   * Docked changes are built one after another, each on the Panel as the one
+   * before left it - and **not answered one after another**: the chain waits for
+   * a change to join the queue, never for the server, so a second ✕ does not wait
+   * on the first.
+   */
   const inTurnDo = (work: () => Promise<void>) => {
     inTurn.current = inTurn.current.then(work).catch(() => undefined);
   };

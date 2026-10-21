@@ -29,6 +29,7 @@ sources:
   - { id: claude-code, name: Claude Code, words: [claude code] }
   - { id: teams, name: Microsoft Teams, words: [teams], package: packages/connectors/teams }
   - { id: outlook, name: Outlook, words: [outlook], package: packages/connectors/outlook }
+  - { id: twilio, name: Text messages, words: [twilio], package: packages/connectors/twilio }
 
 # Parts shipped on their own, outside the Worker's release: each is drawn as a
 # box beside the Worker's outline. `path` is the folder that holds it.
@@ -68,6 +69,7 @@ context:
   services:
     - { name: Google, detail: 'sign-in, Gmail API' }
     - { name: Microsoft, detail: 'Entra sign-in, Teams via Bot Framework, Outlook mail via Graph' }
+    - { name: Twilio, detail: 'Verify texts a code to a phone being connected' }
     - { name: Anthropic, detail: 'Claude API reads captured notes' }
     - { name: Cloudflare Workers AI, detail: 'embeddings, notes that repeat; Whisper, dictation' }
     - { name: GitHub, detail: 'code, CI, deploys, report pages' }
@@ -165,3 +167,6 @@ layers:
       - path: packages/connectors/outlook
         name: 'connectors/outlook'
         description: 'The Outlook connector: messages flagged, or categorised Cockpit, in a Microsoft 365 mailbox arrive as Tasks.'
+      - path: packages/connectors/twilio
+        name: 'connectors/twilio'
+        description: 'The Twilio connector: a phone is connected by confirming a code Twilio Verify texts to it.'

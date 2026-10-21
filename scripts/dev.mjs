@@ -210,6 +210,22 @@ if (running.api) {
         // in its connection's History… (status=0 ends it).
         '--var',
         `GRAPH_API_ORIGIN:${issuer.origin}`,
+        // Texting a number ("Connect a phone in Settings by confirming a code
+        // texted to it", issue 1335): Settings > Connections offers *Text
+        // messages*, and Twilio Verify is the stub issuer's stand-in, which
+        // texts nothing and approves the code 123456 for any number. The
+        // number a connected phone texts is not a real one; production alone
+        // has one. Type a Belgian mobile, such as 0470 12 34 56.
+        '--var',
+        'TWILIO_ACCOUNT_SID:ACcockpitlocal',
+        '--var',
+        'TWILIO_AUTH_TOKEN:no-secret-is-needed-to-talk-to-the-stub',
+        '--var',
+        'TWILIO_VERIFY_SERVICE_SID:VAcockpitlocal',
+        '--var',
+        'TWILIO_NUMBER:+32460000000',
+        '--var',
+        `TWILIO_VERIFY_ORIGIN:${issuer.origin}`,
         // Production sets this and staging deliberately does not, which is what
         // decides where "Continue as guest" works ("Sign in as a guest, without
         // a password", issue 354). Set here so the control can be driven

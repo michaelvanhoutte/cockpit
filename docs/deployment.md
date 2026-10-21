@@ -516,6 +516,8 @@ wrangler secret put <NAME> --env staging
 | `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | the Entra application a Workspace connects its Teams account and its Outlook mailbox through ("Connect a Microsoft Teams source account", issue 485; "Connect Outlook from Settings, wherever the Microsoft client is set", issue 1048) — see "An Entra application" below for what to register. **The client id is a secret here only for want of a registration**: nothing has been registered yet, so a placeholder in `wrangler.jsonc` would be configuration nobody chose; it moves beside `GOOGLE_CLIENT_ID` the day one exists. An environment with neither refuses Connect and works in every other way. **Connecting Teams also needs `MS_BOT_APP_ID`**: the connector is only registered where it is set, and an unregistered source is not found by the connect route. |
 | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` | the Google OAuth client a Workspace connects a Gmail account through ("Connect a Gmail account to a workspace, and disconnect it", issue 724) — see "A Google Cloud project for Gmail" below. **Its own client, never the sign-in one**, because it asks to change mail and is published unverified. An environment with neither does not offer Gmail at all and works in every other way. |
 | `MS_BOT_APP_ID` | the Azure Bot resource whose calls this Cockpit believes — the audience of every Bot Framework token a saved Teams message arrives with ("Save a Teams message to Cockpit", issue 486), and see "An Azure Bot" below. An environment without it has no `/ingress/teams/` address at all, which is a 404 rather than a route that refuses everything. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID` | the Twilio account, its auth token and the Verify service that texts a code to a phone being connected ("Connect a phone in Settings by confirming a code texted to it", issue 1335) — see "Twilio" below. **Production alone**: staging has no Twilio and offers no *Text messages*, and `pnpm dev` and the browser suite stand in for Verify with the stub issuer (`TWILIO_VERIFY_ORIGIN`), which approves the code `123456` and texts nothing. |
+| `TWILIO_NUMBER` | the Cockpit number a connected phone texts, in international format (`+32…`). **Not a secret**, and put in the secret store beside the others for want of a number bought yet, as `MS_CLIENT_ID` is: it moves to `wrangler.jsonc` the day one exists. **The connector is registered only where all four are set**; an environment without one has no *Text messages* entry and no `/ingress/twilio/` address, a 404 rather than a route that refuses everything. |
 | `CONNECTOR_CREDENTIAL_KEY` | what a connected source account's credential is sealed with — 32 random bytes, base64 (`openssl rand -base64 32`), one per environment, invented the way `BACKUP_TOKEN` is. An environment without one stores no credential at all rather than storing one in the clear, which is the point of it. **Losing or rotating it makes every stored credential unreadable**: nobody loses work, and everybody holding a connection disconnects and connects again. The links to an Item's files an agent is sent are sealed under a key derived from it, so rotating it also stops those, which last an hour anyway. |
 | `ANTHROPIC_WORKSPACE_ID` | which Anthropic workspace the key belongs to, sent as the `anthropic-workspace-id` header. **Needed when the key is scoped to the organisation rather than to one workspace**, which answers `400 invalid_request_error` without it — a failure that surfaces as a broken integration rather than as a credential's scope, and cost a round trip to diagnose once. Not a secret, and it is put in the secret store anyway rather than in `wrangler.jsonc`: it is half of a credential and means nothing without the other half, so the two are set by one command and read from one place. Leave it unset for a workspace-scoped key; the header is only sent when there is one. Beware the word collision — Anthropic's *workspace* is a billing grouping and has nothing to do with Cockpit's Workspaces. |
 
@@ -711,6 +713,24 @@ wrangler secret put MS_BOT_APP_ID --env staging
 
 Saving a message needs no Graph scope and no consent prompt: what is saved
 arrives in the call itself.
+
+### Twilio
+
+**Production alone**, and the first half of the runbook: what connecting a phone needs ("Connect a phone in Settings by confirming a code texted to it", issue 1335). **Nothing is texted until somebody asks for a code in Settings**, and each code is a text Cockpit pays for, so the steps that limit where one can go come before the secrets. In the Twilio console:
+
+1. **A Verify service**, under *Verify* › *Services*: the *SMS* channel, a name people recognise on the text (`Cockpit`), and *Fraud Guard* on. Verify holds the code, its ten-minute expiry and its limit on wrong attempts, so Cockpit keeps none of them.
+2. **SMS geographic permissions limited to Belgium**, under *Messaging* › *Settings* › *Geo permissions*: only *Belgium* ticked. Cockpit already refuses any number but a Belgian mobile and counts five codes an hour per account; this is the third guard, and the one that still holds if the first two are bypassed.
+3. **The service and account into the platform**, production only:
+
+```bash
+wrangler secret put TWILIO_ACCOUNT_SID
+wrangler secret put TWILIO_AUTH_TOKEN
+wrangler secret put TWILIO_VERIFY_SERVICE_SID
+```
+
+   `CONNECTOR_CREDENTIAL_KEY` has to be set as well (the last step of "An Entra application" above), since a connection is stored sealed under it. `TWILIO_NUMBER` waits for the number to be bought; the connector is not registered, and *Text messages* not offered, until all four are set.
+
+Buying the number, pointing it at Cockpit and rotating the auth token are written down with receiving texts, not here.
 
 ### A Google Cloud project for Gmail
 

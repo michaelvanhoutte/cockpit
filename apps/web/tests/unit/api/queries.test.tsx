@@ -311,13 +311,12 @@ describe('Panels', () => {
       return { done, letTheRereadFinish: () => letTheRereadFinish() };
     }
 
-    it('waits for the re-read before it is finished filing, so the next filing has this one', async () => {
-      // **The bug this is here for.** Filing an item onto a panel sends that
-      // panel's whole order, and the server checks it against the order it
-      // holds - so filing a second item straight after the first sent an order
-      // built from a workspace that did not have the first item in it yet, and
-      // was refused. It is a race, and it was only ever lost on a machine slow
-      // enough to lose it.
+    it('is finished when the server has accepted it, with the re-read still out', async () => {
+      // Filing an item onto a panel sends that panel's whole order, and the
+      // server checks it against the order it holds, so a second filing has to be
+      // built on the first. It is: the screen draws the first over the copy it
+      // holds (`drawnAhead.ts`) and the next filing is built on that, so nothing
+      // waits for the re-read.
       const { done, letTheRereadFinish } = await changeSomething({
         name: 'move_item_to_panel',
         payload: {
@@ -330,10 +329,8 @@ describe('Panels', () => {
         },
       });
 
-      expect(done.yet).toBe(false);
-      letTheRereadFinish();
-
       await waitFor(() => expect(done.yet).toBe(true));
+      letTheRereadFinish();
     });
 
     it('does not hold up a change that nothing is built on, so adding a dashboard still goes there at once', async () => {
@@ -356,6 +353,60 @@ describe('Panels', () => {
       });
 
       await waitFor(() => expect(done.yet).toBe(true));
+    });
+  });
+
+  describe('a filing is built on the copy the screen draws, with no read first', () => {
+    const bart = { id: 'i-bart' } as Item;
+    const held: WorkspaceSnapshot = { ...snapshot, items: [bart] };
+
+    /** A filing the server has not answered, and then the order for the next one is asked for. */
+    async function askForTheCopy(markOutOfDate: boolean) {
+      const answer = Promise.withResolvers<{ ok: true; applied: true }>();
+      sends.mockReturnValue(answer.promise as never);
+      reads.mockReset();
+      reads.mockResolvedValue({ ...held, filings: [{ panelId: 'p-anna', itemId: 'i-bart', position: 0 }] });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      client.setQueryData(['snapshot', 'ws-work'], held);
+      const filing = changes.enqueue({
+        name: 'add_item_to_panel',
+        payload: { commandId: 'c9', issuedAt: AT, workspaceId: 'ws-work', itemId: 'i-bart', panelId: 'p-falcon', order: ['i-bart'] },
+      });
+      if (markOutOfDate) await client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'], refetchType: 'none' });
+
+      let got: WorkspaceSnapshot | undefined;
+      function Reader() {
+        const latest = useLatestSnapshot();
+        useEffect(() => {
+          void latest('ws-work').then((copy) => {
+            got = copy;
+          });
+        }, [latest]);
+        return null;
+      }
+      render(
+        <QueryClientProvider client={client}>
+          <Reader />
+        </QueryClientProvider>,
+      );
+      await waitFor(() => expect(got).toBeDefined());
+      answer.resolve({ ok: true, applied: true });
+      await filing;
+      return got!;
+    }
+
+    it('answers from the held copy with the changes already made over it, without reading', async () => {
+      const copy = await askForTheCopy(false);
+
+      expect(copy.filings.map((filing) => filing.panelId)).toEqual(['p-falcon']);
+      expect(reads).not.toHaveBeenCalled();
+    });
+
+    it('reads once when the held copy is marked out of date, and draws the changes over what it finds', async () => {
+      const copy = await askForTheCopy(true);
+
+      expect(reads).toHaveBeenCalledTimes(1);
+      expect(copy.filings.map((filing) => filing.panelId).sort()).toEqual(['p-anna', 'p-falcon']);
     });
   });
 });
@@ -537,7 +588,7 @@ describe('Item editing', () => {
   describe('a change is finished when the server has accepted it, not when the workspace has been read back', () => {
     // An Item's fields are drawn at once and stay drawn until a read that began
     // after the answer lands, so nothing built on them has a read to wait for
-    // (`NOT_DONE_UNTIL_READ_BACK`, `changeQueue.ts`).
+    // (`changeQueue.ts`), and a filing is the same.
     it.each([
       {
         situation: 'a priority',

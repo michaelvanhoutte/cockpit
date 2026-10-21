@@ -124,36 +124,44 @@ export function ordersForFilingSeveral(
   });
 }
 
+/** What a run of changes handed to the queue together came to: the ones that landed and the ones refused, each with its Item. */
+export type Answered<T> = Promise<{ landed: T[]; refused: { item: T; error: unknown }[] }>;
+
 /**
- * The arrangement a panel is put back into as one item returns to it ("Undo
- * what just happened", issue 144).
+ * How each of a run of changes handed to the queue together was answered, in the
+ * order they were handed over: the changes that landed and the first refusal.
  *
- * **Built from what the panel holds now, not from what it held before.** An
- * order has to name exactly the panel's items plus the one arriving or it is
- * refused, and half-way through putting several back a panel holds neither what
- * it held before nor what it will hold after: the ones already returned are
- * there, the ones still to come are not, and the panel that was *filed onto* is
- * still holding every item waiting its turn. Only the live list knows which.
- *
- * `was` decides the order and not the membership: everything that is there
- * again takes the place it had, and anything the panel has gained since - the
- * items still waiting to be moved off it - goes after them, where their own
- * turn will take them off anyway. So the last item back leaves the panel
- * arranged exactly as it was.
+ * **Handed over before any is awaited**, so the whole run is drawn at once
+ * (`changeQueue.ts`); this is what is read off them afterwards. Every one is
+ * waited for, so a refusal met early never leaves a later one unhandled.
  */
-export function orderPuttingBack(
-  was: readonly string[],
-  heldNow: readonly string[],
-  itemId: string,
-): string[] {
-  // Named once, however it got there: the item arriving can already be on this
-  // panel, which is what putting one back onto the panel it was filed onto is.
-  const alsoThere = heldNow.filter((id) => id !== itemId);
-  const present = new Set([...alsoThere, itemId]);
-  return [
-    ...was.filter((id) => present.has(id)),
-    ...alsoThere.filter((id) => !was.includes(id)),
-  ];
+export async function allAnswered<T>(sends: readonly Promise<unknown>[], items: readonly T[]): Answered<T> {
+  const settled = await Promise.allSettled(sends);
+  const landed: T[] = [];
+  const refused: { item: T; error: unknown }[] = [];
+  settled.forEach((result, at) => {
+    if (result.status === 'fulfilled') landed.push(items[at]!);
+    else refused.push({ item: items[at]!, error: result.reason });
+  });
+  return { landed, refused };
+}
+
+/** Rejects when not one of the run landed, so an offer made at the press is taken back. */
+export async function unlessNoneLanded(answered: Answered<unknown>): Promise<void> {
+  if ((await answered).landed.length === 0) throw new Error('every Item was refused');
+}
+
+/**
+ * Fetches the code a filing gesture runs, saying so in words when it cannot be
+ * had: a tab left open across a deploy asks for a file that is gone, and the
+ * browser's own message names a URL. Nothing is sent when it fails.
+ */
+export async function fetchedChunk<T>(load: () => Promise<T>): Promise<T> {
+  try {
+    return await load();
+  } catch {
+    throw new Error('That could not load. Reload the page and try again.');
+  }
 }
 
 /**
