@@ -29,9 +29,12 @@ import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
 import { AllItemsPage } from './pages/AllItemsPage';
 const DemoPage = lazy(() => import('./pages/DemoPage'));
+// Seen once, by an account with no workspace, so not part of what every open downloads.
+const FirstWorkspacePage = lazy(() =>
+  import('./pages/FirstWorkspacePage').then((page) => ({ default: page.FirstWorkspacePage })),
+);
 import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
-import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
 import { whereToLand } from './landing';
 import { Layout } from './pages/Layout';
 import { LogonPage } from './pages/LogonPage';
@@ -186,7 +189,13 @@ const startRoute = createRoute({
     const first = workspaces[0];
     if (first) throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
   },
-  component: FirstWorkspacePage,
+  component: function FirstWorkspaceRoute() {
+    return (
+      <Suspense fallback={null}>
+        <FirstWorkspacePage />
+      </Suspense>
+    );
+  },
 });
 
 /**
