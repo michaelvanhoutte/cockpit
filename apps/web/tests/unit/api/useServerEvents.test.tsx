@@ -404,3 +404,35 @@ describe('Connector management', () => {
     });
   });
 });
+
+describe('Agents', () => {
+  describe('a sentence change re-reads the list of sentences and no Workspace', () => {
+    it('marks the list of sentences out of date and leaves every Workspace and the tabs alone', async () => {
+      open();
+      client.setQueryData(['rememberedSentences'], { sentences: [] });
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.announces({ type: 'remembered_sentences_changed' });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['rememberedSentences'])?.isInvalidated).toBe(true);
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(false);
+      expect(client.getQueryState(['workspaces'])?.isInvalidated ?? false).toBe(false);
+    });
+
+    it('ignores an announcement of a kind it does not know, as a tab from before this one does with this', async () => {
+      open();
+      client.setQueryData(['rememberedSentences'], { sentences: [] });
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.announces({ type: 'something_a_later_server_announces', workspaceId: 'ws-work' });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['rememberedSentences'])?.isInvalidated).toBe(false);
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(false);
+      expect(client.getQueryState(['workspaces'])?.isInvalidated ?? false).toBe(false);
+    });
+  });
+});

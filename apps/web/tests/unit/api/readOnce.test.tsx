@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { ACCOUNT_WIDE, type WorkspaceSnapshot } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand } from '../../../src/api/queries';
 import { useChangeConnection } from '../../../src/api/sourceAccounts';
+import { useChangeSentence } from '../../../src/rememberedSentences';
 import { fetchSnapshot, sendCommand } from '../../../src/api/client';
 import { useServerEvents } from '../../../src/api/useServerEvents';
 import { changes } from '../../../src/api/changes';
@@ -67,11 +68,13 @@ const readsOpen: ((answer: WorkspaceSnapshot) => void)[] = [];
 const answersOpen: ((stamp: string | undefined) => void)[] = [];
 let sendNow: ReturnType<typeof useSendCommand>;
 let sendConnection: ReturnType<typeof useChangeConnection>;
+let sendSentence: ReturnType<typeof useChangeSentence>;
 
 function Screen() {
   useServerEvents();
   sendNow = useSendCommand();
   sendConnection = useChangeConnection();
+  sendSentence = useChangeSentence();
   const { data } = useQuery(snapshotQuery(WORKSPACE));
   return <p>{data ? `showing ${data.generatedAt}` : 'still loading'}</p>;
 }
@@ -228,6 +231,22 @@ describe('Live updates', () => {
         name: 'set_connection_choice',
         payload: { commandId: 'c-conn', issuedAt: at(0), workspaceId: WORKSPACE },
       } as unknown as Parameters<typeof sendConnection>[0]);
+      await waitFor(() => expect(answersOpen).toHaveLength(1));
+      await answerChange(at(2));
+      await sent;
+      await settle();
+
+      expect(readsMade()).toBe(1);
+    });
+
+    it('does not read a Workspace for a sentence change', async () => {
+      await openWithCopy();
+
+      const sent = sendSentence({
+        name: 'remember_sentence',
+        // Naming the Workspace, as a sentence kept for one does: it is still no Workspace's change.
+        payload: { commandId: 'c-sentence', issuedAt: at(0), workspaceId: WORKSPACE },
+      } as unknown as Parameters<typeof sendSentence>[0]);
       await waitFor(() => expect(answersOpen).toHaveLength(1));
       await answerChange(at(2));
       await sent;

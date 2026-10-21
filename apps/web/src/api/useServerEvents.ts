@@ -91,6 +91,11 @@ export function useServerEvents() {
       stream.addEventListener('change', (message) => {
         const parsed = serverEventSchema.safeParse(JSON.parse(message.data));
         if (!parsed.success) return;
+        // A sentence's change moves the list of sentences and nothing a Workspace draws (issue 1370).
+        if (parsed.data.type === 'remembered_sentences_changed') {
+          void queryClient.invalidateQueries({ queryKey: ['rememberedSentences'] }, { cancelRefetch: false });
+          return;
+        }
         // A check's end moves the history of one connection and nothing in the
         // snapshot: only that connection's open view reads again (issue 1143).
         if (parsed.data.type === 'connection_history_changed') {

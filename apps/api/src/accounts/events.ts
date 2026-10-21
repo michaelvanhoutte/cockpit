@@ -1,7 +1,14 @@
 import { and, desc, eq, gt, max } from 'drizzle-orm';
-import { ACCOUNT_WIDE, type ServerEvent } from '@cockpit/shared';
+import { ACCOUNT_WIDE, type CommandName, type ServerEvent } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { commands, connectionHistory, connectorAccounts, itemMeanings, items } from './schema.js';
+
+/** The changes to a remembered sentence, which the stream announces on their own (`collectInvalidations`). */
+const REMEMBERED_SENTENCE_COMMANDS: ReadonlySet<string> = new Set([
+  'remember_sentence',
+  'edit_remembered_sentence',
+  'delete_remembered_sentence',
+] satisfies CommandName[]);
 
 /**
  * SSE invalidation source (architecture, "The read model", amended by
@@ -24,12 +31,13 @@ export function collectInvalidations(
   since: string,
 ): { events: ServerEvent[]; cursor: string } {
   const rows = db
-    .select({ workspaceId: commands.workspaceId, receivedAt: commands.receivedAt })
+    .select({ workspaceId: commands.workspaceId, name: commands.name, receivedAt: commands.receivedAt })
     .from(commands)
     .where(and(eq(commands.tenantId, tenantId), gt(commands.receivedAt, since)))
     .all();
 
   let cursor = since;
+  let sentencesChanged = false;
   // POC (own-event refetch): the newest change per workspace rather than the
   // set of workspaces, so each event can say when it happened. A poll covering
   // several changes to one workspace answers for the last of them, which is
@@ -40,7 +48,16 @@ export function collectInvalidations(
     if (seen === undefined || at > seen) newestPerWorkspace.set(workspaceId, at);
     if (at > cursor) cursor = at;
   };
-  for (const row of rows) sawChange(row.workspaceId, row.receivedAt);
+  for (const row of rows) {
+    // **A remembered sentence is no Workspace's**: nothing a Workspace draws moves
+    // with it, so it is announced for the list of sentences alone ("Show a
+    // remembered-sentence change the moment you make it", issue 1370). The
+    // cursor still passes it, or the next poll would find it again.
+    if (REMEMBERED_SENTENCE_COMMANDS.has(row.name)) {
+      sentencesChanged = true;
+      if (row.receivedAt > cursor) cursor = row.receivedAt;
+    } else sawChange(row.workspaceId, row.receivedAt);
+  }
 
   /**
    * **A note being read for what it means is a change nothing logs a command
@@ -69,6 +86,8 @@ export function collectInvalidations(
     workspaceId,
     at,
   }));
+
+  if (sentencesChanged) events.push({ type: 'remembered_sentences_changed' });
 
   /**
    * **A check's end writes no command**, and the line it writes moves what an

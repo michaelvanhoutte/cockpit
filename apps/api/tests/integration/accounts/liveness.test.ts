@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env, runInDurableObject } from 'cloudflare:test';
-import type { ServerEvent } from '@cockpit/shared';
+import { ACCOUNT_WIDE, type ServerEvent } from '@cockpit/shared';
 import { createAccountDb } from '../../../src/accounts/client.js';
 import { readingsSince } from '../../../src/accounts/events.js';
 import {
@@ -36,7 +36,7 @@ const nextId = () => {
   return `018f2222-0000-7000-8000-${String(seq).padStart(12, '0')}`;
 };
 
-async function capture(workspaceId: string, message: string) {
+async function capture(workspaceId: string, message: string, workspaceDecided = true) {
   const res = await asUser('http://cockpit.test/v1/commands/capture_item', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -46,11 +46,32 @@ async function capture(workspaceId: string, message: string) {
       workspaceId,
       itemId: nextId(),
       message,
-      workspaceDecided: true,
+      workspaceDecided,
     }),
   });
   expect(res.status).toBe(200);
 }
+
+/** A change to a remembered sentence, sent as the Settings window and the review window send it. */
+async function changeSentence(name: string, payload: Record<string, unknown>) {
+  const res = await asUser(`http://cockpit.test/v1/commands/${name}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ commandId: nextId(), issuedAt: '2026-10-21T10:00:00.000Z', ...payload }),
+  });
+  expect(res.status).toBe(200);
+}
+
+const A_SENTENCE = '018f3333-0000-7000-8000-000000000001';
+
+const rememberASentence = () =>
+  changeSentence('remember_sentence', {
+    workspaceId: WORKSPACE_ID,
+    sentenceId: A_SENTENCE,
+    sentence: 'Sign as Michael.',
+    action: 'reply to a mail',
+    sourceKind: 'gmail',
+  });
 
 async function changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }> {
   const answer = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, since);
@@ -125,6 +146,60 @@ describe('Live updates', () => {
       const nothingLeft = await changesSince(whenIt(events, WORKSPACE_ID)!);
 
       expect(nothingLeft.events).toEqual([]);
+    });
+  });
+
+  describe('a remembered sentence is announced for the list of sentences, not for a workspace', () => {
+    it.each([
+      {
+        situation: 'kept, even for a workspace it names',
+        arrange: async () => {},
+        change: rememberASentence,
+      },
+      {
+        situation: 'reworded',
+        arrange: rememberASentence,
+        change: () =>
+          changeSentence('edit_remembered_sentence', { workspaceId: ACCOUNT_WIDE, sentenceId: A_SENTENCE, sentence: 'Sign as M.' }),
+      },
+      {
+        situation: 'deleted',
+        arrange: rememberASentence,
+        change: () => changeSentence('delete_remembered_sentence', { workspaceId: ACCOUNT_WIDE, sentenceId: A_SENTENCE }),
+      },
+    ])('a sentence $situation names the list and no workspace, and nothing is left behind it', async ({ arrange, change }) => {
+      await arrange();
+      const from = await fromNow();
+
+      await change();
+      const { events, cursor } = await changesSince(from);
+
+      expect(events).toEqual([{ type: 'remembered_sentences_changed' }]);
+      expect((await changesSince(cursor)).events).toEqual([]);
+    });
+
+    it('still announces a note captured to Any workspace to the whole account', async () => {
+      const from = await fromNow();
+
+      await capture(WORKSPACE_ID, 'Not yet in a workspace', false);
+      await rememberASentence();
+      const { events } = await changesSince(from);
+
+      expect(events).toHaveLength(2);
+      expect(events).toContainEqual({ type: 'remembered_sentences_changed' });
+      expect(events).toContainEqual(expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: ACCOUNT_WIDE }));
+    });
+
+    it('announces a workspace’s own change as before beside a sentence’s', async () => {
+      const from = await fromNow();
+
+      await rememberASentence();
+      await capture(WORKSPACE_ID, 'In the first');
+      const { events } = await changesSince(from);
+
+      expect(events).toHaveLength(2);
+      expect(events).toContainEqual({ type: 'remembered_sentences_changed' });
+      expect(events).toContainEqual(expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: WORKSPACE_ID }));
     });
   });
 

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, REMEMBERED_SENTENCE_LIMIT, uuidv7, type RememberedSentenceView } from '@cockpit/shared';
-import { CommandRefused } from '../api/client';
-import { useSendCommand } from '../api/queries';
-import { rememberedSentencesQuery } from '../rememberedSentences';
+import { whyNotDone } from '../api/queries';
+import { useChangeSentence, useRememberedSentences } from '../rememberedSentences';
+import { useUndo } from '../undo';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
@@ -29,17 +28,24 @@ function used(one: RememberedSentenceView): string {
  * adds one** - a sentence is only ever kept from an edit, in the review
  * window. Opened on one sentence, in edit, where the window that used it
  * sent you (`focus`).
+ *
+ * **A change shows at the click** (issue 1370): a reworded sentence is in its row
+ * and a deleted one is gone, with the server still to answer. A reworded one the
+ * server refuses comes back to its form with the reason; a deleted one it refuses
+ * returns to the list, and the undo bar says why, since the question closed at the click.
  */
 export default function ManageRememberedSentences({ focus }: { focus?: string | undefined }) {
-  const { data, error, refetch, isFetching } = useQuery(rememberedSentencesQuery);
-  const queryClient = useQueryClient();
-  const send = useSendCommand();
+  const { data, error, refetch, isFetching } = useRememberedSentences();
+  const change = useChangeSentence();
+  const offerToUndo = useUndo();
   const [editing, setEditing] = useState<string | null>(focus ?? null);
   const [draft, setDraft] = useState('');
   const [asking, setAsking] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
+  // Which row is open for rewording *now*, for a refusal that comes back after the person moved on.
+  const editingNow = useRef(editing);
+  editingNow.current = editing;
 
   const sentences = useMemo(() => data?.sentences ?? [], [data]);
   const answered = data !== undefined;
@@ -55,49 +61,38 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
     setDraft(found.sentence);
   }, [focus, sentences]);
 
-  const run = async (work: () => Promise<unknown>, done: () => void) => {
-    setWorking(true);
+  /**
+   * Rewords at the click: the form closes and the row has the new words at once.
+   * Refused, the form comes back with the words typed and the reason, unless the
+   * person has opened another row meanwhile, and then the undo bar says it.
+   */
+  const save = (one: RememberedSentenceView) => {
+    const words = draft.trim();
     setRefusal(null);
-    try {
-      await work();
-    } catch (failure) {
-      setRefusal(failure instanceof CommandRefused ? failure.message : 'That did not reach the server. Try again.');
-      setWorking(false);
-      return;
-    }
-    await queryClient.invalidateQueries({ queryKey: rememberedSentencesQuery.queryKey });
-    setWorking(false);
-    done();
+    setEditing(null);
+    change({
+      name: 'edit_remembered_sentence',
+      payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: ACCOUNT_WIDE, sentenceId: one.id, sentence: words },
+    }).catch((failure: unknown) => {
+      if (editingNow.current !== null) return offerToUndo({ what: `“${one.sentence}” was not reworded. ${whyNotDone(failure)}` });
+      setDraft(words);
+      setEditing(one.id);
+      setRefusal(whyNotDone(failure));
+    });
   };
 
-  const save = (one: RememberedSentenceView) =>
-    run(
-      () =>
-        send({
-          name: 'edit_remembered_sentence',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            workspaceId: ACCOUNT_WIDE,
-            sentenceId: one.id,
-            sentence: draft.trim(),
-          },
-        }),
-      () => setEditing(null),
-    );
-
-  const forget = (one: RememberedSentenceView) =>
-    run(
-      () =>
-        send({
-          name: 'delete_remembered_sentence',
-          payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: ACCOUNT_WIDE, sentenceId: one.id },
-        }),
-      () => setAsking(null),
-    );
-
+  /** Forgets at the click: the question closes and the row is gone at once. Refused, the row comes back and the undo bar says why. */
+  const forget = (one: RememberedSentenceView) => {
+    change({
+      name: 'delete_remembered_sentence',
+      payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: ACCOUNT_WIDE, sentenceId: one.id },
+    }).catch((failure: unknown) => {
+      offerToUndo({ what: `“${one.sentence}” was not forgotten. ${whyNotDone(failure)}` });
+    });
+    setAsking(null);
+  };
   return (
-    <ManageWindow title="What Cockpit remembers" open onClose={() => undefined} canClose={!working}>
+    <ManageWindow title="What Cockpit remembers" open onClose={() => undefined}>
       <p className="mt-2 text-sm text-ink-faint">
         Sentences Cockpit kept from your edits. Each shapes what it proposes for the kind of action it applies to.
       </p>
@@ -110,7 +105,7 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
                   onSubmit={(event) => {
                     event.preventDefault();
                     if (draft.trim() === '' || draft.trim() === one.sentence) return setEditing(null);
-                    void save(one);
+                    save(one);
                   }}
                 >
                   <label className="block text-sm text-ink-soft">
@@ -118,7 +113,6 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
                     <textarea
                       autoFocus
                       value={draft}
-                      disabled={working}
                       onChange={(event) => setDraft(event.target.value)}
                       rows={3}
                       maxLength={REMEMBERED_SENTENCE_LIMIT}
@@ -133,7 +127,6 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
                   <div className="flex justify-end gap-2 pt-2">
                     <button
                       type="button"
-                      disabled={working}
                       onClick={() => {
                         setEditing(null);
                         setRefusal(null);
@@ -144,7 +137,7 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
                     </button>
                     <button
                       type="submit"
-                      disabled={working || draft.trim() === ''}
+                      disabled={draft.trim() === ''}
                       className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
                     >
                       Save
@@ -192,14 +185,9 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
             question={`Forget “${beingAsked.sentence}”? Cockpit stops using it in what it proposes.`}
             confirmLabel="Yes, forget this sentence"
             confirmText="Delete"
-            canConfirm={!working}
-            refusal={refusal}
             returnFocusTo={askedFrom.current}
-            onCancel={() => {
-              setAsking(null);
-              setRefusal(null);
-            }}
-            onConfirm={() => void forget(beingAsked)}
+            onCancel={() => setAsking(null)}
+            onConfirm={() => forget(beingAsked)}
           />
         )}
         {Boolean(error) && !answered && (
@@ -211,7 +199,7 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
           <p className="px-4 py-4 text-sm text-ink-faint">Nothing remembered yet. Edit what Cockpit proposes before you send it, and it offers to keep a sentence.</p>
         )}
       </section>
-      <CloseWindow disabled={working} />
+      <CloseWindow />
     </ManageWindow>
   );
 }

@@ -446,7 +446,11 @@
         "apps/api/src/accounts/store.ts",
         "apps/web/src/pages/Layout.tsx",
         "apps/api/src/accounts/retire-agents.ts",
-        "apps/api/src/domain/agent-sentence.ts"
+        "apps/api/src/domain/agent-sentence.ts",
+        "apps/web/src/components/ManageRememberedSentences.tsx",
+        "apps/web/src/components/RememberASentence.tsx",
+        "apps/web/src/rememberedSentences.ts",
+        "apps/web/src/rememberedSentencesDrawnAhead.ts"
       ]
     },
     {
