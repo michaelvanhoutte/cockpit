@@ -11,7 +11,16 @@ import type { FiledOn } from './components/FileOnLine';
  * layers below the shell. Null where nothing provides it, and a Panel then
  * offers no way in.
  */
-export type OpenCaptureOn = (panel: FiledOn) => void;
+export type OpenCaptureOn = (panel: PanelOpening) => void;
+
+/**
+ * The Panel a + opened Capture for, and the Dashboard it is on. Capture opened
+ * this way closes once one note is kept, and the page on a phone returns to
+ * that Dashboard rather than to wherever history says.
+ */
+export interface PanelOpening extends FiledOn {
+  dashboardId: string;
+}
 
 export const CaptureOpenerContext = createContext<OpenCaptureOn | null>(null);
 

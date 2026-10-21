@@ -216,8 +216,11 @@ test.describe('Capture', () => {
       await expectNoSidewaysScroll(page);
       await captureBox(page).fill(filed);
       await captureBox(page).press('ControlOrMeta+Enter');
-      await expect(capturedLine(page, filed)).toBeVisible();
-      await closeCapture(page, isMobile);
+      // Opened from a Panel it came to add one note, so it goes once that is
+      // kept, without closing it: the window at a desk, and on a phone the page,
+      // back to the Dashboard the + was on ("Close Capture after one note when a Panel's + opened it", issue 1320).
+      await expect(captureBox(page)).toBeHidden();
+      await expect(panel).toBeVisible();
 
       await expect(panel.getByRole('listitem').first()).toContainText(filed);
       await openTheInboxOf(page, ELSEWHERE, isMobile);

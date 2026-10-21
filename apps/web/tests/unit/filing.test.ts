@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Filing, Item, Panel } from '@cockpit/shared';
 import {
+  fetchedChunk,
   filedOrderOnPanel,
   howToFileSelected,
-  orderPuttingBack,
   ordersForFilingSeveral,
   orderWithItemAt,
 } from '../../src/filing';
+import { orderPuttingBack } from '../../src/puttingBack';
 
 /**
  * F1: the arithmetic of filing items onto panels, evaluated in the client. What a
@@ -304,6 +305,18 @@ describe('Panels', () => {
       const was = ['x', 'a', 'y', 'b'];
 
       expect(orderPuttingBack(was, ['x', 'a', 'y'], 'b')).toEqual(was);
+    });
+  });
+
+  describe('the code a filing gesture runs', () => {
+    it('says in words that it could not be had, rather than naming the file a deploy removed', async () => {
+      const gone = () => Promise.reject(new TypeError('Failed to fetch dynamically imported module: https://cockpit.example/assets/filingSeveral-abc.js'));
+
+      await expect(fetchedChunk(gone)).rejects.toThrow('That could not load. Reload the page and try again.');
+    });
+
+    it('hands back what was fetched', async () => {
+      await expect(fetchedChunk(() => Promise.resolve(42))).resolves.toBe(42);
     });
   });
 });

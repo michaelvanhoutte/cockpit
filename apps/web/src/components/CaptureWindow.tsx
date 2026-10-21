@@ -1,7 +1,7 @@
 import { Suspense, useEffect } from 'react';
 import { CaptureNote } from '../captureForm';
 import { ManageWindow } from './ManageWindow';
-import type { FiledOn } from './FileOnLine';
+import type { PanelOpening } from '../captureOpener';
 
 /**
  * Capture over the screen you are on ("Capture over the screen you are on, and
@@ -28,7 +28,7 @@ export function CaptureWindow({
   /** The workspace you are in, or null for *Any workspace*. */
   startsIn: string | null;
   /** The Panel a + on its header opened this for, held by *File on* to start with (issue 1105). */
-  startsOn?: FiledOn | null;
+  startsOn?: PanelOpening | null;
 }) {
   /**
    * **Escape is this window's, whatever else is open behind it.** Radix hands
@@ -52,7 +52,8 @@ export function CaptureWindow({
     <ManageWindow title="Capture" open={open} onClose={onClose}>
       <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Suspense fallback={null}>
-          <CaptureNote startsIn={startsIn} startsOn={startsOn} />
+          {/* A Panel's + came to add one note, so the window goes once it is kept; the tab and `C` stay for the next. */}
+          <CaptureNote startsIn={startsIn} startsOn={startsOn} onKept={startsOn ? onClose : undefined} />
         </Suspense>
       </div>
     </ManageWindow>

@@ -1,29 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
-import { snapshotQuery, useLatestSnapshot, useSendCommand } from '../api/queries';
-import { CommandRefused } from '../api/client';
-import {
-  filedOrderOnPanel,
-  howToFileSelected,
-  type HowToFileSelected,
-  orderPuttingBack,
-  ordersForFilingSeveral,
-} from '../filing';
+import { uuidv7, type Filing, type Item } from '@cockpit/shared';
+import { useLatestSnapshot, useSendCommand } from '../api/queries';
+import { useSnapshot } from '../api/useSnapshot';
+import { fetchedChunk, filedOrderOnPanel } from '../filing';
 import { useFilteredDashboardIds } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
-import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
-import { dashboardOfScope, updateSelection } from '../selection';
+import { recentPanelsIn } from '../recentPanels';
 import { askToShow } from '../showItem';
 import { useUndo, type Undoable } from '../undo';
 import { FetchedPicker } from './FetchedPicker';
-
-/**
- * That a filing of several is going, in this tab: a drop is handled by the Panel
- * it lands on, so a second drop on another Panel is a different hook asking.
- */
-let running = false;
 
 /**
  * Filing everything a selection holds onto one panel, and the questions around
@@ -52,9 +38,11 @@ export function useFilingSeveral({
   /** The Items picked, in the order they are to be filed. */
   picked: readonly Item[];
 }) {
-  const { data } = useQuery(snapshotQuery(workspaceId));
+  const { data } = useSnapshot(workspaceId);
   const send = useSendCommand();
   const latestSnapshot = useLatestSnapshot();
+  /** What `puttingBack.ts` sends and reads with. */
+  const putting = { workspaceId, send, latest: latestSnapshot };
   const offerToUndo = useUndo();
   const navigate = useNavigate();
 
@@ -65,7 +53,7 @@ export function useFilingSeveral({
   /** Why a filing of several stopped, if it stopped. */
   const [refusal, setRefusal] = useState<string | null>(null);
   /** The items a moved selection brought to a panel, being added to a second one from the undo bar's Also show on…. */
-  const [addingSeveral, setAddingSeveral] = useState<Item[] | null>(null);
+  const [addingSeveral, setAddingSeveral] = useState<readonly Item[] | null>(null);
   /** Why adding several stopped with nothing added, if it did. */
   const [addingRefusal, setAddingRefusal] = useState<string | null>(null);
 
@@ -95,8 +83,7 @@ export function useFilingSeveral({
    * whether to move an item to a panel or add it to one", issue 142) and a move
    * takes it off all of them: an inverse that named one would lose the rest.
    */
-  const whereItIs = (item: Item): { panelId: string; order: string[] }[] => {
-    const filings = data?.filings ?? [];
+  const whereItIs = (item: Item, filings: readonly Filing[] = data?.filings ?? []): { panelId: string; order: string[] }[] => {
     const panels = [
       ...new Set(filings.filter((f) => f.itemId === item.id).map((f) => f.panelId)),
     ];
@@ -136,16 +123,26 @@ export function useFilingSeveral({
     browserStore(),
     (data?.dashboards ?? []).map((dashboard) => dashboard.id),
   );
-  /** Show and Also show on… for Items just filed on `panelId`, for the undo bar. */
-  const nextSteps = (moved: Item[], panelId: string): Pick<Undoable, 'show' | 'alsoShowOn'> => ({
+  /**
+   * Show and Also show on… for Items just filed on `panelId`, for the undo bar.
+   * **For the ones that landed**: offered at the click with all of them, they
+   * wait for the run to be answered, so an Item that was refused is not shown or
+   * added anywhere.
+   */
+  const nextSteps = (
+    moved: readonly Item[] | Promise<readonly Item[]>,
+    panelId: string,
+  ): Pick<Undoable, 'show' | 'alsoShowOn'> => ({
     show: () =>
-      void showOnItsPanel(
-        moved.map((item) => item.id),
-        panelId,
+      void Promise.resolve(moved).then((landed) =>
+        showOnItsPanel(
+          landed.map((item) => item.id),
+          panelId,
+        ),
       ),
     alsoShowOn: () => {
       setAddingRefusal(null);
-      setAddingSeveral(moved);
+      void Promise.resolve(moved).then(setAddingSeveral);
     },
   });
 
@@ -173,305 +170,81 @@ export function useFilingSeveral({
     return panelId;
   };
 
-  /**
-   * Files everything picked onto one panel, or back into the Inbox.
-   *
-   * **One filing at a time, in the order the list shows them.** Each carries
-   * the panel's whole arrangement afterwards, so each has to be built on the
-   * one before it (`ordersForFilingSeveral`) - which is also why this awaits
-   * rather than sending them together.
-   *
-   * **It can stop part way, and that is a state rather than an accident.** A
-   * refusal stops the rest: what did move is filed and leaves the selection,
-   * what did not stays picked, so asking again files exactly the remainder. The
-   * way back offers what happened rather than what was asked for.
-   */
-  const fileSeveral = (target: string | null) => fileOnto(picked, target);
+  // Fetched once there is a selection or a question to answer, so the first
+  // press has the code already: the filing is drawn the moment it is made.
+  const somethingToFile = picked.length > 0 || addingSeveral !== null;
+  useEffect(() => {
+    if (somethingToFile) void import('../filingSeveral').catch(() => {});
+  }, [somethingToFile]);
 
   /**
-   * Files `chosen` onto `target`, which is what `fileSeveral` does for the
-   * rows picked and what a *drop* of a selection does for the rows it carried
-   * ("Drag a selection, and drop it on the Dashboard it was picked on", issue
-   * 1217) - one path, so the two cannot come to different answers.
-   *
-   * `landing` is only a drop's: `at` is where the block goes among what the
-   * Panel holds without it (the top, for the bar's Move to…), `alsoShow` is the
-   * answer *Add it here as well*, which leaves every source, and `scope` is
-   * where the rows were picked, when that is not this list's own (an Inbox
-   * selection dropped on a Panel).
+   * What `filingSeveral.ts`, fetched on the first gesture that files several,
+   * is handed: the ways to read and send, say and offer, and close the question.
+   */
+  const filingSeveralDeps = () => ({
+    workspaceId,
+    openDashboardId,
+    scope,
+    send,
+    latest: latestSnapshot,
+    offerToUndo,
+    nameOf,
+    nextSteps,
+    whereItIs,
+    setFiling,
+    setRefusal,
+    closeQuestion: () => setFilingSeveral(false),
+    closeAdding: () => setAddingSeveral(null),
+    setAddingRefusal,
+  });
+
+  /**
+   * Files everything picked onto one panel, or back into the Inbox: the work is
+   * `fileOnto` in `filingSeveral.ts`, which a drop of a selection uses too (`dropOnto`),
+   * so the two cannot come to different answers.
    */
   const fileOnto = async (
     chosen: readonly Item[],
     target: string | null,
     landing?: { at: number; alsoShow?: boolean; scope?: string },
   ) => {
-    // The module's own flag as well as the state: a drop is handled by the
-    // Panel it lands on, whose hook is not the one a run began in.
-    if (filing || running || chosen.length === 0) return;
-
-    // Read before anything moves, because afterwards it is gone - and read for
-    // all of them at once, so every order below describes the same moment.
-    const wasOn = new Map(chosen.map((item) => [item.id, whereItIs(item)] as const));
-    // What each one is taken off is decided now too, from the same moment.
-    const held = target ? filedOrderOnPanel(data?.filings ?? [], target) : [];
-    // A drop of rows every one of which the Panel already holds is a reorder:
-    // they gather at the landing line and leave every other Panel alone.
-    const reordering =
-      landing !== undefined && target !== null && chosen.every((item) => held.includes(item.id));
-    // A move leaves the Panels of the Dashboard the rows were picked on, which is
-    // not the one on screen when the drag switched Dashboard on the way.
-    const pickedOn = (landing?.scope ? dashboardOfScope(landing.scope) : null) ?? openDashboardId;
-    const how = new Map<string, HowToFileSelected>(
-      chosen.map((item) => [
-        item.id,
-        landing?.alsoShow || reordering
-          ? { how: 'add' }
-          : howToFileSelected(data?.filings ?? [], data?.panels ?? [], pickedOn, target, item.id),
-      ]),
-    );
-    const orders = target
-      ? ordersForFilingSeveral(
-          held,
-          chosen.map((item) => item.id),
-          landing?.at,
-        )
-      : [];
-    // Dropped where they already sit together: a reorder that changes nothing,
-    // which must not offer an undo of nothing.
-    if (reordering && orders[orders.length - 1]!.join() === held.join()) return;
-
-    running = true;
-    setFiling(true);
-    setRefusal(null);
-    const moved: Item[] = [];
+    // Held back by the state, and by the module's own flag once it has loaded: a
+    // drop is handled by the Panel it lands on, whose hook is not the one a run began in.
+    if (filing || chosen.length === 0) return;
+    let loaded: typeof import('../filingSeveral');
     try {
-      for (const [at, item] of chosen.entries()) {
-        const sent = how.get(item.id)!;
-        const envelope = {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          itemId: item.id,
-        };
-        // An add where the selection's Dashboard holds it on no Panel to leave:
-        // a move naming none would take it off every Panel (`howToFileSelected`).
-        if (sent.how === 'add') {
-          await send({
-            name: 'add_item_to_panel',
-            payload: { ...envelope, panelId: target!, order: orders[at]! },
-          });
-        } else {
-          await send({
-            name: 'move_item_to_panel',
-            payload: {
-              ...envelope,
-              panelId: target,
-              // The Inbox has no order - it is by age - so filing there sends none.
-              order: target ? orders[at]! : [],
-              ...(sent.fromPanelIds ? { fromPanelIds: sent.fromPanelIds } : {}),
-            },
-          });
-        }
-        moved.push(item);
-      }
+      loaded = await fetchedChunk(() => import('../filingSeveral'));
     } catch (error) {
-      setRefusal(
-        error instanceof CommandRefused
-          ? error.message
-          : 'These could not all be moved. Try again.',
-      );
-    } finally {
-      running = false;
-      setFiling(false);
-      // **The question is answered either way, so it closes either way.** A
-      // picker left open over a refusal seemed friendlier - the reason where
-      // the choice was, and the panels still there to try again - but it is a
-      // modal dialog, so while it is up nothing outside it can be clicked: the
-      // way back offered underneath it took one click to dismiss the dialog
-      // and a second to press, with the offer expiring on its own meanwhile.
-      // The bar says why instead, above the rows that are still picked.
+      // Nothing was sent: said where a refusal is, and the question closed.
+      setRefusal(error instanceof Error ? error.message : null);
       setFilingSeveral(false);
+      return;
     }
-
-    if (moved.length === 0) return;
-    // Remembered only once something has happened, the way a single move does:
-    // a panel everything was refused for is not one you have been filing into.
-    if (target) rememberRecentPanel(browserStore(), workspaceId, target);
-    // Only what moved leaves the selection, so a filing that stopped leaves the
-    // remainder in front of you with the reason above it.
-    const filed = new Set(moved.map((item) => item.id));
-    updateSelection(landing?.scope ?? scope, (was) => ({
-      picked: new Set([...was.picked].filter((id) => !filed.has(id))),
-      reachingFrom: null,
-    }));
-
-    // **No way back once any of them belonged nowhere.** Filing an item that
-    // belongs to no workspace is also what decides where it belongs, and that
-    // question is asked once: undoing would take it off the panel and leave it
-    // in *this* workspace's Inbox rather than in every workspace's, which is
-    // not where it was. The single move withholds the offer for exactly this
-    // (`decides`), and one offer covers a whole run here - so one undecided
-    // item in the selection is enough to withhold it, rather than a bar that
-    // puts some of them back and quietly settles the rest.
-    const decides = moved.some((item) => !workspaceIsDecided(item));
-    // Onto a panel only, as a single move does: the Inbox has nowhere to show
-    // and nothing to also show on. Show and Also show on… cover exactly what
-    // moved, and an undecided item withholds Undo alone.
-    if (decides && target === null) return;
-    const single = moved.length === 1 && chosen.length === 1;
-    offerToUndo({
-      what: reordering
-        ? whatMovedIn(moved, chosen.length, nameOf(target))
-        : whatMoved(moved, chosen.length, nameOf(target)),
-      ...(single
-        ? { split: { title: `“${itemLabel(moved[0]!)}”`, rest: ` moved to ${nameOf(target)}` } }
-        : {}),
-      ...(decides ? {} : { undo: () => putSeveralBack(moved, wasOn) }),
-      // A reorder shows nothing new and adds to no other Panel: Undo alone.
-      ...(target && !reordering ? nextSteps(moved, target) : {}),
-    });
+    await loaded.fileOnto(filingSeveralDeps(), chosen, target, landing);
   };
+  const fileSeveral = (target: string | null) => fileOnto(picked, target);
 
-  /**
-   * Adds everything a selection moved to one more panel, from the undo bar's
-   * Also show on… (`fileSeveral`), leaving each on the panels it is on.
-   *
-   * **Read when the picker answers, not when the bar was drawn**: those already
-   * on the panel by then (a move made meanwhile in another tab) are left out,
-   * and the one Undo takes off exactly those added. One add at a time, each
-   * order built on the one before, as filing several is. It can stop part way:
-   * what was added is offered back; with nothing added the picker stays up with
-   * the reason.
-   */
+  /** Adds everything a selection moved to one more panel, from the undo bar's Also show on… (`addSeveral` in `filingSeveral.ts`). */
   const addSeveral = async (items: readonly Item[], panelId: string) => {
     if (filing) return;
-    const filings = (await latestSnapshot(workspaceId)).filings;
-    const toAdd = items.filter(
-      (item) => !filings.some((f) => f.itemId === item.id && f.panelId === panelId),
-    );
-    if (toAdd.length === 0) {
-      setAddingSeveral(null);
-      return;
-    }
-    const orders = ordersForFilingSeveral(
-      filedOrderOnPanel(filings, panelId),
-      toAdd.map((item) => item.id),
-    );
-    setFiling(true);
-    setAddingRefusal(null);
-    const added: Item[] = [];
-    let why: string | null = null;
+    let loaded: typeof import('../filingSeveral');
     try {
-      for (const [at, item] of toAdd.entries()) {
-        await send({
-          name: 'add_item_to_panel',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            workspaceId,
-            itemId: item.id,
-            panelId,
-            order: orders[at]!,
-          },
-        });
-        added.push(item);
-      }
+      loaded = await fetchedChunk(() => import('../filingSeveral'));
     } catch (error) {
-      why =
-        error instanceof CommandRefused ? error.message : 'These could not all be added. Try again.';
-    } finally {
-      setFiling(false);
-    }
-    if (added.length === 0) {
-      setAddingRefusal(why);
+      setAddingRefusal(error instanceof Error ? error.message : null);
       return;
     }
-    rememberRecentPanel(browserStore(), workspaceId, panelId);
-    setAddingSeveral(null);
-    const how =
-      added.length === toAdd.length ? `${added.length} items` : `${added.length} of ${toAdd.length} items`;
-    offerToUndo({
-      what: `${how} added to ${nameOf(panelId)}`,
-      undo: async () => {
-        // Read when pressed: one taken off meanwhile (another tab) is already
-        // what Undo wants, and its refusal must not leave the rest on.
-        const now = (await latestSnapshot(workspaceId)).filings;
-        for (const item of added) {
-          if (!now.some((f) => f.itemId === item.id && f.panelId === panelId)) continue;
-          await send({
-            name: 'remove_item_from_panel',
-            payload: {
-              commandId: uuidv7(),
-              issuedAt: new Date().toISOString(),
-              workspaceId,
-              itemId: item.id,
-              panelId,
-            },
-          });
-        }
-      },
-    });
+    await loaded.addSeveral(filingSeveralDeps(), items, panelId);
   };
 
   /**
-   * Puts back everything a filing of several took, onto the panels each was on.
-   *
-   * **One order per filing, each read from what the panel holds by then.** An
-   * order naming an item the panel does not hold is refused exactly as a stale
-   * one is, and half-way through this a panel holds neither what it held before
-   * nor what it will hold after - not least the panel everything was filed
-   * onto, which is still holding every item waiting its turn. Computing what
-   * that ought to be is how the overlap case was got wrong; asking is how it is
-   * got right.
+   * Puts back everything a filing of several took, onto the panels each was on
+   * (`puttingBack.ts`, fetched when Undo is pressed).
    */
   const putSeveralBack = async (
     moved: readonly Item[],
     wasOn: ReadonlyMap<string, { panelId: string; order: string[] }[]>,
-  ) => {
-    /** What a panel holds at this moment, which each order has to name. */
-    const heldOn = async (panelId: string) =>
-      filedOrderOnPanel((await latestSnapshot(workspaceId)).filings, panelId);
-    const envelope = (itemId: string) => ({
-      commandId: uuidv7(),
-      issuedAt: new Date().toISOString(),
-      workspaceId,
-      itemId,
-    });
-
-    for (const item of moved) {
-      const panels = wasOn.get(item.id) ?? [];
-      // On no panel at all is the Inbox, which is the absence of a filing.
-      if (panels.length === 0) {
-        await send({
-          name: 'move_item_to_panel',
-          payload: { ...envelope(item.id), panelId: null, order: [] },
-        });
-        continue;
-      }
-      // The first is a move and the rest are adds, for the reason
-      // `putItBackOn` gives: the move takes it off wherever it is now, and each
-      // add puts it on one more without disturbing that.
-      const [first, ...rest] = panels;
-      await send({
-        name: 'move_item_to_panel',
-        payload: {
-          ...envelope(item.id),
-          panelId: first!.panelId,
-          order: orderPuttingBack(first!.order, await heldOn(first!.panelId), item.id),
-        },
-      });
-      for (const also of rest) {
-        await send({
-          name: 'add_item_to_panel',
-          payload: {
-            ...envelope(item.id),
-            panelId: also.panelId,
-            order: orderPuttingBack(also.order, await heldOn(also.panelId), item.id),
-          },
-        });
-      }
-    }
-  };
+  ) => (await fetchedChunk(() => import('../puttingBack'))).putSeveralBack(putting, moved, wasOn);
 
   const pickers = (
     <>
@@ -554,29 +327,6 @@ export function useFilingSeveral({
     filteredDashboardIds,
     nextSteps,
   };
-}
-
-/**
- * What the way back says a filing of several did.
- *
- * **What happened, not what was asked for.** A filing that stopped part way
- * moved some of them, and a sentence saying six when four went would offer to
- * undo two things that never happened. One row keeps its own title, because
- * that is what a single move has always said and picking one row out is not a
- * different act from moving it.
- */
-function whatMoved(moved: readonly Item[], asked: number, target: string): string {
-  if (moved.length === 1 && asked === 1) {
-    return `“${itemLabel(moved[0]!)}” moved to ${target}`;
-  }
-  const how = moved.length === asked ? `${asked} items` : `${moved.length} of ${asked} items`;
-  return `${how} moved to ${target}`;
-}
-
-/** What the way back says a reorder of several did: they moved within one Panel, nowhere else. */
-function whatMovedIn(moved: readonly Item[], asked: number, target: string): string {
-  const how = moved.length === asked ? `${asked} items` : `${moved.length} of ${asked} items`;
-  return `${how} moved in ${target}`;
 }
 
 /** The ids found in every one of the lists. */

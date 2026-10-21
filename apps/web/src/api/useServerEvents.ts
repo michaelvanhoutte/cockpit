@@ -78,7 +78,14 @@ export function useServerEvents() {
         cameOnline(queryClient);
         // Up again after a drop: a deploy drops every open stream, so this is
         // how a tab learns a new version may be out (updating.ts, RECONNECTED).
-        if (wasUp || replacement) globalThis.dispatchEvent(new Event(RECONNECTED));
+        if (wasUp || replacement) {
+          globalThis.dispatchEvent(new Event(RECONNECTED));
+          // Announcements were missed while it was down, so every copy held is
+          // out of date. Marked and not read: a filing reads a copy so marked
+          // before it is built (`useLatestSnapshot`), and what is on screen
+          // follows with the next read.
+          void queryClient.invalidateQueries({ queryKey: ['snapshot'], refetchType: 'none' });
+        }
         wasUp = true;
       });
 

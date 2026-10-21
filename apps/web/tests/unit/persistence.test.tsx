@@ -11,7 +11,16 @@ import {
   saveReadsAsTheyAnswer,
   tidySavedReads,
 } from '../../src/persistence';
-import { aWorkspace, anItem } from './support/savedReads';
+import { changes } from '../../src/api/changes';
+import { fetchSnapshot, sendCommand } from '../../src/api/client';
+import { useSnapshot } from '../../src/api/useSnapshot';
+import { aWorkspace, anItem, itemId } from './support/savedReads';
+
+vi.mock('../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/api/client')>()),
+  fetchSnapshot: vi.fn(),
+  sendCommand: vi.fn(),
+}));
 
 /**
  * F1: what a visit does with the reads the last ones saved, against a fake
@@ -79,7 +88,39 @@ beforeEach(async () => {
   await del('cockpit-query-cache-v1');
 });
 
+/** The Workspace as the app draws it: the server's copy with this tab's unanswered changes over it. */
+function TheWorkspace() {
+  const { data } = useSnapshot('ws-work');
+  return <p>{data ? data.items.map((item) => item.title).join(', ') : 'nothing yet'}</p>;
+}
+
 describe('Offline', () => {
+  describe('a change still waiting for the server is never saved on this device', () => {
+    it('saves the copy the server sent while the screen draws the change over it', async () => {
+      vi.mocked(fetchSnapshot).mockResolvedValue(titled('from the server'));
+      // Taken by the server and never answered, so it is still waiting when the read is saved.
+      vi.mocked(sendCommand).mockImplementation(() => new Promise(() => {}));
+      void changes.enqueue({
+        name: 'set_title',
+        payload: { commandId: 'c1', issuedAt: '2026-10-20T09:00:00.000Z', workspaceId: 'ws-work', itemId: itemId(1), title: 'Renamed here' },
+      });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      saveReadsAsTheyAnswer(client);
+
+      render(
+        <QueryClientProvider client={client}>
+          <TheWorkspace />
+        </QueryClientProvider>,
+      );
+
+      expect(await screen.findByText('Renamed here')).toBeInTheDocument();
+      await vi.waitFor(async () => {
+        const [saved] = await entries<string, { data: WorkspaceSnapshot }>(savedReads);
+        expect(saved?.[1].data.items.map((item) => item.title)).toEqual(['from the server']);
+      });
+    });
+  });
+
   describe('what is saved is drawn only when the open goes offline, and only if it converts', () => {
     it('draws the checked saved read', async () => {
       await saveRead({ queryKey: WORK, data: titled('three panels'), savedAt: Date.now() });

@@ -10,8 +10,8 @@
  * it.
  */
 
-/** The most areas ordered by exact search; one more and the order is approximate. 2^20 sets of areas search in about half a second. */
-export const EXACT_LIMIT = 20;
+/** The most areas ordered by exact search; one more and the order is approximate. 2^22 sets of areas search in about two seconds. */
+export const EXACT_LIMIT = 22;
 
 /** The files of areas in `order` that import an area above them. `weight(from, to)` is the number of files of `from` importing `to`. */
 export function upwardFiles(order, weight) {

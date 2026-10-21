@@ -346,6 +346,47 @@ test.describe('Connector management', () => {
     });
   });
 
+  test.describe('a phone is connected by typing back the code texted to it', () => {
+    test('sends a code to a Belgian mobile, confirms the stand-in code, lists the phone with the number to text, and disconnects it', async ({
+      page,
+      isMobile,
+    }) => {
+      // "Connect a phone in Settings by confirming a code texted to it", issue
+      // 1335: the one place the entry, the two requests and the stand-in
+      // Verify (scripts/lib/stub-verify.mjs, which approves 123456) meet in a
+      // browser. What is stored and refused is held by
+      // apps/api/tests/integration/connectors/connecting-a-phone.test.ts, and
+      // what the entry draws for each answer by ManageConnections.test.tsx.
+      const { workspace, window } = await connectionsOfAWorkspaceOfItsOwn(page, isMobile);
+      await press(window.getByRole('button', { name: 'Connect Text messages' }), isMobile);
+      const asked = page.getByRole('dialog', { name: 'Connect a phone' });
+
+      // A number that is not Belgian is said under the field and stays typed.
+      await asked.getByLabel('Mobile number').fill('+31 6 12345678');
+      await press(asked.getByRole('button', { name: 'Send code' }), isMobile);
+      await expect(asked.getByRole('alert')).toContainText('Only Belgian mobile numbers');
+      await expect(asked.getByLabel('Mobile number')).toHaveValue('+31 6 12345678');
+      await expect(asked.getByLabel('Code')).toHaveCount(0);
+
+      await asked.getByLabel('Mobile number').fill('0470 12 34 56');
+      await press(asked.getByRole('button', { name: 'Send code' }), isMobile);
+      await asked.getByLabel('Code').fill('123456');
+      await press(asked.getByRole('button', { name: 'Confirm' }), isMobile);
+
+      const connected = page.getByRole('dialog', { name: 'Connected' });
+      await expect(connected.getByText(/\+32470123456 is connected\. Text \+32460000000/)).toBeVisible();
+      await press(connected.getByRole('button', { name: 'Done' }), isMobile);
+      const connections = page.getByRole('dialog', { name: 'Settings' });
+      await expect(connections.getByText('+32470123456', { exact: true })).toBeVisible();
+      await expect(connections.getByText(/^Text messages · text \+32460000000 to add a note/)).toBeVisible();
+
+      await chooseRowAction(page, '+32470123456', 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: 'Yes, disconnect +32470123456' }), isMobile);
+      await expect(connections.getByText(/Nothing connected yet/)).toBeVisible();
+      await putTheWorkspaceBack(page, workspace, isMobile);
+    });
+  });
+
   test.describe('Check now brings a pulled connection’s next check forward and its line into the open history', () => {
     test('pressed at the head of the history, its Check now line appears without a reload', async ({ page, isMobile }) => {
       test.skip(isMobile, 'a phone has no Connections, only Appearance');

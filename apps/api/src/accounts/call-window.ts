@@ -1,6 +1,9 @@
 /** The window a caller's calls are counted over: a minute. */
 const WINDOW_MS = 60_000;
 
+/** The window the codes an account asks for are counted over: an hour (issue 1335). */
+export const CODE_WINDOW_MS = 3_600_000;
+
 /**
  * How many `create_item` calls one grant is admitted for in a minute, refused ones included: well above anything a person asking Claude does, and a ceiling on
  * what a runaway loop can write before somebody notices.
@@ -85,7 +88,12 @@ export function countedCalls(
  * added - or null where it is one too many, leaving the count as it was.
  * Generic rate counting, kept with the store that holds the counts.
  */
-export function admittedCalls(earlier: readonly number[], now: number, limit: number): number[] | null {
-  const recent = earlier.filter((at) => now - at < WINDOW_MS);
+export function admittedCalls(
+  earlier: readonly number[],
+  now: number,
+  limit: number,
+  windowMs: number = WINDOW_MS,
+): number[] | null {
+  const recent = earlier.filter((at) => now - at < windowMs);
   return recent.length >= limit ? null : [...recent, now];
 }

@@ -51,6 +51,21 @@ export interface Undoable {
    * moved to Admin & money.
    */
   split?: { title: string; rest: string };
+  /**
+   * The server's answer to the change being offered back, for a change offered
+   * before it has been answered. If it is refused the offer goes, unless a later
+   * change has replaced it: there is nothing to put back.
+   */
+  unlessRefused?: Promise<unknown>;
+  /**
+   * What the line says once a run of changes has been answered, when that is not
+   * what it was offered as: the bar tells what happened, not what was asked for.
+   * Offered as if all of them would land; replaced only while this is still the
+   * offer on the bar, and left alone when it answers with nothing.
+   * `nothingLanded` leaves the line alone, with nothing to put back, show or add
+   * to.
+   */
+  saidAfter?: Promise<{ what: string; split?: { title: string; rest: string }; nothingLanded?: true } | undefined>;
 }
 
 const Remembering = createContext<((change: Undoable) => void) | null>(null);
@@ -68,7 +83,9 @@ export function useUndo(): (change: Undoable) => void {
   return useContext(Remembering) ?? noteNothing;
 }
 
-const noteNothing = () => {};
+const noteNothing = (change: Undoable) => {
+  change.unlessRefused?.catch(() => {});
+};
 
 const Offering = createContext(false);
 
@@ -149,12 +166,28 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
     (change: Undoable) => {
       if (goesAt.current) clearTimeout(goesAt.current);
       offer.current += 1;
+      const mine = offer.current;
       setHeld(change);
       setFailure(null);
       setUndoing(false);
       goesAt.current = setTimeout(forgetNow, THE_BAR_LASTS_MS);
+      change.unlessRefused?.catch(() => {
+        if (offer.current === mine) forget();
+      });
+      change.saidAfter?.then(
+        (said) => {
+          if (!said || offer.current !== mine) return;
+          setHeld((now) => {
+            if (now !== change) return now;
+            if (said.nothingLanded) return { what: said.what };
+            const { split: _was, ...rest } = change;
+            return { ...rest, what: said.what, ...(said.split ? { split: said.split } : {}) };
+          });
+        },
+        () => {},
+      );
     },
-    [forgetNow],
+    [forget, forgetNow],
   );
 
   /**

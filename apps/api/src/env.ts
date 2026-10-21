@@ -188,6 +188,33 @@ export interface Env {
    */
   GRAPH_API_ORIGIN?: string;
   /**
+   * What the Twilio connector needs to text a code to a phone and, with the
+   * next unit, to check a text it is sent ("Connect a phone in Settings by
+   * confirming a code texted to it", issue 1335): the account, its auth token
+   * (which also checks the signature of a text), the Verify service the codes go
+   * through, and the Cockpit number a connected phone texts.
+   *
+   * All four optional, and the connector is registered only where all four are
+   * set (`connectors/registry.ts`): production alone, so staging and local offer
+   * no way to connect a phone, and an environment without them has no `/ingress/twilio/`
+   * address either. The first three are secrets; the number is not, and is
+   * put in the secret store beside them for want of one bought yet, as
+   * `MS_CLIENT_ID` is (docs/deployment.md, "Twilio").
+   */
+  TWILIO_ACCOUNT_SID?: string;
+  TWILIO_AUTH_TOKEN?: string;
+  TWILIO_VERIFY_SERVICE_SID?: string;
+  TWILIO_NUMBER?: string;
+  /**
+   * Where Twilio Verify is reached, in place of `https://verify.twilio.com`.
+   * Unset everywhere but local development and the browser suite, which point
+   * it at the stub issuer's stand-in (scripts/lib/stub-issuer.mjs), since no
+   * text reaches a phone from a laptop; the stand-in accepts one fixed code.
+   * **Believed only where it names a local host** (`standIn`,
+   * connectors/registry.ts), for the reason `GMAIL_API_ORIGIN` is.
+   */
+  TWILIO_VERIFY_ORIGIN?: string;
+  /**
    * What a connected source account's credential is sealed with: 32 random
    * bytes, base64 (`src/connectors/credential-crypto.ts`).
    *

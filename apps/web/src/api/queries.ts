@@ -25,6 +25,7 @@ import {
   checkConnectionNow,
 } from './client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
+import { changes, readOfWorkspaceBegins, watchWorkspaceReads } from './changes';
 
 /** A change sent as it is, refused first while offline (`offline.ts`). */
 function unlessOffline<A, R>(send: (argument: A) => Promise<R>): (argument: A) => Promise<R> {
@@ -169,7 +170,13 @@ function bothReadAgain(queryClient: QueryClient) {
 export const snapshotQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () => fetchSnapshot(workspaceId),
+    queryFn: ({ client }) => {
+      // Marked as it starts, because whether the changes this tab has made are
+      // in what comes back depends on when the read began (`changeQueue.ts`).
+      watchWorkspaceReads(client);
+      readOfWorkspaceBegins(workspaceId);
+      return fetchSnapshot(workspaceId);
+    },
     staleTime: 15_000,
   });
 
@@ -220,66 +227,29 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<ClientCommandName>([
 ]);
 
 /**
- * The changes that are not finished until the workspace has been read again,
- * because **what happens next is built on what this one left behind**.
- *
- * Filing sends the panel's whole order and the server checks it against the
- * order it holds, so filing a second item straight after the first built its
- * order from a workspace that did not have the first item in it yet, and was
- * refused. Removing one is here for the same reason from the other end: it
- * changes the order the next filing will send.
- *
- * The four fields the item form edits are here because what is built on them
- * is a *read*: the form closes on Save and the item can be opened again at
- * once, and a form fills its boxes from the copy the cache holds and never
- * refills them (`ItemForm.tsx`) - so a form reopened inside the re-read opens
- * on the value as it was before the save, and stays on it. The browser walk
- * lost that race in CI with the re-read out for 215ms.
- *
- * **Only these.** Making every change wait is the same fix and it was tried
- * first; it broke adding a dashboard, whose own success handler navigates to
- * the dashboard it just made. Waiting first meant the new dashboard appeared in
- * the bar *before* that navigation ran, so the navigation could land while
- * somebody was already typing a panel name on the dashboard they were still on
- * - remounting the board and taking what they had typed with it. A change that
- * carries only its own fields, and that nothing is read back after, has nothing
- * to wait for.
- */
-const NOT_DONE_UNTIL_READ_BACK = new Set<ClientCommandName>([
-  'move_item_to_panel',
-  'add_item_to_panel',
-  'remove_item_from_panel',
-  'set_title',
-  'set_description',
-  'set_priority',
-  'set_due_date',
-  'set_done',
-]);
-
-/**
- * Sends one change and re-reads what it touched, without a mutation's state
- * around it - the same two steps `useCommand` takes, for the callers that need
- * neither `isPending` nor `error` on a control.
- *
- * It exists for undo ("Undo what just happened", issue 144), where the change is
- * sent from a bar in the shell long after the row that made the original change
- * has left the screen. A mutation belongs to the component that holds it, and
- * the whole point of an undo is that it outlives one.
- */
-/**
-/**
  * Sends a change and hands back what the server said about it - which is not
  * always that it landed: a change made against an older version of an item is
  * answered `{ ok: true, applied: false }` rather than refused, so a caller that
  * reads only "it did not throw" cannot tell a save from a silent no-op. Callers
  * with nothing to lose ignore the answer; one holding typed text does not.
+ *
+ * It exists for undo ("Undo what just happened", issue 144) as much as for the
+ * controls: an undo is sent from a bar in the shell long after the row that made
+ * the original change has left the screen, and a mutation belongs to the
+ * component that holds it.
+ *
+ * **It answers when the server has, not when the Workspace has been read again.**
+ * What the screen shows of a change, an Item's fields and its filings alike, is
+ * drawn the moment it is made and kept drawn until a read that began after the
+ * answer has landed (`changeQueue.ts`), so a form reopened straight after a save
+ * opens on what was saved, and a filing made straight after another is built on
+ * it.
  */
 export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> {
   const queryClient = useQueryClient();
   return useCallback(
     async (args: CommandArgs) => {
-      refuseUnlessCapture(args);
-      const answer = await sendCommand(args.name, args.payload as never);
+      const answer = await sendChange(args);
       await afterChanging(queryClient, args);
       return answer;
     },
@@ -288,42 +258,40 @@ export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> 
 }
 
 /**
- * The workspace's copy as it stands now, rather than as it stood when the
- * render asking began.
+ * The workspace as the screen draws it now - the held copy with this tab's
+ * unanswered changes over it - rather than as it stood when the render asking
+ * began.
  *
  * **For a run of changes each built on the last one.** Filing several items, or
- * putting several back, sends one change at a time and every one of them
- * carries the panel's whole arrangement afterwards - so each has to be built on
- * what the panel holds *by then*, which the `data` a render closed over cannot
- * say.
+ * putting several back, hands every one of them to the queue, and each carries
+ * the panel's whole arrangement afterwards - so each has to be built on what the
+ * panel holds *by then*, including the changes made a moment ago and not yet
+ * answered, which the `data` a render closed over cannot say.
  *
- * **Fetched rather than read off the cache**, which is not the same thing here.
- * The changes that carry an order wait for a re-read before they finish
- * (`NOT_DONE_UNTIL_READ_BACK`), but `invalidateQueries` only refetches the
- * queries something is still watching - and the workspace's snapshot stops
- * being watched the moment you navigate off the workspace (`Layout.tsx` runs it
- * `enabled` on the route's own id). The bar offering the way back outlives that
- * navigation, being mounted above the router, so an undo pressed from anywhere
- * else was building its orders on whatever the cache last happened to hold and
- * being refused for it. `fetchQuery` asks for real when what is held is stale
- * and hands back the cached copy when it is not.
+ * **No read first, unless the held copy is marked out of date**: by another
+ * device's announcement, or by the stream reconnecting (`useServerEvents.ts`).
+ * Then it is read once, and the change built on that. A missed announcement
+ * gives an order the server refuses, and the change goes back: the order check
+ * is the guard.
+ *
+ * **Read off the cache, with `fetchQuery` only for a copy that is out of date or
+ * not there.** An undo pressed after leaving the workspace finds its snapshot no
+ * longer watched, and still has the copy the last read left.
  */
 export function useLatestSnapshot(): (workspaceId: string) => Promise<WorkspaceSnapshot> {
   const queryClient = useQueryClient();
   return useCallback(
-    (workspaceId: string) => queryClient.fetchQuery(snapshotQuery(workspaceId)),
+    async (workspaceId: string) => {
+      const { queryKey } = snapshotQuery(workspaceId);
+      const query = queryClient.getQueryCache().find<WorkspaceSnapshot>({ queryKey, exact: true });
+      const held = query?.state.data;
+      if (held && !query.state.isInvalidated) return changes.drawnOver(held);
+      return changes.drawnOver(await queryClient.fetchQuery({ ...snapshotQuery(workspaceId), staleTime: 0 }));
+    },
     [queryClient],
   );
 }
 
-/**
- * What has to be re-read once a change has landed. One function, so the two
- * senders above cannot come to disagree about it.
- *
- * Returned rather than dropped for the changes in `NOT_DONE_UNTIL_READ_BACK`,
- * which is where the reason lives; every other change finishes the moment the
- * server takes it, as they always have.
- */
 /**
  * Whether this change can alter what a workspace *other than* the one it names
  * is showing ("Capture something before you know which workspace it belongs
@@ -391,20 +359,18 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     return queryClient.invalidateQueries({ queryKey: ['snapshot'] });
   }
 
-  const reread = [
-    queryClient.invalidateQueries(
-      everyWorkspaceCanSee(args)
-        ? { queryKey: ['snapshot'] }
-        : { queryKey: ['snapshot', args.payload.workspaceId] },
-    ),
-  ];
+  // Read again behind the change, not waited for: it is drawn already and stays
+  // drawn until a read that began after its answer has landed (`changeQueue.ts`).
+  void queryClient.invalidateQueries(
+    everyWorkspaceCanSee(args)
+      ? { queryKey: ['snapshot'] }
+      : { queryKey: ['snapshot', args.payload.workspaceId] },
+  );
   // Only the changes that alter which workspaces there are, so triaging an item
   // does not refetch the list on every click.
   if (CHANGES_THE_WORKSPACE_LIST.has(args.name)) {
-    reread.push(queryClient.invalidateQueries({ queryKey: ['workspaces'] }));
+    void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
   }
-
-  if (NOT_DONE_UNTIL_READ_BACK.has(args.name)) return Promise.all(reread);
 }
 
 /**
@@ -432,18 +398,28 @@ function refuseUnlessCapture(args: CommandArgs): void {
   if (args.name !== 'capture_item') refuseWhileOffline();
 }
 
+/**
+ * Hands a change to the tab's queue (`changeQueue.ts`), which draws it at once
+ * where it can and sends it when those made before it have been answered.
+ *
+ * **A capture is the exception and goes straight out**: it has an outbox of its
+ * own, is already shown the moment it is made, and must not wait behind a slow
+ * change to something else.
+ */
+async function sendChange(args: CommandArgs): Promise<CommandResult> {
+  refuseUnlessCapture(args);
+  if (args.name === 'capture_item') return sendCommand(args.name, args.payload);
+  return changes.enqueue(args);
+}
+
 export function useCommand() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (args: CommandArgs) => {
-      refuseUnlessCapture(args);
-      return sendCommand(args.name, args.payload as never);
-    },
+    mutationFn: sendChange,
     // Returned rather than called and dropped, because React Query waits on
-    // what a mutation's own `onSuccess` returns. For the changes that hand it
-    // back a promise, the caller's `onSuccess` then runs on a workspace that
-    // already has this change in it and `isPending` covers the re-read; for the
-    // rest it is `undefined` and nothing waits.
+    // what a mutation's own `onSuccess` returns. Only the changes that read a
+    // query of their own back hand it a promise (`afterChanging`); for the rest
+    // it is `undefined` and nothing waits.
     onSuccess: (_result, args) => afterChanging(queryClient, args),
   });
 }

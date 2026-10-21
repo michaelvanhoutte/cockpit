@@ -176,7 +176,7 @@ export function PanelCard({
   const openCaptureOn = useOpenCaptureOn();
   const addHere =
     openCaptureOn && panelTakesItems(panel)
-      ? () => openCaptureOn({ panelId: panel.id, name: panel.name, workspaceId })
+      ? () => openCaptureOn({ panelId: panel.id, name: panel.name, workspaceId, dashboardId: panel.dashboardId })
       : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
   const shows = filter

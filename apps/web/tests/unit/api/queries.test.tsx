@@ -13,6 +13,7 @@ import {
 } from '../../../src/api/queries';
 import { fetchAccountHoldings, fetchSnapshot, sendCommand } from '../../../src/api/client';
 import { ItemForm } from '../../../src/components/ItemForm';
+import { changes } from '../../../src/api/changes';
 
 /**
  * F1, and deliberately not a browser test: whether a screen refreshes itself
@@ -128,6 +129,8 @@ afterEach(() => {
   vi.useRealTimers();
   // The manual focus state outlives the test that set it.
   focusManager.setFocused(undefined);
+  // A saved text stays drawn until a read covers it; the next test starts without it.
+  changes.forgetAnswered();
 });
 
 describe('Deleting', () => {
@@ -308,13 +311,12 @@ describe('Panels', () => {
       return { done, letTheRereadFinish: () => letTheRereadFinish() };
     }
 
-    it('waits for the re-read before it is finished filing, so the next filing has this one', async () => {
-      // **The bug this is here for.** Filing an item onto a panel sends that
-      // panel's whole order, and the server checks it against the order it
-      // holds - so filing a second item straight after the first sent an order
-      // built from a workspace that did not have the first item in it yet, and
-      // was refused. It is a race, and it was only ever lost on a machine slow
-      // enough to lose it.
+    it('is finished when the server has accepted it, with the re-read still out', async () => {
+      // Filing an item onto a panel sends that panel's whole order, and the
+      // server checks it against the order it holds, so a second filing has to be
+      // built on the first. It is: the screen draws the first over the copy it
+      // holds (`drawnAhead.ts`) and the next filing is built on that, so nothing
+      // waits for the re-read.
       const { done, letTheRereadFinish } = await changeSomething({
         name: 'move_item_to_panel',
         payload: {
@@ -327,10 +329,8 @@ describe('Panels', () => {
         },
       });
 
-      expect(done.yet).toBe(false);
-      letTheRereadFinish();
-
       await waitFor(() => expect(done.yet).toBe(true));
+      letTheRereadFinish();
     });
 
     it('does not hold up a change that nothing is built on, so adding a dashboard still goes there at once', async () => {
@@ -353,6 +353,60 @@ describe('Panels', () => {
       });
 
       await waitFor(() => expect(done.yet).toBe(true));
+    });
+  });
+
+  describe('a filing is built on the copy the screen draws, with no read first', () => {
+    const bart = { id: 'i-bart' } as Item;
+    const held: WorkspaceSnapshot = { ...snapshot, items: [bart] };
+
+    /** A filing the server has not answered, and then the order for the next one is asked for. */
+    async function askForTheCopy(markOutOfDate: boolean) {
+      const answer = Promise.withResolvers<{ ok: true; applied: true }>();
+      sends.mockReturnValue(answer.promise as never);
+      reads.mockReset();
+      reads.mockResolvedValue({ ...held, filings: [{ panelId: 'p-anna', itemId: 'i-bart', position: 0 }] });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      client.setQueryData(['snapshot', 'ws-work'], held);
+      const filing = changes.enqueue({
+        name: 'add_item_to_panel',
+        payload: { commandId: 'c9', issuedAt: AT, workspaceId: 'ws-work', itemId: 'i-bart', panelId: 'p-falcon', order: ['i-bart'] },
+      });
+      if (markOutOfDate) await client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'], refetchType: 'none' });
+
+      let got: WorkspaceSnapshot | undefined;
+      function Reader() {
+        const latest = useLatestSnapshot();
+        useEffect(() => {
+          void latest('ws-work').then((copy) => {
+            got = copy;
+          });
+        }, [latest]);
+        return null;
+      }
+      render(
+        <QueryClientProvider client={client}>
+          <Reader />
+        </QueryClientProvider>,
+      );
+      await waitFor(() => expect(got).toBeDefined());
+      answer.resolve({ ok: true, applied: true });
+      await filing;
+      return got!;
+    }
+
+    it('answers from the held copy with the changes already made over it, without reading', async () => {
+      const copy = await askForTheCopy(false);
+
+      expect(copy.filings.map((filing) => filing.panelId)).toEqual(['p-falcon']);
+      expect(reads).not.toHaveBeenCalled();
+    });
+
+    it('reads once when the held copy is marked out of date, and draws the changes over what it finds', async () => {
+      const copy = await askForTheCopy(true);
+
+      expect(reads).toHaveBeenCalledTimes(1);
+      expect(copy.filings.map((filing) => filing.panelId).sort()).toEqual(['p-anna', 'p-falcon']);
     });
   });
 });
@@ -531,12 +585,26 @@ function anItem(over: Partial<Item> = {}): Item {
 }
 
 describe('Item editing', () => {
-  describe('a priority change is not finished until the workspace has been read back', () => {
-    // The same race as the text fields below, for the same reason ("Show and
-    // edit an item's priority", issue 433): the form fills its priority box
-    // from the cache and never refills it, so `set_priority` needs the same
-    // wait `set_title`/`set_description` already get.
-    it('waits for the re-read before a priority change is finished', async () => {
+  describe('a change is finished when the server has accepted it, not when the workspace has been read back', () => {
+    // An Item's fields are drawn at once and stay drawn until a read that began
+    // after the answer lands, so nothing built on them has a read to wait for
+    // (`changeQueue.ts`), and a filing is the same.
+    it.each([
+      {
+        situation: 'a priority',
+        change: {
+          name: 'set_priority',
+          payload: { commandId: 'c5', issuedAt: AT, workspaceId: 'ws-work', itemId: 'i-bart', priority: 'high' },
+        } as CommandArgs,
+      },
+      {
+        situation: 'a due date',
+        change: {
+          name: 'set_due_date',
+          payload: { commandId: 'c6', issuedAt: AT, workspaceId: 'ws-work', itemId: 'i-bart', dueDate: '2026-09-30' },
+        } as CommandArgs,
+      },
+    ])('$situation', async ({ change }) => {
       let letTheRereadFinish!: () => void;
       reads.mockReset();
       reads.mockResolvedValueOnce(snapshot).mockImplementation(
@@ -554,24 +622,7 @@ describe('Item editing', () => {
         const { data } = useQuery(snapshotQuery('ws-work'));
         const command = useCommand();
         return data ? (
-          <button
-            type="button"
-            onClick={() =>
-              command.mutate(
-                {
-                  name: 'set_priority',
-                  payload: {
-                    commandId: 'c5',
-                    issuedAt: AT,
-                    workspaceId: 'ws-work',
-                    itemId: 'i-bart',
-                    priority: 'high',
-                  },
-                },
-                { onSuccess: () => void (done.yet = true) },
-              )
-            }
-          >
+          <button type="button" onClick={() => command.mutate(change, { onSuccess: () => void (done.yet = true) })}>
             do it
           </button>
         ) : (
@@ -586,80 +637,12 @@ describe('Item editing', () => {
         </QueryClientProvider>,
       );
       await user.click(await screen.findByRole('button', { name: 'do it' }));
-      // The server has taken the change and the re-read is still out, which is
-      // the window this rule is about.
+
+      // The server has taken the change and the re-read is still out.
       await waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
-
-      expect(done.yet).toBe(false);
-      letTheRereadFinish();
-
       await waitFor(() => expect(done.yet).toBe(true));
-    });
-  });
 
-  describe('a due date change is not finished until the workspace has been read back', () => {
-    // The same race as the priority change above, for the same reason ("Show
-    // and set an item's due date", issue 462): the form fills its due date box
-    // from the cache and never refills it, so `set_due_date` needs the same
-    // wait `set_priority` already gets.
-    it('waits for the re-read before a due date change is finished', async () => {
-      let letTheRereadFinish!: () => void;
-      reads.mockReset();
-      reads.mockResolvedValueOnce(snapshot).mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            letTheRereadFinish = () => resolve(snapshot);
-          }),
-      );
-      sends.mockResolvedValue({ ok: true, applied: true });
-
-      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      const done: { yet: boolean } = { yet: false };
-
-      function DoIt() {
-        const { data } = useQuery(snapshotQuery('ws-work'));
-        const command = useCommand();
-        return data ? (
-          <button
-            type="button"
-            onClick={() =>
-              command.mutate(
-                {
-                  name: 'set_due_date',
-                  payload: {
-                    commandId: 'c6',
-                    issuedAt: AT,
-                    workspaceId: 'ws-work',
-                    itemId: 'i-bart',
-                    dueDate: '2026-09-30',
-                  },
-                },
-                { onSuccess: () => void (done.yet = true) },
-              )
-            }
-          >
-            do it
-          </button>
-        ) : (
-          <p>still loading</p>
-        );
-      }
-
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(
-        <QueryClientProvider client={client}>
-          <DoIt />
-        </QueryClientProvider>,
-      );
-      await user.click(await screen.findByRole('button', { name: 'do it' }));
-      // The server has taken the change and the re-read is still out, which is
-      // the window this rule is about.
-      await waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
-
-      expect(done.yet).toBe(false);
       letTheRereadFinish();
-
-      await waitFor(() => expect(done.yet).toBe(true));
     });
   });
 
@@ -674,36 +657,21 @@ describe('Item editing', () => {
      * empty (tests/e2e/item-editing.test.ts, "the formatted description and its
      * source are one text").
      *
-     * **The re-read is slow rather than held open by hand**, which is what puts
-     * the failure on the last line rather than only on the guard above it. The
-     * item is opened again the moment the form closes, so the two worlds differ
-     * exactly where the bug is: without the wait the form closes at once
-     * and the reopen lands inside the re-read, and with it the form closes only
-     * after that read is in. Released by hand instead, the reopen could only
-     * ever follow the release, and the last line would pass either way - which
-     * is how the first version of this test read.
-     *
-     * A slow API rather than a fast machine is also how this class is found at
-     * all (the `testing` skill, "Flakiness").
-     *
-     * **A second, not a tenth of one**, because fake time here advances with
-     * real time: the guard below reads "the form has not closed yet" one poll
-     * after the change was taken, and a run descheduled for longer than this
-     * would find the read already in and the form gone, failing for the
-     * contention rather than for the bug. A second is far more than any poll
-     * gap and costs this one test the same second.
+     * It used to be answered by Save waiting for the re-read. It is answered
+     * now by drawing the saved text over the copy until a read that began after
+     * the answer has landed, so Save closes on the server's acceptance and the
+     * reopened form has the text with the re-read still out.
      */
-    const SLOW = 1_000;
-
-    it('is not finished saving until the workspace has been read back', async () => {
+    it('is saved on the server’s acceptance, and opens again on the saved text with the re-read still out', async () => {
       const written = 'Tolerances, and the sign-off date';
+      let letTheRereadFinish!: () => void;
       reads.mockReset();
       reads
         .mockResolvedValueOnce({ ...snapshot, items: [anItem()] })
         .mockImplementation(
           () =>
             new Promise((resolve) => {
-              setTimeout(() => resolve({ ...snapshot, items: [anItem({ description: written })] }), SLOW);
+              letTheRereadFinish = () => resolve({ ...snapshot, items: [anItem({ description: written })] });
             }),
         );
       sends.mockResolvedValue({ ok: true, applied: true });
@@ -728,28 +696,20 @@ describe('Item editing', () => {
       await user.type(screen.getByLabelText('Description'), written);
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      // The server has taken the change and the re-read is still out, which is
-      // the window this whole rule is about: the form is still up, so there is
-      // nothing to open again on text that is about to be replaced.
+      // The form has closed with the re-read still out.
+      await waitFor(() => expect(opened.item).toBeUndefined());
       await waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
-      expect(opened.item).toBe('item-1');
 
       // Opened again the moment it closes, which is what the row's menu allows
       // and what the walk does.
-      //
-      // **This is the one wait that spans the arranged delay, so it is the one
-      // that has to be told to outlast it.** `waitFor` allows 1000ms by default
-      // (@testing-library/dom, unoverridden here), which is `SLOW` itself - so
-      // left alone this deadline races the delay it is waiting on, and the test
-      // written to catch a race would lose one of its own.
-      await waitFor(() => expect(opened.item).toBeUndefined(), { timeout: SLOW * 3 });
       rerender(shell());
       opened.item = 'item-1';
       rerender(shell());
 
-      // Waiting here cannot hide the bug rather than find it: a form is filled
-      // once and never refilled, so a box that opened empty stays empty however
-      // long this waits, and the read landing under it changes nothing.
+      await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue(written));
+
+      // The read lands with the same text and the drawn copy gives way to it.
+      letTheRereadFinish();
       await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue(written));
     });
   });

@@ -33,18 +33,26 @@ vi.mock('@tanstack/react-router', async () => ({
   useSearch: () => ({}),
 }));
 
-vi.mock('../../../src/api/queries', () => ({
+vi.mock('../../../src/api/queries', async () => ({
+  refusalFrom: (await vi.importActual<typeof import('../../../src/api/queries')>('../../../src/api/queries')).refusalFrom,
   useCommand: () => ({
     mutate: (command: unknown, options?: { onSuccess?: () => void }) => {
       held.sent.push(command);
       held.apply(command);
       options?.onSuccess?.();
     },
+    // Done and Dismiss are sent this way, the offer to undo being made at the click.
+    mutateAsync: (command: unknown) => {
+      held.sent.push(command);
+      held.apply(command);
+      return Promise.resolve({ ok: true, applied: true });
+    },
     reset: () => {},
     isPending: false,
     error: null,
   }),
-  useSendCommand: () => (command: unknown) => {
+  // Async, like the real one: a refusal is a rejected answer, never a throw.
+  useSendCommand: () => async (command: unknown) => {
     held.sent.push(command);
     held.apply(command);
     return Promise.resolve();
@@ -493,7 +501,9 @@ describe('Selection', () => {
       await user.keyboard('{Enter}');
 
       const bar = await screen.findByRole('status');
-      expect(bar).toHaveTextContent('1 had no proposal, “A” was refused: That Panel no longer exists.');
+      await waitFor(() =>
+        expect(bar).toHaveTextContent('1 had no proposal, “A” was refused: That Panel no longer exists.'),
+      );
       expect(within(bar).queryByRole('button', { name: 'Undo' })).toBeNull();
     });
 
@@ -536,8 +546,11 @@ describe('Selection', () => {
       await user.keyboard('{Enter}');
 
       await waitFor(() => expect(moves()).toHaveLength(3));
-      expect(await screen.findByRole('status')).toHaveTextContent('2 items moved to Falcon');
-      expect(screen.getByRole('status')).toHaveTextContent('“B” was refused: That Panel no longer exists.');
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveTextContent(
+          '2 items moved to Falcon, “B” was refused: That Panel no longer exists.',
+        ),
+      );
       expect(screen.getByText('B')).toBeInTheDocument();
     });
 

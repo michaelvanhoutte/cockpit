@@ -1,5 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
-import { snapshotQuery } from '../api/queries';
+import { useSnapshot } from '../api/useSnapshot';
 import { stillOpen } from '../filing';
 import { dashboardScope, endSelection, showsABar, useHeldTo, useSelection, useSeveral } from '../selection';
 import { SelectionBar } from './SelectionBar';
@@ -32,7 +31,7 @@ export function DashboardSelection({
   const selection = useSelection(scope);
   const several = useSeveral();
   useHeldTo(scope);
-  const { data } = useQuery(snapshotQuery(workspaceId));
+  const { data } = useSnapshot(workspaceId);
 
   // In the order they were picked, which is the only order the Panels have in
   // common: a Panel's own rows are in front of you, and one Item may be in two.

@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { signOut } from '../../../src/api/client';
+import { useOpenCaptureOn } from '../../../src/captureOpener';
 import type { OutboxEntry } from '../../../src/captureOutbox';
 import {
   CaptureOutbox,
@@ -30,6 +31,21 @@ import { aShare, holdAShare, howManyAreHeld } from '../support/shares';
 const params: { workspaceId?: string } = {};
 const held = { workspaces: [] as unknown[] };
 const navigated = vi.hoisted(() => vi.fn());
+
+/** The Panel of Items a + is pressed on, on the Dashboard the page below stands for. */
+const FALCON = { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work', dashboardId: 'd-today' };
+
+/** What the router draws under the shell: a Panel whose + asks the shell for Capture, as PanelCard.tsx does. */
+function APageWithAPanel() {
+  const openCaptureOn = useOpenCaptureOn();
+  return (
+    <div data-testid="the-page">
+      <button type="button" onClick={() => openCaptureOn?.(FALCON)}>
+        Add an item to Falcon
+      </button>
+    </div>
+  );
+}
 
 /** The address the shell is rendered at, which is what says which tab is on. */
 const at = { pathname: '/w/ws-work' };
@@ -64,7 +80,7 @@ vi.mock('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
-  Outlet: () => <div data-testid="the-page" />,
+  Outlet: () => <APageWithAPanel />,
   useParams: () => params,
   useNavigate: () => (args: unknown) => Promise.resolve(navigated(args)),
   useSearch: () => ({}),
@@ -104,7 +120,7 @@ vi.mock('../../../src/api/queries', () => ({
   },
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () => Promise.resolve({ items: [], dashboards: [] }),
+    queryFn: () => Promise.resolve({ items: [], dashboards: [], panels: [], filings: [], duplicates: [] }),
   }),
 }));
 
@@ -374,6 +390,92 @@ describe('Capture', () => {
       const { header } = await theShell();
 
       expect(header.getByRole('link', { name: 'Capture' })).toHaveAttribute('title', 'Capture (C)');
+    });
+  });
+
+  /**
+   * A Panel's + came to add one note, so Capture opened from it goes once the
+   * note is kept ("Close Capture after one note when a Panel's + opened it",
+   * issue 1320); the way in decides, not the chips. The page's own return to
+   * the Dashboard is tests/unit/pages/CapturePage.test.tsx, and when the form
+   * says a note is kept is components/CaptureNote.test.tsx.
+   */
+  describe('Capture opened from a Panel’s + closes once one note is kept, and the tab and C leave it open for the next', () => {
+    const theWindow = () => screen.queryByRole('dialog', { name: 'Capture' });
+    const box = () => screen.getByLabelText('What is on your mind?');
+    const capture = async (note: string) => {
+      await userEvent.type(box(), note);
+      await userEvent.click(screen.getByRole('button', { name: 'Capture' }));
+    };
+
+    it('closes the window at a desk, the note kept in the outbox and filed on that Panel', async () => {
+      onA('desk');
+      const { store } = await theShell();
+      await userEvent.click(screen.getByRole('button', { name: 'Add an item to Falcon' }));
+      expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+
+      await capture('Reply to Bart');
+
+      await waitFor(() => expect(theWindow()).toBeNull());
+      expect(await store.all()).toEqual([
+        expect.objectContaining({ message: 'Reply to Bart', workspaceId: 'ws-work', panelIds: ['p-falcon'] }),
+      ]);
+      expect(navigated).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        situation: 'the Panel taken off File on',
+        before: () => userEvent.click(screen.getByRole('button', { name: 'Do not file on Falcon' })),
+      },
+      {
+        situation: 'another Workspace picked',
+        before: () => userEvent.click(screen.getByRole('button', { name: 'Home' })),
+      },
+    ])('still closes with $situation first, since the way in decides and not the chips', async ({ before }) => {
+      onA('desk');
+      await theShell({ workspaces: [WORK, { ...WORK, id: 'ws-home', name: 'Home' }] });
+      await userEvent.click(screen.getByRole('button', { name: 'Add an item to Falcon' }));
+      await before();
+
+      await capture('Reply to Bart');
+
+      await waitFor(() => expect(theWindow()).toBeNull());
+    });
+
+    it.each([
+      {
+        situation: 'the tab',
+        open: () => userEvent.click(screen.getByRole('link', { name: 'Capture' })),
+      },
+      {
+        situation: 'C',
+        open: async () => {
+          fireEvent.keyDown(document.body, { key: 'c' });
+        },
+      },
+    ])('stays open from $situation, with the Captured line beside the button', async ({ open }) => {
+      onA('desk');
+      await theShell();
+      await open();
+
+      await capture('Reply to Bart');
+
+      expect(await screen.findByText(/^Captured “Reply to Bart”/)).toBeVisible();
+      expect(theWindow()).toBeVisible();
+    });
+
+    it('hands the Panel and its Dashboard to the page on a phone, opening no window', async () => {
+      onA('phone');
+      await theShell();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Add an item to Falcon' }));
+
+      expect(theWindow()).toBeNull();
+      expect(navigated).toHaveBeenCalledWith({
+        to: '/capture',
+        state: { captureFrom: 'ws-work', captureOn: FALCON },
+      });
     });
   });
 

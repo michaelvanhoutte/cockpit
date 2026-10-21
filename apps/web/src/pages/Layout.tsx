@@ -20,6 +20,9 @@ const SettingsWindow = lazy(() => import('../components/SettingsWindow'));
 const PlatformSettingsWindow = lazy(() => import('../components/PlatformSettingsWindow'));
 // And the shortcut tip's toast and wording, fetched with the first tip.
 const ShortcutTip = lazy(() => import('../components/ShortcutTip'));
+// The saving sign shows only once a change has waited half a second, so it is
+// fetched after the first paint; the queue and its leave-site guard stay in the bundle.
+const SavingMark = lazy(() => import('../components/SavingMark'));
 import { DashboardBar } from '../components/DashboardBar';
 import { GoOnlineOffer, OfflineMark } from '../components/OfflineMark';
 import { goOnline, workOffline } from '../opening';
@@ -40,8 +43,7 @@ import { Logo } from '../components/Logo';
 import { opensCapture } from '../captureShortcut';
 import { useShortcutTip } from '../shortcutTip';
 import { captureStateFor } from './CapturePage';
-import { CaptureOpenerContext } from '../captureOpener';
-import type { FiledOn } from '../components/FileOnLine';
+import { CaptureOpenerContext, type PanelOpening } from '../captureOpener';
 import { browserStore } from '../lastVisited';
 import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
@@ -155,7 +157,7 @@ function TheShell() {
     if (!roomForTheInbox) setCapturing(false);
   }, [roomForTheInbox]);
   /** The Panel a + on its header opened the window for; empty for the tab and `C`. */
-  const [capturePanel, setCapturePanel] = useState<FiledOn | null>(null);
+  const [capturePanel, setCapturePanel] = useState<PanelOpening | null>(null);
   const openCapture = () => {
     if (onCapture) return;
     setCapturePanel(null);
@@ -168,7 +170,7 @@ function TheShell() {
   };
   /** A Panel's + or **Add an item…**: Capture with that Panel in *File on* (issue 1105). */
   const openCaptureOn = useCallback(
-    (panel: FiledOn) => {
+    (panel: PanelOpening) => {
       if (onCapture) return;
       if (roomForTheInbox) {
         setCapturePanel(panel);
@@ -897,6 +899,9 @@ function TheShell() {
           </WorkspaceTabs>
 
           <div className="flex shrink-0 items-end">
+            <Suspense fallback={null}>
+              <SavingMark />
+            </Suspense>
             <OfflineMark
               savedAt={workspace.data ? workspace.dataUpdatedAt : undefined}
               onPress={() => setProfileMenuOpen(true)}
