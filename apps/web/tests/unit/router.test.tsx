@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import type { Dashboard, Item, ItemFormPresentation, Workspace } from '@cockpit/shared';
+import { changes } from '../../src/api/changes';
 import { createAppRouter } from '../../src/router';
 import {
   NotSignedIn,
@@ -246,6 +247,67 @@ describe('Workspace management', () => {
       await user.click(screen.getByRole('button', { name: 'New workspace' }));
 
       expect(await screen.findByRole('navigation', { name: 'Dashboards' })).toBeVisible();
+    });
+  });
+
+  describe('the address decides whether a workspace exists from the list as drawn', () => {
+    let release: () => void;
+    const deleted = (workspaceId: string) => {
+      sends.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ ok: true, applied: true });
+          }),
+      );
+      void changes.enqueue({
+        name: 'delete_workspace',
+        payload: { commandId: 'c-delete', issuedAt: '2026-10-21T09:00:00.000Z', workspaceId },
+      });
+    };
+
+    afterEach(async () => {
+      cleanup();
+      release?.();
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      changes.forgetAnswered();
+    });
+
+    it('moves on from a workspace deleted a moment ago, to the first that is left', async () => {
+      deleted('ws-personal');
+
+      await open('/w/ws-personal', [work, personal]);
+
+      expect(await screen.findByRole('navigation', { name: 'Dashboards' })).toBeVisible();
+      expect(screen.getByRole('link', { name: 'Work' })).toHaveClass('active');
+      expect(screen.queryByRole('link', { name: 'Personal' })).toBeNull();
+    });
+
+    it('opens a workspace added a moment ago on its first dashboard, without reading it', async () => {
+      sends.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ ok: true, applied: true });
+          }),
+      );
+      void changes.enqueue({
+        name: 'create_workspace',
+        payload: { commandId: 'c-add', issuedAt: '2026-10-21T09:00:00.000Z', workspaceId: 'ws-new', panelId: 'p-first', name: 'Bookkeeping' },
+      });
+
+      await open('/w/ws-new', [work]);
+
+      // The server has no such workspace yet, so a read of it would be refused.
+      expect(await screen.findByRole('link', { name: 'Dashboard 1' })).toBeVisible();
+      expect(screen.getByRole('link', { name: 'Bookkeeping' })).toHaveClass('active');
+      expect(readsSnapshot.mock.calls.map(([workspaceId]) => workspaceId)).not.toContain('ws-new');
+    });
+
+    it('invites you to make one when the one you have was deleted a moment ago', async () => {
+      deleted('ws-work');
+
+      await open('/w/ws-work', [work]);
+
+      expect(await screen.findByLabelText('Name of the new workspace')).toBeVisible();
     });
   });
 });
@@ -849,6 +911,62 @@ describe('Dashboards', () => {
       // Personal was never opened, so it opens on its own first dashboard -
       // not on the Research that Work remembers.
       expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+    });
+  });
+
+  describe('the address decides whether a dashboard exists from the copy as drawn', () => {
+    /** The answer to the change in flight, which the case lets go of at its end so the queue is empty for the next. */
+    let release: () => void;
+    const aDashboardChange = (change: Parameters<typeof changes.enqueue>[0]) => {
+      sends.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ ok: true, applied: true });
+          }),
+      );
+      void changes.enqueue(change);
+    };
+
+    afterEach(async () => {
+      cleanup();
+      release?.();
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      changes.forgetAnswered();
+    });
+
+    it('opens a dashboard added a moment ago, before the server has answered', async () => {
+      aDashboardChange({
+        name: 'add_dashboard',
+        payload: {
+          commandId: 'c-add',
+          issuedAt: '2026-10-21T09:00:00.000Z',
+          workspaceId: 'ws-work',
+          dashboardId: 'ws-work-library',
+          panelId: 'p-library',
+          name: 'Library',
+        },
+      });
+
+      await open('/w/ws-work/d/ws-work-library', [work, personal]);
+
+      expect(await screen.findByRole('heading', { name: 'Library' })).toBeVisible();
+    });
+
+    it('moves on from a dashboard deleted a moment ago, to the first that is left', async () => {
+      aDashboardChange({
+        name: 'delete_dashboard',
+        payload: {
+          commandId: 'c-delete',
+          issuedAt: '2026-10-21T09:00:00.000Z',
+          workspaceId: 'ws-work',
+          dashboardId: 'ws-work-research',
+        },
+      });
+
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+
+      expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      expect(screen.queryByRole('link', { name: 'Research' })).toBeNull();
     });
   });
 

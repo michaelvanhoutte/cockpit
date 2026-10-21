@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   cockpitLabelIn,
   conversationFrom,
+  emailFrom,
+  emailHistoryPage,
+  emailIdIn,
+  emailIn,
+  emailMarked,
+  emailSourceId,
   historyPage,
   labelChange,
   labelChangeRefusal,
@@ -200,6 +206,86 @@ describe('Capture', () => {
       },
     ])('reads $situation as $changed', ({ records, changed }) => {
       expect(historyPage(historyAnswer(records), COCKPIT_LABEL_ID).changed).toEqual(changed);
+    });
+  });
+
+  describe('a history page is read email by email for a star, and grouped by the conversation each email is in', () => {
+    const starred = ['INBOX', 'STARRED'];
+    it.each([
+      {
+        situation: 'two emails of one conversation starred',
+        records: [
+          historyRecord('11', { labelled: 'm1', threadId: 't', with: ['STARRED'], labelIds: starred }),
+          historyRecord('12', { labelled: 'm2', threadId: 't', with: ['STARRED'], labelIds: starred }),
+        ],
+        reads: [{ threadId: 't', gained: ['m1', 'm2'], changed: ['m1', 'm2'], relabelled: [] }],
+      },
+      {
+        situation: 'one email of a conversation starred and another unstarred',
+        records: [
+          historyRecord('11', { labelled: 'm1', threadId: 't', with: ['STARRED'], labelIds: starred }),
+          historyRecord('12', { unlabelled: 'm2', threadId: 't', with: ['STARRED'], labelIds: ['INBOX'] }),
+        ],
+        reads: [{ threadId: 't', gained: ['m1'], changed: ['m1', 'm2'], relabelled: [] }],
+      },
+      {
+        situation: 'the star added to an email and taken off it again within the page',
+        records: [
+          historyRecord('11', { labelled: 'm1', threadId: 't', with: ['STARRED'], labelIds: starred }),
+          historyRecord('12', { unlabelled: 'm1', threadId: 't', with: ['STARRED'], labelIds: ['INBOX'] }),
+        ],
+        reads: [{ threadId: 't', gained: [], changed: ['m1'], relabelled: [] }],
+      },
+      {
+        situation: 'emails of two conversations, one arriving already starred and one deleted for good',
+        records: [
+          historyRecord('11', { added: 'm1', threadId: 't-new', labelIds: starred }),
+          historyRecord('12', { deleted: 'm9', threadId: 't-gone' }),
+        ],
+        reads: [
+          { threadId: 't-new', gained: ['m1'], changed: ['m1'], relabelled: [] },
+          { threadId: 't-gone', gained: [], changed: ['m9'], relabelled: [] },
+        ],
+      },
+      {
+        situation: 'a reply arriving unstarred',
+        records: [historyRecord('11', { added: 'm3', threadId: 't', labelIds: ['INBOX', 'UNREAD'] })],
+        reads: [],
+      },
+    ])('reads $situation', ({ records, reads }) => {
+      expect(emailHistoryPage(historyAnswer(records), 'STARRED').conversations).toEqual(reads);
+    });
+  });
+
+  describe('an email, not its conversation, is what a star brings in', () => {
+    it('is read for its own subject, text and time, and linked by its own id', () => {
+      const thread = threadAnswer('t', [
+        message('t', { id: 'm1', sentAt: '2026-10-01T08:00:00Z', subject: 'Invoice 1', plain: 'Contract one' }),
+        message('t', { id: 'm2', sentAt: '2026-10-02T08:00:00Z', subject: 'Invoice 2', plain: 'Contract two', starred: true }),
+      ]);
+
+      expect(emailFrom(emailIn(thread, 'm2'), 'anna@example.com')).toMatchObject({
+        id: 'm2',
+        threadId: 't',
+        title: 'Invoice 2',
+        text: 'Contract two',
+        sentAt: '2026-10-02T08:00:00.000Z',
+        link: 'https://mail.google.com/mail/?authuser=anna%40example.com#all/m2',
+      });
+    });
+
+    it.each([
+      { situation: 'starred', labels: ['INBOX', 'STARRED'], counts: true },
+      { situation: 'unstarred', labels: ['INBOX'], counts: false },
+      { situation: 'starred and in the bin', labels: ['TRASH', 'STARRED'], counts: false },
+      { situation: 'starred and marked spam', labels: ['SPAM', 'STARRED'], counts: false },
+    ])('counts as starred while it is $situation: $counts', ({ labels, counts }) => {
+      expect(emailMarked({ id: 'm1', labelIds: labels }, 'STARRED')).toBe(counts);
+    });
+
+    it('is told from a conversation by its source id, which no conversation id can take', () => {
+      expect(emailIdIn(emailSourceId('18f0a1b2c3d4e5f1'))).toBe('18f0a1b2c3d4e5f1');
+      expect(emailIdIn('18f0a1b2c3d4e5f1')).toBeNull();
     });
   });
 

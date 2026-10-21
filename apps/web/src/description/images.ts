@@ -1,5 +1,6 @@
 import { ATTACHMENT_CONTENT_TYPES, MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
-import { Plugin, PluginKey, type EditorState } from '@milkdown/prose/state';
+import { Plugin, PluginKey, type Transaction } from '@milkdown/prose/state';
+import type { Node } from '@milkdown/prose/model';
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/prose/view';
 
 /**
@@ -25,85 +26,72 @@ export function whyNotInTheText(file: File): string | null {
   return null;
 }
 
-/** Puts a file into the Item's attachments and answers the address it is served from. */
-export type UploadImage = (file: File) => Promise<string>;
+/**
+ * Starts putting a file into the Item's attachments. `src` is the address the
+ * text will point at, known before the upload; `uploaded` settles when the
+ * upload has, rejecting with what to say about it - which the caller has said
+ * already, so the editor only takes the image back out.
+ */
+export type UploadImage = (file: File) => { src: string; uploaded: Promise<void> };
 
-type MarkerChange =
-  | { kind: 'place'; id: string; name: string; pos: number; order: number }
-  | { kind: 'remove'; id: string };
-
-interface MarkerSpec {
-  id: string;
-  name: string;
-  order: number;
-}
-
-const markersKey = new PluginKey<DecorationSet>('cockpit-description-uploads');
+const fromTheDeviceKey = new PluginKey<ReadonlyMap<string, string>>('cockpit-description-device-images');
 
 /**
- * "Uploading photo.png…" where each image will land, for as long as it uploads.
+ * Where each image in the text is drawn from, keyed by its address: the file on
+ * the device while it uploads, then the address itself.
  *
- * **A decoration, not a node**, so it is never in the document: it cannot be
- * saved, serialised or undone, and a Save pressed mid-upload writes the text
- * without it. Mapped through every change, so it moves with the text typed
- * around it and the image lands where it has moved to.
+ * **A decoration over the image, never a change to it**, so the text holds the
+ * final address from the first moment and a Save pressed mid-upload writes it.
+ * An entry is never taken away once the upload lands but pointed at the address
+ * instead: ProseMirror takes a decoration's attributes off the image by removing
+ * them, which would leave it with no `src` at all.
  */
-export const uploadMarkers = new Plugin<DecorationSet>({
-  key: markersKey,
+export const imagesFromTheDevice = new Plugin<ReadonlyMap<string, string>>({
+  key: fromTheDeviceKey,
   state: {
-    init: () => DecorationSet.empty,
-    apply(tr, set) {
-      let next = set.map(tr.mapping, tr.doc);
-      for (const change of (tr.getMeta(markersKey) as MarkerChange[] | undefined) ?? []) {
-        next = next.remove(next.find(undefined, undefined, (spec: MarkerSpec) => spec.id === change.id));
-        if (change.kind === 'place') next = next.add(tr.doc, [marker(change)]);
-      }
-      return next;
+    init: () => new Map(),
+    apply(tr, was) {
+      const drawn = tr.getMeta(fromTheDeviceKey) as [string, string][] | undefined;
+      return drawn ? new Map([...was, ...drawn]) : was;
     },
   },
   props: {
-    decorations: (state) => markersKey.getState(state),
+    decorations(state) {
+      const from = fromTheDeviceKey.getState(state);
+      if (!from?.size) return null;
+      const found: Decoration[] = [];
+      state.doc.descendants((node, pos) => {
+        const drawn = node.type.name === 'image' && from.get(node.attrs.src as string);
+        if (drawn) found.push(Decoration.node(pos, pos + node.nodeSize, { src: drawn }));
+        return !node.isInline;
+      });
+      return DecorationSet.create(state.doc, found);
+    },
   },
 });
 
-function marker({ id, name, pos, order }: { id: string; name: string; pos: number; order: number }) {
-  const spec: MarkerSpec = { id, name, order };
-  return Decoration.widget(
-    pos,
-    () => {
-      const dom = document.createElement('span');
-      dom.className = 'description-uploading';
-      dom.setAttribute('role', 'status');
-      dom.textContent = `Uploading ${name}…`;
-      return dom;
-    },
-    // `side` is negative, so the marker stays behind the cursor and what is
-    // typed next goes after the image, as it would after a pasted word; and
-    // it rises through a batch, which keeps the markers in the order given.
-    { ...spec, key: id, side: order - 1000, ignoreSelection: true },
-  );
+/** Resolves once the browser has the image at `src` ready to draw, or has given up on it. */
+function ready(src: string): Promise<unknown> {
+  const probe = new Image();
+  probe.src = src;
+  return typeof probe.decode === 'function' ? probe.decode().catch(() => {}) : Promise.resolve();
 }
-
-function markerAt(state: EditorState, id: string): MarkerSpec & { pos: number } | undefined {
-  const [found] = markersKey.getState(state)?.find(undefined, undefined, (spec: MarkerSpec) => spec.id === id) ?? [];
-  return found && { ...(found.spec as MarkerSpec), pos: found.from };
-}
-
-let lastMarker = 0;
 
 /**
- * Uploads each file and puts it in the text at `at` - the drop point - or at
- * the cursor, replacing any selection, the way a paste does.
+ * Puts each file in the text at `at` - the drop point - or at the cursor,
+ * replacing any selection, the way a paste does; and uploads it.
  *
- * **Uploaded together, landed in order**, so two images put in at once read in
- * the order they were given however their uploads finish. Each one that lands
- * carries the next one's marker to just after it.
+ * **In the text at once, under its final address**, drawn from the file on the
+ * device until the upload has landed and the browser holds the address's own
+ * copy, so the swap between the two cannot flicker. An upload that fails takes
+ * its image back out, and out of the undo history too, so Undo cannot bring a
+ * dead image back.
  *
- * `say` is handed what went wrong, all of it, every time it changes - an empty
- * string where nothing has, which clears what an earlier attempt said.
- * `gone` answers whether the editor has been taken down, after which nothing
- * lands: the file is still attached, and the text it would have gone into is
- * no longer anybody's.
+ * `say` is handed what went wrong with files that were never taken, every time
+ * it changes - an empty string where nothing has, which clears what an earlier
+ * attempt said. `gone` answers whether the editor has been taken down, after
+ * which nothing is drawn: the file is still attached, and the text it went into
+ * is no longer anybody's.
  */
 export async function putImages(
   view: EditorView,
@@ -114,70 +102,59 @@ export async function putImages(
   gone: () => boolean,
 ): Promise<void> {
   const trouble: string[] = [];
-  const taken: { file: File; id: string }[] = [];
+  const taken: File[] = [];
   for (const file of files) {
     const why = whyNotInTheText(file);
     if (why) trouble.push(why);
-    else taken.push({ file, id: `upload-${(lastMarker += 1)}` });
+    else taken.push(file);
   }
   say(trouble.join(' '));
   if (taken.length === 0) return;
 
   const { tr } = view.state;
-  let pos = at;
-  if (pos === undefined) {
-    tr.deleteSelection();
-    pos = tr.selection.from;
+  if (at === undefined) tr.deleteSelection();
+  let pos = at ?? tr.selection.from;
+  const putIn = [];
+  for (const file of taken) {
+    const { src, uploaded } = upload(file);
+    const device = URL.createObjectURL(file);
+    const placed = place(tr, pos, tr.doc.type.schema.node('image', { src, alt: file.name }));
+    pos = placed.end;
+    putIn.push({ src, device, uploaded, whole: placed.whole });
   }
-  const where = pos;
-  view.dispatch(
-    tr.setMeta(
-      markersKey,
-      taken.map(({ file, id }, order): MarkerChange => ({ kind: 'place', id, name: file.name, pos: where, order })),
-    ),
-  );
+  view.dispatch(tr.setMeta(fromTheDeviceKey, putIn.map(({ src, device }): [string, string] => [src, device])));
 
-  const landing = taken.map(({ file, id }) => ({
-    file,
-    id,
-    outcome: upload(file).then(
-      (src) => ({ src }),
-      (failure: unknown) => ({
-        failure: failure instanceof Error ? failure.message : `${file.name} could not be uploaded.`,
-      }),
-    ),
-  }));
-  for (const [index, { file, id, outcome: uploading }] of landing.entries()) {
-    const outcome = await uploading;
-    if (gone() || view.isDestroyed) return;
-    if ('src' in outcome) {
-      land(view, id, file.name, outcome.src, landing[index + 1]?.id);
-    } else {
-      view.dispatch(view.state.tr.setMeta(markersKey, [{ kind: 'remove', id }]));
-      trouble.push(outcome.failure);
-      say(trouble.join(' '));
-    }
-  }
+  const alive = () => !gone() && !view.isDestroyed;
+  await Promise.all(
+    putIn.map(async ({ src, device, uploaded, whole }) => {
+      const landed = await uploaded.then(
+        () => true,
+        () => false,
+      );
+      if (landed) await ready(src);
+      if (alive()) {
+        if (landed) view.dispatch(view.state.tr.setMeta(fromTheDeviceKey, [[src, src]]));
+        else takeOut(view, src, whole);
+      }
+      URL.revokeObjectURL(device);
+    }),
+  );
 }
 
 /**
- * The image, where its marker now is: inside the line where the marker sits
- * mid-text or on an empty line, and a paragraph of its own where it sits at
- * either end of a line, between blocks, or in a line that takes no image - so
- * an image dropped between two paragraphs lands between them rather than on
- * the end of the first.
+ * The image at `at`: inside the line where it sits mid-text or on an empty
+ * line, and a paragraph of its own where it sits at either end of a line,
+ * between blocks, or in a line that takes no image - so an image dropped
+ * between two paragraphs lands between them rather than on the end of the
+ * first. Answers where the next one goes, and whether the paragraph is ours.
  */
-function land(view: EditorView, id: string, name: string, src: string, nextId: string | undefined) {
-  const found = markerAt(view.state, id);
-  if (!found) return;
-  const { schema } = view.state;
-  const image = schema.node('image', { src, alt: name });
+function place(tr: Transaction, at: number, image: Node): { end: number; whole: boolean } {
+  const { schema } = tr.doc.type;
   const own = () => schema.node('paragraph', null, image);
-  const tr = view.state.tr;
-  const $pos = tr.doc.resolve(found.pos);
+  const $pos = tr.doc.resolve(at);
   const line = $pos.parent;
 
-  let into = found.pos;
+  let into = at;
   let node = image;
   if (!line.inlineContent) {
     node = own();
@@ -193,9 +170,25 @@ function land(view: EditorView, id: string, name: string, src: string, nextId: s
     node = own();
   }
   tr.insert(into, node);
+  return { end: into + node.nodeSize, whole: node !== image };
+}
 
-  const changes: MarkerChange[] = [{ kind: 'remove', id }];
-  const next = nextId && markerAt(view.state, nextId);
-  if (next) changes.push({ kind: 'place', ...next, pos: into + node.nodeSize });
-  view.dispatch(tr.setMeta(markersKey, changes));
+/**
+ * Takes the image at `src` out of the text, with the paragraph it had to itself
+ * if nothing else has been typed into it. Not in the undo history: Undo would
+ * bring back an image that was never there.
+ */
+function takeOut(view: EditorView, src: string, whole: boolean) {
+  let at: number | undefined;
+  view.state.doc.descendants((node, pos) => {
+    if (at === undefined && node.type.name === 'image' && node.attrs.src === src) at = pos;
+    return at === undefined;
+  });
+  if (at === undefined) return;
+  const tr = view.state.tr.delete(at, at + 1);
+  const $at = tr.doc.resolve(at);
+  if (whole && $at.parent.type.name === 'paragraph' && $at.parent.content.size === 0 && tr.doc.childCount > 1) {
+    tr.delete($at.before(), $at.after());
+  }
+  view.dispatch(tr.setMeta('addToHistory', false));
 }

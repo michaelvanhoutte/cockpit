@@ -14,6 +14,7 @@ import type {
   RewriteHistoryEntry,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
+import { changes } from '../../../src/api/changes';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
@@ -99,13 +100,18 @@ function FakeRichDescription({
   initial: string;
   onChange: (markdown: string) => void;
   editable: boolean;
-  uploadImage?: (file: File) => Promise<string>;
+  uploadImage?: (file: File) => { src: string; uploaded: Promise<void> };
   reading?: boolean;
   focusWhenReady?: boolean;
 }) {
   const [value, setValue] = useState(initial);
-  const [trouble, setTrouble] = useState('');
   const box = useRef<HTMLTextAreaElement>(null);
+  const text = useRef(initial);
+  const write = (next: string) => {
+    text.current = next;
+    setValue(next);
+    onChange(next);
+  };
   useEffect(() => {
     if (focusWhenReady) box.current?.focus();
   }, [focusWhenReady]);
@@ -128,8 +134,8 @@ function FakeRichDescription({
   }
   return (
     <>
-      {/* An image put in, landing at the end of the text once it uploads,
-          or saying why not - what the real editor does with the form's
+      {/* An image put in at the end of the text at once, and taken back out
+          if the upload fails - what the real editor does with the form's
           upload, in tests/unit/description/RichDescription.test.tsx. Ahead
           of the text, where the real toolbar is, so Tab out of the text
           still leaves the description. */}
@@ -139,18 +145,13 @@ function FakeRichDescription({
           aria-label="Image to put in the description"
           onChange={(event) => {
             const file = event.target.files![0]!;
-            void uploadImage(file).then(
-              (src) => {
-                const next = `${value}![${file.name}](${src})`;
-                setValue(next);
-                onChange(next);
-              },
-              (failure: Error) => setTrouble(failure.message),
-            );
+            const { src, uploaded } = uploadImage(file);
+            const put = `![${file.name}](${src})`;
+            write(text.current + put);
+            uploaded.catch(() => write(text.current.replace(put, '')));
           }}
         />
       )}
-      {trouble && <p>{trouble}</p>}
       <textarea
         ref={box}
         aria-label="Description"
@@ -159,10 +160,7 @@ function FakeRichDescription({
         className={DESCRIPTION_TEXT_CLASS}
         disabled={!editable}
         value={value}
-        onChange={(event) => {
-          setValue(event.target.value);
-          onChange(event.target.value);
-        }}
+        onChange={(event) => write(event.target.value)}
       />
     </>
   );
@@ -172,7 +170,9 @@ vi.mock('../../../src/description/RichDescription', () => ({
   default: FakeRichDescription,
 }));
 
-vi.mock('../../../src/api/queries', () => ({
+vi.mock('../../../src/api/queries', async (importOriginal) => ({
+  // What the undo bar says of a change that did not happen is the real wording.
+  whyNotDone: (await importOriginal<typeof import('../../../src/api/queries')>()).whyNotDone,
   useSendCommand: () => held.send,
   // What a filing is built on: the Panel as it stands now, which is what `held` holds.
   useLatestSnapshot: () => async () => ({ filings: held.filings }),
@@ -207,6 +207,7 @@ vi.mock('../../../src/api/queries', () => ({
     queryFn: async (): Promise<WorkspaceSnapshot> => {
       await held.gate;
       return {
+        workspace: { id: 'ws-work', tenantId: 'tenant' },
         items: held.items,
         filings: held.filings,
         panels: held.panels,
@@ -359,16 +360,22 @@ const aPhotoFile = expect.objectContaining({ name: 'photo.png' });
 /** An upload held in flight until the test lands it, answering the attachment id it was sent with. */
 function heldUpload() {
   let land = () => {};
+  let fail = (_failure: unknown) => {};
   vi.mocked(uploadAttachment).mockImplementation(
     () =>
-      new Promise((resolve) => {
+      new Promise((resolve, reject) => {
         land = () => resolve({ ok: true as const, applied: true });
+        fail = reject;
       }),
   );
   return {
     land: () =>
       act(async () => {
         land();
+      }),
+    fail: (failure: unknown) =>
+      act(async () => {
+        fail(failure);
       }),
     attachmentId: () => vi.mocked(uploadAttachment).mock.calls[0]![0].attachmentId,
   };
@@ -383,6 +390,8 @@ const sent = () =>
 beforeEach(() => {
   cleanup();
   localStorage.clear();
+  // A file uploaded by the last test is still drawn on its Item until a read has covered it.
+  changes.forgetAnswered();
   held.send.mockClear();
   held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
   held.close.mockClear();
@@ -2348,43 +2357,49 @@ describe('Item editing', () => {
    * text is the editor's, in tests/unit/description/RichDescription.test.tsx.
    */
   describe('an image in the description is an attachment of the item', () => {
-    it('is attached to this item, listed as attaching while it uploads, and put in the text at its address', async () => {
+    it('is attached to this item, in the text at its address before the upload answers, and a chip once it has', async () => {
       const upload = heldUpload();
       const user = await theForm(anItem({ id: 'item-1' }));
 
       await user.upload(imageInput(), aPhoto());
 
-      expect(screen.getByText('Attaching…')).toBeVisible();
       expect(uploadAttachment).toHaveBeenCalledWith(
         expect.objectContaining({ itemId: 'item-1', workspaceId: 'ws-work', file: aPhotoFile }),
       );
+      expect(descriptionBox()).toHaveValue(`![photo.png](${attachmentUrl(upload.attachmentId())})`);
+      expect(screen.getByText('Attaching…')).toBeVisible();
       await upload.land();
-      await waitFor(() =>
-        expect(descriptionBox()).toHaveValue(`![photo.png](${attachmentUrl(upload.attachmentId())})`),
-      );
+      expect(descriptionBox()).toHaveValue(`![photo.png](${attachmentUrl(upload.attachmentId())})`);
       expect(screen.queryByText('Attaching…')).toBeNull();
+      expect(screen.getByRole('link', { name: /photo\.png/ })).toHaveAttribute(
+        'href',
+        attachmentUrl(upload.attachmentId()),
+      );
     });
 
     it.each([
       {
         situation: 'the server refuses it',
         failure: new CommandRefused(413, 'That file is too large to attach.'),
-        said: 'That file is too large to attach.',
+        said: 'photo.png was not put in the description. That file is too large to attach.',
       },
       {
         situation: 'the connection drops',
         failure: new TypeError('Failed to fetch'),
-        said: 'photo.png could not be uploaded - the connection dropped.',
+        said: 'photo.png was not put in the description. That did not reach the server. Try again.',
       },
-    ])('says why when $situation, and puts nothing in the text', async ({ failure, said }) => {
-      vi.mocked(uploadAttachment).mockRejectedValue(failure);
-      const user = await theForm(anItem());
-
+    ])('says why in the undo bar when $situation, and takes the image back out of the text', async ({ failure, said }) => {
+      const upload = heldUpload();
+      const user = await theForm(anItem(), [], true);
       await user.upload(imageInput(), aPhoto());
+      expect(descriptionBox()).not.toHaveValue('');
+
+      await upload.fail(failure);
 
       expect(await screen.findByText(said)).toBeVisible();
       expect(descriptionBox()).toHaveValue('');
       expect(screen.queryByText('Attaching…')).toBeNull();
+      expect(screen.queryByRole('link', { name: /photo\.png/ })).toBeNull();
     });
   });
 
@@ -2438,15 +2453,12 @@ describe('Item editing', () => {
   });
 
   describe('an image that finishes uploading after you have moved on is still handled', () => {
-    it('writes the description, docked, when the image lands after the cursor has left it', async () => {
+    it('writes the description, docked, with the image’s address while it is still uploading, when the cursor is not in the text', async () => {
       held.itemFormPresentation = 'docked';
       const upload = heldUpload();
       const user = await theForm(anItem());
 
       await user.upload(imageInput(), aPhoto());
-      await user.click(titleBox());
-      expect(sent()).toEqual([]);
-      await upload.land();
 
       await waitFor(() =>
         expect(sent()).toContainEqual(
@@ -2465,7 +2477,7 @@ describe('Item editing', () => {
     it.each([
       { situation: 'closed', after: () => (held.openItemId = undefined) },
       { situation: 'switched to another item', after: () => (held.openItemId = 'item-2') },
-    ])('attaches it to the original item and changes neither description when the form is $situation', async ({
+    ])('attaches it to the original item and writes no description for another when the form is $situation', async ({
       after,
     }) => {
       held.itemFormPresentation = 'docked';
@@ -2488,7 +2500,10 @@ describe('Item editing', () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
 
       expect(uploadAttachment).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1' }));
-      expect(sent().filter((change) => change.name === 'set_description')).toEqual([]);
+      const descriptions = sent().filter((change) => change.name === 'set_description');
+      expect(descriptions).toEqual([
+        expect.objectContaining({ payload: expect.objectContaining({ itemId: 'item-1' }) }),
+      ]);
     });
   });
 

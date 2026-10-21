@@ -17,12 +17,10 @@ function answered(answer: MirroredOpenStates): { confirmed: string[]; gaveUp: st
 }
 
 describe('Connector management', () => {
-  describe('a Task closed or reopened in Cockpit takes the label or star off its conversation, or puts it back, until Gmail has it', () => {
+  describe('a Task closed or reopened in Cockpit takes the label off its conversation, or puts it back, until Gmail has it', () => {
     it.each([
       { situation: 'closed, by label', choice: 'label', mark: 'label', open: false, markId: COCKPIT_LABEL_ID, holds: false },
       { situation: 'reopened, by label', choice: 'label', mark: 'label', open: true, markId: COCKPIT_LABEL_ID, holds: true },
-      { situation: 'closed, by star', choice: 'star', mark: 'star', open: false, markId: STARRED, holds: false },
-      { situation: 'reopened, by star', choice: 'star', mark: 'star', open: true, markId: STARRED, holds: true },
     ] as const)('$situation: the conversation ends up as wanted, and the change is confirmed', async (one) => {
       const world = new GmailWorld();
       world.arrives('t-1', 'One', 'x', [one.mark]);

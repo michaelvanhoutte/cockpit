@@ -1,10 +1,10 @@
 import 'fake-indexeddb/auto';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CommandResult, Item, WorkspaceSnapshot } from '@cockpit/shared';
+import type { CommandResult, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
 import { CommandRefused, fetchSnapshot, fetchWorkspaces, sendCommand } from '../../../src/api/client';
 import { InboxPanel } from '../../../src/components/InboxPanel';
@@ -123,6 +123,9 @@ const MAGGIE = 'item-maggie';
 /** What the server holds, which a change changes only when the test lets the server answer it. */
 let stored: Item[];
 
+/** The pairs the server offers as possible duplicates. */
+let pairs: PossibleDuplicate[];
+
 /** Every change the server has been sent and not yet answered, oldest first. */
 let waiting: { name: string; payload: Record<string, unknown>; answer: () => void; refuse: (error: Error) => void }[];
 
@@ -139,6 +142,11 @@ function keep(name: string, payload: Record<string, unknown>) {
   if (name === 'set_title') change({ title: payload.title as string });
   if (name === 'set_description') change({ description: payload.description as string | null });
   if (name === 'set_dismissed' && payload.dismissed) stored = stored.filter((item) => item.id !== itemId);
+  if (name === 'set_duplicate_settled') {
+    const pair = { itemId, otherItemId: payload.otherItemId as string };
+    pairs = pairs.filter((held) => !(held.itemId === pair.itemId && held.otherItemId === pair.otherItemId));
+    if (!payload.settled) pairs = [...pairs, pair];
+  }
 }
 
 function theWorkspace(presentation: 'centered' | 'docked' = 'centered'): WorkspaceSnapshot {
@@ -151,7 +159,7 @@ function theWorkspace(presentation: 'centered' | 'docked' = 'centered'): Workspa
     associations: [],
     attachments: [],
     itemFormPresentation: presentation,
-    duplicates: [],
+    duplicates: pairs,
     filings: [],
     agentRuns: [],
     generatedAt: '2026-10-20T09:00:00.000Z',
@@ -173,8 +181,12 @@ function aScreen() {
 }
 
 /** Opens the Workspace with these Items in its Inbox, and the server answering nothing until told to. */
-async function show(items: Item[], options: { form?: 'centered' | 'docked'; openItem?: string } = {}) {
+async function show(
+  items: Item[],
+  options: { form?: 'centered' | 'docked'; openItem?: string; pairs?: PossibleDuplicate[] } = {},
+) {
   stored = items;
+  pairs = options.pairs ?? [];
   presentation = options.form ?? 'centered';
   opened.item = options.openItem;
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -505,3 +517,132 @@ describe('Item editing', () => {
   });
 });
 
+
+const theMark = (title: string) => within(rowOf(title)).queryByText('Duplicate?');
+
+/** Opens a row's menu and chooses Not a duplicate. */
+async function saidNotADuplicate(user: ReturnType<typeof userEvent.setup>, title: string) {
+  await user.click(within(rowOf(title)).getByLabelText('Item actions'));
+  await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
+}
+
+const BART_AND_LISA = [{ itemId: BART, otherItemId: LISA }];
+
+describe('Triage', () => {
+  describe('saying a pair is not a duplicate clears its mark at once, with the server still holding the answer', () => {
+    it('takes the mark off both rows when it is chosen from the row’s menu', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA });
+      expect(theMark('Reply to Bart')).toBeVisible();
+      expect(theMark('Reply to Lisa')).toBeVisible();
+
+      await saidNotADuplicate(user, 'Reply to Bart');
+
+      expect(theMark('Reply to Bart')).toBeNull();
+      expect(theMark('Reply to Lisa')).toBeNull();
+      expect(screen.getByRole('status')).toHaveTextContent('is not a duplicate');
+      expect(waiting.map((request) => request.name)).toEqual(['set_duplicate_settled']);
+    });
+
+    it('takes the warning from the form, and the marks from the rows, when it is chosen there', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA, openItem: BART });
+      await screen.findByText('Possible duplicate of');
+
+      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+
+      expect(screen.queryByText('Possible duplicate of')).toBeNull();
+      expect(theMark('Reply to Bart')).toBeNull();
+      expect(theMark('Reply to Lisa')).toBeNull();
+      expect(waiting.map((request) => request.name)).toEqual(['set_duplicate_settled']);
+    });
+
+    it('clears every pair of a row flagged against two others when it is chosen from the row’s menu', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa'), anItem(MAGGIE, 'Reply to Maggie')], {
+        pairs: [
+          { itemId: BART, otherItemId: LISA },
+          { itemId: BART, otherItemId: MAGGIE },
+        ],
+      });
+
+      await saidNotADuplicate(user, 'Reply to Bart');
+
+      for (const title of ['Reply to Bart', 'Reply to Lisa', 'Reply to Maggie']) expect(theMark(title)).toBeNull();
+    });
+
+    it('keeps the mark on a row whose other pair was not the one settled in the form', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa'), anItem(MAGGIE, 'Reply to Maggie')], {
+        pairs: [
+          { itemId: BART, otherItemId: LISA },
+          { itemId: BART, otherItemId: MAGGIE },
+        ],
+        openItem: BART,
+      });
+      await screen.findByText('Possible duplicate of');
+
+      await user.click(screen.getAllByRole('button', { name: 'Not a duplicate' })[0]!);
+
+      // One of the two pairs is settled: Bart, and the note it was settled against, stay flagged by the other.
+      expect(theMark('Reply to Bart')).toBeVisible();
+      expect(['Reply to Lisa', 'Reply to Maggie'].filter((title) => theMark(title) !== null)).toHaveLength(1);
+    });
+  });
+
+  describe('Undo brings the mark back at once, with the server still holding the answer', () => {
+    it('puts the mark back on both rows when the pair settled from a row’s menu is taken back', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA });
+      await saidNotADuplicate(user, 'Reply to Bart');
+      await answerNext();
+      // The read behind the answer has landed, and the pair is not in it.
+      expect(theMark('Reply to Bart')).toBeNull();
+
+      await user.click(await screen.findByRole('button', { name: 'Undo' }));
+
+      expect(theMark('Reply to Bart')).toBeVisible();
+      expect(theMark('Reply to Lisa')).toBeVisible();
+      expect(waiting.map((request) => [request.name, request.payload.settled])).toEqual([['set_duplicate_settled', false]]);
+    });
+
+    it('puts the warning back in the form when the pair settled there is taken back', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA, openItem: BART });
+      await screen.findByText('Possible duplicate of');
+      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+      await answerNext();
+      expect(screen.queryByText('Possible duplicate of')).toBeNull();
+
+      // The open form is a dialog, which hides what is behind it from the accessibility tree and from a pointer
+      // here (the bar takes presses itself, styles.css); so it is pressed directly.
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo', hidden: true }));
+
+      expect(screen.getByText('Possible duplicate of')).toBeVisible();
+    });
+  });
+
+  describe('a refused “Not a duplicate” brings the mark back and says why where it says so today', () => {
+    it('puts the marks back and says why in the bar when the row’s menu choice is refused', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA });
+      await saidNotADuplicate(user, 'Reply to Bart');
+      expect(theMark('Reply to Bart')).toBeNull();
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(404, 'That note was dismissed.')));
+      await settle();
+
+      expect(theMark('Reply to Bart')).toBeVisible();
+      expect(theMark('Reply to Lisa')).toBeVisible();
+      expect(screen.getByRole('status')).toHaveTextContent('is still marked as a possible duplicate. That note was dismissed.');
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    });
+
+    it('puts the warning back and says why in the form when the choice there is refused', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA, openItem: BART });
+      await screen.findByText('Possible duplicate of');
+      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+      expect(screen.queryByText('Possible duplicate of')).toBeNull();
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(404, 'That note was dismissed.')));
+      await settle();
+
+      expect(screen.getByText('Possible duplicate of')).toBeVisible();
+      expect(await screen.findByRole('alert')).toHaveTextContent('That note was dismissed.');
+      expect(screen.queryByRole('button', { name: 'Undo', hidden: true })).toBeNull();
+    });
+  });
+});

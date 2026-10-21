@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
-import { CommandRefused } from '../api/client';
+import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind } from '@cockpit/shared';
 import { dashboardScope, pickAll, shownOn } from '../selection';
 import { filtersUsingDashboard, joinedBy } from '../filters';
-import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
+import { useSendCommand, whyNotDone as whyNot } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import {
   NO_DASHBOARD_FILTER,
@@ -23,6 +21,7 @@ import { browserStore } from '../lastVisited';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { keepingTheOpenItem } from '../itemForm';
 import { useTabDrag } from '../tabDrag';
+import { useUndo } from '../undo';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { FunnelGlyph } from './DashboardFilterBar';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -99,21 +98,8 @@ export function DashboardBar({
   // snapshot: the controls below are locked from the first paint.
   const openIsFiltered = isFiltering(openFilter);
 
-  const command = useCommand();
-  /**
-   * The move's own, rather than the `command` every entry of every tab's menu
-   * shares.
-   *
-   * **Two reasons, and both are bugs on one mutation.** Opening any entry calls
-   * `command.reset()`, which takes the observer off whatever is still in flight
-   * - so a move refused while somebody opens a menu would never run its
-   * `onError`, and the bar would go on painting an order the server declined.
-   * And `isPending` belongs to whatever was sent last, so a move still in
-   * flight would grey out the Yes of a delete question about another dashboard.
-   */
-  const moving = useCommand();
   const send = useSendCommand();
-  const queryClient = useQueryClient();
+  const offerToUndo = useUndo();
   /**
    * The dashboard whose form is open and the name typed into it, and the one
    * whose delete is waiting to be confirmed. Nothing is sent until Save or
@@ -121,8 +107,6 @@ export function DashboardBar({
    */
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
   /**
    * The tab the form or the question was opened from, so the focus can go back
    * to it. A ref rather than state: nothing on screen depends on it, and it is
@@ -141,88 +125,25 @@ export function DashboardBar({
   const order = dashboards.map((d) => d.id);
 
   /**
-   * Moves a dashboard along the bar, and shows it moved before the server has
-   * agreed - the same two halves the workspace strip's own move has
-   * (`WorkspaceTabs.tsx`), for the same reasons.
-   *
-   * **Shown first, put back if it is refused**, which is correctness rather
-   * than feel: the order a move is computed from is the order in hand, so a
-   * second move made before the first came back would be computed from the bar
-   * *before* the first and would undo it.
-   *
-   * Only `dashboards` is rewritten. The snapshot holds the whole workspace, so
-   * replacing it with anything less would take the panels and the items off the
-   * screen for as long as the move is in flight.
+   * Moves a dashboard along the bar, shown moved at once: the change is drawn
+   * over the server's copy (`drawnAhead.ts`), so the bar the next move is
+   * computed from is the bar as it stands, and a second move made before the
+   * first is answered builds on it rather than undoing it. A refusal puts the
+   * tabs back and says why in the undo bar.
    */
   const move = (dashboardId: string, moved: string[]) => {
-    const key = snapshotQuery(workspaceId).queryKey;
-    // Anything already asking for this workspace is stopped first, or it lands
-    // after the write below and paints the order from before the move - the
-    // snapshot is re-read after almost every change, on every server event and
-    // on window focus, so there is often one in the air. Not awaited: the
-    // fetches are stopped inside the call, and waiting on the promise would
-    // hold the write back a render after the drop, so the tab would jump back
-    // to its old place for that render.
-    void queryClient.cancelQueries({ queryKey: key });
-    /** The order as it was, which is the whole of what a refusal has to undo. */
-    const wasInThisOrder = queryClient
-      .getQueryData<WorkspaceSnapshot>(key)
-      ?.dashboards.map((d) => d.id);
-    queryClient.setQueryData<WorkspaceSnapshot>(key, (held) =>
-      held
-        ? {
-            ...held,
-            dashboards: [
-              ...moved.flatMap((id) => held.dashboards.filter((d) => d.id === id)),
-              // One the move never named, arrived since the bar was drawn: kept
-              // on the end rather than taken off it for the round trip.
-              ...held.dashboards.filter((d) => !moved.includes(d.id)),
-            ],
-          }
-        : held,
-    );
-    moving.mutate(
-      {
-        name: 'reorder_dashboards',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          dashboardId,
-          dashboardIds: moved,
-        },
+    send({
+      name: 'reorder_dashboards',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        dashboardId,
+        dashboardIds: moved,
       },
-      {
-        // Both answers to a refusal, and each covers what the other cannot. The
-        // order goes back first, because it is the only answer available when
-        // the request never reached the server at all. Then a re-read, because
-        // that order is only right when this was the one move in flight.
-        //
-        // The order alone, onto whatever the cache holds now, rather than the
-        // whole copy taken before the move: a snapshot re-read in between would
-        // otherwise be undone with it, taking an item captured in another tab
-        // back off the screen until the re-read below lands. A dashboard the
-        // cache holds that the old order never named - one added in another tab
-        // while the move was in flight, which is also what makes the server
-        // refuse it - goes on the end rather than off the bar.
-        onError: () => {
-          if (wasInThisOrder) {
-            queryClient.setQueryData<WorkspaceSnapshot>(key, (now) =>
-              now
-                ? {
-                    ...now,
-                    dashboards: [
-                      ...wasInThisOrder.flatMap((id) => now.dashboards.filter((d) => d.id === id)),
-                      ...now.dashboards.filter((d) => !wasInThisOrder.includes(d.id)),
-                    ],
-                  }
-                : now,
-            );
-          }
-          void queryClient.invalidateQueries({ queryKey: key });
-        },
-      },
-    );
+    }).catch((failure: unknown) => {
+      offerToUndo({ what: `The dashboards were not put in that order. ${whyNot(failure)}` });
+    });
   };
 
   const drag = useTabDrag({ order, onDrop: move });
@@ -314,73 +235,60 @@ export function DashboardBar({
    * with the box untouched must send no change at all, or it would carry the
    * name the form was opened with over an edit made somewhere else in the
    * meantime.
+   *
+   * **The form closes at the click.** The tab shows the new name at once
+   * (`drawnAhead.ts`), and a name the server refuses goes back to the old one
+   * with the server's words in the undo bar.
    */
-  const saveForm = async () => {
+  const saveForm = () => {
     if (!editing || !beingEdited) return;
     const named = editing.name.trim();
     if (!named) return;
-    setSaving(true);
-    setSaveRefusal(null);
-    try {
-      if (named !== beingEdited.name) {
-        await send({
-          name: 'rename_dashboard',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            workspaceId,
-            dashboardId: editing.id,
-            name: named,
-          },
-        });
-      }
-      setEditing(null);
-    } catch (failure) {
-      // The form stays open with what was typed still in it, so a name the
-      // server would not take can be corrected rather than typed again.
-      setSaveRefusal(
-        failure instanceof CommandRefused
-          ? failure.message
-          : 'That did not reach the server. Try again.',
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const confirmDelete = (dashboardId: string) => {
-    command.mutate(
-      {
-        name: 'delete_dashboard',
+    const was = beingEdited.name;
+    if (named !== was) {
+      send({
+        name: 'rename_dashboard',
         payload: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId,
-          dashboardId,
+          dashboardId: editing.id,
+          name: named,
         },
-      },
-      {
-        onSuccess: async () => {
-          setDeleting(null);
-          focusOwedAfterDeleting.current = dashboardId;
-          // Deleting the one you are looking at moves the workspace on behind
-          // you, its own address deciding where you land; deleting any other
-          // leaves the screen alone.
-          if (dashboardId !== openDashboardId) return;
-          // Re-read before going anywhere, for the reason adding one does: the
-          // snapshot in hand still holds the dashboard that has just gone, and
-          // the workspace's own route reads it to decide where to land -
-          // without this it lands back on the deleted one and remembers it,
-          // leaving you on a dashboard that is not there. `useCommand` asks for
-          // the same re-read but does not wait for it, and this is the caller
-          // that has to.
-          await queryClient.refetchQueries({ queryKey: ['snapshot', workspaceId] });
-          void navigate({ to: '/w/$workspaceId', params: { workspaceId }, search: keepingTheOpenItem });
-        },
-      },
-    );
+      }).catch((failure: unknown) => {
+        offerToUndo({ what: `“${was}” was not renamed to “${named}”. ${whyNot(failure)}` });
+      });
+    }
+    setEditing(null);
   };
 
+  /**
+   * Deletes at the click: the tab is gone at once, and deleting the one you are
+   * on moves on to the next at once, the workspace's own address deciding where
+   * from the copy as drawn (`router.tsx`). A refusal brings the tab back and says
+   * why in the undo bar.
+   */
+  const confirmDelete = (dashboardId: string) => {
+    const was = dashboards.find((one) => one.id === dashboardId)?.name ?? 'The dashboard';
+    // Before the question closes, which is what the focus effect below runs after.
+    focusOwedAfterDeleting.current = dashboardId;
+    send({
+      name: 'delete_dashboard',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        dashboardId,
+      },
+    }).catch((failure: unknown) => {
+      if (focusOwedAfterDeleting.current === dashboardId) focusOwedAfterDeleting.current = null;
+      offerToUndo({ what: `“${was}” was not deleted. ${whyNot(failure)}` });
+    });
+    setDeleting(null);
+    // Deleting any other leaves the screen alone.
+    if (dashboardId !== openDashboardId) return;
+    void navigate({ to: '/w/$workspaceId', params: { workspaceId }, search: keepingTheOpenItem });
+  };
   /**
    * The focus, once a delete has taken the tab it was asked from. It goes to
    * the tab you are on, which is the nearest thing to where you were: the
@@ -477,8 +385,6 @@ export function DashboardBar({
       label: 'Edit…',
       onSelect: (from: HTMLElement | null) => {
         setDeleting(null);
-        command.reset();
-        setSaveRefusal(null);
         askedFrom.current = from;
         setEditing({ id: dashboard.id, name: dashboard.name });
       },
@@ -489,7 +395,6 @@ export function DashboardBar({
       unavailable: dashboards.length === 1 ? 'A workspace keeps its last dashboard' : undefined,
       onSelect: (from: HTMLElement | null) => {
         setEditing(null);
-        command.reset();
         askedFrom.current = from;
         setDeleting(dashboard.id);
       },
@@ -661,7 +566,7 @@ export function DashboardBar({
           </Link>
         </SurfaceMenu>
       )}
-      <AddDashboard workspaceId={workspaceId} />
+      <AddDashboard workspaceId={workspaceId} openDashboardId={openDashboardId} allItemsOpen={allItemsOpen} />
 
       {/* The open dashboard's own controls, at the right of its own bar: the
           way to put another panel on it, and its actions. Only where a
@@ -707,14 +612,10 @@ export function DashboardBar({
           name={editing.name}
           nameLabel={`Name of ${beingEdited.name}`}
           onName={(named) => setEditing({ ...editing, name: named })}
-          refusal={saveRefusal}
-          saving={saving}
+          saving={false}
           returnFocusTo={askedFrom.current}
-          onCancel={() => {
-            setEditing(null);
-            setSaveRefusal(null);
-          }}
-          onSave={() => void saveForm()}
+          onCancel={() => setEditing(null)}
+          onSave={saveForm}
         />
       )}
 
@@ -723,15 +624,8 @@ export function DashboardBar({
           open
           question={deleteQuestion(beingDeleted.name, panelsGoingWithIt, filtersUsingDashboard(beingDeleted.id, data?.panels ?? [], dashboards))}
           confirmLabel={`Yes, delete ${beingDeleted.name}`}
-          canConfirm={!command.isPending}
-          // The refusal belongs to the control that asked for it, and
-          // `variables` is the last thing sent with only ever one in flight.
-          refusal={command.variables?.name === 'delete_dashboard' ? refusalFrom(command) : null}
           returnFocusTo={askedFrom.current}
-          onCancel={() => {
-            setDeleting(null);
-            command.reset();
-          }}
+          onCancel={() => setDeleting(null)}
           onConfirm={() => confirmDelete(beingDeleted.id)}
         />
       )}
@@ -820,82 +714,90 @@ function FilterFunnel({
   );
 }
 
-function AddDashboard({ workspaceId }: { workspaceId: string }) {
+function AddDashboard({
+  workspaceId,
+  openDashboardId,
+  allItemsOpen,
+}: {
+  workspaceId: string;
+  openDashboardId: string | null;
+  allItemsOpen: boolean;
+}) {
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
-  const command = useCommand();
+  const send = useSendCommand();
+  const offerToUndo = useUndo();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const button = useRef<HTMLButtonElement>(null);
+  /**
+   * The dashboard on screen as of the latest render, which a refusal that
+   * arrives later reads: it puts you back only if you are still on the one that
+   * has just gone.
+   */
+  const onScreen = useRef(openDashboardId);
+  useEffect(() => {
+    onScreen.current = openDashboardId;
+  }, [openDashboardId]);
 
+  /**
+   * Adds at the click: the tab, the board on it and the switch to it all happen
+   * before the server has answered, and no read is asked for first - the route
+   * decides whether the dashboard exists against the copy as drawn
+   * (`router.tsx`). A refusal takes the tab away, puts you back where you were
+   * and says why in the undo bar.
+   */
   const submit = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
     // The id is made here rather than inside the payload so that the dashboard
     // to switch to is known before the answer comes back.
     const dashboardId = uuidv7();
-    command.mutate(
-      {
-        name: 'add_dashboard',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          dashboardId,
-          // The panel it arrives with, made here for the reason the dashboard's
-          // own id is.
-          panelId: uuidv7(),
-          name: trimmed,
-        },
+    const cameFrom = { openDashboardId, allItemsOpen };
+    send({
+      name: 'add_dashboard',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        dashboardId,
+        // The panel it arrives with, made here for the reason the dashboard's
+        // own id is.
+        panelId: uuidv7(),
+        name: trimmed,
       },
-      // Closed, emptied, and switched to only once it worked. A refusal leaves
-      // the field open with what was typed still in it, so the name can be
-      // fixed rather than typed again.
-      {
-        onSuccess: async () => {
-          close();
-          // Re-read before going there. The dashboard's own route checks that
-          // it is one of the workspace's, against the snapshot in hand - and
-          // the snapshot in hand is the one from before this dashboard
-          // existed, so without this it decides the new dashboard is not real
-          // and sends you back to the one you were already on: adding one
-          // would look like doing nothing.
-          //
-          // Here rather than in the route because this is where it is known to
-          // be needed, and where the network is known to be working: the add
-          // has just come back.
-          await queryClient.refetchQueries({ queryKey: ['snapshot', workspaceId] });
-          // You are put on the dashboard you just made: adding one and then
-          // having to find it in the bar is two gestures for what reads as one.
-          void navigate({
-            to: '/w/$workspaceId/d/$dashboardId',
-            params: { workspaceId, dashboardId },
-            search: keepingTheOpenItem,
-          });
-        },
-      },
-    );
+    }).catch((failure: unknown) => {
+      offerToUndo({ what: `“${trimmed}” was not added. ${whyNot(failure)}` });
+      if (onScreen.current === dashboardId) {
+        void navigate(
+          cameFrom.openDashboardId
+            ? {
+                to: '/w/$workspaceId/d/$dashboardId',
+                params: { workspaceId, dashboardId: cameFrom.openDashboardId },
+                search: keepingTheOpenItem,
+              }
+            : cameFrom.allItemsOpen
+              ? { to: '/w/$workspaceId/items', params: { workspaceId }, search: keepingTheOpenItem }
+              : { to: '/w/$workspaceId/inbox', params: { workspaceId }, search: keepingTheOpenItem },
+        );
+      }
+    });
+    close();
+    // You are put on the dashboard you just made: adding one and then having
+    // to find it in the bar is two gestures for what reads as one. Counted as
+    // on screen from here, so a refusal that settles before the route has
+    // landed (one refused offline, before it is sent) still puts you back.
+    onScreen.current = dashboardId;
+    void navigate({
+      to: '/w/$workspaceId/d/$dashboardId',
+      params: { workspaceId, dashboardId },
+      search: keepingTheOpenItem,
+    });
   };
 
-  // The server's words where it gave any ("a dashboard called Research already
-  // exists in this workspace"), and something plain where the request never got
-  // an answer.
-  const refusal =
-    command.error instanceof CommandRefused
-      ? command.error.message
-      : command.error
-        ? 'That did not reach the server. Try again.'
-        : null;
-
-  /**
-   * Closing forgets the refusal with it. `AddDashboard` stays mounted either
-   * way, so a refusal that is only hidden would come back the moment the dialog
-   * is opened again, over a name nobody has typed yet.
-   */
+  /** Closing empties the field, so the next time it opens it asks for a name nobody has typed yet. */
   const close = () => {
     setNaming(false);
     setName('');
-    command.reset();
   };
 
   return (
@@ -920,8 +822,6 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
         onNameChange={setName}
         onSubmit={submit}
         onCancel={close}
-        refusal={refusal}
-        busy={command.isPending}
         returnFocusTo={button.current}
       />
     </>
@@ -963,21 +863,23 @@ function AddPanel({
    * of items nobody chose.
    */
   const [kind, setKind] = useState<PanelKind | 'section'>('items');
-  const command = useCommand();
+  const send = useSendCommand();
+  const offerToUndo = useUndo();
   const button = useRef<HTMLButtonElement>(null);
   const { data } = useSnapshot(workspaceId);
   const section = kind === 'section';
 
-  const refusal =
-    command.error instanceof CommandRefused
-      ? command.error.message
-      : command.error
-        ? 'That did not reach the server. Try again.'
-        : null;
-
+  /**
+   * Adds at the click: the dialog closes and the Panel or Section is on the
+   * board before the server has answered (`drawnAhead.ts`), and a refusal takes
+   * it away and says why in the undo bar.
+   */
   const add = () => {
     const trimmed = (naming ?? '').trim();
     if (!trimmed) return;
+    const notAdded = (failure: unknown) =>
+      offerToUndo({ what: `The ${section ? 'section ' : ''}“${trimmed}” was not added. ${whyNot(failure)}` });
+    setNaming(null);
     if (section) {
       // A Section is a row of the Dashboard's one Layout, so it is added by
       // saving the arrangement on screen with it at the foot - which makes the
@@ -990,40 +892,32 @@ function AddPanel({
           (data?.panels ?? []).filter((panel) => panel.dashboardId === dashboardId),
           window.innerWidth,
         );
-      command.mutate(
-        {
-          name: 'save_layout',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            workspaceId,
-            dashboardId,
-            layoutId: layout?.id ?? uuidv7(),
-            carriesSections: true,
-            rows: rowsToSave(withSectionAdded(rows, trimmed)),
-          },
-        },
-        { onSuccess: () => setNaming(null) },
-      );
-      return;
-    }
-    command.mutate(
-      {
-        name: 'add_panel',
+      send({
+        name: 'save_layout',
         payload: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId,
           dashboardId,
-          panelId: uuidv7(),
-          name: trimmed,
-          kind,
+          layoutId: layout?.id ?? uuidv7(),
+          carriesSections: true,
+          rows: rowsToSave(withSectionAdded(rows, trimmed)),
         },
+      }).catch(notAdded);
+      return;
+    }
+    send({
+      name: 'add_panel',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        dashboardId,
+        panelId: uuidv7(),
+        name: trimmed,
+        kind,
       },
-      // Closed and emptied only once it worked, so a refused title is still
-      // there to be corrected rather than typed again.
-      { onSuccess: () => setNaming(null) },
-    );
+    }).catch(notAdded);
   };
 
   return (
@@ -1034,7 +928,6 @@ function AddPanel({
         disabled={locked}
         title={locked ? 'Clear the dashboard filter to add a panel' : undefined}
         onClick={() => {
-          command.reset();
           // Back to Items every time it opens. The kind is not a preference -
           // it is a question about the panel being made now, and carrying the
           // last answer into it would decide it for somebody who never looked.
@@ -1056,12 +949,7 @@ function AddPanel({
         name={naming ?? ''}
         onNameChange={setNaming}
         onSubmit={add}
-        onCancel={() => {
-          setNaming(null);
-          command.reset();
-        }}
-        refusal={refusal}
-        busy={command.isPending}
+        onCancel={() => setNaming(null)}
         returnFocusTo={button.current}
       />
     </>

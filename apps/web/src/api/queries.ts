@@ -9,23 +9,20 @@ import type {
 } from '@cockpit/shared';
 import {
   CommandRefused,
-  addUser,
-  changeUser,
-  deleteUser,
   fetchAccountHoldings,
   fetchMe,
-  fetchRegisteredUsers,
   fetchUsage,
   fetchRewriteHistoryForItem,
   fetchRewriteHistoryForWorkspace,
   fetchSnapshot,
   fetchWorkspaces,
   sendCommand,
-  setAccess,
   checkConnectionNow,
 } from './client';
 import { WorkingOffline, refuseWhileOffline } from '../offline';
+import { noSnapshotYet } from '../drawnAhead';
 import { changes, readOfWorkspaceBegins, watchWorkspaceReads } from './changes';
+import { readAfterOwnChange } from './snapshotReads';
 
 /** A change sent as it is, refused first while offline (`offline.ts`). */
 function unlessOffline<A, R>(send: (argument: A) => Promise<R>): (argument: A) => Promise<R> {
@@ -52,22 +49,13 @@ export const meQuery = queryOptions({
 
 export const workspacesQuery = queryOptions({
   queryKey: ['workspaces'],
-  queryFn: fetchWorkspaces,
+  queryFn: ({ client }) => {
+    // Marked as it starts, for the reason a Workspace's read is (`snapshotQuery`).
+    watchWorkspaceReads(client);
+    readOfWorkspaceBegins(null);
+    return fetchWorkspaces();
+  },
   staleTime: 60_000,
-});
-
-/**
- * Everyone this Cockpit knows, for the admin page.
- *
- * **Not held as long as the others.** A workspace list goes stale when you
- * change it yourself; this one goes stale when somebody else does, and the
- * whole point of the page is to show who can currently sign in - so it is
- * re-read on opening rather than served from a copy taken minutes ago.
- */
-export const registeredUsersQuery = queryOptions({
-  queryKey: ['registeredUsers'],
-  queryFn: fetchRegisteredUsers,
-  staleTime: 0,
 });
 
 /**
@@ -76,55 +64,6 @@ export const registeredUsersQuery = queryOptions({
  */
 export const usageQuery = (days: number) =>
   queryOptions({ queryKey: ['usage', days], queryFn: () => fetchUsage(days), staleTime: 0 });
-/**
- * Adding somebody, and re-reading the list once they are in.
- *
- * The list is invalidated rather than written into: what a person's row says
- * includes things the server decided - the id derived from their name, the
- * account they were given - so reading it back is one round trip against
- * guessing.
- */
-export function useAddUser() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: unlessOffline(addUser),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
-  });
-}
-
-/**
- * Renaming somebody and setting their role ("Rename a user, and make somebody
- * an admin", issue 232).
- *
- * **The sign-in is re-read as well as the list**, because one of the people an
- * admin can rename is themselves, and the name in the header comes from `me`.
- * The role is the same story from the other side: an admin who takes another
- * admin's role away changes what that person is offered, and an admin renamed
- * by somebody else sees it on their next read - the register is what both are
- * read from.
- */
-export function useChangeUser() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: unlessOffline(changeUser),
-    onSuccess: () => bothReadAgain(queryClient),
-  });
-}
-
-/**
- * Taking somebody's access away, or giving it back ("Take somebody's access
- * away without taking their work", issue 233).
- *
- * The same two re-reads, for the same reason on both counts: the list says who
- * has access, and `me` is what the app draws its own name and menu from.
- */
-export function useSetAccess() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: unlessOffline(setAccess),
-    onSuccess: () => bothReadAgain(queryClient),
-  });
-}
 
 /**
  * What somebody's account holds, read when the question about deleting them
@@ -143,34 +82,16 @@ export const accountHoldingsQuery = (userId: string) =>
     gcTime: 0,
   });
 
-/**
- * Deleting somebody, and re-reading the list once they are gone. Only the list:
- * nobody can delete themselves, so what `me` says cannot have changed.
- */
-export function useDeleteUser() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: unlessOffline(deleteUser),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
-  });
-}
-
-/**
- * The list and the sign-in, re-read together: one after the other would hold a
- * form in its saving state through both round trips.
- */
-function bothReadAgain(queryClient: QueryClient) {
-  return Promise.all([
-    queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
-    queryClient.invalidateQueries({ queryKey: ['me'] }),
-  ]);
-}
-
 /** The read model: one snapshot per workspace (§5.2), revalidated in the background. */
 export const snapshotQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ['snapshot', workspaceId],
     queryFn: ({ client }) => {
+      // A Workspace this tab has just added is not on the server yet, so a read
+      // would find nothing: it is held as the add makes it (`drawnAhead.ts`),
+      // then read for properly once the add is answered.
+      const added = changes.beingAdded(workspaceId);
+      if (added) return noSnapshotYet(added);
       // Marked as it starts, because whether the changes this tab has made are
       // in what comes back depends on when the read began (`changeQueue.ts`).
       watchWorkspaceReads(client);
@@ -249,7 +170,7 @@ export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> 
   const queryClient = useQueryClient();
   return useCallback(
     async (args: CommandArgs) => {
-      const answer = await sendChange(args);
+      const answer = await sendChange(args, queryClient);
       await afterChanging(queryClient, args);
       return answer;
     },
@@ -323,30 +244,29 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
   );
 }
 
-function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
-  if (
-    args.name === 'disconnect_source_account' ||
-    args.name === 'set_connection_choice' ||
-    args.name === 'set_connection_files_by_name'
-  ) {
-    // Its own query, outside any workspace snapshot. Waited for rather than
-    // dropped, so the row is gone from the list by the time the window stops
-    // saying the disconnect is in flight ("Connect a Microsoft Teams source
-    // account", issue 485) - or names its connector's choice as it was
-    // changed (issue 942).
-    return queryClient.invalidateQueries({
-      queryKey: ['sourceAccounts', args.payload.workspaceId],
-    });
-  }
+/** Which Workspace's snapshot a change leaves out of date: '' for every one. */
+const snapshotsReadAfter = (args: CommandArgs): string => (everyWorkspaceCanSee(args) ? '' : args.payload.workspaceId);
 
+/**
+ * The changes `afterChanging` answers itself, and that leave their Workspace's
+ * snapshot as it was or are read for in their own way: a deleted Workspace's is
+ * dropped, and the Item form's presentation reads every snapshot. A connection
+ * change is sent from its window's own chunk (`api/sourceAccounts.ts`), never here.
+ */
+const NOT_READ_BACK_WITH_THE_SNAPSHOT = new Set<ClientCommandName>([
+  'delete_workspace',
+  'set_item_form_presentation',
+]);
+
+function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
   if (args.name === 'delete_workspace') {
-    // Dropped, not re-read. There is nothing to revalidate: the snapshot of a
+    // Its snapshot is dropped, not re-read. There is nothing to revalidate: the snapshot of a
     // deleted workspace is a 404 for good, so invalidating it would fetch one
     // on every delete. And the copy has to go rather than merely go stale - the
     // cache is persisted for a week (persistence.tsx), so leaving it there means a
     // deleted workspace's items can still be painted from it.
     queryClient.removeQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
-    return;
+    // And the list is read below, which is what ends drawing the delete.
   }
 
   if (args.name === 'set_item_form_presentation') {
@@ -359,13 +279,10 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     return queryClient.invalidateQueries({ queryKey: ['snapshot'] });
   }
 
-  // Read again behind the change, not waited for: it is drawn already and stays
-  // drawn until a read that began after its answer has landed (`changeQueue.ts`).
-  void queryClient.invalidateQueries(
-    everyWorkspaceCanSee(args)
-      ? { queryKey: ['snapshot'] }
-      : { queryKey: ['snapshot', args.payload.workspaceId] },
-  );
+  // A change that went through the queue is read for when its answer came in,
+  // and once the queue empties (`sendChange`): not once per change. A capture
+  // does not go through it, and is read for here.
+  if (args.name === 'capture_item') readAfterOwnChange(queryClient, snapshotsReadAfter(args));
   // Only the changes that alter which workspaces there are, so triaging an item
   // does not refetch the list on every click.
   if (CHANGES_THE_WORKSPACE_LIST.has(args.name)) {
@@ -389,6 +306,11 @@ export function refusalFrom(command: { error: unknown }): string | null {
   return command.error ? 'That did not reach the server. Try again.' : null;
 }
 
+/** Why a change did not happen, in the server's words where it gave any, for the undo bar to say. */
+export function whyNotDone(failure: unknown): string {
+  return refusalFrom({ error: failure }) ?? 'That could not be done.';
+}
+
 /**
  * Changes are refused while offline, found or chosen, before they are sent: a
  * paused request would sit unsent and read as saved. A capture is the exception;
@@ -406,16 +328,28 @@ function refuseUnlessCapture(args: CommandArgs): void {
  * own, is already shown the moment it is made, and must not wait behind a slow
  * change to something else.
  */
-async function sendChange(args: CommandArgs): Promise<CommandResult> {
+async function sendChange(args: CommandArgs, queryClient: QueryClient): Promise<CommandResult> {
   refuseUnlessCapture(args);
-  if (args.name === 'capture_item') return sendCommand(args.name, args.payload);
-  return changes.enqueue(args);
+  if (args.name === 'capture_item') {
+    // Into a Workspace just added, behind its add: sent first, the server would not know the Workspace yet.
+    await changes.afterAdding(args.payload.workspaceId);
+    return sendCommand(args.name, args.payload);
+  }
+  // Read again behind the change, not waited for: it is drawn already and stays
+  // drawn until a read that began after its answer has landed (`changeQueue.ts`).
+  // Registered as the answer comes in, so a burst is read once when it ends
+  // (`snapshotReads.ts`).
+  return changes.enqueue(args, (answer) => {
+    if (!NOT_READ_BACK_WITH_THE_SNAPSHOT.has(args.name)) {
+      readAfterOwnChange(queryClient, snapshotsReadAfter(args), answer.at);
+    }
+  });
 }
 
 export function useCommand() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: sendChange,
+    mutationFn: (args: CommandArgs) => sendChange(args, queryClient),
     // Returned rather than called and dropped, because React Query waits on
     // what a mutation's own `onSuccess` returns. Only the changes that read a
     // query of their own back hand it a promise (`afterChanging`); for the rest

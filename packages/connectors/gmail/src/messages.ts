@@ -22,6 +22,24 @@ export const STARRED = 'STARRED';
 const AWAY: readonly string[] = ['TRASH', 'SPAM'];
 
 /**
+ * What a source id starts with when it names one email rather than a
+ * conversation. Gmail gives a conversation the id of its first email, so a bare
+ * email id would name the Item of a conversation that already exists; no
+ * conversation id can start with this.
+ */
+const EMAIL_PREFIX = 'message:';
+
+/** The source id of the Item one email is brought in as, by star. */
+export function emailSourceId(messageId: string): string {
+  return `${EMAIL_PREFIX}${messageId}`;
+}
+
+/** The email a source id names, or null for the id of a conversation (an Item brought in before there were emails). */
+export function emailIdIn(sourceId: string): string | null {
+  return sourceId.startsWith(EMAIL_PREFIX) && sourceId.length > EMAIL_PREFIX.length ? sourceId.slice(EMAIL_PREFIX.length) : null;
+}
+
+/**
  * The longest a title or a sender may be: the host stores a title as given
  * and caps it here (`TITLE_LENGTH` in the shared contract, which a connector
  * package may not import). A longer one is cut, never refused.
@@ -98,12 +116,39 @@ export function namesOf(answer: unknown, userLabels: ReadonlyMap<string, string>
   const { messages } = (answer ?? {}) as { messages?: unknown };
   const names: string[] = [];
   for (const message of Array.isArray(messages) ? (messages as GmailMessage[]) : []) {
-    for (const id of Array.isArray(message?.labelIds) ? (message.labelIds as unknown[]) : []) {
-      const name = typeof id === 'string' && id !== markId ? userLabels.get(id) : undefined;
-      if (name !== undefined && !names.includes(name)) names.push(name);
-    }
+    addNamesOf(message, userLabels, markId, names);
   }
   return names;
+}
+
+/** One email's names: the user labels on it alone, the mark left out - what an Item brought in by star carries. */
+export function namesOfEmail(message: unknown, userLabels: ReadonlyMap<string, string>, markId: string): string[] {
+  const names: string[] = [];
+  addNamesOf(message as GmailMessage | null, userLabels, markId, names);
+  return names;
+}
+
+function addNamesOf(
+  message: GmailMessage | null | undefined,
+  userLabels: ReadonlyMap<string, string>,
+  markId: string,
+  names: string[],
+): void {
+  for (const id of Array.isArray(message?.labelIds) ? (message.labelIds as unknown[]) : []) {
+    const name = typeof id === 'string' && id !== markId ? userLabels.get(id) : undefined;
+    if (name !== undefined && !names.includes(name)) names.push(name);
+  }
+}
+
+/** One page of Gmail's marked emails: each one's id and its conversation's, and where the next page starts. */
+export function emailPage(answer: unknown): { emails: { id: string; threadId: string }[]; nextPageToken: string | null } {
+  const { messages, nextPageToken } = (answer ?? {}) as Record<string, unknown>;
+  const emails: { id: string; threadId: string }[] = [];
+  for (const one of Array.isArray(messages) ? (messages as unknown[]) : []) {
+    const { id, threadId } = (one ?? {}) as { id?: unknown; threadId?: unknown };
+    if (typeof id === 'string' && id && typeof threadId === 'string' && threadId) emails.push({ id, threadId });
+  }
+  return { emails, nextPageToken: typeof nextPageToken === 'string' && nextPageToken ? nextPageToken : null };
 }
 
 /** One page of Gmail's marked conversations: their ids, and where the next page starts. */
@@ -140,8 +185,71 @@ export interface HistoryPage {
 }
 
 interface HistoryEntry {
-  message?: { threadId?: unknown; labelIds?: unknown } | null;
+  message?: { id?: unknown; threadId?: unknown; labelIds?: unknown } | null;
   labelIds?: unknown;
+}
+
+/** What a history page says, keyed by conversation or by email: each key mapped to the conversation it is in. */
+interface Scanned {
+  readonly gained: Map<string, string>;
+  readonly changed: Map<string, string>;
+  readonly relabelled: Map<string, string>;
+  readonly nextPageToken: string | null;
+  readonly historyId: string | null;
+}
+
+function scanHistory(answer: unknown, markId: string, by: 'conversation' | 'email'): Scanned {
+  const { history, nextPageToken, historyId } = (answer ?? {}) as Record<string, unknown>;
+  const gained = new Map<string, string>();
+  const changed = new Map<string, string>();
+  const relabelled = new Map<string, string>();
+  const namesMoved = (labels: unknown) =>
+    Array.isArray(labels) && labels.some((label) => label !== markId && !isSystemLabel(label));
+  const carries = (labels: unknown) => Array.isArray(labels) && labels.includes(markId);
+  const movesAway = (labels: unknown) =>
+    Array.isArray(labels) && labels.some((label) => label === markId || AWAY.includes(label as string));
+  /** What an entry is about: its conversation's id, or its email's - and the conversation either way. */
+  const subjectOf = (entry: HistoryEntry): { key: string; threadId: string } | null => {
+    const { id, threadId } = entry?.message ?? {};
+    if (typeof threadId !== 'string' || !threadId) return null;
+    if (by === 'conversation') return { key: threadId, threadId };
+    return typeof id === 'string' && id ? { key: id, threadId } : null;
+  };
+  for (const record of Array.isArray(history) ? (history as Record<string, unknown>[]) : []) {
+    const entries = (key: string) => (Array.isArray(record?.[key]) ? (record[key] as HistoryEntry[]) : []);
+    for (const added of entries('messagesAdded')) {
+      const subject = subjectOf(added);
+      if (subject && carries(added.message?.labelIds)) {
+        gained.set(subject.key, subject.threadId);
+        changed.set(subject.key, subject.threadId);
+      }
+    }
+    for (const added of entries('labelsAdded')) {
+      const subject = subjectOf(added);
+      if (!subject) continue;
+      if (carries(added.labelIds)) gained.set(subject.key, subject.threadId);
+      if (movesAway(added.labelIds)) changed.set(subject.key, subject.threadId);
+      if (namesMoved(added.labelIds)) relabelled.set(subject.key, subject.threadId);
+    }
+    for (const removed of entries('labelsRemoved')) {
+      const subject = subjectOf(removed);
+      if (!subject) continue;
+      if (carries(removed.labelIds)) gained.delete(subject.key);
+      if (movesAway(removed.labelIds)) changed.set(subject.key, subject.threadId);
+      if (namesMoved(removed.labelIds)) relabelled.set(subject.key, subject.threadId);
+    }
+    for (const deleted of entries('messagesDeleted')) {
+      const subject = subjectOf(deleted);
+      if (subject) changed.set(subject.key, subject.threadId);
+    }
+  }
+  return {
+    gained,
+    changed,
+    relabelled,
+    nextPageToken: typeof nextPageToken === 'string' && nextPageToken ? nextPageToken : null,
+    historyId: typeof historyId === 'string' || typeof historyId === 'number' ? String(historyId) : null,
+  };
 }
 
 /**
@@ -159,51 +267,57 @@ interface HistoryEntry {
  * deleted for good - each read by the caller to see where it now stands.
  */
 export function historyPage(answer: unknown, markId: string): HistoryPage {
-  const { history, nextPageToken, historyId } = (answer ?? {}) as Record<string, unknown>;
-  const gained = new Set<string>();
-  const changed = new Set<string>();
-  const relabelled = new Set<string>();
-  const namesMoved = (labels: unknown) =>
-    Array.isArray(labels) && labels.some((label) => label !== markId && !isSystemLabel(label));
-  const carries = (labels: unknown) => Array.isArray(labels) && labels.includes(markId);
-  const movesAway = (labels: unknown) =>
-    Array.isArray(labels) && labels.some((label) => label === markId || AWAY.includes(label as string));
-  const threadOf = (entry: HistoryEntry): string | null => {
-    const threadId = entry?.message?.threadId;
-    return typeof threadId === 'string' && threadId ? threadId : null;
+  const page = scanHistory(answer, markId, 'conversation');
+  return {
+    gained: [...page.gained.keys()],
+    changed: [...page.changed.keys()],
+    relabelled: [...page.relabelled.keys()],
+    nextPageToken: page.nextPageToken,
+    historyId: page.historyId,
   };
-  for (const record of Array.isArray(history) ? (history as Record<string, unknown>[]) : []) {
-    const entries = (key: string) => (Array.isArray(record?.[key]) ? (record[key] as HistoryEntry[]) : []);
-    for (const added of entries('messagesAdded')) {
-      const threadId = threadOf(added);
-      if (threadId && carries(added.message?.labelIds)) {
-        gained.add(threadId);
-        changed.add(threadId);
-      }
-    }
-    for (const added of entries('labelsAdded')) {
-      const threadId = threadOf(added);
-      if (threadId && carries(added.labelIds)) gained.add(threadId);
-      if (threadId && movesAway(added.labelIds)) changed.add(threadId);
-      if (threadId && namesMoved(added.labelIds)) relabelled.add(threadId);
-    }
-    for (const removed of entries('labelsRemoved')) {
-      const threadId = threadOf(removed);
-      if (threadId && carries(removed.labelIds)) gained.delete(threadId);
-      if (threadId && movesAway(removed.labelIds)) changed.add(threadId);
-      if (threadId && namesMoved(removed.labelIds)) relabelled.add(threadId);
-    }
-    for (const deleted of entries('messagesDeleted')) {
-      const threadId = threadOf(deleted);
-      if (threadId) changed.add(threadId);
-    }
+}
+
+/** What one history page says happened to the emails of one conversation. */
+export interface EmailChanges {
+  readonly threadId: string;
+  /** The emails that gained the mark on the page and kept it to its end. */
+  readonly gained: readonly string[];
+  /** The emails whose mark may have come off or gone back: read to see where each now stands. */
+  readonly changed: readonly string[];
+  /** The emails that had a label other than the mark and Gmail's own added or taken off. */
+  readonly relabelled: readonly string[];
+}
+
+/** One page of what changed in a mailbox since a history position, email by email and grouped by conversation. */
+export interface EmailHistoryPage {
+  /** Every conversation with an email named on the page, in the order first met: one read of each answers for all its emails. */
+  readonly conversations: EmailChanges[];
+  readonly nextPageToken: string | null;
+  readonly historyId: string | null;
+}
+
+/**
+ * One page of `users.history.list`, read as `historyPage` reads it but by email,
+ * since a star belongs to one email: an email that gained the star, one whose
+ * star may have come off or gone back, one relabelled - and, so that one read
+ * of a conversation answers for them all, grouped by the conversation each is in.
+ */
+export function emailHistoryPage(answer: unknown, markId: string): EmailHistoryPage {
+  const page = scanHistory(answer, markId, 'email');
+  const groups = new Map<string, { gained: string[]; changed: string[]; relabelled: string[] }>();
+  const group = (threadId: string) => {
+    let held = groups.get(threadId);
+    if (!held) groups.set(threadId, (held = { gained: [], changed: [], relabelled: [] }));
+    return held;
+  };
+  // Met in the order a conversation's emails are first named, whichever kind of change names them.
+  for (const [kind, emails] of [['changed', page.changed], ['gained', page.gained], ['relabelled', page.relabelled]] as const) {
+    for (const [emailId, threadId] of emails) group(threadId)[kind].push(emailId);
   }
   return {
-    gained: [...gained],
-    changed: [...changed],
-    relabelled: [...relabelled],
-    nextPageToken: typeof nextPageToken === 'string' && nextPageToken ? nextPageToken : null,
-    historyId: typeof historyId === 'string' || typeof historyId === 'number' ? String(historyId) : null,
+    conversations: [...groups].map(([threadId, one]) => ({ threadId, ...one })),
+    nextPageToken: page.nextPageToken,
+    historyId: page.historyId,
   };
 }
 
@@ -295,16 +409,54 @@ export function conversationFrom(answer: unknown, markId: string, mailboxAddress
     sentAt(one) >= sentAt(latest) ? one : latest,
   );
 
+  return { threadId: id, ...describe(message, id, mailboxAddress) };
+}
+
+/** What one email brings in as its Item. */
+export interface GmailEmail {
+  readonly id: string;
+  readonly threadId: string;
+  readonly title: string;
+  readonly text: string;
+  readonly sender: string | null;
+  /** Where Gmail shows the email, in the connected mailbox. */
+  readonly link: string;
+  readonly sentAt: string | null;
+}
+
+/** Whether an email, as `threads.get` carries it, has the mark outside the bin and spam. */
+export function emailMarked(message: unknown, markId: string): boolean {
+  const { labelIds } = (message ?? {}) as GmailMessage;
+  return Array.isArray(labelIds) && labelIds.includes(markId) && !labelIds.some((label) => AWAY.includes(label as string));
+}
+
+/** The email of a conversation, as `threads.get` answers it, with this id - or null where the conversation holds none. */
+export function emailIn(answer: unknown, emailId: string): unknown {
+  const { messages } = (answer ?? {}) as { messages?: unknown };
+  return (Array.isArray(messages) ? (messages as { id?: unknown }[]) : []).find((one) => one?.id === emailId) ?? null;
+}
+
+/**
+ * One email, as `threads.get` carries it in full, made into what its Item says:
+ * its own subject, plain text, sender and time, and a link that names it.
+ */
+export function emailFrom(message: unknown, mailboxAddress: string): GmailEmail | null {
+  const { id, threadId } = (message ?? {}) as { id?: unknown; threadId?: unknown };
+  if (typeof id !== 'string' || !id || typeof threadId !== 'string' || !threadId) return null;
+  return { id, threadId, ...describe(message as GmailMessage, id, mailboxAddress) };
+}
+
+/** The title, text, sender, link and time of one message, the link naming `linkId`. */
+function describe(message: GmailMessage, linkId: string, mailboxAddress: string) {
   const subject = oneLine(headerOf(message.payload, 'Subject') ?? '');
   const title = cutTo(subject, TITLE_LENGTH) || NO_SUBJECT;
   const text = cutTo(textOf(message.payload).trim(), DESCRIPTION_LENGTH) || title;
   const at = sentAt(message);
   return {
-    threadId: id,
     title,
     text,
     sender: senderIn(headerOf(message.payload, 'From')),
-    link: `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#all/${encodeURIComponent(id)}`,
+    link: `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#all/${encodeURIComponent(linkId)}`,
     sentAt: at > 0 ? new Date(at).toISOString() : null,
   };
 }

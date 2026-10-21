@@ -4,28 +4,18 @@ import {
   accountHoldingsSchema,
   attachmentAddress,
   checkedNowSchema,
-  registeredUserListSchema,
   usageSchema,
   rewriteHistoryResponseSchema,
-  userDeletedSchema,
   type AccountHoldings,
   type CheckedNow,
   signedInSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
-  userAddedSchema,
-  userChangedSchema,
-  type AddUser,
-  type ChangeUser,
-  type SetAccess,
-  type UserChanged,
   type ClientCommandName,
   type CommandPayload,
   type CommandResult,
-  type RegisteredUserList,
   type Usage,
   type RewriteHistoryResponse,
-  type UserAdded,
   type SignedIn,
   type WorkspaceList,
   type WorkspaceSnapshot,
@@ -79,91 +69,16 @@ export async function fetchMe(): Promise<SignedIn> {
 }
 
 /**
- * Everyone this Cockpit knows, for the admin page ("See who can sign in, on a
- * page only an admin can open", issue 230).
- *
- * A 403 arrives here as an ordinary failure rather than as `NotSignedIn`, and
- * the difference matters: whoever gets one *is* signed in, so sending them to
- * the logon page would offer them the one thing that cannot help.
- */
-export async function fetchRegisteredUsers(): Promise<RegisteredUserList> {
-  const res = await api.v1.admin.users.$get();
-  if (!res.ok) throw refusal('users', res.status);
-  return registeredUserListSchema.parse(await res.json());
-}
-
-/**
  * What the admin's Usage window reads ("Add an admin Usage window for sign-ins
- * and guest sessions", issue 654). A 403 arrives as an ordinary failure, for
- * the reason `fetchRegisteredUsers` gives.
+ * and guest sessions", issue 654). A 403 arrives as an ordinary failure rather
+ * than as `NotSignedIn`, and the difference matters: whoever gets one *is*
+ * signed in, so sending them to the logon page would offer them the one thing
+ * that cannot help.
  */
 export async function fetchUsage(days: number): Promise<Usage> {
   const res = await api.v1.admin.usage.$get({ query: { days: String(days) } });
   if (!res.ok) throw refusal('usage', res.status);
   return usageSchema.parse(await res.json());
-}
-/**
- * Adds somebody ("Add a user on the admin page, so a second person no longer
- * needs SQL", issue 231).
- *
- * **A refusal keeps the server's own words**, because they name what is wrong
- * with what was typed - which address is already somebody's, what a name leaves
- * nothing of - and the page has nothing better to say than the reason. Anything
- * that is not a refusal is reported as a failure rather than pretending to be
- * one.
- */
-export async function addUser(body: AddUser): Promise<UserAdded> {
-  const res = await api.v1.admin.users.$post({ json: body });
-  if (res.status === 409 || res.status === 400) {
-    const { error } = (await res.json()) as { error: string };
-    throw new UserRefused(error);
-  }
-  if (!res.ok) throw refusal('adding a user', res.status);
-  return userAddedSchema.parse(await res.json());
-}
-
-/**
- * Renames somebody and sets their role ("Rename a user, and make somebody an
- * admin", issue 232).
- *
- * The refusals are the server's own words for the same reason adding keeps
- * them: they say which rule stopped it - the last admin, your own admin - and
- * the form has nothing better to put under itself than the reason. A 404 is one
- * of them, because somebody who is no longer in the register is a fact about
- * this page being out of date rather than a failure to report as one.
- */
-export async function changeUser({
-  userId,
-  ...body
-}: ChangeUser & { userId: string }): Promise<UserChanged> {
-  const res = await api.v1.admin.users[':userId'].$patch({ param: { userId }, json: body });
-  if (res.status === 409 || res.status === 404 || res.status === 400) {
-    const { error } = (await res.json()) as { error: string };
-    throw new UserRefused(error);
-  }
-  if (!res.ok) throw refusal('changing a user', res.status);
-  return userChangedSchema.parse(await res.json());
-}
-
-/**
- * Takes somebody's access away, or gives it back ("Take somebody's access away
- * without taking their work", issue 233).
- *
- * Its own request rather than a field on the change, for the reason the route
- * is its own: it is done from the row's own menu and it ends the sign-ins that
- * person holds.
- */
-export async function setAccess({
-  userId,
-  ...body
-}: SetAccess & { userId: string }): Promise<UserChanged> {
-  const res = await api.v1.admin.users[':userId'].access.$patch({ param: { userId }, json: body });
-  if (res.status === 409 || res.status === 404 || res.status === 400) {
-    const { error } = (await res.json()) as { error: string };
-    throw new UserRefused(error);
-  }
-  if (!res.ok) throw refusal('changing access', res.status);
-  return userChangedSchema.parse(await res.json());
 }
 
 /**
@@ -174,34 +89,6 @@ export async function fetchAccountHoldings(userId: string): Promise<AccountHoldi
   const res = await api.v1.admin.users[':userId'].account.$get({ param: { userId } });
   if (!res.ok) throw refusal('what their account holds', res.status);
   return accountHoldingsSchema.parse(await res.json());
-}
-
-/**
- * Deletes somebody and the account they owned (issue 234). A 404 is a refusal
- * in the server's words, as it is for a change: somebody already gone is this
- * page being out of date, not a failure.
- */
-export async function deleteUser(userId: string): Promise<void> {
-  const res = await api.v1.admin.users[':userId'].$delete({ param: { userId } });
-  if (res.status === 409 || res.status === 404) {
-    const { error } = (await res.json()) as { error: string };
-    throw new UserRefused(error);
-  }
-  if (!res.ok) throw refusal('deleting a user', res.status);
-  userDeletedSchema.parse(await res.json());
-}
-
-/**
- * Why somebody could not be added, changed or deleted, in the server's words,
- * for the box, the form or the question to show. One class for all three,
- * because each does the same thing with it: print the reason and keep what was
- * there.
- */
-export class UserRefused extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'UserRefused';
-  }
 }
 
 /**

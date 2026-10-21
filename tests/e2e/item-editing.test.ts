@@ -511,7 +511,7 @@ test.describe('Item editing', () => {
       await descriptionBox(page).fill('The label is misprinted.\n\nAsk whether the other pallets are affected.');
       await show(page, 'Formatted', isMobile);
 
-      // Held, so the marker can be seen where the image will land.
+      // Held, so the image can be seen where it was dropped before it has uploaded.
       let release = () => {};
       const held = new Promise<void>((resolve) => (release = resolve));
       await page.route('**/v1/items/*/attachments', async (route) => {
@@ -521,15 +521,16 @@ test.describe('Item editing', () => {
       const uploaded = uploadResponse(page);
       await dropOnTheDescription(page, { name: 'photo.png', mimeType: 'image/png', base64: A_PNG.toString('base64') });
 
-      await expect(descriptionBox(page).getByRole('status')).toHaveText('Uploading photo.png…');
+      // Drawn from the file on the device, then from its address once uploaded.
+      const inTheText = descriptionBox(page).getByRole('img', { name: 'photo.png' });
+      await expect(inTheText).toHaveAttribute('src', /^blob:/);
       await openTheFiles(page, isMobile);
       await expect(form(page).getByText('Attaching…')).toBeVisible();
       release();
       expect((await uploaded).status()).toBe(201);
 
-      const inTheText = descriptionBox(page).getByRole('img', { name: 'photo.png' });
+      await expect(inTheText).toHaveAttribute('src', /^\/v1\/attachments\//);
       await expect(inTheText).toBeVisible();
-      await expect(descriptionBox(page).getByRole('status')).toHaveCount(0);
       await openTheFiles(page, isMobile);
       await expect(form(page).getByRole('link', { name: /photo\.png/ })).toBeVisible();
 

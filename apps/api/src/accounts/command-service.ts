@@ -1,5 +1,5 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, REMEMBERED_SENTENCES_KEPT } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, nextColor, REMEMBERED_SENTENCES_KEPT } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
@@ -103,7 +103,6 @@ import {
 } from '../domain/panels.js';
 import { inBatchesOf } from '../domain/statements.js';
 import {
-  nextColor,
   nextPosition,
   ordersExactly,
   workspaceFromCommand,
@@ -2542,6 +2541,9 @@ export function runCommand<N extends CommandName>(
   return {
     ok: true,
     applied,
+    // The stamp the change's announcement carries (`collectInvalidations`),
+    // so a tab can tell the announcement is its own.
+    at: commandRow.receivedAt,
     ...(settledRouting ? { settledRouting } : {}),
     ...(recordedCorrection ? { recordedCorrection } : {}),
     ...(fieldsSet ? { fieldsSet } : {}),

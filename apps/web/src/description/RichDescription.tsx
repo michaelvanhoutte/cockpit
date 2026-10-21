@@ -22,7 +22,7 @@ import { $prose, callCommand } from '@milkdown/utils';
 import { keymap } from '@milkdown/prose/keymap';
 import { Plugin, PluginKey } from '@milkdown/prose/state';
 import type { EditorView } from '@milkdown/prose/view';
-import { SHOWN, putImages, uploadMarkers, type UploadImage } from './images';
+import { SHOWN, imagesFromTheDevice, putImages, type UploadImage } from './images';
 import { safeHref } from './safeHref';
 import { descriptionSyntax } from './syntax';
 import { DESCRIPTION_TEXT_CLASS } from './textClass';
@@ -156,7 +156,7 @@ export default function RichDescription({
   const askForAnAddress = useRef(() => {});
   askForAnAddress.current = () =>
     setAsking({ href: hrefUnderTheCursor(editor.current) ?? '', refused: false });
-  /** False once the editor is taken down, so an upload landing after it puts nothing anywhere. */
+  /** False once the editor is taken down, so an upload ending after it draws nothing anywhere. */
   const alive = useRef(true);
   const putIn = useRef<((view: EditorView, files: File[], at?: number) => void) | null>(null);
   putIn.current = uploadImage
@@ -233,7 +233,7 @@ export default function RichDescription({
           }),
         ),
       )
-      .use($prose(() => uploadMarkers))
+      .use($prose(() => imagesFromTheDevice))
       // A file pasted or dropped into the text, where this editor takes images
       // at all. A clipboard holding the file beside the HTML a browser copied
       // with it gets the file and not the HTML: the HTML's `<img>` points at

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { itemLabel, itemStatus, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
+import { WORKSPACE_THEMES, attachmentSchema, itemLabel, itemSchema, itemStatus, type Attachment, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
-import { drawnAhead, drawnOver } from '../../src/drawnAhead';
+import { createChangeQueue } from '../../src/changeQueue';
+import { drawnAhead, drawnOver, listDrawnOver, noSnapshotYet, type Drawn } from '../../src/drawnAhead';
+import { itemsThatMayBeDuplicates } from '../../src/duplicates';
+import { itemsInTheInbox } from '../../src/filing';
 
 /**
  * F1: what the screen shows of a change before the server has answered it -
@@ -256,6 +259,655 @@ describe('Panels', () => {
       ]);
 
       expect(orderOn(drawn, FALCON)).toEqual([LISA, BART]);
+    });
+  });
+});
+
+const TODAY = 'd-today';
+const READING = 'd-reading';
+const ADMIN = 'd-admin';
+
+/** A Workspace with three Dashboards, a Panel and a Layout on each, and an Item filed on Reading's Panel. */
+const withDashboards = (id = WORK): WorkspaceSnapshot =>
+  ({
+    workspace: { id, tenantId: 'tenant' },
+    items: [anItem(BART)],
+    dashboards: [TODAY, READING, ADMIN].map((dashboardId) => ({
+      id: dashboardId,
+      tenantId: 'tenant',
+      workspaceId: id,
+      name: dashboardId.slice(2),
+    })),
+    panels: [TODAY, READING, ADMIN].map((dashboardId) => ({ id: `p-${dashboardId}`, dashboardId, name: 'Panel 1' })),
+    layouts: [TODAY, READING, ADMIN].map((dashboardId) => ({ id: `l-${dashboardId}`, dashboardId, rows: [] })),
+    filings: [{ panelId: `p-${READING}`, itemId: BART, position: 0 }],
+  }) as unknown as WorkspaceSnapshot;
+
+const dashboardEnvelope = (workspaceId = WORK) => ({ commandId: 'c1', issuedAt: AT, workspaceId });
+const names = (copy: WorkspaceSnapshot) => copy.dashboards.map((one) => one.name);
+const added = (name: string, workspaceId = WORK): CommandArgs => ({
+  name: 'add_dashboard',
+  payload: { ...dashboardEnvelope(workspaceId), dashboardId: 'd-new', panelId: 'p-new', name },
+});
+const deleted = (dashboardId: string, workspaceId = WORK): CommandArgs => ({
+  name: 'delete_dashboard',
+  payload: { ...dashboardEnvelope(workspaceId), dashboardId },
+});
+const reordered = (dashboardId: string, dashboardIds: string[]): CommandArgs => ({
+  name: 'reorder_dashboards',
+  payload: { ...dashboardEnvelope(), dashboardId, dashboardIds },
+});
+
+describe('Dashboards', () => {
+  describe('a Dashboard change shows the moment it is made, before the server has answered', () => {
+    it('puts an added Dashboard at the end of the bar with the Panel it arrives with', () => {
+      const copy = withDashboards();
+
+      const drawn = drawnAhead(copy, added('Research'));
+
+      expect(names(drawn)).toEqual(['today', 'reading', 'admin', 'Research']);
+      expect(drawn.panels.filter((panel) => panel.dashboardId === 'd-new')).toEqual([
+        expect.objectContaining({ id: 'p-new', name: 'Panel 1', kind: 'items', tenantId: 'tenant' }),
+      ]);
+      expect(drawn.dashboards[3]).toEqual({ id: 'd-new', tenantId: 'tenant', workspaceId: WORK, name: 'Research' });
+      // The copy the server sent is as it was.
+      expect(copy.dashboards).toHaveLength(3);
+    });
+
+    it('draws a Dashboard added twice once, as the server makes it once', () => {
+      const drawn = drawnOver(withDashboards(), [added('Research'), added('Research')]);
+
+      expect(names(drawn)).toEqual(['today', 'reading', 'admin', 'Research']);
+      expect(drawn.panels.filter((panel) => panel.dashboardId === 'd-new')).toHaveLength(1);
+    });
+
+    it('shows the new name on a renamed Dashboard and no other', () => {
+      const drawn = drawnAhead(withDashboards(), {
+        name: 'rename_dashboard',
+        payload: { ...dashboardEnvelope(), dashboardId: READING, name: 'Library' },
+      });
+
+      expect(names(drawn)).toEqual(['today', 'Library', 'admin']);
+    });
+
+    it('takes a deleted Dashboard off the bar with its Panels, its Layout and what was filed on them', () => {
+      const drawn = drawnAhead(withDashboards(), deleted(READING));
+
+      expect(names(drawn)).toEqual(['today', 'admin']);
+      expect(drawn.panels.map((panel) => panel.dashboardId)).toEqual([TODAY, ADMIN]);
+      expect(drawn.layouts.map((layout) => layout.dashboardId)).toEqual([TODAY, ADMIN]);
+      expect(drawn.filings).toEqual([]);
+    });
+
+    it('leaves the other Dashboards’ boards as they were when one is deleted', () => {
+      const copy = withDashboards();
+
+      const drawn = drawnAhead(copy, deleted(READING));
+
+      expect(drawn.panels.filter((panel) => panel.dashboardId === TODAY)).toEqual(
+        copy.panels.filter((panel) => panel.dashboardId === TODAY),
+      );
+    });
+
+    it('does not draw the last Dashboard deleted, which the server refuses', () => {
+      const one = { ...withDashboards(), dashboards: [withDashboards().dashboards[0]!] } as WorkspaceSnapshot;
+
+      expect(drawnAhead(one, deleted(TODAY))).toBe(one);
+    });
+
+    it('shows the order a reorder carries, and keeps a Dashboard it never named on the end', () => {
+      const copy = withDashboards();
+
+      expect(names(drawnAhead(copy, reordered(TODAY, [READING, TODAY, ADMIN])))).toEqual(['reading', 'today', 'admin']);
+      // Added on another device since the order was drawn: kept, not taken off the bar.
+      expect(names(drawnAhead(copy, reordered(ADMIN, [ADMIN, TODAY])))).toEqual(['admin', 'today', 'reading']);
+    });
+
+    it.each([
+      { situation: 'an add', change: added('Research', 'ws-home') },
+      { situation: 'a delete', change: deleted(READING, 'ws-home') },
+    ])('leaves another Workspace’s copy as it is for $situation', ({ change }) => {
+      const copy = withDashboards();
+
+      expect(drawnAhead(copy, change)).toBe(copy);
+    });
+  });
+});
+
+const PANEL_A = 'p-a';
+const PANEL_B = 'p-b';
+
+/** Today holds Falcon (items) and Notes (text), arranged in one row each; Reading holds a Panel also called Falcon. */
+const withPanels = (id = WORK): WorkspaceSnapshot => {
+  const panel = (panelId: string, dashboardId: string, name: string, over: object = {}) => ({
+    id: panelId,
+    tenantId: 'tenant',
+    dashboardId,
+    name,
+    kind: 'items',
+    format: 'plain',
+    body: '',
+    readOnly: false,
+    neverPropose: false,
+    filter: null,
+    sort: null,
+    columns: null,
+    ...over,
+  });
+  return {
+    workspace: { id, tenantId: 'tenant' },
+    items: [anItem(BART)],
+    dashboards: [TODAY, READING].map((dashboardId) => ({ id: dashboardId, tenantId: 'tenant', workspaceId: id, name: dashboardId.slice(2) })),
+    panels: [
+      panel(PANEL_A, TODAY, 'Falcon'),
+      panel(PANEL_B, TODAY, 'Notes', { kind: 'text' }),
+      panel('p-reading-falcon', READING, 'Falcon'),
+    ],
+    layouts: [
+      {
+        id: 'l-today',
+        tenantId: 'tenant',
+        dashboardId: TODAY,
+        rows: [
+          { height: null, cells: [{ panelId: PANEL_A, span: 12 }] },
+          { height: null, cells: [{ panelId: PANEL_B, span: 12 }] },
+        ],
+      },
+    ],
+    filings: [{ panelId: PANEL_A, itemId: BART, position: 0 }],
+  } as unknown as WorkspaceSnapshot;
+};
+
+const panelEnvelope = (workspaceId = WORK) => ({ commandId: 'c1', issuedAt: AT, workspaceId });
+const panelOf = (copy: WorkspaceSnapshot, id: string) => copy.panels.find((one) => one.id === id);
+const panelNames = (copy: WorkspaceSnapshot, dashboardId: string) =>
+  copy.panels.filter((one) => one.dashboardId === dashboardId).map((one) => one.name);
+const panelAdded = (name: string, kind: 'items' | 'text' | 'filter' = 'items', workspaceId = WORK): CommandArgs => ({
+  name: 'add_panel',
+  payload: { ...panelEnvelope(workspaceId), dashboardId: TODAY, panelId: 'p-new', name, kind },
+});
+
+describe('Panels', () => {
+  describe('a Panel change shows the moment it is made, before the server has answered', () => {
+    it('puts an added Panel on its Dashboard, not yet placed in the Layout', () => {
+      const copy = withPanels();
+
+      const drawn = drawnAhead(copy, panelAdded('Waiting on'));
+
+      expect(panelNames(drawn, TODAY)).toEqual(['Falcon', 'Notes', 'Waiting on']);
+      expect(panelOf(drawn, 'p-new')).toMatchObject({ kind: 'items', filter: null, readOnly: false, format: 'plain' });
+      // The Layout is as the server sent it: the board draws a Panel it has never heard of at the foot.
+      expect(drawn.layouts).toBe(copy.layouts);
+      expect(copy.panels).toHaveLength(3);
+    });
+
+    it.each([
+      { situation: 'text', kind: 'text' as const, filter: null },
+      { situation: 'a Filter that has nothing chosen yet', kind: 'filter' as const, filter: { rows: [], groupBy: 'none' } },
+    ])('draws an added Panel of $situation as the kind it was made as', ({ kind, filter }) => {
+      const drawn = drawnAhead(withPanels(), panelAdded('Kept', kind));
+
+      expect(panelOf(drawn, 'p-new')).toMatchObject({ kind, filter });
+    });
+
+    it('draws a Panel added twice once', () => {
+      const drawn = drawnOver(withPanels(), [panelAdded('Waiting on'), panelAdded('Waiting on')]);
+
+      expect(panelNames(drawn, TODAY)).toEqual(['Falcon', 'Notes', 'Waiting on']);
+    });
+
+    it('puts a Section at the foot of the Layout the Dashboard has', () => {
+      const rows = [
+        { height: null, cells: [{ panelId: PANEL_A, span: 12 }] },
+        { height: null, cells: [{ panelId: PANEL_B, span: 12 }] },
+        { height: null, title: 'This week', cells: [] },
+      ];
+
+      const drawn = drawnAhead(withPanels(), {
+        name: 'save_layout',
+        payload: { ...panelEnvelope(), dashboardId: TODAY, layoutId: 'l-other', carriesSections: true, rows },
+      });
+
+      expect(drawn.layouts).toEqual([expect.objectContaining({ id: 'l-today', dashboardId: TODAY, rows })]);
+    });
+
+    it('makes the Layout of a Dashboard that had none, under the id the save names', () => {
+      const rows = [{ height: null, cells: [{ panelId: 'p-reading-falcon', span: 12 }] }];
+
+      const drawn = drawnAhead(withPanels(), {
+        name: 'save_layout',
+        payload: { ...panelEnvelope(), dashboardId: READING, layoutId: 'l-new', carriesSections: true, rows },
+      });
+
+      expect(drawn.layouts.map((layout) => layout.id)).toEqual(['l-today', 'l-new']);
+      expect(drawn.layouts[1]).toMatchObject({ dashboardId: READING, tenantId: 'tenant', rows });
+    });
+
+    it('shows the settings the form changed and no others', () => {
+      const drawn = drawnAhead(withPanels(), {
+        name: 'set_panel_settings',
+        payload: { ...panelEnvelope(), panelId: PANEL_B, name: 'Waiting on', readOnly: true, format: 'rich' },
+      });
+
+      expect(panelOf(drawn, PANEL_B)).toMatchObject({ name: 'Waiting on', readOnly: true, format: 'rich', neverPropose: false, columns: null });
+      expect(panelOf(drawn, PANEL_A)).toMatchObject({ name: 'Falcon', readOnly: false });
+    });
+
+    it('shows Never propose and the columns a Panel of items was given, and one set back to a single list', () => {
+      const set = drawnAhead(withPanels(), {
+        name: 'set_panel_settings',
+        payload: { ...panelEnvelope(), panelId: PANEL_A, neverPropose: true, columns: 'wide' },
+      });
+      const back = drawnAhead(set, {
+        name: 'set_panel_settings',
+        payload: { ...panelEnvelope(), panelId: PANEL_A, columns: null },
+      });
+
+      expect(panelOf(set, PANEL_A)).toMatchObject({ neverPropose: true, columns: 'wide' });
+      expect(panelOf(back, PANEL_A)).toMatchObject({ neverPropose: true, columns: null });
+    });
+
+    it('shows the conditions and the grouping a Filter was given', () => {
+      const rows = [[{ field: 'priority', values: ['high'] }]];
+
+      const drawn = drawnAhead(withPanels(), {
+        name: 'set_panel_filter',
+        payload: { ...panelEnvelope(), panelId: PANEL_A, rows, groupBy: 'dashboard' },
+      } as CommandArgs);
+
+      expect(panelOf(drawn, PANEL_A)?.filter).toEqual({ rows, groupBy: 'dashboard' });
+    });
+
+    it('shows the sort a Panel was given, and Manual when it is set back', () => {
+      const sort = [{ field: 'title' as const, direction: 'asc' as const }];
+      const sorted = drawnAhead(withPanels(), { name: 'set_panel_sort', payload: { ...panelEnvelope(), panelId: PANEL_A, sort } });
+      const manual = drawnAhead(sorted, { name: 'set_panel_sort', payload: { ...panelEnvelope(), panelId: PANEL_A, sort: null } });
+
+      expect(panelOf(sorted, PANEL_A)?.sort).toEqual(sort);
+      expect(panelOf(manual, PANEL_A)?.sort).toBeNull();
+    });
+
+    it('takes a deleted Panel off the board with what was filed on it', () => {
+      const copy = withPanels();
+
+      const drawn = drawnAhead(copy, { name: 'delete_panel', payload: { ...panelEnvelope(), panelId: PANEL_A } });
+
+      expect(panelNames(drawn, TODAY)).toEqual(['Notes']);
+      expect(drawn.filings).toEqual([]);
+      expect(copy.panels).toHaveLength(3);
+    });
+
+    it('moves a Panel off its Dashboard and onto the other', () => {
+      const drawn = drawnAhead(withPanels(), {
+        name: 'move_panel_to_dashboard',
+        payload: { ...panelEnvelope(), panelId: PANEL_B, dashboardId: READING },
+      });
+
+      expect(panelNames(drawn, TODAY)).toEqual(['Falcon']);
+      expect(panelNames(drawn, READING).sort()).toEqual(['Falcon', 'Notes']);
+    });
+
+    it.each([
+      { situation: 'an add', change: panelAdded('Waiting on', 'items', 'ws-home') },
+      { situation: 'a delete', change: { name: 'delete_panel', payload: { ...panelEnvelope('ws-home'), panelId: PANEL_A } } as CommandArgs },
+      {
+        situation: 'a setting',
+        change: { name: 'set_panel_settings', payload: { ...panelEnvelope('ws-home'), panelId: PANEL_A, name: 'X' } } as CommandArgs,
+      },
+    ])('leaves another Workspace’s copy as it is for $situation', ({ change }) => {
+      const copy = withPanels();
+
+      expect(drawnAhead(copy, change)).toBe(copy);
+    });
+  });
+
+  describe('what the server decides is drawn as predicted, then as the server says', () => {
+    it('keeps a moved Panel’s own name where the other Dashboard holds one of that name, until the read brings the server’s rename', async () => {
+      const queue = createChangeQueue({ send: async () => ({ ok: true, applied: true }) });
+      const move: CommandArgs = {
+        name: 'move_panel_to_dashboard',
+        payload: { ...panelEnvelope(), panelId: PANEL_A, dashboardId: READING },
+      };
+
+      const answered = queue.enqueue(move);
+      await answered;
+      expect(panelNames(queue.drawnOver(withPanels()), READING)).toEqual(['Falcon', 'Falcon']);
+
+      // The read after the answer, in which the server has renamed it.
+      const read = withPanels();
+      read.panels = read.panels.map((one) => (one.id === PANEL_A ? { ...one, dashboardId: READING, name: 'Falcon (2)' } : one));
+      queue.readLanded(WORK, queue.readStarted());
+
+      expect(panelNames(queue.drawnOver(read), READING)).toEqual(['Falcon (2)', 'Falcon']);
+    });
+  });
+});
+
+describe('Workspace management', () => {
+  describe('a Workspace change shows the moment it is made, before the server has answered', () => {
+    const THEMES = WORKSPACE_THEMES;
+    const aWorkspace = (id: string, name: string, color: string): Workspace =>
+      ({ id, tenantId: 'tenant', name, color, bar: '#000001', ground: '#000002', header: '#000003' }) as Workspace;
+    const listed = (): WorkspaceList => ({
+      workspaces: [aWorkspace('ws-work', 'Work', THEMES[0].tint), aWorkspace('ws-home', 'Home', THEMES[1].tint), aWorkspace('ws-acme', 'Acme', THEMES[2].tint)],
+    });
+    const envelope = (workspaceId: string) => ({ commandId: 'c1', issuedAt: AT, workspaceId });
+    const shown = (list: WorkspaceList) => list.workspaces.map((one) => one.name);
+
+    it('shows the new name on a renamed Workspace and no other', () => {
+      const copy = listed();
+
+      const drawn = listDrawnOver(copy, [{ name: 'rename_workspace', payload: { ...envelope('ws-home'), name: 'Family' } }]);
+
+      expect(shown(drawn)).toEqual(['Work', 'Family', 'Acme']);
+      // The list the server sent is as it was.
+      expect(shown(copy)).toEqual(['Work', 'Home', 'Acme']);
+    });
+
+    it('shows the palette’s colours on a recoloured Workspace', () => {
+      const drawn = listDrawnOver(listed(), [
+        { name: 'set_workspace_theme', payload: { ...envelope('ws-home'), color: THEMES[3].tint, bar: '#111111', ground: '#222222', header: '#333333' } },
+      ]);
+
+      // The tint alone is what the server stores; the other three are the palette's.
+      expect(drawn.workspaces[1]).toMatchObject({ color: THEMES[3].tint, bar: THEMES[3].bar, ground: THEMES[3].ground, header: THEMES[3].header });
+      expect(drawn.workspaces[0]!.color).toBe(THEMES[0].tint);
+    });
+
+    it('draws no colour the palette does not have, since the server refuses it', () => {
+      const copy = listed();
+
+      const drawn = listDrawnOver(copy, [
+        { name: 'set_workspace_theme', payload: { ...envelope('ws-home'), color: '#123456', bar: '#111111', ground: '#222222', header: '#333333' } },
+      ]);
+
+      expect(drawn).toEqual(copy);
+    });
+
+    it('takes a deleted Workspace out of the list', () => {
+      const drawn = listDrawnOver(listed(), [{ name: 'delete_workspace', payload: envelope('ws-home') }]);
+
+      expect(shown(drawn)).toEqual(['Work', 'Acme']);
+    });
+
+    it('shows the order a reorder carries, with one it never named kept on the end', () => {
+      const drawn = listDrawnOver(listed(), [
+        { name: 'reorder_workspaces', payload: { ...envelope('ws-acme'), workspaceIds: ['ws-acme', 'ws-work'] } },
+      ]);
+
+      expect(shown(drawn)).toEqual(['Acme', 'Work', 'Home']);
+    });
+
+    it('builds each change on the one before it', () => {
+      const drawn = listDrawnOver(listed(), [
+        { name: 'rename_workspace', payload: { ...envelope('ws-home'), name: 'Family' } },
+        { name: 'reorder_workspaces', payload: { ...envelope('ws-home'), workspaceIds: ['ws-home', 'ws-work', 'ws-acme'] } },
+        { name: 'delete_workspace', payload: envelope('ws-acme') },
+      ]);
+
+      expect(shown(drawn)).toEqual(['Family', 'Work']);
+    });
+
+    describe('a new Workspace is drawn whole from what the tab made', () => {
+      const made = (workspaceId: string, name = 'Bookkeeping'): CommandArgs => ({
+        name: 'create_workspace',
+        payload: { ...envelope(workspaceId), name, panelId: 'p-first' },
+      });
+
+      it('puts it at the end of the list in the first colour no other wears, with the palette’s other three', () => {
+        const copy = listed();
+
+        const drawn = listDrawnOver(copy, [made('ws-new')]);
+
+        expect(shown(drawn)).toEqual(['Work', 'Home', 'Acme', 'Bookkeeping']);
+        expect(drawn.workspaces[3]).toMatchObject({
+          id: 'ws-new',
+          color: THEMES[3].tint,
+          bar: THEMES[3].bar,
+          ground: THEMES[3].ground,
+          header: THEMES[3].header,
+        });
+        expect(copy.workspaces).toHaveLength(3);
+      });
+
+      it('gives two Workspaces added in a row a colour each', () => {
+        const drawn = listDrawnOver(listed(), [made('ws-new'), made('ws-newer', 'Reading')]);
+
+        expect(drawn.workspaces.slice(3).map((one) => one.color)).toEqual([THEMES[3].tint, THEMES[4].tint]);
+      });
+
+      it('draws the first Workspace of an account on an empty list', () => {
+        const drawn = listDrawnOver({ workspaces: [] }, [made('ws-new')]);
+
+        expect(drawn.workspaces).toEqual([expect.objectContaining({ id: 'ws-new', name: 'Bookkeeping', color: THEMES[0].tint })]);
+      });
+
+      it('draws a Workspace the list holds already once, as it is held', () => {
+        const copy = listed();
+
+        expect(listDrawnOver(copy, [made('ws-home', 'Elsewhere')])).toEqual(copy);
+      });
+
+      it('holds its first Dashboard, named as the server names it, and that Dashboard’s Panel', () => {
+        const drawn = noSnapshotYet(made('ws-new'));
+
+        expect(drawn.dashboards).toEqual([expect.objectContaining({ id: 'ws-new-dashboard-1', workspaceId: 'ws-new', name: 'Dashboard 1' })]);
+        expect(drawn.panels).toEqual([
+          expect.objectContaining({ id: 'p-first', dashboardId: 'ws-new-dashboard-1', name: 'Panel 1', kind: 'items' }),
+        ]);
+      });
+
+      it('leaves a Workspace the server has sent alone, so a Dashboard deleted since does not come back', () => {
+        const copy = withDashboards('ws-new');
+
+        expect(drawnAhead(copy, made('ws-new'))).toBe(copy);
+      });
+
+      it('leaves another Workspace’s copy alone', () => {
+        const copy = { ...noSnapshotYet(made('ws-other')), dashboards: [], panels: [] };
+
+        expect(drawnAhead(copy, made('ws-new'))).toBe(copy);
+      });
+    });
+    it('draws nothing over a Workspace’s own copy', () => {
+      const copy = withDashboards();
+
+      expect(drawnAhead(copy, { name: 'rename_workspace', payload: { ...envelope('ws-work'), name: 'Family' } })).toBe(copy);
+    });
+  });
+});
+
+
+describe('Capture', () => {
+  describe('a capture shows in the Inbox the moment it is made, before the server has it', () => {
+    const captured = (over: Record<string, unknown> = {}): CommandArgs =>
+      ({
+        name: 'capture_item',
+        payload: { ...envelope(BART), commandId: 'c-capture', message: 'call bart', ...over },
+      }) as CommandArgs;
+    const inWork = (items: Item[] = []) =>
+      ({ workspace: { id: 'ws-work', tenantId: 'tenant' }, items, filings: [], panels: [] }) as unknown as WorkspaceSnapshot;
+    const inTheInbox = (copy: WorkspaceSnapshot) => itemsInTheInbox(copy.items, []).map((item) => item.id);
+
+    it.each([
+      { situation: 'captured to this Workspace', over: {}, shown: [BART] },
+      { situation: 'captured to Any workspace, from another Workspace', over: { workspaceId: 'ws-home', workspaceDecided: false }, shown: [BART] },
+      { situation: 'captured to another Workspace', over: { workspaceId: 'ws-home' }, shown: [] },
+    ])('$situation', ({ over, shown }) => {
+      expect(inTheInbox(drawnAhead(inWork(), captured(over)))).toEqual(shown);
+    });
+
+    it('draws it once when the read already holds the row, as the server has it', () => {
+      const held = anItem(BART, { title: 'Call Bart.' });
+
+      const drawn = drawnAhead(inWork([held]), captured());
+
+      expect(drawn.items).toEqual([held]);
+    });
+
+    it('draws it after the Items the Workspace already holds, as the server orders them', () => {
+      expect(drawnAhead(inWork([anItem(LISA)]), captured()).items.map((item) => item.id)).toEqual([LISA, BART]);
+    });
+
+    it('names it as the server does, with the priority and due date the strip chose, and what the server decides left for the next read', () => {
+      const copy = inWork();
+
+      const drawn = read(drawnAhead(copy, captured({ message: '**call bart**\nabout the quote', priority: 'high', dueDate: '2026-10-23' })), BART)!;
+
+      expect(drawn).toMatchObject({
+        // Its words on one line for the title, and the note itself as the description.
+        title: 'call bart about the quote',
+        description: '**call bart**\nabout the quote',
+        priority: 'high',
+        dueDate: '2026-10-23',
+        createdAt: AT,
+        completedAt: null,
+        readings: null,
+        proposedPanelId: null,
+      });
+      expect(copy.items).toEqual([]);
+    });
+
+    it('takes the title a front door gave the note, with the note as the description', () => {
+      const drawn = read(drawnAhead(inWork(), captured({ title: 'Quote for Bart' })), BART)!;
+
+      expect(drawn).toMatchObject({ title: 'Quote for Bart', description: 'call bart' });
+    });
+
+    it('draws a whole Item, one the Inbox and the form can read like any other', () => {
+      const drawn = read(drawnAhead(inWork(), captured()), BART);
+
+      expect(itemSchema.safeParse(drawn).success).toBe(true);
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('a pair said not to be a duplicate shows as settled the moment it is said, before the server has answered', () => {
+    const MAGGIE = '11111111-1111-7111-8111-000000000003';
+    const settled = (itemId: string, otherItemId: string, settledOrNot = true): CommandArgs =>
+      ({ name: 'set_duplicate_settled', payload: { ...envelope(itemId), otherItemId, settled: settledOrNot } }) as CommandArgs;
+    const flaggedPairs = (pairs: { itemId: string; otherItemId: string }[], items = [BART, LISA, MAGGIE]) =>
+      ({
+        workspace: { id: 'ws-work' },
+        items: items.map((id) => anItem(id)),
+        filings: [],
+        panels: [],
+        duplicates: pairs,
+      }) as unknown as WorkspaceSnapshot;
+    const marked = (copy: WorkspaceSnapshot) => [...itemsThatMayBeDuplicates(copy.items, [], copy.duplicates)].sort();
+
+    it.each([
+      { situation: 'said from the first note of the pair', change: settled(BART, LISA) },
+      { situation: 'said from the second note of the pair', change: settled(LISA, BART) },
+    ])('clears both notes’ marks when $situation', ({ change }) => {
+      const copy = flaggedPairs([{ itemId: BART, otherItemId: LISA }]);
+
+      const drawn = drawnAhead(copy, change);
+
+      expect(marked(drawn)).toEqual([]);
+      // The copy the server sent is as it was.
+      expect(marked(copy)).toEqual([BART, LISA]);
+    });
+
+    it('clears both pairs of a note flagged against two others, and no pair it was not said of', () => {
+      const copy = flaggedPairs([
+        { itemId: BART, otherItemId: LISA },
+        { itemId: BART, otherItemId: MAGGIE },
+      ]);
+
+      expect(marked(drawnAhead(copy, settled(BART, LISA)))).toEqual([BART, MAGGIE]);
+      expect(marked(drawnOver(copy, [settled(BART, LISA), settled(BART, MAGGIE)]))).toEqual([]);
+    });
+
+    it('brings the pair back when the settling is taken back', () => {
+      const drawn = drawnAhead(flaggedPairs([]), settled(LISA, BART, false));
+
+      expect(marked(drawn)).toEqual([BART, LISA]);
+    });
+
+    it('draws a pair taken back once when the read already holds it, whichever way round', () => {
+      const copy = flaggedPairs([{ itemId: BART, otherItemId: LISA }]);
+
+      expect(drawnAhead(copy, settled(LISA, BART, false)).duplicates).toHaveLength(1);
+    });
+
+    it('does not bring a pair back whose other note has left the Workspace since', () => {
+      const copy = flaggedPairs([], [BART]);
+
+      expect(drawnAhead(copy, settled(BART, LISA, false)).duplicates).toEqual([]);
+    });
+
+    it('draws nothing in another Workspace', () => {
+      const copy = flaggedPairs([{ itemId: BART, otherItemId: LISA }]);
+      const change = { name: 'set_duplicate_settled', payload: { ...envelope(BART), workspaceId: 'ws-home', otherItemId: LISA, settled: true } } as CommandArgs;
+
+      expect(drawnAhead(copy, change)).toBe(copy);
+    });
+  });
+});
+
+describe('Item editing', () => {
+  describe('an attachment shows the moment it is uploaded or removed, before a read holds it', () => {
+    const SCAN = '11111111-1111-7111-8111-0000000000a1';
+    const NOTE = '11111111-1111-7111-8111-0000000000a2';
+    const uploaded = (over: Record<string, unknown> = {}): Drawn => ({
+      name: 'add_attachment',
+      payload: { ...envelope(BART), attachmentId: SCAN, filename: 'scan.pdf', size: 5, contentType: 'application/pdf', ...over },
+    });
+    const removed = (attachmentId: string, over: Record<string, unknown> = {}): CommandArgs =>
+      ({ name: 'remove_attachment', payload: { ...envelope(BART), attachmentId, ...over } }) as CommandArgs;
+    const held = (id: string, filename: string): Attachment => ({
+      id,
+      tenantId: 'tenant',
+      itemId: BART,
+      filename,
+      size: 5,
+      contentType: 'application/pdf',
+      createdAt: AT,
+    });
+    const inWork = (attachments: Attachment[] = [], items = [anItem(BART)]) =>
+      ({ workspace: { id: 'ws-work', tenantId: 'tenant' }, items, filings: [], panels: [], attachments }) as unknown as WorkspaceSnapshot;
+
+    it('draws an uploaded file as the chip the server reads back: its id, its Item, its name, size and type', () => {
+      const drawn = drawnAhead(inWork(), uploaded());
+
+      expect(drawn.attachments).toEqual([held(SCAN, 'scan.pdf')]);
+      expect(attachmentSchema.safeParse(drawn.attachments[0]).success).toBe(true);
+    });
+
+    it('draws it after the files the Item already holds, and once when the read already holds it', () => {
+      const earlier = held(NOTE, 'note.pdf');
+
+      expect(drawnAhead(inWork([earlier]), uploaded()).attachments.map((one) => one.id)).toEqual([NOTE, SCAN]);
+      const holding = inWork([held(SCAN, 'scan.pdf')]);
+      expect(drawnAhead(holding, uploaded())).toBe(holding);
+    });
+
+    it.each([
+      { situation: 'another Workspace', copy: { ...inWork(), workspace: { id: 'ws-home', tenantId: 'tenant' } } as unknown as WorkspaceSnapshot },
+      { situation: 'a Workspace that no longer holds the Item', copy: inWork([], []) },
+    ])('draws nothing in $situation', ({ copy }) => {
+      expect(drawnAhead(copy, uploaded())).toBe(copy);
+    });
+
+    it('takes a removed file away and no other, and leaves the copy the server sent as it was', () => {
+      const copy = inWork([held(SCAN, 'scan.pdf'), held(NOTE, 'note.pdf')]);
+
+      const drawn = drawnAhead(copy, removed(SCAN));
+
+      expect(drawn.attachments.map((one) => one.id)).toEqual([NOTE]);
+      expect(copy.attachments).toHaveLength(2);
+    });
+
+    it('draws nothing of a removal in another Workspace', () => {
+      const copy = inWork([held(SCAN, 'scan.pdf')]);
+
+      expect(drawnAhead(copy, removed(SCAN, { workspaceId: 'ws-home' })).attachments).toEqual(copy.attachments);
+    });
+
+    it('draws a removal over an upload made before it, so a file added and taken away is not there', () => {
+      expect(drawnOver(inWork(), [uploaded(), removed(SCAN)]).attachments).toEqual([]);
     });
   });
 });

@@ -86,16 +86,18 @@ one-time developer setup per environment (issue 486, "Out of scope").
 4. Put the App ID in this environment: `wrangler secret put MS_BOT_APP_ID`
    (and again with `--env staging`). Without it, the address answers 404 and
    nothing else about the application changes.
-5. Fill in `teams-app/manifest.json` (the App ID in all three places it appears,
-   the origin, icons), zip it with a 192×192 `color.png` and a 32×32 transparent
-   `outline.png`, and upload it in Teams. The tenant's custom-app-upload policy
-   has to allow that — an admin toggle, not a licence. **Raise `version` when
-   the manifest changes**, which is how Teams tells a new package from the
-   installed one, and reinstall: Microsoft says a changed app configuration is
-   not picked up otherwise
+5. Put the App ID in `teams-app/app-ids.json` and the two icons beside the
+   manifest (a 192×192 `color.png` and a 32×32 transparent `outline.png`), then
+   build the package with `node scripts/teams-package.mjs <staging|production>`
+   and upload it in the Teams admin center; the `teams-app-upload` skill does
+   both. The tenant's custom-app-upload policy has to allow that — an admin
+   toggle, not a licence. **Raise `version` when the manifest changes**, which
+   is how Teams tells a new package from the installed one, and upload it as a
+   new version of the app already there: Microsoft says a changed app
+   configuration is not picked up otherwise
    (<https://learn.microsoft.com/en-us/microsoftteams/platform/concepts/deploy-and-publish/apps-upload>),
-   and warns that uploading a message extension again can leave two instances
-   of it, so remove the old one first.
+   and warns that a message extension uploaded again as a second app can show
+   twice.
 6. In Cockpit, connect that Microsoft account to a workspace under **Manage
    connections**, so a save has somewhere to land.
 

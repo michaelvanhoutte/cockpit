@@ -1060,7 +1060,7 @@ async function change<N extends CommandName>(
  */
 async function sentenceBeforeItChanges(env: Env, accountName: string, sentenceId: string) {
   const account = await openAccount(env, accountName);
-  const before = (await account.rememberedSentences()).find((one) => one.id === sentenceId);
+  const before = (await account.rememberedSentences()).sentences.find((one) => one.id === sentenceId);
   if ((await account.sentenceCallArrived('remember', new Date().toISOString())) === 'too-many') {
     throw new ConflictInAccountError('Too many sentences were changed in the last minute. Try again shortly.');
   }
@@ -1391,7 +1391,7 @@ const routes = app
   })
   .openapi(rememberedSentencesRoute, async (c) => {
     const account = await openAccount(c.env, c.get('visitor').accountName);
-    return c.json({ sentences: await account.rememberedSentences() }, 200);
+    return c.json(await account.rememberedSentences(), 200);
   })
   .openapi(connectedAppsRoute, async (c) => {
     return c.json({ apps: await connectedAppsOf(c.env, c.get('visitor').userId) }, 200);

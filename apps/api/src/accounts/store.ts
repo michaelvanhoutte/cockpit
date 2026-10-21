@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { panelTakesItems, type RememberedSentenceView } from '@cockpit/shared';
+import { panelTakesItems, type RememberedSentenceList } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -81,7 +81,7 @@ import {
   writeRows,
 } from './restore.js';
 import { createAccountDb, type AccountDb } from './client.js';
-import { collectInvalidations, watermark } from './events.js';
+import { collectInvalidations, sentencesWatermark, watermark } from './events.js';
 import {
   AgentRunNotFoundError,
   AgentRunRefusedError,
@@ -536,8 +536,12 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /** What Settings lists under What Cockpit remembers (issue 1164). */
-  rememberedSentences(accountName: string): Answer<RememberedSentenceView[]> {
-    return this.#answer(accountName, (db) => listRememberedSentences(db, accountName));
+  rememberedSentences(accountName: string): Answer<RememberedSentenceList> {
+    // The stamp is read before the rows it vouches for, so a list can only under-claim (`sentencesWatermark`).
+    return this.#answer(accountName, (db) => {
+      const upTo = sentencesWatermark(db, accountName);
+      return { sentences: listRememberedSentences(db, accountName), ...(upTo === undefined ? {} : { upTo }) };
+    });
   }
 
   /** The open Items a newly remembered sentence may fit, to be proposed for again (issue 1163). */

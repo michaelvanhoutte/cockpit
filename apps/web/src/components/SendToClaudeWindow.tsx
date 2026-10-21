@@ -23,7 +23,7 @@ import { CommandRefused, api, refusal } from '../api/client';
 import { useSendCommand } from '../api/queries';
 import { openClaude } from '../openClaude';
 import { RememberASentence } from './RememberASentence';
-import { connectedAppsQuery } from './ManageConnectedApps';
+import { connectedAppsQuery } from '../api/connectedApps';
 import { rememberedSentencesQuery } from '../rememberedSentences';
 import { useOpenSettings } from '../settingsOpener';
 import { capturingApp, sourceNamed, type SourceNames } from '../itemSource';
@@ -31,7 +31,7 @@ import { capturingApp, sourceNamed, type SourceNames } from '../itemSource';
 /**
  * The addresses a Claude session opens an Item's files at, for the prompt. Read
  * here rather than in `api/client.ts` with the rest, for the reason
- * `ManageConnectedApps` keeps its reads: only this window asks, and it is not
+ * `api/connectedApps.ts` keeps its reads: only this window asks, and it is not
  * the initial bundle's to carry (`bundle:budget`).
  */
 async function fetchAttachmentLinks(attachmentIds: readonly string[]): Promise<Record<string, string>> {

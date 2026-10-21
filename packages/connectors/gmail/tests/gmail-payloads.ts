@@ -84,6 +84,15 @@ export function threadsPage(threadIds: readonly string[], nextPageToken?: string
   };
 }
 
+/** `users.messages.list`: one page of emails' ids and their conversations', and where the next one starts. */
+export function messagesPage(emails: readonly { id: string; threadId: string }[], nextPageToken?: string) {
+  return {
+    messages: emails.map(({ id, threadId }) => ({ id, threadId })),
+    ...(nextPageToken ? { nextPageToken } : {}),
+    resultSizeEstimate: emails.length,
+  };
+}
+
 interface MessageOptions {
   readonly id: string;
   readonly sentAt: string;
@@ -173,6 +182,11 @@ export function modifyAnswer(thread: unknown) {
     messages: { id: string; threadId: string; labelIds: string[] }[];
   };
   return { id, historyId, messages: messages.map((one) => ({ id: one.id, threadId: one.threadId, labelIds: one.labelIds })) };
+}
+
+/** `users.messages.modify`: the one email, carrying its id and its labels after the change. */
+export function messageModifyAnswer(email: { id: string; threadId: string; labelIds: readonly string[] }) {
+  return { id: email.id, threadId: email.threadId, labelIds: email.labelIds };
 }
 
 /** The commonest conversation: one labelled plain-text message - or that message unlabelled, starred, or in the bin. */

@@ -51,7 +51,8 @@ describe('Connector management', () => {
       const second = first.next();
       await world.connector().sync(second);
 
-      expect(second.filed.get('t-1')?.names).toEqual(reports);
+      // By star the Item is the email's, whose source id says so.
+      expect(second.filed.get(choice === 'star' ? 'message:t-1' : 't-1')?.names).toEqual(reports);
     });
 
     it('never reports the Cockpit label the connection follows', async () => {
@@ -137,14 +138,17 @@ describe('Connector management', () => {
       expect(next.namesReported).toEqual([]);
     });
 
-    it('reports a label put on a conversation by a connection following the star too', async () => {
+    it('reports a label put on an email by a connection following the star too, and for a conversation Item from before', async () => {
       const { world, host } = await known('star');
       world.label('t-1', 'Admin');
 
       const next = host.next();
       await world.connector().sync(next);
 
-      expect(next.namesReported).toEqual([{ sourceId: 't-1', names: ['Customer Atlas', 'Admin'] }]);
+      expect(next.namesReported).toEqual([
+        { sourceId: 'message:t-1', names: ['Customer Atlas', 'Admin'] },
+        { sourceId: 't-1', names: ['Customer Atlas', 'Admin'] },
+      ]);
     });
 
     it('reports each conversation’s set once at a full re-read after a week unchecked', async () => {

@@ -3289,7 +3289,7 @@ const ACCOUNT_SCHEMA: Change = {
  *   leaning on the unique index to catch the collision, so a second run does
  *   nothing rather than failing over rows that are already correct;
  * - backfilled ids are **derived from the workspace's own id**, matching
- *   `firstDashboardId` in src/domain/dashboards.ts, so a workspace's first
+ *   `firstDashboardId` in packages/shared/src/domain/starting.ts, so a workspace's first
  *   dashboard has one id whether this change made it or `create_workspace`
  *   did, and no run can produce a second row that merely looks different.
  *
@@ -4804,7 +4804,7 @@ function firstWorkspace(accountId: string): Change {
       },
       {
         // Its id is the workspace's own plus a suffix, which is what
-        // `firstDashboardId` in src/domain/dashboards.ts does - the same rule in
+        // `firstDashboardId` in packages/shared/src/domain/starting.ts does - the same rule in
         // both places, so a workspace's first dashboard has one id whether this
         // made it or `create_workspace` did.
         sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)

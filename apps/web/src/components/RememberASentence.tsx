@@ -7,8 +7,10 @@ import {
   uuidv7,
   type RememberOffer,
 } from '@cockpit/shared';
-import { CommandRefused, api } from '../api/client';
-import { useSendCommand } from '../api/queries';
+import { api } from '../api/client';
+import { whyNotDone } from '../api/queries';
+import { useChangeSentence } from '../rememberedSentences';
+import { useUndo } from '../undo';
 
 /**
  * How long the offer is waited for. The server gives up on the model after 20
@@ -35,6 +37,10 @@ async function fetchOffer(runId: string, signal: AbortSignal): Promise<RememberO
  * itself where there is none**. Where there is one it is a sentence to reword,
  * keep with *Remember*, or drop with *Just this once*; closing the window any
  * other way keeps nothing. Nothing is remembered without that press.
+ *
+ * **Remember closes the window at the click** and the sentence is in Settings'
+ * list at once (issue 1370). A sentence the server refuses is not kept, and the
+ * undo bar says why, since the window it would have been said in has gone.
  */
 export function RememberASentence({
   runId,
@@ -45,11 +51,10 @@ export function RememberASentence({
   destinationName: string;
   onClose: () => void;
 }) {
-  const send = useSendCommand();
+  const change = useChangeSentence();
+  const offerToUndo = useUndo();
   const [offer, setOffer] = useState<RememberOffer | null>(null);
   const [sentence, setSentence] = useState('');
-  const [keeping, setKeeping] = useState(false);
-  const [refusal, setRefusal] = useState<string | null>(null);
   // One id for this offer: Remember pressed twice is one sentence.
   const [sentenceId] = useState(() => uuidv7());
 
@@ -74,31 +79,25 @@ export function RememberASentence({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
 
-  const remember = async () => {
-    if (!offer || keeping || sentence.trim() === '') return;
-    setKeeping(true);
-    setRefusal(null);
-    try {
-      await send({
-        name: 'remember_sentence',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId: offer.workspaceId ?? ACCOUNT_WIDE,
-          sentenceId,
-          sentence: sentence.trim(),
-          action: offer.action,
-          sourceKind: offer.sourceKind,
-        },
-      });
-    } catch (failure) {
-      setRefusal(failure instanceof CommandRefused ? failure.message : 'That did not reach the server. Try again.');
-      setKeeping(false);
-      return;
-    }
+  const remember = () => {
+    if (!offer || sentence.trim() === '') return;
+    const words = sentence.trim();
+    change({
+      name: 'remember_sentence',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId: offer.workspaceId ?? ACCOUNT_WIDE,
+        sentenceId,
+        sentence: words,
+        action: offer.action,
+        sourceKind: offer.sourceKind,
+      },
+    }).catch((failure: unknown) => {
+      offerToUndo({ what: `“${words}” was not remembered. ${whyNotDone(failure)}` });
+    });
     onClose();
   };
-
   if (!offer) {
     return (
       <div role="status" className="mt-4 text-sm text-ink-soft">
@@ -121,7 +120,7 @@ export function RememberASentence({
       className="mt-4"
       onSubmit={(event) => {
         event.preventDefault();
-        void remember();
+        remember();
       }}
     >
       <p className="text-sm text-ink-soft">Opened in {destinationName}. You changed what Cockpit proposed.</p>
@@ -130,7 +129,6 @@ export function RememberASentence({
         <textarea
           autoFocus
           value={sentence}
-          disabled={keeping}
           onChange={(event) => setSentence(event.target.value)}
           rows={3}
           maxLength={REMEMBERED_SENTENCE_LIMIT}
@@ -142,16 +140,9 @@ export function RememberASentence({
         from now on.
       </p>
 
-      {refusal && (
-        <p role="alert" className="pt-3 text-sm text-over-ink">
-          {refusal}
-        </p>
-      )}
-
       <div className="flex justify-end gap-2 pt-5">
         <button
           type="button"
-          disabled={keeping}
           onClick={onClose}
           className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
         >
@@ -159,7 +150,7 @@ export function RememberASentence({
         </button>
         <button
           type="submit"
-          disabled={keeping || sentence.trim() === ''}
+          disabled={sentence.trim() === ''}
           className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
         >
           Remember

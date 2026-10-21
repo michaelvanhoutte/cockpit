@@ -59,7 +59,10 @@
         "apps/api/src/mcp/find-items.ts",
         "apps/api/src/accounts/find-items.ts",
         "apps/api/src/mcp/connected-apps.ts",
-        "apps/web/src/components/ManageConnectedApps.tsx"
+        "apps/web/src/components/ManageConnectedApps.tsx",
+        "apps/web/src/api/connectedApps.ts",
+        "apps/web/src/connectedAppsDrawnAhead.ts",
+        "apps/web/src/api/ownList.ts"
       ]
     },
     {
@@ -73,6 +76,9 @@
         "apps/api/src/accounts/new-user.ts",
         "packages/shared/src/api/users.ts",
         "apps/web/src/components/ManageUsers.tsx",
+        "apps/web/src/api/registeredUsers.ts",
+        "apps/web/src/registeredUsersDrawnAhead.ts",
+        "apps/web/src/api/ownList.ts",
         "apps/web/src/pages/Layout.tsx"
       ]
     },
@@ -200,6 +206,8 @@
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/DashboardBar.tsx",
+        "apps/web/src/drawnAhead.ts",
+        "apps/web/src/changeQueue.ts",
         "apps/web/src/pages/DashboardPage.tsx",
         "apps/web/src/allItems.ts",
         "packages/shared/src/domain/where-it-is.ts",
@@ -340,6 +348,9 @@
         "packages/shared/src/domain/item.ts",
         "packages/shared/src/domain/workspace-themes.ts",
         "apps/web/src/components/WorkspaceTabs.tsx",
+        "apps/web/src/drawnAhead.ts",
+        "apps/web/src/changeQueue.ts",
+        "apps/web/src/api/useWorkspaces.ts",
         "apps/web/src/pages/Layout.tsx",
         "apps/web/src/router.tsx",
         "apps/web/src/reorder.ts",
@@ -417,6 +428,10 @@
         "packages/connector-sdk/src/index.ts",
         "packages/shared/src/domain/source-account.ts",
         "apps/web/src/components/ManageConnections.tsx",
+        "apps/web/src/components/ConnectionChoice.tsx",
+        "apps/web/src/api/sourceAccounts.ts",
+        "apps/web/src/api/ownList.ts",
+        "apps/web/src/connectionsDrawnAhead.ts",
         "apps/web/src/connections.ts"
       ]
     },
@@ -447,7 +462,12 @@
         "apps/api/src/accounts/store.ts",
         "apps/web/src/pages/Layout.tsx",
         "apps/api/src/accounts/retire-agents.ts",
-        "apps/api/src/domain/agent-sentence.ts"
+        "apps/api/src/domain/agent-sentence.ts",
+        "apps/web/src/components/ManageRememberedSentences.tsx",
+        "apps/web/src/components/RememberASentence.tsx",
+        "apps/web/src/rememberedSentences.ts",
+        "apps/web/src/rememberedSentencesDrawnAhead.ts",
+        "apps/web/src/api/ownList.ts"
       ]
     },
     {

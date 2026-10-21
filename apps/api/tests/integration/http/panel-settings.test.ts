@@ -244,7 +244,7 @@ describe('Panels', () => {
       const commandId = nextId();
       const ask = () => settings(panelId, { name: 'Soon', neverPropose: true }, { commandId });
 
-      expect(await (await ask()).json()).toEqual({ ok: true, applied: true });
+      expect(await (await ask()).json()).toEqual({ ok: true, applied: true, at: expect.any(String) });
       expect(await (await ask()).json()).toEqual({ ok: true, applied: false });
 
       const logged = await inTheStore(

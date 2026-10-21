@@ -255,7 +255,7 @@ function pulledHost(
       const closed = await run.closeItemsNotListed(listing);
       if (closed !== 'disconnected') did.closed.push(...closed);
       // What the check's line says it listed (issue 1196): the host already holds the whole listing.
-      did.listed = new Set(listing.sourceIds).size;
+      did.listed = listing.count ?? new Set(listing.sourceIds).size;
     },
 
     /**
