@@ -19,9 +19,10 @@ async function run(world: GmailWorld, host: FakeHost): Promise<SyncAnswer | void
 describe('Capture', () => {
   describe('a run brings in each conversation the connection follows, once, as a titled Task tagged with the choice', () => {
     it.each([
-      { situation: 'labelled Cockpit, by label', choice: 'label', marks: ['label'] as const },
-      { situation: 'starred, by star', choice: 'star', marks: ['star'] as const },
-    ])('files a conversation $situation under its subject, sender, link and the choice', async ({ choice, marks }) => {
+      { situation: 'labelled Cockpit, by label', choice: 'label', marks: ['label'] as const, sourceId: 't-1' },
+      // By star the Item is the starred email's, and its source id says so.
+      { situation: 'starred, by star', choice: 'star', marks: ['star'] as const, sourceId: 'message:t-1' },
+    ])('files a conversation $situation under its subject, sender, link and the choice', async ({ choice, marks, sourceId }) => {
       const world = new GmailWorld();
       const first = signedInHost({ choice });
       await run(world, first);
@@ -32,7 +33,7 @@ describe('Capture', () => {
 
       expect([...second.filed.values()]).toEqual([
         expect.objectContaining({
-          sourceId: 't-1',
+          sourceId,
           title: 'Quarterly figures',
           capturedMessage: 'Send the Q3 figures.',
           sender: 'Pieter Claes',
@@ -69,7 +70,7 @@ describe('Capture', () => {
       const second = first.next();
       await run(world, second);
 
-      expect([...second.filed.keys()]).toEqual(['t-after']);
+      expect([...second.filed.keys()]).toEqual(['message:t-after']);
     });
   });
 
@@ -145,7 +146,7 @@ describe('Capture', () => {
       byStar.choice = 'star';
       await run(world, byStar);
 
-      expect(byStar.listings).toEqual([{ choice: 'star', sourceIds: ['t-star'] }]);
+      expect(byStar.listings).toEqual([{ choice: 'star', sourceIds: ['message:t-star', 't-star'] }]);
       // A star listing only closes: what was starred before it counts is not brought in.
       expect([...byStar.filed.keys()]).toEqual(['t-label']);
     });
@@ -194,10 +195,10 @@ describe('Capture', () => {
 
   describe('a label or star coming off, or going back on, is a change the Task follows', () => {
     it.each([
-      { situation: 'the label taken off', choice: 'label', mark: 'label', change: (w: GmailWorld) => w.unmark('t-1', 'label'), says: ['resolved'] },
-      { situation: 'the star taken off', choice: 'star', mark: 'star', change: (w: GmailWorld) => w.unmark('t-1', 'star'), says: ['resolved'] },
-      { situation: 'the conversation moved to the bin', choice: 'label', mark: 'label', change: (w: GmailWorld) => w.bin('t-1'), says: ['resolved'] },
-    ] as const)('says resolved for $situation', async ({ choice, mark, change, says }) => {
+      { situation: 'the label taken off', choice: 'label', mark: 'label', sourceId: 't-1', change: (w: GmailWorld) => w.unmark('t-1', 'label'), says: ['resolved'] },
+      { situation: 'the star taken off', choice: 'star', mark: 'star', sourceId: 'message:t-1', change: (w: GmailWorld) => w.unmark('t-1', 'star'), says: ['resolved'] },
+      { situation: 'the conversation moved to the bin', choice: 'label', mark: 'label', sourceId: 't-1', change: (w: GmailWorld) => w.bin('t-1'), says: ['resolved'] },
+    ] as const)('says resolved for $situation', async ({ choice, mark, sourceId, change, says }) => {
       const world = new GmailWorld();
       const first = signedInHost({ choice });
       await run(world, first);
@@ -209,13 +210,13 @@ describe('Capture', () => {
       const third = second.next();
       await run(world, third);
 
-      expect(third.saidOf('t-1')).toEqual(says);
+      expect(third.saidOf(sourceId)).toEqual(says);
     });
 
     it.each([
-      { situation: 'the label put back', choice: 'label', mark: 'label' },
-      { situation: 'the star put back', choice: 'star', mark: 'star' },
-    ] as const)('says reopened for $situation', async ({ choice, mark }) => {
+      { situation: 'the label put back', choice: 'label', mark: 'label', sourceId: 't-1' },
+      { situation: 'the star put back', choice: 'star', mark: 'star', sourceId: 'message:t-1' },
+    ] as const)('says reopened for $situation', async ({ choice, mark, sourceId }) => {
       const world = new GmailWorld();
       const first = signedInHost({ choice });
       await run(world, first);
@@ -230,7 +231,7 @@ describe('Capture', () => {
       const fourth = third.next();
       await run(world, fourth);
 
-      expect(fourth.saidOf('t-1')).toEqual(['reopened']);
+      expect(fourth.saidOf(sourceId)).toEqual(['reopened']);
     });
 
     it('closes what a complete listing no longer sees, where the history missed it', async () => {

@@ -74,7 +74,7 @@ export async function startStubIssuer({ port, seedPath }) {
   const issued = new Map();
   /** Every token handed back at `/revoke`, newest last. */
   const revoked = [];
-  /** Every `threads.modify` Gmail was asked for, newest last - what `/gmail-stub/modified` lists. */
+  /** Every `threads.modify` and `messages.modify` Gmail was asked for, newest last - what `/gmail-stub/modified` lists, `?email=` keeping one mailbox's. */
   const modifications = [];
 
   /**
@@ -103,7 +103,11 @@ export async function startStubIssuer({ port, seedPath }) {
    * conversations starred from then on", issue 822);
    * `/gmail-stub/unstar?email=&thread=` takes the star off one, and
    * `/gmail-stub/star?email=&thread=` puts it back ("Keep a starred Gmail task
-   * in step with its star, both ways", issue 823).
+   * in step with its star, both ways", issue 823). A star belongs to one
+   * email, so `/gmail-stub/star?email=&message=` and `/gmail-stub/unstar` with a
+   * `message` change that email alone, as starring one email in Gmail does
+   * ("Bring in each email you star in Gmail as its own Item", issue 1398);
+   * `/gmail-stub/reply` answers the id of the email it adds, to star it.
    */
   function actInMailbox(action, url, response) {
     const email = url.searchParams.get('email') ?? '';
@@ -130,29 +134,38 @@ export async function startStubIssuer({ port, seedPath }) {
       },
     });
     const named = url.searchParams.get('thread');
+    const emailId = url.searchParams.get('message');
     const removing = action === 'unlabel' || action === 'unstar';
-    if (removing || action === 'trash' || ((action === 'label' || action === 'star') && named)) {
-      const thread = mailbox.threads.find((one) => one.id === named);
+    if (removing || action === 'trash' || ((action === 'label' || action === 'star') && (named || emailId))) {
+      const thread = emailId
+        ? mailbox.threads.find((one) => one.messages.some((message) => message.id === emailId))
+        : mailbox.threads.find((one) => one.id === named);
       if (!thread) return json(response, { error: 'no such thread' }, 404);
       const moved = action === 'trash' ? 'TRASH' : starring ? 'STARRED' : cockpit.id;
-      for (const message of thread.messages) {
+      // A star on one email changes that email alone; every other change is the
+      // conversation's, and so every email in it.
+      const changing = emailId ? thread.messages.filter((message) => message.id === emailId) : thread.messages;
+      let recorded = false;
+      for (const message of changing) {
+        const had = message.labelIds.includes(moved);
         message.labelIds = removing
           ? message.labelIds.filter((label) => label !== moved)
           : [...new Set([...message.labelIds.filter((label) => !(action === 'label' && label === 'TRASH')), moved])];
-      }
-      // `quietly` leaves no history record, as a change the history missed -
-      // which only the nightly read of the whole mailbox finds.
-      if (!url.searchParams.has('quietly')) {
-        const [first] = thread.messages;
+        // One record for each email changed, as Gmail leaves them. `quietly`
+        // leaves none, as a change the history missed - which only the nightly
+        // read of the whole mailbox finds.
+        if (url.searchParams.has('quietly') || had === !removing) continue;
+        if (recorded) mailbox.historyId += 1;
+        recorded = true;
         mailbox.history.push({
-          id: at,
-          messages: [{ id: first.id, threadId: thread.id }],
+          id: String(mailbox.historyId),
+          messages: [{ id: message.id, threadId: thread.id }],
           [removing ? 'labelsRemoved' : 'labelsAdded']: [
-            { message: { id: first.id, threadId: thread.id, labelIds: first.labelIds }, labelIds: [moved] },
+            { message: { id: message.id, threadId: thread.id, labelIds: message.labelIds }, labelIds: [moved] },
           ],
         });
       }
-      return json(response, { thread: thread.id, historyId: at });
+      return json(response, { thread: thread.id, ...(emailId ? { message: emailId } : {}), historyId: String(mailbox.historyId) });
     }
     if (action === 'label' || action === 'star') {
       const mark = action === 'star' ? 'STARRED' : cockpit.id;
@@ -171,7 +184,7 @@ export async function startStubIssuer({ port, seedPath }) {
         messages: [{ id, threadId: id }],
         labelsAdded: [{ message: { id, threadId: id, labelIds: message.labelIds }, labelIds: [mark] }],
       });
-      return json(response, { thread: id, historyId: at });
+      return json(response, { thread: id, message: id, historyId: at });
     }
     const thread = mailbox.threads.find((one) => one.id === url.searchParams.get('thread'));
     if (!thread) return json(response, { error: 'no such thread' }, 404);
@@ -183,7 +196,7 @@ export async function startStubIssuer({ port, seedPath }) {
       messages: [{ id, threadId: thread.id }],
       messagesAdded: [{ message: { id, threadId: thread.id, labelIds: reply.labelIds } }],
     });
-    json(response, { thread: thread.id, historyId: at });
+    json(response, { thread: thread.id, message: id, historyId: at });
   }
 
   // Microsoft Graph's stand-in mailbox, at Graph's own paths and read with an
@@ -281,7 +294,22 @@ export async function startStubIssuer({ port, seedPath }) {
         starred: thread.messages.some((message) => message.labelIds.includes('STARRED')),
       });
     }
-    if (url.pathname === '/gmail-stub/modified') return json(response, modifications);
+    // One email, for a walk to read back whether it is starred (issue 1398).
+    if (url.pathname === '/gmail-stub/message') {
+      const mailbox = heldMailbox(url.searchParams.get('email') ?? '');
+      const found = findMessage(mailbox, url.searchParams.get('message'));
+      if (!found) return json(response, { error: 'no such message' }, 404);
+      return json(response, {
+        message: found.message.id,
+        thread: found.thread.id,
+        starred: found.message.labelIds.includes('STARRED'),
+        labelIds: found.message.labelIds,
+      });
+    }
+    if (url.pathname === '/gmail-stub/modified') {
+      const email = url.searchParams.get('email');
+      return json(response, email === null ? modifications : modifications.filter((one) => one.email === email));
+    }
     // Every call Gmail was asked of one mailbox, oldest first - so a walk can
     // wait for a check to have read the mailbox's position before acting.
     if (url.pathname === '/gmail-stub/asked') {
@@ -436,6 +464,23 @@ export async function startStubIssuer({ port, seedPath }) {
         historyId: String(mailbox.historyId),
       });
     }
+    if (path === 'messages') {
+      // `users.messages.list`: the emails carrying a label, the bin left out as
+      // Gmail leaves it, each with its conversation's id (issue 1398).
+      const labelled = mailbox.threads.flatMap((thread) =>
+        thread.messages
+          .filter((message) => message.labelIds.includes(url.searchParams.get('labelIds')) && !message.labelIds.includes('TRASH'))
+          .map((message) => ({ id: message.id, threadId: thread.id })),
+      );
+      const from = Number(url.searchParams.get('pageToken') ?? 0);
+      const size = Number(url.searchParams.get('maxResults') ?? 100);
+      const page = labelled.slice(from, from + size);
+      return json(response, {
+        messages: page,
+        ...(from + size < labelled.length ? { nextPageToken: String(from + size) } : {}),
+        resultSizeEstimate: labelled.length,
+      });
+    }
     if (path === 'threads') {
       // Gmail leaves the bin out of a listing unless asked for it.
       const labelled = mailbox.threads.filter((thread) =>
@@ -454,6 +499,9 @@ export async function startStubIssuer({ port, seedPath }) {
     }
     const modified = mailbox.threads.find((one) => path === `threads/${one.id}/modify`);
     if (modified && request.method === 'POST') return modifyThread(mailbox, modified, request, response);
+    const modifiedEmail = path.match(/^messages\/([^/]+)\/modify$/);
+    const foundEmail = modifiedEmail && findMessage(mailbox, decodeURIComponent(modifiedEmail[1]));
+    if (foundEmail && request.method === 'POST') return modifyThread(mailbox, foundEmail.thread, request, response, foundEmail.message);
     const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);
     if (thread) return json(response, thread);
     json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
@@ -466,7 +514,7 @@ export async function startStubIssuer({ port, seedPath }) {
    * whose labels actually changed - none where they were already so, as Gmail
    * records none.
    */
-  function modifyThread(mailbox, thread, request, response) {
+  function modifyThread(mailbox, thread, request, response, onlyMessage = null) {
     let body = '';
     request.on('data', (chunk) => (body += chunk));
     request.on('end', () => {
@@ -478,7 +526,7 @@ export async function startStubIssuer({ port, seedPath }) {
       }
       const adding = change.addLabelIds ?? [];
       const removing = change.removeLabelIds ?? [];
-      for (const message of thread.messages) {
+      for (const message of onlyMessage ? [onlyMessage] : thread.messages) {
         const before = message.labelIds;
         const after = [...new Set([...before, ...adding])].filter((label) => !removing.includes(label));
         const added = after.filter((label) => !before.includes(label));
@@ -497,7 +545,12 @@ export async function startStubIssuer({ port, seedPath }) {
             : {}),
         });
       }
-      modifications.push({ thread: thread.id, ...change });
+      if (onlyMessage) {
+        // `users.messages.modify`: the one email changed, and its answer is that email.
+        modifications.push({ email: mailbox.email, thread: thread.id, message: onlyMessage.id, ...change });
+        return json(response, { id: onlyMessage.id, threadId: thread.id, labelIds: onlyMessage.labelIds });
+      }
+      modifications.push({ email: mailbox.email, thread: thread.id, ...change });
       json(response, {
         id: thread.id,
         historyId: String(mailbox.historyId),
@@ -595,6 +648,15 @@ function mailboxOf(token, kind) {
   return match ? Buffer.from(match[1], 'base64url').toString('utf8') : null;
 }
 
+/** The email with this id and the conversation it is in, or null. */
+function findMessage(mailbox, id) {
+  for (const thread of mailbox.threads) {
+    const message = thread.messages.find((one) => one.id === id);
+    if (message) return { thread, message };
+  }
+  return null;
+}
+
 /** The stand-in Cockpit label's id, as Gmail names a label somebody made. */
 const COCKPIT_LABEL_ID = 'Label_1001';
 
@@ -621,6 +683,7 @@ export function stubMailbox(email) {
   });
   const text = (mimeType, words) => ({ mimeType, body: { size: words.length, data: base64url(words) } });
   return {
+    email,
     labels,
     // Gmail's position in the mailbox, and what changed at each one since.
     historyId: 1000,
