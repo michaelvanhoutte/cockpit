@@ -4,6 +4,7 @@ import { itemLabel, plainWords, uuidv7, type Priority, type Workspace, type Work
 import { FileOnLine, type FiledOn } from './FileOnLine';
 import { CommandRefused, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, workspacesQuery } from '../api/queries';
+import { useDrawnSelect } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
@@ -230,8 +231,10 @@ export function CaptureNote({
    * snapshot the pairs arrive in, for as long as the Captured line stands. A
    * capture still in the outbox is not an Item yet, so nothing is said of it.
    */
+  const select = useDrawnSelect();
   const { data: afterCapture } = useQuery({
     ...snapshotQuery(last?.workspaceId ?? ''),
+    select,
     enabled: last !== null && !waiting.some((entry) => entry.id === last.id),
   });
   const repeats =

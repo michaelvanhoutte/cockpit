@@ -288,3 +288,29 @@ describe('Item editing', () => {
     });
   });
 });
+
+describe('Panels', () => {
+  describe('a filing waiting for its answer never flips back while a read lands', () => {
+    it('keeps drawing a filing under a read that began before its answer, and stops once a later read has landed', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      const filedOn = (copy: WorkspaceSnapshot) => copy.filings.map((filing) => filing.panelId);
+      const copy = { ...sent(), workspace: { id: 'ws-work' } } as unknown as WorkspaceSnapshot;
+      void queue.enqueue({
+        name: 'add_item_to_panel',
+        payload: { commandId: 'c-add', issuedAt: AT, workspaceId: 'ws-work', itemId: BART, panelId: 'p-falcon', order: [BART] },
+      });
+      await settle();
+      const early = queue.readStarted();
+      server.arrived[0]!.answer();
+      await settle();
+      const late = queue.readStarted();
+
+      queue.readLanded('ws-work', early);
+      expect(filedOn(queue.drawnOver(copy))).toEqual(['p-falcon']);
+
+      queue.readLanded('ws-work', late);
+      expect(filedOn(queue.drawnOver(copy))).toEqual([]);
+    });
+  });
+});

@@ -10,12 +10,13 @@ import {
   type PanelFit,
 } from '@cockpit/shared';
 import {
+  refusalFrom,
   useCommand,
   useLatestSnapshot,
   useSendCommand,
   workspacesQuery,
+  type CommandArgs,
 } from '../api/queries';
-import { CommandRefused } from '../api/client';
 import { useSnapshot } from '../api/useSnapshot';
 import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import {
@@ -35,12 +36,11 @@ import {
 } from '../itemInTheAir';
 import { columnsStyle, landingOnRow } from '../panelColumns';
 import {
+  fetchedChunk,
   filedOrderOnPanel,
   filingsThatFile,
   stillOpen,
   itemsOnPanel,
-  orderPuttingBack,
-  ordersForFilingSeveral,
   orderWithItemAt,
 } from '../filing';
 import { alsoShownOn, dayOf, panelAndFilterIdsByItem } from '../filters';
@@ -229,6 +229,33 @@ export function ItemList({
     [data?.agentRuns],
   );
   const command = useCommand();
+  /**
+   * Why the last filing from this list was refused, said above the rows once the
+   * row is back where it was.
+   *
+   * **Held here rather than read off the mutation**, which keeps only the latest
+   * change: with a second filing made while the first waited, the first's refusal
+   * would go unsaid and its row would come back with no reason.
+   *
+   * **Kept with the Item it was about**, so a question open for another Item when
+   * the answer arrives does not say it as its own.
+   */
+  const [failure, setFailure] = useState<{ itemId: string; why: string } | null>(null);
+  /**
+   * Hands a filing to the tab's queue (`changeQueue.ts`): drawn at once, sent
+   * when those made before it have been answered. Answers with the server's
+   * answer, which a refusal turns into `failure`.
+   */
+  const file = (
+    args: Extract<CommandArgs, { name: 'move_item_to_panel' | 'add_item_to_panel' | 'remove_item_from_panel' }>,
+  ): Promise<unknown> => {
+    setFailure(null);
+    const answer = command.mutateAsync(args);
+    answer.catch((error: unknown) =>
+      setFailure({ itemId: args.payload.itemId, why: refusalFrom({ error }) ?? 'That did not reach the server. Try again.' }),
+    );
+    return answer;
+  };
   const send = useSendCommand();
   const latestSnapshot = useLatestSnapshot();
   const offerToUndo = useUndo();
@@ -313,33 +340,11 @@ export function ItemList({
   };
 
   /**
-   * Puts an item back on every panel it was on, in the order each was in.
-   *
-   * **The first is a move and the rest are adds**, which is what makes this one
-   * inverse rather than two: the move takes it off wherever it is now and puts
-   * it on the first, and each add puts it on one more without disturbing that.
-   * An item that was on no panel at all is moved to the Inbox, which is the
-   * absence of a filing.
+   * Puts an item back on every panel it was on, in the order each was in
+   * (`puttingBack.ts`, fetched when Undo is pressed).
    */
-  const putItBackOn = async (item: Item, panels: { panelId: string; order: string[] }[]) => {
-    const envelope = () => ({
-      commandId: uuidv7(),
-      issuedAt: new Date().toISOString(),
-      workspaceId,
-      itemId: item.id,
-    });
-    const [first, ...rest] = panels;
-    await send({
-      name: 'move_item_to_panel',
-      payload: { ...envelope(), panelId: first?.panelId ?? null, order: first?.order ?? [] },
-    });
-    for (const also of rest) {
-      await send({
-        name: 'add_item_to_panel',
-        payload: { ...envelope(), panelId: also.panelId, order: also.order },
-      });
-    }
-  };
+  const putItBackOn = async (item: Item, panels: { panelId: string; order: string[] }[]) =>
+    (await fetchedChunk(() => import('../puttingBack'))).putItBackOn({ workspaceId, send, latest: latestSnapshot }, item, panels);
 
   /**
    * Files an item, at a place counted among the rows the target panel *draws*.
@@ -395,57 +400,63 @@ export function ItemList({
             return orderWithItemAt(held, item.id, placeAmongHeld(held, drawn, item.id, atAmongDrawn));
           })();
 
-    command.mutate(
-      {
-        name: 'move_item_to_panel',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId: inWorkspace,
-          itemId: item.id,
-          panelId,
-          order,
-          ...(leaving && panelId !== null ? { fromPanelIds: [leaving] } : {}),
-        },
+    // Whatever asked for it closes at the click: the row is already where it was
+    // sent, and a refusal is said above the rows once it is back.
+    setMoving(null);
+    setAsking(null);
+    const answer = file({
+      name: 'move_item_to_panel',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId: inWorkspace,
+        itemId: item.id,
+        panelId,
+        order,
+        ...(leaving && panelId !== null ? { fromPanelIds: [leaving] } : {}),
       },
-      {
-        onSuccess: () => {
-          // Remembered only once it has happened: a panel a move was refused
-          // for is not a panel you have been filing into.
-          if (panelId) rememberRecentPanel(browserStore(), workspaceId, panelId);
-          setMoving(null);
-          setAsking(null);
-          // An undecided item moved to a workspace's Inbox has nothing to
-          // offer: nothing to put back, and nowhere to show.
-          if (decides && panelId === null) return;
-          offerToUndo({
-            what: `“${itemLabel(item)}” moved to ${nameOf(panelId)}`,
-            // The title is what the bar shortens, never where it went.
-            split: { title: `“${itemLabel(item)}”`, rest: ` moved to ${nameOf(panelId)}` },
-            // Every panel it was on, not the first of them: the move above may
-            // have taken it off one, and the undo sends no Panel to leave, which
-            // takes it off everything before putting it back on each (issue
-            // 142, issue 923). **Withheld for
-            // an undecided item**, whose move decides its workspace and cannot
-            // be put back (`decides` above); it still gets the two below.
-            ...(decides ? {} : { undo: () => putItBackOn(item, before) }),
-            // Onto a panel only: a move to the Inbox has nowhere to show and
-            // nothing to also show on ("Show and Also show on… in the undo
-            // bar after moving an Item", issue 849).
-            ...(panelId
-              ? {
-                  show: () => void showOnItsPanel([item.id], panelId),
-                  alsoShowOn: () => {
-                    openedFrom.current = null;
-                    command.reset();
-                    setAdding(item);
-                  },
-                }
-              : {}),
-          });
-        },
+    });
+    // Remembered only once it has happened: a panel a move was refused for is
+    // not a panel you have been filing into.
+    answer.then(
+      () => {
+        if (panelId) rememberRecentPanel(browserStore(), workspaceId, panelId);
       },
+      () => {},
     );
+    // An undecided item moved to a workspace's Inbox has nothing to
+    // offer: nothing to put back, and nowhere to show.
+    if (decides && panelId === null) return;
+    // Offered at the click rather than once the server has answered, and taken
+    // back if it refuses: Undo waits its turn behind the move it reverses. Its
+    // code is fetched now, so pressing it puts the item back at once.
+    if (!decides) void import('../puttingBack').catch(() => {});
+    offerToUndo({
+      what: `“${itemLabel(item)}” moved to ${nameOf(panelId)}`,
+      unlessRefused: answer,
+      // The title is what the bar shortens, never where it went.
+      split: { title: `“${itemLabel(item)}”`, rest: ` moved to ${nameOf(panelId)}` },
+      // Every panel it was on, not the first of them: the move above may
+      // have taken it off one, and the undo sends no Panel to leave, which
+      // takes it off everything before putting it back on each (issue
+      // 142, issue 923). **Withheld for
+      // an undecided item**, whose move decides its workspace and cannot
+      // be put back (`decides` above); it still gets the two below.
+      ...(decides ? {} : { undo: () => putItBackOn(item, before) }),
+      // Onto a panel only: a move to the Inbox has nowhere to show and
+      // nothing to also show on ("Show and Also show on… in the undo
+      // bar after moving an Item", issue 849).
+      ...(panelId
+        ? {
+            show: () => void showOnItsPanel([item.id], panelId),
+            alsoShowOn: () => {
+              openedFrom.current = null;
+              setFailure(null);
+              setAdding(item);
+            },
+          }
+        : {}),
+    });
   };
 
   /**
@@ -601,37 +612,33 @@ export function ItemList({
     const order = orderFor(panelId, item, atAmongDrawn);
     if (order.join() === before.join()) return;
 
-    command.mutate(
-      {
-        name: 'add_item_to_panel',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          itemId: item.id,
-          panelId,
-          order,
-        },
+    const answer = file({
+      name: 'add_item_to_panel',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        itemId: item.id,
+        panelId,
+        order,
       },
-      {
-        onSuccess: () =>
-          offerToUndo({
-            what: `“${itemLabel(item)}” moved in ${nameOf(panelId)}`,
-            undo: () =>
-              send({
-                name: 'add_item_to_panel',
-                payload: {
-                  commandId: uuidv7(),
-                  issuedAt: new Date().toISOString(),
-                  workspaceId,
-                  itemId: item.id,
-                  panelId,
-                  order: before,
-                },
-              }),
-          }),
-      },
-    );
+    });
+    offerToUndo({
+      what: `“${itemLabel(item)}” moved in ${nameOf(panelId)}`,
+      unlessRefused: answer,
+      undo: () =>
+        send({
+          name: 'add_item_to_panel',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: item.id,
+            panelId,
+            order: before,
+          },
+        }),
+    });
   };
 
   /**
@@ -650,40 +657,38 @@ export function ItemList({
     }
     const order = orderFor(panelId, item, atAmongDrawn);
 
-    command.mutate(
-      {
-        name: 'add_item_to_panel',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          itemId: item.id,
-          panelId,
-          order,
-        },
+    setAsking(null);
+    setAdding(null);
+    const answer = file({
+      name: 'add_item_to_panel',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        itemId: item.id,
+        panelId,
+        order,
       },
-      {
-        onSuccess: () => {
-          rememberRecentPanel(browserStore(), workspaceId, panelId);
-          setAsking(null);
-          setAdding(null);
-          offerToUndo({
-            what: `“${itemLabel(item)}” added to ${nameOf(panelId)}`,
-            undo: () =>
-              send({
-                name: 'remove_item_from_panel',
-                payload: {
-                  commandId: uuidv7(),
-                  issuedAt: new Date().toISOString(),
-                  workspaceId,
-                  itemId: item.id,
-                  panelId,
-                },
-              }),
-          });
-        },
-      },
+    });
+    answer.then(
+      () => rememberRecentPanel(browserStore(), workspaceId, panelId),
+      () => {},
     );
+    offerToUndo({
+      what: `“${itemLabel(item)}” added to ${nameOf(panelId)}`,
+      unlessRefused: answer,
+      undo: () =>
+        send({
+          name: 'remove_item_from_panel',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: item.id,
+            panelId,
+          },
+        }),
+    });
   };
 
   /**
@@ -692,38 +697,34 @@ export function ItemList({
    */
   const removeFromHere = (item: Item, panelId: string) => {
     const before = filedOrderOnPanel(data?.filings ?? [], panelId);
-    command.mutate(
-      {
-        name: 'remove_item_from_panel',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          itemId: item.id,
-          panelId,
-        },
+    const answer = file({
+      name: 'remove_item_from_panel',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        itemId: item.id,
+        panelId,
       },
-      {
-        onSuccess: () =>
-          offerToUndo({
-            what: `“${itemLabel(item)}” removed from ${nameOf(panelId)}`,
-            // Back on, in the order the panel was in - which still names it,
-            // because that order was read before it was taken off.
-            undo: () =>
-              send({
-                name: 'add_item_to_panel',
-                payload: {
-                  commandId: uuidv7(),
-                  issuedAt: new Date().toISOString(),
-                  workspaceId,
-                  itemId: item.id,
-                  panelId,
-                  order: before,
-                },
-              }),
-          }),
-      },
-    );
+    });
+    offerToUndo({
+      what: `“${itemLabel(item)}” removed from ${nameOf(panelId)}`,
+      unlessRefused: answer,
+      // Back on, in the order the panel was in - which still names it,
+      // because that order was read before it was taken off.
+      undo: () =>
+        send({
+          name: 'add_item_to_panel',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: item.id,
+            panelId,
+            order: before,
+          },
+        }),
+    });
   };
 
   /** A tick clicked, which is a row picked or a span reached across. */
@@ -863,7 +864,7 @@ export function ItemList({
     // being reordered.
     const arriving = (item: Item) => !held.includes(item.id) && filedOn(item).length > 0;
     if (chosen.some(arriving)) {
-      command.reset();
+      setFailure(null);
       setAskingSeveral({ items: chosen, at, scope: carrying.scope, across });
       return;
     }
@@ -939,7 +940,7 @@ export function ItemList({
     // answer to "move or add" that would leave it there.
     const onAPanelAlready = filed.some((filing) => filing.itemId === itemId);
     if (panelId && (wasAt === -1 || fromAnotherPanel) && onAPanelAlready) {
-      command.reset();
+      setFailure(null);
       setAsking({ item: moving, at: gap, from: cameFrom });
       return;
     }
@@ -952,22 +953,10 @@ export function ItemList({
     move(moving, panelId, gap);
   };
 
-  // Only this list's own refusal, and only for the item still being moved: one
-  // `useCommand` is shared by every row here, so without the second half a
-  // refusal from a row that has since closed would appear against the next one.
-  /**
-   * Why the last change this list made did not happen.
-   *
-   * Gated on the change having been about an *item*, because one `useCommand`
-   * is not one mutation: a panel's rename is refused by the board's, and
-   * without this a list drawn inside that panel would say so as well - the
-   * same refusal, twice, in two places.
-   */
-  const refusal =
-    command.error instanceof CommandRefused &&
-    (command.variables as { payload?: { itemId?: string } } | undefined)?.payload?.itemId
-      ? command.error.message
-      : null;
+  /** Why the last filing of `item` did not happen, for a question open about that Item and no other. */
+  const refusalFor = (item: Item | null) => (item && failure?.itemId === item.id ? failure.why : null);
+  /** Why the last filing this list made did not happen, said above the rows unless a question about that Item says it. */
+  const refusal = failure && failure.itemId !== (moving ?? adding ?? asking?.item)?.id ? failure.why : null;
 
   /**
    * One row of the list. `alsoNotIn` is the Panel a grouped Filter's heading is,
@@ -1005,7 +994,7 @@ export function ItemList({
         : {
             onMoveTo: (from: HTMLElement | null) => {
               openedFrom.current = from;
-              command.reset();
+              setFailure(null);
               setMoving(item);
             },
           })}
@@ -1029,7 +1018,7 @@ export function ItemList({
         ? {
             onAddTo: (from: HTMLElement | null) => {
               openedFrom.current = from;
-              command.reset();
+              setFailure(null);
               setAdding(item);
             },
             // Nothing to remove from a panel the row was never
@@ -1116,7 +1105,7 @@ export function ItemList({
           {filingSeveral.refusal}
         </p>
       )}
-      {refusal && !moving && !adding && !asking && (
+      {refusal && (
         <p role="alert" className="px-4 py-2 text-sm text-over-ink">
           {refusal}
         </p>
@@ -1343,9 +1332,8 @@ export function ItemList({
               open
               itemTitle={itemLabel(asking.item)}
               panelName={nameOf(panelId)}
-              // Closed by the change landing, not by the press: a refused move
-              // leaves the question up with the reason on it, which is what the
-              // picker does and what makes the refusal worth showing there at all.
+              // Closed by the press, like the picker: the filing is drawn at once, and
+              // a refusal is said above the rows once it is back.
               onMove={() => move(asking.item, panelId, asking.at, undefined, asking.from ?? undefined)}
               {...(asking.from ? { leaves: nameOf(asking.from) } : {})}
               onAdd={() => add(asking.item, panelId, asking.at)}
@@ -1353,11 +1341,10 @@ export function ItemList({
                 // Reset as well as close, for the reason the picker below does: a
                 // refusal outlives the dialog it was shown in, and the list says
                 // one of its own.
-                command.reset();
+                setFailure(null);
                 setAsking(null);
               }}
-              refusal={command.error instanceof CommandRefused ? command.error.message : null}
-              busy={command.isPending}
+              refusal={refusalFor(asking.item)}
             />
           </Suspense>
         </WhateverTheQuestionDoes>
@@ -1393,11 +1380,10 @@ export function ItemList({
             if ('panel' in target) add(adding, target.panel, 0);
           }}
           onCancel={() => {
-            command.reset();
+            setFailure(null);
             setAdding(null);
           }}
-          refusal={refusal}
-          busy={command.isPending}
+          refusal={refusalFor(adding)}
           returnFocusTo={openedFrom.current}
           alreadyOn={whereItIs(adding).map((at) => at.panelId)}
         />
@@ -1449,11 +1435,10 @@ export function ItemList({
             // shown in, and the list says one of its own now - so cancelling
             // after a refused move used to leave the message stuck above the
             // rows with nothing to explain it.
-            command.reset();
+            setFailure(null);
             setMoving(null);
           }}
-          refusal={refusal}
-          busy={command.isPending}
+          refusal={refusalFor(moving)}
           returnFocusTo={openedFrom.current}
         />
       )}

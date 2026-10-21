@@ -4,6 +4,7 @@ import { useNavigate, useParams, useRouter } from '@tanstack/react-router';
 import { panelHoldsText, rowIsSection } from '@cockpit/shared';
 import type { Panel, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { snapshotQuery, workspacesQuery } from './api/queries';
+import { useDrawnSelect } from './api/useSnapshot';
 import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, readDashboardFilter } from './dashboardFilter';
 import { dayOf } from './filters';
 import { browserStore } from './lastVisited';
@@ -115,9 +116,12 @@ export function useReach(asked: Scope, ask: (scope: Scope) => void): Reach {
   const dashboardId = params.dashboardId ?? '';
   const { data: list } = useQuery(workspacesQuery);
   const workspaces: readonly Workspace[] = list?.workspaces ?? [];
+  // Drawn, so a Panel's count agrees with the board the moment an Item is filed.
+  const select = useDrawnSelect();
   const snapshots = useQueries({
     queries: workspaces.map((workspace) => ({
       ...snapshotQuery(workspace.id),
+      select,
       enabled: asked === 3 || (asked === 2 && workspace.id === workspaceId),
     })),
   });

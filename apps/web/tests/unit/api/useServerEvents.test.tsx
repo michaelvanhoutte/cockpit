@@ -261,6 +261,30 @@ describe('Workspace management', () => {
 });
 
 describe('Live updates', () => {
+  describe('a stream coming back up leaves every copy held marked out of date', () => {
+    // Announcements were missed while it was down, and the next filing reads a
+    // copy so marked before it is built (`useLatestSnapshot`). Marked, not
+    // read: nothing is fetched until something asks.
+    it('after the browser retries a dropped stream', () => {
+      open();
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+      client.setQueryData(['snapshot', 'ws-work'], { items: [] });
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(false);
+
+      stream.droppedAndRetrying();
+      stream.comesUp();
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(true);
+    });
+    it('does not mark a copy for the first time the stream comes up', () => {
+      open();
+      FakeStream.made.at(-1)!.comesUp();
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(false);
+    });
+  });
+
   describe('a change you have already read is not read again', () => {
     /**
      * POC (own-event refetch): the tab that made a change has already read it

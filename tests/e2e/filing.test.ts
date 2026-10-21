@@ -689,3 +689,77 @@ test.describe('Triage', () => {
     });
   });
 });
+/**
+ * F3, and it can be nowhere else: what a drop draws before the server has
+ * answered is a claim about the page. Every filing is held three seconds on
+ * its way out, so a row where it was let go inside a second and a half can only
+ * be one the page drew itself - and it is read again after the answer, to see it
+ * never went anywhere in between. Which orders are built and sent is
+ * apps/web/tests/unit/components/FilingsAtOnce.test.tsx.
+ *
+ * Desktop only, for the reason the other drag walks are.
+ */
+test.describe('Panels', () => {
+  test.describe('a dropped row is drawn where it was let go, before the server has answered', () => {
+    const HELD_FOR_MS = 3_000;
+    const AT_ONCE_MS = 1_500;
+
+    async function holdFilings(page: Page) {
+      await page.route(/\/v1\/commands\/(move|add|remove)_item_(to|from)_panel$/, async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, HELD_FOR_MS));
+        await route.continue();
+      });
+    }
+
+    const answerToAFiling = (page: Page) =>
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          /\/v1\/commands\/(move|add)_item_to_panel$/.test(new URL(response.url()).pathname),
+      );
+
+    test('draws a row dropped from the Inbox between two rows there, and keeps it there through the answer', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'the Inbox and the dashboard are not on one screen here');
+      const first = uniqueTitle('Renew the domain');
+      const second = uniqueTitle('Read the routing paper');
+      const arriving = uniqueTitle('Reply to Bart');
+      const { panel } = await ownDashboardWithAPanel(page, isMobile, {
+        onThePanel: [second, first],
+        inTheInbox: [arriving],
+      });
+      await expect.poll(() => itemsOn(page, panel)).toEqual([second, first]);
+      await holdFilings(page);
+      const answered = answerToAFiling(page);
+
+      await dragItemOnto(page, arriving, { title: second, half: 'bottom' });
+
+      await expect.poll(() => itemsOn(page, panel), { timeout: AT_ONCE_MS }).toEqual([second, arriving, first]);
+      await expect(inbox(page).getByText(arriving)).toHaveCount(0);
+      expect((await answered).status()).toBe(200);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([second, arriving, first]);
+      await expect(inbox(page).getByText(arriving)).toHaveCount(0);
+    });
+
+    test('draws the new order of a row dropped elsewhere in its own Panel, and keeps it there through the answer', async ({
+      page,
+      isMobile,
+    }) => {
+      const first = uniqueTitle('Renew the domain');
+      const second = uniqueTitle('Read the routing paper');
+      const third = uniqueTitle('Chase the invoice');
+      const { panel } = await ownDashboardWithAPanel(page, isMobile, { onThePanel: [third, second, first] });
+      await expect.poll(() => itemsOn(page, panel)).toEqual([third, second, first]);
+      await holdFilings(page);
+      const answered = answerToAFiling(page);
+
+      await dragItemOnto(page, third, { title: second, half: 'bottom' });
+
+      await expect.poll(() => itemsOn(page, panel), { timeout: AT_ONCE_MS }).toEqual([second, third, first]);
+      expect((await answered).status()).toBe(200);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([second, third, first]);
+    });
+  });
+});
