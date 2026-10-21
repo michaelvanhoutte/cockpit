@@ -13,6 +13,7 @@ import {
   type Item,
   type Panel,
   type PanelKind,
+  type Role,
   type SaveLayoutCommand,
   type Workspace,
   type WorkspaceList,
@@ -20,8 +21,23 @@ import {
 } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
 
-/** A change the screen draws: those the queue sends, and an upload, which it holds but never sends. */
-export type Drawn = CommandArgs | { name: 'add_attachment'; payload: CommandPayload<'add_attachment'> };
+/**
+ * A change a window makes with a request of its own rather than a command ("Show a
+ * connected app or user change the moment you make it", issue 1371): the admin's
+ * user changes and disconnecting a connected app. It joins the queue as it is
+ * (`enqueue`'s `request`), so the saving sign and the leave-site prompt count it,
+ * and the window's own chunk draws it. **An added user's `userId` is one this tab
+ * made up** to tell the row apart; the server decides the real one.
+ */
+export type Requested =
+  | { name: 'disconnect_app'; payload: { appId: string } }
+  | { name: 'add_user'; payload: { userId: string; name: string; email: string } }
+  | { name: 'change_user'; payload: { userId: string; name: string; role: Role } }
+  | { name: 'set_user_access'; payload: { userId: string; disabled: boolean } }
+  | { name: 'delete_user'; payload: { userId: string } };
+
+/** A change the screen draws: those the queue sends, an upload, which it holds but never sends, and a window's own requests. */
+export type Drawn = CommandArgs | { name: 'add_attachment'; payload: CommandPayload<'add_attachment'> } | Requested;
 
 /**
  * What the screen shows of a change the server has not answered yet ("Show an
