@@ -133,7 +133,11 @@ export function standIn(value: string | undefined): string | null {
  * environment configures it: an Item it made keeps its name where it can no
  * longer connect or push. One line per package, beside its line above.
  */
-const KNOWN_CONNECTORS: readonly { readonly id: string; readonly displayName: string }[] = [
+const KNOWN_CONNECTORS: readonly {
+  readonly id: string;
+  readonly displayName: string;
+  readonly itemSourceName?: string;
+}[] = [
   GMAIL_IDENTITY,
   OUTLOOK_IDENTITY,
   TEAMS_IDENTITY,
@@ -143,15 +147,18 @@ const KNOWN_CONNECTORS: readonly { readonly id: string; readonly displayName: st
 /**
  * What each source is called on screen, by connector id ("Take source names
  * out of the shared contract", issue 927): every connector package by its own
- * name, configured here or not, every registered connector by its manifest's,
+ * name, configured here or not, every registered connector by its manifest's
+ * (the name of one of its Items, where it gives one apart from `displayName`),
  * and the sources the core still names itself (`domain/named-sources.ts`),
  * which win over a connector of the same id. An id nothing names is absent,
  * and so reads as itself.
  */
 export function sourceNames(env: Env): Record<string, string> {
   return {
-    ...Object.fromEntries(KNOWN_CONNECTORS.map(({ id, displayName }) => [id, displayName])),
-    ...Object.fromEntries(connectors(env).map(({ manifest }) => [manifest.id, manifest.displayName])),
+    ...Object.fromEntries(KNOWN_CONNECTORS.map(({ id, displayName, itemSourceName }) => [id, itemSourceName ?? displayName])),
+    ...Object.fromEntries(
+      connectors(env).map(({ manifest }) => [manifest.id, manifest.itemSourceName ?? manifest.displayName]),
+    ),
     ...NAMED_SOURCES,
   };
 }

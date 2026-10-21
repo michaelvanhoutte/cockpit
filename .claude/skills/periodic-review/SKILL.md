@@ -1,6 +1,6 @@
 ---
 name: periodic-review
-description: Cockpit's process for periodically reading what had to be corrected after a build, the review comments left on merged pull requests and the review findings declined there since the last run, working out where each mistake got through or what the review got wrong, and proposing the fix that stops the next build or review repeating it - a numbered table the person approves, then one `unsliced` ticket per approved lesson and one closed record issue per run. Use every few weeks, or when asked to review recent pull requests or issues for process gaps. Hands each approved lesson through `scoping`, `engineering-plan` and `github-issue`; never edits code, workflows, or guidance itself.
+description: Cockpit's process for periodically reading what had to be corrected after a build, the review comments left on merged pull requests and the review findings declined there since the last run, working out where each mistake got through or what the review got wrong, and proposing the fix that stops the next build or review repeating it - a short list of plain-language proposals ranked by impact for the person to pick from, then one `unsliced` ticket per approved proposal and one closed record issue per run. Use every few weeks, or when asked to review recent pull requests or issues for process gaps. Hands each approved lesson through `scoping`, `engineering-plan` and `github-issue`; never edits code, workflows, or guidance itself.
 ---
 
 # Learning from what got through
@@ -65,12 +65,18 @@ Drop a lesson whose fix already landed, that an open issue covers (match on body
 ### 5. Keep the guidance lean
 
 - Prefer a test or check over prose wherever one can decide the case.
-- A prose proposal edits an existing rule in place or names the rule it replaces, and shows its net change in lines.
+- A prose proposal edits an existing rule in place or names the rule it replaces, and its ticket states the net change in lines.
 - A proposal whose check makes a rule redundant also removes that rule.
 
 ### 6. Propose, file, record
 
-Show the candidates in the conversation as a numbered table, recurring classes first: lesson, instances (issue or pull request numbers), the row of step 3 (for a reviewer lesson, marked as one, what the review got wrong), proposed fix with net lines. The person approves, edits or rejects each; file nothing before they answer.
+**Show at most seven proposals, ranked by impact — how often the mistake happened times what it cost — each written for a person who has not read this skill.** Lessons that land as one change are one proposal: every reviewer lesson becomes one list for "Review findings", every scoping lesson one set of questions scoping asks. Each proposal is a numbered heading saying what keeps happening, then:
+
+- **What happens:** one or two instances told as what someone saw — a title cut to a few words on a phone, `main` red, a job that never linked anything — each with its pull request number.
+- **How often, and what it cost:** the count in the window and its visible consequence.
+- **Change:** what will be different afterwards, said as behaviour ("`/build` refuses to push…"), with its trade-off where it has one.
+
+Step 3's placement and step 5's line counts choose the fix and go in the ticket; the person reads only the outcome, in the product's words. Fold the one-off lessons into one closing line, and leave out what step 4 dropped. End with which to file first and why, and ask for the numbers to file ("1, 3, 6; drop the rest"). File nothing before they answer.
 
 Hand each approved one through [scoping](../scoping/SKILL.md), [engineering-plan](../engineering-plan/SKILL.md) and [github-issue](../github-issue/SKILL.md), as an `unsliced` ticket, its instances in **Problem**.
 

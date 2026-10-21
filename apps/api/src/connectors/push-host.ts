@@ -1,4 +1,5 @@
 import {
+  RefusedDelivery,
   SourceError,
   type Connector,
   type ConnectedAccountHost,
@@ -62,9 +63,14 @@ export async function handlePush(
   around: PushSurroundings,
 ): Promise<Response> {
   const attributed: { to: { account: Account; sourceAccountId: string } | null } = { to: null };
-  const host = pushHostFor(connector.manifest.id, around, (account, sourceAccountId) => {
-    attributed.to = { account, sourceAccountId };
-  });
+  const host = pushHostFor(
+    connector.manifest.id,
+    around,
+    (account, sourceAccountId) => {
+      attributed.to = { account, sourceAccountId };
+    },
+    connector.manifest.pushDecidesWorkspace !== false,
+  );
   try {
     return await connector.handleWebhook!(request, host);
   } catch (error) {
@@ -76,6 +82,8 @@ export async function handlePush(
       // A line that cannot be written must not hide the error that caused it.
       await attributed.to.account.pushFailed(attributed.to.sourceAccountId, failure).catch(() => {});
     }
+    // A delivery that can never be filed is answered rather than failed, so the source does not retry it.
+    if (error instanceof RefusedDelivery) return error.response;
     throw error;
   }
 }
@@ -84,6 +92,7 @@ export function pushHostFor(
   connectorId: string,
   around: PushSurroundings,
   attributedTo: (account: Account, sourceAccountId: string) => void = () => {},
+  decidesWorkspace = true,
 ): PushHost {
   return {
     log: (level, message, data) => logged(connectorId, level, message, data),
@@ -107,7 +116,7 @@ export function pushHostFor(
           continue;
         }
         attributedTo(account!, connection.id);
-        return connectedHost(connectorId, around, pointer, account!, connection.id);
+        return connectedHost(connectorId, around, pointer, account!, connection.id, decidesWorkspace);
       }
       return null;
     },
@@ -131,6 +140,7 @@ function connectedHost(
   pointer: ConnectionPointer,
   account: Account,
   sourceAccountId: string,
+  decidesWorkspace: boolean,
 ): ConnectedAccountHost {
   return {
     log: (level, message, data) => logged(connectorId, level, message, data),
@@ -187,6 +197,10 @@ function connectedHost(
         commandId: await derivedUuid(`capture:${connectorId}:${sourceId}`),
         issuedAt: new Date().toISOString(),
         workspaceId: pointer.workspaceId,
+        // Where a connector says its pushes decide nothing, the connecting
+        // Workspace is only where this was captured from, and the Item is in
+        // every Workspace's Inbox until it is filed, as a Car view capture is.
+        ...(decidesWorkspace ? {} : { workspaceDecided: false }),
         itemId,
         message: item.capturedMessage ?? item.title ?? '',
         capturedFrom: {

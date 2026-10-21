@@ -62,4 +62,29 @@ describe('Capture', () => {
       expect(extension?.botId).toBe(manifest.id);
     });
   });
+
+  describe('the dialog Save to Cockpit opens offers an optional note', () => {
+    const [extension] = manifest.composeExtensions;
+    const [command] = extension?.commands ?? [];
+    const [box, ...others] = command?.parameters ?? [];
+
+    it('asks for one box, labelled and hinted as the note', () => {
+      expect(others).toEqual([]);
+      expect(box).toMatchObject({
+        title: 'Note (optional)',
+        description: 'What to do with it, e.g. call back Friday, high priority, on Admin and money',
+      });
+    });
+
+    it('lets Send go through with the box empty', () => {
+      expect((box as { isRequired?: boolean } | undefined)?.isRequired).toBe(false);
+    });
+
+    it('is a new package under a raised version, which is the only way Teams takes a changed one', () => {
+      // 1.0.1 shipped with the box labelled "Saved".
+      const [major = 0, minor = 0, patch = 0] = manifest.version.split('.').map(Number);
+
+      expect(major * 1_000_000 + minor * 1_000 + patch).toBeGreaterThan(1_000_001);
+    });
+  });
 });
