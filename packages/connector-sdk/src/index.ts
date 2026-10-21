@@ -307,6 +307,12 @@ export interface NamesReport {
 export interface CompleteListing {
   choice: string;
   sourceIds: readonly string[];
+  /**
+   * How many marked things the source holds, for a listing whose `sourceIds`
+   * name some twice over (an email's Item and its conversation's): what the
+   * check's line says it listed. Absent: the number of distinct `sourceIds`.
+   */
+  count?: number;
 }
 
 /** What the host did with an emitted item: `filed` as a new Item, or `already-known` and left as it was. */

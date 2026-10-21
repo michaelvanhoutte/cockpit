@@ -2,7 +2,7 @@
   "name": "@cockpit/connector-gmail",
   "version": "0.0.0",
   "private": true,
-  "description": "The Gmail connector: conversations labelled Cockpit, or starred, arrive as Tasks, and their label or star follows the Task's open state.",
+  "description": "The Gmail connector: conversations labelled Cockpit, or emails starred, arrive as Tasks, and their label or star follows the Task's open state.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

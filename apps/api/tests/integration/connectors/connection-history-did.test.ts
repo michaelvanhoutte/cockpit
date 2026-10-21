@@ -366,6 +366,13 @@ describe('Connector management', () => {
       { situation: 'a listing of two, nothing brought in', script: lists('a', 'b'), listed: 2, broughtIn: 0 },
       { situation: 'a listing of none', script: lists(), listed: 0, broughtIn: 0 },
       {
+        situation: 'a listing naming each of two messages and its conversation, which says two',
+        script: (host: ConnectorHost) =>
+          host.reportCompleteListing({ choice: 'flag', sourceIds: ['message:a', 'a', 'message:b', 'b'], count: 2 }),
+        listed: 2,
+        broughtIn: 0,
+      },
+      {
         situation: 'a check that brought one in, listing three',
         script: async (host: ConnectorHost) => {
           await host.emitItem(aPage('a'));
