@@ -49,8 +49,6 @@ function SortQuestion({
   open,
   onSave,
   onCancel,
-  refusal,
-  busy = false,
   canBeManual = true,
   returnFocusTo,
 }: {
@@ -60,8 +58,6 @@ function SortQuestion({
   open: boolean;
   onSave: (sort: PanelSort | null) => void;
   onCancel: () => void;
-  refusal?: string | null;
-  busy?: boolean;
   /** False for a Filter, whose rows are gathered rather than filed: there is no order of its own to go back to. */
   canBeManual?: boolean;
   returnFocusTo?: HTMLElement | null;
@@ -73,7 +69,7 @@ function SortQuestion({
   const available = SORT_FIELDS.filter((field) => !rows.some((row) => row.field === field));
   const sorted = mode === 'sorted';
   // Sorted by nothing is not a sort; the switch is how Manual is said.
-  const canSave = !busy && (!sorted || rows.length > 0);
+  const canSave = (!sorted || rows.length > 0);
 
   const change = (at: number, row: SortCriterion) =>
     setRows(rows.map((was, index) => (index === at ? row : was)));
@@ -84,7 +80,7 @@ function SortQuestion({
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
+    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
@@ -209,15 +205,9 @@ function SortQuestion({
               </>
             )}
 
-            {refusal && (
-              <p role="alert" className="pt-3 text-sm text-over-ink">
-                {refusal}
-              </p>
-            )}
 
             <div className="flex justify-end gap-2 pt-5">
               <Dialog.Close
-                disabled={busy}
                 className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
               >
                 Cancel

@@ -53,8 +53,6 @@ function PanelSettingsQuestion({
   open,
   onSave,
   onCancel,
-  refusal,
-  busy = false,
   returnFocusTo,
   drawnWidth = null,
 }: {
@@ -62,8 +60,6 @@ function PanelSettingsQuestion({
   open: boolean;
   onSave: (changes: PanelSettingsChanges) => void;
   onCancel: () => void;
-  refusal?: string | null;
-  busy?: boolean;
   returnFocusTo?: HTMLElement | null;
   /** How wide the Panel's list is drawn, in pixels, which is what the columns line is worked out from. */
   drawnWidth?: number | null;
@@ -79,7 +75,7 @@ function PanelSettingsQuestion({
   const items = panelTakesItems(panel);
   const text = panelHoldsText(panel);
   const trimmed = name.trim();
-  const canSave = !busy && trimmed.length > 0;
+  const canSave = trimmed.length > 0;
   const fits = drawnWidth === null ? null : columnsThatFit(drawnWidth, PANEL_COLUMN_WIDTHS[columnWidth]);
 
   const save = () => {
@@ -96,7 +92,7 @@ function PanelSettingsQuestion({
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
+    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
@@ -219,16 +215,10 @@ function PanelSettingsQuestion({
               </Section>
             )}
 
-            {refusal && (
-              <p role="alert" className="text-over-ink">
-                {refusal}
-              </p>
-            )}
 
             <div className="flex justify-end gap-2 pt-1">
               <Dialog.Close
-                disabled={busy}
-                className="shrink-0 rounded-md px-3 py-1.5 text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                  className="shrink-0 rounded-md px-3 py-1.5 text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
               >
                 Cancel
               </Dialog.Close>
