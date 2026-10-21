@@ -110,7 +110,7 @@ function read(client: QueryClient, workspaceId: string, upTo: string, marked: bo
  * announcement without a time, a copy from before `upTo` existed, an answer
  * without a stamp - what the app does without this.
  */
-export function readForAnnouncement(client: QueryClient, event: ServerEvent): void {
+export function readForAnnouncement(client: QueryClient, event: Exclude<ServerEvent, { type: 'remembered_sentences_changed' }>): void {
   const at = event.type === 'snapshot_invalidated' ? event.at : undefined;
   const workspaceId = event.workspaceId === ACCOUNT_WIDE ? '' : event.workspaceId;
   if (at) {

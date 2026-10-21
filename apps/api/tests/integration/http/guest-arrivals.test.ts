@@ -156,7 +156,7 @@ describe('Inbox', () => {
       expect(arrived[0]).toMatchObject({ ...expected, sourceLink: demoAddress(source) });
       const answer = await storeNamed(GUEST_ACCOUNT_NAME).changesSince(GUEST_ACCOUNT_NAME, since);
       const { events } = (answer as { status: 'ok'; value: { events: ServerEvent[] } }).value;
-      expect(events.map((event) => event.workspaceId)).toContain(WORKSPACE);
+      expect(events.map((event) => ('workspaceId' in event ? event.workspaceId : ''))).toContain(WORKSPACE);
     });
   });
 

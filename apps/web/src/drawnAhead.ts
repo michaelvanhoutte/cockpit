@@ -5,6 +5,7 @@ import {
   NO_CONDITIONS,
   firstDashboardId,
   itemSchema,
+  textsFromCapture,
   nextColor,
   themeOf,
   type CommandPayload,
@@ -209,9 +210,10 @@ function heldBlank(workspaceId: string): WorkspaceSnapshot {
 }
 
 /**
- * A captured note as an Inbox row, with the note as typed: its title, and no
- * description. What Cockpit makes of it - the title, the description, the
- * readings - arrives with the next read. **In the Workspace it names, or in every
+ * A captured note as an Inbox row, named as the server names it from the note
+ * (`textsFromCapture`): its words for the title, the note itself as the
+ * description where those differ. What Cockpit makes of it later - a better
+ * title, the readings - arrives with a read. **In the Workspace it names, or in every
  * one while it belongs to none**, and not at all where the read holds the row.
  */
 function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'capture_item'>): WorkspaceSnapshot {
@@ -228,7 +230,7 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
     workspaceDecided: decided,
     capturedMessage: note.message,
     source: 'internal',
-    title: note.message,
+    ...(note.title ? { title: note.title, description: note.message } : textsFromCapture(note.message)),
     priority: note.priority ?? null,
     dueDate: note.dueDate ?? null,
     unseen: false,

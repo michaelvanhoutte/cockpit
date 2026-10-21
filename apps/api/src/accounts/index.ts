@@ -8,7 +8,7 @@ import type {
   ServerEvent,
   SourceAccount,
   Workspace,
-  RememberedSentenceView,
+  RememberedSentenceList,
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
@@ -179,7 +179,7 @@ export interface Account {
   /** The send kept under a Run, with what an offer to remember a sentence is made from (issue 1163); null where none was kept. */
   sendToOfferOn(runId: string): Promise<SendToOfferOn | null>;
   /** The account's remembered sentences, newest first (issue 1164). */
-  rememberedSentences(): Promise<RememberedSentenceView[]>;
+  rememberedSentences(): Promise<RememberedSentenceList>;
   /** The open Items a sentence for this kind of source, in this Workspace or in any, may fit (issue 1163). */
   openItemsASentenceMayFit(sourceKind: string, workspaceId: string | null): Promise<string[]>;
   /**
