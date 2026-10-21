@@ -81,7 +81,7 @@ function comeBack(query: Record<string, string>, cookies: string): Promise<Respo
 
 /** The whole walk, as a browser makes it, for whoever the issuer says you are. */
 async function connect(
-  who: { email: string; name?: string },
+  who: { email: string; name?: string; preferredUsername?: string },
   workspaceId = WORKSPACE_ID,
   userId = USER_ID,
 ): Promise<Response> {
@@ -128,8 +128,8 @@ describe('Connector management', () => {
       );
       await connect(MICHAEL, OTHER_WORKSPACE_ID);
 
-      expect((await listed()).map((one) => one.displayName)).toEqual(['Ada Lovelace']);
-      expect((await listed(OTHER_WORKSPACE_ID)).map((one) => one.displayName)).toEqual(['Michael']);
+      expect((await listed()).map((one) => one.displayName)).toEqual(['ada@example.com']);
+      expect((await listed(OTHER_WORKSPACE_ID)).map((one) => one.displayName)).toEqual(['michael@example.com']);
     });
 
     /**
@@ -175,7 +175,9 @@ describe('Connector management', () => {
       await connect(ADA);
       const [first] = await storedRows();
 
-      await connect({ ...ADA, name: 'Ada, renamed at the source' });
+      // Stored as the email, the account having no sign-in address; connected
+      // again with one, it is renamed to that address on the same row.
+      await connect({ ...ADA, preferredUsername: 'ada.lovelace@example.com' });
       const afterAgain = await storedRows();
 
       expect(afterAgain).toHaveLength(1);
@@ -184,7 +186,7 @@ describe('Connector management', () => {
       // is not changed by connecting it again.
       expect(afterAgain[0]).toMatchObject({
         id: first!.id,
-        display_name: 'Ada, renamed at the source',
+        display_name: 'ada.lovelace@example.com',
         connected_at: first!.connected_at,
       });
       expect(afterAgain[0]!.encrypted_credential).not.toBe(first!.encrypted_credential);
@@ -193,8 +195,8 @@ describe('Connector management', () => {
       await connect(MICHAEL);
 
       expect((await listed()).map((one) => one.displayName)).toEqual([
-        'Ada, renamed at the source',
-        'Michael',
+        'ada.lovelace@example.com',
+        'michael@example.com',
       ]);
     });
 
@@ -226,7 +228,7 @@ describe('Connector management', () => {
 
       await connect(ADA);
 
-      const adaRow = rows.find((row) => row.display_name === 'Ada Lovelace')!;
+      const adaRow = rows.find((row) => row.display_name === ADA.email)!;
       const left = (await failures()).map((one) => one.source_account_id);
       expect(left).toHaveLength(1);
       expect(left).not.toContain(adaRow.id);
@@ -241,9 +243,9 @@ describe('Connector management', () => {
       await connect(ADA, OTHER_WORKSPACE_ID);
 
       expect(await storedRows()).toHaveLength(2);
-      expect((await listed()).map((one) => one.displayName)).toEqual(['Ada Lovelace']);
+      expect((await listed()).map((one) => one.displayName)).toEqual(['ada@example.com']);
       expect((await listed(OTHER_WORKSPACE_ID)).map((one) => one.displayName)).toEqual([
-        'Ada Lovelace',
+        'ada@example.com',
       ]);
     });
   });
@@ -436,7 +438,7 @@ describe('Connector management', () => {
       }
 
       expect(await storedRows()).toHaveLength(1);
-      expect((await listed()).map((one) => one.displayName)).toEqual(['Ada Lovelace']);
+      expect((await listed()).map((one) => one.displayName)).toEqual(['ada@example.com']);
     });
   });
 
@@ -476,7 +478,7 @@ describe('Connector management', () => {
 
       await disconnect(ada!.id, '018f0000-0000-7000-8000-0000000004b2');
 
-      expect((await listed()).map((one) => one.displayName)).toEqual(['Michael']);
+      expect((await listed()).map((one) => one.displayName)).toEqual(['michael@example.com']);
     });
 
     /**
