@@ -45,8 +45,10 @@ No product code — the diff is CLAUDE.md, skills, and docs only, and it gets no
 
 ```bash
 git fetch origin main
-git worktree add .claude/worktrees/session-review-<date> -b session-review/<date> origin/main
+git worktree add .claude/worktrees/session-review-<branch> -b session-review/<branch> origin/main
 ```
+
+`<branch>` is the session's own branch name with its slashes as dashes, so two sessions finishing the same day never collide.
 
 In that worktree: write step 4's edits, commit, run `pnpm test:scripts` and fix what it reports before going on, run `/code-review` at the level Review findings' own table gives a `documentation only` diff (`low`, no `/security-review`), then push and open it as a draft. The body names what changed and where, per step 4, and what was dropped, per step 3; nothing else. Then remove the worktree with `git worktree remove`.
 
