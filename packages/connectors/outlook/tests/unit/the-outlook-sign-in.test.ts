@@ -15,7 +15,7 @@ const connector = new GraphWorld().connector();
 
 const GRANTED = `openid profile email ${MAIL_READ_WRITE}`;
 const GRANT = { refresh_token: 'r', scope: GRANTED };
-const WORK ={ tid: 'contoso-tenant', oid: 'anna-object', name: 'Anna Peeters', preferred_username: 'anna@contoso.example' };
+const WORK = { tid: 'contoso-tenant', oid: 'anna-object', name: 'Anna Peeters', preferred_username: 'anna@contoso.example' };
 
 function accountFor(claims: Record<string, unknown> | null, tokenResponse: Record<string, unknown>) {
   const reply: SignInReply = { claims, tokenResponse };
@@ -64,7 +64,7 @@ describe('Connector management', () => {
         becomes: { key: 'contoso-tenant:anna-object', displayName: 'anna@contoso.example' },
       },
       {
-        situation: 'a work account whose name is missing, so its address names it',
+        situation: 'a work account that gives no name',
         claims: { ...WORK, name: undefined },
         tokens: { refresh_token: 'r', scope: GRANTED },
         becomes: { key: 'contoso-tenant:anna-object', displayName: 'anna@contoso.example' },
