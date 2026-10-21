@@ -14,7 +14,8 @@ import { GraphWorld } from './outlook-world.js';
 const connector = new GraphWorld().connector();
 
 const GRANTED = `openid profile email ${MAIL_READ_WRITE}`;
-const WORK = { tid: 'contoso-tenant', oid: 'anna-object', name: 'Anna Peeters', preferred_username: 'anna@contoso.example' };
+const GRANT = { refresh_token: 'r', scope: GRANTED };
+const WORK ={ tid: 'contoso-tenant', oid: 'anna-object', name: 'Anna Peeters', preferred_username: 'anna@contoso.example' };
 
 function accountFor(claims: Record<string, unknown> | null, tokenResponse: Record<string, unknown>) {
   const reply: SignInReply = { claims, tokenResponse };
@@ -60,7 +61,7 @@ describe('Connector management', () => {
         situation: 'a work account with a refresh token and the mail permission',
         claims: WORK,
         tokens: { refresh_token: 'r', scope: GRANTED },
-        becomes: { key: 'contoso-tenant:anna-object', displayName: 'Anna Peeters' },
+        becomes: { key: 'contoso-tenant:anna-object', displayName: 'anna@contoso.example' },
       },
       {
         situation: 'a work account whose name is missing, so its address names it',
@@ -72,7 +73,7 @@ describe('Connector management', () => {
         situation: 'the permission named by its resource',
         claims: WORK,
         tokens: { refresh_token: 'r', scope: `openid https://graph.microsoft.com/${MAIL_READ_WRITE}` },
-        becomes: { key: 'contoso-tenant:anna-object', displayName: 'Anna Peeters' },
+        becomes: { key: 'contoso-tenant:anna-object', displayName: 'anna@contoso.example' },
       },
       {
         situation: 'a personal Microsoft account, by its tenant',
@@ -112,6 +113,43 @@ describe('Connector management', () => {
       },
     ])('$situation', ({ claims, tokens, becomes }) => {
       expect(accountFor(claims, tokens)).toEqual(becomes);
+    });
+  });
+
+  describe('an Outlook connection is listed under the address it signed in with, and under the person’s name only where there is none', () => {
+    it.each([
+      {
+        situation: 'a name and a sign-in address',
+        claims: WORK,
+        called: 'anna@contoso.example',
+      },
+      {
+        situation: 'a name and an email, with no sign-in address',
+        claims: { tid: WORK.tid, oid: WORK.oid, name: 'Anna Peeters', email: 'anna@home.example' },
+        called: 'anna@home.example',
+      },
+      {
+        situation: 'a sign-in address and a different email',
+        claims: { ...WORK, email: 'anna.peeters@home.example' },
+        called: 'anna@contoso.example',
+      },
+      {
+        situation: 'a name and no address',
+        claims: { tid: WORK.tid, oid: WORK.oid, name: 'Anna Peeters' },
+        called: 'Anna Peeters',
+      },
+      {
+        situation: 'nothing readable beyond the directory and the person',
+        claims: { tid: WORK.tid, oid: WORK.oid },
+        called: 'Microsoft account contoso-tenant:anna-object',
+      },
+      {
+        situation: 'an address of spaces only, which is read as no address',
+        claims: { ...WORK, preferred_username: '   ' },
+        called: 'Anna Peeters',
+      },
+    ])('$situation, listed as $called', ({ claims, called }) => {
+      expect(accountFor(claims, GRANT)).toMatchObject({ displayName: called });
     });
   });
 
