@@ -29,7 +29,11 @@ export const serverEventSchema = z.discriminatedUnion('type', [
    * sentences reads again, and no Workspace does, since none draws one. An older
    * tab fails to parse it and ignores it, which is all it ever needed.
    */
-  z.object({ type: z.literal('remembered_sentences_changed') }),
+  z.object({
+    type: z.literal('remembered_sentences_changed'),
+    /** When the newest sentence change this event covers was taken, compared against a held list's `upTo` as a snapshot's is. Optional so an older Worker's announcement always reads. */
+    at: z.iso.datetime().optional(),
+  }),
   z.object({
     type: z.literal('sync_completed'),
     connectorId: z.string(),

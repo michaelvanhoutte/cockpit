@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env, runInDurableObject } from 'cloudflare:test';
-import { ACCOUNT_WIDE, type ServerEvent } from '@cockpit/shared';
+import { ACCOUNT_WIDE, rememberedSentenceListSchema, type RememberedSentenceList, type ServerEvent } from '@cockpit/shared';
 import { createAccountDb } from '../../../src/accounts/client.js';
 import { readingsSince } from '../../../src/accounts/events.js';
 import {
@@ -63,6 +63,13 @@ async function changeSentence(name: string, payload: Record<string, unknown>) {
 }
 
 const A_SENTENCE = '018f3333-0000-7000-8000-000000000001';
+
+/** The list of sentences as Settings reads it. */
+async function sentenceList(): Promise<RememberedSentenceList> {
+  const res = await asUser('http://cockpit.test/v1/remembered-sentences');
+  expect(res.status).toBe(200);
+  return rememberedSentenceListSchema.parse(await res.json());
+}
 
 const rememberASentence = () =>
   changeSentence('remember_sentence', {
@@ -174,8 +181,25 @@ describe('Live updates', () => {
       await change();
       const { events, cursor } = await changesSince(from);
 
-      expect(events).toEqual([{ type: 'remembered_sentences_changed' }]);
+      expect(events).toEqual([{ type: 'remembered_sentences_changed', at: expect.any(String) }]);
       expect((await changesSince(cursor)).events).toEqual([]);
+    });
+
+    it('stamps the announcement and the list of sentences with the same newest change', async () => {
+      await rememberASentence();
+      const from = await fromNow();
+      await changeSentence('edit_remembered_sentence', { workspaceId: ACCOUNT_WIDE, sentenceId: A_SENTENCE, sentence: 'Sign as M.' });
+
+      const { events } = await changesSince(from);
+      const list = await sentenceList();
+
+      const announced = events[0] as { at: string };
+      expect(announced.at > from).toBe(true);
+      expect(list.upTo).toBe(announced.at);
+    });
+
+    it('gives the list of sentences no stamp for an account that never changed one', async () => {
+      expect((await sentenceList()).upTo).toBeUndefined();
     });
 
     it('still announces a note captured to Any workspace to the whole account', async () => {
@@ -186,7 +210,7 @@ describe('Live updates', () => {
       const { events } = await changesSince(from);
 
       expect(events).toHaveLength(2);
-      expect(events).toContainEqual({ type: 'remembered_sentences_changed' });
+      expect(events).toContainEqual({ type: 'remembered_sentences_changed', at: expect.any(String) });
       expect(events).toContainEqual(expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: ACCOUNT_WIDE }));
     });
 
@@ -198,7 +222,7 @@ describe('Live updates', () => {
       const { events } = await changesSince(from);
 
       expect(events).toHaveLength(2);
-      expect(events).toContainEqual({ type: 'remembered_sentences_changed' });
+      expect(events).toContainEqual({ type: 'remembered_sentences_changed', at: expect.any(String) });
       expect(events).toContainEqual(expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: WORKSPACE_ID }));
     });
   });

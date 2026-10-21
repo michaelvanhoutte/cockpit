@@ -91,9 +91,12 @@ export function useServerEvents() {
       stream.addEventListener('change', (message) => {
         const parsed = serverEventSchema.safeParse(JSON.parse(message.data));
         if (!parsed.success) return;
-        // A sentence's change moves the list of sentences and nothing a Workspace draws (issue 1370).
+        // A sentence's change moves the list of sentences and nothing a Workspace draws,
+        // and is skipped where the held list already holds it, as a snapshot's is (issue 1370).
         if (parsed.data.type === 'remembered_sentences_changed') {
-          void queryClient.invalidateQueries({ queryKey: ['rememberedSentences'] }, { cancelRefetch: false });
+          const { at } = parsed.data;
+          const upTo = queryClient.getQueryData<{ upTo?: string }>(['rememberedSentences'])?.upTo;
+          if (!at || !upTo || upTo < at) void queryClient.invalidateQueries({ queryKey: ['rememberedSentences'] }, { cancelRefetch: false });
           return;
         }
         // A check's end moves the history of one connection and nothing in the

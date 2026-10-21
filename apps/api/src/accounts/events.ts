@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, max } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, max } from 'drizzle-orm';
 import { ACCOUNT_WIDE, type CommandName, type ServerEvent } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { commands, connectionHistory, connectorAccounts, itemMeanings, items } from './schema.js';
@@ -37,7 +37,7 @@ export function collectInvalidations(
     .all();
 
   let cursor = since;
-  let sentencesChanged = false;
+  let sentencesAt: string | undefined;
   // POC (own-event refetch): the newest change per workspace rather than the
   // set of workspaces, so each event can say when it happened. A poll covering
   // several changes to one workspace answers for the last of them, which is
@@ -54,7 +54,7 @@ export function collectInvalidations(
     // remembered-sentence change the moment you make it", issue 1370). The
     // cursor still passes it, or the next poll would find it again.
     if (REMEMBERED_SENTENCE_COMMANDS.has(row.name)) {
-      sentencesChanged = true;
+      if (sentencesAt === undefined || row.receivedAt > sentencesAt) sentencesAt = row.receivedAt;
       if (row.receivedAt > cursor) cursor = row.receivedAt;
     } else sawChange(row.workspaceId, row.receivedAt);
   }
@@ -87,7 +87,8 @@ export function collectInvalidations(
     at,
   }));
 
-  if (sentencesChanged) events.push({ type: 'remembered_sentences_changed' });
+  // The newest of them, as a Workspace's is: what a tab compares its own copy of the list against.
+  if (sentencesAt !== undefined) events.push({ type: 'remembered_sentences_changed', at: sentencesAt });
 
   /**
    * **A check's end writes no command**, and the line it writes moves what an
@@ -150,6 +151,21 @@ export function watermark(db: AccountDb, tenantId: string): string | undefined {
     .limit(1)
     .get();
   return row?.receivedAt;
+}
+
+/**
+ * The newest change to a remembered sentence this account has taken, for the
+ * list of sentences to be stamped with (`upTo` in `rememberedSentenceListSchema`),
+ * as `watermark` does for a snapshot - and read before the rows it vouches for,
+ * for the same reason. `undefined` where there has never been one.
+ */
+export function sentencesWatermark(db: AccountDb, tenantId: string): string | undefined {
+  const row = db
+    .select({ receivedAt: max(commands.receivedAt).mapWith(String) })
+    .from(commands)
+    .where(and(eq(commands.tenantId, tenantId), inArray(commands.name, [...REMEMBERED_SENTENCE_COMMANDS])))
+    .get();
+  return row?.receivedAt ?? undefined;
 }
 
 /**
