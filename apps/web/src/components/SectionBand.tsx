@@ -24,8 +24,6 @@ export function SectionBand({
   onRename,
   onStopRenaming,
   onDelete,
-  refusal,
-  busy,
   lifted,
   onPickUp,
 }: {
@@ -37,9 +35,6 @@ export function SectionBand({
   onRename: () => void;
   onStopRenaming: () => void;
   onDelete: () => void;
-  /** Why the last change to this Section did not happen, if it did not. */
-  refusal: string | null;
-  busy: boolean;
   /** The band is in the air, being moved: drawn back and outlined in its slot, as a lifted Panel is. */
   lifted: boolean;
   /** Takes the band by hand, or null where nothing can be rearranged (filtered, a phone). */
@@ -107,7 +102,6 @@ export function SectionBand({
               />
               <button
                 type="submit"
-                disabled={busy}
                 className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
               >
                 Save
@@ -133,11 +127,6 @@ export function SectionBand({
           )}
         </header>
       </SurfaceMenu>
-      {refusal && (
-        <p role="alert" className="px-3 pt-1 text-xs text-over-ink">
-          {refusal}
-        </p>
-      )}
     </div>
   );
 }

@@ -389,6 +389,11 @@ export function refusalFrom(command: { error: unknown }): string | null {
   return command.error ? 'That did not reach the server. Try again.' : null;
 }
 
+/** Why a change did not happen, in the server's words where it gave any, for the undo bar to say. */
+export function whyNotDone(failure: unknown): string {
+  return refusalFrom({ error: failure }) ?? 'That could not be done.';
+}
+
 /**
  * Changes are refused while offline, found or chosen, before they are sent: a
  * paused request would sit unsent and read as saved. A capture is the exception;

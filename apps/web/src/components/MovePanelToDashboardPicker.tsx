@@ -24,8 +24,6 @@ export function MovePanelToDashboardPicker({
   open,
   onPick,
   onCancel,
-  refusal,
-  busy = false,
   returnFocusTo,
 }: {
   panelName: string;
@@ -34,14 +32,10 @@ export function MovePanelToDashboardPicker({
   open: boolean;
   onPick: (dashboardId: string) => void;
   onCancel: () => void;
-  /** Why the last move did not happen, if it did not. */
-  refusal?: string | null;
-  /** True while a move is being sent, so it cannot be sent twice. */
-  busy?: boolean;
   returnFocusTo?: HTMLElement | null;
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
+    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
@@ -55,18 +49,11 @@ export function MovePanelToDashboardPicker({
         >
           <Dialog.Title className="text-base font-semibold">Move {panelName} to</Dialog.Title>
 
-          {refusal && (
-            <p role="alert" className="pt-3 text-sm text-over-ink">
-              {refusal}
-            </p>
-          )}
-
           <div className="-mx-1 mt-4 min-h-0 flex-1 overflow-y-auto px-1">
             {dashboards.map((dashboard) => (
               <button
                 key={dashboard.id}
                 type="button"
-                disabled={busy}
                 onClick={() => onPick(dashboard.id)}
                 className="flex w-full items-baseline gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
               >
@@ -77,7 +64,6 @@ export function MovePanelToDashboardPicker({
 
           <div className="flex justify-end pt-4">
             <Dialog.Close
-              disabled={busy}
               className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
             >
               Cancel
