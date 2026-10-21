@@ -30,6 +30,7 @@ import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { setPanelsCollapsed, usePanelsCollapsed } from '../../../src/panelsCollapsed';
 import { DWELL_MS } from '../../../src/switchWhileDragging';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../../../src/whatThingsAre';
+import { UndoWhatJustHappened } from '../../../src/undo';
 import { publishBoardRows, withdrawBoardRows } from '../../../src/panels/boardRows';
 
 /**
@@ -186,14 +187,11 @@ function aPanel(name: string, dashboardId: string): Panel {
 function showBar(
   names: string[],
   answer: {
-    error?: Error;
     openDashboardId?: string | null;
     panels?: Panel[];
     layouts?: Layout[];
     /** What a Save comes back with, the form sending its own change. */
     sendFails?: Error;
-    /** A dashboard another tab adds while a refused move is in flight. */
-    arrivesInFlight?: string;
     /** Draws the filter bar beneath, which the page does in the board's own place. */
     withFilterBar?: boolean;
     /** *All items* is the page on screen, as its address makes it. */
@@ -206,45 +204,12 @@ function showBar(
   held.openDashboardId = answer.openDashboardId ?? null;
   held.allItemsOpen = answer.allItemsOpen ?? false;
   wentTo.calls = [];
-  const asked: { error: Error | null; variables: unknown; keptOnRefusal: string[] } = {
-    error: answer.error ?? null,
-    variables: null,
-    keptOnRefusal: [],
-  };
+  const asked: { error: Error | null; variables: unknown } = { error: null, variables: null };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const mutate = vi.fn(
-    (args: AskedFor, options?: { onSuccess?: () => void; onError?: () => void }) => {
-      asked.variables = args;
-      if (answer.error) {
-        if (answer.arrivesInFlight) {
-          const arrived = aDashboard(answer.arrivesInFlight);
-          // In front on the server's side and behind in the cache, so what the
-          // cache holds is told apart from what the re-read would put there.
-          held.dashboards = [arrived, ...held.dashboards];
-          client.setQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'], (now) =>
-            now ? { ...now, dashboards: [...now.dashboards, arrived] } : now,
-          );
-        }
-        options?.onError?.();
-        // Read before the re-read the refusal asks for can land, which would
-        // put every dashboard back on its own and hide what the rollback did.
-        asked.keptOnRefusal = (
-          client.getQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'])?.dashboards ?? []
-        ).map((one) => one.name);
-        return;
-      }
-      // A delete really takes the dashboard out of the workspace, and the read
-      // behind the bar is asked again - which the real `useCommand` does through
-      // `afterChanging`. Without it the bar goes on drawing the dashboard that
-      // has just gone, and every rule about what happens once it has gone passes
-      // by never happening.
-      if (args.name === 'delete_dashboard') {
-        held.dashboards = held.dashboards.filter((one) => one.id !== args.payload.dashboardId);
-        void client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'] });
-      }
-      options?.onSuccess?.();
-    },
-  );
+  const mutate = vi.fn((args: AskedFor, options?: { onSuccess?: () => void }) => {
+    asked.variables = args;
+    options?.onSuccess?.();
+  });
   const reset = vi.fn(() => {
     asked.error = null;
   });
@@ -262,12 +227,23 @@ function showBar(
         },
       }) as never,
   );
-  const sent = vi.fn((_args: AskedFor) =>
-    answer.sendFails ? Promise.reject(answer.sendFails) : Promise.resolve(),
-  );
+  const sent = vi.fn((args: AskedFor) => {
+    if (answer.sendFails) return Promise.reject(answer.sendFails);
+    // A delete really takes the dashboard out of the workspace, and the read
+    // behind the bar is asked again - which the real sender does through
+    // `afterChanging`. Without it the bar goes on drawing the dashboard that
+    // has just gone, and every rule about what happens once it has gone passes
+    // by never happening.
+    if (args.name === 'delete_dashboard') {
+      held.dashboards = held.dashboards.filter((one) => one.id !== args.payload.dashboardId);
+      void client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'] });
+    }
+    return Promise.resolve();
+  });
   mockUseSendCommand.mockImplementation(() => sent as never);
   const bar = (openDashboardId: string | null) => (
     <QueryClientProvider client={client}>
+      <UndoWhatJustHappened>
       <DashboardBar
         workspaceId="ws-work"
         tint="#6f62b5"
@@ -281,6 +257,7 @@ function showBar(
       {answer.withFilterBar && held.allItemsOpen && (
         <DashboardFilterBar dashboardId={allItemsFilterId('ws-work')} withDone />
       )}
+      </UndoWhatJustHappened>
     </QueryClientProvider>
   );
   const { container, rerender } = render(bar(answer.openDashboardId ?? null));
@@ -289,8 +266,6 @@ function showBar(
     sent,
     container,
     client,
-    /** The dashboards the cache held the moment a refusal had been put back. */
-    keptOnRefusal: () => asked.keptOnRefusal,
     /** The same bar with another dashboard open, which is what a switch is. */
     switchTo: (openDashboardId: string | null) => {
       held.openDashboardId = openDashboardId;
@@ -346,27 +321,27 @@ function theBar(): (string | null)[] {
 }
 
 describe('Dashboards', () => {
-  describe('a dashboard you move is shown where you moved it before the server agrees', () => {
+  describe('a dashboard you move is asked for as the whole order', () => {
     /*
-     * F1: what the gesture asks for, what the bar paints while it is in
-     * flight, and what it does with an answer it does not like. The gesture
-     * itself is `useTabDrag`'s and is walked in a real browser in
-     * tests/e2e/dashboards.test.ts, where there is a layout engine to measure;
-     * that the server keeps the order is proved against a real store in
-     * apps/api/tests/integration/http/dashboards.test.ts.
+     * F1: what the gesture asks for, and what it does with an answer it does
+     * not like. That the tabs are drawn moved at once is
+     * tests/unit/components/DashboardsAtOnce.test.tsx, and what a move draws,
+     * including a dashboard that arrived since the bar was drawn, is
+     * tests/unit/drawnAhead.test.ts. The gesture itself is `useTabDrag`'s and is
+     * walked in a real browser in tests/e2e/dashboards.test.ts, where there is a
+     * layout engine to measure; that the server keeps the order is proved
+     * against a real store in apps/api/tests/integration/http/dashboards.test.ts.
      */
-    it('paints the new order at once, and asks for the whole order', async () => {
+    it('asks for the whole order when a tab is dragged', async () => {
       // Not politeness: the order a move is computed from is the order in
       // hand, so a second move made before the first came back would undo it.
-      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin']);
+      const { sent } = showBar(['Dashboard 1', 'Research', 'Admin']);
       await screen.findByRole('link', { name: 'Admin' });
 
       dragTab('Dashboard 1', 2);
 
-      await waitFor(() =>
-        expect(theBar()).toEqual(['Inbox', 'Research', 'Dashboard 1', 'Admin']),
-      );
-      expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+      await waitFor(() => expect(sent).toHaveBeenCalledTimes(1));
+      expect(sent.mock.calls[0]?.[0]).toMatchObject({
         name: 'reorder_dashboards',
         payload: {
           workspaceId: 'ws-work',
@@ -377,7 +352,7 @@ describe('Dashboards', () => {
     });
 
     it('asks for nothing when a drag ends where it started', async () => {
-      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin']);
+      const { sent } = showBar(['Dashboard 1', 'Research', 'Admin']);
       await screen.findByRole('link', { name: 'Admin' });
 
       dragTab('Research', 2);
@@ -386,71 +361,31 @@ describe('Dashboards', () => {
       // the sender a microtask later - so a bare "not called" here would pass
       // over exactly the regression this case exists to catch.
       await act(async () => {});
-      expect(mutate).not.toHaveBeenCalled();
+      expect(sent).not.toHaveBeenCalled();
       expect(theBar()).toEqual(['Inbox', 'Dashboard 1', 'Research', 'Admin']);
     });
 
-    it('puts the tabs back when the move is refused', async () => {
-      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin'], {
-        error: new CommandRefused(409, 'the dashboards changed while they were being put in order'),
+    it('says why in the undo bar when the move is refused', async () => {
+      showBar(['Dashboard 1', 'Research', 'Admin'], {
+        sendFails: new CommandRefused(409, 'the dashboards changed while they were being put in order'),
       });
       await screen.findByRole('link', { name: 'Admin' });
 
       dragTab('Dashboard 1', 3);
 
-      // Otherwise this passes vacuously: the order it puts back is the order
-      // it started in, so a drag that silently did nothing would look the same
-      // as one that was sent and refused.
-      await waitFor(() => expect(mutate).toHaveBeenCalled());
-      await waitFor(() =>
-        expect(theBar()).toEqual(['Inbox', 'Dashboard 1', 'Research', 'Admin']),
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        'The dashboards were not put in that order. the dashboards changed while they were being put in order',
       );
     });
 
-    it('keeps a dashboard added meanwhile when it puts the tabs back', async () => {
-      // A refusal is most likely because a dashboard came or went elsewhere, so
-      // putting the old order back must not take the one that came off the bar.
-      const { keptOnRefusal, mutate } = showBar(['Dashboard 1', 'Research', 'Admin'], {
-        error: new CommandRefused(409, 'the dashboards changed while they were being put in order'),
-        arrivesInFlight: 'Newest',
-      });
-      await screen.findByRole('link', { name: 'Admin' });
-
-      dragTab('Dashboard 1', 3);
-
-      await waitFor(() => expect(mutate).toHaveBeenCalled());
-      expect(keptOnRefusal()).toEqual(['Dashboard 1', 'Research', 'Admin', 'Newest']);
-    });
-
-    it('keeps a dashboard that arrived since the bar was drawn when it shows the move', async () => {
-      const { client } = showBar(['Dashboard 1', 'Research', 'Admin']);
-      await screen.findByRole('link', { name: 'Admin' });
-
-      // Written to the cache and dropped in the same tick, before React Query has
-      // told the bar about it: the window a snapshot re-read lands in unseen. The
-      // drop is computed from the bar as drawn, so the newcomer is not in it.
-      act(() => {
-        client.setQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'], (held) =>
-          held ? { ...held, dashboards: [...held.dashboards, aDashboard('Newest')] } : held,
-        );
-        dragTab('Dashboard 1', 3);
-      });
-
-      expect(
-        client
-          .getQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'])
-          ?.dashboards.map((one) => one.name),
-      ).toEqual(['Research', 'Admin', 'Dashboard 1', 'Newest']);
-    });
-
     it('does not move the Inbox, which is no dashboard of this workspace', async () => {
-      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin']);
+      const { sent } = showBar(['Dashboard 1', 'Research', 'Admin']);
       await screen.findByRole('link', { name: 'Admin' });
 
       dragTab('Inbox', 3);
 
       await act(async () => {});
-      expect(mutate).not.toHaveBeenCalled();
+      expect(sent).not.toHaveBeenCalled();
       expect(theBar()).toEqual(['Inbox', 'Dashboard 1', 'Research', 'Admin']);
       // The two above pass on their own whether or not the Inbox carries the
       // gesture, since it is in no order for a move to be computed against - so
@@ -463,15 +398,13 @@ describe('Dashboards', () => {
       // The other half of the Inbox being fixed: it is not a place in the
       // order either, so dropping past it lands first among the dashboards
       // rather than in front of it.
-      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin']);
+      const { sent } = showBar(['Dashboard 1', 'Research', 'Admin']);
       await screen.findByRole('link', { name: 'Admin' });
 
       dragTab('Admin', 0);
 
-      await waitFor(() =>
-        expect(theBar()).toEqual(['Inbox', 'Admin', 'Dashboard 1', 'Research']),
-      );
-      expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+      await waitFor(() => expect(sent).toHaveBeenCalledTimes(1));
+      expect(sent.mock.calls[0]?.[0]).toMatchObject({
         payload: {
           dashboardIds: ['ws-work-admin', 'ws-work-dashboard 1', 'ws-work-research'],
         },
@@ -621,7 +554,7 @@ describe('Dashboards', () => {
       expect(sent.mock.calls.map(([args]) => args.name)).toEqual(row.sends);
     });
 
-    it('keeps the form open with what was typed when the server refuses it', async () => {
+    it('closes the form at the click, and says why in the undo bar when the server refuses it', async () => {
       const { user } = showBar(['Dashboard 1', 'Research'], {
         sendFails: new CommandRefused(409, 'a dashboard called Dashboard 1 already exists'),
       });
@@ -632,10 +565,10 @@ describe('Dashboards', () => {
 
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        'a dashboard called Dashboard 1 already exists',
+      expect(screen.queryByRole('textbox', { name: 'Name of Research' })).toBeNull();
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        '“Research” was not renamed to “Dashboard 1”. a dashboard called Dashboard 1 already exists',
       );
-      expect(screen.getByRole('textbox', { name: 'Name of Research' })).toHaveValue('Dashboard 1');
     });
   });
 
@@ -744,15 +677,15 @@ describe('Dashboards', () => {
     });
 
     it('sends the delete only once the question has been answered', async () => {
-      const { mutate, user } = showBar(['Dashboard 1', 'Research']);
+      const { sent, user } = showBar(['Dashboard 1', 'Research']);
       fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
       await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
       await screen.findByRole('alertdialog');
-      expect(mutate).not.toHaveBeenCalled();
+      expect(sent).not.toHaveBeenCalled();
 
       await user.click(screen.getByRole('button', { name: 'Yes, delete Research' }));
 
-      expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+      expect(sent.mock.calls[0]?.[0]).toMatchObject({
         name: 'delete_dashboard',
         payload: { dashboardId: 'ws-work-research' },
       });
@@ -800,21 +733,21 @@ describe('Dashboards', () => {
 
   describe('adding a dashboard asks for the name you typed', () => {
     it('asks for it without the blanks around it', async () => {
-      const { user, mutate } = showBar(['Dashboard 1']);
+      const { user, sent } = showBar(['Dashboard 1']);
 
       await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
       await user.type(screen.getByLabelText('Name of the new dashboard'), '  Research  ');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
-      expect(mutate).toHaveBeenCalledTimes(1);
-      const [asked] = mutate.mock.calls[0]!;
+      expect(sent).toHaveBeenCalledTimes(1);
+      const [asked] = sent.mock.calls[0]!;
       expect(asked.name).toBe('add_dashboard');
       expect(asked.payload.name).toBe('Research');
       expect(asked.payload.workspaceId).toBe('ws-work');
     });
 
     it('switches to the dashboard it just made', async () => {
-      const { user, mutate } = showBar(['Dashboard 1']);
+      const { user, sent } = showBar(['Dashboard 1']);
 
       await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
       await user.type(screen.getByLabelText('Name of the new dashboard'), 'Research');
@@ -822,7 +755,7 @@ describe('Dashboards', () => {
 
       // The one just made, by the id it was made with: adding a dashboard and
       // then having to find it in the bar is two gestures for what reads as one.
-      const [asked] = mutate.mock.calls[0]!;
+      const [asked] = sent.mock.calls[0]!;
       expect(wentTo.calls).toEqual([
         {
           to: '/w/$workspaceId/d/$dashboardId',
@@ -847,36 +780,32 @@ describe('Dashboards', () => {
       expect(search({})).toEqual({});
     });
 
-    it('does not still say why the last one was refused, next time the field opens', async () => {
-      // The `+` and the field are two renders of the same component, so a
-      // refusal that is only hidden comes back over a name nobody has typed.
-      const { user } = showBar(['Research'], {
-        error: new CommandRefused(409, 'a dashboard called Research already exists in this workspace'),
-      });
+    it('closes the question at the click, and opens empty next time', async () => {
+      // The `+` and the question are two renders of the same component, so a
+      // name left behind comes back over a question nobody has typed in yet.
+      const { user } = showBar(['Research']);
 
       await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
-      await user.type(screen.getByLabelText('Name of the new dashboard'), 'Research');
+      await user.type(screen.getByLabelText('Name of the new dashboard'), 'Library');
       await user.click(screen.getByRole('button', { name: 'Add' }));
-      expect(screen.getByRole('alert')).toBeVisible();
-      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog')).toBeNull();
       await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
 
-      expect(screen.queryByRole('alert')).toBeNull();
       expect(screen.getByLabelText('Name of the new dashboard')).toHaveValue('');
     });
 
     it('asks for nothing when the field holds only blanks', async () => {
-      const { user, mutate } = showBar(['Dashboard 1']);
+      const { user, sent } = showBar(['Dashboard 1']);
 
       await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
       await user.type(screen.getByLabelText('Name of the new dashboard'), '   ');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
-      expect(mutate).not.toHaveBeenCalled();
+      expect(sent).not.toHaveBeenCalled();
     });
   });
 
-  describe('an add that could not happen puts the screen back', () => {
+  describe('an add that could not happen says why in the undo bar', () => {
     it.each([
       {
         situation: 'the name is already another dashboard’s',
@@ -889,16 +818,13 @@ describe('Dashboards', () => {
         says: 'That did not reach the server. Try again.',
       },
     ])('$situation', async ({ error, says }) => {
-      const { user } = showBar(['Research'], { error });
+      const { user } = showBar(['Research'], { sendFails: error });
 
       await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
-      const box = screen.getByLabelText('Name of the new dashboard');
-      await user.type(box, 'Research');
+      await user.type(screen.getByLabelText('Name of the new dashboard'), 'Research');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
-      expect(screen.getByRole('alert')).toHaveTextContent(says);
-      // Still there to be corrected, rather than typed again from nothing.
-      expect(box).toHaveValue('Research');
+      expect(await screen.findByRole('status')).toHaveTextContent(`“Research” was not added. ${says}`);
     });
   });
 });
