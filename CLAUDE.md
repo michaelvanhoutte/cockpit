@@ -39,7 +39,7 @@ pnpm dev
 **Run `scoping`, then `engineering-plan`, before writing code for any feature or fix.** Each is run by the person who owns it and neither calls the other: they share one ticket, which `scoping` files labelled `unsliced`, and `engineering-plan` adds to, then finishes or splits into children under it as parent. So product can stop after scoping. Starting the work triggers the first.
 
 - `scoping` decides whether the work has to be seen first and sharpens the requirements into the whole, unsliced piece of work.
-- `engineering-plan` first answers "no design needed" unless the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back; then it settles the placement and enumerates the failure modes over the whole scope. It stops for the engineer to agree the design, and only then cuts vertical slices, names each unit's model, and produces the statement list.
+- `engineering-plan` first counts, for each user action the work adds or changes, the round trips the screen waits on and the reads a change causes. It answers "no design needed" unless one breaks its rule on a path no open issue is fixing, or the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back; then it settles the placement and enumerates the failure modes over the whole scope. It stops for the engineer to agree the design, and only then cuts vertical slices, names each unit's model, and produces the statement list.
 
 **Check the issue is still open and unclaimed at the moment you start it.** Several sessions work this repository at once, so it can be closed by work that merged before your branch point, or while you read it. Fetching `main` is not this check.
 
