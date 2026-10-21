@@ -10,7 +10,7 @@ const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, t
  * The contract tier for reading which places a note's words mean ("File a
  * capture on the panels you name, read from the spoken path", issue 1116):
  * the real Claude API and the real prompt, run on a pull request that changes
- * a prompt and by hand - `clean-up-a-note.v16.test.ts`'s class comment says
+ * a prompt and by hand - `clean-up-a-note.v17.test.ts`'s class comment says
  * why. The behaviour held is the one the prompt was written to get: words
  * mapped onto the names they plainly mean, in other letters, and a word that
  * matches nothing left out rather than guessed.

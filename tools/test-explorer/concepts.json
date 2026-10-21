@@ -112,7 +112,7 @@
     {
       "key": "Capture",
       "label": "Capture",
-      "browserWalks": 16,
+      "browserWalks": 17,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -147,7 +147,7 @@
         "apps/web/src/components/InboxPanel.tsx",
         "apps/api/src/ai/index.ts",
         "apps/api/src/ai/note-texts.ts",
-        "apps/api/src/ai/prompts/clean-up-a-note.v16.ts",
+        "apps/api/src/ai/prompts/clean-up-a-note.v17.ts",
         "apps/api/src/ai/prompts/resolve-a-place.v1.ts",
         "apps/api/src/domain/spoken-path.ts",
         "apps/api/src/jobs/index.ts",

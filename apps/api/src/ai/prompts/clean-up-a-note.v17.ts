@@ -77,6 +77,21 @@ export const STATED_PLACE = `Where the note itself says where it should go - a w
 export const PANEL_FIT = `The panels are buckets this account files its own notes into, each named for what belongs there. Where this note fits one of them, name its id, say in a few words why - about the note and the panel rather than about yourself, "a compliance question, about the validation protocol" rather than "I chose this because it mentions compliance" - and say how sure you are. Clear is for a note that plainly belongs on that panel, where a person filing their own notes would put it there without a second thought. Closest is for a note that plausibly fits that panel, better than any other offered, though it was not plainly made for it. Name the closest panel wherever one plausibly fits: the person has to file the note somewhere, and a near miss they can correct helps them more than nothing. Name none only for a note that fits none of the panels at all - a shopping list against panels for work, or a note about something no panel is about.`;
 
 /**
+ * How a message saved from Teams with a note of the person's own is read
+ * ("Read the note you type when you save a Teams message to Cockpit", issue
+ * 1340). The Teams connector stores the note inside the captured message, the
+ * sender's message first and then `NOTE_MARKER_LINE` and the person's words,
+ * so this is what tells the reading whose words are whose. The person's words
+ * win where the two disagree on a field, and the sender's still decide a field
+ * the person left unsaid. Its own constant for the reason `STATED_PRIORITY` is.
+ *
+ * **The marker is the Teams connector's `NOTE_MARKER`**, written out here
+ * because the prompt may not import a connector; a test holds the two together.
+ */
+export const NOTE_MARKER_LINE = 'My note, typed when saving this message:';
+export const NOTE_FROM_TEAMS = `Some notes are a message somebody else wrote, saved from Microsoft Teams, followed by the person's own words about it. Then, after the message, comes a line reading exactly "${NOTE_MARKER_LINE}" and below it what the person typed. Everything above that line is the sender's, and everything below it is the person's own. Read both together as one note about one piece of work: write the title and message from what both say, and read the priority, due date and place under the rules below from both. Where the person's words and the sender's disagree about a field - one says urgent and the other no rush, or each names a different day - the person's words decide it. Where the person's words say nothing about a field, the sender's words still decide it. The person's words are what to do about the sender's message, so write the work they ask for rather than quoting either, and never write the marker line in either text.`;
+
+/**
  * Every word of the system prompt that is the same for every note and every
  * account - the rules and the worked examples - and nothing else.
  *
@@ -130,6 +145,8 @@ ${STATED_PRIORITY}
 ${STATED_DUE_DATE}
 
 ${STATED_PLACE}
+
+${NOTE_FROM_TEAMS}
 
 Further down, after the examples, you are given what is this account's own: the panels it has already set up, its decision history, and what else has been captured recently.
 
@@ -194,6 +211,19 @@ readings: []
 place: day to day, admin and money
 panel: (none of the panels offered fits)
 
+Note: Can you send me the Q3 numbers? I need them today, it's urgent!
+
+My note, typed when saving this message:
+no rush, Friday is fine
+(captured on Tuesday 2026-10-13)
+language: English
+title: Send the Q3 numbers
+message: Send the Q3 numbers on Friday. No rush.
+readings: []
+priority: low
+dueDate: 2026-10-16
+panel: (none of the panels offered fits)
+
 Note: call jan
 language: English
 title: Call Jan
@@ -213,7 +243,7 @@ Note: book a table for the board dinner after the agm
 panel: Board meetings, closest, because the dinner is for the board, though it is not a meeting`;
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 15.
+ * What Cockpit asks Claude for when a note has been captured, version 17.
  * `v7` ("Learn how you write from the titles you correct", issue 394; "Show
  * what Cockpit is told, and say how you want it changed", issue 398; "Pin an
  * example of how you want a note written", issue 397) added `corrections`,
@@ -298,6 +328,13 @@ panel: Board meetings, closest, because the dinner is for the board, though it i
  * optional `place` - the words as said, offered on every capture. The names
  * those words mean are read by `resolve-a-place.v1`, only where there are
  * words, so no Workspace's name rides on a capture that names no place.
+ *
+ * **`v17` reads the note typed when a Teams message is saved** ("Read the note
+ * you type when you save a Teams message to Cockpit", issue 1340):
+ * `NOTE_FROM_TEAMS` in the instructions and one worked example. Nothing is
+ * added to the schema or to what a call sends: the note arrives inside the
+ * captured message, marked, and the person's words win a field where they
+ * disagree with the sender's.
  */
 export function buildCleanUpANote(
   routing: RoutingInputs,
@@ -305,7 +342,7 @@ export function buildCleanUpANote(
   stood: WhatStood | null,
   day: CaptureDay | null,
 ): {
-  version: 'v16';
+  version: 'v17';
   model: string;
   effort: 'low';
   system: { instructions: string; stable: string; recent: string };
@@ -343,11 +380,11 @@ export function buildCleanUpANote(
   ].join('\n\n');
 
   return {
-    version: 'v16',
+    version: 'v17',
 
     /**
      * Sonnet 5.5, on the 20-capture comparison above, and held to the same
-     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v16.test.ts`).
+     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v17.test.ts`).
      * Haiku 5.5 was compared too and gave three titles of another note and
      * three rejected answers, so this is the cheapest model that held the
      * comparison, not the cheapest there is.

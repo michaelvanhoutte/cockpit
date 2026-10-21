@@ -99,6 +99,17 @@ Two of its rules are restated here because this file is in context always and th
 
 **Type the level into the command** — `/code-review xhigh`, never a bare `/code-review`, which reuses whatever level was typed last rather than the one the table gives. Never `max`, slow enough on a real diff to get skipped, and never `ultra`: a billed cloud review only the user can start.
 
+**Leave these kinds out of a review's findings**, since each is declined on sight and a decline still costs a read and a written reason:
+
+- **Already decided**: objecting to what the issue, its design, its Decisions or the approved POC specify, wording included.
+- **Outside the diff**: another issue's scope, code the diff did not change, a deliberate copy of a sibling path's rule.
+- **Not worth a round**: an efficiency point at a small bounded size, an edge needing an unlikely coincidence, a style-only point.
+- **Untraced**: an unguarded state or a race whose writers or event order you have not traced; trace them first, and report it only if they reach it.
+- **Wrong level**: asking for a test that re-proves lower-level coverage, or one its level cannot fail (see Tests).
+- **Deliberate**: sharing code between tools kept apart by design; blanking or deleting deployed rows in an expand step, which belongs to the contract step; and, in a security review, another layer where an existing control already bounds the risk.
+
+A point that may still matter, such as a pre-existing defect or a gap another issue owns, becomes a spawned task under "Working in parallel", not a finding.
+
 **Recheck a round of fixes instead of re-reviewing the whole diff.** One targeted `/code-review` pass over the files the fixes touched, and a targeted `/security-review` pass only where a fix itself touches a security path. Run a full second pass, at the diff's own row above, only where a fix touches a stored-data path, or the fixes change more than 25% of the original diff or 40 lines, whichever is larger. Fix or decline whatever the recheck finds without another local pass.
 
 **Where the table asks for a security review, run it as its own foregrounded `general-purpose` `Agent` call, never inline via `Skill`.** Its prompt ends "your final reply must contain the markdown report and nothing else", which inline becomes the session's own last turn, leaving the work reviewed on an unpushed commit. As a subagent, on the session's model or stronger, that line binds the subagent instead and the session gets a report back to fix against and push in the same turn. `/code-review` carries no such line and runs inline.
@@ -110,7 +121,7 @@ gh pr create --draft --title "..." --body "..."
 gh pr ready <number>
 ```
 
-**Check `gh pr view <number> --json mergeable,mergeStateStatus` before waiting on anything.** A `CONFLICTING` pull request gets no checks at all, so the waiter below would never return. That is the one case this file permits merging `main` in for.
+**Check `gh pr view <number> --json mergeable,mergeStateStatus` before waiting on anything.** A `CONFLICTING` pull request gets no checks at all, so the waiter below would never return. That is one of the two cases this file permits merging `main` in for; the other is below.
 
 **Opening the pull request is not the end of the task: wait for the checks to settle, then fix what they report.** Start the waiter on the push, in the background, from inside the repository — `git rev-parse` and gh's `{owner}/{repo}` both need the working directory.
 
@@ -135,7 +146,7 @@ It names a SHA because for the seconds after a push GitHub's head is still the p
 
 **List each declined finding of a local `/code-review` or `/security-review` in the pull request body's `## Review` paragraph, with a one-line reason**, because local reviews post no thread and `/periodic-review` learns what the reviewer got wrong from the body.
 
-**Merge `main` into the branch only when GitHub reports the pull request conflicted.** It lands squashed and CI already tests the branch merged with `main`, so a clean merge buys nothing that lands and only restarts CI.
+**Merge `main` into the branch only when GitHub reports the pull request conflicted, or when `node scripts/merge-recheck.mjs <number>` refuses the merge against today's `main`.** Any other merge buys nothing that lands, since the pull request lands squashed and CI already tests the branch merged with `main`, and only restarts CI.
 
 **Read what `main` has gained before finishing, not only what it has changed.** This file is read into a session once, at the start, so a rule that merges while you work changes nothing you believe until you look. Diff against the commit you started from — not the merge-base with `origin/main`, which the conflict-merge above moves to `origin/main` itself, silencing the diff on exactly what that merge brought in.
 

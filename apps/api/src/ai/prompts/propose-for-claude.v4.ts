@@ -26,7 +26,7 @@ export const DESCRIPTION_SENT = 4_000;
 
 /**
  * Every word that is the same for every Item and every account, so it can be
- * the first cached prefix (`index.ts`), as `clean-up-a-note.v16`'s is.
+ * the first cached prefix (`index.ts`), as `clean-up-a-note.v17`'s is.
  */
 const INSTRUCTIONS = `You are part of Cockpit, one person's inbox for their own work. They hand an item over to Claude in one click: Cowork, Claude's desktop app for knowledge work (documents, mail drafts, research, spreadsheets, planning, anything done with files on their computer or with apps Claude is connected to), or Claude Code, for work on a codebase in a folder on their computer. Before they look at an item, you propose what to hand over.
 

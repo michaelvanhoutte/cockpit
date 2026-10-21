@@ -103,6 +103,8 @@ export interface SaveWanted {
   person?: string;
   messageId?: string;
   said?: string;
+  /** What was typed in the action's dialog, which Teams sends back as `value.data` keyed by the manifest's parameter name. */
+  note?: string;
   commandId?: string;
   /** The click's own id: what one press is, and what a redelivery of it repeats. */
   activityId?: string;
@@ -124,6 +126,7 @@ export function saveToCockpitCall(wanted: SaveWanted = {}): Record<string, unkno
     value: {
       commandId: wanted.commandId ?? 'saveToCockpit',
       commandContext: 'message',
+      ...(wanted.note === undefined ? {} : { data: { note: wanted.note } }),
       messagePayload: {
         id: messageId,
         createdDateTime: '2026-09-15T09:20:00.000Z',
