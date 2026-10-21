@@ -605,6 +605,23 @@ describe('Capture', () => {
 
       expect(queue.drawnOver(holding(false)).items.map((item) => item.priority)).toEqual(['high']);
     });
+
+    it.each([
+      { until: 'it has landed', settles: (queue: ReturnType<typeof createChangeQueue>) => queue.landed(note) },
+      { until: 'the outbox has let it go, refused', settles: (queue: ReturnType<typeof createChangeQueue>) => queue.captures([]) },
+    ])('sends a change made to its row only once $until, since the server has no Item before', async ({ settles }) => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      queue.captures([note]);
+      void queue.enqueue(priority('high'));
+      await settle();
+
+      expect(server.send).not.toHaveBeenCalled();
+      settles(queue);
+      await settle();
+
+      expect(server.send).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('a landed capture stays drawn until a read that began after it landed has landed', () => {

@@ -176,6 +176,21 @@ export function createChangeQueue(options: {
     )?.change;
   const adding = (workspaceId: string) => beingAdded(workspaceId) !== undefined;
 
+  /** Settles once `done` holds, checked now and after every change to the queue. */
+  const until = (done: () => boolean) =>
+    new Promise<void>((resolve) => {
+      const check = () => {
+        if (!done()) return;
+        stop();
+        resolve();
+      };
+      const stop = subscribe(check);
+      check();
+    });
+
+  /** Whether a captured note the queue draws has yet to reach the server: there is no Item there to change. */
+  const notLanded = (itemId: unknown) => entries.some((entry) => entry.answeredAt === NOT_LANDED && capturedId(entry) === itemId);
+
   const drop = (entry: Entry) => {
     const at = entries.indexOf(entry);
     if (at !== -1) entries.splice(at, 1);
@@ -187,6 +202,9 @@ export function createChangeQueue(options: {
     try {
       for (let next = entries.find((e) => e.state === 'waiting'); next; next = entries.find((e) => e.state === 'waiting')) {
         next.state = 'sending';
+        // A change to a note still on its way waits for it to land, or to be refused and go.
+        const { itemId } = next.change.payload as { itemId?: unknown };
+        await until(() => !notLanded(itemId));
         const sending = new AbortController();
         let giveUp: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -247,16 +265,7 @@ export function createChangeQueue(options: {
       entries.some((entry) => entry.change.name === 'delete_workspace' && entry.change.payload.workspaceId === workspaceId),
     adding,
     beingAdded,
-    afterAdding: (workspaceId) =>
-      new Promise((resolve) => {
-        const check = () => {
-          if (adding(workspaceId)) return;
-          stop();
-          resolve();
-        };
-        const stop = subscribe(check);
-        check();
-      }),
+    afterAdding: (workspaceId) => until(() => !adding(workspaceId)),
     readStarted: () => ++tick,
     readLanded(scope, startedAt, upTo) {
       const covered = entries.filter(

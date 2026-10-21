@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import type { WorkspaceSnapshot } from '@cockpit/shared';
+import { ACCOUNT_WIDE, type WorkspaceSnapshot } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand } from '../../../src/api/queries';
 import { fetchSnapshot, sendCommand } from '../../../src/api/client';
 import { useServerEvents } from '../../../src/api/useServerEvents';
@@ -269,6 +269,18 @@ describe('Live updates', () => {
       await screen.findByText('showing the one more read');
       await settle();
       expect(readsMade()).toBe(3);
+    });
+
+    it.each([
+      { held: 'every copy holds it', second: 1, readsAfter: 1 },
+      { held: 'a copy does not hold it yet', second: 2, readsAfter: 2 },
+    ])('reads every Workspace for an account-wide announcement only where $held', async ({ second, readsAfter }) => {
+      await openWithCopy();
+
+      act(() => stream().announces({ type: 'snapshot_invalidated', workspaceId: ACCOUNT_WIDE, at: at(second) }));
+      await settle();
+
+      expect(readsMade()).toBe(readsAfter);
     });
 
     it('reads nothing more when the read that landed already holds what was announced', async () => {
