@@ -14,6 +14,7 @@ import {
   writeDashboardFilter,
 } from '../../../src/dashboardFilter';
 import { askToLand, forgetLanding } from '../../../src/landOnItem';
+import { deviceSpeaks } from '../support/timeZone';
 import { browserStore } from '../../../src/lastVisited';
 
 /**
@@ -147,6 +148,7 @@ describe('Inbox', () => {
 
   describe('each row says what the item is, where it is and when it last changed', () => {
     it('draws the six columns, with the place and a finished item greyed', async () => {
+      deviceSpeaks('en-US');
       theTable([
         anItem('filed', { priority: 'high', dueDate: '2026-09-20' }),
         anItem('finished', { completedAt: '2026-09-11T09:00:00.000Z' }),
@@ -164,6 +166,7 @@ describe('Inbox', () => {
       const filed = within(screen.getByRole('row', { name: /filed/ }));
       expect(filed.getByText('Work ▸ Calls')).toBeVisible();
       expect(filed.getByText('High')).toBeVisible();
+      expect(filed.getByText('Sep 20, 2026')).toBeVisible();
       const finished = screen.getByRole('row', { name: /finished/ });
       expect(within(finished).getByText('Done')).toBeVisible();
       expect(within(finished).getByText('Inbox')).toBeVisible();
