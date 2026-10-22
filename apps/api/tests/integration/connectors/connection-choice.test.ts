@@ -288,7 +288,8 @@ describe('Connector management', () => {
         asksFirst: true,
         choice: { question: 'Bring in', options: OPTIONS },
       });
-      expect(connectors.find((one) => one.id === PLAIN)).toMatchObject({ asksFirst: false });
+      // Pulled, so it asks first for its due date though it declares no choice (issue 1409).
+      expect(connectors.find((one) => one.id === PLAIN)).toMatchObject({ asksFirst: true, pulled: true });
       expect(connectors.find((one) => one.id === PLAIN)).not.toHaveProperty('choice');
     });
 

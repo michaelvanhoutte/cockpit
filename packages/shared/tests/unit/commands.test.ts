@@ -6,6 +6,7 @@ import {
   moveItemToPanelSchema,
   proposeItemPanelSchema,
   proposeItemTextsSchema,
+  setConnectionDueInDaysSchema,
   setDuplicateSettledSchema,
   setPanelFilterSchema,
   setPanelSettingsSchema,
@@ -332,6 +333,32 @@ describe('Triage', () => {
           }).success,
         ).toBe(true);
       }
+    });
+  });
+});
+
+describe('Connector management', () => {
+  describe('a connection gives a due date in a whole number of days from 1 to 365, or none', () => {
+    const base = {
+      commandId: uuidv7(),
+      issuedAt: '2026-10-22T10:00:00.000Z',
+      workspaceId: 'ws-work',
+      sourceAccountId: 'account-mail',
+    };
+
+    it.each([
+      { situation: '1', dueInDays: 1, accepted: true },
+      { situation: '3', dueInDays: 3, accepted: true },
+      { situation: '365', dueInDays: 365, accepted: true },
+      { situation: 'none', dueInDays: null, accepted: true },
+      { situation: '0', dueInDays: 0, accepted: false },
+      { situation: '366', dueInDays: 366, accepted: false },
+      { situation: 'a negative number', dueInDays: -3, accepted: false },
+      { situation: 'part of a day', dueInDays: 1.5, accepted: false },
+      { situation: 'words', dueInDays: 'three', accepted: false },
+      { situation: 'no answer at all', dueInDays: undefined, accepted: false },
+    ])('is $accepted for $situation', ({ dueInDays, accepted }) => {
+      expect(setConnectionDueInDaysSchema.safeParse({ ...base, dueInDays }).success).toBe(accepted);
     });
   });
 });

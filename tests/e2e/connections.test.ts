@@ -358,6 +358,55 @@ test.describe('Connector management', () => {
     });
   });
 
+  test.describe('a Gmail connection can give each Item it brings in a due date a set number of days after it arrives', () => {
+    test('asks it on Connect, unticked, says it on the card, changes the days, and lands the Item with its deadline', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'a phone has no Connections, only Appearance');
+      // "Give each email a Gmail or Outlook connection brings in a due date a set
+      // number of days out", issue 1409: the tick box and its number, the answer
+      // riding the sign-in, the card's chip drawn at the click of Save, and the
+      // Item the stand-in mailbox's first check brings in wearing the deadline
+      // pill. What is stored, replaced and moved on a reopen is held by
+      // apps/api/tests/integration/connectors/due-date-from-the-connection.test.ts,
+      // and what the window draws and refuses by ManageConnections.test.tsx.
+      const { workspace, window } = await connectionsOfAWorkspaceOfItsOwn(page, isMobile);
+      await press(window.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      const gmailAsked = page.getByRole('dialog', { name: 'Connect Gmail' });
+      const givesADueDate = gmailAsked.getByRole('checkbox', { name: 'Give it a due date' });
+      await expect(givesADueDate).not.toBeChecked();
+      await press(givesADueDate, isMobile);
+      await expect(gmailAsked.getByRole('spinbutton', { name: 'Days after it arrives' })).toHaveValue('3');
+      await press(gmailAsked.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+      const connected = page.getByRole('dialog', { name: 'Settings' });
+      await expect(connected.getByText('Due 3 days after', { exact: true })).toBeVisible();
+
+      // The first check's Item arrived under the 3 days: a few days out, whatever zone the browser keeps.
+      await closeSettings(page, isMobile);
+      const arrived = itemRow(page, 'Quarterly figures for the board');
+      await expect(arrived.getByText(/^Due (tomorrow|in [234]d)$/)).toBeVisible();
+
+      // Changing the days afterwards leaves the date that Item has, and the row says the new number at the click.
+      const stored = await openSettings(page, 'Connections', isMobile);
+      await chooseRowAction(page, 'michael@example.com', 'Change…', isMobile);
+      const changing = page.getByRole('dialog', { name: 'Change michael@example.com' });
+      await expect(changing.getByRole('checkbox', { name: 'Give it a due date' })).toBeChecked();
+      await expect(changing.getByRole('spinbutton', { name: 'Days after it arrives' })).toHaveValue('3');
+      await changing.getByRole('spinbutton', { name: 'Days after it arrives' }).fill('7');
+      await press(changing.getByRole('button', { name: 'Save' }), isMobile);
+      await expect(changing).toHaveCount(0);
+      await expect(stored.getByText('Due 7 days after', { exact: true })).toBeVisible();
+
+      await closeSettings(page, isMobile);
+      await expect(arrived.getByText(/^Due (tomorrow|in [234]d)$/)).toBeVisible();
+      await openSettings(page, 'Connections', isMobile);
+      await disconnectMichael(page, isMobile);
+      await putTheWorkspaceBack(page, workspace, isMobile);
+    });
+  });
+
   test.describe('a phone is connected by typing back the code texted to it', () => {
     test('sends a code to a Belgian mobile, confirms the stand-in code, lists the phone with the number to text, and disconnects it', async ({
       page,

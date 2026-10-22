@@ -125,6 +125,7 @@ import {
   type SendToOfferOn,
   itemsToRead,
   judgeableItemsForAccount,
+  givenDueDateOf,
   listAssociationsForWorkspace,
   listAttachmentsInWorkspace,
   listDuplicatesInWorkspace,
@@ -548,6 +549,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /** Whether the Item is on a live Panel already ("File a note on Panels from Capture, skipping the Inbox", issue 1101). */
   itemIsFiled(accountName: string, itemId: string): Answer<boolean> {
     return this.#answer(accountName, (db) => isItemFiled(db, accountName, itemId));
+  }
+
+  /** The due date a pulled connection gave the Item, or null (issue 1409). */
+  givenDueDateOf(accountName: string, itemId: string): Answer<string | null> {
+    return this.#answer(accountName, (db) => givenDueDateOf(db, accountName, itemId));
   }
 
   /**
