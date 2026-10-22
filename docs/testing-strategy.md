@@ -70,6 +70,8 @@ Third-party APIs are the hardest horizontal dependency: sandboxes are often unav
 
 Without rule 3 the pyramid has a silent failure mode: every level green against a fake of Slack while real Slack has changed. Rule 3 is what makes rules 1 and 2 safe.
 
+**List every outside service in `scripts/outside-services.json`, with its contract suite or a gap and its reason**, since a service nobody listed has no rule 3 at all. `pnpm test:scripts` fails on an outside `https://` host in product or Harness Monitor source that no entry claims. A service reached through an SDK or a binding has no host to scan, so list it by hand.
+
 **The tier arrived with the first third party**, the Claude API ("Clean up a captured note into a clear title and a fuller message", issue 296): `apps/api/tests/contract/`, its own Vitest config so `pnpm test` cannot pick it up, `pnpm --filter @cockpit/api test:contract`, and `.github/workflows/contract.yml` on a pull request that touches the AI layer and on demand, plus a weekly run of the suites that spend nothing on the model. Two things it settled that the next third party inherits:
 
 - **A model is not an API, and what is held is a *behaviour* rather than a shape.** There is no fixture to compare against — the answer differs every time — so what each case asserts is the property the prompt was written to get: the language it answers in, that it invents no name, date or number the note did not carry. Both were measured failing before the prompt existed, which is what makes them worth a run.
