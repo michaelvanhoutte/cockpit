@@ -4047,6 +4047,47 @@ describe('Item editing', () => {
     );
   });
 
+  /**
+   * "Wrap a Dashboard row's Panels instead of squeezing them" (issue 1414): the
+   * docked form's Close joins the buttons at its top, where the row at its foot
+   * held nothing else. That Close still closes it is tests/e2e/item-editing.test.ts's.
+   */
+  describe('the docked form’s top row is Copy link, Center, Close, with nothing at its foot, and the centered form keeps Cancel and Save there', () => {
+    const buttonsBeside = (name: 'Dock' | 'Center') =>
+      within(screen.getByRole('button', { name }).parentElement!)
+        .getAllByRole('button')
+        .map((button) => button.textContent);
+
+    it.each([
+      { situation: 'docked, an Item on a Panel', onAPanel: true, beside: 'Center', top: ['Copy link', 'Center', 'Close'] },
+      { situation: 'docked, an Item in the Inbox', onAPanel: false, beside: 'Center', top: ['Center', 'Close'] },
+    ] as const)('$situation: $top at the top', async ({ onAPanel: filed, beside, top }) => {
+      if (filed) onAPanel();
+      held.itemFormPresentation = 'docked';
+      await theForm();
+
+      expect(buttonsBeside(beside)).toEqual(top);
+      // The only Close there is, and no foot to hold another or a Save.
+      expect(screen.getAllByRole('button', { name: 'Close' })).toHaveLength(1);
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    });
+
+    it('centered: Copy link and Dock at the top, Cancel and Save at the foot, and no Close', async () => {
+      onAPanel();
+      held.itemFormPresentation = 'centered';
+      await theForm();
+
+      expect(buttonsBeside('Dock')).toEqual(['Copy link', 'Dock']);
+      expect(
+        within(screen.getByRole('button', { name: 'Save' }).parentElement!)
+          .getAllByRole('button')
+          .map((button) => button.textContent),
+      ).toEqual(['Cancel', 'Save']);
+      expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    });
+  });
+
   describe('Copy link from the form copies the Item’s workspace address, and the bar says whether it did', () => {
     afterEach(() => {
       vi.unstubAllGlobals();
