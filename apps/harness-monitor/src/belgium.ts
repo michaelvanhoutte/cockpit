@@ -27,7 +27,8 @@ export const formatDay = (day: string) => dateFormat.format(Date.parse(`${day}T1
 
 /** The Belgian day an instant falls on, `YYYY-MM-DD`. */
 export function belgianDay(ms: number): string {
-  const part = (type: string) => partsFormat.formatToParts(ms).find((p) => p.type === type)!.value;
+  const parts = partsFormat.formatToParts(ms);
+  const part = (type: string) => parts.find((p) => p.type === type)!.value;
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
