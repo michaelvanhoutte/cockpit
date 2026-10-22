@@ -3,7 +3,6 @@ import {
   daysOnFrom,
   firstDayAfter,
   type Item,
-  type RepeatFrequency,
   type Series,
   type SetRepeatCommand,
 } from '@cockpit/shared';
@@ -45,9 +44,12 @@ export type RepeatDecision =
  * choice and with an Undo of *Never*; a tab whose copy is from before the series
  * last came round sends that day back, which is read as the stored one too -
  * except on that day itself, when it is the person moving *Next on* back to
- * today. A day kept that has since passed - a rule started again after *Never* -
- * moves on to the first the series comes round on from today, so nothing lands
- * on a day already passed ("Bring a repeating Item back on its day", issue 1407).
+ * today. **A frequency changed counts from the day kept**, the one the rule is
+ * read back from. A day kept that has since passed stays while the series runs,
+ * so the account's alarm still brings back the one it owes; in a rule started
+ * again after *Never* it moves on to the first the series comes round on from
+ * today, so nothing lands on a day already passed ("Bring a repeating Item back
+ * on its day", issue 1407).
  */
 export function decideRepeat(
   own: SeriesRow | null,
@@ -65,8 +67,9 @@ export function decideRepeat(
   const keepsItsDay =
     own !== null && (rule.nextOn === own.nextOn || (rule.nextOn === own.lastOn && rule.nextOn !== today.date));
   if (rule.nextOn < today.date && !keepsItsDay) return { kind: 'refused', why: NEXT_ON_PASSED };
-  const anchorOn = keepsItsDay ? countedFrom(own, rule.frequency) : rule.nextOn;
   const kept = keepsItsDay ? own.nextOn : rule.nextOn;
+  const anchorOn = !keepsItsDay ? rule.nextOn : rule.frequency === own.frequency ? countedFrom(own) : kept;
+  const startedAgain = own !== null && own.stoppedAt !== null;
   return {
     kind: 'write',
     isNew: own === null,
@@ -74,7 +77,7 @@ export function decideRepeat(
       id: own?.id ?? cmd.seriesId,
       tenantId,
       ...rule,
-      nextOn: kept < today.date ? firstDayAfter(anchorOn, rule.frequency, daysOnFrom(today.date, -1)) : kept,
+      nextOn: kept < today.date && startedAgain ? firstDayAfter(anchorOn, rule.frequency, daysOnFrom(today.date, -1)) : kept,
       timeZone,
       stoppedAt: null,
       anchorOn,
@@ -86,19 +89,16 @@ export function decideRepeat(
 }
 
 /**
- * The day a series' later days are counted from on `frequency`: its anchor
- * where its *Next on* is one of the days counted from it, and its *Next on*
- * otherwise - a series from before `anchor_on` existed, a frequency changed
- * since, or a *Next on* an older release moved without it ("Bring a repeating
+ * The day a series' later days are counted from: its anchor where its *Next on*
+ * is one of the days counted from it, and its *Next on* otherwise - a series
+ * from before `anchor_on` existed, or a *Next on* or frequency an older release
+ * changed without it ("Bring a repeating
  * Item back on its day, as a fresh copy", issue 1407). So the series always
  * comes round after the day it shows, on the rule it shows.
  */
-export function countedFrom(
-  own: Pick<SeriesRow, 'anchorOn' | 'nextOn' | 'frequency'>,
-  frequency: RepeatFrequency = own.frequency,
-): string {
+export function countedFrom(own: Pick<SeriesRow, 'anchorOn' | 'nextOn' | 'frequency'>): string {
   if (own.anchorOn === null) return own.nextOn;
-  const onItsRun = firstDayAfter(own.anchorOn, frequency, daysOnFrom(own.nextOn, -1)) === own.nextOn;
+  const onItsRun = firstDayAfter(own.anchorOn, own.frequency, daysOnFrom(own.nextOn, -1)) === own.nextOn;
   return onItsRun ? own.anchorOn : own.nextOn;
 }
 
@@ -153,8 +153,10 @@ export interface OccurrenceAsked {
  */
 export function occurrenceOf(previous: Item, series: Pick<Series, 'id' | 'dueAfterDays'>, asked: OccurrenceAsked): Item {
   const dueDate = series.dueAfterDays === null ? null : daysOnFrom(asked.today, series.dueAfterDays);
+  // A second on where it is not already later: whole seconds sort after it as
+  // text however finely it was stamped, and text is how the latest is found.
   const createdAt =
-    asked.at > previous.createdAt ? asked.at : new Date(Date.parse(previous.createdAt) + 1).toISOString();
+    asked.at > previous.createdAt ? asked.at : new Date(Date.parse(previous.createdAt) + 1000).toISOString();
   return {
     id: asked.itemId,
     tenantId: previous.tenantId,

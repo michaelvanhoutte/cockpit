@@ -1598,8 +1598,8 @@ export const attachments = sqliteTable(
  *
  * - **`next_on` is the day the next occurrence is due**, a calendar day on the
  *   series' own `time_zone` - the browser's when the rule was last set, so a day
- *   starts at midnight there. Never a day already passed once it is set, and
- *   moved on by the account's alarm each time the series comes round.
+ *   starts at midnight there. Never a day already passed when a person moves
+ *   it, and moved on by the account's alarm each time the series comes round.
  * - **`due_after_days`** is the calendar days from an occurrence appearing to its
  *   due date, NULL for none.
  * - **`stopped_at` is *Never***: the series stays and the Items keep naming it,

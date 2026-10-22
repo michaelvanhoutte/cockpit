@@ -246,9 +246,9 @@ describe('Item editing', () => {
       expect(fresh?.createdAt).toBe(morningOf(SECOND));
     });
 
-    it('is not open twice when the Item it was set on was stamped by a device whose clock runs ahead', async () => {
+    it('is not open twice when the Item it was set on was stamped, to the second, by a device whose clock runs ahead', async () => {
       const itemId = nextId();
-      await change('capture_item', { itemId, message: 'Weekly review', workspaceId: WORKSPACE_ID }, '2090-01-09T09:00:00.000Z');
+      await change('capture_item', { itemId, message: 'Weekly review', workspaceId: WORKSPACE_ID }, '2090-01-09T09:00:00Z');
       await repeat(itemId, WEEKLY, '2090-01-09T09:01:00.000Z');
       await done(itemId, '2090-01-09T09:02:00.000Z');
       await alarmRunsAt('2090-01-09T08:30:00.000Z');

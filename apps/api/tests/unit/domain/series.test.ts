@@ -71,6 +71,21 @@ describe('Item editing', () => {
         nextOn: '2027-11-12',
       },
       {
+        situation: 'Daily from the 31st turned Monthly on 28 February comes back on the 28th',
+        own: { frequency: 'daily', anchorOn: '2027-01-31', nextOn: '2027-02-28', lastOn: '2027-02-27', stoppedAt: null },
+        sent: { frequency: 'monthly', nextOn: '2027-02-28' },
+        issuedAt: '2027-02-27T09:00:00.000Z',
+        nextOn: '2027-02-28',
+        after: '2027-03-28',
+      },
+      {
+        situation: 'running, its day passed before it could come round, keeps that day so it still comes back',
+        own: { frequency: 'weekly', anchorOn: '2027-11-05', nextOn: '2027-11-05', lastOn: null, stoppedAt: null },
+        sent: { frequency: 'weekly', nextOn: '2027-11-05' },
+        issuedAt: '2027-11-10T09:00:00.000Z',
+        nextOn: '2027-11-05',
+      },
+      {
         situation: 'sent the evening before the day came round, from a tab that read before it did, keeps the day it moved to',
         own: { frequency: 'monthly', anchorOn: '2027-01-31', nextOn: '2027-03-31', lastOn: '2027-02-28', stoppedAt: null },
         sent: { frequency: 'monthly', nextOn: '2027-02-28' },
@@ -85,9 +100,9 @@ describe('Item editing', () => {
         issuedAt: '2027-02-28T10:00:00.000Z',
         nextOn: '2027-02-28',
       },
-    ] as const)('$situation', ({ own, sent, issuedAt, nextOn }) => {
+    ] as { situation: string; own: Partial<SeriesRow>; sent: { frequency: RepeatFrequency; nextOn: string }; issuedAt: string; nextOn: string; after?: string }[])('$situation', ({ own, sent, issuedAt, nextOn, after }) => {
       const decided = decideRepeat(
-        aSeries({ ...own, frequency: own.frequency as RepeatFrequency }),
+        aSeries(own),
         {
           commandId: '018f0000-0000-7000-8000-000000000002',
           issuedAt,
@@ -100,6 +115,7 @@ describe('Item editing', () => {
       );
 
       expect(decided).toMatchObject({ kind: 'write', row: { nextOn } });
+      if (after !== undefined) expect(theDayAfter((decided as { row: SeriesRow }).row)).toBe(after);
     });
   });
 });

@@ -12,17 +12,17 @@ import { occurrenceDueAt } from '../domain/series.js';
 /**
  * When the account's next series is due - the start of its Next on, on its own
  * calendar - or null where none is running. With `retry`, a series already due
- * by `retry.now` is one the alarm just failed to bring back, and is due again at
- * `retry.retryAt`, so it holds back no other series.
+ * by `retry.triedAt` is one the alarm just failed to bring back, and is due
+ * again at `retry.retryAt`, so it holds back no other series.
  */
 export function nextOccurrenceDueAt(
   db: AccountDb,
   tenantId: string,
-  retry?: { now: number; retryAt: number },
+  retry?: { triedAt: number; retryAt: number },
 ): number | null {
   const due = listRunningSeries(db, tenantId)
     .map(occurrenceDueAt)
-    .map((at) => (retry !== undefined && at <= retry.now ? retry.retryAt : at));
+    .map((at) => (retry !== undefined && at <= retry.triedAt ? retry.retryAt : at));
   return due.length === 0 ? null : Math.min(...due);
 }
 

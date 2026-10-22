@@ -1109,10 +1109,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
 
   /**
    * The account's one alarm: it queues a check of each pulled connection that
-   * is due (issue 891), which the Worker's queue consumer then runs, brings
-   * back each series whose day has come ("Bring a repeating Item back on its
-   * day", issue 1407), and is set for whichever
-   * of the two is due next. **It opens no credential**: the Worker running the
+   * is due ("Check a pulled connector on its cadence through the generic host",
+   * issue 891), which the Worker's queue consumer then runs, brings back each
+   * series whose day has come ("Bring a repeating Item back on its day", issue
+   * 1407), and is set for whichever of the two is due next. **It opens no
+   * credential**: the Worker running the
    * check does (docs/architecture.md, "Connectors").
    *
    * **A check is due by when the alarm was set for, not by when it fired**, so
@@ -1128,8 +1129,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     const setFor = this.ctx.storage.kv.get<number>(ALARM_SET_FOR);
     const dueBy = new Date(Math.max(Date.now(), setFor ?? 0));
     await this.#queueDuePulledChecks(accountName, dueBy);
-    await this.#bringBackDueOccurrences(accountName);
-    await this.#arm(accountName, { afterOccurrences: true });
+    const triedAt = Date.now();
+    await this.#bringBackDueOccurrences(accountName, triedAt);
+    await this.#arm(accountName, { occurrencesTriedAt: triedAt });
   }
 
   /**
@@ -1145,8 +1147,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * change - instead of the alarm firing straight back at it. One series
    * failing is logged and costs only itself.
    */
-  async #bringBackDueOccurrences(accountName: string): Promise<void> {
-    const now = new Date();
+  async #bringBackDueOccurrences(accountName: string, at: number): Promise<void> {
+    const now = new Date(at);
     let due: SeriesRow[] = [];
     try {
       this.#bringUpToDate(accountName);
@@ -1218,15 +1220,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /**
    * Sets the alarm for the earlier of the next pulled connection's check - a
    * connection just made being due now - and the start of the next series'
-   * day, and clears it where there is neither. **A series still due after the
-   * alarm has run is one that could not be brought back**, and waits
-   * `OCCURRENCE_RETRY_MS` rather than firing the alarm straight back, while
-   * every other series keeps its own day. Where the
-   * store cannot be read just now, it is tried again at the cadence, so a
-   * passing failure costs one run rather than the check. The account's name is
-   * kept beside the alarm, since an alarm arrives naming nothing.
+   * day, and clears it where there is neither. **A series due by
+   * `occurrencesTriedAt` and still due is one the alarm could not bring back**,
+   * and waits `OCCURRENCE_RETRY_MS` rather than firing the alarm straight back,
+   * while every other series - one whose day began after it was tried among
+   * them - keeps its own day. Where the store cannot be read just now, it is
+   * tried again at the cadence, so a passing failure costs one run rather than
+   * the check. The account's name is kept beside the alarm, since an alarm
+   * arrives naming nothing.
    */
-  async #arm(accountName: string, { afterOccurrences = false } = {}): Promise<void> {
+  async #arm(accountName: string, { occurrencesTriedAt }: { occurrencesTriedAt?: number } = {}): Promise<void> {
     let next: number | null;
     try {
       this.#bringUpToDate(accountName);
@@ -1236,7 +1239,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       const occurrence = nextOccurrenceDueAt(
         this.#database(),
         accountName,
-        afterOccurrences ? { now, retryAt: now + OCCURRENCE_RETRY_MS } : undefined,
+        occurrencesTriedAt === undefined ? undefined : { triedAt: occurrencesTriedAt, retryAt: now + OCCURRENCE_RETRY_MS },
       );
       next = pulled === null ? occurrence : occurrence === null ? pulled : Math.min(pulled, occurrence);
     } catch {
@@ -1705,9 +1708,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
 
 /**
  * The changes after which the alarm is armed, moved or cleared: connecting,
- * disconnecting and a Workspace going with its connections (issue 891), and a
- * repeat set, changed or stopped ("Bring a repeating Item back on its day",
- * issue 1407).
+ * disconnecting and a Workspace going with its connections ("Check a pulled
+ * connector on its cadence through the generic host", issue 891), and a repeat
+ * set, changed or stopped ("Bring a repeating Item back on its day", issue 1407).
  */
 const CHANGES_THE_ALARM: ReadonlySet<CommandName> = new Set<CommandName>([
   'connect_source_account',
