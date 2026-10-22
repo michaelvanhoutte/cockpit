@@ -7,6 +7,7 @@ import type {
   Layout,
   Panel,
   PossibleDuplicate,
+  Series,
   Workspace,
 } from '@cockpit/shared';
 
@@ -27,6 +28,8 @@ export interface AccountSnapshot {
   /** Which items are filed on which of those panels, and in what order. */
   filings: Filing[];
   associations: Association[];
+  /** The series the Items above name, stopped ones too ("Repeat an Item on a schedule", issue 1405). */
+  series: Series[];
   /**
    * Which of the Items above say the same thing as which ("Flag a captured
    * note that says what another one already said", issue 407) - both halves of

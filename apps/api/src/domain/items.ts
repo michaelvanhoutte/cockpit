@@ -117,6 +117,8 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     proposedPanelFit: null,
     // Worked out once the note has settled (issue 1161); the window opens on the plain prompt until then.
     claudeProposals: null,
+    // Nothing repeats until a person says so ("Repeat an Item on a schedule", issue 1405).
+    seriesId: null,
     sourceResolvedAt: null,
     nextAction: cmd.nextAction ?? null,
     completedAt: null,

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { RepeatsMark } from './RepeatsMark';
 import {
   itemHasOpenReadings,
   itemLabel,
@@ -14,6 +15,7 @@ import {
   type Item,
   type PanelFit,
   type Priority,
+  type RepeatRule,
 } from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
@@ -93,6 +95,7 @@ export function ItemRow({
   alsoIn = EMPTY_ALSO_IN,
   openRun,
   onSendToClaude,
+  repeat,
 }: {
   item: Item;
   /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
@@ -266,6 +269,8 @@ export function ItemRow({
    * phone, where `claude://` has no app to open.
    */
   onSendToClaude?: (from: HTMLElement | null) => void;
+  /** The rule this Item repeats by, which the row marks with ↻; none for an Item that does not repeat or whose series is stopped ("Set an Item to repeat from its form", issue 1406). */
+  repeat?: RepeatRule | null;
 }) {
   const command = useCommand();
   const send = useSendCommand();
@@ -1223,6 +1228,8 @@ export function ItemRow({
                 ¶
               </span>
             )}
+            {/* That this Item repeats, its hover saying how ("Set an Item to repeat from its form, and see the rule on its row", issue 1406). */}
+            <RepeatsMark repeat={repeat} />
             {/* That this note reads more than one way, and nothing about which
                 - the readings themselves wait until the form is opened on
                 purpose ("Offer the other readings when a captured note says

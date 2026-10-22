@@ -255,6 +255,8 @@ const commandSenders = {
     api.v1.commands.set_priority.$post({ json: p }, o),
   set_due_date: (p: CommandPayload<'set_due_date'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_due_date.$post({ json: p }, o),
+  set_repeat: (p: CommandPayload<'set_repeat'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_repeat.$post({ json: p }, o),
   set_title: (p: CommandPayload<'set_title'>, o?: ClientRequestOptions) => api.v1.commands.set_title.$post({ json: p }, o),
   set_description: (p: CommandPayload<'set_description'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_description.$post({ json: p }, o),

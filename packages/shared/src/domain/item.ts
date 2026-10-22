@@ -176,6 +176,8 @@ export const itemSchema = z.object({
   dueDateSetAt: z.iso.datetime().nullable(),
   /** When the person first set or cleared `dueDate` - by a capture that carried one or by an edit - and null while Cockpit may still set it from what the note said ("Read a due date you say when you capture, on your own calendar", issue 1077). Unlike `dueDateSetAt`, never cleared, so a deliberate clear still counts as set. */
   dueDateChosenAt: z.iso.datetime().nullable(),
+  /** The series this Item is an occurrence of, and null for one that has never repeated ("Repeat an Item on a schedule", issue 1405). The rule is the series', in the Workspace snapshot's `series`; a stopped series is still named. */
+  seriesId: z.uuid().nullable().default(null),
   unseen: z.boolean(),
   /** Tombstone, never a hard delete (architecture.md §4.2). */
   deletedAt: z.iso.datetime().nullable(),

@@ -35,6 +35,7 @@ Terminology follows the functional definition. Notes since taken up in their own
 - **Finishing a note just captured, from the window.** "Capture over the screen you are on, and open it with C" (issue 536) leaves nothing to do in the window itself: reopen the Item from the Inbox beside it. Two options were not taken — a *Just captured* row that opens the Item's form, and loading your own words back into the box to amend the Item (Undo, "Undo a capture back into the box, in place of the Just captured list", issue 1104, now does that, but as a take-back rather than an amendment). The Inbox route leaves gaps: you finish in Cockpit's rewrite rather than your words, the title stays proposed from the half note, a note captured for another Workspace is not beside you, and a phone needs the Inbox screen.
 - **A shortcut to switch Workspaces.** Capturing for another Workspace no longer needs one, since Where is a choice in the Capture window.
 - **Global capture shortcut on Windows 11**, so a note can be logged without switching windows. Open question: is the same possible on Android, e.g. via the physical buttons on the right-hand side? *(Partly taken up by "Capture from the installed app's icon, and try a system-wide hotkey" (issue 537): the installed app's icon menu offers Capture, on the taskbar and Start menu and on an Android long-press. Still open: whether a PowerToys Keyboard Manager key combination mapped to the Capture page's address is enough; if not, a browser extension with a global shortcut goes here with what the trial showed.)*
+- **Repeats on Capture's strip, and reading "every Monday" from a note.** "Repeat an Item on a schedule, so it comes back every Monday or every quarter" (issue 1405) sets Repeats on the Item's form only. Offering it on the strip, or reading a rule out of a captured note the way a due date is read, would want its own answer to what a rule read from a note should do when it is ambiguous.
 - **Create a Linear ticket from a thought.** (Overlaps with the commands layer, §3.)
 
 ## 3. Commands: drag-and-drop actions on external systems
@@ -61,6 +62,8 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 
 - ~~**Rich text** in the description of an action/note.~~ **Done**, in three: "Edit an item's title and description on a form of its own" (issue 159) gave the description somewhere to live, "Format a description, and edit its source" (issue 160) formatted it, and "Embed an image inline in an item's description" (issue 442) let an image be put in it. The decision and the measurements are in [rich-text-options.md](rich-text-options.md); buttons for headings, tables, code blocks and strikethrough are still to come.
 - ~~**Attachments** in the description of an action/note.~~ **Done**: "Attach a file to an item" (issue 441) put them on the Item's own form, and "Embed an image inline in an item's description" (issue 442) put an attached image inside the description itself.
+
+- **More patterns for Repeats.** Repeats offers Daily, Weekly, Monthly, Quarterly and Yearly, on the day *Next on* names. Not offered: every N weeks, several weekdays in one rule (every Monday and Thursday), and a position in the month (the first Monday).
 
 ## 6. Search, archive and organisation
 

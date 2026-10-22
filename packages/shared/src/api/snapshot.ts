@@ -13,6 +13,7 @@ import {
   itemFormPresentationSchema,
 } from '../domain/item-form-presentation.js';
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
+import { seriesSchema } from '../domain/series.js';
 
 /**
  * The read model (architecture.md, "The read model: persisted snapshot,
@@ -41,6 +42,14 @@ export const workspaceSnapshotSchema = z.object({
    * with nothing attached, not a broken one.
    */
   attachments: z.array(attachmentSchema).default([]),
+  /**
+   * The series the Items above name ("Repeat an Item on a schedule, so it
+   * comes back every Monday or every quarter", issue 1405) - stopped ones too,
+   * since an Item still names the series *Never* stopped. Defaulted for the
+   * reason `attachments` above is: a stored copy taken before this field
+   * existed is an app with nothing repeating.
+   */
+  series: z.array(seriesSchema).default([]),
   /**
    * How the account has the Item's form drawn - centered, or docked to the
    * side ("Let the item's form dock to the side of the screen instead of
