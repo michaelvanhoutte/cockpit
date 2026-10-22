@@ -39,6 +39,8 @@ Prose that reads fine fails on contact — two designs agreed in discussion over
 
 Resolve any term used inconsistently with those docs, and any unstated product decision, before drafting. Never guess, and never ask the user what you could answer by reading the docs or the code.
 
+**Where a report carries a screenshot, name what the person's word points at in it before reproducing anything**, since a word that is also a product name may mean something else: in "Wrap a Dashboard row's Panels one at a time when they run out of room" (issue 1414), "panels that have multiple columns" were two Panels sharing a row, not a Panel's own *Split into columns* setting, and two rounds went on proving the wrong one worked.
+
 **A question is unresolved scope, not open scope, whenever two answers to it would produce different diffs.** Close it here through discussion, or — where the doubt is about a surface nobody has seen — via step 2's POC; never carry it forward for whoever builds the issue to answer. "Take the width and the name off a layout, now that its size carries them" (issue 264) is a case discussion alone would have closed: its body named wiping every Layout's arrangement as "the agreed trade," described the alternative, said "Decide before building," and then listed that same question as out of scope anyway; a full review round went on the question that was already known to be open before a line was written.
 
 Use the `grilling` skill's round-based interview (mattpocock-skills): number each open question, give a recommended answer, work one round at a time until nothing about the scope is fuzzy. Skip only when the request is already small and unambiguous.
