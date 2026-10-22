@@ -40,8 +40,8 @@ export function decideRepeat(
   const { timeZone, ...rule } = cmd.repeat;
   const today = captureDay(cmd.issuedAt, timeZone);
   if (today === null) return { kind: 'refused', why: UNKNOWN_TIME_ZONE };
-  // Only a *Next on* the person moves is held to today: the form sends the stored one back with every other choice, and nothing advances it yet.
-  const keepsItsDay = own !== null && own.stoppedAt === null && own.nextOn === rule.nextOn;
+  // Only a *Next on* the person moves is held to today: the form sends the stored one back with every other choice and an Undo of *Never*, and nothing advances it yet.
+  const keepsItsDay = own !== null && own.nextOn === rule.nextOn;
   if (rule.nextOn < today.date && !keepsItsDay) return { kind: 'refused', why: NEXT_ON_PASSED };
   return {
     kind: 'write',

@@ -2037,7 +2037,7 @@ function TheForm({
                         />
                       )}
                       {readView && (
-                        // The same three values as text; they change through Edit, so every change still waits for Save.
+                        // The same values as text; they change through Edit, so every change still waits for Save.
                         <p className="text-sm text-ink-soft">
                           {[
                             STATUS_LABELS[editing!.was.status],

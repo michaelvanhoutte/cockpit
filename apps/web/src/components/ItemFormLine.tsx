@@ -1,7 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { ItemStatus, Priority } from '@cockpit/shared';
 import { MenuContent, menuItemSplitClass } from './Menu';
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import type { RepeatsChoice } from './RepeatsChip';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { DueChips, PriorityFlags, QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
@@ -43,6 +43,7 @@ export function ItemFormLine({
   /** The Repeats chip that ends the line ("Set an Item to repeat from its form", issue 1406); absent where the Item cannot repeat. */
   repeats?: RepeatsChoice | undefined;
 }) {
+  const [repeatsFailed, setRepeatsFailed] = useState(false);
   const statusName = STATUSES.find(([value]) => value === status)![1];
   return (
     <div role="group" aria-label="Fields" className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -72,14 +73,19 @@ export function ItemFormLine({
       </DropdownMenu.Root>
       <PriorityFlags priority={priority} onPriority={onPriority} disabled={disabled} />
       <DueChips due={dueDate} onDue={onDueDate} disabled={disabled} />
-      {repeats && (
-        // A chunk that never arrives leaves the line without the chip, the rest of the form as it was.
-        <WhateverTheQuestionDoes onFailure={() => {}}>
-          <Suspense fallback={null}>
-            <RepeatsChip disabled={disabled} {...repeats} />
-          </Suspense>
-        </WhateverTheQuestionDoes>
-      )}
+      {repeats &&
+        (repeatsFailed ? (
+          // A chunk that never arrives leaves the rest of the form as it was, and says so where the chip would be.
+          <span role="alert" className="text-sm text-over-ink">
+            Repeats could not load. Reload Cockpit to try again.
+          </span>
+        ) : (
+          <WhateverTheQuestionDoes onFailure={() => setRepeatsFailed(true)}>
+            <Suspense fallback={null}>
+              <RepeatsChip disabled={disabled} {...repeats} />
+            </Suspense>
+          </WhateverTheQuestionDoes>
+        ))}
     </div>
   );
 }

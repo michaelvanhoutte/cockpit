@@ -214,6 +214,17 @@ describe('Item editing', () => {
       expect((await snapshotOf()).series[0]).toMatchObject({ nextOn: WEEKLY.nextOn, dueAfterDays: 6 });
     });
 
+    it('puts back a rule stopped by Never after its Next on has passed, as an Undo does', async () => {
+      const itemId = await anItem();
+      await setRepeat(itemId, WEEKLY, { issuedAt: ISSUED });
+      await setRepeat(itemId, null, { issuedAt: '2026-11-03T09:00:00.000Z' });
+
+      const response = await setRepeat(itemId, WEEKLY, { issuedAt: '2026-11-03T09:01:00.000Z' });
+
+      expect(response.status).toBe(200);
+      expect((await snapshotOf()).series[0]).toMatchObject({ nextOn: WEEKLY.nextOn, stoppedAt: null });
+    });
+
     it('still refuses a Next on moved to a day that has passed', async () => {
       const itemId = await anItem();
       await setRepeat(itemId, WEEKLY, { issuedAt: ISSUED });
