@@ -29,7 +29,7 @@ Prose that reads fine fails on contact — two designs agreed in discussion over
 
 **The request wins over the table, and neither answer is silent.** "Just scope it" or "mock it first" settles it and is not asked again; otherwise this is question 1 of the round in step 3, carrying your recommendation. Never start a POC unannounced, and never skip the question on a surface nobody has seen.
 
-**Challenge the result rather than presenting it**: name what you chose and what you rejected, and ask about the concept and its presentation separately — the concept is usually right and the presentation is what comes back. **That message carries the POC's full address and the account to sign in with**, since the pane is not always in front of the person and a POC they cannot open has not been shown, as the first one under "Give an Item's attachments a tab of their own, and call What Cockpit changed Suggestions" (issue 1410) was not.
+**Challenge the result rather than presenting it**: name what you chose and what you rejected, and ask about the concept and its presentation separately — the concept is usually right and the presentation is what comes back. **That message carries the POC's full address and the account to sign in with**, since the browser pane is not always in front of the person and a POC they cannot open has not been shown, as the first one under "Give an Item's attachments a tab of their own, and call What Cockpit changed Suggestions" (issue 1410) was not.
 
 **A POC is throwaway**: in the real app rather than `poc/`, no tests, no docs. Save the diff outside git before reverting, because what it found is an input to step 3 and rows in step 6.
 
