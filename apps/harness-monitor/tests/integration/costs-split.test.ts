@@ -79,7 +79,7 @@ describe('Harness Monitor', () => {
         ['main', '—', '—', '—', '—', '$1.00'],
       ]);
       // A by-day question has no branch of its own, and still places each request by its pull request.
-      expect(byDay.rows.map((r) => [r.label, ...r.categories])).toEqual([['2026-10-01', '$5.00', '$4.00', '$3.00', '$2.00', '$1.00']]);
+      expect(byDay.rows.map((r) => [r.label, ...r.categories])).toEqual([['1 Oct 2026', '$5.00', '$4.00', '$3.00', '$2.00', '$1.00']]);
       expect(byDay.bar.bar).toBe('Merged $5.00, Still open $4.00, Closed unmerged $3.00, No pull request $2.00, On main $1.00');
     });
 

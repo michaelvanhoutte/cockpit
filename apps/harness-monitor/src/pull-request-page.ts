@@ -1,5 +1,6 @@
+import { formatDate, formatDateTime } from './belgium';
 import { categoryName, DEFAULT_GROUP, PERIODS, queryString, WHOS, type CostQuery, type Period } from './costs';
-import { COLOURS, dollars, esc, number, PERIOD_LABELS, STYLE, utc, WHO_LABELS } from './page';
+import { COLOURS, dollars, esc, number, PERIOD_LABELS, STYLE, WHO_LABELS } from './page';
 import type { CategoryLine, PullRequestPage, SessionLine } from './pull-request';
 import { CATEGORIES } from './validate';
 
@@ -104,7 +105,7 @@ h1{margin:0;font-size:24px;font-weight:600;line-height:1.3}.big{font-size:32px;f
 const periodNote = (q: CostQuery) => PERIOD_LABELS[q.period].toLowerCase();
 
 function summary(page: PullRequestPage): string {
-  const merged = page.mergedAt !== null ? `merged ${page.mergedAt.slice(0, 10)}` : page.state.toLowerCase();
+  const merged = page.mergedAt !== null ? `merged ${formatDate(Date.parse(page.mergedAt))}` : page.state.toLowerCase();
   const sessionCount = page.sessions.length;
   const afterPush = page.categories.find((c) => c.category === 'after-push')!;
   const share = page.totalMicros > 0 && page.query.category === null ? ` · ${Math.round((afterPush.costMicros / page.totalMicros) * 100)}% after push` : '';
@@ -120,7 +121,7 @@ function shell(body: string, now: number): string {
 <style>${STYLE}${EXTRA_STYLE}</style>
 </head><body>
 <header><div class="name">Harness Monitor</div><a class="section" href="/" style="text-decoration:none;color:inherit">Claude Code costs</a>
-<span class="status">Updated ${utc(now)} · Public, read-only.</span></header>
+<span class="status">Updated ${formatDateTime(now)} · Public, read-only.</span></header>
 <main>
 <a class="back" href="/">&larr; All costs</a>
 ${body}

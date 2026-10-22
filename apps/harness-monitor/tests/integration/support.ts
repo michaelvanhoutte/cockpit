@@ -273,3 +273,19 @@ export async function splitTotals(): Promise<SplitTotal[]> {
   ).all<SplitTotal>();
   return results;
 }
+
+/** A pull request merged on `mergedAt` that changed `lines` lines, on branch b/<number>. */
+export async function merged(number: number, mergedAt: string, lines: number, engineer = 'alice') {
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO branch_links (branch, pr_number, title, state, merged_at, issue_number, engineer, pr_updated_at, linked_at)
+       VALUES (?1, ?2, 'T', 'MERGED', ?3, NULL, ?4, ?3, 0)`,
+    ).bind(`b/${number}`, number, mergedAt, engineer),
+    env.DB.prepare(`INSERT INTO pull_request_stats (pr_number, lines_added, lines_removed, pr_updated_at, read_at) VALUES (?1, ?2, ?3, ?4, 0)`).bind(
+      number,
+      lines - 100,
+      100,
+      mergedAt,
+    ),
+  ]);
+}

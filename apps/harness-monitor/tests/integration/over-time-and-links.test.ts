@@ -28,8 +28,8 @@ describe('Harness Monitor', () => {
       expect(html).toContain('aria-label="Cost by day"');
       expect(html).toContain('<th scope="col" class="first">Day ▾</th>');
       expect(costRows(html).map((r) => [r.label, r.total])).toEqual([
-        ['2026-10-02', '$1.00'],
-        ['2026-10-01', '$5.00'],
+        ['2 Oct 2026', '$1.00'],
+        ['1 Oct 2026', '$5.00'],
       ]);
     });
 
@@ -69,7 +69,7 @@ describe('Harness Monitor', () => {
       const html = await theBarePage('?period=all');
 
       const total = /<g data-line="total">(.*?)<\/g>/s.exec(html)![1]!;
-      expect([...total.matchAll(/<title>(.*?)<\/title>/g)].slice(0, 3).map((m) => m[1])).toEqual(['Total · 2026-10-01 · $2.00', 'Total · 2026-10-02 · $0.00', 'Total · 2026-10-03 · $3.00']);
+      expect([...total.matchAll(/<title>(.*?)<\/title>/g)].slice(0, 3).map((m) => m[1])).toEqual(['Total · 1 Oct 2026 · $2.00', 'Total · 2 Oct 2026 · $0.00', 'Total · 3 Oct 2026 · $3.00']);
     });
 
     it('the chart follows the split: a line per model', async () => {

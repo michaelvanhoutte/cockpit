@@ -1,3 +1,4 @@
+import { formatDateTime, formatDay } from './belgium';
 import {
   categoryName,
   dayChart,
@@ -33,8 +34,6 @@ export const number = (n: number) => n.toLocaleString('en-US');
 export const dollars = (micros: number) => `$${(micros / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 /** Names, titles and logins come from outside, so they are escaped. */
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-
-export const utc = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 
 /** Colours by category, in the design's order. Every other colour is a token in the stylesheet. */
 export const COLOURS: Record<Category, string> = {
@@ -92,12 +91,12 @@ function jobLines(statuses: JobStatus[]): string {
   const items = statuses.map(({ job, run, lastSucceededAt }) => {
     // A deployment from before runs were recorded knows only when the job last succeeded.
     const text = run
-      ? `last run ${utc(run.ranAt)} (${run.startedBy === 'hand' ? 'by hand' : 'scheduled'}) &mdash; ${esc(run.message)}${
-          run.ok ? '' : lastSucceededAt === null ? ' Never succeeded.' : ` Last succeeded ${utc(lastSucceededAt)}.`
+      ? `last run ${formatDateTime(run.ranAt)} (${run.startedBy === 'hand' ? 'by hand' : 'scheduled'}) &mdash; ${esc(run.message)}${
+          run.ok ? '' : lastSucceededAt === null ? ' Never succeeded.' : ` Last succeeded ${formatDateTime(lastSucceededAt)}.`
         }`
       : lastSucceededAt === null
         ? NEVER_RAN[job]
-        : `last succeeded ${utc(lastSucceededAt)}.`;
+        : `last succeeded ${formatDateTime(lastSucceededAt)}.`;
     return `<li data-job="${job}" class="${run && !run.ok ? 'failed' : ''}">${JOB_LABELS[job]}: ${text}</li>`;
   });
   return `<ul class="jobs muted">${items.join('')}</ul>`;
@@ -220,7 +219,7 @@ function changeCard(c: Comparison | null, label: string): string {
     .join('');
   return `<section class="card change" aria-labelledby="change" data-card="change">
 <h2 id="change">Change on the previous period</h2>
-<p>${esc(label)} (${c.current.from} to ${c.current.to}) cost <strong>${dollars(c.currentMicros)}</strong> against <strong>${dollars(c.previousMicros)}</strong> in the previous period (${c.previous.from} to ${c.previous.to}): ${headline}.</p>
+<p>${esc(label)} (${formatDay(c.current.from)} to ${formatDay(c.current.to)}) cost <strong>${dollars(c.currentMicros)}</strong> against <strong>${dollars(c.previousMicros)}</strong> in the previous period (${formatDay(c.previous.from)} to ${formatDay(c.previous.to)}): ${headline}.</p>
 <div class="scroll"><table class="drivers"><thead><tr><th scope="col">Driver</th><th scope="col" class="num">This period</th><th scope="col" class="num">Previous</th></tr></thead><tbody>${drivers}</tbody></table></div>
 <div class="dimensions">${dimensions}</div>
 </section>`;
@@ -248,12 +247,12 @@ function overTime(page: CostsPage, now: number): string {
     .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" stroke="var(--line-soft)"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${dollars(peak * f)}</text>`)
     .join('');
   const ends = [...new Set([0, Math.floor((chart.days.length - 1) / 2), chart.days.length - 1])];
-  const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 10}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === chart.days.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${chart.days[i]}</text>`).join('');
+  const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 10}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === chart.days.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${formatDay(chart.days[i]!)}</text>`).join('');
   const drawn = lines
     .map((l) => {
       const points = l.micros.map((m, i) => `${x(i).toFixed(1)},${y(m).toFixed(1)}`).join(' ');
       const dots = l.micros
-        .map((m, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(m).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${chart.days[i]} · ${dollars(m)}</title></circle>`)
+        .map((m, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(m).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${dollars(m)}</title></circle>`)
         .join('');
       return `<g data-line="${esc(l.key)}"><polyline points="${points}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>${dots}</g>`;
     })
@@ -263,7 +262,7 @@ function overTime(page: CostsPage, now: number): string {
     .join('');
   return `<section class="card chart" aria-labelledby="perday">
 <h2 id="perday">Cost per day</h2>
-<div class="scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cost per day, ${chart.days[0]} to ${chart.days.at(-1)}: ${esc(lines.map((l) => l.label).join(', '))}">${grid}${dates}${drawn}</svg></div>
+<div class="scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cost per day, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${grid}${dates}${drawn}</svg></div>
 <div class="legend">${legend}</div>
 </section>`;
 }
@@ -295,7 +294,7 @@ function trendChart(t: Trends, d: TrendDrawing): string {
     .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" stroke="var(--line-soft)"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${d.axis(peak * f)}</text>`)
     .join('');
   const ends = [...new Set([0, Math.floor((t.buckets.length - 1) / 2), t.buckets.length - 1])];
-  const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 10}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === t.buckets.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${t.weekly ? 'Week of ' : ''}${t.buckets[i]}</text>`).join('');
+  const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 10}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === t.buckets.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${t.weekly ? 'Week of ' : ''}${formatDay(t.buckets[i]!)}</text>`).join('');
   const drawn = shown
     .map((l) => {
       // A run of buckets with values is one segment; a bucket with none ends it.
@@ -306,13 +305,13 @@ function trendChart(t: Trends, d: TrendDrawing): string {
       });
       const paths = segments.filter((s) => s.length > 1).map((s) => `<polyline points="${s.join(' ')}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>`).join('');
       const dots = l.values
-        .map((v, i) => (v === null ? '' : `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${t.weekly ? 'week of ' : ''}${t.buckets[i]} · ${d.value(v)}</title></circle>`))
+        .map((v, i) => (v === null ? '' : `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${t.weekly ? 'week of ' : ''}${formatDay(t.buckets[i]!)} · ${d.value(v)}</title></circle>`))
         .join('');
       return `<g data-line="${esc(l.key)}">${paths}${dots}</g>`;
     })
     .join('');
   const legend = shown.length === 1 ? '' : `<div class="legend">${shown.map((l) => `<div class="legend-item"><span class="swatch${l.dash ? ' dash' : ''}" style="background:${l.dash ? 'none' : l.colour}" aria-hidden="true"></span><span>${esc(l.label)}</span></div>`).join('')}</div>`;
-  return `${head}<div class="scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${t.buckets[0]} to ${t.buckets.at(-1)}">${grid}${dates}${drawn}</svg></div>${legend}</section>`;
+  return `${head}<div class="scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}${drawn}</svg></div>${legend}</section>`;
 }
 
 /** "Is the harness getting more expensive?": starting context, pull request size and cost per 1,000 lines changed. */
@@ -491,7 +490,7 @@ export function renderPage(
 <style>${STYLE}</style>
 </head><body>
 <header><h1 class="name">Harness Monitor</h1><span class="section">Claude Code costs</span>
-<span class="status">Updated ${utc(now)} · Public, read-only.</span></header>
+<span class="status">Updated ${formatDateTime(now)} · Public, read-only.</span></header>
 <main>
 ${filters(page)}
 ${warning(report.unpriced)}
