@@ -7,7 +7,7 @@ import { SmartRefinementsWindow } from '../../../src/components/SmartRefinements
 import { dueDateLabel } from '../../../src/dueDate';
 
 /**
- * F1: what the What Cockpit changed window draws from the rows it is handed
+ * F1: what the Suggestions window draws from the rows it is handed
  * ("Rename Rewrite history to Smart refinements, and show each field's
  * change", issue 614; "Show what Cockpit changed on the item itself, and name
  * it for what it is", issue 690). Which rows a refinement records, and what it
@@ -63,7 +63,7 @@ async function openWith(entries: RewriteHistoryEntry[]) {
       <SmartRefinementsWindow open onClose={() => {}} workspaceId="ws-work" />
     </QueryClientProvider>,
   );
-  const dialog = await screen.findByRole('dialog', { name: 'What Cockpit changed' });
+  const dialog = await screen.findByRole('dialog', { name: 'Suggestions' });
   if (entries.length > 0) await within(dialog).findByRole('table');
   return dialog;
 }
@@ -82,7 +82,7 @@ async function openTheRow(dialog: HTMLElement) {
     .map((term) => ({ field: term.textContent, says: term.nextElementSibling as HTMLElement }));
 }
 
-describe('What Cockpit changed', () => {
+describe('Suggestions', () => {
   describe('closed, a row says when, why and what happened in one sentence, and only a row that changed something opens', () => {
     it.each([
       {

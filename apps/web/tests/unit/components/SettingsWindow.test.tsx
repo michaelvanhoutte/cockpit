@@ -77,6 +77,7 @@ const account = (id: string, connectorId: string, displayName: string): SourceAc
   lastTestedAt: null,
   failingBecause: null,
   filesByName: false,
+  dueInDays: null,
 });
 
 function open(

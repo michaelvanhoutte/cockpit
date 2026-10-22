@@ -77,7 +77,7 @@ function anAttempt(overrides: Partial<RewriteHistoryEntry> = {}): RewriteHistory
 
 const PANEL = { id: 'p-compliance', name: 'Compliance', dashboardName: 'Day to day' };
 
-describe('What Cockpit changed', () => {
+describe('Suggestions', () => {
   describe('the note under the tabs says Cockpit changed the title or description, naming only what it changed', () => {
     it.each([
       {

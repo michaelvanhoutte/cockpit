@@ -13,7 +13,6 @@ import {
   openCapture,
   openFirstWorkspace,
   openInbox,
-  openTheFiles,
   press,
   test,
   uniqueTitle,
@@ -410,7 +409,6 @@ test.describe('Capture', () => {
       await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
       await press(itemRow(page, shared).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
-      await openTheFiles(page, isMobile);
       await expect(page.getByRole('dialog').getByRole('img', { name: 'sunset.png' })).toBeVisible({
         timeout: 15_000,
       });

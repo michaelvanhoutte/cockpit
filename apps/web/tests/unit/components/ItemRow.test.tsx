@@ -2499,7 +2499,7 @@ describe('Agents', () => {
   });
 });
 
-describe('What Cockpit changed', () => {
+describe('Suggestions', () => {
   describe('is named for what it is wherever a person meets it, and an item row has no entry for it', () => {
     it("offers nothing for the item's history in its menu", async () => {
       const user = userEvent.setup();

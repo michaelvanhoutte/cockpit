@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Attachment, CommandResult, Item, WorkspaceSnapshot } from '@cockpit/shared';
@@ -137,8 +137,14 @@ async function show(attached: Attachment[] = []) {
 
 const choose = (user: ReturnType<typeof userEvent.setup>) => user.upload(screen.getByLabelText('Files to attach'), aFile());
 
-/** The chips on screen for files that can be opened. */
+/** The files that can be opened from the Item tab's line. */
 const chips = () => screen.queryAllByRole('link', { name: /scan\.pdf/ });
+
+/** The Attachments tab opened, and its list to look inside. */
+const theAttachmentsTab = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(screen.getByRole('tab', { name: /^Attachments/ }));
+  return within(screen.getByRole('tabpanel', { name: /^Attachments/ }));
+};
 
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 20))));
 const releaseReads = () => act(async () => held.splice(0).forEach((release) => release()));
@@ -293,10 +299,12 @@ describe('Item editing', () => {
   describe('removing an attachment takes its chip away at once, with the server still holding the answer', () => {
     it('shows the chip gone, and sends the removal', async () => {
       const user = await show([aServerAttachment(SCAN, 'scan.pdf')]);
-      expect(chips()).toHaveLength(1);
+      const list = await theAttachmentsTab(user);
+      expect(list.queryAllByRole('link', { name: /scan\.pdf/ })).toHaveLength(1);
 
-      await user.click(screen.getByRole('button', { name: 'Remove scan.pdf' }));
+      await user.click(list.getByRole('button', { name: 'Remove scan.pdf' }));
 
+      expect(list.queryAllByRole('link', { name: /scan\.pdf/ })).toHaveLength(0);
       expect(chips()).toHaveLength(0);
       expect(waiting.map((request) => request.name)).toEqual(['remove_attachment']);
       expect(waiting[0]!.payload).toMatchObject({ itemId: BART, attachmentId: SCAN });
@@ -304,14 +312,15 @@ describe('Item editing', () => {
 
     it('brings the chip back and says why under the files when the removal is refused', async () => {
       const user = await show([aServerAttachment(SCAN, 'scan.pdf')]);
-      await user.click(screen.getByRole('button', { name: 'Remove scan.pdf' }));
-      expect(chips()).toHaveLength(0);
+      const list = await theAttachmentsTab(user);
+      await user.click(list.getByRole('button', { name: 'Remove scan.pdf' }));
+      expect(list.queryAllByRole('link', { name: /scan\.pdf/ })).toHaveLength(0);
 
       await act(async () => waiting.shift()!.refuse(new CommandRefused(409, 'That item is locked.')));
       await settle();
 
-      expect(chips()).toHaveLength(1);
-      expect(screen.getByText('That item is locked.')).toBeVisible();
+      expect(list.getAllByRole('link', { name: /scan\.pdf/ })).toHaveLength(1);
+      expect(list.getByText('That item is locked.')).toBeVisible();
     });
   });
 });

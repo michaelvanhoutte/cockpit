@@ -31,6 +31,8 @@ import {
   confirmPhoneCodeSchema,
   phoneConnectedSchema,
   sourceAccountListSchema,
+  DUE_IN_DAYS_MAX,
+  DUE_IN_DAYS_MIN,
   connectionHistorySchema,
   checkedNowSchema,
   uuidv7,
@@ -1181,6 +1183,19 @@ function filesByNameAnswered(asked: string | undefined): boolean | undefined {
   return asked === 'true' ? true : asked === 'false' ? false : undefined;
 }
 
+/**
+ * The answer a Connect carries to how many days after it arrives each Item is
+ * due (issue 1409): a whole number in range, `none` for none, absent for no
+ * answer, and anything else is not an answer.
+ */
+function dueInDaysAnswered(asked: string | undefined): number | null | undefined | 'not an answer' {
+  if (asked === undefined) return undefined;
+  if (asked === 'none') return null;
+  if (!/^\d{1,3}$/.test(asked)) return 'not an answer';
+  const days = Number(asked);
+  return days >= DUE_IN_DAYS_MIN && days <= DUE_IN_DAYS_MAX ? days : 'not an answer';
+}
+
 /** The batch a call asked for, or that what it asked for is not one. */
 function batchSize(asked: string | undefined): number | 'not a batch size' {
   if (asked === undefined || asked === '') return BATCH_BY_DEFAULT;
@@ -1356,7 +1371,8 @@ const routes = app
             id: manifest.id,
             displayName: manifest.displayName,
             cardText: manifest.cardText,
-            asksFirst: manifest.choice !== undefined || manifest.names !== undefined,
+            asksFirst: manifest.choice !== undefined || manifest.names !== undefined || manifest.pulled === true,
+            ...(manifest.pulled === true ? { pulled: true } : {}),
             ...(manifest.choice
               ? { choice: { question: manifest.choice.question, options: manifest.choice.options.map((option) => ({ ...option })) } }
               : {}),
@@ -1542,6 +1558,18 @@ const routes = app
       throw new RefusedByAccountError('this connection does not file by name');
     }
     return c.json(await account.applyChange('set_connection_files_by_name', cmd), 200);
+  })
+  .openapi(commandRoute('set_connection_due_in_days'), async (c) => {
+    const cmd = c.req.valid('json');
+    // Only a connection Cockpit pulls from can give its Items a due date, which
+    // only this layer can say, as for names (issue 1409).
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    const held = (await account.sourceAccounts(cmd.workspaceId)).find((one) => one.id === cmd.sourceAccountId);
+    if (!held) throw new NotFoundInAccountError(`source account ${cmd.sourceAccountId} not found`);
+    if (getConnector(c.env, held.connectorId)?.manifest.pulled !== true) {
+      throw new RefusedByAccountError('this connection does not give a due date');
+    }
+    return c.json(await account.applyChange('set_connection_due_in_days', cmd), 200);
   })
   .openapi(
     commandRoute('send_item_to_claude', { conflict: 'The item is done, dismissed, or Claude is already on it' }),
@@ -1907,6 +1935,14 @@ const routes = app
     if (sign.connector.manifest.names && filesByNameAsked !== undefined && filesByName === undefined) {
       return refuseConnection(c, workspaceId, 'whether to file by name was not answered');
     }
+    // How many days after it arrives each Item is due, answered the same way
+    // for a connector that is pulled: a number in range or none, or the Connect
+    // is refused and nothing is started (issue 1409).
+    const pulled = sign.connector.manifest.pulled === true;
+    const dueInDays = dueInDaysAnswered(c.req.query('dueInDays'));
+    if (pulled && dueInDays === 'not an answer') {
+      return refuseConnection(c, workspaceId, 'how many days to give a due date was not answered');
+    }
     try {
       // Theirs, and still there - asked before anybody is sent away, so a
       // Workspace deleted in another tab refuses here rather than after a
@@ -1929,6 +1965,7 @@ const routes = app
         connectorId: sign.connector.manifest.id,
         ...(asked && choice ? { choice } : {}),
         ...(sign.connector.manifest.names && filesByName !== undefined ? { filesByName } : {}),
+        ...(pulled && dueInDays !== undefined && dueInDays !== 'not an answer' ? { dueInDays } : {}),
       };
       rememberConnectAttempt(c, attempt);
       // `client.clientId`, never the setting again: the two have to be
@@ -1993,6 +2030,8 @@ const routes = app
     // tab opened before Connect asked it - leaves a new connection off and a
     // reconnected one as it was (issue 1147).
     const reportsNames = sign.connector.manifest.names !== undefined;
+    // And so does the days, for a connector that is pulled (issue 1409).
+    const givesADueDate = sign.connector.manifest.pulled === true;
 
     try {
       const client = clientOf(c.env, sign.auth);
@@ -2029,6 +2068,7 @@ const routes = app
         ...sealed,
         ...(asked ? { choice: attempt!.choice! } : {}),
         ...(reportsNames && attempt!.filesByName !== undefined ? { filesByName: attempt!.filesByName } : {}),
+        ...(givesADueDate && attempt!.dueInDays !== undefined ? { dueInDays: attempt!.dueInDays } : {}),
       });
       // The register's index, after the connection is stored and never failing
       // it (`rememberConnectionAfterStoring`, connectors/directory.ts): what

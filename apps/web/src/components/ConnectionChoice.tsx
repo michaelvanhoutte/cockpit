@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { uuidv7, type RegisteredConnector, type SourceAccount } from '@cockpit/shared';
+import {
+  DUE_IN_DAYS_MAX,
+  DUE_IN_DAYS_MIN,
+  uuidv7,
+  type RegisteredConnector,
+  type SourceAccount,
+} from '@cockpit/shared';
 import { whyNotDone } from '../api/queries';
 import { useChangeConnection } from '../api/sourceAccounts';
 import { useUndo } from '../undo';
@@ -50,12 +56,18 @@ interface Asked {
   startAt?: string | undefined;
   /** Whether the tick box starts ticked - a reconnected row's own value; unticked on a first Connect. */
   startFilesByName?: boolean | undefined;
+  /** Whether the connector is pulled: the due date tick box is drawn when it is (issue 1409). */
+  pulled?: boolean | undefined;
+  /** The days a reconnected row holds, which start the due date tick box ticked at that number; none on a first Connect. */
+  startDueInDays?: number | null | undefined;
 }
 
 /** What the person answered before Connect leaves: each part is present only where the connector asked it. */
 export interface ConnectAnswer {
   choice?: string;
   filesByName?: boolean;
+  /** Days after it arrives each Item is due, or `null` for none (issue 1409). */
+  dueInDays?: number | null;
 }
 
 /**
@@ -104,11 +116,12 @@ export function ConnectWithChoice({
 }
 
 function Question({ connector, onConnect }: { connector: Asked; onConnect: (answer: ConnectAnswer) => void }) {
-  const { choice, names } = connector;
+  const { choice, names, pulled } = connector;
   const [value, setValue] = useState(
     choice && (choice.options.find((option) => option.value === connector.startAt)?.value ?? choice.options[0]!.value),
   );
   const [filesByName, setFilesByName] = useState(connector.startFilesByName ?? false);
+  const dueDate = useDueDate(connector.startDueInDays ?? null);
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -119,6 +132,7 @@ function Question({ connector, onConnect }: { connector: Asked; onConnect: (answ
           <ChoiceQuestion choice={choice} value={value} onChange={setValue} />
         )}
         {names && <FilesByName names={names} checked={filesByName} onChange={setFilesByName} />}
+        {pulled && <GivesADueDate {...dueDate} />}
       </div>
       <div className="flex justify-end gap-2 pt-4">
         <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
@@ -126,13 +140,16 @@ function Question({ connector, onConnect }: { connector: Asked; onConnect: (answ
         </Dialog.Close>
         <button
           type="button"
-          // Leaves the application, as every Connect does.
-          onClick={() =>
+          // Leaves the application, as every Connect does - unless the days typed are not a number of days.
+          onClick={() => {
+            const dueInDays = pulled ? dueDate.answer() : null;
+            if (dueInDays === 'refused') return;
             onConnect({
               ...(choice && typeof value === 'string' ? { choice: value } : {}),
               ...(names ? { filesByName } : {}),
-            })
-          }
+              ...(pulled ? { dueInDays } : {}),
+            });
+          }}
           className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover"
         >
           Connect
@@ -182,6 +199,108 @@ function FilesByName({
   );
 }
 
+/** The days the tick box offers when it is ticked on a connection that holds none. */
+const DAYS_TO_START_AT = 3;
+
+/**
+ * The due date tick box and its number, held together: ticked at the days a row
+ * holds or unticked, and the number as typed so that a half-typed one is not
+ * rewritten under the cursor. `answer` is what Save or Connect sends - none
+ * where unticked, the days where they are a whole number in range, and
+ * `refused` (shown beside the field) where they are not (issue 1409).
+ */
+function useDueDate(held: number | null) {
+  const [on, setOn] = useState(held !== null);
+  const [days, setDays] = useState(String(held ?? DAYS_TO_START_AT));
+  const [refused, setRefused] = useState(false);
+  const answer = (): number | null | 'refused' => {
+    if (!on) return null;
+    const typed = days.trim();
+    const asked = /^\d+$/.test(typed) ? Number(typed) : NaN;
+    if (asked >= DUE_IN_DAYS_MIN && asked <= DUE_IN_DAYS_MAX) {
+      setRefused(false);
+      return asked;
+    }
+    setRefused(true);
+    return 'refused';
+  };
+  return {
+    on,
+    days,
+    refused,
+    onTick: (ticked: boolean) => {
+      setOn(ticked);
+      setRefused(false);
+    },
+    onDays: (typed: string) => {
+      setDays(typed);
+      setRefused(false);
+    },
+    answer,
+  };
+}
+
+/**
+ * Whether the connection gives each Item it brings in a due date a set number
+ * of days after the day it arrives, with the one faint line saying why and what
+ * comes first (issue 1409). The days are asked only once the box is ticked.
+ */
+function GivesADueDate({
+  on,
+  days,
+  refused,
+  onTick,
+  onDays,
+}: {
+  on: boolean;
+  days: string;
+  refused: boolean;
+  onTick: (ticked: boolean) => void;
+  onDays: (typed: string) => void;
+}) {
+  return (
+    <div className="pt-4">
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(event) => onTick(event.target.checked)}
+          className="mt-0.5"
+          aria-describedby="gives-a-due-date-why"
+        />
+        Give it a due date
+      </label>
+      {on && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-6 pt-1.5 text-sm">
+          <input
+            type="number"
+            inputMode="numeric"
+            min={DUE_IN_DAYS_MIN}
+            max={DUE_IN_DAYS_MAX}
+            step={1}
+            value={days}
+            onChange={(event) => onDays(event.target.value)}
+            aria-label="Days after it arrives"
+            aria-invalid={refused}
+            aria-describedby={refused ? 'gives-a-due-date-refused' : undefined}
+            // 8px wider than the design's 56px: three digits clear the spin buttons.
+            className="w-16 rounded-md border border-shade/20 bg-field px-2 py-1 text-right text-sm text-ink-strong focus:border-accent focus:outline-none"
+          />
+          <span>days after it arrives</span>
+          {refused && (
+            <span id="gives-a-due-date-refused" role="alert" className="text-over-ink">
+              Use a whole number from {DUE_IN_DAYS_MIN} to {DUE_IN_DAYS_MAX}.
+            </span>
+          )}
+        </div>
+      )}
+      <p id="gives-a-due-date-why" className="pl-6 pt-1 text-sm text-ink-faint">
+        So you are reminded to follow up. A date the message names, or one you set, comes first.
+      </p>
+    </div>
+  );
+}
+
 /**
  * *Change…* on a connected row: the connector's own question again, starting at
  * the choice held now, and - for a connector that reports names - whether it
@@ -196,6 +315,7 @@ export function ChangeConnectionChoice({
   account,
   choice,
   names = null,
+  pulled = false,
   workspaceId,
   onClose,
   returnFocusTo,
@@ -206,13 +326,15 @@ export function ChangeConnectionChoice({
   choice: ConnectorChoice | null;
   /** How its connector speaks of names, where it reports any. */
   names?: ConnectorNames | null;
+  /** Whether its connector is pulled, which offers the due date (issue 1409). */
+  pulled?: boolean;
   workspaceId: string;
   onClose: () => void;
   returnFocusTo?: HTMLElement | null;
 }) {
   return (
     <Dialog.Root
-      open={account !== null && (choice !== null || names !== null)}
+      open={account !== null && (choice !== null || names !== null || pulled)}
       onOpenChange={(nowOpen) => !nowOpen && onClose()}
     >
       <Dialog.Portal>
@@ -225,8 +347,15 @@ export function ChangeConnectionChoice({
           }}
           className={DIALOG_CLASS}
         >
-          {account && (choice || names) && (
-            <Changing account={account} choice={choice} names={names} workspaceId={workspaceId} onClose={onClose} />
+          {account && (choice || names || pulled) && (
+            <Changing
+              account={account}
+              choice={choice}
+              names={names}
+              pulled={pulled}
+              workspaceId={workspaceId}
+              onClose={onClose}
+            />
           )}
         </Dialog.Content>
       </Dialog.Portal>
@@ -238,12 +367,14 @@ function Changing({
   account,
   choice,
   names,
+  pulled,
   workspaceId,
   onClose,
 }: {
   account: SourceAccount;
   choice: ConnectorChoice | null;
   names: ConnectorNames | null;
+  pulled: boolean;
   workspaceId: string;
   onClose: () => void;
 }) {
@@ -255,10 +386,16 @@ function Changing({
       : choice.options[0]!.value;
   const [value, setValue] = useState(heldNow);
   const [filesByName, setFilesByName] = useState(account.filesByName);
+  // `?? null`: a row drawn from a read before this field reads as none.
+  const heldDays = account.dueInDays ?? null;
+  const dueDate = useDueDate(heldDays);
   const changeConnection = useChangeConnection();
   const offerToUndo = useUndo();
 
   const save = () => {
+    // Refused beside the field, and nothing sent, while the days are not a number of days.
+    const dueInDays = pulled ? dueDate.answer() : heldDays;
+    if (dueInDays === 'refused') return;
     const envelope = { issuedAt: new Date().toISOString(), workspaceId, sourceAccountId: account.id };
     const refused = (failure: unknown) => {
       offerToUndo({ what: `“${account.displayName}” was not changed. ${whyNotDone(failure)}` });
@@ -276,6 +413,12 @@ function Changing({
         payload: { ...envelope, commandId: uuidv7(), filesByName },
       }).catch(refused);
     }
+    if (pulled && dueInDays !== heldDays) {
+      changeConnection({
+        name: 'set_connection_due_in_days',
+        payload: { ...envelope, commandId: uuidv7(), dueInDays },
+      }).catch(refused);
+    }
     onClose();
   };
 
@@ -286,6 +429,7 @@ function Changing({
         <Dialog.Description className="sr-only">Choose again without signing in.</Dialog.Description>
         {choice && value !== undefined && <ChoiceQuestion choice={choice} value={value} onChange={setValue} />}
         {names && <FilesByName names={names} checked={filesByName} onChange={setFilesByName} />}
+        {pulled && <GivesADueDate {...dueDate} />}
       </div>
       <div className="flex justify-end gap-2 pt-4">
         <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">

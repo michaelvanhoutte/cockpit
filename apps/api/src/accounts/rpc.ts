@@ -127,6 +127,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * nothing else.
    */
   itemIsFiled(accountName: string, itemId: string): Awaitable<Answer<boolean>>;
+  /**
+   * The due date a pulled connection gave the Item, or null: what the proposal
+   * job reads so a date still the connection's is open to the reading (issue
+   * 1409). Read by the enrichment job and by nothing else.
+   */
+  givenDueDateOf(accountName: string, itemId: string): Awaitable<Answer<string | null>>;
   claudeProposalContext(accountName: string, itemId: string, model: string): Awaitable<Answer<ClaudeProposalContext>>;
   sendToOfferOn(accountName: string, runId: string): Awaitable<Answer<SendToOfferOn | null>>;
   rememberedSentences(accountName: string): Awaitable<Answer<RememberedSentenceList>>;

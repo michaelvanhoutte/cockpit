@@ -81,6 +81,7 @@ const MAIL: SourceAccount = {
   follows: 'flag',
   followsLabel: 'Flagged mail',
   filesByName: false,
+  dueInDays: null,
   pulled: true,
   keepsHistory: true,
 };
@@ -92,6 +93,7 @@ const TEAMS: SourceAccount = {
   lastTestedAt: null,
   failingBecause: null,
   filesByName: false,
+  dueInDays: null,
 };
 
 /** Every change the server has been sent and not yet answered, oldest first. */
@@ -109,6 +111,9 @@ function keep(name: string, payload: Record<string, unknown>) {
   }
   if (name === 'set_connection_files_by_name') {
     held.accounts = accounts.map((one) => (one === row ? { ...one, filesByName: payload.filesByName as boolean } : one));
+  }
+  if (name === 'set_connection_due_in_days') {
+    held.accounts = accounts.map((one) => (one === row ? { ...one, dueInDays: payload.dueInDays as number | null } : one));
   }
 }
 
@@ -233,6 +238,19 @@ describe('Connector management', () => {
       expect(screen.getByText('Files by category')).toBeVisible();
       expect(screen.queryByRole('dialog', { name: 'Change Ada’s mail' })).toBeNull();
       expect(waitingFor()).toEqual(['set_connection_choice']);
+    });
+
+    it('says Due 3 days after on the card beside the mark, with the form closed, when the due date is ticked and saved', async () => {
+      const user = await show([MAIL]);
+
+      const changing = await openTheForm(user, 'Ada’s mail');
+      await user.click(within(changing).getByRole('checkbox', { name: 'Give it a due date' }));
+      await user.click(within(changing).getByRole('button', { name: 'Save' }));
+
+      expect(screen.getByText('Due 3 days after')).toBeVisible();
+      expect(screen.getByText('Flagged mail')).toBeVisible();
+      expect(screen.queryByRole('dialog', { name: 'Change Ada’s mail' })).toBeNull();
+      expect(waitingFor()).toEqual(['set_connection_due_in_days']);
     });
 
     it('says Checking at the click on Check now, before the request is answered', async () => {
