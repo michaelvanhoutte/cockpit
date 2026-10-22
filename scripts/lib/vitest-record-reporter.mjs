@@ -39,8 +39,20 @@ export default class RecordReporter {
         for (const module of testModules) await walk(module.project, module.moduleId, edges, rel);
       }
 
+      // Every test's duration beside the timeout it ran under (a test's own
+      // option is resolved against the config's testTimeout by the runner), for
+      // the slow-test list in test-record.mjs.
+      const timings = [];
+      for (const module of testModules) {
+        for (const test of module.children.allTests()) {
+          const duration = test.diagnostic()?.duration;
+          const timeout = test.options.timeout ?? module.project.config.testTimeout ?? 5000;
+          if (duration !== undefined) timings.push({ file: rel(module.moduleId), name: test.fullName, duration, timeout });
+        }
+      }
+
       mkdirSync(dirname(out), { recursive: true });
-      writeFileSync(out, JSON.stringify({ all, ran, edges }));
+      writeFileSync(out, JSON.stringify({ all, ran, edges, timings }));
     } catch (error) {
       console.warn(`Test record reporter: no report written (${error.message}).`);
     }

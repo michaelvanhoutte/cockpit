@@ -126,3 +126,49 @@ export function renderSummary(record) {
 
   return lines.join('\n');
 }
+
+/**
+ * The tests that took more than half their own timeout ("Hold the clock rule at
+ * every tier, and list the slow tests", issue 1425), from the per-package
+ * reports. A report's `timings` are `{ file, name, duration, timeout }` for
+ * every test that ran, `timeout` being the one that test ran under: its own, or
+ * else the config's, so a test is never judged against a limit it did not have.
+ * A package with no report is `unread`, never "none slow".
+ *
+ * Listed whatever the outcome and never a failure: runner load swings durations.
+ */
+export function slowTests(packageNames, reports) {
+  const slow = [];
+  const unread = [];
+  for (const pkg of packageNames) {
+    const report = reports[pkg];
+    if (!report || !Array.isArray(report.timings)) {
+      unread.push(pkg);
+      continue;
+    }
+    for (const { file, name, duration, timeout } of report.timings) {
+      if (timeout > 0 && duration > timeout / 2) slow.push({ pkg, file, name, duration, timeout });
+    }
+  }
+  return { slow, unread };
+}
+
+const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`;
+
+/** The slow tests as Markdown for the step summary. */
+export function renderSlowTests({ slow, unread }) {
+  const lines = ['## Slow tests', ''];
+  if (slow.length === 0) lines.push('No test took more than half its timeout.', '');
+  else {
+    lines.push(`${slow.length} took more than half their timeout (listed, not failed; runner load swings durations).`, '', '| Package | File | Test | Took | Timeout |', '|---|---|---|---|---|');
+    for (const { pkg, file, name, duration, timeout } of slow) lines.push(`| ${pkg} | \`${file}\` | ${name.replace(/\|/g, '\|')} | ${seconds(duration)} | ${seconds(timeout)} |`);
+    lines.push('');
+  }
+  if (unread.length > 0) lines.push(`Could not read the report of ${unread.join(', ')}, so its tests are not judged.`, '');
+  return lines.join('\n');
+}
+
+/** The single warning line for the pull request, or null with none slow. */
+export function slowTestsWarning({ slow }) {
+  return slow.length === 0 ? null : `::warning::${slow.length} test${slow.length === 1 ? '' : 's'} took more than half their timeout; see the Slow tests section of the step summary.`;
+}
