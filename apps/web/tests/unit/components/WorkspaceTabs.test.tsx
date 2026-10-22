@@ -8,6 +8,7 @@ import { changes } from '../../../src/api/changes';
 import { useSendCommand } from '../../../src/api/queries';
 import { WorkspaceTabs } from '../../../src/components/WorkspaceTabs';
 import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
+import { readScheduledTab, setScheduledTab } from '../../../src/scheduledTab';
 
 /**
  * F1: what is under test is the strip's own behaviour - what its menu offers,
@@ -22,6 +23,8 @@ const held = vi.hoisted(() => ({
   here: 'ws-work',
   /** The workspace whose All items page is on screen, or null. */
   onAllItemsOf: null as string | null,
+  /** The workspace whose Scheduled page is on screen, or null. */
+  onScheduledOf: null as string | null,
 }));
 
 const wentTo = vi.hoisted(() => ({ calls: [] as unknown[] }));
@@ -50,7 +53,13 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ workspaceId: held.here }),
   useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
     select({
-      location: { pathname: held.onAllItemsOf ? `/w/${held.onAllItemsOf}/items` : `/w/${held.here}` },
+      location: {
+        pathname: held.onAllItemsOf
+          ? `/w/${held.onAllItemsOf}/items`
+          : held.onScheduledOf
+            ? `/w/${held.onScheduledOf}/scheduled`
+            : `/w/${held.here}`,
+      },
     }),
 }));
 
@@ -108,6 +117,7 @@ function showTabs(
     here?: string;
     items?: number;
     onAllItemsOf?: string;
+    onScheduledOf?: string;
     sendFails?: Error;
   } = {},
 ) {
@@ -115,6 +125,7 @@ function showTabs(
   held.items = answer.items ?? 0;
   held.here = answer.here ?? held.workspaces[0]!.id;
   held.onAllItemsOf = answer.onAllItemsOf ?? null;
+  held.onScheduledOf = answer.onScheduledOf ?? null;
   wentTo.calls = [];
   const sent = vi.fn((_args: AskedFor) =>
     answer.sendFails ? Promise.reject(answer.sendFails) : Promise.resolve(),
@@ -122,10 +133,11 @@ function showTabs(
   mockUseSendCommand.mockImplementation(() => sent as never);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // The page on screen holds its workspace's snapshot, its route having loaded it.
-  if (held.onAllItemsOf) {
-    client.setQueryData(['snapshot', held.onAllItemsOf], {
-      workspace: { id: held.onAllItemsOf },
-      dashboards: [{ id: `${held.onAllItemsOf}-first` }, { id: `${held.onAllItemsOf}-second` }],
+  const onPage = held.onAllItemsOf ?? held.onScheduledOf;
+  if (onPage) {
+    client.setQueryData(['snapshot', onPage], {
+      workspace: { id: onPage },
+      dashboards: [{ id: `${onPage}-first` }, { id: `${onPage}-second` }],
     });
   }
   render(
@@ -182,7 +194,7 @@ describe('Workspace management', () => {
   describe('what can be done to a workspace is on the tab it is', () => {
     // The list this replaces was two presses away in the header's menu, and
     // then a row to find. What each entry does is the rules below.
-    it('offers editing, the All items tab and deleting on the tab itself', async () => {
+    it('offers editing, the All items and Scheduled tabs and deleting on the tab itself', async () => {
       showTabs(['Work', 'Personal', 'Acme']);
 
       await menuOf('Personal');
@@ -190,6 +202,7 @@ describe('Workspace management', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Show All items tab',
+        'Show Scheduled tab',
         'Delete',
       ]);
     });
@@ -223,15 +236,29 @@ describe('Workspace management', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Actions for Personal' }));
 
-      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Show All items tab', '---', 'Delete']);
+      expect(entriesOfTheOpenMenu()).toEqual([
+        'Edit…',
+        '---',
+        'Show All items tab',
+        'Show Scheduled tab',
+        '---',
+        'Delete',
+      ]);
     });
 
-    it('is exactly Edit…, the All items tab, then Delete, in groups, on the open workspace’s tab as well', async () => {
+    it('is exactly Edit…, the two tabs, then Delete, in groups, on the open workspace’s tab as well', async () => {
       showTabs(['Work', 'Personal'], { here: 'ws-work' });
 
       await menuOf('Work');
 
-      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Show All items tab', '---', 'Delete']);
+      expect(entriesOfTheOpenMenu()).toEqual([
+        'Edit…',
+        '---',
+        'Show All items tab',
+        'Show Scheduled tab',
+        '---',
+        'Delete',
+      ]);
     });
 
     it('is not offered for a workspace you are not on', async () => {
@@ -344,6 +371,52 @@ describe('Workspace management', () => {
 
       expect(readAllItemsTab(localStorage, 'ws-personal')).toBe(false);
       expect(readAllItemsTab(localStorage, 'ws-work')).toBe(true);
+      expect(wentTo.calls).toEqual([]);
+    });
+  });
+
+  describe('a workspace’s menu switches that workspace’s Scheduled tab', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => localStorage.clear());
+
+    it('turns the open workspace’s tab on, and then offers to hide it', async () => {
+      const { user } = showTabs(['Work', 'Personal'], { here: 'ws-work' });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Work' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Show Scheduled tab' }));
+
+      expect(readScheduledTab(localStorage, 'ws-work')).toBe(true);
+      expect(readAllItemsTab(localStorage, 'ws-work')).toBe(false);
+      await user.click(await screen.findByRole('button', { name: 'Actions for Work' }));
+      expect(screen.getByRole('menuitem', { name: 'Hide Scheduled tab' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: 'Show Scheduled tab' })).toBeNull();
+    });
+
+    it('returns to the workspace’s first dashboard when hidden while on its Scheduled', async () => {
+      setScheduledTab('ws-work', true);
+      showTabs(['Work', 'Personal'], { here: 'ws-work', onScheduledOf: 'ws-work' });
+
+      await menuOf('Work');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Hide Scheduled tab' }));
+
+      expect(readScheduledTab(localStorage, 'ws-work')).toBe(false);
+      await waitFor(() =>
+        expect(wentTo.calls).toMatchObject([
+          { to: '/w/$workspaceId/d/$dashboardId', params: { workspaceId: 'ws-work', dashboardId: 'ws-work-first' } },
+        ]),
+      );
+    });
+
+    it('stays on this workspace’s Scheduled when another workspace’s tab is hidden', async () => {
+      setScheduledTab('ws-work', true);
+      setScheduledTab('ws-personal', true);
+      showTabs(['Work', 'Personal'], { here: 'ws-work', onScheduledOf: 'ws-work' });
+
+      await menuOf('Personal');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Hide Scheduled tab' }));
+
+      expect(readScheduledTab(localStorage, 'ws-personal')).toBe(false);
+      expect(readScheduledTab(localStorage, 'ws-work')).toBe(true);
       expect(wentTo.calls).toEqual([]);
     });
   });

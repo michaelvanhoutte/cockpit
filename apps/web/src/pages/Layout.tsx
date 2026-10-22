@@ -5,6 +5,7 @@ import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ADMIN, GUEST_USER_ID, paintedWorkspace, shellColours } from '@cockpit/shared';
 import { useAllItemsOnScreen } from '../allItemsTab';
+import { useScheduledOnScreen } from '../scheduledTab';
 import { useAppearance } from '../appearance';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, snapshotQuery } from '../api/queries';
@@ -142,6 +143,8 @@ function TheShell() {
   });
   /** *All items* is the page on screen (`router.tsx`), which the bar marks in place of a dashboard. */
   const onAllItems = useAllItemsOnScreen() !== null;
+  /** *Scheduled* is, likewise. */
+  const onScheduled = useScheduledOnScreen() !== null;
   useScrollWhileDraggingAnItem();
   useEndingASinglePick();
   const roomForTheInbox = useRoomForTheInbox();
@@ -1071,6 +1074,7 @@ function TheShell() {
               ground={theme.ground}
               openDashboardId={params.dashboardId ?? null}
               allItemsOpen={onAllItems}
+              scheduledOpen={onScheduled}
             />
           </>
         )}

@@ -184,6 +184,14 @@ test.describe('Sign-in', () => {
         isMobile,
       );
       await expect(dashboardBar(page).getByRole('link', { name: 'All items' })).toBeVisible();
+      // And the Scheduled tab, remembered the same way.
+      await chooseTabAction(
+        page,
+        page.locator('nav[aria-label="Workspaces"] a.active'),
+        'Show Scheduled tab',
+        isMobile,
+      );
+      await expect(dashboardBar(page).getByRole('link', { name: 'Scheduled' })).toBeVisible();
       // Somewhere with something in it, so there is genuinely something to be
       // left behind: opening a workspace is what fills the stored copy and what
       // writes down which view it was on.

@@ -25,6 +25,10 @@ import {
   uniqueTitle,
   workspaceTab,
 } from './support/app';
+import { arrange, giveADashboard, giveAWorkspace, giveToAPanel, giveToTheInbox } from './support/arrange';
+
+/** The day `count` days from today, as the `YYYY-MM-DD` a rule's Next on is. */
+const inDays = (count: number) => new Date(Date.now() + count * 86_400_000).toISOString().slice(0, 10);
 
 /**
  * What is drawn on top at a point. A hit test cannot say: while a menu or a
@@ -341,6 +345,82 @@ test.describe('Dashboards', () => {
       await expect(rows).toHaveCount(51);
       await press(page.getByRole('button', { name: 'Show more' }), isMobile);
       await expect.poll(() => rows.count()).toBe(62);
+    });
+  });
+
+  test.describe('a person reads what is scheduled to come back from Scheduled', () => {
+    /**
+     * F3, because only a browser has the real tab, address, table width and item
+     * form together, on a mouse at 1280px and a finger at 480px. Which series the
+     * table lists, in what order and how a day reads is
+     * apps/web/tests/unit/scheduled.test.ts, and that the address turns the tab on
+     * is apps/web/tests/unit/router.test.tsx. Arranged through the API: setting a
+     * rule from the form is item-editing.test.ts's walk.
+     */
+    test('shows the tab from the workspace’s menu, lists each series soonest first, and opens a row’s form', async ({
+      page,
+      isMobile,
+    }) => {
+      await openFirstWorkspace(page, isMobile);
+      const workspace = await giveAWorkspace(page, uniqueTitle('Routines'));
+      await page.reload();
+      await switchTo(page, workspace.name, isMobile);
+
+      // Two weekly series: the sooner one's only copy is finished, the later
+      // one's is filed on a Panel.
+      const inThree = inDays(3);
+      const inTen = inDays(10);
+      const dashboard = await giveADashboard(page, 'Chores', ['Every week']);
+      const [sooner, later] = [uniqueTitle('Water the plants'), uniqueTitle('Weekly review')];
+      const [soonerId] = await giveToTheInbox(page, [sooner]);
+      await giveToAPanel(page, dashboard.panels[0]!, [later]);
+      const laterId = dashboard.panels[0]!.itemIds[0]!;
+      await arrange(page, 'set_repeat', {
+        itemId: laterId,
+        seriesId: randomUUID(),
+        repeat: { frequency: 'weekly', nextOn: inTen, dueAfterDays: null, timeZone: 'UTC' },
+      });
+      await arrange(page, 'set_repeat', {
+        itemId: soonerId,
+        seriesId: randomUUID(),
+        repeat: { frequency: 'weekly', nextOn: inThree, dueAfterDays: null, timeZone: 'UTC' },
+      });
+      await arrange(page, 'set_done', { itemId: soonerId, done: true });
+      await page.reload();
+
+      await openDashboard(page, 'Dashboard 1', isMobile);
+      await expect(dashboardBar(page).getByRole('link', { name: 'Scheduled' })).toHaveCount(0);
+      await chooseTabAction(page, workspaceTab(page, workspace.name), 'Show Scheduled tab', isMobile);
+
+      const tab = dashboardBar(page).getByRole('link', { name: 'Scheduled' });
+      await press(tab, isMobile);
+      await expect(page).toHaveURL(/\/scheduled$/);
+      await expect(tab).toHaveClass(/(^|\s)active(\s|$)/);
+      await expect(dashboardTab(page, 'Dashboard 1')).not.toHaveClass(/(^|\s)active(\s|$)/);
+
+      // The four columns, one row per series, the sooner first: the finished
+      // copy listed where nothing files it, the other where it is filed.
+      await expect(page.getByRole('columnheader')).toHaveText(['Title', 'Repeats', 'Next on', 'Where it is']);
+      const rows = page.getByRole('row');
+      await expect(rows).toHaveCount(3);
+      await expect(rows.nth(1)).toContainText(sooner);
+      await expect(rows.nth(1)).toContainText(/Weekly on \w+/);
+      await expect(rows.nth(1)).toContainText('Inbox');
+      await expect(rows.nth(2)).toContainText(later);
+      await expect(rows.nth(2)).toContainText('Chores ▸ Every week');
+      await expectNoSidewaysScroll(page);
+
+      // On a phone the table scrolls within its own box; at a desk it fits.
+      const scrollsSideways = await page
+        .getByRole('table')
+        .evaluate((table) => table.parentElement!.scrollWidth > table.parentElement!.clientWidth);
+      expect(scrollsSideways).toBe(isMobile);
+
+      // A reload lands on the same table, and a row opens its latest copy's form.
+      await page.reload();
+      await expect(rows.nth(1)).toContainText(sooner);
+      await press(page.getByRole('button', { name: sooner }), isMobile);
+      await expect(page.getByRole('dialog')).toContainText(sooner);
     });
   });
 

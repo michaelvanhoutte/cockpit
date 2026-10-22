@@ -28,6 +28,8 @@ import { tryTheServer } from './opening';
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
 import { AllItemsPage } from './pages/AllItemsPage';
+import { ScheduledPage } from './pages/ScheduledPage';
+import { setScheduledTab } from './scheduledTab';
 const DemoPage = lazy(() => import('./pages/DemoPage'));
 // Seen once, by an account with no workspace, so not part of what every open downloads.
 const FirstWorkspacePage = lazy(() =>
@@ -351,6 +353,21 @@ export const allItemsRoute = createRoute({
   component: AllItemsPage,
 });
 
+/** The repeating Items, at an address of their own as *All items* has: opening it turns its tab on. */
+export const scheduledRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/w/$workspaceId/scheduled',
+  beforeLoad: async ({ context, params, preload }) => {
+    await workspaceMustExist(context.queryClient, params.workspaceId);
+    await snapshotOf(context.queryClient, params.workspaceId);
+    if (!preload) {
+      setScheduledTab(params.workspaceId, true);
+      rememberWorkspace(browserStore(), params.workspaceId);
+    }
+  },
+  component: ScheduledPage,
+});
+
 /*
  * There is no address for managing the dashboards, the workspaces or the
  * types. All three are windows over the workspace you are in, opened from a
@@ -416,6 +433,7 @@ const routeTree = rootRoute.addChildren([
     inboxRoute,
     dashboardRoute,
     allItemsRoute,
+    scheduledRoute,
   ]),
 ]);
 

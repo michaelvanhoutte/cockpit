@@ -7,6 +7,7 @@ import { changes } from '../api/changes';
 import { snapshotQuery, useSendCommand, whyNotDone as whyNot } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { setAllItemsTab, useAllItemsOnScreen, useAllItemsTabs } from '../allItemsTab';
+import { setScheduledTab, useScheduledOnScreen, useScheduledTabs } from '../scheduledTab';
 import { litForChrome } from '../chrome';
 import { keepingTheOpenItem } from '../itemForm';
 import { survivingWorkspace } from '../landing';
@@ -289,9 +290,7 @@ export function WorkspaceTabs({
    * drawn: a Dashboard deleted or moved first a moment ago counts as done.
    */
   const onItemsOf = useAllItemsOnScreen();
-  const switchAllItemsTab = (workspaceId: string, on: boolean) => {
-    setAllItemsTab(workspaceId, on);
-    if (on || onItemsOf !== workspaceId) return;
+  const leaveForFirstDashboard = (workspaceId: string) => {
     const held = queryClient.getQueryData(snapshotQuery(workspaceId).queryKey);
     const first = held ? changes.drawnOver(held).dashboards[0] : undefined;
     if (first) {
@@ -301,6 +300,18 @@ export function WorkspaceTabs({
         search: keepingTheOpenItem,
       });
     }
+  };
+  const switchAllItemsTab = (workspaceId: string, on: boolean) => {
+    setAllItemsTab(workspaceId, on);
+    if (!on && onItemsOf === workspaceId) leaveForFirstDashboard(workspaceId);
+  };
+
+  /** *Scheduled* is switched as *All items* is, and left for the first dashboard in the same way. */
+  const scheduledTabOn = useScheduledTabs();
+  const scheduledOnScreen = useScheduledOnScreen();
+  const switchScheduledTab = (workspaceId: string, on: boolean) => {
+    setScheduledTab(workspaceId, on);
+    if (!on && scheduledOnScreen === workspaceId) leaveForFirstDashboard(workspaceId);
   };
 
   /** What can be done to this workspace. */
@@ -315,6 +326,11 @@ export function WorkspaceTabs({
       separatorBefore: true,
       keepsFocus: true,
       onSelect: () => switchAllItemsTab(ws.id, !allItemsTabOn(ws.id)),
+    },
+    {
+      label: scheduledTabOn(ws.id) ? 'Hide Scheduled tab' : 'Show Scheduled tab',
+      keepsFocus: true,
+      onSelect: () => switchScheduledTab(ws.id, !scheduledTabOn(ws.id)),
     },
     // Apart from the way in, since it is the one that cannot be put back.
     { label: 'Delete', destructive: true, separatorBefore: true, onSelect: (from) => startDeleting(ws, from) },

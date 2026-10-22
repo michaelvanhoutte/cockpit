@@ -8,6 +8,7 @@ import { forgetInboxCollapsed } from '../inboxCollapsed';
 import { forgetPanelListCollapsed, forgetPanelListWidth } from '../panelList';
 import { forgetEveryDashboardFilter } from '../dashboardFilter';
 import { forgetEveryAllItemsTab } from '../allItemsTab';
+import { forgetEveryScheduledTab } from '../scheduledTab';
 import { forgetEverySeenChange } from '../cockpitChanges';
 import { forgetWhatJustHappened } from '../undo';
 import { forgetEverySavedRead } from '../persistence';
@@ -72,6 +73,7 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   forgetPanelListWidth(browserStore());
   forgetEveryDashboardFilter(browserStore());
   forgetEveryAllItemsTab(browserStore());
+  forgetEveryScheduledTab(browserStore());
   forgetEverySeenChange(browserStore());
   forgetWhatJustHappened();
   changes.forgetAnswered();

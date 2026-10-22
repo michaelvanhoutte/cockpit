@@ -15,6 +15,7 @@ import {
 import { usePanelsCollapsed } from '../panelsCollapsed';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { allItemsFilterId, setAllItemsTab, useAllItemsTab } from '../allItemsTab';
+import { setScheduledTab, useScheduledTab } from '../scheduledTab';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { carryAcrossSwitch } from '../itemInTheAir';
 import { browserStore } from '../lastVisited';
@@ -61,6 +62,7 @@ export function DashboardBar({
   ground,
   openDashboardId = null,
   allItemsOpen = false,
+  scheduledOpen = false,
 }: {
   workspaceId: string;
   /**
@@ -74,6 +76,8 @@ export function DashboardBar({
    * its own "…" is drawn. No dashboard is open then.
    */
   allItemsOpen?: boolean;
+  /** That *Scheduled* is the page on screen, as `allItemsOpen` says of *All items*. */
+  scheduledOpen?: boolean;
   /** The workspace's saturated colour, marking the tab you are on. */
   tint: string;
   /** The page's color, which the tab you are on is filled with so it meets it. */
@@ -82,6 +86,7 @@ export function DashboardBar({
   const { data } = useSnapshot(workspaceId);
   const dashboards = data?.dashboards ?? [];
   const allItemsOn = useAllItemsTab(workspaceId);
+  const scheduledOn = useScheduledTab(workspaceId);
   const roomForTheInbox = useRoomForTheInbox();
   const navigate = useNavigate();
   const filteredIds = useFilteredDashboardIds(
@@ -340,6 +345,18 @@ export function DashboardBar({
     }
   };
 
+  const hideScheduled = () => {
+    setScheduledTab(workspaceId, false);
+    const first = dashboards[0];
+    if (scheduledOpen && first) {
+      void navigate({
+        to: '/w/$workspaceId/d/$dashboardId',
+        params: { workspaceId, dashboardId: first.id },
+        search: keepingTheOpenItem,
+      });
+    }
+  };
+
   /**
    * Collapsing the open Dashboard's Panels to their headers, which is a phone's
    * ("Collapse every Panel to its header on a phone", issue 784). Always on the
@@ -566,7 +583,28 @@ export function DashboardBar({
           </Link>
         </SurfaceMenu>
       )}
-      <AddDashboard workspaceId={workspaceId} openDashboardId={openDashboardId} allItemsOpen={allItemsOpen} />
+      {scheduledOn && (
+        <SurfaceMenu
+          label="Actions for Scheduled"
+          entries={[{ label: 'Hide Scheduled tab', onSelect: hideScheduled }]}
+        >
+          <Link
+            to="/w/$workspaceId/scheduled"
+            params={{ workspaceId }}
+            search={keepingTheOpenItem}
+            onClick={opensOnPress(scheduledOpen)}
+            className={tabClass}
+          >
+            <span className="inline-flex items-center gap-1.5">Scheduled</span>
+          </Link>
+        </SurfaceMenu>
+      )}
+      <AddDashboard
+        workspaceId={workspaceId}
+        openDashboardId={openDashboardId}
+        allItemsOpen={allItemsOpen}
+        scheduledOpen={scheduledOpen}
+      />
 
       {/* The open dashboard's own controls, at the right of its own bar: the
           way to put another panel on it, and its actions. Only where a
@@ -577,6 +615,15 @@ export function DashboardBar({
           <RowMenu
             label="Actions for All items"
             entries={[{ label: 'Hide All items tab', onSelect: hideAllItems }]}
+            onChrome
+          />
+        </div>
+      )}
+      {scheduledOpen && scheduledOn && (
+        <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
+          <RowMenu
+            label="Actions for Scheduled"
+            entries={[{ label: 'Hide Scheduled tab', onSelect: hideScheduled }]}
             onChrome
           />
         </div>
@@ -718,10 +765,12 @@ function AddDashboard({
   workspaceId,
   openDashboardId,
   allItemsOpen,
+  scheduledOpen,
 }: {
   workspaceId: string;
   openDashboardId: string | null;
   allItemsOpen: boolean;
+  scheduledOpen: boolean;
 }) {
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
@@ -752,7 +801,7 @@ function AddDashboard({
     // The id is made here rather than inside the payload so that the dashboard
     // to switch to is known before the answer comes back.
     const dashboardId = uuidv7();
-    const cameFrom = { openDashboardId, allItemsOpen };
+    const cameFrom = { openDashboardId, allItemsOpen, scheduledOpen };
     send({
       name: 'add_dashboard',
       payload: {
@@ -777,7 +826,9 @@ function AddDashboard({
               }
             : cameFrom.allItemsOpen
               ? { to: '/w/$workspaceId/items', params: { workspaceId }, search: keepingTheOpenItem }
-              : { to: '/w/$workspaceId/inbox', params: { workspaceId }, search: keepingTheOpenItem },
+              : cameFrom.scheduledOpen
+                ? { to: '/w/$workspaceId/scheduled', params: { workspaceId }, search: keepingTheOpenItem }
+                : { to: '/w/$workspaceId/inbox', params: { workspaceId }, search: keepingTheOpenItem },
         );
       }
     });

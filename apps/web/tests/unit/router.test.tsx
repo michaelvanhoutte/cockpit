@@ -1036,6 +1036,70 @@ describe('Dashboards', () => {
       expect(screen.queryByRole('region', { name: 'All items' })).toBeNull();
     });
   });
+
+  describe('Scheduled has an address, and opening it turns the tab on', () => {
+    const tab = () => screen.findByRole('link', { name: 'Scheduled' });
+
+    it('shows the table with the Scheduled tab selected and no dashboard selected', async () => {
+      await open('/w/ws-work/scheduled', [work, personal]);
+
+      expect(await screen.findByRole('region', { name: 'Scheduled' })).toBeVisible();
+      expect(await tab()).toHaveClass('active');
+      expect(screen.getByRole('link', { name: 'Dashboard 1' })).not.toHaveClass('active');
+      expect(screen.getByRole('link', { name: 'Research' })).not.toHaveClass('active');
+    });
+
+    it('turns the tab on where it was off, and keeps it on after a reload', async () => {
+      await open('/w/ws-work/scheduled', [work, personal]);
+      await tab();
+      cleanup();
+
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+
+      expect(await tab()).not.toHaveClass('active');
+    });
+
+    it('does not turn the tab on for a link only brushed past', async () => {
+      readsWorkspaces.mockResolvedValue({ workspaces: [work, personal] });
+      const router = createAppRouter(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+      readsSnapshot.mockImplementation((workspaceId) =>
+        Promise.resolve({
+          workspace: work,
+          items: [],
+          dashboards: dashboardsOf(workspaceId),
+          panels: [],
+          layouts: [],
+          associations: [],
+          attachments: [],
+          series: [],
+          itemFormPresentation: 'centered',
+          duplicates: [],
+          filings: [],
+          agentRuns: [],
+          generatedAt: '2026-08-31T10:00:00.000Z',
+        } as never),
+      );
+
+      await router.preloadRoute({ to: '/w/$workspaceId/scheduled', params: { workspaceId: 'ws-work' } });
+
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('heading', { name: 'Research' });
+      expect(screen.queryByRole('link', { name: 'Scheduled' })).toBeNull();
+    });
+
+    it('returns to the page before on Back', async () => {
+      window.localStorage.setItem('cockpit.scheduled-tab.ws-work', '1');
+      const user = userEvent.setup();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+
+      await user.click(await tab());
+      expect(await screen.findByRole('region', { name: 'Scheduled' })).toBeVisible();
+      act(() => window.history.back());
+
+      expect(await screen.findByRole('heading', { name: 'Research' })).toBeVisible();
+      expect(screen.queryByRole('region', { name: 'Scheduled' })).toBeNull();
+    });
+  });
 });
 
 /**

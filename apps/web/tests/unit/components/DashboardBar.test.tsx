@@ -15,6 +15,7 @@ import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection, u
 import { landItem, liftItem, selectionCarriedAcross } from '../../../src/itemInTheAir';
 import { tipForClick } from '../../../src/shortcutTip';
 import { allItemsFilterId, readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
+import { setScheduledTab } from '../../../src/scheduledTab';
 import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
 import { filterPills } from '../../../src/components/FilterSummary';
 import {
@@ -52,6 +53,8 @@ const held = vi.hoisted(() => ({
   openDashboardId: null as string | null,
   /** That the address is *All items*, so its tab is marked the way the router marks it. */
   allItemsOpen: false,
+  /** That the address is *Scheduled*, likewise. */
+  scheduledOpen: false,
 }));
 
 // The router is not under test, and `to`/`params` are its props rather than an
@@ -86,7 +89,8 @@ vi.mock('@tanstack/react-router', () => ({
       // delete both read.
       className={`${className ?? ''}${
         (params?.dashboardId && params.dashboardId === held.openDashboardId) ||
-        (to === '/w/$workspaceId/items' && held.allItemsOpen)
+        (to === '/w/$workspaceId/items' && held.allItemsOpen) ||
+        (to === '/w/$workspaceId/scheduled' && held.scheduledOpen)
           ? ' active'
           : ''
       }`}
@@ -197,6 +201,8 @@ function showBar(
     withFilterBar?: boolean;
     /** *All items* is the page on screen, as its address makes it. */
     allItemsOpen?: boolean;
+    /** *Scheduled* is the page on screen, as its address makes it. */
+    scheduledOpen?: boolean;
   } = {},
 ) {
   held.dashboards = names.map(aDashboard);
@@ -204,6 +210,7 @@ function showBar(
   held.layouts = answer.layouts ?? [];
   held.openDashboardId = answer.openDashboardId ?? null;
   held.allItemsOpen = answer.allItemsOpen ?? false;
+  held.scheduledOpen = answer.scheduledOpen ?? false;
   wentTo.calls = [];
   const asked: { error: Error | null; variables: unknown } = { error: null, variables: null };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -251,6 +258,7 @@ function showBar(
         ground="#e3e1f2"
         openDashboardId={openDashboardId}
         allItemsOpen={held.allItemsOpen}
+        scheduledOpen={held.scheduledOpen}
       />
       {answer.withFilterBar && openDashboardId && (
         <DashboardFilterBar dashboardId={openDashboardId} />
@@ -827,6 +835,23 @@ describe('Dashboards', () => {
 
       expect(await screen.findByRole('status')).toHaveTextContent(`“Research” was not added. ${says}`);
     });
+
+    it('puts you back on Scheduled when the add was made from it', async () => {
+      const { user } = showBar(['Research'], {
+        scheduledOpen: true,
+        sendFails: new CommandRefused(409, 'a dashboard called Research already exists in this workspace'),
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
+      await user.type(screen.getByLabelText('Name of the new dashboard'), 'Research');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      await screen.findByRole('status');
+      expect(wentTo.calls).toMatchObject([
+        { to: '/w/$workspaceId/d/$dashboardId' },
+        { to: '/w/$workspaceId/scheduled', params: { workspaceId: 'ws-work' } },
+      ]);
+    });
   });
 });
 
@@ -937,6 +962,84 @@ describe('Dashboards', () => {
       expect(await screen.findByRole('link', { name: 'All items' })).toBeVisible();
       expect(readAllItemsTab(localStorage, 'ws-work')).toBe(true);
       expect(readAllItemsTab(localStorage, 'ws-personal')).toBe(false);
+    });
+  });
+
+  describe('the Scheduled tab, per workspace, in this browser', () => {
+    // Switched on and off from the Workspace's own menu (WorkspaceTabs.test.tsx);
+    // here is the tab once it is on, and its own menus.
+    const OPEN = 'ws-work-research';
+    const entries = () => screen.getAllByRole('menuitem').map((entry) => entry.textContent);
+
+    beforeEach(() => localStorage.clear());
+    afterEach(() => localStorage.clear());
+
+    it('is after the dashboards and All items, and before the +', async () => {
+      setAllItemsTab('ws-work', true);
+      setScheduledTab('ws-work', true);
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+
+      await screen.findByRole('link', { name: 'Research' });
+      const tab = await screen.findByRole('link', { name: 'Scheduled' });
+      expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
+        'Inbox',
+        'Dashboard 1',
+        'Research',
+        'All items',
+        'Scheduled',
+      ]);
+      const plus = screen.getByRole('button', { name: /add.*dashboard/i });
+      expect(tab.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('is not offered by a dashboard’s menu, on or off', async () => {
+      const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+      await user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
+      expect(entries().join('|')).not.toMatch(/(show|hide) scheduled/i);
+    });
+
+    it('offers exactly Hide Scheduled tab on its own "…", and nothing of a dashboard’s', async () => {
+      setScheduledTab('ws-work', true);
+      const { user } = showBar(['Dashboard 1', 'Research'], { scheduledOpen: true });
+
+      expect(await screen.findByRole('link', { name: 'Research' })).not.toHaveClass('active');
+      expect(screen.getByRole('link', { name: 'Scheduled' })).toHaveClass('active');
+      await user.click(screen.getByRole('button', { name: 'Actions for Scheduled' }));
+      expect(entries()).toEqual(['Hide Scheduled tab']);
+      expect(screen.queryByRole('button', { name: '+ Panel' })).toBeNull();
+    });
+
+    it('offers exactly Hide Scheduled tab on its own tab’s menu', async () => {
+      setScheduledTab('ws-work', true);
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Scheduled' }));
+
+      expect(entries()).toEqual(['Hide Scheduled tab']);
+    });
+
+    it('takes the tab away from its own menu, and goes to the first dashboard', async () => {
+      setScheduledTab('ws-work', true);
+      const { user } = showBar(['Dashboard 1', 'Research'], { scheduledOpen: true });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Scheduled' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Hide Scheduled tab' }));
+
+      expect(screen.queryByRole('link', { name: 'Scheduled' })).toBeNull();
+      expect(wentTo.calls).toMatchObject([
+        { to: '/w/$workspaceId/d/$dashboardId', params: { dashboardId: 'ws-work-dashboard 1' } },
+      ]);
+    });
+
+    it('stays on the dashboard when the tab is hidden from its menu while on another page', async () => {
+      setScheduledTab('ws-work', true);
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Scheduled' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide Scheduled tab' }));
+
+      await waitFor(() => expect(screen.queryByRole('link', { name: 'Scheduled' })).toBeNull());
+      expect(wentTo.calls).toEqual([]);
     });
   });
 });
