@@ -25,6 +25,7 @@ import { forgetEverySavedRead, restoreSavedReads, saveRead } from '../../../src/
 import { resetStanding, stand } from '../../../src/offline';
 import { aHistoryEntrySavedBeforePanelsFiledOn } from '../support/savedReads';
 import { aClipboard } from '../support/clipboard';
+import { deviceIsIn, deviceSpeaks } from '../support/timeZone';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -3695,6 +3696,10 @@ describe('Suggestions', () => {
   const theHistoryHasBeenRead = () => new Promise((resolve) => setTimeout(resolve, 20));
 
   describe('an item’s form always has a Suggestions tab, listing exactly the times Cockpit changed something, newest first', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
     it.each([
       { situation: 'Cockpit never touched the item', history: [] },
       { situation: 'Cockpit looked and left it as it was', history: [anAttempt({ status: 'left-as-is', message: 'nothing to act on' })] },
@@ -3724,7 +3729,9 @@ describe('Suggestions', () => {
     });
 
     it('lists one change as a row saying what changed, why and when', async () => {
-      const change = titleChange({ looksAt: 'texts-and-panel' });
+      deviceIsIn('Europe/Brussels');
+      deviceSpeaks('nl-BE');
+      const change = titleChange({ looksAt: 'texts-and-panel', attemptedAt: '2026-10-01T09:00:00.000Z' });
       held.history = [change];
       const user = await theForm();
 
@@ -3732,7 +3739,7 @@ describe('Suggestions', () => {
 
       const row = await screen.findByRole('button', { name: /Changed the title/ });
       expect(row).toHaveTextContent('When you captured it');
-      expect(row).toHaveTextContent(new Date(change.attemptedAt).toLocaleString());
+      expect(row).toHaveTextContent('1 Oct 2026, 11:00');
     });
 
     it('lists two changes, the newer first, each saying why', async () => {

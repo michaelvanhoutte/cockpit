@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ACCOUNT_WIDE, REMEMBERED_SENTENCE_LIMIT, uuidv7, type RememberedSentenceView } from '@cockpit/shared';
 import { whyNotDone } from '../api/queries';
+import { momentDateLabel } from '../dateFormat';
 import { useChangeSentence, useRememberedSentences } from '../rememberedSentences';
 import { useUndo } from '../undo';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -8,7 +9,7 @@ import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
 
-const when = (iso: string) => new Date(iso).toLocaleDateString();
+const when = momentDateLabel;
 
 /** Where a sentence applies, in the words a row says it. */
 function appliesTo(one: RememberedSentenceView): string {
