@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import { dueInDaysSchema } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { ATTACHMENT_LINK_PREFIX } from './attachment-link.js';
 import type { Attempt } from './oidc.js';
@@ -395,6 +396,15 @@ export interface ConnectAttempt extends Attempt {
    * answer. Absent for a source that reports no names.
    */
   readonly filesByName?: boolean;
+  /**
+   * The answer to how many days after it arrives each Item the connection
+   * brings in is due, for a connector that is pulled ("Give each email a Gmail
+   * or Outlook connection brings in a due date a set number of days out", issue
+   * 1409): a number of days, or `null` for none. Carried like the choice, and
+   * checked on the way back in: anything but a whole number in range or none is
+   * no answer. Absent for a source that is not pulled.
+   */
+  readonly dueInDays?: number | null;
 }
 
 function attemptCookieName(url: string): string {
@@ -469,12 +479,14 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId, accountName, connectorId, choice, filesByName } = held.also;
+  const { workspaceId, accountName, connectorId, choice, filesByName, dueInDays } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   if (typeof connectorId !== 'string' || !connectorId) return null;
   // Absent is no answer; anything but a yes or no is no attempt at all (issue 1147).
   if (filesByName !== undefined && typeof filesByName !== 'boolean') return null;
+  // The same for the days: absent, none, or a whole number in range (issue 1409).
+  if (dueInDays !== undefined && dueInDays !== null && !dueInDaysSchema.safeParse(dueInDays).success) return null;
   return {
     state: held.state,
     nonce: held.nonce,
@@ -485,6 +497,8 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
     ...(typeof choice === 'string' && choice ? { choice } : {}),
     // Kept only as a yes or no; whether the connector wants one is the callback's to say.
     ...(typeof filesByName === 'boolean' ? { filesByName } : {}),
+    // Kept only as a number in range or none; whether the connector is pulled is the callback's to say.
+    ...(dueInDays === null || typeof dueInDays === 'number' ? { dueInDays } : {}),
   };
 }
 

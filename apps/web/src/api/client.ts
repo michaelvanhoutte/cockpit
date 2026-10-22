@@ -198,6 +198,8 @@ const commandSenders = {
     api.v1.commands.set_connection_choice.$post({ json: p }, o),
   set_connection_files_by_name: (p: CommandPayload<'set_connection_files_by_name'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_connection_files_by_name.$post({ json: p }, o),
+  set_connection_due_in_days: (p: CommandPayload<'set_connection_due_in_days'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_connection_due_in_days.$post({ json: p }, o),
   reorder_workspaces: (p: CommandPayload<'reorder_workspaces'>, o?: ClientRequestOptions) =>
     api.v1.commands.reorder_workspaces.$post({ json: p }, o),
   set_workspace_theme: (p: CommandPayload<'set_workspace_theme'>, o?: ClientRequestOptions) =>

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { uuidv7, type Filing, type Item } from '@cockpit/shared';
-import { useLatestSnapshot, useSendCommand } from '../api/queries';
+import { useLatestSnapshot, useSendCommand, whyNotDone } from '../api/queries';
+import { refuseWhileOffline } from '../offline';
 import { useSnapshot } from '../api/useSnapshot';
 import { fetchedChunk, filedOrderOnPanel } from '../filing';
 import { useFilteredDashboardIds } from '../dashboardFilter';
@@ -148,13 +149,18 @@ export function useFilingSeveral({
 
   /**
    * Makes a panel of items for the picker, with the command + Panel sends, and
-   * answers its id for the filing that follows ("Add a panel from the Move to
-   * picker", issue 709). Rejects with the refusal, which the picker shows under
-   * the name.
+   * answers its id at once for the filing that follows, which joins the queue
+   * behind it ("Add a panel from the Move to picker", issue 709; "Show a Panel
+   * made from Move to or File on, with the Item on it, the moment you make it",
+   * issue 1364). A refusal takes the Panel and that filing back and is said once,
+   * in the undo bar. **Throws only while offline**, which the picker shows under
+   * the name, since neither would be sent.
    */
-  const addPanelFor = async (dashboardId: string, name: string): Promise<string> => {
+  const addPanelFor = (dashboardId: string, name: string): string => {
+    refuseWhileOffline();
     const panelId = uuidv7();
-    await send({
+    madeHere.current.set(panelId, name);
+    send({
       name: 'add_panel',
       payload: {
         commandId: uuidv7(),
@@ -165,8 +171,7 @@ export function useFilingSeveral({
         name,
         kind: 'items',
       },
-    });
-    madeHere.current.set(panelId, name);
+    }).catch((failure: unknown) => offerToUndo({ what: `The panel “${name}” was not added. ${whyNotDone(failure)}` }));
     return panelId;
   };
 

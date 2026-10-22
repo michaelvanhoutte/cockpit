@@ -175,6 +175,8 @@ export interface Account {
   recentCapturedTimeZones(): Promise<string[]>;
   /** Whether the Item is on a live Panel already, so the proposal job leaves it alone (issue 1101). */
   itemIsFiled(itemId: string): Promise<boolean>;
+  /** The due date a pulled connection gave the Item, or null where it gave none (issue 1409). */
+  givenDueDateOf(itemId: string): Promise<string | null>;
   /** Where an Item stands - its Workspace, the Panels it is on, the folders sent to before - for proposing what to do with it (issue 1161). Read by the enrichment job and by nothing else. */
   claudeProposalContext(itemId: string, model: string): Promise<ClaudeProposalContext>;
   /** The send kept under a Run, with what an offer to remember a sentence is made from (issue 1163); null where none was kept. */
@@ -425,6 +427,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     textLearningContext: async () => unwrap(await store.textLearningContext(accountName)),
     recentCapturedTimeZones: async () => unwrap(await store.recentCapturedTimeZones(accountName)),
     itemIsFiled: async (itemId) => unwrap(await store.itemIsFiled(accountName, itemId)),
+    givenDueDateOf: async (itemId) => unwrap(await store.givenDueDateOf(accountName, itemId)),
     claudeProposalContext: async (itemId, model) => unwrap(await store.claudeProposalContext(accountName, itemId, model)),
     sendToOfferOn: async (runId) => unwrap(await store.sendToOfferOn(accountName, runId)),
     rememberedSentences: async () => unwrap(await store.rememberedSentences(accountName)),

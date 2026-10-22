@@ -11,7 +11,7 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
-import { createChangeQueue } from '../../src/changeQueue';
+import { PanelNotMade, createChangeQueue } from '../../src/changeQueue';
 import { connectedAppsDrawnOver } from '../../src/connectedAppsDrawnAhead';
 import { connectionsDrawnOver } from '../../src/connectionsDrawnAhead';
 import type { Requested } from '../../src/drawnAhead';
@@ -354,6 +354,74 @@ describe('Panels', () => {
 
       queue.readLanded('ws-work', late);
       expect(filedOn(queue.drawnOver(copy))).toEqual([]);
+    });
+  });
+
+  describe('a filing onto a Panel made here goes behind the Panel, and is refused in turn if the Panel is', () => {
+    const panelMade: CommandArgs = {
+      name: 'add_panel',
+      payload: { commandId: 'c-panel', issuedAt: AT, workspaceId: 'ws-work', dashboardId: 'd-today', panelId: 'p-new', name: 'Waiting on', kind: 'items' },
+    };
+    const filedOnIt = (name: 'move_item_to_panel' | 'add_item_to_panel' = 'move_item_to_panel'): CommandArgs => ({
+      name,
+      payload: { commandId: `c-${name}`, issuedAt: AT, workspaceId: 'ws-work', itemId: BART, panelId: 'p-new', order: [BART] },
+    });
+    const copy = { ...sent(), workspace: { id: 'ws-work', tenantId: 't' }, dashboards: [], layouts: [] } as unknown as WorkspaceSnapshot;
+    const panelsOn = (queue: ReturnType<typeof createChangeQueue>) => queue.drawnOver(copy).panels.map((panel) => panel.id);
+    const filedOnPanels = (queue: ReturnType<typeof createChangeQueue>) => queue.drawnOver(copy).filings.map((filing) => filing.panelId);
+
+    it.each(['move_item_to_panel', 'add_item_to_panel'] as const)(
+      'draws the Panel and a %s onto it at once, and sends the filing only once the Panel is answered',
+      async (name) => {
+        const server = aServer();
+        const queue = createChangeQueue({ send: server.send });
+        void queue.enqueue(panelMade);
+        void queue.enqueue(filedOnIt(name));
+        await settle();
+
+        expect(panelsOn(queue)).toEqual(['p-new']);
+        expect(filedOnPanels(queue)).toEqual(['p-new']);
+        expect(server.arrived.map((request) => request.change)).toEqual([panelMade]);
+
+        server.arrived[0]!.answer();
+        await settle();
+
+        expect(server.arrived.map((request) => request.change)).toEqual([panelMade, filedOnIt(name)]);
+      },
+    );
+
+    it('takes the Panel and the filing back together when the Panel is refused, sends the filing nowhere, and says the Panel’s reason', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      const panel = queue.enqueue(panelMade);
+      const filing = queue.enqueue(filedOnIt());
+      panel.catch(() => {});
+      filing.catch(() => {});
+      await settle();
+
+      server.arrived[0]!.refuse(new Error('a panel called Waiting on is already on this dashboard'));
+      await settle();
+
+      expect(panelsOn(queue)).toEqual([]);
+      expect(filedOnPanels(queue)).toEqual([]);
+      expect(server.arrived).toHaveLength(1);
+      await expect(filing).rejects.toBeInstanceOf(PanelNotMade);
+      await expect(filing).rejects.toThrow('a panel called Waiting on is already on this dashboard');
+      expect(queue.unanswered()).toBe(0);
+    });
+
+    it('still sends a change that does not name the refused Panel', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      queue.enqueue(panelMade).catch(() => {});
+      queue.enqueue(filedOnIt()).catch(() => {});
+      void queue.enqueue(priority('high'));
+      await settle();
+
+      server.arrived[0]!.refuse(new Error('Nope.'));
+      await settle();
+
+      expect(server.arrived.map((request) => request.change)).toEqual([panelMade, priority('high')]);
     });
   });
 });

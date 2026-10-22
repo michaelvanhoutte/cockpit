@@ -35,6 +35,7 @@ import {
   getLayout,
   getPanel,
   getSourceAccount,
+  givenDueDateOf,
   getWorkspace,
   insertWorkspace,
   isItemFiled,
@@ -1818,6 +1819,9 @@ export function runCommand<N extends CommandName>(
         // shown its name ("Settle an Any workspace capture in the workspace you
         // name", issue 1078).
         cmd.settleInWorkspaceId !== undefined && !!getWorkspace(db, tenantId, cmd.settleInWorkspaceId),
+        // A date still the one its connection gave is open to the reading
+        // (issue 1409).
+        givenDueDateOf(db, tenantId, cmd.itemId),
       );
       // The Panels the note named, filed on in the same act as the Workspace
       // it settles, each checked as it stands now ("File a capture on the
@@ -1993,6 +1997,9 @@ export function runCommand<N extends CommandName>(
             choice: cmd.choice ?? null,
             // And whether it files by name, answered the same way (issue 1147).
             filesByName: cmd.filesByName ?? false,
+            // And whether it gives each Item a due date, and in how many days
+            // (issue 1409).
+            dueInDays: cmd.dueInDays ?? null,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -2021,6 +2028,8 @@ export function runCommand<N extends CommandName>(
               // Asked again as well, so the answer given on this reconnect
               // is the one kept (issue 1147).
               ...(cmd.filesByName !== undefined ? { filesByName: cmd.filesByName } : {}),
+              // And the days, answered the same way (issue 1409).
+              ...(cmd.dueInDays !== undefined ? { dueInDays: cmd.dueInDays } : {}),
             },
           })
           .run();
@@ -2155,6 +2164,24 @@ export function runCommand<N extends CommandName>(
         if (held.filesByName !== cmd.filesByName) {
           tx.update(connectorAccounts)
             .set({ filesByName: cmd.filesByName, updatedAt: cmd.issuedAt })
+            .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, cmd.sourceAccountId)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_connection_due_in_days': {
+      const cmd = payload as CommandPayload<'set_connection_due_in_days'>;
+      // Refused as `set_connection_files_by_name` refuses; that the connector is
+      // pulled is the route's to check (issue 1409). Counts from now: no Item
+      // already in is given a date, and a date already given stays.
+      const held = getSourceAccount(db, tenantId, cmd.sourceAccountId);
+      if (!held || held.workspaceId !== cmd.workspaceId) throw new SourceAccountNotFoundError(cmd.sourceAccountId);
+      db.transaction((tx) => {
+        if (held.dueInDays !== cmd.dueInDays) {
+          tx.update(connectorAccounts)
+            .set({ dueInDays: cmd.dueInDays, updatedAt: cmd.issuedAt })
             .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, cmd.sourceAccountId)))
             .run();
         }
@@ -2445,7 +2472,7 @@ export function runCommand<N extends CommandName>(
                   ? applySetDescription(existing, cmd as CommandPayload<'set_description'>)
                   : name === 'set_priority'
                     ? applySetPriority(existing, cmd as CommandPayload<'set_priority'>)
-                    : applySetDueDate(existing, cmd as CommandPayload<'set_due_date'>);
+                    : applySetDueDate(existing, cmd as CommandPayload<'set_due_date'>, fromTheSource);
 
       if (updated === null) {
         // Stale by last-write-wins: log the command, change nothing.

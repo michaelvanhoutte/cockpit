@@ -86,7 +86,14 @@ export function FileOnLine({
         ))}
         {armed ? (
           <Suspense fallback={<input readOnly aria-label="Find a Panel to file on" placeholder="Find a Panel…" className={FIELD} />}>
-            <FileOnSearch where={where} from={from} workspaces={workspaces} chosen={filed.map((one) => one.panelId)} onPick={onAdd} />
+            <FileOnSearch
+              where={where}
+              from={from}
+              workspaces={workspaces}
+              chosen={filed.map((one) => one.panelId)}
+              instantly={inTheItemForm}
+              onPick={onAdd}
+            />
           </Suspense>
         ) : (
           <input

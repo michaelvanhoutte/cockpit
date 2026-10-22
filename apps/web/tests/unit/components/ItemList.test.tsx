@@ -3075,7 +3075,7 @@ describe('Panels', () => {
       expect(await screen.findByRole('status')).toHaveTextContent('2 items moved to Waiting on');
     });
 
-    it('sends nothing at all for a name the server refuses, and says why under the field', async () => {
+    it('closes the picker at the click, and says in the undo bar why a name the server refuses made no panel', async () => {
       held.send = vi.fn(() =>
         Promise.reject(new CommandRefused(409, 'A panel with that name is already on this dashboard.')),
       );
@@ -3084,11 +3084,14 @@ describe('Panels', () => {
       const dialog = await openThePicker(user);
       await nameOneUnder(user, dialog, 'Today', 'Falcon');
 
-      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-        'A panel with that name is already on this dashboard.',
+      expect(screen.queryByRole('dialog')).toBeNull();
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveTextContent(
+          'The panel “Falcon” was not added. A panel with that name is already on this dashboard.',
+        ),
       );
-      expect(held.mutate).not.toHaveBeenCalled();
-      expect(screen.getByRole('dialog')).toBeVisible();
+      // The filing was handed to the queue behind the panel, which sends it back with the panel.
+      expect(held.mutate).toHaveBeenCalledWith(expect.objectContaining({ name: 'move_item_to_panel' }));
     });
 
     it('leaves the panel standing and says the filing’s refusal above the rows when the filing is refused', async () => {

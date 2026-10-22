@@ -154,6 +154,8 @@ describe('Connector management', () => {
       { situation: 'disconnect', command: 'disconnect_source_account', extra: {} },
       // "Ask a connection's one choice on connecting, and change it later", issue 942.
       { situation: 'switch to the star', command: 'set_connection_choice', extra: { choice: 'star' } },
+      // "Give each email a Gmail or Outlook connection brings in a due date a set number of days out", issue 1409.
+      { situation: 'give each Item a due date', command: 'set_connection_due_in_days', extra: { dueInDays: 3 } },
     ])('keeps the Gmail row the guest tries to $situation as it was', async ({ command, extra }) => {
       const cookie = await continueAsGuest();
       const workspaceId = await guestWorkspace(cookie);

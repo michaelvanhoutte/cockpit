@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
+import { ACCOUNT_WIDE, MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
 import { arrange, giveAWorkspace, giveToTheInbox } from './support/arrange';
 import {
   STARTING_WORKSPACE,
@@ -13,7 +13,6 @@ import {
   itemRow,
   openDashboard,
   openFirstWorkspace,
-  openTheFiles,
   press,
   saveTheItem,
   setFormDueDate,
@@ -188,7 +187,7 @@ test.describe('Item editing', () => {
       // holds, never whether the other one is out of sight (found by the
       // review on this pull request, which is why this is here rather than in
       // a walk of its own).
-      // The description stands for the panel: the attachments cell is not drawn on a phone's page while nothing is attached.
+      // The description stands for the panel: the files line is not drawn while nothing is attached.
       const files = descriptionBox(page);
       await expect(files).toBeVisible();
       await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
@@ -415,25 +414,31 @@ test.describe('Item editing', () => {
       );
     }
 
-    test('adds one by button, draws it as a chip, opens the real file from a click on it, and takes it off for good', async ({
+    test('adds one by button, draws it on the Item tab’s line and as a chip on the Attachments tab, opens the real file from a click on it, and takes it off for good', async ({
       page,
       isMobile,
     }) => {
       const thought = uniqueTitle('Scanned receipt');
       await openInboxHolding(page, isMobile, [thought]);
       await openItem(page, thought, isMobile);
+      await expect(form(page).getByRole('group', { name: 'Attachments' })).toHaveCount(0);
 
       const uploaded = uploadResponse(page);
       await attachmentInput(page).setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: A_PNG });
       expect((await uploaded).status()).toBe(201);
 
-      // A thumbnail for an image, per the issue's own chip rule.
-      await openTheFiles(page, isMobile);
-      await expect(form(page).getByRole('img', { name: 'receipt.png' })).toBeVisible();
+      // A thumbnail for an image on the Item tab's line, which leads to the tab
+      // that lists it, its count beside the tab's name.
+      const line = form(page).getByRole('group', { name: 'Attachments' });
+      await expect(line.getByRole('img', { name: 'receipt.png' })).toBeVisible();
+      await expect(form(page).getByRole('tab', { name: 'Attachments 1' })).toBeVisible();
+      await press(line.getByRole('button', { name: '1 attachment' }), isMobile);
+      const list = form(page).getByRole('tabpanel', { name: /^Attachments/ });
+      await expect(list.getByText('receipt.png')).toBeVisible();
 
       const [popup] = await Promise.all([
         page.waitForEvent('popup'),
-        press(form(page).getByRole('link', { name: /receipt\.png/ }), isMobile),
+        press(list.getByRole('link', { name: /receipt\.png/ }), isMobile),
       ]);
       await expect(popup).toHaveURL(/\/v1\/attachments\//);
       expect(await popup.locator('img').first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1);
@@ -444,20 +449,13 @@ test.describe('Item editing', () => {
           response.request().method() === 'POST' &&
           new URL(response.url()).pathname === '/v1/commands/remove_attachment',
       );
-      await press(form(page).getByRole('button', { name: 'Remove receipt.png' }), isMobile);
+      await press(list.getByRole('button', { name: 'Remove receipt.png' }), isMobile);
       expect((await removed).status()).toBe(200);
-      await expect(form(page).getByText('receipt.png')).toHaveCount(0);
-
-      // On a phone the line went with the file; the next one starts folded.
-      if (isMobile) {
-        const again = uploadResponse(page);
-        await attachmentInput(page).setInputFiles({ name: 'second.png', mimeType: 'image/png', buffer: A_PNG });
-        expect((await again).status()).toBe(201);
-        await expect(form(page).getByRole('button', { name: /^1 file/ })).toHaveAttribute('aria-expanded', 'false');
-        await openTheFiles(page, isMobile);
-        await press(form(page).getByRole('button', { name: 'Remove second.png' }), isMobile);
-        await expect(form(page).getByText('second.png')).toHaveCount(0);
-      }
+      await expect(list.getByText('receipt.png')).toHaveCount(0);
+      // The count goes with the last file, and so does the Item tab's line.
+      await expect(form(page).getByRole('tab', { name: 'Attachments', exact: true })).toBeVisible();
+      await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
+      await expect(form(page).getByRole('group', { name: 'Attachments' })).toHaveCount(0);
 
       // Removal is sent the moment it happens, not batched into Save - so a
       // Save pressed afterwards, with nothing else changed, has nothing to
@@ -465,6 +463,74 @@ test.describe('Item editing', () => {
       await saveTheItem(page, isMobile);
       await openItem(page, thought, isMobile);
       await expect(form(page).getByText('receipt.png')).toHaveCount(0);
+    });
+
+    /**
+     * "Give an Item's attachments a tab of their own, and call What Cockpit
+     * changed Suggestions" (issue 1410). Whether four tabs fit one row, and
+     * whether the description spans the form, exists only in a real layout
+     * engine. Docked at a desk, where the form is narrowest, and on a phone
+     * 375px wide; centred is the same grid in a wider box.
+     */
+    test('lays the form out as four tabs on one row, the description the whole width, and eight files as one line under On panels', async ({
+      page,
+      isMobile,
+    }) => {
+      const thought = uniqueTitle('Eight scans');
+      await openInboxHolding(page, isMobile, [thought]);
+      try {
+        if (isMobile) {
+          await page.setViewportSize({ width: 375, height: 812 });
+        } else {
+          await arrange(page, 'set_item_form_presentation', { workspaceId: ACCOUNT_WIDE, presentation: 'docked' });
+          await page.reload();
+          await expect(inbox(page)).toBeVisible();
+        }
+        await openItem(page, thought, isMobile);
+        await theEditorIsThere(page);
+        if (!isMobile) await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
+
+        await attachmentInput(page).setInputFiles(
+          Array.from({ length: 8 }, (_, at) => ({ name: `scan-${at + 1}.png`, mimeType: 'image/png', buffer: A_PNG })),
+        );
+        const line = form(page).getByRole('group', { name: 'Attachments' });
+        await expect(line.getByRole('button', { name: '8 attachments' })).toBeVisible();
+        await expect(form(page).getByText('Attaching…')).toHaveCount(0);
+        await expect(line.getByRole('link')).toHaveCount(4);
+
+        // Four tabs on one row, each on one line, inside the form.
+        const tabs = form(page).getByRole('tab');
+        await expect(tabs).toHaveText(['Item', 'Attachments 8', 'Details', 'Suggestions']);
+        const boxes = (await Promise.all([0, 1, 2, 3].map((at) => tabs.nth(at).boundingBox()))).map((box) => box!);
+        const tops = boxes.map((box) => box.y);
+        expect(Math.max(...tops) - Math.min(...tops), 'the four tabs share a row').toBeLessThan(4);
+        expect(Math.max(...boxes.map((box) => box.height)), 'each tab is one line').toBeLessThan(40);
+        const strip = (await form(page).getByRole('tablist').boundingBox())!;
+        expect(boxes[3]!.x + boxes[3]!.width, 'the last tab ends inside the form').toBeLessThanOrEqual(strip.x + strip.width + 1);
+        expect(
+          await form(page).getByRole('tablist').evaluate((element) => element.scrollWidth <= element.clientWidth),
+          'the tabs need no scrolling',
+        ).toBe(true);
+
+        // The description is the form's whole width, with nothing beside it.
+        const description = (await form(page).getByRole('toolbar', { name: 'Formatting' }).boundingBox())!;
+        expect(Math.abs(description.x - strip.x), 'from the form’s left edge').toBeLessThan(4);
+        expect(Math.abs(description.width - strip.width), 'to its right edge').toBeLessThan(4);
+
+        // Under On panels: four icons and the count, on one row, inside the form.
+        const panels = (await form(page).getByRole('group', { name: 'On panels' }).boundingBox())!;
+        const files = (await line.boundingBox())!;
+        expect(files.y, 'the files line under On panels').toBeGreaterThanOrEqual(panels.y + panels.height - 1);
+        const icon = (await line.getByRole('link').first().boundingBox())!;
+        const count = (await line.getByRole('button', { name: '8 attachments' }).boundingBox())!;
+        expect(Math.abs(icon.y + icon.height / 2 - (count.y + count.height / 2)), 'icons and count on one row').toBeLessThan(6);
+        expect(count.x + count.width, 'the count ends inside the form').toBeLessThanOrEqual(strip.x + strip.width + 1);
+      } finally {
+        // The account is shared by every walk in the run: put it back centred.
+        if (!isMobile) {
+          await arrange(page, 'set_item_form_presentation', { workspaceId: ACCOUNT_WIDE, presentation: 'centered' }).catch(() => {});
+        }
+      }
     });
 
     test('refuses a file over the size cap, and a kind not on the allowlist, naming why', async ({
@@ -524,14 +590,12 @@ test.describe('Item editing', () => {
       // Drawn from the file on the device, then from its address once uploaded.
       const inTheText = descriptionBox(page).getByRole('img', { name: 'photo.png' });
       await expect(inTheText).toHaveAttribute('src', /^blob:/);
-      await openTheFiles(page, isMobile);
       await expect(form(page).getByText('Attaching…')).toBeVisible();
       release();
       expect((await uploaded).status()).toBe(201);
 
       await expect(inTheText).toHaveAttribute('src', /^\/v1\/attachments\//);
       await expect(inTheText).toBeVisible();
-      await openTheFiles(page, isMobile);
       await expect(form(page).getByRole('link', { name: /photo\.png/ })).toBeVisible();
 
       await show(page, 'Source', isMobile);
@@ -903,14 +967,11 @@ test.describe('Item editing', () => {
    * was clipped to "Nor" at the half of a 240px sidebar it was given; the
    * description's own box growing as the dialog is dragged is a different
    * thing from the frame ignoring what is *typed or loaded* into it, which is
-   * apps/web/tests/unit/components/ItemForm.test.tsx's claim; and a broken
-   * `@container` setup would leave every other walk in this file green - none
-   * of them ever narrow the dialog through the breakpoint - while the split
-   * silently never collapsed at all ("Give the item's form more room, and put
-   * clutter out of the way", issue 480).
+   * apps/web/tests/unit/components/ItemForm.test.tsx's claim ("Give the item's
+   * form more room, and put clutter out of the way", issue 480).
    */
   test.describe('the form opens big enough for what is in it, and what is inside answers to its own width', () => {
-    test('opens at its default width with room for the longest choice, gives the description whatever room a drag makes, and stacks into one column once it is narrow', async ({
+    test('opens at its default width with room for the longest choice, and gives the description the form’s whole width and whatever room a drag makes', async ({
       page,
       isMobile,
     }) => {
@@ -948,17 +1009,15 @@ test.describe('Item editing', () => {
       const centres = await Promise.all(line.map(centre));
       expect(Math.max(...centres) - Math.min(...centres), 'status, flags and due chips on one line').toBeLessThan(4);
 
-      // The attachments and the description's own toolbar sit on the same row
-      // when there is room for two columns, and one drops below the other's
-      // whole height once there is not. The toolbar, not the description box
-      // itself: the box sits below its own toolbar.
+      // The description has the form's whole width: its toolbar starts where
+      // the tabs do and runs as far, with no column of files beside it.
       const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
-      const sideBySide = async () => {
-        const files = (await form(page).getByText('Attachments', { exact: true }).boundingBox())!;
+      const wholeWidth = async () => {
+        const tabs = (await form(page).getByRole('tablist').boundingBox())!;
         const description = (await toolbar.boundingBox())!;
-        return Math.abs(files.y - description.y) < 40;
+        return Math.abs(description.x - tabs.x) < 4 && Math.abs(description.width - tabs.width) < 4;
       };
-      expect(await sideBySide(), 'two columns at the dialog’s own default width').toBe(true);
+      expect(await wholeWidth(), 'the description spans the form at its default width').toBe(true);
 
       // The gap between the toolbar and the footer is the room the
       // description has, measured without depending on how much text is in
@@ -982,39 +1041,25 @@ test.describe('Item editing', () => {
       await drag(60, 150);
       expect(await gap(), 'the description grew with the dialog').toBeGreaterThan(wasGiven + 100);
 
-      // Dragged well past the container-query breakpoint - the split collapses
-      // below `@lg`, 512px of the dialog's own content box - on a viewport
-      // that never itself narrows, the window staying wide throughout being
-      // what tells the two apart. 500 rather than the 400 this walk used
-      // before the drag above widened it: from 956px, 400 would land within a
-      // pixel or two of the breakpoint itself.
+      // Dragged narrow on a viewport that never itself narrows, it is still the
+      // whole width: the form has one column at every size.
       await drag(-500, 0);
-      expect(await sideBySide(), 'one column once the dialog itself is narrow').toBe(false);
+      expect(await wholeWidth(), 'the description spans the form once the dialog itself is narrow').toBe(true);
 
-      /**
-       * Stacked, the files used to come ahead of the description - the order
-       * the two columns happened to be written in - which put text a person
-       * is here to write below a list of files they are only attaching to it
-       * (found in the docked form once it is dragged narrower than the split
-       * needs).
-       */
-      const files = form(page).getByText('Attachments', { exact: true });
+      // One column, written in the order it is read and drawn: the short
+      // fields, the description, then the Panels. What is drawn is also what
+      // Tab and a screen reader take, so the document agrees.
       const priority = (await priorityGroup(page).boundingBox())!;
       const description = (await toolbar.boundingBox())!;
-      const attached = (await files.boundingBox())!;
-      expect(description.y - priority.y, 'one column, the description below the fields').toBeGreaterThanOrEqual(40);
-      expect(priority.y, 'the short fields come first').toBeLessThan(description.y);
-      expect(description.y, 'then the description, ahead of the files').toBeLessThan(attached.y);
-
-      // What is drawn is also what Tab and a screen reader take: the
-      // description comes before the files in the document itself, not only
-      // on screen.
-      const filesHandle = (await files.elementHandle())!;
+      const panels = form(page).getByRole('group', { name: 'On panels' });
+      const filedOn = (await panels.boundingBox())!;
+      expect(description.y - priority.y, 'the description below the fields').toBeGreaterThanOrEqual(40);
+      expect(description.y, 'then the description, ahead of the Panels').toBeLessThan(filedOn.y);
       const descriptionFirst = await toolbar.evaluate(
         (element, other) => Boolean(element.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING),
-        filesHandle,
+        await panels.elementHandle(),
       );
-      expect(descriptionFirst, 'the description before the files in the document').toBe(true);
+      expect(descriptionFirst, 'the description before the Panels in the document').toBe(true);
     });
   });
 

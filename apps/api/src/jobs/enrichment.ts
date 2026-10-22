@@ -513,7 +513,10 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // priority, due date and workspace you say when you capture", issue 1073,
   // its Technical design).
   const day = await captureDayOf(account, item);
-  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null)) {
+  // A date still the one its connection gave is open to the reading, so it is
+  // asked only where the texts are settled and that would decide (issue 1409).
+  const connectionGave = item.textsSettledAt === null ? null : await account.givenDueDateOf(item.id);
+  if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null, connectionGave)) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',

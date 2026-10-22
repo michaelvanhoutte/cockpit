@@ -6,7 +6,6 @@ import {
   itemRow,
   openCapture,
   openInbox,
-  openTheFiles,
   press,
   test,
   uniqueTitle,
@@ -99,7 +98,6 @@ test.describe('Offline', () => {
       await expect(itemRow(page, note)).toBeVisible();
       await press(itemRow(page, note).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
-      await openTheFiles(page, isMobile);
       await expect(page.getByRole('dialog').getByRole('img', { name: 'receipt.png' })).toBeVisible();
     });
   });

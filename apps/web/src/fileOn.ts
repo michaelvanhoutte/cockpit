@@ -15,6 +15,13 @@ export interface FileOnOption {
   dashboardName: string;
   workspaceId: string;
   workspaceName: string;
+  /**
+   * The server's answer to making this Panel, when it was made a moment ago in
+   * the Item form and not yet answered ("Show a Panel made from Move to or File
+   * on, with the Item on it, the moment you make it", issue 1364): a filing held
+   * for it is taken back if it is refused.
+   */
+  made?: Promise<unknown>;
 }
 
 /** One Workspace's snapshot as held, or undefined where it is not (yet) readable. */
