@@ -661,20 +661,21 @@ export async function resetGuestAccount(env: Env): Promise<'reset' | 'no guest a
 }
 
 /**
- * Re-arms the alarm of every account holding a pulled connection whose alarm
- * is not armed ("Check a pulled connector on its cadence through the generic
- * host", issue 891) - the nightly guard against an alarm that was lost, which
- * would otherwise stop the checks without a word. Answers how many it armed;
- * one account failing is logged and costs only itself.
+ * Re-arms the alarm of every account holding a pulled connection or a running
+ * series whose alarm is not armed ("Check a pulled connector on its cadence
+ * through the generic host", issue 891; "Bring a repeating Item back on its
+ * day", issue 1407) - the nightly guard against an alarm that was lost, which
+ * would otherwise stop the checks and the occurrences without a word. Answers
+ * how many it armed; one account failing is logged and costs only itself.
  */
-export async function keepEveryAccountChecking(env: Env): Promise<number> {
+export async function keepEveryAccountsAlarmArmed(env: Env): Promise<number> {
   let armed = 0;
   for (const accountName of await registeredAccountNames(env)) {
     try {
       const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
-      if (unwrap(await store.keepCheckingPulledConnections(accountName)) === 'armed') armed += 1;
+      if (unwrap(await store.keepTheAlarmArmed(accountName)) === 'armed') armed += 1;
     } catch (error) {
-      notLookedAt(accountName, 'pulled connections’ check', error);
+      notLookedAt(accountName, 'alarm', error);
     }
   }
   return armed;
@@ -683,7 +684,7 @@ export async function keepEveryAccountChecking(env: Env): Promise<number> {
 /**
  * Deletes every account's connection history older than 30 days ("Keep a
  * connection's history 30 days, and fold a quiet past day into one line",
- * issue 1145), reaching each account the way `keepEveryAccountChecking` does.
+ * issue 1145), reaching each account the way `keepEveryAccountsAlarmArmed` does.
  * Answers how many lines went; one account failing is logged and costs only
  * itself, keeping its lines until a later night works.
  */

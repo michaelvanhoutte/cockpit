@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
 import { ACCOUNT_WIDE, MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
-import { arrange, giveAWorkspace, giveToTheInbox } from './support/arrange';
+import { arrange, giveADashboard, giveAWorkspace, giveToAPanel, giveToTheInbox } from './support/arrange';
 import {
   STARTING_WORKSPACE,
   captureBox,
@@ -11,6 +12,7 @@ import {
   expect,
   inbox,
   itemRow,
+  itemsOn,
   openDashboard,
   openFirstWorkspace,
   press,
@@ -440,6 +442,41 @@ test.describe('Item editing', () => {
 
       await expect(form(page)).toHaveCount(0);
       await expect(itemRow(page, weekly).getByRole('img', { name: /^Repeats/ })).toHaveCount(0);
+    });
+  });
+
+  /**
+   * F3, because this is the capability ("Bring a repeating Item back on its day,
+   * as a fresh copy", issue 1407): on its day a repeating Item comes back by
+   * itself, in a tab nobody reloads. What comes back, where and when is proved
+   * against the account's real store and alarm in
+   * apps/api/tests/integration/accounts/repeating-items.test.ts; only a browser
+   * can say the copy reaches a tab already open. Arranged through the API: setting
+   * the rule from the form is the walk above.
+   */
+  test.describe('a repeating Item comes back on its day', () => {
+    test('a fresh copy appears at the top of its Panel in a tab already open', async ({ page, isMobile }) => {
+      const weekly = uniqueTitle('Weekly review');
+      const other = uniqueTitle('Already there');
+      await openFirstWorkspace(page, isMobile);
+      const dashboard = await giveADashboard(page, uniqueTitle('Routines'), ['Every week']);
+      const panel = dashboard.panels[0]!;
+      await giveToAPanel(page, panel, [other, weekly]);
+      const itemId = panel.itemIds[1]!;
+      await arrange(page, 'set_done', { itemId, done: true });
+      await page.reload();
+      await openDashboard(page, dashboard.name, isMobile);
+      await expect.poll(() => itemsOn(page, panel.name)).toEqual([other]);
+
+      const today = new Date().toISOString().slice(0, 10);
+      await arrange(page, 'set_repeat', {
+        itemId,
+        seriesId: randomUUID(),
+        repeat: { frequency: 'weekly', nextOn: today, dueAfterDays: null, timeZone: 'UTC' },
+      });
+
+      await expect.poll(() => itemsOn(page, panel.name)).toEqual([weekly, other]);
+      await expect(itemRow(page, weekly).getByRole('img', { name: /^Repeats weekly on \w+$/ })).toBeVisible();
     });
   });
 

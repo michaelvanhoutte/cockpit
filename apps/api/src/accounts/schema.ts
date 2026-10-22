@@ -1596,9 +1596,10 @@ export const attachments = sqliteTable(
  * that is one of its occurrences (`items.series_id`). Sent in the Workspace
  * snapshot, so the form and a row's mark are drawn without a read.
  *
- * - **`next_on` is the day the series is anchored to**, a calendar day on the
- *   series' own `time_zone` - the browser's when the rule was set, so a day starts
- *   at midnight there. Never before the day the rule was set.
+ * - **`next_on` is the day the next occurrence is due**, a calendar day on the
+ *   series' own `time_zone` - the browser's when the rule was last set, so a day
+ *   starts at midnight there. Never a day already passed when a person moves
+ *   it, and moved on by the account's alarm each time the series comes round.
  * - **`due_after_days`** is the calendar days from an occurrence appearing to its
  *   due date, NULL for none.
  * - **`stopped_at` is *Never***: the series stays and the Items keep naming it,
@@ -1617,11 +1618,24 @@ export const series = sqliteTable(
     timeZone: text('time_zone').notNull(),
     stoppedAt: text('stopped_at'),
     createdAt: text('created_at').notNull(),
-    /** When the rule was last set: what a stale command is told apart by. */
+    /** When the rule was last set: what a stale command is told apart by. Coming round leaves it alone. */
     updatedAt: text('updated_at').notNull(),
+    /**
+     * The *Next on* a person last set, which every later day is counted from
+     * ("Bring a repeating Item back on its day", issue 1407): monthly from the
+     * 31st falls on a shorter month's last day and is the 31st again after.
+     * Read as `next_on` wherever `next_on` is not one of the days counted from
+     * it (`countedFrom`), NULL among them: a series from before
+     * `0093-series-days` is given one the first time it comes round.
+     */
+    anchorOn: text('anchor_on'),
+    /** The day the series last came round, an Item written or not; NULL until it has. */
+    lastOn: text('last_on'),
   },
   (t) => [
     check('series_next_on_is_date', isDate('next_on')),
+    check('series_anchor_on_is_date', isDate('anchor_on')),
+    check('series_last_on_is_date', isDate('last_on')),
     check('series_due_after_days_is_not_negative', sql`due_after_days >= 0`),
     check('series_stopped_at_is_timestamp', isTimestamp('stopped_at')),
     check('series_created_at_is_timestamp', isTimestamp('created_at')),

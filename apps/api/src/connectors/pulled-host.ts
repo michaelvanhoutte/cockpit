@@ -17,7 +17,7 @@ import {
 } from '../accounts/index.js';
 import type { PulledRunStarted } from '../accounts/pulled.js';
 import { open, seal, sealingKey, type Sealed } from './credential-crypto.js';
-import { derivedUuid } from './push-host.js';
+import { derivedUuid } from '../domain/derived-uuid.js';
 import { getConnector } from './registry.js';
 import type { CheckDid } from '../domain/connection-history.js';
 import type { NameForms } from '../domain/filing-by-name.js';
