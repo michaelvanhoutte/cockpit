@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { formatDate, formatDateTime } from '../../../../scripts/lib/belgian-time.mjs';
 import { unplacedText } from '../../../../scripts/lib/e2e-record.mjs';
 import { chainText } from '../model.js';
 import { adviceFor } from './advice.js';
@@ -35,9 +36,9 @@ function humanMs(ms) {
   return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
-/** Every timestamp on the page is UTC, and says so — the reader is not. */
-const stamp = (iso) => `${iso.slice(0, 16).replace('T', ' ')}Z`;
-const day = (iso) => iso.slice(0, 10);
+/** Every moment on the page is Belgian time in Belgian format, whoever reads it (scripts/lib/belgian-time.mjs); the model file keeps ISO UTC. */
+const stamp = formatDateTime;
+const day = formatDate;
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 const days = (value) => (Number.isInteger(value) ? String(value) : (Math.round(value * 10) / 10).toString());
 const coveredDays = (value) => (value < 0.05 ? 'under 0.1' : days(value));

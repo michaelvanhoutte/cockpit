@@ -1160,15 +1160,15 @@ describe('Cycle time', () => {
       expect(zoomed.indexOf('class="clockaxis"')).toBeGreaterThan(zoomed.indexOf('class="track'));
       expect(zoomed.indexOf('<div class="detailbox">')).toBeGreaterThan(zoomed.indexOf('class="clockaxis"'));
       const labels = [...zoomed.matchAll(/<span class="clocktick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => [match[1], match[2]]);
-      expect(labels[0]).toEqual(['start', '09:00']);
-      expect(labels[labels.length - 1]).toEqual(['end', '13:10']);
+      expect(labels[0]).toEqual(['start', '11:00']);
+      expect(labels[labels.length - 1]).toEqual(['end', '15:10']);
     });
 
     it('reads the real clock time either side of time away in the zoomed axis', () => {
       const labels = [...zoomedOf(html, 1).matchAll(/<span class="clocktick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => match[2]);
-      expect(labels).toContain('09:12');
-      expect(labels).toContain('12:32');
-      expect(labels.filter((label) => label > '09:12' && label < '12:32')).toEqual([]);
+      expect(labels).toContain('11:12');
+      expect(labels).toContain('14:32');
+      expect(labels.filter((label) => label > '11:12' && label < '14:32')).toEqual([]);
     });
 
     it('zooms the whole of a pull request that was cut on the shared scale', () => {
@@ -1177,7 +1177,7 @@ describe('Cycle time', () => {
       const zoomed = zoomedOf(long, 1);
       expect(zoomed).not.toContain('clipmark');
       expect(zoomed).toContain('CI Round 3');
-      expect(zoomed).toMatch(/<span class="clocktick end"[^>]*>17:00</);
+      expect(zoomed).toMatch(/<span class="clocktick end"[^>]*>19:00</);
     });
 
     it('reads a pull request no check ran on as it did, with nothing to zoom', () => {
@@ -1247,16 +1247,16 @@ describe('Cycle time', () => {
         pulls: [jobs],
         label: /^Test · /,
         head: 'Test',
-        line: 'started 09:03:00Z, stopped 09:09:00Z · ran 6m 00s · waited 2m 00s for a runner · passed',
-        context: 'in CI Round 1 · pushed 2026-09-15 09:00Z',
+        line: 'started 11:03:00, stopped 11:09:00 · ran 6m 00s · waited 2m 00s for a runner · passed',
+        context: 'in CI Round 1 · pushed 15 Sept 2026, 11:00',
       },
       {
         situation: 'a failed job',
         pulls: [jobs],
         label: /^Lint · /,
         head: 'Lint',
-        line: 'started 09:00:00Z, stopped 09:04:00Z · ran 4m 00s · waited 0s for a runner · failed',
-        context: 'in CI Round 1 · pushed 2026-09-15 09:00Z',
+        line: 'started 11:00:00, stopped 11:04:00 · ran 4m 00s · waited 0s for a runner · failed',
+        context: 'in CI Round 1 · pushed 15 Sept 2026, 11:00',
       },
       {
         situation: 'a local review',
@@ -1310,9 +1310,9 @@ describe('Cycle time', () => {
       const [round] = pickingIn(html, 1, /^CI Round 1 · /);
       const { head, line } = readDetail(round.detail);
       expect(head).toBe('CI Round 1');
-      expect(line).toBe('18m 00s · pushed 2026-09-15 09:02Z · held by Test, then E2E (F3)');
+      expect(line).toBe('18m 00s · pushed 15 Sept 2026, 11:02 · held by Test, then E2E (F3)');
       expect(round.detail).toContain(
-        '<ul class="joblist"><li>Test · started 09:02:00Z, stopped 09:12:00Z · ran 10m 00s · waited 0s for a runner · passed</li><li>E2E (F3) · started 09:02:00Z, stopped 09:20:00Z · ran 18m 00s · waited 0s for a runner · passed</li></ul>',
+        '<ul class="joblist"><li>Test · started 11:02:00, stopped 11:12:00 · ran 10m 00s · waited 0s for a runner · passed</li><li>E2E (F3) · started 11:02:00, stopped 11:20:00 · ran 18m 00s · waited 0s for a runner · passed</li></ul>',
       );
     });
 
@@ -1320,7 +1320,7 @@ describe('Cycle time', () => {
       const html = render({ pulls: [held] });
       const [test, e2e] = ['Test', 'E2E (F3)'].map((name) => readDetail(pickingIn(html, 1, new RegExp(`^${name.replace(/[()]/g, '\\$&')} · started`))[0].detail));
       for (const { context } of [test, e2e]) {
-        expect(context).toBe('in CI Round 1 · pushed 2026-09-15 09:02Z');
+        expect(context).toBe('in CI Round 1 · pushed 15 Sept 2026, 11:02');
       }
       expect(pickingIn(html, 1, /^Test · started/)[0].detail).not.toContain('held by');
     });
@@ -1339,7 +1339,7 @@ describe('Cycle time', () => {
     it('lists the jobs of a round only in that round\'s detail, with when each started and stopped', () => {
       const html = render({ pulls: [pull({ commits: [commit('a', 0, [job('Test', 2, 2, 12)])] })] });
       const [round] = pickingIn(html, 1, /^CI Round 1 · /);
-      expect(round.detail).toContain('<ul class="joblist"><li>Test · started 09:02:00Z, stopped 09:12:00Z · ran 10m 00s · waited 0s for a runner · passed</li></ul>');
+      expect(round.detail).toContain('<ul class="joblist"><li>Test · started 11:02:00, stopped 11:12:00 · ran 10m 00s · waited 0s for a runner · passed</li></ul>');
       const outsideDetails = zoomedOf(html, 1).replace(/<div class="detail" id="[^"]+">[\s\S]*?<\/div>/g, '');
       expect(outsideDetails).not.toContain('joblist');
     });
@@ -1428,7 +1428,7 @@ describe('Cycle time', () => {
 
     it('makes the axis a label of the zoom checkbox, and says that it closes', () => {
       // A span in the label, since a label holds phrasing content only; the styles make it a block.
-      expect(zoomed).toMatch(/<label class="axishit" for="zoom-1"><span class="clockaxis"[^>]*title="Clock time, UTC\. Click to close">/);
+      expect(zoomed).toMatch(/<label class="axishit" for="zoom-1"><span class="clockaxis"[^>]*title="Clock time in Belgian time\. Click to close">/);
       expect(cssOf(html)).toMatch(/\.clockaxis \{ display: block;/);
     });
 
@@ -1536,7 +1536,7 @@ describe('Cycle time', () => {
       expect(lead).toMatchObject({ left: share(1, 9), width: share(2, 9) });
       expect(test).toMatchObject({ left: share(3, 9), width: share(6, 9) });
       expect(test.title).toContain('waited 2m 00s for a runner');
-      expect(test.title).toContain('started 09:03:00Z, stopped 09:09:00Z');
+      expect(test.title).toContain('started 11:03:00, stopped 11:09:00');
     });
 
     it('starts the lane of a job created when another finished where that one ended, in the same row', () => {
@@ -1571,6 +1571,106 @@ describe('Cycle time', () => {
       expect(lanesIn(html)).toEqual([]);
       expect(html).toContain('class="piece checks"');
       expect(html).toContain('lanes not recorded');
+    });
+  });
+
+  describe('every date and time the page shows is Belgian time in Belgian format', () => {
+    /** A pull request written entirely in ISO UTC times, so a situation can name the moments the way a model file holds them. */
+    const moments = ({ created, merged, started = created, stopped = merged, pushed = created, number = 1 }) =>
+      pull({
+        number,
+        createdAt: created,
+        mergedAt: merged,
+        commits: [
+          {
+            sha: `c${number}`,
+            authoredAt: pushed,
+            parents: 1,
+            checks: [{ id: 900 + number, name: 'Test', suiteId: 1, status: 'completed', conclusion: 'success', startedAt: started, completedAt: stopped, queue: { state: 'read', createdAt: started, startedAt: started } }],
+          },
+        ],
+      });
+    const renderAt = ({ now, since, pulls }) => renderHtml(buildModel({ pulls, now: new Date(now), requestedDays: 14, coveredSince: new Date(since), repo: 'o/r' }));
+    const aPull = moments({ created: '2026-10-22T13:00:00Z', merged: '2026-10-22T13:20:00Z' });
+
+    it('reads when it was generated in Belgian time', () => {
+      expect(renderAt({ now: '2026-10-22T13:05:00Z', since: '2026-10-08T13:05:00Z', pulls: [aPull] })).toContain('generated <b>22 Oct 2026, 15:05</b>');
+    });
+
+    it('reads when a pull request merged, and when a round was pushed, on the Belgian day', () => {
+      const late = moments({ created: '2026-10-21T22:00:00Z', merged: '2026-10-21T22:30:00Z' });
+      const row = rowOf(renderAt({ now: '2026-10-22T13:05:00Z', since: '2026-10-08T13:05:00Z', pulls: [late] }), 1);
+      expect(row).toContain('merged 22 Oct 2026, 00:30');
+      expect(row).toContain('pushed 22 Oct 2026, 00:00');
+      expect(row).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    });
+
+    it('reads when a job started and stopped to the second in Belgian time', () => {
+      const html = renderAt({ now: '2026-10-22T13:30:00Z', since: '2026-10-08T13:30:00Z', pulls: [moments({ created: '2026-10-22T13:00:00Z', merged: '2026-10-22T13:20:00Z', started: '2026-10-22T13:05:09Z', stopped: '2026-10-22T13:15:30Z' })] });
+      expect(html).toContain('started 15:05:09, stopped 15:15:30');
+      expect(html).not.toContain('13:05:09');
+    });
+
+    it('says the period it covers from the Belgian day each end falls on', () => {
+      const html = renderAt({ now: '2026-10-21T22:30:00Z', since: '2026-10-08T22:30:00Z', pulls: [aPull] });
+      expect(html).toContain('From 9 Oct 2026 to 22 Oct 2026.');
+    });
+  });
+
+  describe("the evolution chart's day ticks fall on Belgian midnight", () => {
+    const sectionOf = (html) => html.split('<h2>Evolution</h2>')[1].split('<h2>')[0];
+    const minute = (iso) => (Date.parse(iso) - BASE) / MIN;
+    /** A chart over merges at `from` and `to`, and the day ticks it draws: [x, label]. */
+    const ticksBetween = (from, to) => {
+      const pulls = [from, to].map((merged, index) => pull({ number: index + 1, mergedAt: at(minute(merged)), commits: [commit(`c${index}`, minute(merged) - 30, [check('Test', minute(merged) - 28, minute(merged) - 20)])] }));
+      const html = render({ pulls, now: new Date(Date.parse(to) + 60 * MIN), requestedDays: 14 });
+      const ticks = [...sectionOf(html).matchAll(/<text class="etick" x="(-?[\d.]+)"[^>]*text-anchor="middle">([^<]*)</g)].map((match) => [Number(match[1]), match[2]]);
+      // Every panel draws the same axis, so the chart's ticks are the run up to the first label's second appearance.
+      const perPanel = ticks.findIndex(([, label], index) => index > 0 && label === ticks[0][1]);
+      const x = (instant) => 52 + ((Date.parse(instant) - Date.parse(from)) / (Date.parse(to) - Date.parse(from))) * (900 - 52 - 12);
+      return { ticks: ticks.slice(0, perPanel), x };
+    };
+
+    it('puts the tick for 22 Oct at Belgian midnight, 22:00 UTC the evening before', () => {
+      const { ticks, x } = ticksBetween('2026-10-21T12:00:00Z', '2026-10-23T12:00:00Z');
+      expect(ticks.map(([, label]) => label)).toEqual(['22 Oct', '23 Oct']);
+      expect(ticks[0][0]).toBeCloseTo(x('2026-10-21T22:00:00Z'), 0);
+      expect(ticks[1][0]).toBeCloseTo(x('2026-10-22T22:00:00Z'), 0);
+    });
+
+    it('puts the tick for 26 Oct at 23:00 UTC, 25 hours after the one before, across the change of clock', () => {
+      const { ticks, x } = ticksBetween('2026-10-24T12:00:00Z', '2026-10-27T12:00:00Z');
+      expect(ticks.map(([, label]) => label)).toEqual(['25 Oct', '26 Oct', '27 Oct']);
+      expect(ticks[0][0]).toBeCloseTo(x('2026-10-24T22:00:00Z'), 0);
+      expect(ticks[1][0]).toBeCloseTo(x('2026-10-25T23:00:00Z'), 0);
+      expect(ticks[2][0]).toBeCloseTo(x('2026-10-26T23:00:00Z'), 0);
+      expect((ticks[1][0] - ticks[0][0]) / (ticks[2][0] - ticks[1][0])).toBeCloseTo(25 / 24, 1);
+    });
+  });
+
+  describe("a zoomed strip's clock ticks are round Belgian times", () => {
+    /** The labels on the axis of a pull request whose one round ran from `from` to `to`, in order. */
+    const labelsOf = (from, to) => {
+      const only = pull({
+        createdAt: from,
+        mergedAt: to,
+        commits: [{ sha: 'a', authoredAt: from, parents: 1, checks: [{ id: 1, name: 'Test', suiteId: 1, status: 'completed', conclusion: 'success', startedAt: from, completedAt: to }] }],
+      });
+      const html = renderHtml(buildModel({ pulls: [only], now: new Date(to), requestedDays: 14, coveredSince: new Date(Date.parse(to) - 14 * DAY_MS), repo: 'o/r' }));
+      return [...zoomedOf(html, 1).matchAll(/<span class="clocktick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => match[2]);
+    };
+
+    it('labels the hours of a strip in Belgian time, not Greenwich', () => {
+      const labels = labelsOf('2026-10-22T13:05:00Z', '2026-10-22T19:40:00Z');
+      expect(labels).toEqual(['15:05', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '21:40']);
+    });
+
+    it('shows its day beside the time on a tick past Belgian midnight, and not before it', () => {
+      const labels = labelsOf('2026-10-22T13:05:00Z', '2026-10-23T13:05:00Z');
+      expect(labels).toContain('21:00');
+      expect(labels).toContain('23 Oct 00:00');
+      expect(labels).toContain('23 Oct 03:00');
+      expect(labels.filter((label) => label.startsWith('22 Oct'))).toEqual([]);
     });
   });
 });

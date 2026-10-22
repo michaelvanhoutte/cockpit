@@ -150,4 +150,31 @@ describe('renderHtml', () => {
     expect(html).toContain('Cycle time');
     expect(html).toContain('href="../cycle-time/"');
   });
+
+  describe('every date and time the page shows is Belgian time in Belgian format', () => {
+    const renderAt = ({ now, since, mergedAt }) =>
+      renderHtml(
+        buildModel({
+          pulls: [pullData({ mergedAt, prRecord: record({ packages: [pkg({ files: [file({ path: 'apps/pkg/tests/unit/a.test.ts' })] })] }) })],
+          now: new Date(now),
+          requestedDays: 14,
+          coveredSince: new Date(since),
+          repo: 'o/r',
+        }),
+      );
+
+    it('reads when it was generated', () => {
+      expect(renderAt({ now: '2026-10-22T13:05:00Z', since: '2026-10-08T13:05:00Z', mergedAt: '2026-10-22T13:00:00Z' })).toContain('generated <b>22 Oct 2026, 15:05</b>');
+    });
+
+    it('reads when a pull request merged on the Belgian day', () => {
+      const html = renderAt({ now: '2026-10-22T13:05:00Z', since: '2026-10-08T13:05:00Z', mergedAt: '2026-10-21T22:30:00Z' });
+      expect(html).toContain('merged 22 Oct 2026, 00:30');
+      expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/);
+    });
+
+    it('says the period it covers from the Belgian day each end falls on', () => {
+      expect(renderAt({ now: '2026-10-21T22:30:00Z', since: '2026-10-08T22:30:00Z', mergedAt: '2026-10-21T20:00:00Z' })).toContain('From 9 Oct 2026 to 22 Oct 2026.');
+    });
+  });
 });

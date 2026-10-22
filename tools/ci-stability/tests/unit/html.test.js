@@ -212,15 +212,27 @@ describe('renderHtml', () => {
     });
   });
 
-  it('marks its timestamps as UTC everywhere, not only in the masthead', () => {
-    const failed = run({ conclusion: 'failure', createdAt: ago(2) });
-    const passed = run({ createdAt: ago(1) });
-    const html = render({
-      runs: [failed, passed],
-      jobs: [job({ runId: failed.id, conclusion: 'failure' })],
+  describe('every date and time the page shows is Belgian time in Belgian format', () => {
+    const at = '2026-10-21T22:30:00Z';
+    const html = () => {
+      const failed = run({ conclusion: 'failure', createdAt: at });
+      const passed = run({ createdAt: '2026-10-22T13:00:00Z' });
+      return render({ now: new Date('2026-10-22T13:05:00Z'), runs: [failed, passed], jobs: [job({ runId: failed.id, conclusion: 'failure' })] });
+    };
+
+    it('reads when it was generated, in the masthead', () => {
+      expect(html()).toContain('generated <b>22 Oct 2026, 15:05</b>');
     });
-    // Both the red stretch and the failure list carry the marker.
-    expect(html.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?!Z)/)).toBeNull();
+
+    it('reads where a red stretch began and ended, and when a failure ran, on the Belgian clock', () => {
+      const page = html();
+      expect(page).toMatch(/from <a [^>]*>22 Oct 2026, 00:30<\/a> to <a [^>]*>22 Oct 2026, 15:00<\/a>/);
+      expect(page).toContain('<span class="when">&middot; 22 Oct 2026, 00:30</span>');
+    });
+
+    it('shows no UTC time anywhere', () => {
+      expect(html()).not.toMatch(/\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}|\d{2}:\d{2}Z/);
+    });
   });
 
   it('says which period the red stretches cover, since it is not the table\'s windows', () => {

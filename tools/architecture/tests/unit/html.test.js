@@ -15,7 +15,12 @@ describe('The architecture page', () => {
       const html = page();
       expect(html).toContain('<b>abc1234</b>');
       expect(html).toContain('https://github.com/o/r/commit/abc1234def5678');
-      expect(html).toContain('<b>2026-10-08</b>');
+      expect(html).toContain('<b>8 Oct 2026</b>');
+    });
+
+    it('dates a commit by the Belgian day, whatever offset its committer wrote it in', () => {
+      // 00:30 at +05:30 on the 22nd is 21:00 on the 21st in Brussels.
+      expect(page({ commit: 'abc1234def5678', date: '2026-10-22T00:30:00+05:30', repo: 'o/r' })).toContain('commit dated <b>21 Oct 2026</b>');
     });
 
     it('says so, rather than leaving the line out, when the checkout had no commit', () => {
