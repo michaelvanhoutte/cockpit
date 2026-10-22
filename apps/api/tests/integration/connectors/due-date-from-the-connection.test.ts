@@ -406,6 +406,18 @@ describe('Connector management', () => {
       expect((await dateOf('m-1')).due_date).toBe('2031-12-17');
     });
 
+    it('counts from the day it reopened though a device running fast put the Item’s own clock days ahead', async () => {
+      await connect(3);
+      await nextCheck(arrives('m-1'));
+      await nextCheck(markCameOff('m-1'));
+      const { item_id: itemId } = await dateOf('m-1');
+      await inTheStore((sql) => sql.exec(`UPDATE items SET updated_at = '2031-12-20T09:00:00.000Z' WHERE id = ?`, itemId));
+
+      await nextCheck(markWentBackOn('m-1', REOPENED_ON));
+
+      expect(await dateOf('m-1')).toMatchObject({ due_date: '2031-12-13', given_due_date: '2031-12-13' });
+    });
+
     it('lets open tabs hear of it, as of any change the source makes', async () => {
       await connect(3);
       await nextCheck(arrives('m-1'));

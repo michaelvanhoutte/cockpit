@@ -63,7 +63,9 @@ export function applySourceStateChange(
         asTheSource,
       );
     }
-    givenAFreshDate(db, accountName, item, issuedAt);
+    // Counted from when the source said so, not from the Item's own clock,
+    // which a device running fast can have put ahead of today.
+    givenAFreshDate(db, accountName, item, issuedAt, observedAt);
   });
   return 'changed';
 }
@@ -79,7 +81,7 @@ export function applySourceStateChange(
  * Through `set_due_date`, as the source's own so the person's marker is left
  * alone, and recorded on the link, so the new date is the connection's in turn.
  */
-function givenAFreshDate(db: AccountDb, accountName: string, item: Item, reopenedAt: string): void {
+function givenAFreshDate(db: AccountDb, accountName: string, item: Item, issuedAt: string, reopenedAt: string): void {
   const link = db
     .select({
       givenDueDate: pulledLinks.givenDueDate,
@@ -112,7 +114,7 @@ function givenAFreshDate(db: AccountDb, accountName: string, item: Item, reopene
     'set_due_date',
     {
       commandId: crypto.randomUUID(),
-      issuedAt: reopenedAt,
+      issuedAt,
       workspaceId: item.workspaceId,
       itemId: item.id,
       dueDate: fresh,
