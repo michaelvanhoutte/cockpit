@@ -125,6 +125,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         layouts: held.layouts,
         associations: [],
         attachments: [],
+        series: [],
         itemFormPresentation: 'centered',
         duplicates: held.duplicates,
         filings: [],

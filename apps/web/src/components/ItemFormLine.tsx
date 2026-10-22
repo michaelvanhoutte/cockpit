@@ -1,7 +1,13 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { ItemStatus, Priority } from '@cockpit/shared';
 import { MenuContent, menuItemSplitClass } from './Menu';
+import { Suspense, lazy } from 'react';
+import type { RepeatsChoice } from './RepeatsChip';
+import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { DueChips, PriorityFlags, QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
+
+/** The Repeats chip and its popover, fetched behind the line so the entry does not carry them ("Set an Item to repeat from its form", issue 1406). */
+const RepeatsChip = lazy(() => import('./RepeatsChip').then((loaded) => ({ default: loaded.RepeatsChip })));
 
 const STATUSES: readonly [ItemStatus, string][] = [
   ['to_do', 'To do'],
@@ -14,7 +20,8 @@ const STATUSES: readonly [ItemStatus, string][] = [
  * and modal alike ("Set status, priority and due date on one line in the Item
  * form at a desk", issue 1102): a Status chip, then the flags and Due chips as
  * Capture's strip draws them. What a choice does is the form's - written at
- * once when docked, held until Save in the modal - so this only reports it.
+ * once when docked, held until Save in the modal - so this only reports it. The
+ * Repeats chip ends the line.
  */
 export function ItemFormLine({
   status,
@@ -24,6 +31,7 @@ export function ItemFormLine({
   onStatus,
   onPriority,
   onDueDate,
+  repeats,
 }: {
   status: ItemStatus;
   priority: Priority | null;
@@ -32,6 +40,8 @@ export function ItemFormLine({
   onStatus: (status: ItemStatus) => void;
   onPriority: (priority: Priority | null) => void;
   onDueDate: (dueDate: string | null) => void;
+  /** The Repeats chip that ends the line ("Set an Item to repeat from its form", issue 1406); absent where the Item cannot repeat. */
+  repeats?: RepeatsChoice | undefined;
 }) {
   const statusName = STATUSES.find(([value]) => value === status)![1];
   return (
@@ -62,6 +72,14 @@ export function ItemFormLine({
       </DropdownMenu.Root>
       <PriorityFlags priority={priority} onPriority={onPriority} disabled={disabled} />
       <DueChips due={dueDate} onDue={onDueDate} disabled={disabled} />
+      {repeats && (
+        // A chunk that never arrives leaves the line without the chip, the rest of the form as it was.
+        <WhateverTheQuestionDoes onFailure={() => {}}>
+          <Suspense fallback={null}>
+            <RepeatsChip disabled={disabled} {...repeats} />
+          </Suspense>
+        </WhateverTheQuestionDoes>
+      )}
     </div>
   );
 }

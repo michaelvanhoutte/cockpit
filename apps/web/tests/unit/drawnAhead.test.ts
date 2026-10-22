@@ -911,3 +911,62 @@ describe('Item editing', () => {
     });
   });
 });
+
+/**
+ * "Set an Item to repeat from its form, and see the rule on its row" (issue
+ * 1406): a repeat is the Item's series as the server will hold it, drawn from the
+ * rule the change carries. That it is shown at once on the form and the row is
+ * tests/unit/components/RepeatsAtOnce.test.tsx.
+ */
+describe('Item editing', () => {
+  describe('a repeat shows the moment it is set, before the server has answered', () => {
+    const SERIES = '11111111-1111-7111-8111-0000000000aa';
+    const rule: { frequency: 'daily' | 'weekly' | 'monthly'; nextOn: string; dueAfterDays: number; timeZone: string } = { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 5, timeZone: 'Europe/Brussels' };
+    const set = (repeat: typeof rule | null, seriesId = SERIES): CommandArgs => ({
+      name: 'set_repeat',
+      payload: { ...envelope(BART), seriesId, repeat },
+    });
+    const held = (items: Item[], series: WorkspaceSnapshot['series'] = []) =>
+      ({ ...workspace(items), workspace: { tenantId: 'tenant' }, series }) as unknown as WorkspaceSnapshot;
+
+    it('makes the series from the rule and has the Item name it', () => {
+      const copy = held([anItem(BART, { seriesId: null }), anItem(LISA, { seriesId: null })]);
+
+      const drawn = drawnAhead(copy, set(rule));
+
+      expect(drawn.series).toEqual([{ id: SERIES, tenantId: 'tenant', ...rule, stoppedAt: null }]);
+      expect(read(drawn, BART)?.seriesId).toBe(SERIES);
+      expect(read(drawn, LISA)?.seriesId).toBeNull();
+      expect(copy.series).toEqual([]);
+    });
+
+    it('changes the series the Item already names rather than making another', () => {
+      const own = { id: 'series-own', tenantId: 'tenant', ...rule, stoppedAt: null };
+      const copy = held([anItem(BART, { seriesId: 'series-own' })], [own]);
+
+      const drawn = drawnAhead(copy, set({ ...rule, frequency: 'monthly' }));
+
+      expect(drawn.series).toEqual([{ ...own, frequency: 'monthly' }]);
+      expect(read(drawn, BART)?.seriesId).toBe('series-own');
+    });
+
+    it('stops the series on Never and leaves the Item naming it', () => {
+      const own = { id: 'series-own', tenantId: 'tenant', ...rule, stoppedAt: null };
+      const copy = held([anItem(BART, { seriesId: 'series-own' })], [own]);
+
+      const drawn = drawnAhead(copy, set(null));
+
+      expect(drawn.series).toEqual([{ ...own, stoppedAt: AT }]);
+      expect(read(drawn, BART)?.seriesId).toBe('series-own');
+    });
+
+    it.each([
+      { situation: 'Never on an Item that repeats nothing', change: set(null), items: [anItem(BART, { seriesId: null })] },
+      { situation: 'a repeat on an Item the copy does not hold', change: set(rule), items: [anItem(LISA, { seriesId: null })] },
+    ])('leaves the copy as it is for $situation', ({ change, items }) => {
+      const copy = held(items);
+
+      expect(drawnAhead(copy, change)).toBe(copy);
+    });
+  });
+});

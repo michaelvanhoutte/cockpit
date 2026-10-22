@@ -99,6 +99,7 @@ function anItem(id: string, title: string, over: Partial<Item> = {}): Item {
     proposedPanelReason: null,
     proposedPanelFit: null,
     claudeProposals: null,
+    seriesId: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,

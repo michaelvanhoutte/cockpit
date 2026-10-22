@@ -175,6 +175,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     CONNECTION_HISTORY_LISTED,
     PANEL_COLUMNS,
     DROP_WORKSPACE_COLOURS,
+    SERIES,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1076,6 +1077,61 @@ const DROP_WORKSPACE_COLOURS: Change = {
     { sql: 'ALTER TABLE `workspaces` DROP COLUMN `bar`' },
     { sql: 'ALTER TABLE `workspaces` DROP COLUMN `ground`' },
     { sql: 'ALTER TABLE `workspaces` DROP COLUMN `header`' },
+  ],
+};
+
+/**
+ * What a repeating Item repeats by ("Repeat an Item on a schedule, so it comes
+ * back every Monday or every quarter", issue 1405): a new table, `series`, and
+ * one nullable column on `items` naming the series an Item is an occurrence of;
+ * `schema.ts` says what each carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): a `CREATE TABLE` and an `ADD COLUMN`, and no statement that
+ *   reads or writes a row. It is the whole of the expand; there is no contract
+ *   step.
+ * - **If it stops halfway:** one change is one transaction, so a failure on
+ *   either statement takes the other back, and the next open applies both.
+ * - **The second time it runs:** it does not re-run once recorded; the table is
+ *   `IF NOT EXISTS`, and SQLite refuses a column that already exists, which the
+ *   transaction makes safe.
+ * - **Rows that predate it:** none in the table, and every Item reads NULL: it
+ *   repeats nothing. Nothing is backfilled.
+ * - **What is in each environment:** staging and production gain an empty table
+ *   and a NULL on every Item; no series exists until a person sets one, so
+ *   nothing is written on deploy.
+ * - **Rolled back after it has run:** an older release names neither, so it
+ *   reads every Item as one that does not repeat; the table and column keep
+ *   what they held.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const SERIES: Change = {
+  name: '0091-series',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`series\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`frequency\` text NOT NULL,
+	\`next_on\` text NOT NULL,
+	\`due_after_days\` integer,
+	\`time_zone\` text NOT NULL,
+	\`stopped_at\` text,
+	\`created_at\` text NOT NULL,
+	\`updated_at\` text NOT NULL,
+	CONSTRAINT "series_next_on_is_date" CHECK(next_on IS NULL OR (date(next_on) IS NOT NULL AND date(next_on) = next_on)),
+	CONSTRAINT "series_due_after_days_is_not_negative" CHECK(due_after_days >= 0),
+	${timestampCheck('series', 'stopped_at')},
+	${timestampCheck('series', 'created_at')},
+	${timestampCheck('series', 'updated_at')}
+) STRICT`,
+    },
+    {
+      sql: 'ALTER TABLE `items` ADD COLUMN `series_id` text REFERENCES `series`(`id`) ON UPDATE no action ON DELETE restrict',
+    },
   ],
 };
 

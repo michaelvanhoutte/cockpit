@@ -89,6 +89,7 @@ import {
   DashboardOrderStaleError,
   ItemNotFoundError,
   LastDashboardError,
+  RepeatRefusedError,
   SentenceRefusedError,
   SentenceNotFoundError,
   LayoutNotFoundError,
@@ -127,6 +128,7 @@ import {
   judgeableItemsForAccount,
   listAssociationsForWorkspace,
   listAttachmentsInWorkspace,
+  listSeriesInWorkspace,
   listDuplicatesInWorkspace,
   listDashboards,
   listLayoutsInWorkspace,
@@ -250,6 +252,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         filings: listFilingsInWorkspace(db, accountName, workspaceId),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId),
+        series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
@@ -1519,6 +1522,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       }
       if (
         error instanceof UnknownThemeError ||
+        // A 400 as well: the Item is there, and the rule asked for is one it cannot take.
+        error instanceof RepeatRefusedError ||
         // A 400 rather than a 404 or a 409: the panel exists and nothing is in
         // the way - it is simply not the kind of panel that takes this.
         error instanceof PanelHoldsSomethingElseError ||

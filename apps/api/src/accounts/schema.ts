@@ -36,6 +36,7 @@ import type {
   PanelFormat,
   PanelFit,
   Priority,
+  RepeatFrequency,
   Source,
   StoredPanelKind,
 } from '@cockpit/shared';
@@ -1041,6 +1042,15 @@ export const items = sqliteTable(
      * count as set. Nullable and carries no CHECK, as that column is.
      */
     dueDateChosenAt: text('due_date_chosen_at'),
+    /**
+     * The series this Item is an occurrence of ("Repeat an Item on a schedule,
+     * so it comes back every Monday or every quarter", issue 1405), and NULL for
+     * an Item that has never repeated - every Item from before it. The rule is
+     * the series' own. Nullable with a REFERENCES clause, the only shape SQLite
+     * accepts for a new column on a table that cannot be rebuilt; no CHECK, for
+     * the reason `proposed_panel_id` has none.
+     */
+    seriesId: text('series_id').references(() => series.id, { onDelete: 'restrict' }),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
 
@@ -1577,6 +1587,45 @@ export const attachments = sqliteTable(
     index('attachments_tenant_item').on(t.tenantId, t.itemId),
     check('attachments_size_is_positive', sql.raw('size > 0')),
     check('attachments_created_at_is_timestamp', isTimestamp('created_at')),
+  ],
+);
+
+/**
+ * A repeating Item's rule ("Repeat an Item on a schedule, so it comes back every
+ * Monday or every quarter", issue 1405): one row per series, named by every Item
+ * that is one of its occurrences (`items.series_id`). Sent in the Workspace
+ * snapshot, so the form and a row's mark are drawn without a read.
+ *
+ * - **`next_on` is the day the series is anchored to**, a calendar day on the
+ *   series' own `time_zone` - the browser's when the rule was set, so a day starts
+ *   at midnight there. Never before the day the rule was set.
+ * - **`due_after_days`** is the calendar days from an occurrence appearing to its
+ *   due date, NULL for none.
+ * - **`stopped_at` is *Never***: the series stays and the Items keep naming it,
+ *   so setting a rule again on any of them starts the same series over.
+ * - **`frequency` carries no CHECK**: the set the product may extend is guarded
+ *   by its Zod enum alone, as this file's header says of panel kinds.
+ */
+export const series = sqliteTable(
+  'series',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    frequency: text('frequency').$type<RepeatFrequency>().notNull(),
+    nextOn: text('next_on').notNull(),
+    dueAfterDays: integer('due_after_days'),
+    timeZone: text('time_zone').notNull(),
+    stoppedAt: text('stopped_at'),
+    createdAt: text('created_at').notNull(),
+    /** When the rule was last set: what a stale command is told apart by. */
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    check('series_next_on_is_date', isDate('next_on')),
+    check('series_due_after_days_is_not_negative', sql`due_after_days >= 0`),
+    check('series_stopped_at_is_timestamp', isTimestamp('stopped_at')),
+    check('series_created_at_is_timestamp', isTimestamp('created_at')),
+    check('series_updated_at_is_timestamp', isTimestamp('updated_at')),
   ],
 );
 

@@ -41,6 +41,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     proposedPanelReason: null,
     proposedPanelFit: null,
     claudeProposals: null,
+    seriesId: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,
@@ -808,6 +809,23 @@ describe('Item editing', () => {
       aRow({ item: anItem({ description }) });
 
       expect(screen.queryByLabelText('Has a description') !== null).toBe(marked);
+    });
+
+    /**
+     * "Set an Item to repeat from its form, and see the rule on its row" (issue
+     * 1406): the list hands the row the rule its Item repeats by, none for an Item
+     * that does not repeat or whose series is stopped.
+     */
+    it.each([
+      { situation: 'a weekly rule from a Monday', repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null }, hover: 'Repeats weekly on Monday' },
+      { situation: 'a daily rule', repeat: { frequency: 'daily' as const, nextOn: '2026-11-02', dueAfterDays: 3 }, hover: 'Repeats daily' },
+      { situation: 'no rule, as for an Item that does not repeat or whose series is stopped', repeat: null, hover: null },
+    ])('wears a ↻ naming the rule for $situation', ({ repeat, hover }) => {
+      aRow({ extra: { repeat } });
+
+      const mark = screen.queryByRole('img', { name: /^Repeats/ });
+      expect(mark?.getAttribute('title') ?? null).toBe(hover);
+      expect(mark === null ? null : mark.textContent).toBe(hover === null ? null : '↻');
     });
 
     /**

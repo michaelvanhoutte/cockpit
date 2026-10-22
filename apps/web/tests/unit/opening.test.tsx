@@ -327,6 +327,7 @@ describe('Offline', () => {
       layouts: [],
       associations: [],
       attachments: [],
+      series: [],
       itemFormPresentation: 'centered' as const,
       duplicates: [],
       filings: [],
