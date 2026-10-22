@@ -1,4 +1,4 @@
-import { isTypedInto } from './inboxCollapsed';
+import { isTypedInto, somethingIsOpenOverThePage } from './inboxCollapsed';
 
 /**
  * Moving through the Inbox from the keyboard ("Move through the Inbox with J
@@ -19,7 +19,7 @@ export type Press = Pick<
 export function plainKey(event: Press, doc: Document, withShift = false): string | null {
   if (event.ctrlKey || event.altKey || event.metaKey || (event.shiftKey && !withShift)) return null;
   if (event.defaultPrevented || event.repeat || event.isComposing) return null;
-  return isTypedInto(event.target) || coveredByAWindow(doc)
+  return isTypedInto(event.target) || somethingIsOpenOverThePage(doc)
     ? null
     : event.key.length === 1
       ? event.key.toLowerCase()
@@ -33,18 +33,8 @@ export function inboxStep(event: Press, doc: Document = document): 1 | -1 | null
   return STEPS[plainKey(event, doc, true) ?? ''] ?? null;
 }
 
-/**
- * A menu or window is open over the list - except the Item form docked beside
- * it, which is there to be read as the focus moves (`data-docked-form`,
- * `ItemForm.tsx`).
- */
-function coveredByAWindow(root: ParentNode): boolean {
-  return (
-    root.querySelector('[role="menu"], [role="dialog"]:not([data-docked-form]), [role="alertdialog"]') !== null
-  );
-}
-
-const STEPS: Record<string, 1 | -1> = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
+/** Which way each key moves the focus; exported so the test that holds the Keyboard shortcuts window to the keys handled can read them. */
+export const STEPS: Record<string, 1 | -1> = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
 
 let extension: Promise<void> | null = null;
 

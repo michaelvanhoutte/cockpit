@@ -340,7 +340,7 @@ const nameField = (dialog: HTMLElement) =>
 
 describe('Panels', () => {
   describe('every dashboard heading offers a new panel, except a dashboard filtered in this browser', () => {
-    const onAddPanel = () => Promise.resolve('p-new');
+    const onAddPanel = () => 'p-new';
 
     it.each([
       {
@@ -413,7 +413,7 @@ describe('Panels', () => {
       props,
       button,
     }) => {
-      const onAddPanel = vi.fn((_dashboardId: string, _name: string) => Promise.resolve('p-new'));
+      const onAddPanel = vi.fn((_dashboardId: string, _name: string) => 'p-new');
       const { user, picked, dialog } = show({ onAddPanel, ...props });
 
       await user.click(plusOn(dialog, 'Research'));
@@ -425,7 +425,7 @@ describe('Panels', () => {
     });
 
     it('cannot be added while the name is blank, and takes no more than 60 characters', async () => {
-      const { user, dialog } = show({ onAddPanel: () => Promise.resolve('p-new') });
+      const { user, dialog } = show({ onAddPanel: () => 'p-new' });
       await user.click(plusOn(dialog, 'Today'));
 
       expect(within(dialog).getByRole('button', { name: 'Add & move' })).toBeDisabled();
@@ -435,31 +435,23 @@ describe('Panels', () => {
       expect(nameField(dialog)).toHaveValue(`   ${'x'.repeat(57)}`);
     });
 
-    it('is sent once however often it is pressed while the first is in flight', async () => {
-      let finish: (id: string) => void = () => undefined;
-      const onAddPanel = vi.fn(
-        () =>
-          new Promise<string>((resolve) => {
-            finish = resolve;
-          }),
-      );
+    it('picks the panel at the click and closes the field, with nothing to wait for', async () => {
+      const onAddPanel = vi.fn(() => 'p-new');
       const { user, picked, dialog } = show({ onAddPanel });
       await user.click(plusOn(dialog, 'Today'));
       await user.type(nameField(dialog), 'Waiting on');
 
       await user.click(within(dialog).getByRole('button', { name: 'Add & move' }));
-      fireEvent.submit(nameField(dialog).closest('form')!);
-      fireEvent.submit(nameField(dialog).closest('form')!);
-      finish('p-new');
 
-      await waitFor(() => expect(picked).toEqual([{ panel: 'p-new' }]));
+      expect(picked).toEqual([{ panel: 'p-new' }]);
+      expect(within(dialog).queryByRole('textbox', { name: /^Name of the new panel/ })).toBeNull();
       expect(onAddPanel).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('backing out closes the field, never the picker, and makes nothing', () => {
     it('closes the field from the ×, puts the + back, and makes nothing', async () => {
-      const onAddPanel = vi.fn(() => Promise.resolve('p-new'));
+      const onAddPanel = vi.fn(() => 'p-new');
       const { user, dialog } = show({ onAddPanel });
       await user.click(plusOn(dialog, 'Today'));
 
@@ -472,7 +464,7 @@ describe('Panels', () => {
 
     it('closes only the field on Escape in it, and the picker on the next Escape', async () => {
       const onCancel = vi.fn();
-      const { user, dialog } = show({ onAddPanel: () => Promise.resolve('p-new'), onCancel });
+      const { user, dialog } = show({ onAddPanel: () => 'p-new', onCancel });
       await user.click(plusOn(dialog, 'Today'));
       await user.type(nameField(dialog), 'Wait');
 
@@ -486,7 +478,7 @@ describe('Panels', () => {
     });
 
     it('moves the field to the dashboard whose + is pressed next, one at a time', async () => {
-      const { user, dialog } = show({ onAddPanel: () => Promise.resolve('p-new') });
+      const { user, dialog } = show({ onAddPanel: () => 'p-new' });
       await user.click(plusOn(dialog, 'Today'));
 
       await user.click(plusOn(dialog, 'Research'));
@@ -496,7 +488,7 @@ describe('Panels', () => {
     });
 
     it('opens with no field, however it was left', async () => {
-      const { user, dialog, view } = show({ onAddPanel: () => Promise.resolve('p-new') });
+      const { user, dialog, view } = show({ onAddPanel: () => 'p-new' });
       await user.click(plusOn(dialog, 'Today'));
       const picker = (open: boolean) => (
         <MoveToPicker
@@ -509,7 +501,7 @@ describe('Panels', () => {
           open={open}
           onPick={vi.fn()}
           onCancel={vi.fn()}
-          onAddPanel={() => Promise.resolve('p-new')}
+          onAddPanel={() => 'p-new'}
         />
       );
 
@@ -522,7 +514,7 @@ describe('Panels', () => {
 
   describe('Enter and the arrow keys in the search reach only places an item can go', () => {
     it('makes and picks nothing on Enter over a search matching nothing', async () => {
-      const onAddPanel = vi.fn(() => Promise.resolve('p-new'));
+      const onAddPanel = vi.fn(() => 'p-new');
       const { user, picked, dialog } = show({ onAddPanel });
 
       await user.type(search(dialog), 'zzz{Enter}');
@@ -532,7 +524,7 @@ describe('Panels', () => {
     });
 
     it('steps over the + buttons going down the list', async () => {
-      const { user, dialog } = show({ onAddPanel: () => Promise.resolve('p-new'), alreadyOn: [] });
+      const { user, dialog } = show({ onAddPanel: () => 'p-new', alreadyOn: [] });
 
       await user.type(search(dialog), '{ArrowDown}');
       expect(within(dialog).getByRole('button', { name: 'Falcon' })).toHaveFocus();
@@ -555,7 +547,11 @@ describe('Panels', () => {
         says: 'That did not reach the server. Try again.',
       },
     ])('$situation shows under the field, keeps the name, and files nothing', async ({ rejects, says }) => {
-      const { user, picked, dialog } = show({ onAddPanel: () => Promise.reject(rejects) });
+      const { user, picked, dialog } = show({
+        onAddPanel: () => {
+          throw rejects;
+        },
+      });
       await user.click(plusOn(dialog, 'Today'));
       await user.type(nameField(dialog), 'Falcon');
 
@@ -569,7 +565,9 @@ describe('Panels', () => {
 
     it('goes as soon as the name is edited', async () => {
       const { user, dialog } = show({
-        onAddPanel: () => Promise.reject(new CommandRefused(409, 'Taken.')),
+        onAddPanel: () => {
+          throw new CommandRefused(409, 'Taken.');
+        },
       });
       await user.click(plusOn(dialog, 'Today'));
       await user.type(nameField(dialog), 'Falcon');
@@ -584,7 +582,7 @@ describe('Panels', () => {
 
   describe('password managers leave the name field alone', () => {
     it('asks the browser and the 1Password, LastPass and Bitwarden extensions to ignore it', async () => {
-      const { user, dialog } = show({ onAddPanel: () => Promise.resolve('p-new') });
+      const { user, dialog } = show({ onAddPanel: () => 'p-new' });
 
       await user.click(plusOn(dialog, 'Today'));
 

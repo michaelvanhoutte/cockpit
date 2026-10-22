@@ -61,6 +61,7 @@ import {
   panelItems,
   panelPlacements,
   panels,
+  pulledLinks,
   rewriteHistory,
   textCorrections,
   workspaces,
@@ -2723,6 +2724,7 @@ export function sourceAccountsIn(
       failingBecause: connectionFailures.reason,
       choice: connectorAccounts.choice,
       filesByName: connectorAccounts.filesByName,
+      dueInDays: connectorAccounts.dueInDays,
     })
     .from(connectorAccounts)
     .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
@@ -2816,6 +2818,7 @@ export function getSourceAccount(
       externalAccountKey: string | null;
       choice: string | null;
       filesByName: boolean;
+      dueInDays: number | null;
     }
   | undefined {
   return db
@@ -2826,10 +2829,26 @@ export function getSourceAccount(
       externalAccountKey: connectorAccounts.externalAccountKey,
       choice: connectorAccounts.choice,
       filesByName: connectorAccounts.filesByName,
+      dueInDays: connectorAccounts.dueInDays,
     })
     .from(connectorAccounts)
     .where(
       and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, sourceAccountId)),
     )
     .get();
+}
+
+/**
+ * The due date a pulled connection gave this Item, or null where it gave none
+ * or the Item was not brought in by one - what makes the Item's date "still the
+ * connection's" while it equals it (issue 1409).
+ */
+export function givenDueDateOf(db: AccountDb, tenantId: string, itemId: string): string | null {
+  return (
+    db
+      .select({ givenDueDate: pulledLinks.givenDueDate })
+      .from(pulledLinks)
+      .where(and(eq(pulledLinks.tenantId, tenantId), eq(pulledLinks.itemId, itemId)))
+      .get()?.givenDueDate ?? null
+  );
 }

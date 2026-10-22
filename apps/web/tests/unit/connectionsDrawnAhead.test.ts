@@ -23,6 +23,7 @@ const MAIL: SourceAccount = {
   followsLabel: 'Flagged mail',
   followsListed: 'flagged',
   filesByName: false,
+  dueInDays: null,
 };
 const TEAMS: SourceAccount = { ...MAIL, id: 'account-teams', connectorId: 'teams', displayName: 'Ada Lovelace' };
 const held: SourceAccountList = { sourceAccounts: [MAIL, TEAMS] };
@@ -42,6 +43,11 @@ const chose = (choice: string, workspaceId = 'ws-work'): CommandArgs => ({
 const filing = (filesByName: boolean): CommandArgs => ({
   name: 'set_connection_files_by_name',
   payload: { commandId: `c-files-${String(filesByName)}`, issuedAt: AT, workspaceId: 'ws-work', sourceAccountId: 'account-mail', filesByName },
+});
+
+const dueIn = (dueInDays: number | null): CommandArgs => ({
+  name: 'set_connection_due_in_days',
+  payload: { commandId: `c-due-${String(dueInDays)}`, issuedAt: AT, workspaceId: 'ws-work', sourceAccountId: 'account-mail', dueInDays },
 });
 
 const rows = (list: SourceAccountList) => list.sourceAccounts.map((row) => row.id);
@@ -72,6 +78,12 @@ describe('Connector management', () => {
       expect(mail(over(held, [filing(true), filing(false)])).filesByName).toBe(false);
     });
 
+    it('gives a connection a due date in so many days, changes the days, and takes it away again', () => {
+      expect(mail(over(held, [dueIn(3)])).dueInDays).toBe(3);
+      expect(mail(over(held, [dueIn(3), dueIn(7)])).dueInDays).toBe(7);
+      expect(mail(over(held, [dueIn(3), dueIn(null)])).dueInDays).toBeNull();
+    });
+
     it('draws a choice and files by name made together on the one connection', () => {
       expect(mail(over(held, [chose('all'), filing(true)]))).toMatchObject({ follows: 'all', filesByName: true });
     });
@@ -83,6 +95,7 @@ describe('Connector management', () => {
     it.each([
       { situation: 'a disconnect', change: disconnected('account-mail', 'ws-other') },
       { situation: 'a choice', change: chose('all', 'ws-other') },
+      { situation: 'a due date', change: { ...dueIn(3), payload: { ...dueIn(3).payload, workspaceId: 'ws-other' } } as CommandArgs },
     ])('leaves the list alone for $situation of another Workspace’s connection', ({ change }) => {
       expect(over(held, [change])).toEqual(held);
     });

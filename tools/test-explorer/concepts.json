@@ -299,7 +299,7 @@
     {
       "key": "Item editing",
       "label": "Item editing",
-      "browserWalks": 14,
+      "browserWalks": 15,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",
@@ -376,8 +376,8 @@
       ]
     },
     {
-      "key": "What Cockpit changed",
-      "label": "What Cockpit changed",
+      "key": "Suggestions",
+      "label": "Suggestions",
       "parent": "Capture",
       "sourcePatterns": [
         "apps/api/src/domain/rewrite-history.ts",
@@ -404,12 +404,13 @@
     {
       "key": "Connector management",
       "label": "Connector management",
-      "browserWalks": 9,
+      "browserWalks": 10,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/connectors/credential-crypto.ts",
         "apps/api/src/connectors/sign-in.ts",
         "apps/api/src/domain/filing-by-name.ts",
+        "apps/api/src/domain/due-in-days.ts",
         "packages/connectors/teams/src/sign-in.ts",
         "packages/connectors/gmail/src/sign-in.ts",
         "packages/connectors/gmail/src/credential.ts",
@@ -487,9 +488,15 @@
     {
       "key": "Shortcuts",
       "label": "Shortcuts",
-      "browserWalks": 1,
+      "browserWalks": 2,
       "parent": "Across the app",
-      "sourcePatterns": ["apps/web/src/shortcutTip.ts", "apps/web/src/components/ShortcutTip.tsx"]
+      "sourcePatterns": [
+        "apps/web/src/shortcutTip.ts",
+        "apps/web/src/components/ShortcutTip.tsx",
+        "apps/web/src/keyboardShortcuts.ts",
+        "apps/web/src/shortcutList.ts",
+        "apps/web/src/components/KeyboardShortcutsWindow.tsx"
+      ]
     },
     {
       "key": "Menus",

@@ -31,6 +31,7 @@ import {
   claudeSessionLink,
 } from './domain/claude-send.js';
 import { claudeProposalsSchema } from './domain/claude-proposal.js';
+import { dueInDaysSchema } from './domain/source-account.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import {
   filterConditionSchema,
@@ -798,6 +799,15 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
    * the stored one alone.
    */
   filesByName: z.boolean().optional(),
+  /**
+   * How many calendar days after the day it arrives each Item the connection
+   * brings in is due, as the person answered it before the sign-in ("Give each
+   * email a Gmail or Outlook connection brings in a due date a set number of
+   * days out", issue 1409): a number of days, or `null` for none. Written by
+   * the callback route only for a connector that is pulled. Absent: a new
+   * connection starts with none, and a reconnect leaves the stored one alone.
+   */
+  dueInDays: dueInDaysSchema.nullable().optional(),
 });
 export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
 
@@ -840,6 +850,20 @@ export const setConnectionFilesByNameSchema = commandEnvelopeSchema.extend({
   filesByName: z.boolean(),
 });
 export type SetConnectionFilesByNameCommand = z.infer<typeof setConnectionFilesByNameSchema>;
+
+/**
+ * set_connection_due_in_days - how many calendar days after the day it arrives
+ * each Item a connection brings in is due, or `null` for none ("Give each email
+ * a Gmail or Outlook connection brings in a due date a set number of days out",
+ * issue 1409). Offered by the route only for a connector that is pulled; naming
+ * another Workspace's connection is refused. Counts from the moment it is
+ * saved: Items already in keep the date they have, or none.
+ */
+export const setConnectionDueInDaysSchema = commandEnvelopeSchema.extend({
+  sourceAccountId: z.string().min(1),
+  dueInDays: dueInDaysSchema.nullable(),
+});
+export type SetConnectionDueInDaysCommand = z.infer<typeof setConnectionDueInDaysSchema>;
 
 /**
  * set_duplicate_settled — a flagged pair settled as not a duplicate, or that
@@ -954,6 +978,7 @@ export const commandSchemas = {
   disconnect_source_account: disconnectSourceAccountSchema,
   set_connection_choice: setConnectionChoiceSchema,
   set_connection_files_by_name: setConnectionFilesByNameSchema,
+  set_connection_due_in_days: setConnectionDueInDaysSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
   remember_sentence: rememberSentenceSchema,
   edit_remembered_sentence: editRememberedSentenceSchema,

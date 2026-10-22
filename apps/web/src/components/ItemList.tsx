@@ -250,9 +250,11 @@ export function ItemList({
   ): Promise<unknown> => {
     setFailure(null);
     const answer = command.mutateAsync(args);
-    answer.catch((error: unknown) =>
-      setFailure({ itemId: args.payload.itemId, why: refusalFrom({ error }) ?? 'That did not reach the server. Try again.' }),
-    );
+    answer.catch((error: unknown) => {
+      // Nothing to say for a filing sent back with a Panel that was not made: the Panel said so.
+      const why = refusalFrom({ error });
+      if (why) setFailure({ itemId: args.payload.itemId, why });
+    });
     return answer;
   };
   const send = useSendCommand();

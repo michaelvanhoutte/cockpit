@@ -1862,7 +1862,7 @@ describe('Panels', () => {
   });
 });
 
-describe('What Cockpit changed', () => {
+describe('Suggestions', () => {
   describe('a refinement recorded before this shipped is still read back, saying what it lacks', () => {
     /**
      * `0051-rewrite-history-looks-at` and `0052-rewrite-history-panel-before`
@@ -1969,8 +1969,8 @@ describe('Connector management', () => {
 
       expect(read).toEqual({ status: 'ok', value: { lines: [], olderRemain: false } });
       expect(await rowsIn()).toEqual({
-        // With `files_by_name` off, which `0078-files-by-name` adds on the same open.
-        connections: before.connections.map((row) => ({ ...row, files_by_name: 0 })),
+        // With `files_by_name` off, which `0078-files-by-name` adds on the same open, and `due_in_days` none, which `0091-due-in-days` does.
+        connections: before.connections.map((row) => ({ ...row, files_by_name: 0, due_in_days: null })),
         checks: before.checks.map((row) => ({ ...row, check_reason: null })),
       });
     });
@@ -2148,11 +2148,11 @@ const GMAIL_RECONNECT = '0066-gmail-connections-reconnect';
  */
 const connectorRowsIn = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, which `0078-files-by-name` adds on the same open.
+    // Without `files_by_name` and `due_in_days`, which `0078-files-by-name` and `0091-due-in-days` add on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
-      .map(({ follows: _follows, files_by_name: _filesByName, ...row }) => row),
+      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, ...row }) => row),
     failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
@@ -2242,18 +2242,18 @@ const schemaIn = (name: string) =>
 /** The rows the drop must leave alone: connections, Items and the generic host's own. */
 const keptBesideGmail = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, which `0078-files-by-name` adds on the same open.
+    // Without `files_by_name` and `due_in_days`, which `0078-files-by-name` and `0091-due-in-days` add on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
-      .map(({ follows: _follows, files_by_name: _filesByName, ...row }) => row),
+      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, ...row }) => row),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
-    // Without `names`, which `0078-files-by-name` adds on the same open.
+    // Without `names` and `given_due_date`, which `0078-files-by-name` and `0091-due-in-days` add on the same open.
     links: sql
       .exec('SELECT * FROM pulled_links ORDER BY source_id')
       .toArray()
-      .map(({ names: _names, ...row }) => row),
+      .map(({ names: _names, given_due_date: _givenDueDate, ...row }) => row),
     // Without the column `0078-connection-history` adds on the same open.
     checkpoints: sql
       .exec('SELECT * FROM pulled_connections ORDER BY source_account_id')
@@ -3541,6 +3541,52 @@ describe('Connector management', () => {
       await abortAllDurableObjects();
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
       expect(await filingRowsIn(name)).toEqual(once);
+    });
+  });
+});
+
+/**
+ * `0091-due-in-days` ("Give each email a Gmail or Outlook connection brings in
+ * a due date a set number of days out", issue 1409) meets connections, links
+ * and Items from before it: every connection reads as giving no date, every
+ * link as having given none, and no Item's date is touched.
+ */
+describe('Connector management', () => {
+  describe('the migration leaves every existing connection giving no due date and every existing Item’s date as it was', () => {
+    const DUE_IN_DAYS = '0091-due-in-days';
+    const itemDatesIn = (name: string) =>
+      inStoreAsItIs(name, (sql) =>
+        sql.exec('SELECT id, due_date, due_date_set_at, due_date_chosen_at FROM items ORDER BY id').toArray(),
+      );
+    const datesIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => ({
+        days: sql.exec('SELECT id, due_in_days FROM connector_accounts ORDER BY id').toArray(),
+        given: sql.exec('SELECT source_id, given_due_date FROM pulled_links ORDER BY source_id').toArray(),
+      }));
+
+    it('reads every existing connection as giving none and every link as having given none, leaves every Item’s date, and changes nothing opened again', async () => {
+      const name = 'aged-store-before-due-in-days';
+      await agedTo(name, justBefore(DUE_IN_DAYS));
+      await fillWithWhatIsAlreadyThere(name);
+      const itemsBefore = await itemDatesIn(name);
+      expect(itemsBefore.length).toBeGreaterThan(0);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const read = await storeNamed(name).sourceAccounts(name, 'ws-before');
+      const once = await datesIn(name);
+
+      expect(read.status === 'ok' ? read.value.length : 0).toBeGreaterThan(0);
+      expect(read.status === 'ok' ? read.value.map((one) => one.dueInDays) : []).toEqual(
+        read.status === 'ok' ? read.value.map(() => null) : [],
+      );
+      expect(once.given.length).toBeGreaterThan(0);
+      expect(once.given.map((link) => link.given_due_date)).toEqual(once.given.map(() => null));
+      expect(await itemDatesIn(name)).toEqual(itemsBefore);
+      expect(once.days.map((connection) => connection.due_in_days)).toEqual(once.days.map(() => null));
+
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await datesIn(name)).toEqual(once);
     });
   });
 });
