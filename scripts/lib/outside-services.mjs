@@ -77,7 +77,7 @@ export function unclaimedHosts(list, files) {
   const claimed = new Set([
     ...list.services.flatMap((service) => service.hosts ?? []),
     ...(list.notServices ?? []).map((excused) => excused.host),
-  ]);
+  ].map((host) => host.toLowerCase()));
   const failures = [];
   for (const file of files) {
     if (isTestFile(file.path)) continue;

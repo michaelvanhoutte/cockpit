@@ -80,6 +80,11 @@ describe('every outside service has a live contract suite, or a gap and its reas
     assert.deepEqual(unclaimedHosts(list, files), []);
   });
 
+  it('claims a host whatever case the list writes it in', () => {
+    const shouting = { services: [{ name: 'Twilio Verify', hosts: ['Verify.Twilio.com'], gap: 'a paid text' }] };
+    assert.deepEqual(unclaimedHosts(shouting, [source('packages/connectors/twilio/src/verify.ts', 'verify.twilio.com')]), []);
+  });
+
   it('passes a host the list marks as not a service, with its reason', () => {
     assert.deepEqual(unclaimedHosts(list, [source('apps/web/src/description/safeHref.ts', 'example.com')]), []);
   });

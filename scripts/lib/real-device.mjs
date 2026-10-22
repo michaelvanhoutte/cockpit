@@ -13,7 +13,9 @@
 // a verdict out; scripts/real-device-gate.mjs reads the body with gh.
 //
 
-const LINE = /^\s*(?:[-*+]\s+)?real device\s*:\s*(.*)$/i;
+// After any quote, bullet or number, and with any bold or italic around the
+// label, since a line the gate cannot see would pass with no result.
+const LINE = /^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+)?[*_]*real device[*_]*\s*:[*_]*\s*(.*)$/i;
 const SEPARATOR = /\s[-–—]\s/;
 // A result left as the template's placeholder, or as a promise, is no result.
 const NO_RESULT = /^(?:<[^>]*>|\[[^\]]*\]|\.{3}|…|\?+|todo|tbd|pending|n\/a)\.?$/i;

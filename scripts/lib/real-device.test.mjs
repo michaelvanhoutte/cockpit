@@ -52,6 +52,13 @@ describe('a pull request is not marked ready while a real-device line has no res
     assert.match(gate.refusals[0], /could not read the pull request body/);
   });
 
+  it('reads a bolded, numbered or quoted line, so none slips past unread', () => {
+    for (const line of ['**Real device:** Pixel 8', '1. Real device: Pixel 8', '> Real device: Pixel 8', '_Real device_: Pixel 8']) {
+      assert.equal(realDeviceGate(walk(line)).ok, false, line);
+    }
+    assert.equal(realDeviceGate(walk('**Real device:** Pixel 8 - dictated once, written once')).ok, true);
+  });
+
   it('reads the line in a list item and with Windows line endings', () => {
     assert.equal(realDeviceGate('- Real device: Pixel 8\r\n').ok, false);
     assert.equal(realDeviceGate('- Real device: Pixel 8 — worked\r\n').ok, true);
