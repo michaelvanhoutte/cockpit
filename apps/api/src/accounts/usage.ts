@@ -36,8 +36,10 @@ const LONGEST_BREAKDOWN = 50;
  * read, counts in UTC.**
  *
  * Each day comes with the instant it starts (`dayStarts`, oldest first), which
- * is what a sign-in is placed on a day by: searched for rather than worked out
- * from an offset, so a day a clock change shortens or lengthens is right.
+ * is what a sign-in is placed on a day by: the first is searched for, and each
+ * later one is the previous a day on where that is checked to be the start and
+ * searched for near it where it is not (`nextDayStart`), so a day a clock
+ * change shortens or lengthens is right without an offset worked out.
  */
 export function usageWindow(asked: string | number | undefined, now: Date, timeZone?: string): UsageWindow {
   const parsed = typeof asked === 'number' ? asked : Number(asked);
@@ -47,11 +49,45 @@ export function usageWindow(asked: string | number | undefined, now: Date, timeZ
       : Math.min(parsed, USAGE_MAX_DAYS);
   const zone = timeZone !== undefined && captureDay(now.toISOString(), timeZone) !== null ? timeZone : 'UTC';
   const today = captureDay(now.toISOString(), zone)!.date;
-  const dayStarts = Array.from({ length: days }, (_, back) => {
+  const dayStarts: UsageWindow['dayStarts'] = [];
+  let previous = 0;
+  for (let back = 0; back < days; back++) {
     const day = daysOnFrom(today, back + 1 - days);
-    return { day, startsAt: new Date(dayStartsAt(day, zone)!).toISOString() };
-  });
+    previous = back === 0 ? dayStartsAt(day, zone)! : nextDayStart(previous, day, zone);
+    dayStarts.push({ day, startsAt: new Date(previous).toISOString() });
+  }
   return { days, since: dayStarts[0]!.startsAt, dayStarts };
+}
+
+const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
+
+/** How far from a day a later one's start is looked for: no clock change moves a day's start by more. */
+const CLOCK_CHANGE_REACH = 3 * 60 * MINUTE;
+
+/**
+ * The instant `day` starts, given the instant the day before did. A year's
+ * window asks for 365 of them, and a search for each would cost more CPU than
+ * a request on the free plan is allowed, so the guess is the previous start a
+ * day on, **accepted only where it is checked**: the day is `day` at the guess
+ * and the one before it a minute earlier, which makes it the first instant of
+ * the day, as the search finds. Where a clock change falls in between the
+ * guess is off by that change, so the search runs over `CLOCK_CHANGE_REACH`
+ * around it - or over everything where even that does not hold.
+ */
+function nextDayStart(previous: number, day: string, timeZone: string): number {
+  const dayAt = (at: number) => captureDay(new Date(at).toISOString(), timeZone)!.date;
+  const guess = previous + DAY;
+  if (dayAt(guess) === day && dayAt(guess - MINUTE) < day) return guess;
+  let before = guess - CLOCK_CHANGE_REACH;
+  let from = guess + CLOCK_CHANGE_REACH;
+  if (dayAt(before) >= day || dayAt(from) < day) return dayStartsAt(day, timeZone)!;
+  while (from - before > MINUTE) {
+    const middle = Math.floor((before + from) / 2 / MINUTE) * MINUTE;
+    if (dayAt(middle) < day) before = middle;
+    else from = middle;
+  }
+  return from;
 }
 
 /** The day an instant (`...T12:15:00.000Z`) falls on: the last one that had started by then. */
