@@ -161,7 +161,7 @@ export function renderSlowTests({ slow, unread }) {
   if (slow.length === 0) lines.push('No test took more than half its timeout.', '');
   else {
     lines.push(`${slow.length} took more than half their timeout (listed, not failed; runner load swings durations).`, '', '| Package | File | Test | Took | Timeout |', '|---|---|---|---|---|');
-    for (const { pkg, file, name, duration, timeout } of slow) lines.push(`| ${pkg} | \`${file}\` | ${name.replace(/\|/g, '\|')} | ${seconds(duration)} | ${seconds(timeout)} |`);
+    for (const { pkg, file, name, duration, timeout } of slow) lines.push(`| ${pkg} | \`${file}\` | ${name.replace(/\|/g, '\\|')} | ${seconds(duration)} | ${seconds(timeout)} |`);
     lines.push('');
   }
   if (unread.length > 0) lines.push(`Could not read the report of ${unread.join(', ')}, so its tests are not judged.`, '');

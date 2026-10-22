@@ -22,13 +22,16 @@
 
 import { linesAdded } from './writing-rules.mjs';
 
-const REAL_CLOCK_READ = /\bDate\.now\s*\(\s*\)|\bnew\s+Date\s*\(\s*\)/;
+// `Date.now()`; `new Date` with no argument, parenthesised or not; and a bare
+// `Date()` call, which returns today as a string.
+const REAL_CLOCK_READ = /\bDate\.now\s*\(|\bnew\s+Date\b(?!\s*\(\s*[^)\s])|(?<!\bnew\s+)\bDate\s*\(/;
 const MARKER = /\/\/\s*clock-ok\b(?::\s*(\S.*))?/;
 const FAKE_TIME = /\bvi\.(?:useFakeTimers|setSystemTime)\b|\bclock\.(?:install|setFixedTime|setSystemTime|pauseAt|fastForward|runFor)\b/;
 const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*)/;
 
-/** A test at any tier: a `.test.` or `.spec.` file, or anything under a `tests` folder. */
+/** A test at any tier: a `.test.` or `.spec.` file, or anything under a `tests` folder, outside `poc/`, which never runs in CI. */
 export function isTestFile(path) {
+  if (path.startsWith('poc/')) return false;
   return /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path) || /(?:^|\/)tests\//.test(path);
 }
 

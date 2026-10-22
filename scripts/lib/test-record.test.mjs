@@ -142,6 +142,11 @@ describe('slowTests', () => {
     assert.match(slowTestsWarning(result), /^::warning::12 tests /);
   });
 
+  it('keeps a slow test whose name holds a pipe in its own table row', () => {
+    const result = slowOf({ '@cockpit/api': { timings: [{ file: 'a.test.ts', name: 'parses a|b', duration: 4000, timeout: 5000 }] } });
+    assert.match(renderSlowTests(result), /\| parses a\\\|b \|/);
+  });
+
   it('names a package whose report is missing rather than reporting none slow', () => {
     const result = slowOf({});
     assert.deepEqual(result.unread, ['@cockpit/api']);

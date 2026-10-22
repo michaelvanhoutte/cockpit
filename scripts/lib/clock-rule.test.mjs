@@ -37,8 +37,17 @@ describe('findClockReads', () => {
     assert.equal(check('apps/web/tests/unit/a.test.tsx', [`const d = ${NEW_DATE};`]).length, 1);
   });
 
+  it('refuses a new Date with no parentheses, and a bare Date() call', () => {
+    const bare = ['Date', '()'].join('');
+    assert.equal(check('apps/web/tests/unit/a.test.tsx', ['const d = new Date;', `const s = String(${bare});`]).length, 2);
+  });
+
   it('passes a new Date with an argument', () => {
-    assert.deepEqual(check('apps/web/tests/unit/a.test.tsx', ["const d = new Date('2026-10-21');"]), []);
+    assert.deepEqual(check('apps/web/tests/unit/a.test.tsx', ["const d = new Date('2026-10-21');", 'const e = new Date(ms);', 'const u = Date.UTC(2026, 9, 21);']), []);
+  });
+
+  it('passes a read in a POC, which never runs in CI', () => {
+    assert.deepEqual(check('poc/drag/tests/a.test.ts', [`const t = ${NOW};`]), []);
   });
 
   it('refuses a read added in a browser walk', () => {
