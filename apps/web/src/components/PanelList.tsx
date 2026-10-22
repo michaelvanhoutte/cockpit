@@ -23,8 +23,6 @@ const HEADING_ID = 'panel-list-heading';
 /** Where the Dashboard's scrolling box is, which Esc and G put back. */
 const SCROLLER = '[data-drag-scroll="dashboard"]';
 
-const KBD = KEY_CAP;
-
 /** Where the mode began, so Esc can put the screen back. */
 type Start = {
   scrollTop: number;
@@ -469,8 +467,8 @@ export function PanelList({
           {name}
         </span>
         <span className="flex flex-col items-center gap-1">
-          <kbd className={KBD}>{key}</kbd>
-          <kbd className={KBD}>⇧{key}</kbd>
+          <kbd className={KEY_CAP}>{key}</kbd>
+          <kbd className={KEY_CAP}>⇧{key}</kbd>
         </span>
       </button>
     );
@@ -610,7 +608,7 @@ export function PanelList({
           >
             {finding ? 'Find item' : 'Go to panel'}
           </h2>
-          <kbd className={KBD}>{finding ? FIND_NAME : KEY_NAME}</kbd>
+          <kbd className={KEY_CAP}>{finding ? FIND_NAME : KEY_NAME}</kbd>
           <button
             type="button"
             onClick={() => onCollapse(true)}

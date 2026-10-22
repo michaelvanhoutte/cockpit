@@ -55,8 +55,8 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
     column: 1,
     rows: [
       { does: 'Extend the pick down / up', keys: ['⇧J', '⇧K'] },
+      // No Esc row: Escape ends a single pick, and several are dropped by the bar's Clear.
       { does: 'File each on its proposed Panel', keys: ['Enter'] },
-      { does: 'Drop the pick', keys: ['Esc'] },
     ],
   },
   {
