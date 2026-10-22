@@ -207,6 +207,44 @@ describe('Accounts', () => {
       expect(await held(GUEST_ACCOUNT_NAME)).toEqual(seeded);
       expect(await env.ATTACHMENTS.get(key)).toBeNull();
     });
+
+    it('deletes a file once that a repeating Item and its next one both name', async () => {
+      const { cookie, workspaces } = await openAsGuest();
+      const items = [nextId(), nextId()];
+      for (const itemId of items) {
+        await send('capture_item', cookie, { workspaceId: workspaces[0]!.id, itemId, message: 'Receipts to file' });
+      }
+      const key = `${GUEST_ACCOUNT_NAME}/${items[0]}/${nextId()}`;
+      await env.ATTACHMENTS.put(key, new Uint8Array([1, 2, 3]));
+      await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => {
+        for (const itemId of items) {
+          sql.exec(
+            `INSERT INTO attachments (id, tenant_id, item_id, r2_key, filename, size, content_type, created_at)
+             VALUES (?, ?, ?, ?, 'receipt.png', 3, 'image/png', ?)`,
+            nextId(),
+            GUEST_ACCOUNT_NAME,
+            itemId,
+            key,
+            AT,
+          );
+        }
+      });
+      const asked: string[][] = [];
+      const deleting = env.ATTACHMENTS.delete.bind(env.ATTACHMENTS);
+      env.ATTACHMENTS.delete = async (keys: string | string[]) => {
+        asked.push([keys].flat());
+        return deleting(keys);
+      };
+
+      try {
+        await resetNightly();
+      } finally {
+        env.ATTACHMENTS.delete = deleting;
+      }
+
+      expect(await env.ATTACHMENTS.get(key)).toBeNull();
+      expect(asked.flat().filter((one) => one === key)).toEqual([key]);
+    });
   });
 
   describe('putting the guest account back touches nothing but the guest account', () => {

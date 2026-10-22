@@ -3636,4 +3636,31 @@ describe('Item editing', () => {
       expect(await itemsIn(name)).toEqual(after);
     });
   });
+
+  /**
+   * "Bring a repeating Item back on its day, as a fresh copy" (issue 1407): a
+   * series set before repeating Items came back keeps its rule, counted from its
+   * own Next on and never yet come round.
+   */
+  describe('a repeat set before repeating Items came back keeps its rule', () => {
+    const SERIES_DAYS = '0093-series-days';
+    const seriesIn = (name: string) => inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM series ORDER BY id').toArray());
+
+    it('adds the two days, both empty, and leaves the rule as it was', async () => {
+      const name = 'aged-store-before-series-days';
+      await agedTo(name, justBefore(SERIES_DAYS));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await seriesIn(name);
+      expect(before.length).toBeGreaterThan(0);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await seriesIn(name);
+      expect(after).toEqual(before.map((row) => ({ ...row, anchor_on: null, last_on: null })));
+
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await seriesIn(name)).toEqual(after);
+    });
+  });
 });
