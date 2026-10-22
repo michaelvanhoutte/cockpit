@@ -1428,7 +1428,7 @@ describe('Cycle time', () => {
 
     it('makes the axis a label of the zoom checkbox, and says that it closes', () => {
       // A span in the label, since a label holds phrasing content only; the styles make it a block.
-      expect(zoomed).toMatch(/<label class="axishit" for="zoom-1"><span class="clockaxis"[^>]*title="Clock time, Belgian time. Click to close">/);
+      expect(zoomed).toMatch(/<label class="axishit" for="zoom-1"><span class="clockaxis"[^>]*title="Clock time in Belgian time\. Click to close">/);
       expect(cssOf(html)).toMatch(/\.clockaxis \{ display: block;/);
     });
 

@@ -102,8 +102,8 @@ explorer at the root (`tools/test-explorer/README.md`), the CI stability page at
 `/selection/` (`tools/selection/README.md`) and the architecture page at
 `/architecture/` (`tools/architecture/README.md`). Every date and time on them is
 Belgian time in Belgian format, *22 Oct 2026, 15:05*, whoever reads them, written
-by one module (`scripts/lib/belgian-time.mjs`); the model files beside them stay
-ISO UTC.
+by one module (`scripts/lib/belgian-time.mjs`), except the architecture page's cron schedules, which
+stay UTC as Cloudflare runs them; the model files beside them stay ISO UTC.
 
 **Both are reachable by anyone who knows the URL**, with Cockpit's own sign-in the
 only thing in the way — see "Secrets and access" for what that is worth today. The

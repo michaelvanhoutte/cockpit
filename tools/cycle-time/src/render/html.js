@@ -384,7 +384,7 @@ function axis(pull, zoomed) {
     .map((tick) => `<span class="clocktick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + var(--break) * ${tick.breaksBefore})">${clockLabel(tick.atMs, startedAt)}</span>`)
     .join('');
   // A span, as the label it sits in holds phrasing content only; the styles make it a block.
-  return `<span class="clockaxis" style="--span:${spanOf(zoomed)}" title="Clock time, Belgian time. Click to close">${ticks}</span>`;
+  return `<span class="clockaxis" style="--span:${spanOf(zoomed)}" title="Clock time in Belgian time. Click to close">${ticks}</span>`;
 }
 
 /** Under a round's line in its detail, one line per job with when it started and stopped, so the times can be read without hovering. */

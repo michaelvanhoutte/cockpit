@@ -99,13 +99,20 @@ export function dayStartsBetween(from, to) {
 /**
  * The first instant at or after `at` that is a multiple of `step` on the
  * Belgian clock, so an hourly or two-hourly tick falls on the hour the reader's
- * own clock shows rather than on the hour in Greenwich.
+ * own clock shows rather than on the hour in Greenwich. Brussels has only two
+ * offsets, so each is tried and kept where it is the one in force at the
+ * instant it gives: a reading that happens twice at the autumn change is
+ * found both times, and one that never happens at the spring change is skipped.
+ * The two candidates are never more than an hour apart, so when neither is in
+ * force at its instant the next step's are tried.
  */
 export function nextRoundTime(at, step) {
-  const local = Math.ceil((at + offsetMs(at)) / step) * step;
-  for (let k = local; ; k += step) {
-    // The offset in force at that clock reading: guess it from an hour before, then read it at the instant the guess gives.
-    const instant = k - offsetMs(k - offsetMs(k - HOUR_MS));
-    if (instant >= at) return instant;
+  for (let from = at; ; from += step) {
+    let first = Infinity;
+    for (const offset of [HOUR_MS, 2 * HOUR_MS]) {
+      const instant = Math.ceil((from + offset) / step) * step - offset;
+      if (instant < first && offsetMs(instant) === offset) first = instant;
+    }
+    if (first !== Infinity) return first;
   }
 }

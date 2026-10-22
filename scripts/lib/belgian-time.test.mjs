@@ -93,5 +93,28 @@ describe('Published harness reports', () => {
       const second = nextRoundTime(first + 1, day);
       assert.deepEqual([first, second].map(iso), ['2026-10-24T22:00:00.000Z', '2026-10-25T23:00:00.000Z']);
     });
+
+    const ticksBetween = (from, to, step) => {
+      const out = [];
+      for (let t = nextRoundTime(at(from), step); t < at(to); t = nextRoundTime(t + 1, step)) out.push(iso(t));
+      return out;
+    };
+
+    it('ticks both 02:00s of the night the clocks go back, an hour apart', () => {
+      assert.deepEqual(ticksBetween('2026-10-24T22:30:00Z', '2026-10-25T02:30:00Z', 3_600_000), ['2026-10-24T23:00:00.000Z', '2026-10-25T00:00:00.000Z', '2026-10-25T01:00:00.000Z', '2026-10-25T02:00:00.000Z']);
+    });
+
+    it('ticks both 02:00s a two-hour step reaches, as each is a true reading of the clock', () => {
+      assert.deepEqual(ticksBetween('2026-10-24T22:30:00Z', '2026-10-25T03:30:00Z', 2 * 3_600_000), ['2026-10-25T00:00:00.000Z', '2026-10-25T01:00:00.000Z', '2026-10-25T03:00:00.000Z']);
+    });
+
+    it('finds the second 02:00 from inside the repeated hour', () => {
+      assert.equal(iso(nextRoundTime(at('2026-10-25T00:30:00Z'), 3_600_000)), '2026-10-25T01:00:00.000Z');
+      assert.equal(iso(nextRoundTime(at('2026-10-25T01:00:00Z'), 3_600_000)), '2026-10-25T01:00:00.000Z');
+    });
+
+    it('skips the time that does not exist the night the clocks go forward, so a two-hour step stays on even hours', () => {
+      assert.deepEqual(ticksBetween('2026-03-28T22:30:00Z', '2026-03-29T03:30:00Z', 2 * 3_600_000), ['2026-03-28T23:00:00.000Z', '2026-03-29T02:00:00.000Z']);
+    });
   });
 });
