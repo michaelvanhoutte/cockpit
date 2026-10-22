@@ -495,9 +495,9 @@ test.describe('Item editing', () => {
     test('its form’s Created reads in Brussels time, in the en-BE format', async ({ page, isMobile }) => {
       const dated = uniqueTitle('Dated');
       // The moment is the server's own, so it is bracketed by the clock either side of making it.
-      const before = Date.now();
+      const before = Date.now(); // clock-ok: the server stamps Created from its own clock, which the walk cannot inject
       await openInboxHolding(page, isMobile, [dated]);
-      const after = Date.now();
+      const after = Date.now(); // clock-ok: the other side of the same bracket
       await openItem(page, dated, isMobile);
 
       await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
