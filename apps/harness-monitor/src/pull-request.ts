@@ -1,6 +1,6 @@
 import type { CostQuery } from './costs';
 import { requestFilter } from './export';
-import { CATEGORIES, phaseSql, REVIEW_LEVELS, type Category } from './validate';
+import { CATEGORIES, requestPhaseSql, REVIEW_LEVELS, type Category } from './validate';
 
 /** One category of the pull request's cost, and what it holds. */
 export interface CategoryLine {
@@ -76,9 +76,9 @@ export async function pullRequestPage(db: D1Database, query: CostQuery, number: 
   const [links, byCategory, bySession] = await db.batch([
     db.prepare('SELECT * FROM branch_links WHERE pr_number = ? ORDER BY pr_updated_at DESC, branch').bind(number),
     db.prepare(
-      `SELECT ${phaseSql('u.')} AS category, COALESCE(u.review_level, '') AS level, COUNT(*) AS requests,
+      `SELECT ${requestPhaseSql('u.')} AS category, COALESCE(u.review_level, '') AS level, COUNT(*) AS requests,
          SUM(COALESCE(u.cost_micros, 0)) AS costMicros, SUM(u.cost_micros IS NULL) AS unpriced
-       ${from} ${where} GROUP BY ${phaseSql('u.')}, COALESCE(u.review_level, '')`,
+       ${from} ${where} GROUP BY ${requestPhaseSql('u.')}, COALESCE(u.review_level, '')`,
     ).bind(...binds),
     db.prepare(
       `SELECT u.session_id AS sessionId, u.ran_where AS ranWhere, u.model AS model, u.subagent AS subagent,
