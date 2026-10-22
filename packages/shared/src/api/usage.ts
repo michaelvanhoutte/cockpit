@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { captureTimeZoneSchema } from '../domain/item.js';
 
 /**
  * What the admin's Usage window reads ("Add an admin Usage window for sign-ins
@@ -12,6 +13,22 @@ export const USAGE_DEFAULT_DAYS = 30;
 /** The most it can cover: the history is kept for twelve months and no longer. */
 export const USAGE_MAX_DAYS = 365;
 
+/**
+ * What the Usage window asks. `days` is text so that a value that is not a
+ * number reads as the default rather than as a refusal: a window is a
+ * convenience, not a request to get right.
+ *
+ * **`timeZone` is the device's**, and the window and its day rows are cut on
+ * that zone's calendar ("Count Settings › Usage's days on your own calendar",
+ * issue 1428). Checked for shape only, as a capture's is: a well-formed name
+ * the server cannot read, and no zone at all, count in UTC.
+ */
+export const usageRequestSchema = z.object({
+  days: z.string().optional(),
+  timeZone: captureTimeZoneSchema.optional(),
+});
+export type UsageRequest = z.infer<typeof usageRequestSchema>;
+
 /** One named person: their latest sign-in ever, and the ones inside the window, newest first. */
 export const namedUsageSchema = z.object({
   userId: z.string(),
@@ -22,9 +39,9 @@ export const namedUsageSchema = z.object({
 });
 export type NamedUsage = z.infer<typeof namedUsageSchema>;
 
-/** Guest sessions on one UTC day, with what guests did in them. */
+/** Guest sessions on one calendar day of the viewer's zone, with what guests did in them. */
 export const guestDaySchema = z.object({
-  /** `YYYY-MM-DD`, in UTC. */
+  /** `YYYY-MM-DD`, on the calendar of the zone asked for (UTC where none was or it is unknown). */
   day: z.string(),
   sessions: z.number().int(),
   itemsCaptured: z.number().int(),

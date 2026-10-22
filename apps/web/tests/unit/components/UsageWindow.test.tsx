@@ -92,7 +92,7 @@ describe('User management', () => {
       expect(within(michael).getAllByRole('listitem')).toHaveLength(2);
       expect(screen.getByText('Has not signed in yet')).toBeVisible();
       const days = within(screen.getByRole('table', { name: 'Guest sessions per day' }));
-      expect(days.getByText('2026-10-02')).toBeVisible();
+      expect(days.getAllByRole('row')).toHaveLength(3);
       expect(screen.getByText('BE')).toBeVisible();
       expect(screen.getByText('news.example.com')).toBeVisible();
       // Missing ones are said, not left blank.
@@ -143,6 +143,24 @@ describe('User management', () => {
     });
   });
 
+  describe('the days of guest sessions are the server’s days, written in the device’s region and headed by no zone', () => {
+    it.each([
+      { situation: 'nl-BE', languages: ['nl-BE'], first: '02 Oct 2026', second: '01 Oct 2026' },
+      { situation: 'en-US', languages: ['en-US'], first: 'Oct 2, 2026', second: 'Oct 1, 2026' },
+    ])('writes the days on a device speaking $situation, under a heading that names no zone', async ({ languages, first, second }) => {
+      deviceSpeaks(...languages);
+      reads.mockResolvedValue(POPULATED);
+      drawn();
+
+      const days = within(await screen.findByRole('table', { name: 'Guest sessions per day' }));
+
+      expect(days.getByRole('columnheader', { name: 'Day' })).toBeVisible();
+      expect(days.getByText(first)).toBeVisible();
+      expect(days.getByText(second)).toBeVisible();
+      expect(document.body).not.toHaveTextContent('UTC');
+    });
+  });
+
   describe('a sign-in is shown at the moment it happened in the device’s own zone', () => {
     it.each([
       { situation: 'Brussels and nl-BE', zone: 'Europe/Brussels', languages: ['nl-BE'], latest: '02 Oct 2026, 11:15', earlier: '30 Sept 2026, 20:00' },
@@ -157,7 +175,6 @@ describe('User management', () => {
 
       expect(michael.textContent).toBe(`${latest}${earlier}`);
       expect(screen.getByText(`Latest ${latest}`)).toBeVisible();
-      // The table of days keeps its "(UTC)" heading; a moment never ends in it.
       expect(document.body).not.toHaveTextContent(/[0-9AMP] UTC/);
     });
   });

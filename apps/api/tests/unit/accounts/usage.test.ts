@@ -10,7 +10,7 @@ import { analyticsLink, usageWindow } from '../../../src/accounts/usage.js';
 const NOW = new Date('2026-10-02T23:30:00.000Z');
 
 describe('User management', () => {
-  describe('the usage window covers a bounded number of whole UTC days, today included', () => {
+  describe('the usage window covers a bounded number of whole days, today included, in UTC where no zone is asked', () => {
     it.each([
       { situation: 'nothing asked', asked: undefined, days: 30, since: '2026-09-03T00:00:00.000Z' },
       { situation: 'one day', asked: '1', days: 1, since: '2026-10-02T00:00:00.000Z' },
@@ -23,7 +23,10 @@ describe('User management', () => {
       { situation: 'something that is not a number', asked: 'a lot', days: 30, since: '2026-09-03T00:00:00.000Z' },
       { situation: 'an empty value', asked: '', days: 30, since: '2026-09-03T00:00:00.000Z' },
     ])('is $days days for $situation', ({ asked, days, since }) => {
-      expect(usageWindow(asked, NOW)).toEqual({ days, since });
+      const window = usageWindow(asked, NOW);
+
+      expect(window).toMatchObject({ days, since });
+      expect(window.dayStarts).toHaveLength(days);
     });
 
     it('counts days in UTC, whichever side of midnight the instant is', () => {
