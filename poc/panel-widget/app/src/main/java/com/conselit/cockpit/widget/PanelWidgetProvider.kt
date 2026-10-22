@@ -24,16 +24,21 @@ class PanelWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         schedule(context)
+        AlarmRefresh.arm(context)
         render(context, manager, ids, refreshing = false)
     }
 
     override fun onEnabled(context: Context) {
+        logEvent(context, "widget placed")
         schedule(context)
+        AlarmRefresh.arm(context)
         refreshNow(context, "first placed")
     }
 
     override fun onDisabled(context: Context) {
+        logEvent(context, "last widget removed")
         WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
+        AlarmRefresh.cancel(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -47,13 +52,13 @@ class PanelWidgetProvider : AppWidgetProvider() {
 
     companion object {
         private const val ACTION_REFRESH = "com.conselit.cockpit.widget.REFRESH"
-        private const val PERIODIC = "panel-refresh"
+        const val PERIODIC = "panel-refresh"
 
-        private fun ids(context: Context): IntArray =
+        fun ids(context: Context): IntArray =
             AppWidgetManager.getInstance(context)
                 .getAppWidgetIds(ComponentName(context, PanelWidgetProvider::class.java))
 
-        private fun schedule(context: Context) {
+        fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<RefreshWorker>(30, TimeUnit.MINUTES)
                 .setInputData(workDataOf("source" to "background"))
                 .build()

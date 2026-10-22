@@ -48,22 +48,29 @@ object RefreshLog {
 class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val source = inputData.getString("source") ?: "background"
-        val ok = withContext(Dispatchers.IO) {
-            try {
-                val connection = URL("$ORIGIN/health").openConnection() as HttpURLConnection
-                connection.connectTimeout = 10_000
-                connection.readTimeout = 10_000
-                try {
-                    connection.responseCode == 200
-                } finally {
-                    connection.disconnect()
-                }
-            } catch (e: Exception) {
-                false
-            }
-        }
-        RefreshLog.add(applicationContext, Refresh(System.currentTimeMillis(), source, ok))
-        PanelWidgetProvider.renderAll(applicationContext)
+        withContext(Dispatchers.IO) { refreshOnce(applicationContext, source) }
         return Result.success()
     }
 }
+
+/** One refresh, blocking: what a WorkManager run and an alarm both do, so the log compares them. */
+fun refreshOnce(context: Context, source: String) {
+    val ok = try {
+        val connection = URL("$ORIGIN/health").openConnection() as HttpURLConnection
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 10_000
+        try {
+            connection.responseCode == 200
+        } finally {
+            connection.disconnect()
+        }
+    } catch (e: Exception) {
+        false
+    }
+    RefreshLog.add(context, Refresh(System.currentTimeMillis(), source, ok))
+    PanelWidgetProvider.renderAll(context)
+}
+
+/** Something that is not a refresh, written to the same log so the order of events shows. */
+fun logEvent(context: Context, what: String) =
+    RefreshLog.add(context, Refresh(System.currentTimeMillis(), "· $what", true))

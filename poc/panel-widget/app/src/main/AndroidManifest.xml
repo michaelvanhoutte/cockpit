@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
+        android:name=".PocApp"
         android:allowBackup="false"
         android:icon="@android:drawable/ic_menu_agenda"
         android:label="Cockpit widget (POC)"
@@ -29,6 +30,10 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/panel_widget_info" />
         </receiver>
+
+        <receiver
+            android:name=".AlarmReceiver"
+            android:exported="false" />
 
         <service
             android:name=".RowsService"

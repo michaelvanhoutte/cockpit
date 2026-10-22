@@ -24,8 +24,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - run: gradle --no-daemon assembleDebug
+      # One debug key for every build, so a new APK installs over the last one and keeps its log
+      # and battery setting. The first run without it generates one and uploads it to be committed.
+      - run: mkdir -p ~/.android && if [ -f debug.keystore ]; then cp debug.keystore ~/.android/debug.keystore; fi
+      - run: gradle --no-daemon assembleDebug && cp ~/.android/debug.keystore app/build/outputs/apk/debug/
       - uses: actions/upload-artifact@v4
         with:
           name: panel-widget-poc
-          path: poc/panel-widget/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            poc/panel-widget/app/build/outputs/apk/debug/app-debug.apk
+            poc/panel-widget/app/build/outputs/apk/debug/debug.keystore

@@ -11,8 +11,8 @@ android {
         applicationId = "com.conselit.cockpit.widget.poc"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "poc-2"
+        versionCode = 3
+        versionName = "poc-3"
     }
 
     compileOptions {

@@ -12,18 +12,26 @@ class LogActivity : Activity() {
     override fun onResume() {
         super.onResume()
         val entries = RefreshLog.all(this).reversed()
-        val text = buildString {
-            appendLine("Cockpit widget (POC), build 2")
-            appendLine()
-            appendLine("Long-press the home screen → Widgets → Cockpit widget (POC).")
-            appendLine()
-            appendLine("${entries.size} refreshes recorded, newest first:")
-            entries.forEach { appendLine(RefreshLog.describe(it)) }
-        }
         val view = TextView(this).apply {
             textSize = 14f
-            setText(text)
+            text = "Cockpit widget (POC), build 3\n\nReading…"
         }
+        Thread {
+            val about = try {
+                diagnostics(this)
+            } catch (e: Exception) {
+                "Diagnostics failed: $e\n"
+            }
+            val text = buildString {
+                appendLine("Cockpit widget (POC), build 3")
+                appendLine()
+                append(about)
+                appendLine()
+                appendLine("${entries.size} entries, newest first (\"background\" is WorkManager, \"alarm\" the alarm):")
+                entries.forEach { appendLine(RefreshLog.describe(it)) }
+            }
+            runOnUiThread { view.text = text }
+        }.start()
         val scroll = ScrollView(this).apply { addView(view) }
         // Android 15 draws an app under the status and navigation bars, so pad by them.
         ViewCompat.setOnApplyWindowInsetsListener(scroll) { _, insets ->
