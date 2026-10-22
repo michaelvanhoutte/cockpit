@@ -143,3 +143,25 @@ export async function giveToAPanel(page: Page, panel: ArrangedPanel, titles: str
     await arrange(page, 'add_item_to_panel', { itemId, panelId: panel.id, order: [...panel.itemIds] });
   }
 }
+
+/**
+ * A dashboard's arrangement, as the panels on each line: each row's panels
+ * share it equally (twelfths) unless `shares` says otherwise, and a row is as
+ * tall as its contents unless `height` gives one. Saved the way the browser
+ * saves one, so a page opened afterwards draws exactly these rows.
+ */
+export async function giveAnArrangement(
+  page: Page,
+  dashboard: ArrangedDashboard,
+  rows: { panels: ArrangedPanel[]; shares?: number[]; height?: number }[],
+): Promise<void> {
+  await arrange(page, 'save_layout', {
+    dashboardId: dashboard.id,
+    layoutId: randomUUID(),
+    carriesSections: true,
+    rows: rows.map(({ panels, shares, height }) => ({
+      height: height ?? null,
+      cells: panels.map((panel, at) => ({ panelId: panel.id, span: shares?.[at] ?? 12 / panels.length })),
+    })),
+  });
+}
