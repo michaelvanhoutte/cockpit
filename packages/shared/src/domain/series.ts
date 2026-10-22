@@ -188,10 +188,15 @@ export function repeatsTitle(rule: Pick<RepeatRule, 'frequency' | 'nextOn'>): st
   return `Repeats ${ruleLabel(rule).replace(/^./u, (first) => first.toLowerCase())}`;
 }
 
-/** The line under the popover's controls: *Weekly on Monday · next Mon 2 Nov · due Sat 7 Nov*. */
-export function readBack(rule: RepeatRule): string {
-  const parts = [ruleLabel(rule), `next ${shortDay(rule.nextOn)}`];
-  if (rule.dueAfterDays !== null) parts.push(`due ${shortDay(daysOnFrom(rule.nextOn, rule.dueAfterDays))}`);
+/**
+ * The line under the popover's controls: *Weekly on Monday · next Mon 2 Nov · due Sat 7 Nov*.
+ * The days are written by `say`, which a screen hands its viewer's region
+ * ("Show every date the app shows in your own time zone and region", issue
+ * 1427); `shortDay` is the one that needs no viewer.
+ */
+export function readBack(rule: RepeatRule, say: (day: string) => string = shortDay): string {
+  const parts = [ruleLabel(rule), `next ${say(rule.nextOn)}`];
+  if (rule.dueAfterDays !== null) parts.push(`due ${say(daysOnFrom(rule.nextOn, rule.dueAfterDays))}`);
   return parts.join(' · ');
 }
 

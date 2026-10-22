@@ -11,6 +11,7 @@ import { api, refusal } from '../api/client';
 import { snapshotQuery, useCheckConnectionNow, whyNotDone } from '../api/queries';
 import { useChangeConnection, useSourceAccounts } from '../api/sourceAccounts';
 import type { ConnectOutcome, RefusedBecause } from '../connections';
+import { dateTimeLabel } from '../dateFormat';
 import { whenCaptured } from '../duplicates';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { useUndo } from '../undo';
@@ -546,7 +547,7 @@ export default function ManageConnections({
                           {account.lastTestedAt ? (
                             <span
                               className="text-xs text-ink-faint"
-                              title={new Date(account.lastTestedAt).toLocaleString()}
+                              title={dateTimeLabel(account.lastTestedAt)}
                             >
                               {account.follows ? 'Checked' : 'Worked'} {whenCaptured(account.lastTestedAt, now)}
                             </span>

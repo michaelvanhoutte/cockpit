@@ -38,6 +38,7 @@ import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
 import { deviceTimeZone } from '../deviceTimeZone';
+import { dateTimeLabel } from '../dateFormat';
 import { useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshot } from '../api/useSnapshot';
@@ -2317,7 +2318,7 @@ function TheForm({
                           Created
                         </dt>
                         <dd className="mt-1 text-ink-soft">
-                          {new Date(item.createdAt).toLocaleString()}
+                          {dateTimeLabel(item.createdAt)}
                         </dd>
                       </div>
                       <div>
@@ -2325,7 +2326,7 @@ function TheForm({
                           Last changed
                         </dt>
                         <dd className="mt-1 text-ink-soft">
-                          {new Date(item.updatedAt).toLocaleString()}
+                          {dateTimeLabel(item.updatedAt)}
                         </dd>
                       </div>
                     </dl>

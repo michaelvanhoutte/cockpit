@@ -1,4 +1,5 @@
 import { dayOf } from '@cockpit/shared';
+import { dayLabel, shortDayLabel } from './dateFormat';
 
 /**
  * How near a due date is, as the pill a row wears for it. Replaces the row's
@@ -65,34 +66,19 @@ export function deadlineOf(dueDate: string | null, now: number): Deadline | null
  * (`AdminPage.tsx`) is: `dueDate` is store-validated, but a row does not
  * crash on a value it did not itself write.
  *
- * `locale` follows the viewer's own browser rather than a fixed `en-US` -
- * `undefined` in production, which `Intl.DateTimeFormat` resolves to the
- * browser's own; a caller passes one explicitly only to test the formatting.
- * The `UTC` timezone pin is unrelated and unchanged: it is what keeps a
- * date-only value from shifting a day under a negative-UTC-offset timezone.
+ * A day with no time attached: the same day in every zone, in the order of the
+ * viewer's region (`dateFormat.ts`).
  */
-export function dueDateLabel(dueDate: string | null, locale?: string): string | null {
-  if (dueDate === null) return null;
-  const parsed = new Date(dueDate);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(parsed);
+export function dueDateLabel(dueDate: string | null): string | null {
+  return dueDate === null ? null : dayLabel(dueDate);
 }
 
 /**
  * A due date as a phone's narrow strip shows it: day and month ("29 Oct", in
  * the viewer's own order), with a two-digit year only when the date is not in
  * `now`'s year ("29 Dec 27"). `null` for none and for anything that is not
- * really a date, as `dueDateLabel` is. Given `now` rather than reading a clock,
- * and `locale` only to test the formatting, for the same reasons.
+ * really a date, as `dueDateLabel` is. Given `now` rather than reading a clock.
  */
-export function shortDueDateLabel(dueDate: string | null, now: Date, locale?: string): string | null {
-  if (dueDate === null) return null;
-  const parsed = new Date(dueDate);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return new Intl.DateTimeFormat(locale, {
-    day: 'numeric',
-    month: 'short',
-    ...(parsed.getUTCFullYear() === now.getFullYear() ? {} : { year: '2-digit' }),
-    timeZone: 'UTC',
-  }).format(parsed);
+export function shortDueDateLabel(dueDate: string | null, now: Date): string | null {
+  return dueDate === null ? null : shortDayLabel(dueDate, now);
 }

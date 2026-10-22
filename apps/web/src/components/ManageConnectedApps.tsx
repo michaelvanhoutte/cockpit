@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { ConnectedApp } from '@cockpit/shared';
 import { useConnectedApps, useDisconnectApp } from '../api/connectedApps';
 import { whyNotDone } from '../api/queries';
+import { dateTimeLabel } from '../dateFormat';
 import { useUndo } from '../undo';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
@@ -11,7 +12,7 @@ import { RowMenu } from './Menu';
 /** Where an app is pointed to reach this Cockpit: this environment's own origin, then `/mcp`. */
 export const connectAddress = () => `${window.location.origin}/mcp`;
 
-const when = (iso: string) => new Date(iso).toLocaleString();
+const when = dateTimeLabel;
 
 /**
  * The apps allowed into your Cockpit, and the address to paste into claude.ai

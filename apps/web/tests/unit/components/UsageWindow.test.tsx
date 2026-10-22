@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Usage } from '@cockpit/shared';
 import UsageWindow from '../../../src/components/UsageWindow';
+import { deviceIsIn, deviceSpeaks } from '../support/timeZone';
 
 /**
  * F1: what the window draws from what it is given. That only an admin may read
@@ -21,6 +22,7 @@ vi.mock('../../../src/api/queries', () => ({
 
 afterEach(() => {
   reads.mockReset();
+  vi.restoreAllMocks();
 });
 
 const EMPTY: Usage = {
@@ -138,6 +140,25 @@ describe('User management', () => {
       await user.click(await screen.findByRole('button', { name: 'Done' }));
 
       expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe('a sign-in is shown at the moment it happened in the device’s own zone', () => {
+    it.each([
+      { situation: 'Brussels and nl-BE', zone: 'Europe/Brussels', languages: ['nl-BE'], latest: '02 Oct 2026, 11:15', earlier: '30 Sept 2026, 20:00' },
+      { situation: 'New York and en-US', zone: 'America/New_York', languages: ['en-US'], latest: 'Oct 2, 2026, 5:15 AM', earlier: 'Sep 30, 2026, 2:00 PM' },
+    ])('reads the sign-ins of Michael on a device in $situation, with no UTC after them', async ({ zone, languages, latest, earlier }) => {
+      deviceIsIn(zone);
+      deviceSpeaks(...languages);
+      reads.mockResolvedValue(POPULATED);
+      drawn();
+
+      const michael = await screen.findByRole('list', { name: 'Sign-ins of Michael' });
+
+      expect(michael.textContent).toBe(`${latest}${earlier}`);
+      expect(screen.getByText(`Latest ${latest}`)).toBeVisible();
+      // The table of days keeps its "(UTC)" heading; a moment never ends in it.
+      expect(document.body).not.toHaveTextContent(/[0-9AMP] UTC/);
     });
   });
 

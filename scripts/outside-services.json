@@ -1,0 +1,57 @@
+{
+  "$comment": "Every outside service the product or the Harness Monitor reaches (docs/testing-strategy.md, \"Third-party dependencies\"). A service claims its hosts and names a live contract suite in `suite`, or has a `gap` saying why there is none yet; a gap comes off when the suite lands. A host in product or Harness Monitor source that nothing here claims fails scripts/lib/outside-services.test.mjs. A service reached through an SDK or a binding has no host to scan, so it is listed here by hand. `notServices` excuses a host that is not a call, with the reason.",
+  "services": [
+    {
+      "name": "Gmail",
+      "hosts": ["gmail.googleapis.com", "www.googleapis.com", "accounts.google.com"],
+      "suite": "packages/connectors/gmail/tests/contract/recorded-answers.test.ts"
+    },
+    {
+      "name": "Microsoft Graph",
+      "hosts": ["graph.microsoft.com", "login.microsoftonline.com"],
+      "suite": "packages/connectors/outlook/tests/contract/recorded-answers.test.ts"
+    },
+    {
+      "name": "Bot Framework",
+      "hosts": ["api.botframework.com", "login.botframework.com"],
+      "suite": "packages/connectors/teams/tests/contract/bot-framework-keys.test.ts"
+    },
+    {
+      "name": "Anthropic",
+      "hosts": [],
+      "suite": [
+        "apps/api/tests/contract/choose-a-panel.v3.test.ts",
+        "apps/api/tests/contract/clean-up-a-note.v17.test.ts",
+        "apps/api/tests/contract/propose-for-claude.v4.test.ts",
+        "apps/api/tests/contract/remember-a-sentence.v1.test.ts",
+        "apps/api/tests/contract/resolve-a-place.v1.test.ts"
+      ]
+    },
+    {
+      "name": "Workers AI",
+      "hosts": [],
+      "suite": [
+        "apps/api/tests/contract/read-what-a-note-means.test.ts",
+        "apps/api/tests/contract/transcribe-a-recording.test.ts"
+      ]
+    },
+    {
+      "name": "Twilio Verify",
+      "hosts": ["verify.twilio.com"],
+      "gap": "Each check sends a real, paid text to a phone, so a contract suite needs a number and a budget decided first."
+    },
+    {
+      "name": "GitHub API",
+      "hosts": ["api.github.com", "raw.githubusercontent.com"],
+      "gap": "No contract suite yet. One would read the Harness Monitor's GraphQL query for a repository's pull requests and check runs against the live API, and the LiteLLM price file against what readLiteLlm expects."
+    }
+  ],
+  "notServices": [
+    { "host": "mail.google.com", "reason": "A link Cockpit builds to open a message in Gmail, never called." },
+    { "host": "outlook.office.com", "reason": "A link Cockpit builds to open a message in Outlook, never called." },
+    { "host": "teams.microsoft.com", "reason": "A link Cockpit builds to open a Teams conversation, never called." },
+    { "host": "github.com", "reason": "A link the Harness Monitor's page builds to a repository, never called." },
+    { "host": "www.conselit.be", "reason": "A link in the footer to the maker's website, never called." },
+    { "host": "cockpit.invalid", "reason": "A placeholder origin that cannot resolve, used only to parse a path against." }
+  ]
+}

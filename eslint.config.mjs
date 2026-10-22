@@ -2,9 +2,10 @@
 // The lint layer, deliberately small ("Add the lint layer the code is already
 // written against", issue 282).
 //
-// It holds three things and nothing else: the React Hooks rules the code was
-// already written against, a ban on a focused test reaching `main`, and the
-// testing skill's dependency table for L1/F1 as restricted imports. Everything
+// It holds four things and nothing else: the React Hooks rules the code was
+// already written against, a ban on a focused test reaching `main`, the
+// testing skill's dependency table for L1/F1 as restricted imports, and a ban
+// on a component formatting a date itself (issue 1427). Everything
 // else - formatting, naming, style, the hundreds of rules a recommended preset
 // brings - is out, because a lint layer that lands with three hundred findings
 // gets switched off and the point is a gate that stays on.
@@ -50,6 +51,12 @@ const focusedTest = [
   selector,
   message: 'A focused test hides the rest of the suite. Remove `.only` before pushing.',
 }));
+
+/** A name that reads as a moment, as an esquery regular expression: `createdAt`, `lastDate`, `now`, `when`. */
+const LOOKS_LIKE_A_MOMENT = '/^(date|time|now|when|at|day|moment|instant)$|(Date|Time|At|Day|Moment|Instant|When)$/';
+
+/** The options of a date's `toLocaleString`, as an esquery regular expression: no number takes these. */
+const DATE_OPTION = '/^(dateStyle|timeStyle|timeZone|weekday|era|year|month|day|hour|minute|second)$/';
 
 export default [
   {
@@ -101,6 +108,44 @@ export default [
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'error',
+    },
+  },
+
+  {
+    // Every date the app shows goes through `apps/web/src/dateFormat.ts`, which
+    // reads the device's zone and region when it draws ("Show every date the
+    // app shows in your own time zone and region", issue 1427; the rule is in
+    // docs/product/across-the-app.md). A component that formats one itself
+    // picks its own zone and locale, which is how Manage users came to read
+    // US format in UTC.
+    //
+    // Syntax only, since the lint layer is not type-aware: `toLocaleDateString`
+    // and `toLocaleTimeString` exist on dates alone and fail anywhere, while
+    // `toLocaleString` is also how a number is written (a limit with its
+    // thousands separator), so it fails only on what reads as a date - a
+    // `new Date(...)`, a receiver named like a moment (`createdAt`, `date`,
+    // `now`), or date fields in its options. A date held under a name that
+    // says nothing of one, formatted with `toLocaleString()` and no options,
+    // is the case this does not reach.
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    ignores: ['apps/web/src/dateFormat.ts', 'apps/web/src/deviceTimeZone.ts'],
+    languageOptions,
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...[
+          "MemberExpression[property.name=/^toLocale(Date|Time)String$/]",
+          "MemberExpression[object.name='Intl'][property.name='DateTimeFormat']",
+          "CallExpression[callee.property.name='toLocaleString'][callee.object.type='NewExpression'][callee.object.callee.name='Date']",
+          `CallExpression[callee.property.name='toLocaleString'][callee.object.name=${LOOKS_LIKE_A_MOMENT}]`,
+          `CallExpression[callee.property.name='toLocaleString'][callee.object.property.name=${LOOKS_LIKE_A_MOMENT}]`,
+          `CallExpression[callee.property.name='toLocaleString'] > ObjectExpression > Property[key.name=${DATE_OPTION}]`,
+        ].map((selector) => ({
+          selector,
+          message:
+            'Format a date through apps/web/src/dateFormat.ts, which reads the device’s zone and region. A component that formats one itself picks its own.',
+        })),
+      ],
     },
   },
 

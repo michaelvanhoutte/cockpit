@@ -75,7 +75,7 @@ Two of its rules are restated here because this file is in context always and th
 - **Test at the lowest level that can prove the behaviour**, and escalate only for what that level physically cannot verify. Never re-prove lower-level coverage higher up the pyramid.
 - **Nothing is "working" until the app has been started and the changed behaviour driven in the browser.** Green unit and integration tests are not evidence that the app runs. The exception is a change the table below drops the browser pass for.
 
-**Write that walk down in the pull request** — what to open, what to click, what should happen. You have already driven it, and recording it saves the next person rediscovering it. Keep it to what a reader would not guess, and where a change has no product surface to drive, say that instead.
+**Write that walk down in the pull request** — what to open, what to click, what should happen. You have already driven it, and recording it saves the next person rediscovering it. Keep it to what a reader would not guess, and where a change has no product surface to drive, say that instead. **A check the issue or pull request says must be done on a real device gets its own line, `Real device: <device> - <what happened>`**, because `/build` refuses to mark the pull request ready while such a line has no result.
 
 **Scale what you run before a push to what changed.** `node scripts/local-changes.mjs` answers for the working tree; ask it rather than judging by eye.
 

@@ -299,7 +299,7 @@
     {
       "key": "Item editing",
       "label": "Item editing",
-      "browserWalks": 17,
+      "browserWalks": 18,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",
@@ -557,6 +557,12 @@
       "browserWalks": 1,
       "parent": "Across the app",
       "sourcePatterns": ["apps/web/src/appearance.ts", "packages/shared/src/domain/workspace-shell.ts"]
+    },
+    {
+      "key": "Dates",
+      "label": "Dates",
+      "parent": "Across the app",
+      "sourcePatterns": ["apps/web/src/dateFormat.ts"]
     },
     {
       "key": "Updating",
