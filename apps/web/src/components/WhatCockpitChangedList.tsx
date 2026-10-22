@@ -175,7 +175,7 @@ export function WhatCockpitChangedOnAnItem({
     );
   }
   if (error) return <LoadFailure error={error} onRetry={onRetry} />;
-  if (loading) return <p className="text-ink-faint">Looking for what Cockpit changed…</p>;
+  if (loading) return <p className="text-ink-faint">Looking for suggestions…</p>;
   if (changes.length === 0) {
     return <p className="text-ink-faint">Cockpit has not changed anything on this item.</p>;
   }
