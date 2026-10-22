@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.widget.RemoteViews
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
@@ -75,7 +76,16 @@ class PanelWidgetProvider : AppWidgetProvider() {
             manager.notifyAppWidgetViewDataChanged(ids, R.id.rows)
         }
 
+        /** Never throws: a failure is written to the refresh log, so the app's screen shows it. */
         private fun render(context: Context, manager: AppWidgetManager, ids: IntArray, refreshing: Boolean) {
+            try {
+                draw(context, manager, ids, refreshing)
+            } catch (e: Exception) {
+                RefreshLog.add(context, Refresh(System.currentTimeMillis(), "drawing failed: $e", false))
+            }
+        }
+
+        private fun draw(context: Context, manager: AppWidgetManager, ids: IntArray, refreshing: Boolean) {
             val last = RefreshLog.all(context).lastOrNull()
             val updated = when {
                 refreshing -> "Refreshing…"
@@ -93,9 +103,12 @@ class PanelWidgetProvider : AppWidgetProvider() {
                 service.data = Uri.parse(service.toUri(Intent.URI_INTENT_SCHEME))
                 views.setRemoteAdapter(R.id.rows, service)
 
+                // A row fills in its own address, so the template must be mutable, and Android 14
+                // refuses a mutable implicit intent unless told it is meant.
+                val unsafe = if (Build.VERSION.SDK_INT >= 34) PendingIntent.FLAG_ALLOW_UNSAFE_IMPLICIT_INTENT else 0
                 val open = PendingIntent.getActivity(
                     context, 0, Intent(Intent.ACTION_VIEW),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE or unsafe,
                 )
                 views.setPendingIntentTemplate(R.id.rows, open)
 

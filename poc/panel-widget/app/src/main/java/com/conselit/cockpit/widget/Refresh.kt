@@ -32,7 +32,9 @@ object RefreshLog {
             }
 
     fun add(context: Context, entry: Refresh) {
-        val lines = (all(context) + entry).takeLast(KEEP)
+        // A source is free text (an error's message), so nothing in it may split a line.
+        val safe = entry.copy(source = entry.source.replace(Regex("[,\\n]"), ";"))
+        val lines = (all(context) + safe).takeLast(KEEP)
             .joinToString("\n") { "${it.at},${it.source},${if (it.ok) 1 else 0}" }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, lines).apply()
     }
