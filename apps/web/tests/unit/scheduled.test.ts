@@ -72,6 +72,16 @@ describe('Dashboards', () => {
       ]);
     });
 
+    it('orders two series alike in day and title by their ids, whatever order the snapshot holds them in', () => {
+      const copies = [aCopy('b', 0, { title: 'Weekly review' }), aCopy('a', 0, { title: 'Weekly review' })];
+
+      const forward = rowsOf([aSeries('a'), aSeries('b')], copies);
+      const backward = rowsOf([aSeries('b'), aSeries('a')], copies);
+
+      expect(forward.map((row) => row.series.id)).toEqual(['a', 'b']);
+      expect(backward.map((row) => row.series.id)).toEqual(['a', 'b']);
+    });
+
     it('is one row for a series with an open and two finished copies, read from the newest', () => {
       const newest = aCopy('a', 30, { title: 'Weekly review', completedAt: null });
       const rows = rowsOf(

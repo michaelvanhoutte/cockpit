@@ -42,8 +42,10 @@ const newer = (a: Item, b: Item) => (a.createdAt === b.createdAt ? a.id > b.id :
 
 /**
  * A row for each series still running that has a copy in the snapshot, soonest
- * *Next on* first and by title within a day. A series stopped with *Never*, or
- * whose copies are all dismissed (none is in the snapshot), has no row.
+ * *Next on* first, by title within a day and by series id within a title, so rows
+ * alike in both keep one order whatever order the snapshot holds the series in.
+ * A series stopped with *Never*, or whose copies are all dismissed (none is in
+ * the snapshot), has no row.
  */
 export function scheduledRows(
   snapshot: {
@@ -75,5 +77,10 @@ export function scheduledRows(
       where: places.length > 0 ? places.join(', ') : 'Inbox',
     });
   }
-  return rows.sort((a, b) => a.series.nextOn.localeCompare(b.series.nextOn) || a.title.localeCompare(b.title));
+  return rows.sort(
+    (a, b) =>
+      a.series.nextOn.localeCompare(b.series.nextOn) ||
+      a.title.localeCompare(b.title) ||
+      (a.series.id < b.series.id ? -1 : 1),
+  );
 }

@@ -282,14 +282,12 @@ export function WorkspaceTabs({
   };
 
   /**
-   * Switches a workspace's *All items* tab on or off. Hiding it leaves for the
-   * workspace's first dashboard when that workspace's *All items* is the page on
-   * screen - a page that is not in the bar is not somewhere to stay - and never
-   * moves you for another workspace's tab. The first dashboard is read from the
-   * snapshot the page on screen already holds, since its route loaded it, as
-   * drawn: a Dashboard deleted or moved first a moment ago counts as done.
+   * What hiding a tab does when that tab is the page on screen - a page that is
+   * not in the bar is not somewhere to stay: go to the workspace's first
+   * dashboard when it has one, read from the snapshot the page on screen already holds, since
+   * its route loaded it, as drawn: a Dashboard deleted or moved first a moment
+   * ago counts as done.
    */
-  const onItemsOf = useAllItemsOnScreen();
   const leaveForFirstDashboard = (workspaceId: string) => {
     const held = queryClient.getQueryData(snapshotQuery(workspaceId).queryKey);
     const first = held ? changes.drawnOver(held).dashboards[0] : undefined;
@@ -301,6 +299,13 @@ export function WorkspaceTabs({
       });
     }
   };
+
+  const onItemsOf = useAllItemsOnScreen();
+  /**
+   * Switches a workspace's *All items* tab on or off. Hiding it leaves for the
+   * first dashboard only when that workspace's *All items* is the page on
+   * screen, and never moves you for another workspace's tab.
+   */
   const switchAllItemsTab = (workspaceId: string, on: boolean) => {
     setAllItemsTab(workspaceId, on);
     if (!on && onItemsOf === workspaceId) leaveForFirstDashboard(workspaceId);
