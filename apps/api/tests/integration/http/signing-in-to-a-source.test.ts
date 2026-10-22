@@ -308,6 +308,7 @@ describe('Connector management', () => {
             ],
           },
           names: { noun: 'label', example: 'a conversation labelled' },
+          pulled: true,
           refusals: GMAIL_REFUSALS,
         },
         {
@@ -324,6 +325,7 @@ describe('Connector management', () => {
             ],
           },
           names: { noun: 'category', example: 'a message with the category' },
+          pulled: true,
           refusals: OUTLOOK_REFUSALS,
         },
         {

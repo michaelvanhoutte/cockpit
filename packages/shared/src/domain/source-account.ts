@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+/** The fewest and most calendar days a connection may count a due date out (issue 1409). */
+export const DUE_IN_DAYS_MIN = 1;
+export const DUE_IN_DAYS_MAX = 365;
+
+/** A whole number of days within the range a connection may count a due date out. */
+export const dueInDaysSchema = z.number().int().min(DUE_IN_DAYS_MIN).max(DUE_IN_DAYS_MAX);
+
 /**
  * A source account a Workspace has connected - a Microsoft Teams sign-in
  * ("Connect a Microsoft Teams source account", issue 485), a Gmail sign-in,
@@ -57,6 +64,12 @@ export const sourceAccountSchema = z.object({
    */
   filesByName: z.boolean().default(false),
   /**
+   * How many calendar days after the day it arrives each Item the connection
+   * brings in is due, or `null` for none (issue 1409). Defaulted, so an answer
+   * from before this field reads as none.
+   */
+  dueInDays: dueInDaysSchema.nullable().default(null),
+  /**
    * Whether the connection keeps a history its row's *History…* opens - a
    * connection Cockpit pulls from (issue 1140) or one its source pushes to
    * (issue 1144). Absent reads as none.
@@ -86,8 +99,14 @@ export const registeredConnectorSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   cardText: z.string(),
-  /** Whether connecting asks the person something before it leaves for the source: true where `choice` or `names` is present. */
+  /** Whether connecting asks the person something before it leaves for the source: true where `choice` or `names` is present, or the connector is pulled. */
   asksFirst: z.boolean(),
+  /**
+   * Whether Cockpit pulls from this connector, which is what offers a due date
+   * a set number of days after each Item arrives (issue 1409). Absent reads as
+   * not pulled.
+   */
+  pulled: z.boolean().optional(),
   /**
    * The one choice the connection makes, asked before the sign-in and
    * changeable later ("Ask a connection's one choice on connecting, and change

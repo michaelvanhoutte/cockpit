@@ -14,6 +14,7 @@ import {
   asStored,
   captureItem,
   decideWorkspace,
+  dueDateIsOpen,
 } from '../../../src/domain/items.js';
 
 const MADE = '2026-08-12T10:00:00.000Z';
@@ -654,6 +655,60 @@ describe('Capture', () => {
     });
   });
 });
+/**
+ * "Give each email a Gmail or Outlook connection brings in a due date a set
+ * number of days out" (issue 1409): a date a connection gave is not yours, so a
+ * reading may replace it - the gate widens from none to none-or-the-connection's.
+ * Which date the link recorded, and the reading's write against the real store,
+ * are the integration tier's (tests/integration/connectors/due-date-from-the-connection.test.ts).
+ */
+describe('Capture', () => {
+  describe('a date the connection gave is not yours: the reading replaces it, and never replaces yours', () => {
+    const GIVEN = '2026-08-15';
+    it.each([
+      { situation: 'it holds no date', item: () => anItem(), open: true },
+      {
+        situation: 'it holds the date its connection gave, which you did not choose',
+        item: () => anItem({ dueDate: GIVEN, dueDateSetAt: MADE, dueDateChosenAt: null }),
+        open: true,
+      },
+      { situation: 'you set a date', item: () => dueDated(anItem(), LATER, GIVEN)!, open: false },
+      { situation: 'you cleared the date', item: () => dueDated(dueDated(anItem(), LATER, GIVEN)!, LATEST, null)!, open: false },
+      {
+        situation: 'a reading replaced the date its connection gave',
+        item: () => anItem({ dueDate: '2026-08-20', dueDateSetAt: LATER, dueDateChosenAt: null }),
+        open: false,
+      },
+    ])('the gate, when $situation, is open: $open', ({ item, open }) => {
+      expect(dueDateIsOpen(item(), GIVEN)).toBe(open);
+    });
+
+    it.each([
+      { situation: 'it is the connection’s date', item: () => anItem({ dueDate: GIVEN, dueDateChosenAt: null }), expected: '2026-08-14' },
+      { situation: 'you set one', item: () => dueDated(anItem(), LATER, GIVEN)!, expected: null },
+    ])('a reading naming Friday, when $situation, sets it only if it is the connection’s', ({ item, expected }) => {
+      const before = item();
+      const read = applyProposedFields(
+        before,
+        { ...request, issuedAt: LATEST, itemId: before.id, dueDate: '2026-08-14' },
+        false,
+        GIVEN,
+      );
+
+      expect(read?.set.dueDate ?? null).toBe(expected);
+      if (read) expect(read.item).toMatchObject({ dueDate: expected, dueDateSetAt: LATEST, dueDateChosenAt: null });
+    });
+
+    it('a date a source gives leaves the marker of your choice as it was, and one you give takes it', () => {
+      const before = anItem();
+      const asked = { ...request, issuedAt: LATER, itemId: before.id, dueDate: GIVEN };
+
+      expect(applySetDueDate(before, asked, true)).toMatchObject({ dueDate: GIVEN, dueDateSetAt: LATER, dueDateChosenAt: null });
+      expect(applySetDueDate(before, asked)).toMatchObject({ dueDate: GIVEN, dueDateChosenAt: LATER });
+    });
+  });
+});
+
 /**
  * "Settle an Any workspace capture in the workspace you name" (issue 1078): the
  * decision for the Workspace, which is filing's first-answer-wins rule - the

@@ -1753,6 +1753,15 @@ export const connectorAccounts = sqliteTable(
      * by the check, never by the connector.
      */
     filesByName: integer('files_by_name', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * How many calendar days after the day it arrives each Item the connection
+     * brings in is due ("Give each email a Gmail or Outlook connection brings
+     * in a due date a set number of days out", issue 1409), or null for none.
+     * Null for every connection made before it (`0091-due-in-days`,
+     * changes.ts) and until a person ticks the box; read by the check, never by
+     * the connector, and counted from when it is saved.
+     */
+    dueInDays: integer('due_in_days'),
   },
   (t) => [
     // What the window reads: one Workspace's accounts, oldest first.
@@ -1771,6 +1780,7 @@ export const connectorAccounts = sqliteTable(
     check('connector_accounts_connected_at_is_timestamp', isTimestamp('connected_at')),
     check('connector_accounts_updated_at_is_timestamp', isTimestamp('updated_at')),
     check('connector_accounts_files_by_name_is_a_flag', sql`files_by_name IN (0, 1)`),
+    check('connector_accounts_due_in_days_is_in_range', sql.raw('due_in_days IS NULL OR due_in_days BETWEEN 1 AND 365')),
   ],
 );
 
@@ -2145,10 +2155,22 @@ export const pulledLinks = sqliteTable(
      * connection files by name.
      */
     names: text('names'),
+    /**
+     * The due date the connection gave the Item ("Give each email a Gmail or
+     * Outlook connection brings in a due date a set number of days out", issue
+     * 1409): the day it arrived counted forward by the connection's days, set
+     * in the transaction that makes the Item and moved on by a reopen. The
+     * Item's date is "still the connection's" while the person has neither set
+     * nor cleared it and it equals this; a reading that replaced it, or a
+     * person, leaves the two apart. Null where the connection gave none -
+     * every link made before this existed.
+     */
+    givenDueDate: text('given_due_date'),
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.connectorId, t.externalAccountKey, t.sourceId] }),
     uniqueIndex('pulled_links_one_per_item').on(t.itemId),
+    check('pulled_links_given_due_date_is_date', isDate('given_due_date')),
     check('pulled_links_linked_at_is_timestamp', isTimestamp('linked_at')),
     check('pulled_links_open_wanted_is_flag', sql.raw('open_wanted IS NULL OR open_wanted IN (0, 1)')),
     check('pulled_links_names_is_json', sql.raw('names IS NULL OR json_valid(names)')),

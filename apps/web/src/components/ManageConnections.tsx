@@ -53,6 +53,8 @@ function connectPath(workspaceId: string, connectorId: string, answer: ConnectAn
   const asked = new URLSearchParams();
   if (answer.choice !== undefined) asked.set('choice', answer.choice);
   if (answer.filesByName !== undefined) asked.set('filesByName', String(answer.filesByName));
+  // And how many days after it arrives each Item is due, `none` for none (issue 1409).
+  if (answer.dueInDays !== undefined) asked.set('dueInDays', answer.dueInDays === null ? 'none' : String(answer.dueInDays));
   const query = asked.toString();
   return query ? `${path}?${query}` : path;
 }
@@ -66,6 +68,8 @@ interface Card {
   choice?: ConnectorChoice | undefined;
   /** How its connector speaks of names, where it reports any: Connect asks whether to file by them too (issue 1147). */
   names?: ConnectorNames | undefined;
+  /** Whether its connector is pulled: Connect asks whether to give each Item a due date too (issue 1409). */
+  pulled?: boolean | undefined;
   /** Present where its connector connects a phone by a texted code rather than by leaving: Connect asks for a number (issue 1335). */
   textedCode?: { textTo: string } | undefined;
 }
@@ -271,7 +275,14 @@ export default function ManageConnections({
    * The card whose connector's question is being asked before Connect leaves
    * (issue 942) - and the option to start at, where a row is being reconnected.
    */
-  const [asking, setAsking] = useState<(Card & { startAt?: string | undefined; startFilesByName?: boolean | undefined }) | null>(null);
+  const [asking, setAsking] = useState<
+    | (Card & {
+        startAt?: string | undefined;
+        startFilesByName?: boolean | undefined;
+        startDueInDays?: number | null | undefined;
+      })
+    | null
+  >(null);
   const askingOpenedFrom = useRef<HTMLElement | null>(null);
   /** The row whose choice is being changed with *Change…* (issue 942). */
   const [changingChoice, setChangingChoice] = useState<SourceAccount | null>(null);
@@ -300,6 +311,7 @@ export default function ManageConnections({
       text: connector.cardText,
       choice: connector.choice,
       names: connector.names,
+      pulled: connector.pulled,
       textedCode: connector.textedCode,
     }));
   /** The connector's own sentence for why it refused, where the listing holds one for the code. */
@@ -403,9 +415,14 @@ export default function ManageConnections({
   const reconnect = (account: SourceAccount, openedFrom: HTMLElement | null) => {
     const card = registered.find((one) => one.id === account.connectorId);
     if (!card) return;
-    if (card.choice || card.names) {
+    if (card.choice || card.names || card.pulled) {
       askingOpenedFrom.current = openedFrom;
-      setAsking({ ...card, startAt: account.follows, startFilesByName: account.filesByName });
+      setAsking({
+        ...card,
+        startAt: account.follows,
+        startFilesByName: account.filesByName,
+        startDueInDays: account.dueInDays,
+      });
     } else connectRegistered(card.id);
   };
 
@@ -519,6 +536,9 @@ export default function ManageConnections({
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {account.follows && <Chip>{account.followsLabel ?? account.follows}</Chip>}
                           {account.filesByName && noun && <Chip>Files by {noun}</Chip>}
+                          {account.dueInDays != null && (
+                            <Chip>{`Due ${account.dueInDays} ${account.dueInDays === 1 ? 'day' : 'days'} after`}</Chip>
+                          )}
                           {/* A connected phone says which number to text, since that is what it is for (issue 1335). */}
                           {textTo !== undefined && (
                             <span className="text-xs text-ink-faint">Text {textTo} to add a note</span>
@@ -597,7 +617,7 @@ export default function ManageConnections({
                                 : []),
                               // The connector's own choice, changed without signing in
                               // again (issue 942).
-                              ...(choiceOf(account.connectorId) || namesOf(account.connectorId)
+                              ...(choiceOf(account.connectorId) || namesOf(account.connectorId) || account.pulled
                                 ? [
                                     {
                                       label: 'Change…',
@@ -686,7 +706,7 @@ export default function ManageConnections({
                         onClick={(event) => {
                           // A connector that asks nothing leaves at once from here; picked from the
                           // header's menu it opens its window first, so the person is told what it is.
-                          if (card.textedCode || card.choice || card.names) connectCard(card, event.currentTarget);
+                          if (card.textedCode || card.choice || card.names || card.pulled) connectCard(card, event.currentTarget);
                           else connectRegistered(card.id);
                         }}
                         className="self-start rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
@@ -712,6 +732,8 @@ export default function ManageConnections({
                 names: asking.names,
                 startAt: asking.startAt,
                 startFilesByName: asking.startFilesByName,
+                pulled: asking.pulled,
+                startDueInDays: asking.startDueInDays,
               }
             : null
         }
@@ -732,6 +754,7 @@ export default function ManageConnections({
         account={changingChoice}
         choice={changingChoice ? (choiceOf(changingChoice.connectorId) ?? null) : null}
         names={changingChoice ? (namesOf(changingChoice.connectorId) ?? null) : null}
+        pulled={changingChoice?.pulled === true}
         workspaceId={workspaceId}
         returnFocusTo={choiceOpenedFrom.current}
         onClose={() => setChangingChoice(null)}
