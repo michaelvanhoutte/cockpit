@@ -291,7 +291,7 @@
     {
       "key": "Item editing",
       "label": "Item editing",
-      "browserWalks": 14,
+      "browserWalks": 15,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",
@@ -368,8 +368,8 @@
       ]
     },
     {
-      "key": "What Cockpit changed",
-      "label": "What Cockpit changed",
+      "key": "Suggestions",
+      "label": "Suggestions",
       "parent": "Capture",
       "sourcePatterns": [
         "apps/api/src/domain/rewrite-history.ts",
