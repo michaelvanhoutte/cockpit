@@ -254,6 +254,7 @@ describe('Across the app', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Settings…',
         'Work offline',
+        'Keyboard shortcuts?',
         'Sign out',
         creditLine(),
       ]);
@@ -453,6 +454,7 @@ describe('User management', () => {
         'Settings…',
         'Platform settings…',
         'Work offline',
+        'Keyboard shortcuts?',
         'Sign out',
         creditLine(),
       ]);
@@ -606,6 +608,227 @@ describe('Dashboards', () => {
 
       expect(localStorage.getItem('cockpit.inbox-collapsed')).toBeNull();
       act(() => forgetLanding());
+    });
+  });
+});
+
+describe('Shortcuts', () => {
+  const shell = () =>
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <Layout />
+      </QueryClientProvider>,
+    );
+  const onADesk = (matches: boolean) =>
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+  const openADashboard = () => {
+    openWorkspaceId = 'ws-markup';
+    openDashboardId = 'dash-1';
+  };
+  const list = () => screen.queryByRole('complementary', { name: 'Go to panel' });
+  const windowOfKeys = () => screen.queryByRole('dialog', { name: 'Keyboard shortcuts' });
+  /** What the page has put on it besides the shell: the Item form docked, or a window over it. */
+  const onThePage: HTMLElement[] = [];
+  const putUp = (role: string, docked: boolean) => {
+    const made = document.body.appendChild(document.createElement('div'));
+    made.setAttribute('role', role);
+    if (docked) made.setAttribute('data-docked-form', '');
+    made.append(document.createElement('button'));
+    onThePage.push(made);
+    return made.querySelector('button')!;
+  };
+  const putUpAField = () => {
+    const box = document.body.appendChild(document.createElement('input'));
+    box.setAttribute('aria-label', 'A box');
+    onThePage.push(box);
+    return box;
+  };
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const made of onThePage.splice(0)) made.remove();
+  });
+
+  describe('the docked Item form never holds back a page key; a field, a menu, a modal form or a dialog does', () => {
+    it('lets I collapse the Inbox from the page and from a button inside the form', async () => {
+      onADesk(true);
+      openADashboard();
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('button', { name: 'Open Go to panel' });
+      const insideTheForm = putUp('dialog', true);
+
+      await user.keyboard('i');
+      expect(localStorage.getItem('cockpit.inbox-collapsed')).toBe('1');
+
+      insideTheForm.focus();
+      await user.keyboard('i');
+      expect(localStorage.getItem('cockpit.inbox-collapsed')).toBeNull();
+    });
+
+    // F is the same listener as G, asking for the other mode.
+    it('lets G open Go to panel from the page and from a button inside the form', async () => {
+      onADesk(true);
+      openADashboard();
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('button', { name: 'Open Go to panel' });
+      const insideTheForm = putUp('dialog', true);
+
+      await user.keyboard('g');
+      expect(list()).not.toBeNull();
+      // The box holds the keys once shown: out of it, G hides the column.
+      await user.click(document.body);
+      await user.keyboard('g');
+      expect(list()).toBeNull();
+
+      insideTheForm.focus();
+      await user.keyboard('g');
+      expect(list()).not.toBeNull();
+    });
+
+    it.each([
+      { situation: 'a modal form', role: 'dialog', docked: false },
+      { situation: 'a dialog over the docked form', role: 'dialog', docked: false, alsoDocked: true },
+      { situation: 'a row menu over the docked form', role: 'menu', docked: false, alsoDocked: true },
+    ])('holds back I, G and F under $situation', async ({ role, docked, alsoDocked }) => {
+      onADesk(true);
+      openADashboard();
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('button', { name: 'Open Go to panel' });
+      if (alsoDocked) putUp('dialog', true);
+      putUp(role, docked);
+
+      await user.keyboard('igf');
+
+      expect(localStorage.getItem('cockpit.inbox-collapsed')).toBeNull();
+      expect(list()).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Find item' })).toBeNull();
+    });
+  });
+
+  describe('? opens the Keyboard shortcuts window under the same guards as I', () => {
+    it.each([
+      { situation: 'from the page', docked: false, keys: '?' },
+      { situation: 'with a form docked', docked: true, keys: '?' },
+      { situation: 'typed with Shift held', docked: false, keys: '{Shift>}?{/Shift}' },
+    ])('opens it $situation', async ({ docked, keys }) => {
+      onADesk(true);
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('button', { name: 'Profile' });
+      if (docked) putUp('dialog', true);
+
+      await user.keyboard(keys);
+
+      expect(await screen.findByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
+    });
+
+    it('does not open a second one with the window already open', async () => {
+      onADesk(true);
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('button', { name: 'Profile' });
+      await user.keyboard('?');
+      await screen.findByRole('dialog', { name: 'Keyboard shortcuts' });
+
+      await user.keyboard('??');
+
+      expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    });
+
+    it.each([
+      { situation: 'in a field', press: async (user: ReturnType<typeof userEvent.setup>) => {
+        const box = putUpAField();
+        await user.click(box);
+        await user.keyboard('?');
+      } },
+      { situation: 'under a dialog', press: async (user: ReturnType<typeof userEvent.setup>) => {
+        putUp('dialog', false);
+        await user.keyboard('?');
+      } },
+      { situation: 'with Ctrl held', press: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Control>}?{/Control}') },
+      { situation: 'with Alt held', press: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Alt>}?{/Alt}') },
+      { situation: 'with ⌘ held', press: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Meta>}?{/Meta}') },
+      { situation: 'held down as a repeat', press: async () => {
+        fireEvent.keyDown(document.body, { key: '?', repeat: true });
+      } },
+    ])('does nothing $situation', async ({ press }) => {
+      onADesk(true);
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('button', { name: 'Profile' });
+
+      await press(user);
+
+      expect(windowOfKeys()).toBeNull();
+    });
+
+    it('does nothing on a phone, which has no keys', async () => {
+      onADesk(false);
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('button', { name: 'Profile' });
+
+      await user.keyboard('?');
+
+      expect(windowOfKeys()).toBeNull();
+    });
+
+    it.each([
+      { way: 'Esc', close: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}') },
+      { way: '✕', close: (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Close' })) },
+      // The scrim is the window's sibling: the one thing outside it that takes a press while it is open.
+      { way: 'a press outside', close: (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('dialog').previousElementSibling!) },
+    ])('closes with $way, and the focus goes back to what had it', async ({ close }) => {
+      onADesk(true);
+      const user = userEvent.setup();
+      shell();
+      const hadIt = putUp('region', false);
+      hadIt.focus();
+      await user.keyboard('?');
+      await screen.findByRole('dialog', { name: 'Keyboard shortcuts' });
+
+      await close(user);
+
+      await waitFor(() => expect(windowOfKeys()).toBeNull());
+      expect(hadIt).toHaveFocus();
+    });
+  });
+
+  describe('the profile menu carries Keyboard shortcuts with a ? cap at a desk, and a phone does not', () => {
+    it('puts it directly before Sign out, and choosing it opens the window', async () => {
+      onADesk(true);
+      const user = userEvent.setup();
+      shell();
+
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      const entries = (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
+      expect(entries.indexOf('Keyboard shortcuts?')).toBe(entries.indexOf('Sign out') - 1);
+      const entry = screen.getByRole('menuitem', { name: 'Keyboard shortcuts?' });
+      expect(within(entry).getByText('?').tagName).toBe('KBD');
+
+      await user.click(entry);
+
+      expect(await screen.findByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Profile' })).toHaveFocus());
+    });
+
+    it('is absent on a phone', async () => {
+      onADesk(false);
+      const user = userEvent.setup();
+      shell();
+
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      expect(await screen.findByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+
+      expect(screen.queryByRole('menuitem', { name: /Keyboard shortcuts/ })).toBeNull();
     });
   });
 });

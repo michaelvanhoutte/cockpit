@@ -10,6 +10,7 @@ import { askToLand, forgetLanding } from '../landOnItem';
 import { entriesIn, FIND_ITEM_KEY, isListedSection, modeOfKeyPress, PANEL_LIST_KEY, rowsLeftBy, rowsOfRun } from '../panelList';
 import type { PanelListEntry, PanelListing, PanelListMode, PanelListRow } from '../panelList';
 import { usePanelListWidth } from '../panelListWidth';
+import { KEY_CAP } from './keyCap';
 import { useReach } from '../panelReach';
 import type { Reach, ReachDashboard, ReachWorkspace, Scope } from '../panelReach';
 
@@ -22,7 +23,7 @@ const HEADING_ID = 'panel-list-heading';
 /** Where the Dashboard's scrolling box is, which Esc and G put back. */
 const SCROLLER = '[data-drag-scroll="dashboard"]';
 
-const KBD = 'rounded border border-shade/20 px-1 text-[10px] text-ink-faint';
+const KBD = KEY_CAP;
 
 /** Where the mode began, so Esc can put the screen back. */
 type Start = {
