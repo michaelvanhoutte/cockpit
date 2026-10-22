@@ -246,6 +246,18 @@ describe('Item editing', () => {
       expect(fresh?.createdAt).toBe(morningOf(SECOND));
     });
 
+    it('is not open twice when the Item it was set on was stamped by a device whose clock runs ahead', async () => {
+      const itemId = nextId();
+      await change('capture_item', { itemId, message: 'Weekly review', workspaceId: WORKSPACE_ID }, '2090-01-09T09:00:00.000Z');
+      await repeat(itemId, WEEKLY, '2090-01-09T09:01:00.000Z');
+      await done(itemId, '2090-01-09T09:02:00.000Z');
+      await alarmRunsAt('2090-01-09T08:30:00.000Z');
+
+      await alarmRunsAt(morningOf(SECOND));
+
+      expect(await occurrences()).toHaveLength(2);
+    });
+
     it('takes back a Never after the day came round, sent from a tab that read before it did, at the day the series moved to', async () => {
       const itemId = await aFinishedWeeklyItem();
       await alarmRunsAt(morningOf(FIRST));
@@ -451,6 +463,25 @@ describe('Item editing', () => {
       expect(await nextAlarm()).toBeNull();
     });
 
+    it('is set for the next series’ own day while one whose day came cannot be brought back', async () => {
+      // Kathmandu's day starts a quarter of an hour before Kolkata's.
+      const failing = await anItem('Cannot come back');
+      await repeat(failing, { ...WEEKLY, timeZone: 'Asia/Kathmandu' });
+      await done(failing);
+      await repeat(await anItem('Comes back'), { ...WEEKLY, timeZone: 'Asia/Kolkata' });
+      const { series_id } = await inTheStore((sql) =>
+        sql.exec<{ series_id: string }>('SELECT series_id FROM items WHERE id = ?', failing).one(),
+      );
+      await inTheStore((sql) =>
+        sql.exec(`CREATE TRIGGER refuse_one BEFORE INSERT ON items WHEN NEW.series_id = '${series_id}' BEGIN SELECT RAISE(ABORT, 'refused'); END`),
+      );
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await alarmRunsAt('2090-01-08T18:15:00.000Z');
+
+      expect(await nextAlarm()).toBe(Date.parse('2090-01-08T18:30:00.000Z'));
+    });
+
     it('is armed again by the nightly run when it was lost, and brings the Item back', async () => {
       await aFinishedWeeklyItem();
       await runInDurableObject(storeNamed(ACCOUNT_NAME), (_instance, state) => state.storage.deleteAlarm());
@@ -473,7 +504,7 @@ describe('Item editing', () => {
       expect(await occurrences()).toHaveLength(2);
     });
 
-    it('brings back no second Item when Next on is put back on the day it already came back, and moves on', async () => {
+    it('brings back no second Item when Next on is put back on the day it already came back, and moves on where open tabs see it', async () => {
       const itemId = await aFinishedWeeklyItem();
       await alarmRunsAt(morningOf(FIRST));
       const [, open] = await occurrences();
@@ -485,6 +516,22 @@ describe('Item editing', () => {
 
       expect(await occurrences()).toHaveLength(2);
       expect(await seriesRow()).toMatchObject({ next_on: SECOND });
+      expect(await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, '2090-01-09T10:59:00.000Z')).toMatchObject({
+        status: 'ok',
+        value: { events: [expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: WORKSPACE_ID })] },
+      });
+    });
+
+    it('keeps coming back on the 31st when it was set before Cockpit kept the day it counts from', async () => {
+      const itemId = await anItem('Pay the rent');
+      await repeat(itemId, { ...WEEKLY, frequency: 'monthly', nextOn: '2090-01-31' });
+      await done(itemId);
+      await inTheStore((sql) => sql.exec('UPDATE series SET anchor_on = NULL'));
+
+      await alarmRunsAt(morningOf('2090-01-31'));
+      await alarmRunsAt(morningOf('2090-02-28'));
+
+      expect((await seriesRow()).next_on).toBe('2090-03-31');
     });
 
     it('brings back one Item after the store has slept for weeks, and moves on from today', async () => {

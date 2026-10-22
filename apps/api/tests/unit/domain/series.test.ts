@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dayStartsAt } from '../../../src/domain/series.js';
+import { firstDayAfter, type RepeatFrequency } from '@cockpit/shared';
+import { countedFrom, dayStartsAt, decideRepeat, type SeriesRow } from '../../../src/domain/series.js';
 
 /**
  * L1: when a repeating Item's day starts ("Bring a repeating Item back on its
@@ -27,6 +28,78 @@ describe('Item editing', () => {
 
     it('is unknown for a zone that cannot be read', () => {
       expect(dayStartsAt('2027-01-11', 'Mars/Olympus_Mons')).toBeNull();
+    });
+  });
+
+  /** A Brussels series as its row holds it. */
+  const aSeries = (over: Partial<SeriesRow>): SeriesRow => ({
+    id: '018f0000-0000-7000-8000-000000000001',
+    tenantId: 'account',
+    frequency: 'monthly',
+    nextOn: '2027-01-31',
+    dueAfterDays: null,
+    timeZone: 'Europe/Brussels',
+    stoppedAt: null,
+    anchorOn: null,
+    lastOn: null,
+    createdAt: '2027-01-01T09:00:00.000Z',
+    updatedAt: '2027-01-01T09:00:00.000Z',
+    ...over,
+  });
+
+  /** The day a series comes back on after the one it shows next. */
+  const theDayAfter = (row: Pick<SeriesRow, 'anchorOn' | 'nextOn' | 'frequency'>) =>
+    firstDayAfter(countedFrom(row), row.frequency, row.nextOn);
+
+  describe('a repeating Item comes back on the rule it shows, after the day it shows next', () => {
+    it.each([
+      { situation: 'monthly from the 31st, on the last day of February, is the 31st again', frequency: 'monthly', anchorOn: '2027-01-31', nextOn: '2027-02-28', after: '2027-03-31' },
+      { situation: 'set before the day it was set from was kept, from its Next on', frequency: 'monthly', anchorOn: null, nextOn: '2027-01-31', after: '2027-02-28' },
+      { situation: 'weekly, its Next on moved to a Wednesday by an older Cockpit, on Wednesdays', frequency: 'weekly', anchorOn: '2027-11-01', nextOn: '2027-11-10', after: '2027-11-17' },
+    ] as const)('$situation', ({ frequency, anchorOn, nextOn, after }) => {
+      expect(theDayAfter({ frequency: frequency as RepeatFrequency, anchorOn, nextOn })).toBe(after);
+    });
+  });
+
+  describe('a change to a repeating Item’s rule keeps the day it comes back on unless Next on is moved', () => {
+    it.each([
+      {
+        situation: 'Daily turned Weekly on its Friday, started again after Never once that Friday has passed, comes back on the next Friday',
+        own: { frequency: 'daily', anchorOn: '2027-11-01', nextOn: '2027-11-05', lastOn: '2027-11-04', stoppedAt: '2027-11-04T10:00:00.000Z' },
+        sent: { frequency: 'weekly', nextOn: '2027-11-05' },
+        issuedAt: '2027-11-10T09:00:00.000Z',
+        nextOn: '2027-11-12',
+      },
+      {
+        situation: 'sent the evening before the day came round, from a tab that read before it did, keeps the day it moved to',
+        own: { frequency: 'monthly', anchorOn: '2027-01-31', nextOn: '2027-03-31', lastOn: '2027-02-28', stoppedAt: null },
+        sent: { frequency: 'monthly', nextOn: '2027-02-28' },
+        // 23:59 in Brussels on the 27th.
+        issuedAt: '2027-02-27T22:59:00.000Z',
+        nextOn: '2027-03-31',
+      },
+      {
+        situation: 'moved back to today, the day it came round, comes back today',
+        own: { frequency: 'monthly', anchorOn: '2027-01-31', nextOn: '2027-03-31', lastOn: '2027-02-28', stoppedAt: null },
+        sent: { frequency: 'monthly', nextOn: '2027-02-28' },
+        issuedAt: '2027-02-28T10:00:00.000Z',
+        nextOn: '2027-02-28',
+      },
+    ] as const)('$situation', ({ own, sent, issuedAt, nextOn }) => {
+      const decided = decideRepeat(
+        aSeries({ ...own, frequency: own.frequency as RepeatFrequency }),
+        {
+          commandId: '018f0000-0000-7000-8000-000000000002',
+          issuedAt,
+          workspaceId: 'ws',
+          itemId: '018f0000-0000-7000-8000-000000000003',
+          seriesId: '018f0000-0000-7000-8000-000000000001',
+          repeat: { ...sent, dueAfterDays: 3, timeZone: 'Europe/Brussels' },
+        },
+        'account',
+      );
+
+      expect(decided).toMatchObject({ kind: 'write', row: { nextOn } });
     });
   });
 });

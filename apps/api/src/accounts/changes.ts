@@ -1191,12 +1191,15 @@ const SERIES: Change = {
  *   either statement takes the other back, and the next open applies both.
  * - **The second time it runs:** it does not re-run once recorded, and SQLite
  *   refuses a column that already exists, which the transaction makes safe.
- * - **Rows that predate it:** a series set before it reads NULL for both, which
- *   counts from its own *Next on* and has never come round. Nothing is backfilled.
+ * - **Rows that predate it:** a series set before it reads NULL for both: it
+ *   has never come round, and counts from its own *Next on*, which coming round
+ *   then keeps as its anchor. Nothing is backfilled.
  * - **What is in each environment:** a series exists only where a person set
  *   one since `0092-series`; each gains two NULLs, and nothing is written on deploy.
  * - **Rolled back after it has run:** an older release names neither column and
- *   brings nothing back; the columns keep what they held.
+ *   brings nothing back, but its *Next on* moves leave `anchor_on` behind. On
+ *   rolling forward an anchor `next_on` is no longer counted from is read as
+ *   `next_on` (`countedFrom`), so the series comes round on the day it shows.
  * - **A backup restored from before it:** the restore replays the recorded
  *   changes, so this one applies the next time the account is opened.
  */

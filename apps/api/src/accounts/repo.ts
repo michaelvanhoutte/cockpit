@@ -786,8 +786,10 @@ export function listRunningSeries(db: AccountDb, tenantId: string): SeriesRow[] 
 
 /**
  * The latest Item of a series, dismissed or not - what its next occurrence is
- * copied from (issue 1407). Null only where no Item names it, which nothing but
- * a row written by hand leaves.
+ * copied from ("Bring a repeating Item back on its day", issue 1407). Latest by
+ * when it was made, which each occurrence is after the one it copies
+ * (`occurrenceOf`). Null only where no Item names it, which nothing but a row
+ * written by hand leaves.
  */
 export function latestOccurrence(db: AccountDb, tenantId: string, seriesId: string): Item | null {
   return (
@@ -970,19 +972,22 @@ export function listAttachmentsOfItem(
     .all();
 }
 
+/** An attachment's row whole, as `AttachmentRow` holds it. */
+const attachmentRowColumns = {
+  id: attachments.id,
+  tenantId: attachments.tenantId,
+  itemId: attachments.itemId,
+  r2Key: attachments.r2Key,
+  filename: attachments.filename,
+  size: attachments.size,
+  contentType: attachments.contentType,
+  createdAt: attachments.createdAt,
+};
+
 /** Every file on one Item, whole and oldest first - what its next occurrence carries over ("Bring a repeating Item back on its day", issue 1407). */
 export function attachmentRowsOf(db: AccountDb, tenantId: string, itemId: string): AttachmentRow[] {
   return db
-    .select({
-      id: attachments.id,
-      tenantId: attachments.tenantId,
-      itemId: attachments.itemId,
-      r2Key: attachments.r2Key,
-      filename: attachments.filename,
-      size: attachments.size,
-      contentType: attachments.contentType,
-      createdAt: attachments.createdAt,
-    })
+    .select(attachmentRowColumns)
     .from(attachments)
     .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, itemId)))
     .orderBy(asc(attachments.createdAt), asc(attachments.id))
@@ -997,16 +1002,7 @@ export function attachmentRowsOf(db: AccountDb, tenantId: string, itemId: string
 export function getAttachment(db: AccountDb, tenantId: string, attachmentId: string): AttachmentRow | null {
   return (
     db
-      .select({
-        id: attachments.id,
-        tenantId: attachments.tenantId,
-        itemId: attachments.itemId,
-        r2Key: attachments.r2Key,
-        filename: attachments.filename,
-        size: attachments.size,
-        contentType: attachments.contentType,
-        createdAt: attachments.createdAt,
-      })
+      .select(attachmentRowColumns)
       .from(attachments)
       .where(and(eq(attachments.tenantId, tenantId), eq(attachments.id, attachmentId)))
       .get() ?? null

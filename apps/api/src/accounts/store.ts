@@ -10,10 +10,10 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { ACCOUNT_WIDE, panelTakesItems, type RememberedSentenceList } from '@cockpit/shared';
+import { ACCOUNT_WIDE, panelTakesItems, uuidv7, type RememberedSentenceList } from '@cockpit/shared';
 import { derivedUuid } from '../domain/derived-uuid.js';
 import { occurrenceDueAt, type SeriesRow } from '../domain/series.js';
-import { nextOccurrenceDueAt, occurrenceNotBroughtBack, passOverADayBroughtBack } from './occurrences.js';
+import { nextOccurrenceDueAt, occurrenceNotBroughtBack } from './occurrences.js';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -934,7 +934,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * Arms the alarm where the account holds a pulled connection to check or a
    * series to bring back and nothing has it armed - the nightly guard against
    * a lost alarm, which would otherwise stop the checks and the occurrences
-   * without a word (issues 891 and 1407).
+   * without a word ("Check a pulled connector on its cadence through the
+   * generic host", issue 891; "Bring a repeating Item back on its day", issue 1407).
    */
   async keepTheAlarmArmed(accountName: string): Promise<Answer<'armed' | 'already armed' | 'nothing to arm'>> {
     const wanted = this.#answer(
@@ -1109,7 +1110,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /**
    * The account's one alarm: it queues a check of each pulled connection that
    * is due (issue 891), which the Worker's queue consumer then runs, brings
-   * back each series whose day has come (issue 1407), and is set for whichever
+   * back each series whose day has come ("Bring a repeating Item back on its
+   * day", issue 1407), and is set for whichever
    * of the two is due next. **It opens no credential**: the Worker running the
    * check does (docs/architecture.md, "Connectors").
    *
@@ -1138,9 +1140,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * stops leaves the series due and the next one writes it once.
    *
    * **A day whose Item is already written is passed over**: that change is in
-   * the log, so it writes nothing again, and Next on moves on here instead of
-   * the alarm firing straight back at it. One series failing is logged and
-   * costs only itself.
+   * the log, so it writes nothing again, and it is sent once more under an id
+   * of its own, which moves Next on on - logged and announced like any other
+   * change - instead of the alarm firing straight back at it. One series
+   * failing is logged and costs only itself.
    */
   async #bringBackDueOccurrences(accountName: string): Promise<void> {
     const now = new Date();
@@ -1155,21 +1158,22 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     for (const one of due) {
       try {
         const day = one.nextOn;
-        const brought = runCommand(
-          this.#database(),
-          accountName,
-          'bring_back_occurrence',
-          {
-            commandId: await derivedUuid(`occurrence:${one.id}:${day}`),
-            issuedAt: now.toISOString(),
-            workspaceId: ACCOUNT_WIDE,
-            seriesId: one.id,
-            day,
-            itemId: await derivedUuid(`occurrence-item:${one.id}:${day}`),
-          },
-          { mirroring: this.mirroringConnectorIds() },
-        );
-        if (!brought.applied) passOverADayBroughtBack(this.#database(), accountName, one.id, day, now.toISOString());
+        const occurrence = {
+          issuedAt: now.toISOString(),
+          workspaceId: ACCOUNT_WIDE,
+          seriesId: one.id,
+          day,
+          itemId: await derivedUuid(`occurrence-item:${one.id}:${day}`),
+        };
+        const bringBack = (commandId: string) =>
+          runCommand(
+            this.#database(),
+            accountName,
+            'bring_back_occurrence',
+            { commandId, ...occurrence },
+            { mirroring: this.mirroringConnectorIds() },
+          );
+        if (!bringBack(await derivedUuid(`occurrence:${one.id}:${day}`)).applied) bringBack(uuidv7());
       } catch (error) {
         occurrenceNotBroughtBack(`series ${one.id} was not brought back, and is tried again`, error);
       }
@@ -1216,7 +1220,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * connection just made being due now - and the start of the next series'
    * day, and clears it where there is neither. **A series still due after the
    * alarm has run is one that could not be brought back**, and waits
-   * `OCCURRENCE_RETRY_MS` rather than firing the alarm straight back. Where the
+   * `OCCURRENCE_RETRY_MS` rather than firing the alarm straight back, while
+   * every other series keeps its own day. Where the
    * store cannot be read just now, it is tried again at the cadence, so a
    * passing failure costs one run rather than the check. The account's name is
    * kept beside the alarm, since an alarm arrives naming nothing.
@@ -1228,8 +1233,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       const now = Date.now();
       const pulledDue = schedulePulledChecks(this.#database(), accountName, this.pulledConnectorIds(), new Date(now));
       const pulled = pulledDue === null ? null : Date.parse(pulledDue);
-      let occurrence = nextOccurrenceDueAt(this.#database(), accountName);
-      if (occurrence !== null && afterOccurrences && occurrence <= now) occurrence = now + OCCURRENCE_RETRY_MS;
+      const occurrence = nextOccurrenceDueAt(
+        this.#database(),
+        accountName,
+        afterOccurrences ? { now, retryAt: now + OCCURRENCE_RETRY_MS } : undefined,
+      );
       next = pulled === null ? occurrence : occurrence === null ? pulled : Math.min(pulled, occurrence);
     } catch {
       next = Date.now() + PULLED_CHECK_EVERY_MS;
@@ -1495,7 +1503,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     }
 
     // Each stored file once, however many rows name it: a repeating Item's
-    // occurrences each carry a row naming the same file (issue 1407).
+    // occurrences each carry a row naming the same file ("Bring a repeating
+    // Item back on its day", issue 1407).
     const orphanedKeys = accountTables(sql).includes('attachments')
       ? sql
           .exec<{ r2_key: string }>('SELECT DISTINCT r2_key FROM attachments')
@@ -1697,7 +1706,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
 /**
  * The changes after which the alarm is armed, moved or cleared: connecting,
  * disconnecting and a Workspace going with its connections (issue 891), and a
- * repeat set, changed or stopped (issue 1407).
+ * repeat set, changed or stopped ("Bring a repeating Item back on its day",
+ * issue 1407).
  */
 const CHANGES_THE_ALARM: ReadonlySet<CommandName> = new Set<CommandName>([
   'connect_source_account',

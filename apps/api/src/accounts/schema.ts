@@ -1624,7 +1624,9 @@ export const series = sqliteTable(
      * The *Next on* a person last set, which every later day is counted from
      * ("Bring a repeating Item back on its day", issue 1407): monthly from the
      * 31st falls on a shorter month's last day and is the 31st again after.
-     * NULL until set again after `0093-series-days`, read as `next_on`.
+     * Read as `next_on` wherever `next_on` is not one of the days counted from
+     * it (`countedFrom`), NULL among them: a series from before
+     * `0093-series-days` is given one the first time it comes round.
      */
     anchorOn: text('anchor_on'),
     /** The day the series last came round, an Item written or not; NULL until it has. */

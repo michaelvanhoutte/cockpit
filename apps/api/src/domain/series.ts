@@ -3,6 +3,7 @@ import {
   daysOnFrom,
   firstDayAfter,
   type Item,
+  type RepeatFrequency,
   type Series,
   type SetRepeatCommand,
 } from '@cockpit/shared';
@@ -42,10 +43,11 @@ export type RepeatDecision =
  * **Only a *Next on* the person moves is held to today, and is what the series
  * is counted from after.** The form sends the stored one back with every other
  * choice and with an Undo of *Never*; a tab whose copy is from before the series
- * last came round sends that day back, which is read as the stored one too. A
- * day kept that has since passed - a rule started again after *Never* - moves on
- * to the first the series comes round on from today, so nothing lands on a day
- * already passed ("Bring a repeating Item back on its day", issue 1407).
+ * last came round sends that day back, which is read as the stored one too -
+ * except on that day itself, when it is the person moving *Next on* back to
+ * today. A day kept that has since passed - a rule started again after *Never* -
+ * moves on to the first the series comes round on from today, so nothing lands
+ * on a day already passed ("Bring a repeating Item back on its day", issue 1407).
  */
 export function decideRepeat(
   own: SeriesRow | null,
@@ -61,9 +63,9 @@ export function decideRepeat(
   const today = captureDay(cmd.issuedAt, timeZone);
   if (today === null) return { kind: 'refused', why: UNKNOWN_TIME_ZONE };
   const keepsItsDay =
-    own !== null && (rule.nextOn === own.nextOn || (rule.nextOn === own.lastOn && rule.nextOn < today.date));
+    own !== null && (rule.nextOn === own.nextOn || (rule.nextOn === own.lastOn && rule.nextOn !== today.date));
   if (rule.nextOn < today.date && !keepsItsDay) return { kind: 'refused', why: NEXT_ON_PASSED };
-  const anchorOn = keepsItsDay ? (own.anchorOn ?? own.nextOn) : rule.nextOn;
+  const anchorOn = keepsItsDay ? countedFrom(own, rule.frequency) : rule.nextOn;
   const kept = keepsItsDay ? own.nextOn : rule.nextOn;
   return {
     kind: 'write',
@@ -81,6 +83,23 @@ export function decideRepeat(
       updatedAt: cmd.issuedAt,
     },
   };
+}
+
+/**
+ * The day a series' later days are counted from on `frequency`: its anchor
+ * where its *Next on* is one of the days counted from it, and its *Next on*
+ * otherwise - a series from before `anchor_on` existed, a frequency changed
+ * since, or a *Next on* an older release moved without it ("Bring a repeating
+ * Item back on its day, as a fresh copy", issue 1407). So the series always
+ * comes round after the day it shows, on the rule it shows.
+ */
+export function countedFrom(
+  own: Pick<SeriesRow, 'anchorOn' | 'nextOn' | 'frequency'>,
+  frequency: RepeatFrequency = own.frequency,
+): string {
+  if (own.anchorOn === null) return own.nextOn;
+  const onItsRun = firstDayAfter(own.anchorOn, frequency, daysOnFrom(own.nextOn, -1)) === own.nextOn;
+  return onItsRun ? own.anchorOn : own.nextOn;
 }
 
 /**
@@ -128,10 +147,14 @@ export interface OccurrenceAsked {
  * week's - To do, due `dueAfterDays` after the day it appears, and naming the
  * series. **A fresh Item, not the previous one's history**: nothing captured,
  * no source, nothing proposed, and its texts and priority the person's own, so
- * no reading replaces them.
+ * no reading replaces them. **Made after the one it copies**, even one stamped
+ * by a device whose clock runs ahead, since the latest made is what the next
+ * is copied from and what must be finished before one more comes.
  */
 export function occurrenceOf(previous: Item, series: Pick<Series, 'id' | 'dueAfterDays'>, asked: OccurrenceAsked): Item {
   const dueDate = series.dueAfterDays === null ? null : daysOnFrom(asked.today, series.dueAfterDays);
+  const createdAt =
+    asked.at > previous.createdAt ? asked.at : new Date(Date.parse(previous.createdAt) + 1).toISOString();
   return {
     id: asked.itemId,
     tenantId: previous.tenantId,
@@ -165,7 +188,7 @@ export function occurrenceOf(previous: Item, series: Pick<Series, 'id' | 'dueAft
     seriesId: series.id,
     unseen: false,
     deletedAt: null,
-    createdAt: asked.at,
+    createdAt,
     updatedAt: asked.at,
   };
 }
@@ -174,7 +197,8 @@ export function occurrenceOf(previous: Item, series: Pick<Series, 'id' | 'dueAft
  * The previous occurrence's attachments as the new one's own: **new rows naming
  * the same stored files**, so nothing is copied and each loads however the
  * previous one ends - and its description with every image pointed at the new
- * row standing in for the one it named (issue 1407). Each keeps when its file
+ * row standing in for the one it named ("Bring a repeating Item back on its
+ * day, as a fresh copy", issue 1407). Each keeps when its file
  * was attached, so they stay in the order the previous one listed them.
  */
 export function attachmentsCarriedOver(

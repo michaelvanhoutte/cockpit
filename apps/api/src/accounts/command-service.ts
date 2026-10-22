@@ -119,7 +119,7 @@ import {
 } from '../domain/workspaces.js';
 import { decideClaudeSend } from '../domain/claude-sends.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
-import { attachmentsCarriedOver, decideRepeat, occurrenceDueAt, occurrenceOf } from '../domain/series.js';
+import { attachmentsCarriedOver, countedFrom, decideRepeat, occurrenceDueAt, occurrenceOf } from '../domain/series.js';
 import {
   applyProposedFields,
   type FieldsSet,
@@ -813,7 +813,17 @@ function panelNamedFor(db: AccountDb, tenantId: string, workspaceId: string, pan
  * decision, and the proposal withdrawn - as `writeFiling` does for a person's.
  */
 function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: string, filed: FiledWhereSaid): void {
-  for (const panel of filed.panels) {
+  writePanelOrders(tx, tenantId, filed.panels);
+  tx.insert(decisionHistory).values(filed.decision).onConflictDoNothing().run();
+  tx.update(items)
+    .set({ proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null })
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
+    .run();
+}
+
+/** Each Panel's order written whole: its filings taken out, and the order it is left with put in. */
+function writePanelOrders(tx: InATransaction, tenantId: string, panels: readonly { panelId: string; rows: FilingRow[] }[]): void {
+  for (const panel of panels) {
     tx.delete(panelItems)
       .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.panelId)))
       .run();
@@ -821,11 +831,6 @@ function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: stri
       tx.insert(panelItems).values(batch).run();
     }
   }
-  tx.insert(decisionHistory).values(filed.decision).onConflictDoNothing().run();
-  tx.update(items)
-    .set({ proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null })
-    .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
-    .run();
 }
 
 /** What a series' day comes to, read from the store before anything is written (`bring_back_occurrence`). */
@@ -834,11 +839,15 @@ type OccurrenceBrought =
   | { kind: 'not due' }
   /** A series with nothing to copy, or a Workspace gone: it stops rather than write an Item. */
   | { kind: 'stops'; because: string; workspaceId: string | null }
-  /** The previous occurrence still open: Next on moves on, and nothing is added. */
-  | { kind: 'passes over'; nextOn: string; workspaceId: string | null }
+  /**
+   * The previous occurrence still open, or this day's Item already written:
+   * Next on moves on, and nothing is added.
+   */
+  | { kind: 'passes over'; nextOn: string; anchorOn: string; workspaceId: string | null }
   | {
       kind: 'writes';
       nextOn: string;
+      anchorOn: string;
       workspaceId: string | null;
       item: Item;
       panels: { panelId: string; rows: FilingRow[] }[];
@@ -856,6 +865,10 @@ type OccurrenceBrought =
  * where it is on none**. Either way Next on moves to the first day the series
  * comes round after today on its own calendar, so a store asleep for a week
  * brings back one occurrence, not seven, and none on a day already passed.
+ * **A day whose Item is already written is passed over** - its Next on put
+ * back on it after it came round - so it is never written twice. The day it
+ * is counted from is kept as it was read (`countedFrom`), so a series set
+ * before it was stored counts from the same day ever after.
  */
 function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'bring_back_occurrence'>): OccurrenceBrought {
   const own = getSeries(db, tenantId, cmd.seriesId);
@@ -869,8 +882,11 @@ function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'
   if (previous.workspaceDecided && !getWorkspace(db, tenantId, previous.workspaceId)) {
     return { kind: 'stops', because: 'its Workspace is gone', workspaceId };
   }
-  const nextOn = firstDayAfter(own.anchorOn ?? own.nextOn, own.frequency, today.date);
-  if (couldStillBeActedOn(previous)) return { kind: 'passes over', nextOn, workspaceId };
+  const anchorOn = countedFrom(own);
+  const nextOn = firstDayAfter(anchorOn, own.frequency, today.date);
+  if (getItem(db, tenantId, cmd.itemId) || couldStillBeActedOn(previous)) {
+    return { kind: 'passes over', nextOn, anchorOn, workspaceId };
+  }
 
   const copied = occurrenceOf(previous, own, { itemId: cmd.itemId, at: cmd.issuedAt, today: today.date });
   const carried = attachmentsCarriedOver(attachmentRowsOf(db, tenantId, previous.id), copied.description, copied.id, () => uuidv7());
@@ -883,6 +899,7 @@ function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'
   return {
     kind: 'writes',
     nextOn,
+    anchorOn,
     workspaceId,
     item: { ...copied, description: carried.description },
     panels,
@@ -2416,15 +2433,6 @@ export function runCommand<N extends CommandName>(
         applied = false;
         break;
       }
-      if (brought.kind === 'stops') {
-        console.warn(
-          JSON.stringify({
-            level: 'warn',
-            message: 'a series stopped, as it had nothing left to bring back',
-            data: { seriesId: cmd.seriesId, because: brought.because },
-          }),
-        );
-      }
       // Logged against the Workspace whose tabs draw the series, or every one
       // where its Item belongs to none.
       if (brought.workspaceId !== null) commandRow.workspaceId = brought.workspaceId;
@@ -2434,20 +2442,28 @@ export function runCommand<N extends CommandName>(
       db.transaction((tx) => {
         if (brought.kind === 'writes') {
           tx.insert(items).values({ ...asStored(brought.item), status: DEAD_STATUS_VALUE }).run();
-          for (const panel of brought.panels) {
-            tx.delete(panelItems)
-              .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.panelId)))
-              .run();
-            for (const batch of inBatchesOf(panel.rows, FILING_VALUES_PER_ROW)) tx.insert(panelItems).values(batch).run();
-          }
+          writePanelOrders(tx, tenantId, brought.panels);
           for (const row of brought.attachments) tx.insert(attachments).values(row).run();
         }
         tx.update(series)
-          .set(brought.kind === 'stops' ? { stoppedAt: cmd.issuedAt, lastOn: cmd.day } : { nextOn: brought.nextOn, lastOn: cmd.day })
+          .set(
+            brought.kind === 'stops'
+              ? { stoppedAt: cmd.issuedAt, lastOn: cmd.day }
+              : { nextOn: brought.nextOn, anchorOn: brought.anchorOn, lastOn: cmd.day },
+          )
           .where(and(eq(series.tenantId, tenantId), eq(series.id, cmd.seriesId)))
           .run();
         tx.insert(commands).values(commandRow).run();
       });
+      if (brought.kind === 'stops') {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            message: 'a series stopped, as it had nothing left to bring back',
+            data: { seriesId: cmd.seriesId, because: brought.because },
+          }),
+        );
+      }
       break;
     }
     case 'send_item_to_claude': {
