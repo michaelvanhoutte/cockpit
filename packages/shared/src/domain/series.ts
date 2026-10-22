@@ -97,20 +97,55 @@ function monthsOnFrom(day: string, count: number): string {
   return dayFrom(toYear, toMonth, Math.min(date, daysInMonth(toYear, toMonth)));
 }
 
-/** The day one period after `day`. */
-export function onePeriodAfter(day: string, frequency: RepeatFrequency): string {
+/**
+ * The day `count` periods after `day`, every period counted from `day` itself: so
+ * monthly from the 31st falls on the last day of a shorter month and is the 31st
+ * again the month after, and yearly from 29 February is 28 February between leap years.
+ */
+export function periodsAfter(day: string, frequency: RepeatFrequency, count: number): string {
   switch (frequency) {
     case 'daily':
-      return daysOnFrom(day, 1);
+      return daysOnFrom(day, count);
     case 'weekly':
-      return daysOnFrom(day, 7);
+      return daysOnFrom(day, 7 * count);
     case 'monthly':
-      return monthsOnFrom(day, 1);
+      return monthsOnFrom(day, count);
     case 'quarterly':
-      return monthsOnFrom(day, 3);
+      return monthsOnFrom(day, 3 * count);
     case 'yearly':
-      return monthsOnFrom(day, 12);
+      return monthsOnFrom(day, 12 * count);
   }
+}
+
+/** The day one period after `day`. */
+export function onePeriodAfter(day: string, frequency: RepeatFrequency): string {
+  return periodsAfter(day, frequency, 1);
+}
+
+/** About how many whole periods lie from `from` to `to`: a start for the count, never past it by more than one. */
+function periodsBetween(from: string, to: string, frequency: RepeatFrequency): number {
+  const a = partsOf(from);
+  const b = partsOf(to);
+  if (frequency === 'daily' || frequency === 'weekly') {
+    const days = Math.floor((utcDay(b.year, b.month, b.date).getTime() - utcDay(a.year, a.month, a.date).getTime()) / 86_400_000);
+    return Math.floor(days / (frequency === 'daily' ? 1 : 7));
+  }
+  const months = b.year * 12 + b.month - (a.year * 12 + a.month);
+  return Math.floor(months / { monthly: 1, quarterly: 3, yearly: 12 }[frequency]);
+}
+
+/**
+ * The first day a series anchored on `anchor` comes round after `after`, and
+ * `anchor` itself where that is later ("Bring a repeating Item back on its day",
+ * issue 1407). Never `after` or a day before it, which is what keeps an
+ * occurrence off a day already passed.
+ */
+export function firstDayAfter(anchor: string, frequency: RepeatFrequency, after: string): string {
+  if (anchor > after) return anchor;
+  let count = Math.max(1, periodsBetween(anchor, after, frequency));
+  while (count > 1 && periodsAfter(anchor, frequency, count - 1) > after) count -= 1;
+  while (periodsAfter(anchor, frequency, count) <= after) count += 1;
+  return periodsAfter(anchor, frequency, count);
 }
 
 /** Where *Next on* starts when a frequency is first picked: one period from today. */
