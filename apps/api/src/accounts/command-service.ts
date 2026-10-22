@@ -22,6 +22,7 @@ import {
   panelPlacements,
   panels,
   pulledConnections,
+  series,
   textCorrections,
   workspaces,
 } from './schema.js';
@@ -34,6 +35,7 @@ import {
   getItem,
   getLayout,
   getPanel,
+  getSeries,
   getSourceAccount,
   givenDueDateOf,
   getWorkspace,
@@ -111,6 +113,7 @@ import {
 } from '../domain/workspaces.js';
 import { decideClaudeSend } from '../domain/claude-sends.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
+import { decideRepeat } from '../domain/series.js';
 import {
   applyProposedFields,
   type FieldsSet,
@@ -173,6 +176,14 @@ export class AttachmentIdTakenError extends Error {
   constructor(attachmentId: string) {
     super(`attachment ${attachmentId} already names a different upload`);
     this.name = 'AttachmentIdTakenError';
+  }
+}
+
+/** A Repeats change that is refused, in the words the person is told beside the field ("Set an Item to repeat from its form", issue 1406). */
+export class RepeatRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RepeatRefusedError';
   }
 }
 
@@ -2290,6 +2301,43 @@ export function runCommand<N extends CommandName>(
           tx.insert(commands).values(commandRow).run();
         });
       }
+      break;
+    }
+    case 'set_repeat': {
+      const cmd = payload as CommandPayload<'set_repeat'>;
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item) throw new ItemNotFoundError(cmd.itemId);
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
+      const own = item.seriesId === null ? null : getSeries(db, tenantId, item.seriesId);
+      // The id the tab made up is a series of another Item's, not a retry of this one.
+      if (own === null && cmd.repeat !== null && getSeries(db, tenantId, cmd.seriesId)) {
+        throw new RepeatRefusedError('That repeat could not be set. Try again.');
+      }
+      const decision = decideRepeat(own, cmd, tenantId);
+      if (decision.kind === 'refused') throw new RepeatRefusedError(decision.why);
+      if (decision.kind !== 'write') {
+        // Stale by last-write-wins, or nothing to stop: log the command, change nothing.
+        db.insert(commands).values(commandRow).run();
+        applied = decision.kind === 'nothing';
+        break;
+      }
+      const { row } = decision;
+      db.transaction((tx) => {
+        if (decision.isNew) {
+          tx.insert(series).values(row).run();
+          // The Item's own `updated_at` is left alone: a repeat is the series', and a title edit in flight must not go stale for it.
+          tx.update(items)
+            .set({ seriesId: row.id })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+        } else {
+          tx.update(series)
+            .set(row)
+            .where(and(eq(series.tenantId, tenantId), eq(series.id, row.id)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     case 'send_item_to_claude': {

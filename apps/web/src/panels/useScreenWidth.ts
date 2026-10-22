@@ -1,4 +1,5 @@
 import { useCallback, useState, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 
 /**
  * The two widths a dashboard is drawn from, and they are genuinely two numbers
@@ -39,6 +40,14 @@ export function useScreenWidth(): number {
  * the answer is `null` and the caller falls back to the screen's width, which
  * is the honest approximation rather than a zero that would make every panel
  * the full width.
+ *
+ * **A change is drawn before the frame it was noticed in is painted**
+ * (`flushSync`), because a browser tells an observer before it paints, and a
+ * screen laid out from this width - how many Panels sit side by side - would
+ * otherwise paint one frame for the width it had before the docked Item form
+ * took part of it. A browser that is not painting (a hidden pane) tells no
+ * observer at all until it is next asked to, so what is read there is the
+ * width as it was at the last frame.
  */
 export function useMeasuredWidth(): [(element: HTMLElement | null) => void, number | null] {
   const [width, setWidth] = useState<number | null>(null);
@@ -49,7 +58,12 @@ export function useMeasuredWidth(): [(element: HTMLElement | null) => void, numb
     if (typeof ResizeObserver !== 'function') return;
     const watching = new ResizeObserver((entries) => {
       const now = entries[0]?.contentRect.width ?? 0;
-      setWidth(now > 0 ? now : null);
+      // Drawn at once rather than scheduled. A browser delivers this before it
+      // paints, so a screen drawn from the width is redrawn for the new one
+      // in the same frame - where a scheduled update let the frame go out first,
+      // a row of Panels drawn for the width it had before a docked form took
+      // part of it.
+      flushSync(() => setWidth(now > 0 ? now : null));
     });
     watching.observe(element);
     // React 19 calls a callback ref's return value as its cleanup, so the

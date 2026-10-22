@@ -242,6 +242,7 @@ function anItem(over: Partial<Item> = {}): Item {
     proposedPanelReason: null,
     proposedPanelFit: null,
     claudeProposals: null,
+    seriesId: null,
     sourceResolvedAt: null,
     title: 'Part 11',
     description: null,
@@ -428,97 +429,120 @@ describe('Item editing', () => {
     it.each([
       {
         situation: 'the title edited and nothing else',
-        draft: { title: 'Part 12', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 12', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: { title: 'Part 12' },
       },
       {
         situation: 'the description written and nothing else',
-        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: { description: 'Tolerances' },
       },
       {
         situation: 'both',
-        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: { title: 'Part 12', description: 'Tolerances' },
       },
       {
         situation: 'neither',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: {},
       },
       // Adding a space to the end of a title is not a change to the title: the
       // space would not be stored either.
       {
         situation: 'a title with a space added to the end',
-        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: {},
       },
       // Emptied is cleared, and there is no third state to send.
       {
         situation: 'a description emptied',
-        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false },
-        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: { description: null },
       },
       {
         situation: 'a description that was never there and is still empty',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: {},
       },
       {
         situation: 'the priority changed and nothing else',
-        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: { priority: 'high' },
       },
       {
         situation: 'the priority cleared to none',
-        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null, status: 'to_do' as const, started: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: { priority: null },
       },
       {
         situation: 'a priority left as it was',
-        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false },
-        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false },
+        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: {},
       },
       {
         situation: 'a due date set on an item that had none',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
         asks: { dueDate: '2026-09-30' },
       },
       {
         situation: 'a due date changed to another date',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15', status: 'to_do' as const, started: false },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15', status: 'to_do' as const, started: false, repeat: null },
         asks: { dueDate: '2026-10-15' },
       },
       {
         situation: 'a due date cleared',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
         asks: { dueDate: null },
       },
       {
         situation: 'the status set to done',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'done' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'done' as const, started: false, repeat: null },
         asks: { status: 'done' },
       },
       {
         situation: 'the status set to in progress',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'in_progress' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'in_progress' as const, started: false, repeat: null },
         asks: { status: 'in_progress' },
       },
       {
+        situation: 'a repeat set',
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null } },
+        asks: { repeat: { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: null } },
+      },
+      {
+        situation: 'a repeat stopped with Never',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null } },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        asks: { repeat: null },
+      },
+      {
+        situation: 'a repeat given the same rule again, which is no change',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5 } },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5 } },
+        asks: {},
+      },
+      {
+        situation: 'a repeat whose due gap moved',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5 } },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 6 } },
+        asks: { repeat: { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 6 } },
+      },
+      {
         situation: 'a due date left as it was',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
         asks: {},
       },
     ])('$situation', ({ stored, draft, asks }) => {
       expect(
         whatChanged(
-          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
           draft,
         ),
       ).toEqual(asks);
@@ -4045,6 +4069,47 @@ describe('Item editing', () => {
         });
       },
     );
+  });
+
+  /**
+   * "Wrap a Dashboard row's Panels instead of squeezing them" (issue 1414): the
+   * docked form's Close joins the buttons at its top, where the row at its foot
+   * held nothing else. That Close still closes it is tests/e2e/item-editing.test.ts's.
+   */
+  describe('the docked form’s top row is Copy link, Center, Close, with nothing at its foot, and the centered form keeps Cancel and Save there', () => {
+    const buttonsBeside = (name: 'Dock' | 'Center') =>
+      within(screen.getByRole('button', { name }).parentElement!)
+        .getAllByRole('button')
+        .map((button) => button.textContent);
+
+    it.each([
+      { situation: 'docked, an Item on a Panel', onAPanel: true, beside: 'Center', top: ['Copy link', 'Center', 'Close'] },
+      { situation: 'docked, an Item in the Inbox', onAPanel: false, beside: 'Center', top: ['Center', 'Close'] },
+    ] as const)('$situation: $top at the top', async ({ onAPanel: filed, beside, top }) => {
+      if (filed) onAPanel();
+      held.itemFormPresentation = 'docked';
+      await theForm();
+
+      expect(buttonsBeside(beside)).toEqual(top);
+      // The only Close there is, and no foot to hold another or a Save.
+      expect(screen.getAllByRole('button', { name: 'Close' })).toHaveLength(1);
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    });
+
+    it('centered: Copy link and Dock at the top, Cancel and Save at the foot, and no Close', async () => {
+      onAPanel();
+      held.itemFormPresentation = 'centered';
+      await theForm();
+
+      expect(buttonsBeside('Dock')).toEqual(['Copy link', 'Dock']);
+      expect(
+        within(screen.getByRole('button', { name: 'Save' }).parentElement!)
+          .getAllByRole('button')
+          .map((button) => button.textContent),
+      ).toEqual(['Cancel', 'Save']);
+      expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    });
   });
 
   describe('Copy link from the form copies the Item’s workspace address, and the bar says whether it did', () => {

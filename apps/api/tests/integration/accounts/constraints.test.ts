@@ -243,6 +243,7 @@ describe('Capture', () => {
         'items',
         'layouts',
         'panels',
+        'series',
         'workspaces',
       ]);
     });

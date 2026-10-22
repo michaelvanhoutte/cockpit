@@ -41,6 +41,7 @@ import { itemsShownOn } from '../panelContents';
 import { DashboardFilterBar } from './DashboardFilterBar';
 import { DEFAULT_FILTER_SORT, sortOf } from '../sorting';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
+import { lastPanelSpan, linesOf, panelsPerLine, tracksOf, wrappedTracksOf } from '../panels/wrapping';
 import {
   dividerMoved,
   drawnRows,
@@ -122,8 +123,9 @@ const MovePanelToDashboardPicker = lazy(() => import('./MovePanelToDashboardPick
  * width between them - which is what makes a row a row rather than a line the
  * panels happen to have landed on. The board is the rows, stacked, and it
  * cannot scroll sideways on any screen: every row is the full width, and a
- * layout made for a wider one is squeezed rather than cut off. Nothing scales
- * the type: a squeezed panel is a narrower panel holding the same words.
+ * layout made for a wider one is narrowed, then wrapped a Panel at a time
+ * once a Panel would be under the least it is drawn at (`panels/wrapping.ts`).
+ * Nothing scales the type: a narrower panel holds the same words.
  *
  * **Which panels share a line is what a person decided**, and it used to be
  * decided by CSS: panels flowed left to right and wrapped at twelve columns, so
@@ -381,7 +383,10 @@ export function PanelBoard({
     /** Null for the line under a row; the cell left of the line between two panels otherwise. */
     dividerAt: number | null;
     at: number;
+    /** What one line of the row is, which is the whole row unless it wraps. */
     startHeight: number;
+    /** How many lines the row is drawn in: the pointer moves the row's foot, and a height is set on each. */
+    lines: number;
     rowWidth: number;
     from: LayoutRow[];
     latest: LayoutRow[];
@@ -563,6 +568,8 @@ export function PanelBoard({
             panelId: cell.getAttribute('data-panel-cell') ?? '',
             left: at.left,
             right: at.right,
+            top: at.top,
+            bottom: at.bottom,
           };
         }),
       };
@@ -595,11 +602,14 @@ export function PanelBoard({
     setMovingPanel(null);
     setFiltering(null);
     const box = row.getBoundingClientRect();
+    const across = shown[rowIndex]!.cells.length;
+    const lines = linesOf(across, panelsPerLine(across, acrossWidth, PANEL_GAP));
     sizingFrom.current = {
       rowIndex,
       dividerAt,
       at: dividerAt === null ? event.clientY : event.clientX,
-      startHeight: box.bottom - box.top,
+      startHeight: (box.bottom - box.top - (lines - 1) * PANEL_GAP) / lines,
+      lines,
       rowWidth: box.right - box.left,
       from: shown,
       latest: shown,
@@ -624,7 +634,7 @@ export function PanelBoard({
       // number it happens to be drawn at, which looks identical and is a size
       // somebody now has to undo. The divider says the same thing about a move
       // of no whole columns.
-      held.latest = moved === 0 ? held.from : withRowHeight(held.from, held.rowIndex, held.startHeight + moved);
+      held.latest = moved === 0 ? held.from : withRowHeight(held.from, held.rowIndex, held.startHeight + moved / held.lines);
     } else {
       // A twelfth of the row is what one column measures, so the gesture lands
       // on the grid the spans are counted in rather than on the pixel - which
@@ -1327,6 +1337,13 @@ export function PanelBoard({
               );
             }
             const shares = sharesOf(row);
+            // As many Panels on a line as can each have the least a Panel is
+            // drawn at; the rest wrap, one at a time, and the last Panel spans
+            // what is left of its line (`panels/wrapping.ts`). Read off the
+            // width the board has now, so nothing is stored for it.
+            const perLine = panelsPerLine(shares.length, acrossWidth, PANEL_GAP);
+            const wrapped = perLine < shares.length;
+            const lastSpan = lastPanelSpan(shares.length, perLine);
             return (
               // Keyed by where the row is, not by what is on it. A row has no
               // identity of its own - it is the line, and the panels are what
@@ -1369,21 +1386,46 @@ export function PanelBoard({
                   // to its contents left an empty panel a sliver with half of
                   // it header - and filing an item into it stopped working
                   // where there was nothing left to aim at.
-                  style={{
-                    height: filteringOn || collapsed ? undefined : (row.height ?? undefined),
-                    minHeight: filteringOn || collapsed ? undefined : MIN_ROW_HEIGHT,
-                    display: 'grid',
-                    // The gap between two panels is a track of its own rather
-                    // than a `gap`, so it is an element a hand can take hold
-                    // of. Same four pixels either way: nothing about how a row
-                    // is drawn changes, only whether the space between two
-                    // panels is something or nothing.
-                    gridTemplateColumns: shares
-                      .map((share) => `minmax(0, ${share}fr)`)
-                      .join(` ${PANEL_GAP}px `),
-                    gap: 0,
-                    position: 'relative',
-                  }}
+                  //
+                  // **A row that wraps is one row of lines**: each line is the
+                  // height the row has (or as tall as its contents, never
+                  // under the floor), the Panels on a line share it equally,
+                  // and there is no divider between them, since each is as wide
+                  // as the line allows. One that does not wrap keeps its
+                  // shares, never drawing a Panel under the least.
+                  style={
+                    wrapped
+                      ? {
+                          display: 'grid',
+                          gridTemplateColumns: wrappedTracksOf(perLine),
+                          columnGap: PANEL_GAP,
+                          rowGap: PANEL_GAP,
+                          gridAutoRows:
+                            filteringOn || collapsed
+                              ? 'auto'
+                              : row.height
+                                ? `${row.height}px`
+                                : // `1fr` in a row of no set height is the
+                                  // tallest line's contents, so every line is
+                                  // one height, as a row's Panels are, and
+                                  // sizing it starts from what each line is.
+                                  `minmax(${MIN_ROW_HEIGHT}px, 1fr)`,
+                          position: 'relative',
+                        }
+                      : {
+                          height: filteringOn || collapsed ? undefined : (row.height ?? undefined),
+                          minHeight: filteringOn || collapsed ? undefined : MIN_ROW_HEIGHT,
+                          display: 'grid',
+                          // The gap between two panels is a track of its own
+                          // rather than a `gap`, so it is an element a hand can
+                          // take hold of. Same four pixels either way: nothing
+                          // about how a row is drawn changes, only whether the
+                          // space between two panels is something or nothing.
+                          gridTemplateColumns: tracksOf(shares, PANEL_GAP),
+                          gap: 0,
+                          position: 'relative',
+                        }
+                  }
                 >
                   {arrangeable && dragging === null && !itemInHand && row.cells[0] && (
                     <RowGrip onPickUp={(pointerId) => pickUp(row.cells[0]!.panelId, pointerId, true)} />
@@ -1393,8 +1435,8 @@ export function PanelBoard({
                     if (!panel) return null;
                     return (
                       <Fragment key={panel.id}>
-                        {at > 0 && !arrangeable && <div aria-hidden="true" />}
-                        {at > 0 && arrangeable && (
+                        {at > 0 && !arrangeable && !wrapped && <div aria-hidden="true" />}
+                        {at > 0 && arrangeable && !wrapped && (
                           <ColumnLine
                             dragging={dragging !== null}
                             onTake={(event) => takeLine(event, rowIndex, at - 1)}
@@ -1402,6 +1444,19 @@ export function PanelBoard({
                             onLetGo={letGoOfLine}
                           />
                         )}
+                        {/* Around every Panel whether the row wraps or not, so a
+                            Panel that starts or stops wrapping is the same
+                            element in the same place and is not remounted: its
+                            open menu, half-typed rename and scrolled list stay.
+                            It draws nothing of its own, except to span the last
+                            line's room for the Panel that ends the row. */}
+                        <div
+                          style={
+                            wrapped && at === row.cells.length - 1 && lastSpan > 1
+                              ? { display: 'grid', gridColumn: `span ${lastSpan}`, minWidth: 0 }
+                              : { display: 'contents' }
+                          }
+                        >
                         <PanelCard
                           panel={panel}
                           workspaceId={workspaceId}
@@ -1461,6 +1516,7 @@ export function PanelBoard({
                           onTap={phone ? (at) => tappedHeader(panel.id, at) : null}
                           onPickUp={arrangeable ? (pointerId) => pickUp(panel.id, pointerId) : null}
                         />
+                        </div>
                       </Fragment>
                     );
                   })}

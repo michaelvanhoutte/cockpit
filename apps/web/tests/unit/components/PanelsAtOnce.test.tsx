@@ -98,6 +98,7 @@ function anItem(id: string, title: string, priority: Item['priority'] = null): I
     proposedPanelReason: null,
     proposedPanelFit: null,
     claudeProposals: null,
+    seriesId: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,

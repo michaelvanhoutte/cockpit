@@ -165,6 +165,31 @@ describe('Panels', () => {
     });
   });
 
+  describe('a wrapped row is read one line at a time, by which half of a Panel on the pointer\'s line it is over', () => {
+    /** a and b on the first line, c spanning the second under them. */
+    const wrapped: DrawnRow[] = [
+      {
+        top: 0,
+        bottom: 204,
+        cells: [
+          { panelId: 'a', left: 0, right: 298, top: 0, bottom: 100 },
+          { panelId: 'b', left: 302, right: 600, top: 0, bottom: 100 },
+          { panelId: 'c', left: 0, right: 600, top: 104, bottom: 204 },
+        ],
+      },
+    ];
+
+    it.each([
+      { situation: 'a Panel from another row, over the left half of the spanning Panel', dragged: 'd', x: 100, y: 150, is: { on: 'beside', panelId: 'c', side: 'before' } },
+      { situation: 'a Panel from another row, over its right half', dragged: 'd', x: 500, y: 150, is: { on: 'beside', panelId: 'c', side: 'after' } },
+      { situation: 'a Panel from another row, over the first line', dragged: 'd', x: 100, y: 50, is: { on: 'beside', panelId: 'a', side: 'before' } },
+      { situation: 'a Panel of the row taken down onto the line under it', dragged: 'a', x: 100, y: 150, is: { on: 'beside', panelId: 'c', side: 'before' } },
+      { situation: 'the pointer still over the dragged Panel', dragged: 'b', x: 400, y: 50, is: null },
+    ])('$situation', ({ dragged, x, y, is }) => {
+      expect(placementFor({ x, y }, wrapped, dragged)).toEqual(is);
+    });
+  });
+
   describe('a pointer held still settles the arrangement rather than flipping it', () => {
     /**
      * The rule the whole gesture rests on, and the one four separate bugs broke

@@ -20,6 +20,7 @@ import {
   type LayoutRow,
   type Panel,
   type PossibleDuplicate,
+  type Series,
   prioritySchema,
   refinementScopeSchema,
   type RewriteAttemptStatus,
@@ -32,6 +33,7 @@ import {
 import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
+import type { SeriesRow } from '../domain/series.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import { REMEMBERED_SENTENCES_KEPT, type RememberedSentenceView } from '@cockpit/shared';
 import { sentencesThatFit, ITEMS_PROPOSED_AGAIN, type RememberedSentence } from '../domain/remembered-sentences.js';
@@ -63,6 +65,7 @@ import {
   panels,
   pulledLinks,
   rewriteHistory,
+  series,
   textCorrections,
   workspaces,
 } from './schema.js';
@@ -697,6 +700,7 @@ const itemColumns = {
   dueDate: items.dueDate,
   dueDateSetAt: items.dueDateSetAt,
   dueDateChosenAt: items.dueDateChosenAt,
+  seriesId: items.seriesId,
   unseen: items.unseen,
   deletedAt: items.deletedAt,
   createdAt: items.createdAt,
@@ -891,6 +895,50 @@ export function getItem(db: AccountDb, tenantId: string, itemId: string): Item |
       .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
       .get() ?? null
   );
+}
+
+/** One series as its row holds it, or null where the account has none by that id. */
+export function getSeries(db: AccountDb, tenantId: string, seriesId: string): SeriesRow | null {
+  return (
+    db
+      .select({ ...seriesColumns, createdAt: series.createdAt, updatedAt: series.updatedAt })
+      .from(series)
+      .where(and(eq(series.tenantId, tenantId), eq(series.id, seriesId)))
+      .get() ?? null
+  );
+}
+
+const seriesColumns = {
+  id: series.id,
+  tenantId: series.tenantId,
+  frequency: series.frequency,
+  nextOn: series.nextOn,
+  dueAfterDays: series.dueAfterDays,
+  timeZone: series.timeZone,
+  stoppedAt: series.stoppedAt,
+};
+
+/**
+ * Every series the Items of one Workspace name ("Repeat an Item on a schedule",
+ * issue 1405), stopped ones included: an Item still names the series *Never*
+ * stopped. **The same Items `listOpenItems` returns**, which is why this carries
+ * the same `or`: an Item belonging to no Workspace is drawn in every one.
+ */
+export function listSeriesInWorkspace(db: AccountDb, tenantId: string, workspaceId: string): Series[] {
+  return db
+    .selectDistinct(seriesColumns)
+    .from(series)
+    .innerJoin(items, eq(items.seriesId, series.id))
+    .where(
+      and(
+        eq(series.tenantId, tenantId),
+        eq(items.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.deletedAt),
+      ),
+    )
+    .orderBy(series.createdAt)
+    .all();
 }
 
 export function listAssociationsForWorkspace(

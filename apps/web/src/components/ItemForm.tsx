@@ -19,6 +19,9 @@ import {
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
+  repeatOf,
+  ruleLabel,
+  sameRule,
   uuidv7,
   type Attachment,
   type AttachmentContentType,
@@ -26,11 +29,14 @@ import {
   type ItemFormPresentation,
   type ItemStatus,
   type Priority,
+  type RepeatRule,
+  type Series,
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
+import { deviceTimeZone } from '../deviceTimeZone';
 import { useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshot } from '../api/useSnapshot';
@@ -49,6 +55,7 @@ import {
   FIELD_NAMES,
   asStored,
   fieldWrites,
+  repeatWrites,
   type Draft,
   type Field,
   type StatusState,
@@ -102,13 +109,14 @@ const FILES_ON_THE_LINE = 4;
 const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want to keep and reopen it.';
 
 /** The boxes as the Item fills them. */
-const draftOf = (from: Item): Draft => ({
+const draftOf = (from: Item, series: readonly Series[] | undefined): Draft => ({
   title: from.title,
   description: from.description ?? '',
   priority: from.priority,
   dueDate: from.dueDate,
   status: itemStatus(from),
   started: !!from.startedAt,
+  repeat: repeatOf(from, series),
 });
 
 /** What a field's box and its baseline hold once its write has landed: the value, or - for the status - the item's own two times. */
@@ -157,6 +165,7 @@ export function whatChanged(
   priority?: Priority | null;
   dueDate?: string | null;
   status?: ItemStatus;
+  repeat?: RepeatRule | null;
 } {
   const changed: {
     title?: string;
@@ -164,6 +173,7 @@ export function whatChanged(
     priority?: Priority | null;
     dueDate?: string | null;
     status?: ItemStatus;
+    repeat?: RepeatRule | null;
   } = {};
   const title = now.title.trim();
   const description = now.description.trim();
@@ -176,6 +186,8 @@ export function whatChanged(
   if (now.dueDate !== was.dueDate) changed.dueDate = now.dueDate;
   // Compared as the status chosen, never the start time it may keep.
   if (now.status !== was.status) changed.status = now.status;
+  // The whole rule, compared whole: its three boxes are one thing the server checks together.
+  if (!sameRule(now.repeat, was.repeat)) changed.repeat = now.repeat;
   return changed;
 }
 
@@ -910,6 +922,10 @@ function TheForm({
   const setDraft =(now: Draft) => changeEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  /** Why the last write of Repeats was refused, said in its popover as well as with the rest ("Set an Item to repeat from its form", issue 1406). */
+  const [repeatRefusal, setRepeatRefusal] = useState<string | null>(null);
+  /** The series this Item joins if it has none: made once, so a Repeats written twice before the first is read back is one series. */
+  const newSeriesId = useRef(uuidv7());
   const { data: workspaceList } = useWorkspaces();
   /** The *On panels* field: written at once docked, held for Save otherwise (issue 1106). */
   const onPanels = useItemPanels({ item, workspaceId, data, docked });
@@ -948,10 +964,10 @@ function TheForm({
    */
   useEffect(() => {
     if (item && editing === null) {
-      const from = draftOf(item);
+      const from = draftOf(item, data?.series);
       changeEditing(() => ({ was: from, now: { ...from } }));
     }
-  }, [item, editing]);
+  }, [item, editing, data?.series]);
 
   /**
    * On a phone the page opens to be read, and editing is a step behind Edit or
@@ -972,10 +988,10 @@ function TheForm({
    * - and a Save does not wait on the read-back to be seen, `was` being moved
    * to what landed.
    */
-  const stored = item ? JSON.stringify(draftOf(item)) : '';
+  const stored = item ? JSON.stringify(draftOf(item, data?.series)) : '';
   useEffect(() => {
     if (!readView || !item) return;
-    const from = draftOf(item);
+    const from = draftOf(item, data?.series);
     changeEditing(() => ({ was: from, now: { ...from } }));
     // Only when the stored values move, not when reading begins: a Save has
     // just put `was` on what landed, which the cached Item may not yet say.
@@ -994,7 +1010,7 @@ function TheForm({
   const stopEditing = () => {
     onPanels.discard();
     // Back to what the Item holds now, which a change made elsewhere while editing may have moved.
-    const from = item ? draftOf(item) : null;
+    const from = item ? draftOf(item, data?.series) : null;
     changeEditing((held) => (held ? { was: from ?? held.was, now: { ...(from ?? held.was) } } : held));
     setRefusal(null);
     setReading(true);
@@ -1046,7 +1062,14 @@ function TheForm({
     /** An undo of a Done names the run that Done ended, so the server reopens exactly that one. */
     reopensRunId?: string,
   ): { reaches: StatusState | null; settled: Promise<{ failure: string | null; held: StatusState | null }> } => {
-    const writes = fieldWrites(field, envelope, value, from).map((write) => ({
+    const written =
+      field === 'repeat'
+        ? repeatWrites(envelope, value as RepeatRule | null, {
+            seriesId: item?.seriesId ?? newSeriesId.current,
+            timeZone: deviceTimeZone() ?? 'UTC',
+          })
+        : fieldWrites(field, envelope, value as string | null, from);
+    const writes = written.map((write) => ({
       ...write,
       command:
         reopensRunId && write.command.name === 'set_done' && !write.command.payload.done
@@ -1117,6 +1140,7 @@ function TheForm({
           : now,
       );
       if (failure !== null) setRefusal(failure);
+      if (what === 'repeat') setRepeatRefusal(failure);
       return failure === null;
     };
 
@@ -1225,6 +1249,7 @@ function TheForm({
       let stopped: string | null = null;
       for (const write of started) {
         const { failure, held: reached } = await write.settled;
+        if (write.field === 'repeat') setRepeatRefusal(failure);
         if (failure === null) {
           committed.push({
             field: write.field,
@@ -1240,7 +1265,20 @@ function TheForm({
           // A status that did not all land shows what the item holds.
           settleOn(reached);
         } else {
-          changeEditing((now) => (now ? { ...now, was: { ...now.was, [write.field]: write.before } } : now));
+          // A refused repeat goes back whole - the chip and its read-back with the row's mark - and says why
+          // beside the choices: what was set is a rule the server refused, not text left to correct in place.
+          // Only while the box still holds the refused rule: one chosen since, already on its way, is not undone with it.
+          changeEditing((now) =>
+            now
+              ? {
+                  now:
+                    write.field === 'repeat' && sameRule(now.now.repeat, write.after.repeat ?? null)
+                      ? { ...now.now, repeat: write.before as RepeatRule | null }
+                      : now.now,
+                  was: { ...now.was, [write.field]: write.before },
+                }
+              : now,
+          );
         }
       }
       if (stopped !== null) {
@@ -1350,6 +1388,26 @@ function TheForm({
     },
     [],
   );
+
+  /**
+   * The Repeats chip's choices ("Set an Item to repeat from its form", issue 1406): the
+   * draft, written by the form's usual rule - at once docked, on Save otherwise. A
+   * frequency is written as it is picked; a date or a number, when the box is left.
+   */
+  const repeatsChoice = draft
+    ? {
+        repeat: draft.repeat,
+        refusal: repeatRefusal,
+        onRepeat: (repeat: RepeatRule | null, now: boolean) => {
+          setDraft({ ...draft, repeat });
+          setRepeatRefusal(null);
+          if (docked && now) void commitFields(['repeat']);
+        },
+        onSettled: () => {
+          if (docked) void commitFields(['repeat']);
+        },
+      }
+    : undefined;
 
   /** The attachments as chips, on the Attachments tab, above its + Add. */
   const attachmentChips =
@@ -1656,6 +1714,13 @@ function TheForm({
               >
                 {chosenDocked ? 'Center' : 'Dock'}
               </button>
+              {docked && (
+                // Nothing to save and nothing to discard: each field was written
+                // as it was left (`commitFields`), and closing keeps whatever is
+                // still in a box. In the top row rather than a row of its own at
+                // the foot, which held nothing else.
+                <Dialog.Close className={headerButtonClass}>Close</Dialog.Close>
+              )}
             </div>
           )}
 
@@ -1966,16 +2031,18 @@ function TheForm({
                             setDraft({ ...draft, dueDate });
                             if (docked) void commitFields(['dueDate']);
                           }}
+                          repeats={repeatsChoice}
                           onAttach={() => attachmentInputRef.current?.click()}
                         />
                       )}
                       {readView && (
-                        // The same three values as text; they change through Edit, so every change still waits for Save.
+                        // The same values as text; they change through Edit, so every change still waits for Save.
                         <p className="text-sm text-ink-soft">
                           {[
                             STATUS_LABELS[editing!.was.status],
                             editing!.was.priority ? `${PRIORITY_LABELS[editing!.was.priority]} priority` : null,
                             dueDateLabel(editing!.was.dueDate) ? `Due ${dueDateLabel(editing!.was.dueDate)}` : null,
+                            editing!.was.repeat ? ruleLabel(editing!.was.repeat) : null,
                           ]
                             .filter((part) => part !== null)
                             .join(' · ')}
@@ -1998,6 +2065,7 @@ function TheForm({
                             onStatus={(status) => setDraft({ ...draft, status })}
                             onPriority={(priority) => setDraft({ ...draft, priority })}
                             onDueDate={(dueDate) => setDraft({ ...draft, dueDate })}
+                            repeats={repeatsChoice}
                             onAttach={() => attachmentInputRef.current?.click()}
                           />
                         </Suspense>
@@ -2303,33 +2371,24 @@ function TheForm({
             </p>
           )}
 
-          {!onAPage && (
+          {!onAPage && !docked && (
             <div className="flex shrink-0 items-center justify-end gap-2 pt-4">
-              {docked ? (
-                // Nothing to save and nothing to discard: each field was written
-                // as it was left (`commitFields`), and closing keeps whatever is
-                // still in a box.
-                <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
-                  Close
+              <div className="flex gap-2">
+                <Dialog.Close
+                  disabled={saving}
+                  className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                >
+                  Cancel
                 </Dialog.Close>
-              ) : (
-                <div className="flex gap-2">
-                  <Dialog.Close
-                    disabled={saving}
-                    className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-                  >
-                    Cancel
-                  </Dialog.Close>
-                  <button
-                    type="button"
-                    disabled={!item || saving || tooLong}
-                    onClick={() => void save()}
-                    className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                </div>
-              )}
+                <button
+                  type="button"
+                  disabled={!item || saving || tooLong}
+                  onClick={() => void save()}
+                  className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           )}
         </Dialog.Content>

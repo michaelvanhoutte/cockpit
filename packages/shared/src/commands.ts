@@ -16,6 +16,7 @@ import {
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
+import { repeatRuleSchema } from './domain/series.js';
 import {
   REMEMBERED_ACTION_LIMIT,
   REMEMBERED_SENTENCE_LIMIT,
@@ -599,6 +600,25 @@ export const setDueDateSchema = commandEnvelopeSchema.extend({
 });
 export type SetDueDateCommand = z.infer<typeof setDueDateSchema>;
 
+/**
+ * set_repeat - an Item's Repeats ("Set an Item to repeat from its form, and see
+ * the rule on its row", issue 1406). `repeat` is the whole rule, and `null` is
+ * *Never*: the Item's series stops and the Item still names it.
+ *
+ * **`seriesId` is the series the Item joins if it has none**, made up by the
+ * tab so the series is drawn before the server answers; an Item that already
+ * names one keeps its own, so two tabs setting a rule on the same Item write
+ * one series and the later command wins. **The browser's time zone is stored
+ * with the rule** (`timeZone`), and *Next on* is checked against today on that
+ * calendar.
+ */
+export const setRepeatSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  seriesId: z.uuid(),
+  repeat: repeatRuleSchema.extend({ timeZone: captureTimeZoneSchema }).nullable(),
+});
+export type SetRepeatCommand = z.infer<typeof setRepeatSchema>;
+
 /** set_title / set_description — two commands rather than one save ("Edit an item's title and description on a form of its own", issue 159; architecture.md §4.4). */
 export const setTitleSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -965,6 +985,7 @@ export const commandSchemas = {
   set_next_action: setNextActionSchema,
   set_priority: setPrioritySchema,
   set_due_date: setDueDateSchema,
+  set_repeat: setRepeatSchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
   add_attachment: addAttachmentSchema,
