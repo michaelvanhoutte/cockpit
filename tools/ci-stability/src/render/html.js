@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { formatDateTime } from '../../../../scripts/lib/belgian-time.mjs';
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 const esc = (value) =>
@@ -49,8 +51,8 @@ function humanMs(ms) {
   return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
-/** Every timestamp on the page is UTC, and says so — the reader is not. */
-const stamp = (iso) => `${iso.slice(0, 16).replace('T', ' ')}Z`;
+/** Every moment on the page is Belgian time in Belgian format, whoever reads it (scripts/lib/belgian-time.mjs); the model file keeps ISO UTC. */
+const stamp = formatDateTime;
 
 /**
  * What a rate left out, named rather than merely subtracted. One column, from
@@ -278,7 +280,7 @@ export function renderHtml(model, { explorerHref = '../', cycleTimeHref = '../cy
       counted, in the last column. Worst first, so the row that needs attention is the top one.
     </p>
     <div class="runmeta">
-      <span>generated <b>${esc(model.generatedAt.slice(0, 16).replace('T', ' '))}Z</b></span>
+      <span>generated <b>${esc(stamp(model.generatedAt))}</b></span>
       ${
         commitUrl
           ? `<span>commit <a href="${esc(commitUrl)}" target="_blank" rel="noopener"><b>${esc(
