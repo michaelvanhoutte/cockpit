@@ -1,33 +1,41 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deadlineOf, dueDateLabel, shortDueDateLabel } from '../../src/dueDate';
+import { deviceSpeaks } from './support/timeZone';
 
 describe('Triage', () => {
-  describe('a due date reads in the viewer’s own browser locale', () => {
-    // F1: formatting is a pure function of the date and the locale, and it is
-    // handed both - the same reason a clock is injected rather than read
-    // (`waited.ts`).
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('a due date reads in the viewer’s own browser region', () => {
+    // F1: formatting is a pure function of the date and the browser's
+    // languages, which the test hands the device (`dateFormat.ts`).
     it.each([
-      { situation: 'en-US', locale: 'en-US', shows: 'Sep 30, 2026' },
-      { situation: 'en-GB, day before month', locale: 'en-GB', shows: '30 Sept 2026' },
-    ])('shows $situation as $shows', ({ locale, shows }) => {
-      expect(dueDateLabel('2026-09-30', locale)).toBe(shows);
+      { situation: 'en-US', languages: ['en-US'], shows: 'Sep 30, 2026' },
+      { situation: 'en-GB, day before month', languages: ['en-GB'], shows: '30 Sept 2026' },
+    ])('shows $situation as $shows', ({ languages, shows }) => {
+      deviceSpeaks(...languages);
+
+      expect(dueDateLabel('2026-09-30')).toBe(shows);
     });
 
-    it('resolves to the browser’s own locale when none is passed, unchanged since #469', () => {
+    it('resolves to the browser’s own languages when none is handed in', () => {
       expect(typeof dueDateLabel('2026-09-30')).toBe('string');
     });
 
-    it('reads the stored calendar day regardless of locale, never shifted by a negative-UTC-offset timezone', () => {
-      // The `UTC` pin this already carried is unrelated to the locale change
-      // and stays exactly as it was: without it, a timezone west of UTC would
-      // read this back as 2025-12-31.
-      expect(dueDateLabel('2026-01-01', 'en-US')).toBe('Jan 1, 2026');
+    it('reads the stored calendar day regardless of region, never shifted by a negative-UTC-offset timezone', () => {
+      // The `UTC` pin this carries is what keeps a date-only value from
+      // shifting: without it, a timezone west of UTC would read this back as
+      // 2025-12-31.
+      deviceSpeaks('en-US');
+
+      expect(dueDateLabel('2026-01-01')).toBe('Jan 1, 2026');
     });
   });
 
   describe('a picked day on a phone reads as day and month, with the year only when it is not this year', () => {
-    // F1: a pure formatter of the date, today and the locale. "This year" is
-    // the viewer's own calendar year, so today is built from local parts.
+    // F1: a pure formatter of the date, today and the browser's region. "This
+    // year" is the viewer's own calendar year, so today is built from local parts.
     const today = new Date(2026, 9, 13);
     it.each([
       { situation: 'a day this year', picked: '2026-10-29', reads: '29 Oct' },
@@ -35,11 +43,15 @@ describe('Triage', () => {
       { situation: '1 Jan next year, the day after this year ends', picked: '2027-01-01', reads: '1 Jan 27' },
       { situation: 'a day last year', picked: '2025-10-29', reads: '29 Oct 25' },
     ])('reads $situation as $reads', ({ picked, reads }) => {
-      expect(shortDueDateLabel(picked, today, 'en-GB')).toBe(reads);
+      deviceSpeaks('en-GB');
+
+      expect(shortDueDateLabel(picked, today)).toBe(reads);
     });
 
     it('reads 31 Dec of this year without the year', () => {
-      expect(shortDueDateLabel('2026-12-31', today, 'en-GB')).toBe('31 Dec');
+      deviceSpeaks('en-GB');
+
+      expect(shortDueDateLabel('2026-12-31', today)).toBe('31 Dec');
     });
   });
 

@@ -10,6 +10,7 @@ import {
   type AllItemsSort,
 } from '../allItems';
 import { allItemsFilterId } from '../allItemsTab';
+import { dayLabel, momentDateLabel } from '../dateFormat';
 import {
   clearDashboardFilter,
   isFiltering,
@@ -160,10 +161,10 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
                     </td>
                     <td className="px-2 py-1.5">{STATUS_LABELS[row.status]}</td>
                     <td className="px-2 py-1.5">{row.priority ? PRIORITY_LABELS[row.priority] : ''}</td>
-                    <td className="whitespace-nowrap px-2 py-1.5">{row.due ?? ''}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5">{row.due ? (dayLabel(row.due) ?? row.due) : ''}</td>
                     <td className="max-w-[14rem] truncate px-2 py-1.5">{row.where}</td>
                     <td className="whitespace-nowrap px-2 py-1.5">
-                      {new Date(row.changedAt).toLocaleDateString()}
+                      {momentDateLabel(row.changedAt)}
                     </td>
                   </tr>
                 ))}

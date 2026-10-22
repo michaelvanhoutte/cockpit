@@ -12,6 +12,7 @@ import {
 import { NotSignedIn, SIGN_IN_PATH } from '../api/client';
 import { statusOf } from '../api/loadFailure';
 import { accountHoldingsQuery, meQuery } from '../api/queries';
+import { deviceCalendar, momentDateLabel } from '../dateFormat';
 import {
   useAddUser,
   useChangeUser,
@@ -390,12 +391,6 @@ function compareByStaleness(a: RegisteredUser, b: RegisteredUser): number {
 }
 
 /**
- * `Intl.DateTimeFormat` construction resolves locale data and is worth paying
- * for once rather than once per row per render.
- */
-const SIGNED_IN_FORMAT = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
-
-/**
  * What the register's exact instant reads as on the screen, or `'not yet'` for
  * somebody who has never signed in - the same words the boolean this replaced
  * used to say ("Show when each person last signed in, on the admin page",
@@ -404,12 +399,12 @@ const SIGNED_IN_FORMAT = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium',
  * **A date, not a relative label.** "3 months ago" is the same fact dressed up,
  * and it goes stale the moment the page has been open a while.
  *
- * **Fixed to UTC** rather than the reader's own timezone, so this and every
- * test asserting it agree regardless of where either runs.
+ * **The day on the reader's own calendar**, in the order of their region
+ * (`dateFormat.ts`): a sign-in at 23:30 UTC is the next day in Brussels.
  */
 export function lastSignedInLabel(lastSignedInAt: string | null): string {
   const at = usableInstant(lastSignedInAt);
-  return at === null ? 'not yet' : SIGNED_IN_FORMAT.format(new Date(at));
+  return at === null ? 'not yet' : momentDateLabel(at);
 }
 
 /**
@@ -418,22 +413,23 @@ export function lastSignedInLabel(lastSignedInAt: string | null): string {
  * issue 344). Never having signed in counts: an admin clearing out the
  * register wants those as much as the lapsed ones.
  *
- * **Calendar months in UTC**, matching the date the row shows, and no finer:
- * whether the line falls on the second is not a question this register is big
- * enough to ask. An unusable value reads as "never", the same as the label.
+ * **Calendar months on the device's calendar**, matching the date the row
+ * shows: three months back from 1 Dec 00:30 in Brussels is 1 Sep, though it is
+ * still 30 Nov in UTC. An unusable value reads as "never", the same as the label.
  */
 export function isInactive(lastSignedInAt: string | null, now: Date = new Date()): boolean {
   const at = usableInstant(lastSignedInAt);
   if (at === null) return true;
-  // Day 1 first, then the day put back clamped: May 31 minus three months is
-  // "Feb 31", which `setUTCMonth` alone rolls into March.
-  const cutoff = new Date(now);
+  // Both as the device's calendar reads them (`deviceCalendar`), whose UTC
+  // fields are the device's. Day 1 first, then the day put back clamped: May 31
+  // minus three months is "Feb 31", which `setUTCMonth` alone rolls into March.
+  const cutoff = deviceCalendar(now);
   const day = cutoff.getUTCDate();
   cutoff.setUTCDate(1);
   cutoff.setUTCMonth(cutoff.getUTCMonth() - 3);
   const daysThen = new Date(Date.UTC(cutoff.getUTCFullYear(), cutoff.getUTCMonth() + 1, 0)).getUTCDate();
   cutoff.setUTCDate(Math.min(day, daysThen));
-  return new Date(at).getTime() <= cutoff.getTime();
+  return deviceCalendar(new Date(at)).getTime() <= cutoff.getTime();
 }
 
 /**

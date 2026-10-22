@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { goOnline } from '../opening';
+import { timeOfDayLabel } from '../dateFormat';
 import { useIsOffline, useRefusals } from '../offline';
 import { BOTTOM_CENTRE_STRIP } from '../undo';
 
-const timeOf = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const timeOf = timeOfDayLabel;
 
 /**
  * The header's outlined "Offline" pill, shown exactly while offline, found or

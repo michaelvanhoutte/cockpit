@@ -1635,7 +1635,7 @@ describe('Connector management', () => {
       line({ firstAt: at(day, 0, 0), lastAt: at(day, 8, 55), count: 85 }),
     ];
     const failed = { outcome: 'failed', message: 'unavailable', did: didNothing };
-    const hhmm = (moment: string) => new Date(moment).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const hhmm = (moment: string) => new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' }).format(new Date(moment));
     /** Yesterday's quiet day, its first quiet checks folded on from the evening before. */
     const begunTheEveningBefore = aQuietDay(15).map((one, index, all) =>
       index === all.length - 1 ? { ...one, firstAt: at(14, 20, 0) } : one,
@@ -1706,7 +1706,7 @@ describe('Connector management', () => {
       {
         situation: 'older lines remain than the read carries',
         olderRemain: true,
-        says: `Older days follow, back to ${new Date(2026, 8, 16).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}`,
+        says: 'Older days follow, back to September 16',
       },
       { situation: 'the read carries every line', olderRemain: false, says: null },
     ])('ends saying how far back older days go only where $situation', async ({ olderRemain, says }) => {
@@ -2015,7 +2015,10 @@ describe('Connector management', () => {
 
       showWindow();
 
-      expect(await screen.findByText(says)).toHaveAttribute('title', new Date(at).toLocaleString());
+      expect(await screen.findByText(says)).toHaveAttribute(
+        'title',
+        new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at)),
+      );
     });
 
     it('says a pushed connection never tested sends to Cockpit as it happens', async () => {
