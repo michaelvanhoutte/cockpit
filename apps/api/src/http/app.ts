@@ -1691,6 +1691,7 @@ const routes = app
   .openapi(commandRoute('set_next_action'), async (c) => c.json(await change(c, 'set_next_action', c.req.valid('json')), 200))
   .openapi(commandRoute('set_priority'), async (c) => c.json(await change(c, 'set_priority', c.req.valid('json')), 200))
   .openapi(commandRoute('set_due_date'), async (c) => c.json(await change(c, 'set_due_date', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_repeat'), async (c) => c.json(await change(c, 'set_repeat', c.req.valid('json')), 200))
   .openapi(commandRoute('set_title'), async (c) =>
     c.json(await changeThatRewritesTheTexts(c, 'set_title', c.req.valid('json')), 200),
   )

@@ -6,6 +6,8 @@ import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../dueDateShortcuts';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 import { MenuContent, menuItemSplitClass } from './Menu';
+import { REPEATS_POPOVER, RepeatsChoices, type RepeatsChoice } from './RepeatsChip';
+import { ruleLabel } from '@cockpit/shared';
 
 /**
  * The Item's fields on a phone's page, as a wrapping row of chips ("Edit an
@@ -43,6 +45,8 @@ export interface ItemFormChipsProps {
   onDueDate: (dueDate: string | null) => void;
   /** Opens the file picker. */
   onAttach: () => void;
+  /** The Repeats chip, one more in the row ("Set an Item to repeat from its form", issue 1406); absent where the Item cannot repeat. */
+  repeats?: RepeatsChoice | undefined;
 }
 
 function Ticked({ on }: { on: boolean }) {
@@ -181,6 +185,24 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
+
+      {props.repeats && (
+        <Popover.Root onOpenChange={(open) => !open && props.repeats?.onSettled()}>
+          <Popover.Trigger
+            disabled={disabled}
+            title="Repeats"
+            className={`${CHIP} ${props.repeats.repeat ? `${SET} bg-shade/5 text-ink` : UNSET}`}
+          >
+            <span aria-hidden="true">↻</span>
+            {props.repeats.repeat ? ruleLabel(props.repeats.repeat) : 'Repeats'}
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content align="start" sideOffset={4} className={REPEATS_POPOVER}>
+              <RepeatsChoices {...props.repeats} />
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      )}
 
       <button
         type="button"

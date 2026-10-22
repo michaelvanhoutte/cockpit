@@ -70,6 +70,7 @@ function anItem(
     proposedPanelReason: null,
     proposedPanelFit: null,
     claudeProposals: null,
+    seriesId: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: holding.completedAt ?? null,

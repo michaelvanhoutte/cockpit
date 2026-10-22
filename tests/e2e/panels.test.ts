@@ -4,6 +4,7 @@ import type { CommandName } from '@cockpit/shared';
 import {
   arrange,
   giveADashboard,
+  giveAnArrangement,
   giveAnEmptyDashboard,
   giveToAPanel,
   type ArrangedDashboard,
@@ -318,8 +319,8 @@ test.describe('Panels', () => {
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
 
-      // A different screen draws the same rows, narrower rather than re-wrapped,
-      // so the panels are in the same order on both.
+      // A different screen draws the same rows, narrower or wrapped to a line
+      // below, so the panels are in the same order on both.
       const arranged = await panelsOnScreen(page);
       const firstScreen = page.viewportSize()!.width;
       await page.setViewportSize({ width: firstScreen > 700 ? 520 : 1100, height: 800 });
@@ -422,17 +423,19 @@ test.describe('Panels', () => {
     });
   });
 
-  test.describe('a panel too narrow for its name, its count and its menu gives the room to the name', () => {
+  test.describe('a panel is never narrower than its name, its count and its menu need, because its row wraps first', () => {
     // F3 for the reason the rest of this file is: the header is drawn to the
     // panel's own width, which is a container query, and jsdom has neither a
-    // layout engine nor container queries - it would report the count as shown
-    // at every width, including the ones where it is not.
-    test('drops the count when the panel is squeezed, and keeps it where there is room', async ({
+    // layout engine nor container queries. A row used to squeeze a panel under
+    // the 200px where the count is dropped ("Wrap a Dashboard row's Panels
+    // instead of squeezing them", issue 1414); it wraps at 240px now, so the
+    // header is walked at the narrowest a panel is ever drawn.
+    test('keeps the count and the whole name where a row has wrapped to give a panel its least width', async ({
       page,
       isMobile,
     }) => {
       // Wide enough for three panels side by side, so the layout this records
-      // is one the narrow screen below has to squeeze into four columns each.
+      // is one the narrow screen below has to wrap.
       await page.setViewportSize({ width: 1600, height: 900 });
       const waiting = uniqueTitle('Waiting on people');
       const falcon = uniqueTitle('Project Falcon');
@@ -443,35 +446,20 @@ test.describe('Panels', () => {
       const count = panel.getByText('0', { exact: true });
       await expect(count).toBeVisible();
 
-      // Recorded as the dashboard's arrangement, so narrowing squeezes it rather
-      // than arranging the panels afresh for the screen they are now on - which
-      // is how a panel ends up narrower than any screen would have made it.
+      // Recorded as the dashboard's arrangement, so narrowing wraps it rather
+      // than arranging the panels afresh for the screen they are now on.
       await dragBefore(page, reading, falcon);
 
+      // A window at which three panels would each be under 240px: each is drawn
+      // 240px or more, and the header still has its count.
       await page.setViewportSize({ width: 500, height: 800 });
-      await expect.poll(async () => (await panel.boundingBox())!.width).toBeLessThan(200);
-
-      // The count goes, because the list underneath already shows what is on
-      // the panel; the name keeps the room, being the header's only word now
-      // - the header's own button for the menu keeps its width at any
-      // screen size, so what the name gains here is only the count's own.
-      await expect(count).toBeHidden();
+      await expect
+        .poll(async () => (await panel.boundingBox())!.width)
+        .toBeGreaterThanOrEqual(239.9);
+      await expect(count).toBeVisible();
       await expect(panel.getByRole('heading', { name: waiting })).toBeVisible();
-
-      // And the room it gave up goes to the name, which now has more of the
-      // header than everything else in it put together.
-      const room = await panel.evaluate((section) => {
-        const header = section.querySelector('header')!;
-        const name = header.querySelector('h3')!;
-        return {
-          header: header.getBoundingClientRect().width,
-          name: name.getBoundingClientRect().width,
-        };
-      });
-      expect(
-        room.name,
-        `the name has ${Math.round(room.name)}px of a ${Math.round(room.header)}px header`,
-      ).toBeGreaterThan(room.header - room.name);
+      await expectNoSidewaysScroll(page);
+      await expectTheDashboardFits(page);
     });
   });
 
@@ -1211,6 +1199,224 @@ test.describe('Panels', () => {
       await expect.poll(() => itemsOn(page, first)).toEqual(items);
     });
   });
+
+  /**
+   * "Wrap a Dashboard row's Panels instead of squeezing them" (issue 1414).
+   * The arithmetic is apps/web/tests/unit/panels/wrapping.test.ts's; what only
+   * a browser can say is that the grid draws it, that the docked form's edge
+   * is what changes the room, and that no Panel is ever painted under 240px on
+   * the way. The Inbox's edge and the form's reach a row through the same
+   * measured width of the board, so the form's is walked and the Inbox's is not.
+   */
+  test.describe('a row of Panels wraps as the room it has narrows, unwraps as it widens, and no Panel is drawn under 240 px', () => {
+    test.skip(({ isMobile }) => !!isMobile, 'the room changes by dragging the docked form’s edge');
+
+    test('goes from three across to two with the third under them, to one, and back, as the docked form’s edge is dragged, storing nothing', async ({
+      page,
+      isMobile,
+    }) => {
+      await page.setViewportSize({ width: 1500, height: 900 });
+      const [first, second, third, thin, wide] = [1, 2, 3, 4, 5].map((at) => uniqueTitle(`Panel ${at}`)) as [
+        string,
+        string,
+        string,
+        string,
+        string,
+      ];
+      const note = uniqueTitle('Row of an Item');
+      await ownDashboard(page, isMobile, [first, second, third, thin, wide], async (board) => {
+        await giveToAPanel(page, board.panels[0]!, [note]);
+        await giveAnArrangement(page, board, [
+          { panels: board.panels.slice(0, 3) },
+          { panels: board.panels.slice(3), shares: [1, 11] },
+        ]);
+      });
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second, third], [thin, wide]]);
+      let layoutsSent = 0;
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().includes('/v1/commands/save_layout')) layoutsSent++;
+      });
+      await page.evaluate(installThePanelWidthWatch);
+
+      // Room for three, with the dividers between them; the row of shares 1 and
+      // 11 twelfths keeps the thin Panel at its least rather than at a twelfth.
+      expect(await acrossOnTheFirstLine(page)).toBe(3);
+      await expect(page.getByTestId('column-line')).toHaveCount(3);
+      expect((await boxOf(page, thin)).width).toBeGreaterThanOrEqual(239.9);
+      await expectTheDashboardFits(page);
+
+      try {
+        await dockTheFormOn(page, first, note);
+
+        // Widened until the room left holds one.
+        await dragTheFormEdgeTo(page, 440);
+        expect(await acrossOnTheFirstLine(page)).toBe(1);
+        await expect(page.getByTestId('column-line')).toHaveCount(0);
+        expect((await boxOf(page, third)).width).toBeCloseTo(await roomOf(page), 0);
+        await expectTheDashboardFits(page);
+
+        // Narrowed until two fit: the third spans the line under them, with
+        // nothing drawn between the lines, and the row of two keeps its divider.
+        await dragTheFormEdgeTo(page, 540);
+        expect(await acrossOnTheFirstLine(page)).toBe(2);
+        const [one, two, three] = await Promise.all([first, second, third].map((name) => boxOf(page, name)));
+        expect(Math.round(one!.y)).toBe(Math.round(two!.y));
+        expect(three!.y).toBeGreaterThan(one!.y + one!.height - 1);
+        expect(three!.width).toBeCloseTo(one!.width + two!.width + 4, 0);
+        await expect(page.getByTestId('column-line')).toHaveCount(1);
+        expect((await boxOf(page, thin)).width).toBeGreaterThanOrEqual(239.9);
+        await expectTheDashboardFits(page);
+
+        // Room for three again, as the form gives it back.
+        await dragTheFormEdgeTo(page, 800);
+        expect(await acrossOnTheFirstLine(page)).toBe(3);
+        await expect(page.getByTestId('column-line')).toHaveCount(3);
+        await expectTheDashboardFits(page);
+
+        // And down to one again, by widening the form.
+        await dragTheFormEdgeTo(page, 440);
+        expect(await acrossOnTheFirstLine(page)).toBe(1);
+        await expect(page.getByTestId('column-line')).toHaveCount(0);
+        await expectTheDashboardFits(page);
+      } finally {
+        await putTheFormBackCentered(page);
+      }
+
+      // The form gone from the side, the row is whole again.
+      await expect.poll(() => acrossOnTheFirstLine(page)).toBe(3);
+      await expect(page.getByTestId('column-line')).toHaveCount(3);
+      expect(await narrowestPanelDrawn(page), 'a Panel was drawn under 240 px on the way').toBeGreaterThanOrEqual(239.9);
+      expect(layoutsSent, 'wrapping a row stores nothing').toBe(0);
+      await expectNoSidewaysScroll(page);
+      await expectTheDashboardFits(page);
+    });
+  });
+
+  /**
+   * jsdom measures nothing, so that a row is the right shape on the first
+   * paint of a page opened with the form already docked is only a browser's to
+   * say. The painted frames are watched from before the page loads
+   * (`installThePanelWidthWatch`), because the row is right once the width has
+   * been read and the question is whether a frame went out before that.
+   */
+  test.describe('a row is wrapped for the room it has from the first paint, including a page opened with the form already docked', () => {
+    test.skip(({ isMobile }) => !!isMobile, 'the room changes by dragging the docked form’s edge');
+
+    test('draws two across with the third under them, and a Dashboard nobody has arranged by the room it really has', async ({
+      page,
+      isMobile,
+    }) => {
+      await page.setViewportSize({ width: 1500, height: 900 });
+      const [first, second, third] = [1, 2, 3].map((at) => uniqueTitle(`Panel ${at}`)) as [string, string, string];
+      const [alone, beside, below] = [1, 2, 3].map((at) => uniqueTitle(`Unarranged ${at}`)) as [string, string, string];
+      const note = uniqueTitle('Row of an Item');
+      const unarranged = uniqueTitle('Nobody arranged');
+      await ownDashboard(page, isMobile, [first, second, third], async (board) => {
+        await giveToAPanel(page, board.panels[0]!, [note]);
+        await giveAnArrangement(page, board, [{ panels: board.panels }]);
+        await giveAnEmptyDashboard(page, unarranged, [alone, beside, below]);
+      });
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second, third]]);
+
+      try {
+        await dockTheFormOn(page, first, note);
+        await dragTheFormEdgeTo(page, 540);
+        const room = await roomOf(page);
+
+        // Opened again with the form docked: no frame goes out with a Panel
+        // thin, because the row is drawn for the width it will have.
+        await page.addInitScript(installThePanelWidthWatch);
+        await page.reload();
+        await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second, third]]);
+        expect(await acrossOnTheFirstLine(page)).toBe(2);
+        expect(await roomOf(page)).toBeCloseTo(room, 0);
+        const [one, two, three] = await Promise.all([first, second, third].map((name) => boxOf(page, name)));
+        expect(three!.width).toBeCloseTo(one!.width + two!.width + 4, 0);
+        expect(await narrowestPanelDrawn(page), 'a Panel was drawn under 240 px').toBeGreaterThanOrEqual(239.9);
+
+        // A Dashboard with no arrangement is laid out by the width the Panels
+        // have beside the form, not the width before it opened.
+        await openDashboard(page, unarranged, isMobile);
+        await expect(page.getByRole('region', { name: alone })).toBeVisible();
+        await page.reload();
+        await expect(page.getByRole('region', { name: alone })).toBeVisible();
+        await expect.poll(() => rowsOnScreen(page)).toEqual([[alone], [beside], [below]]);
+        expect(await narrowestPanelDrawn(page), 'a Panel was drawn under 240 px').toBeGreaterThanOrEqual(239.9);
+      } finally {
+        await putTheFormBackCentered(page);
+      }
+    });
+  });
+
+  /**
+   * A drop and a height both ask the page where the row is, and a wrapped row is
+   * several lines high, so both need a real layout.
+   */
+  test.describe('a wrapped row is still one row, whose Panels are dropped onto and whose height is that of each line', () => {
+    test.skip(({ isMobile }) => !!isMobile, 'a drag is a pointer gesture');
+
+    test('takes a Panel dropped on its last, spanning Panel into the row, and gives each line the height the line under it is dragged to', async ({
+      page,
+      isMobile,
+    }) => {
+      // Narrow enough that the Inbox has left the page and a row of three has
+      // room for two, with the third under them.
+      await page.setViewportSize({ width: 700, height: 900 });
+      const [first, second, third, fourth] = [1, 2, 3, 4].map((at) => uniqueTitle(`Panel ${at}`)) as [
+        string,
+        string,
+        string,
+        string,
+      ];
+      await ownDashboard(page, isMobile, [first, second, third, fourth], async (board) => {
+        await giveAnArrangement(page, board, [
+          { panels: board.panels.slice(0, 3) },
+          { panels: board.panels.slice(3) },
+        ]);
+      });
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second, third], [fourth]]);
+      expect(await acrossOnTheFirstLine(page)).toBe(2);
+      let layoutsSent = 0;
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().includes('/v1/commands/save_layout')) layoutsSent++;
+      });
+
+      // Dropped on the third Panel, which spans the line under the other two:
+      // it joins their row, and one layout is sent.
+      const dropped = answerTo(page, 'save_layout');
+      await page.mouse.move(...(await centreOf(page.getByRole('region', { name: fourth }).locator('header'))));
+      await page.mouse.down();
+      await expect.poll(async () => (await boxOf(page, third)).height).toBeLessThan(100);
+      await page.mouse.move(...(await centreOf(page.getByRole('region', { name: third }))), { steps: 8 });
+      await page.mouse.up();
+      expect((await dropped).status()).toBe(200);
+      await expect.poll(async () => (await rowsOnScreen(page)).map((row) => row.length)).toEqual([4]);
+      expect(layoutsSent).toBe(1);
+      await page.reload();
+      await expect.poll(async () => (await rowsOnScreen(page)).map((row) => row.length)).toEqual([4]);
+
+      // Two lines of two, and the line under the row sets the height of each.
+      expect(await acrossOnTheFirstLine(page)).toBe(2);
+      const row = page.locator('main [data-panel-row]').first();
+      const wasTall = (await row.boundingBox())!.height;
+      const saved = answerTo(page, 'save_layout');
+      const [lineX, lineY] = await centreOf(page.getByTestId('row-line').first());
+      await page.mouse.move(lineX, lineY);
+      await page.mouse.down();
+      await page.mouse.move(lineX, lineY + 80, { steps: 8 });
+      await page.mouse.up();
+      expect((await saved).status()).toBe(200);
+      await expect.poll(async () => (await row.boundingBox())!.height).toBeCloseTo(wasTall + 80, 0);
+      const heights = async () => (await Promise.all([first, third].map((name) => boxOf(page, name)))).map((box) => Math.round(box.height));
+      const [topLine, secondLine] = await heights();
+      expect(topLine).toBe(secondLine);
+      await page.reload();
+      await expect.poll(async () => (await row.boundingBox())!.height).toBeCloseTo(wasTall + 80, 0);
+      await expect.poll(heights).toEqual([topLine, secondLine]);
+      await expectNoSidewaysScroll(page);
+      await expectTheDashboardFits(page);
+    });
+  });
 });
 
 /**
@@ -1501,6 +1707,139 @@ async function centreOf(what: Locator): Promise<[number, number]> {
   const box = await what.boundingBox();
   if (!box) throw new Error('nothing to aim at');
   return [box.x + box.width / 2, box.y + box.height / 2];
+}
+
+/** Where a Panel is on the page, by name. */
+async function boxOf(page: Page, panel: string): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = await page.getByRole('region', { name: panel }).boundingBox();
+  if (!box) throw new Error(`${panel} is not drawn`);
+  return box;
+}
+
+/** The room the first row has, which is the room every row of the Dashboard has. */
+async function roomOf(page: Page): Promise<number> {
+  return (await page.locator('main [data-panel-row]').first().boundingBox())!.width;
+}
+
+/** How many of the first row's Panels share its first line. */
+async function acrossOnTheFirstLine(page: Page): Promise<number> {
+  return page
+    .locator('main [data-panel-row]')
+    .first()
+    .evaluate((row) => {
+      const tops = [...row.querySelectorAll('section[data-panel-cell]')].map((panel) =>
+        Math.round(panel.getBoundingClientRect().top),
+      );
+      return tops.filter((top) => top === tops[0]).length;
+    });
+}
+
+/** The form's own changes of presentation, which are the account's. */
+function answeredThePresentation(page: Page, timeout?: number): Promise<Response> {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/v1/commands/set_item_form_presentation',
+    ...(timeout === undefined ? [] : [{ timeout }]),
+  );
+}
+
+/**
+ * Opens an Item's form and docks it. The account is shared by every walk in
+ * the run, so a form left docked by another is already docked: only a centered
+ * one is asked to dock.
+ */
+async function dockTheFormOn(page: Page, panel: string, title: string): Promise<void> {
+  await page
+    .getByRole('region', { name: panel })
+    .getByRole('listitem')
+    .filter({ hasText: title })
+    .getByRole('button', { name: 'Item actions' })
+    .click();
+  await page.getByRole('menuitem', { name: 'Open' }).click();
+  const form = page.getByRole('dialog');
+  await expect(form).toBeVisible();
+  const dock = form.getByRole('button', { name: 'Dock' });
+  if (await dock.count()) {
+    const docking = answeredThePresentation(page);
+    await dock.click();
+    await docking;
+  }
+  await expect(form).toHaveAttribute('data-docked-form', '');
+}
+
+/** Every walk that docks the form puts it back centered, which is what the next walk assumes of the account. Best effort, so a failure above is reported as itself. */
+async function putTheFormBackCentered(page: Page): Promise<void> {
+  const form = page.getByRole('dialog');
+  if (await form.getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+    const recentering = answeredThePresentation(page, 5_000).catch(() => {});
+    await form.getByRole('button', { name: 'Center' }).click().catch(() => {});
+    await recentering;
+  }
+  await form.getByRole('button', { name: 'Cancel' }).click().catch(() => {});
+}
+
+/**
+ * Drags the docked form's edge a few pixels at a time until the room the
+ * Dashboard has is `target` px, give or take a step: right gives the room to
+ * the Dashboard, left takes it back, whichever the room is short of.
+ */
+async function dragTheFormEdgeTo(page: Page, target: number): Promise<void> {
+  const grip = (await page.getByRole('dialog').getByRole('separator', { name: 'Resize the form' }).boundingBox())!;
+  const y = grip.y + grip.height / 2;
+  let x = grip.x + grip.width / 2;
+  const toTheRight = (await roomOf(page)) < target;
+  const reached = (room: number) => (toTheRight ? room >= target : room <= target);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let step = 0; step < 200 && !reached(await roomOf(page)); step++) {
+    x += toTheRight ? 8 : -8;
+    await page.mouse.move(x, y);
+  }
+  await page.mouse.up();
+  expect(reached(await roomOf(page)), `the form’s edge could not be dragged to leave ${target}px`).toBe(true);
+}
+
+/**
+ * Starts recording, for every frame the browser paints, how thin the thinnest
+ * Panel was, so a Panel drawn too thin for a single frame fails a walk that
+ * only looked at where things settled. Run inside the page: as an init script
+ * to be there before a page loads, or evaluated into one that has.
+ *
+ * Sampled at the start of each frame, and again once the board's own width
+ * has been told of (a browser tells it before it paints), the last reading of
+ * a frame being the one painted.
+ */
+function installThePanelWidthWatch(): void {
+  const seen = window as unknown as { narrowestPerFrame?: (number | undefined)[] };
+  if (seen.narrowestPerFrame) return;
+  const frames: (number | undefined)[] = (seen.narrowestPerFrame = []);
+  let frame = 0;
+  const sample = () => {
+    const widths = [...document.querySelectorAll('[data-panel-cell]')].map((panel) => panel.getBoundingClientRect().width);
+    if (widths.length > 0) frames[frame] = Math.min(...widths);
+  };
+  const tick = () => {
+    frame++;
+    sample();
+    const board = document.querySelector('[data-panel-row]')?.parentElement;
+    if (board && !board.hasAttribute('data-watched')) {
+      board.setAttribute('data-watched', '');
+      new ResizeObserver(sample).observe(board);
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+/** How thin the thinnest Panel was in any frame painted since the watch began. */
+async function narrowestPanelDrawn(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const frames = (window as unknown as { narrowestPerFrame?: (number | undefined)[] }).narrowestPerFrame ?? [];
+    const seen = frames.filter((width): width is number => width !== undefined);
+    // None seen reads as thin, so a watch that never ran fails rather than passes.
+    return seen.length > 0 ? Math.min(...seen) : 0;
+  });
 }
 
 /**

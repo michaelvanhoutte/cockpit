@@ -81,6 +81,7 @@ function anItem(id: string, title: string): Item {
     proposedPanelReason: null,
     proposedPanelFit: null,
     claudeProposals: null,
+    seriesId: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,

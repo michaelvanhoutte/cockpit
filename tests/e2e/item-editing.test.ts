@@ -387,6 +387,63 @@ test.describe('Item editing', () => {
   });
 
   /**
+   * F3, because this is the capability ("Set an Item to repeat from its form, and
+   * see the rule on its row", issue 1406): a person opens an Item, sets it to
+   * repeat, and finds the rule again on its form and its row. What the rule says
+   * is proved in packages/shared/tests/unit/domain/series.test.ts, what the server
+   * keeps in apps/api/tests/integration/http/repeats.test.ts and what is drawn
+   * before the answer in apps/web/tests/unit/components/RepeatsAtOnce.test.tsx.
+   * None of those can say where the chip sits, or that it reaches a phone.
+   */
+  test.describe('an Item can be set to repeat from its form', () => {
+    test('ends the field line at a desk and is a chip on a phone, and the rule survives closing and reopening', async ({
+      page,
+      isMobile,
+    }) => {
+      const weekly = uniqueTitle('Weekly review');
+      await openInboxHolding(page, isMobile, [weekly]);
+      await openItem(page, weekly, isMobile);
+
+      // Named by its title on both devices: once set, the chip is named for the rule instead.
+      const repeatsChip = form(page).getByTitle('Repeats');
+      await expect(repeatsChip).toBeVisible();
+      if (isMobile) {
+        // One more chip in the row, after Due and before + Attach.
+        await expect(chips(page)).toHaveText(['To do', 'Priority', 'Due date', '↻Repeats', '+ Attach']);
+      } else {
+        // The end of the line the status, priority and Due choices make.
+        const dueGroup = (await form(page).getByRole('group', { name: 'Due', exact: true }).boundingBox())!;
+        const chip = (await repeatsChip.boundingBox())!;
+        expect(chip.x).toBeGreaterThan(dueGroup.x + dueGroup.width - 1);
+        expect(Math.abs(chip.y + chip.height / 2 - (dueGroup.y + dueGroup.height / 2))).toBeLessThan(dueGroup.height);
+      }
+
+      await press(repeatsChip, isMobile);
+      const choices = page.getByRole('group', { name: 'Repeats' });
+      await press(choices.getByRole('button', { name: 'Weekly', exact: true }), isMobile);
+      await page.getByRole('spinbutton').fill('5');
+      await expect(choices.locator('xpath=..')).toContainText(/Weekly on \w+ · next \w{3} \d+ \w{3} · due \w{3} \d+ \w{3}/);
+      await page.keyboard.press('Escape');
+      await expect(repeatsChip).toContainText(/Weekly on \w+/);
+      await saveTheItem(page, isMobile);
+
+      await expect(form(page)).toHaveCount(0);
+      await expect(itemRow(page, weekly).getByRole('img', { name: /^Repeats weekly on \w+$/ })).toBeVisible();
+
+      await openItem(page, weekly, isMobile);
+      await expect(repeatsChip).toContainText(/Weekly on \w+/);
+      await press(repeatsChip, isMobile);
+      await expect(page.getByRole('spinbutton')).toHaveValue('5');
+      await press(page.getByRole('group', { name: 'Repeats' }).getByRole('button', { name: 'Never', exact: true }), isMobile);
+      await page.keyboard.press('Escape');
+      await saveTheItem(page, isMobile);
+
+      await expect(form(page)).toHaveCount(0);
+      await expect(itemRow(page, weekly).getByRole('img', { name: /^Repeats/ })).toHaveCount(0);
+    });
+  });
+
+  /**
    * F3, because storing a file, refusing an oversized or disallowed one, and
    * serving it back are proved against a real R2 bucket and a real database
    * in apps/api/tests/integration/http/attachments.test.ts, and what the

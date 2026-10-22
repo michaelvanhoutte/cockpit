@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
   itemLabel,
+  repeatOf,
   uuidv7,
   workspaceIsDecided,
   type Item,
@@ -980,6 +981,7 @@ export function ItemList({
       inProposalGroup={group !== undefined}
       {...(group ? { onFileGroup: () => acceptEach(group) } : {})}
       sourceNames={data?.sourceNames}
+      repeat={repeatOf(item, data?.series)}
       workspaceId={workspaceId}
       inInbox={panelId === null}
       {...(rowPanel ? { liftedFrom: rowPanel } : {})}

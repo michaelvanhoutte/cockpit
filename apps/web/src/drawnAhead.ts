@@ -113,6 +113,8 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
       return withItem(snapshot, change.payload.itemId, { priority: change.payload.priority });
     case 'set_due_date':
       return withItem(snapshot, change.payload.itemId, { dueDate: change.payload.dueDate });
+    case 'set_repeat':
+      return repeatDrawn(snapshot, change.payload);
     case 'set_title':
       return withItem(snapshot, change.payload.itemId, { title: change.payload.title });
     case 'set_description':
@@ -218,6 +220,7 @@ function heldBlank(workspaceId: string): WorkspaceSnapshot {
     filings: [],
     associations: [],
     attachments: [],
+    series: [],
     itemFormPresentation: DEFAULT_ITEM_FORM_PRESENTATION,
     duplicates: [],
     agentRuns: [],
@@ -254,6 +257,32 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
     updatedAt: note.issuedAt,
   } as Item;
   return { ...snapshot, items: [...snapshot.items, item] };
+}
+
+/**
+ * An Item's Repeats ("Set an Item to repeat from its form, and see the rule on
+ * its row", issue 1406): the Item's series as the server will hold it - the one
+ * it already names, or a new one under the id the change carries - with the rule
+ * written over it, and *Never* as the same series stopped. **What the server
+ * decides is not predicted**: a *Next on* it refuses goes back with the refusal.
+ */
+function repeatDrawn(snapshot: WorkspaceSnapshot, change: CommandPayload<'set_repeat'>): WorkspaceSnapshot {
+  const item = snapshot.items.find((one) => one.id === change.itemId);
+  if (!item) return snapshot;
+  const own = item.seriesId === null ? undefined : snapshot.series.find((one) => one.id === item.seriesId);
+  if (change.repeat === null) {
+    return own
+      ? { ...snapshot, series: snapshot.series.map((one) => (one === own ? { ...one, stoppedAt: one.stoppedAt ?? change.issuedAt } : one)) }
+      : snapshot;
+  }
+  const drawn = {
+    id: own?.id ?? change.seriesId,
+    tenantId: snapshot.workspace.tenantId,
+    ...change.repeat,
+    stoppedAt: null,
+  };
+  const series = own ? snapshot.series.map((one) => (one === own ? drawn : one)) : [...snapshot.series, drawn];
+  return withItem({ ...snapshot, series }, item.id, { seriesId: drawn.id });
 }
 
 /**
@@ -489,6 +518,7 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'set_started',
   'set_priority',
   'set_due_date',
+  'set_repeat',
   'set_title',
   'set_description',
   'set_next_action',

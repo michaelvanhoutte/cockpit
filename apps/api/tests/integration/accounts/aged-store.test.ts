@@ -76,6 +76,7 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
     due_date_chosen_at: _dueDateChosenAt,
     proposed_panel_fit: _proposedPanelFit,
     claude_proposals: _claudeProposals,
+    series_id: _seriesId,
     ...rest
   } = row;
   return rest;
@@ -553,6 +554,13 @@ const rowsFor: {
     table: 'remembered_sentences',
     sql: `INSERT INTO remembered_sentences (id, tenant_id, workspace_id, source_kind, action, sentence, use_count, last_used_at, created_at)
           VALUES ('rs-before', ?, 'ws-before', 'gmail', 'reply to a mail', 'Replies: Dutch, short.', 1, ?, ?)`,
+    params: (name) => [name, AT, AT],
+  },
+  {
+    // The table `0092-series` creates (issue 1406): a rule an Item repeats by, for the next update to meet.
+    table: 'series',
+    sql: `INSERT INTO series (id, tenant_id, frequency, next_on, due_after_days, time_zone, stopped_at, created_at, updated_at)
+          VALUES ('se-before', ?, 'weekly', '2026-09-07', 5, 'Europe/Brussels', NULL, ?, ?)`,
     params: (name) => [name, AT, AT],
   },
   {
@@ -3544,7 +3552,6 @@ describe('Connector management', () => {
     });
   });
 });
-
 /**
  * `0091-due-in-days` ("Give each email a Gmail or Outlook connection brings in
  * a due date a set number of days out", issue 1409) meets connections, links
@@ -3587,6 +3594,46 @@ describe('Connector management', () => {
       await abortAllDurableObjects();
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
       expect(await datesIn(name)).toEqual(once);
+    });
+  });
+});
+
+/**
+ * "Set an Item to repeat from its form, and see the rule on its row" (issue
+ * 1406): an account from before repeats gains an empty table of series and a
+ * column on its Items, and every Item it already had repeats nothing.
+ */
+describe('Item editing', () => {
+  describe('every Item an account already had repeats nothing once an Item can repeat', () => {
+    const SERIES = '0092-series';
+    const itemsIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => ({
+        items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+        series: sql.exec('SELECT * FROM series').toArray(),
+      }));
+
+    it('adds the table and the column, leaves every Item as it was, and reads each with no series', async () => {
+      const name = 'aged-store-before-series';
+      await agedTo(name, justBefore(SERIES));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM items ORDER BY id').toArray());
+      expect(before.length).toBeGreaterThan(0);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await itemsIn(name);
+      expect(after.series).toEqual([]);
+      expect(after.items.map((row) => row.series_id)).toEqual(before.map(() => null));
+      expect(after.items.map(withoutLaterColumns)).toEqual(before.map(withoutLaterColumns));
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot.status === 'ok' ? snapshot.value.series : 'unread').toEqual([]);
+      expect(snapshot.status === 'ok' ? snapshot.value.items.map((item) => item.seriesId) : []).toEqual(
+        before.filter((row) => row.workspace_id === 'ws-before').map(() => null),
+      );
+
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await itemsIn(name)).toEqual(after);
     });
   });
 });

@@ -68,6 +68,12 @@ describe('Offline', () => {
         drawn: undefined,
       },
       {
+        situation: 'an Item inside it lacks the series it repeats by, which has a default',
+        schema: workspaceSnapshotSchema,
+        saved: aWorkspace([without(anItem(1), 'seriesId')]),
+        drawn: aWorkspace([anItem(1)]),
+      },
+      {
         situation: 'it lacks an optional property',
         schema: workspaceSnapshotSchema,
         saved: without(aWorkspace(), 'sourceNames'),
