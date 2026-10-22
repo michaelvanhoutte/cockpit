@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, inject, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Usage } from '@cockpit/shared';
 import { OTHER_USER_ID, USER_ID, asUser, seedRegister, startFromEmpty } from '../seed.js';
@@ -194,6 +194,111 @@ describe('User management', () => {
 
     it('answers a window that is not a number with the usual one', async () => {
       expect((await usage('?days=lots')).days).toBe(30);
+    });
+  });
+
+  /**
+   * "Count Settings › Usage's days on your own calendar" (issue 1428): the
+   * days are grouped, and the window bounded, in a query against the real
+   * register, so the calendar they are cut on only shows there. Time is
+   * fixed here: the instants below mean a day only against a known "now".
+   */
+  describe('usage counts its days on the calendar of the zone it is read from', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const readAt = async (now: string, query: string): Promise<Usage> => {
+      vi.useFakeTimers({ toFake: ['Date'], now: Date.parse(now) });
+      return usage(query);
+    };
+    const days = (read: Usage) => read.guests.perDay.map((row) => [row.day, row.sessions]);
+
+    describe('a guest’s sign-in is counted on the day it was in the viewer’s zone', () => {
+      it.each([
+        { situation: 'half past midnight in Brussels, still the day before in UTC', zone: 'Europe/Brussels', at: ['2026-10-21T22:30:00.000Z'], counted: [['2026-10-22', 1]] },
+        { situation: 'the evening before in New York', zone: 'America/New_York', at: ['2026-10-21T22:30:00.000Z'], counted: [['2026-10-21', 1]] },
+        {
+          situation: 'either side of the night the clocks go back in Brussels, the offset changing in between',
+          zone: 'Europe/Brussels',
+          at: ['2026-10-24T22:30:00.000Z', '2026-10-25T23:30:00.000Z'],
+          counted: [
+            ['2026-10-26', 1],
+            ['2026-10-25', 1],
+          ],
+        },
+      ])('puts $situation on its own day', async ({ zone, at, counted }) => {
+        for (const instant of at) await signedInAt(instant);
+
+        const read = await readAt('2026-10-26T12:00:00.000Z', `?days=7&timeZone=${zone}`);
+
+        expect(days(read)).toEqual(counted);
+      });
+
+      it('adds up everything on one local day, though it spans two UTC dates, and leaves the next day alone', async () => {
+        await signedInAt('2026-10-21T22:10:00.000Z', { items: 1, dashboards: 1 });
+        await signedInAt('2026-10-22T09:00:00.000Z', { items: 2 });
+        await signedInAt('2026-10-22T21:50:00.000Z', { dashboards: 3 });
+        await signedInAt('2026-10-22T22:00:00.000Z', { items: 7 });
+
+        const read = await readAt('2026-10-23T12:00:00.000Z', '?days=7&timeZone=Europe/Brussels');
+
+        expect(read.guests.perDay).toEqual([
+          { day: '2026-10-23', sessions: 1, itemsCaptured: 7, dashboardsOpened: 0 },
+          { day: '2026-10-22', sessions: 3, itemsCaptured: 3, dashboardsOpened: 4 },
+        ]);
+      });
+    });
+
+    describe('the window starts at the viewer’s midnight, today included', () => {
+      // It is 23:30 UTC on 22 October: already the 23rd in Brussels.
+      it.each([
+        { situation: 'a guest at 00:30 where the viewer is', who: {}, at: '2026-10-22T22:30:00.000Z', where: 'inside' },
+        { situation: 'a guest at 23:30 the day before where the viewer is', who: {}, at: '2026-10-22T21:30:00.000Z', where: 'outside' },
+        { situation: 'a named person at 00:30 where the viewer is', who: { userId: OTHER_USER_ID }, at: '2026-10-22T22:30:00.000Z', where: 'inside' },
+        { situation: 'a named person at 23:30 the day before where the viewer is', who: { userId: OTHER_USER_ID }, at: '2026-10-22T21:30:00.000Z', where: 'outside' },
+      ])('a one day window has $situation $where it', async ({ who, at, where }) => {
+        await signedInAt(at, who);
+
+        const read = await readAt('2026-10-22T23:30:00.000Z', '?days=1&timeZone=Europe/Brussels');
+
+        const ada = read.named.find((person) => person.userId === OTHER_USER_ID)!;
+        expect(read.guests.perDay).toHaveLength(who.userId === undefined && where === 'inside' ? 1 : 0);
+        expect(ada.signIns).toEqual(who.userId !== undefined && where === 'inside' ? [at] : []);
+      });
+
+      it('reaches back the full year from the viewer’s midnight, and not a day further', async () => {
+        await signedInAt('2025-10-22T22:30:00.000Z');
+        await signedInAt('2025-10-22T21:30:00.000Z');
+
+        const read = await readAt('2026-10-22T23:30:00.000Z', '?days=365&timeZone=Europe/Brussels');
+
+        // 365 days ending on 23 Oct 2026 begin on 24 Oct 2025, so both are before it.
+        expect(read.days).toBe(365);
+        expect(days(read)).toEqual([]);
+        await signedInAt('2025-10-23T22:30:00.000Z');
+        expect(days(await usage('?days=365&timeZone=Europe/Brussels'))).toEqual([['2025-10-24', 1]]);
+      });
+    });
+
+    describe('a zone that is missing or unknown counts in UTC, and one of the wrong shape is refused', () => {
+      it.each([
+        { situation: 'no zone is sent', query: '' },
+        { situation: 'the zone is one this runtime does not know', query: '&timeZone=Mars/Olympus_Mons' },
+      ])('counts UTC days when $situation', async ({ query }) => {
+        await signedInAt('2026-10-22T00:30:00.000Z');
+        await signedInAt('2026-10-21T23:30:00.000Z');
+
+        const read = await readAt('2026-10-22T12:00:00.000Z', `?days=1${query}`);
+
+        expect(days(read)).toEqual([['2026-10-22', 1]]);
+      });
+
+      it('refuses a zone that is not the shape of one', async () => {
+        const res = await asUser(`${USAGE}?timeZone=${encodeURIComponent('Europe/Brussels; DROP TABLE')}`);
+
+        expect(res.status).toBe(400);
+      });
     });
   });
 

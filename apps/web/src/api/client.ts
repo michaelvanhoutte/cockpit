@@ -20,6 +20,7 @@ import {
   type WorkspaceList,
   type WorkspaceSnapshot,
 } from '@cockpit/shared';
+import { deviceTimeZone } from '../deviceTimeZone';
 
 /**
  * The typed client (architecture, "How the client talks to the backend"):
@@ -74,9 +75,14 @@ export async function fetchMe(): Promise<SignedIn> {
  * than as `NotSignedIn`, and the difference matters: whoever gets one *is*
  * signed in, so sending them to the logon page would offer them the one thing
  * that cannot help.
+ *
+ * **It carries the device's time zone**, so the server cuts the window and its
+ * days on the calendar of wherever the admin is ("Count Settings › Usage's days
+ * on your own calendar", issue 1428).
  */
 export async function fetchUsage(days: number): Promise<Usage> {
-  const res = await api.v1.admin.usage.$get({ query: { days: String(days) } });
+  const timeZone = deviceTimeZone();
+  const res = await api.v1.admin.usage.$get({ query: { days: String(days), ...(timeZone ? { timeZone } : {}) } });
   if (!res.ok) throw refusal('usage', res.status);
   return usageSchema.parse(await res.json());
 }
