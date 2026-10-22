@@ -782,6 +782,7 @@ export function listSeriesInWorkspace(db: AccountDb, tenantId: string, workspace
     .where(
       and(
         eq(series.tenantId, tenantId),
+        eq(items.tenantId, tenantId),
         or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
         isNull(items.deletedAt),
       ),

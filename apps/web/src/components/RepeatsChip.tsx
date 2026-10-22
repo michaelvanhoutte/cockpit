@@ -27,6 +27,9 @@ const FREQUENCIES: readonly [RepeatFrequency | null, string][] = [
   ['yearly', 'Yearly'],
 ];
 
+/** A day the server takes: a four-digit year, which is what a date box passes while a fifth digit is being typed. */
+const DAY = /^\d{4}-\d{2}-\d{2}$/u;
+
 export interface RepeatsChoice {
   /** The Item's rule as the form holds it, or `null` for *Never*. */
   repeat: RepeatRule | null;
@@ -82,7 +85,7 @@ export function RepeatsChoices({ repeat, onRepeat, onSettled, refusal }: Repeats
             <input
               type="date"
               value={repeat.nextOn}
-              onChange={(e) => e.target.value && onRepeat({ ...repeat, nextOn: e.target.value }, false)}
+              onChange={(e) => DAY.test(e.target.value) && onRepeat({ ...repeat, nextOn: e.target.value }, false)}
               onBlur={onSettled}
               className="rounded-md border border-shade/10 bg-field px-2 py-0.5 text-sm"
             />

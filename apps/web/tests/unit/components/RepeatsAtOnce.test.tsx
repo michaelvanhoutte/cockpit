@@ -293,6 +293,21 @@ describe('Item editing', () => {
       expect(within(rowOf('Reply to Bart')).queryByRole('img', { name: /^Repeats/ })).toBeNull();
     });
 
+    it('keeps a rule chosen after a refused one, and says what it now holds', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart')], { form: 'docked', openItem: BART });
+      await waitFor(() => expect(titleBox()).toBeVisible());
+      await user.click(await theChip());
+      await user.click(within(popover()).getByRole('button', { name: 'Weekly' }));
+      await user.type(within(popover()).getByRole('spinbutton'), '5');
+      await user.tab();
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(400, 'Next on cannot be before today.')));
+      await settle();
+
+      expect(popover()).toHaveTextContent(`${saying()} · next`);
+      expect(within(popover()).getByRole('spinbutton')).toHaveValue(5);
+    });
+
     it('stops showing the mark on the row at once when Never is chosen', async () => {
       const series: Series = { id: 'series-1', tenantId: 'tenant', ...weekly(), dueAfterDays: null, timeZone: 'UTC', stoppedAt: null };
       const user = await show([anItem(BART, 'Reply to Bart', { seriesId: 'series-1' })], {

@@ -922,7 +922,7 @@ function TheForm({
   const setDraft =(now: Draft) => changeEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  /** Why the last write of Repeats was refused, said in its popover as well as with the rest (issue 1406). */
+  /** Why the last write of Repeats was refused, said in its popover as well as with the rest ("Set an Item to repeat from its form", issue 1406). */
   const [repeatRefusal, setRepeatRefusal] = useState<string | null>(null);
   /** The series this Item joins if it has none: made once, so a Repeats written twice before the first is read back is one series. */
   const newSeriesId = useRef(uuidv7());
@@ -1267,10 +1267,14 @@ function TheForm({
         } else {
           // A refused repeat goes back whole - the chip and its read-back with the row's mark - and says why
           // beside the choices: what was set is a rule the server refused, not text left to correct in place.
+          // Only while the box still holds the refused rule: one chosen since, already on its way, is not undone with it.
           changeEditing((now) =>
             now
               ? {
-                  now: write.field === 'repeat' ? { ...now.now, repeat: write.before as RepeatRule | null } : now.now,
+                  now:
+                    write.field === 'repeat' && sameRule(now.now.repeat, write.after.repeat ?? null)
+                      ? { ...now.now, repeat: write.before as RepeatRule | null }
+                      : now.now,
                   was: { ...now.was, [write.field]: write.before },
                 }
               : now,

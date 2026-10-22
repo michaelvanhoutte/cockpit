@@ -70,12 +70,23 @@ function dayFrom(year: number, month: number, date: number): string {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
 }
 
-const daysInMonth = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).getUTCDate();
+/**
+ * A day as a UTC instant. `Date.UTC` reads years 0 to 99 as 1900 to 1999, so a half-typed
+ * year would name the wrong weekday; `setUTCFullYear` does not.
+ */
+function utcDay(year: number, month: number, date: number): Date {
+  const at = new Date(0);
+  at.setUTCFullYear(year, month - 1, date);
+  return at;
+}
 
-/** The day `count` calendar days on. */
+const daysInMonth = (year: number, month: number) => utcDay(year, month + 1, 0).getUTCDate();
+
+/** The day `count` calendar days on. Built from the day's parts, as `toISOString` is no `YYYY-MM-DD` past the year 9999. */
 export function daysOnFrom(day: string, count: number): string {
   const { year, month, date } = partsOf(day);
-  return new Date(Date.UTC(year, month - 1, date + count)).toISOString().slice(0, 10);
+  const on = utcDay(year, month, date + count);
+  return dayFrom(on.getUTCFullYear(), on.getUTCMonth() + 1, on.getUTCDate());
 }
 
 /** The day `count` months on, or the last day of that month where it is shorter (31 Jan + 1 month is 28 or 29 Feb). */
@@ -108,7 +119,7 @@ export const firstNextOn = onePeriodAfter;
 /** `Mon 2 Nov` - a day as the read-back says it. */
 export function shortDay(day: string): string {
   const { year, month, date } = partsOf(day);
-  const weekday = WEEKDAYS[new Date(Date.UTC(year, month - 1, date)).getUTCDay()]!;
+  const weekday = WEEKDAYS[utcDay(year, month, date).getUTCDay()]!;
   return `${weekday.slice(0, 3)} ${date} ${MONTHS[month - 1]}`;
 }
 
@@ -125,7 +136,7 @@ export function ruleLabel(rule: Pick<RepeatRule, 'frequency' | 'nextOn'>): strin
     case 'daily':
       return 'Daily';
     case 'weekly':
-      return `Weekly on ${WEEKDAYS[new Date(Date.UTC(year, month - 1, date)).getUTCDay()]}`;
+      return `Weekly on ${WEEKDAYS[utcDay(year, month, date).getUTCDay()]}`;
     case 'monthly':
       return `Monthly on the ${ordinal(date)}`;
     case 'quarterly': {

@@ -56,6 +56,16 @@ describe('Item editing', () => {
         rule: { frequency: 'weekly', nextOn: '2026-10-29', dueAfterDays: 7 },
         says: 'Weekly on Thursday · next Thu 29 Oct · due Thu 5 Nov',
       },
+      {
+        situation: 'a due gap that crosses into a fifth-digit year, which still reads as a day',
+        rule: { frequency: 'weekly', nextOn: '9999-12-31', dueAfterDays: 1 },
+        says: 'Weekly on Friday · next Fri 31 Dec · due Sat 1 Jan',
+      },
+      {
+        situation: 'a year typed only as far as two digits, which keeps its own weekday',
+        rule: { frequency: 'weekly', nextOn: '0050-01-01', dueAfterDays: null },
+        says: 'Weekly on Saturday · next Sat 1 Jan',
+      },
     ])('$situation', ({ rule, says }) => {
       expect(readBack(rule)).toBe(says);
     });

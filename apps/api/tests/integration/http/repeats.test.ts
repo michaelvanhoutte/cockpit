@@ -203,6 +203,25 @@ describe('Item editing', () => {
 
       expect(response.status).toBe(status);
     });
+
+    it('takes the Next on already set after its day has passed, so another choice can still be made', async () => {
+      const itemId = await anItem();
+      await setRepeat(itemId, WEEKLY, { issuedAt: ISSUED });
+
+      const response = await setRepeat(itemId, { ...WEEKLY, dueAfterDays: 6 }, { issuedAt: '2026-11-03T09:00:00.000Z' });
+
+      expect(response.status).toBe(200);
+      expect((await snapshotOf()).series[0]).toMatchObject({ nextOn: WEEKLY.nextOn, dueAfterDays: 6 });
+    });
+
+    it('still refuses a Next on moved to a day that has passed', async () => {
+      const itemId = await anItem();
+      await setRepeat(itemId, WEEKLY, { issuedAt: ISSUED });
+
+      const response = await setRepeat(itemId, { ...WEEKLY, nextOn: '2026-11-01' }, { issuedAt: '2026-11-03T09:00:00.000Z' });
+
+      expect(response.status).toBe(400);
+    });
   });
 
   describe('the time zone the rule was set in is kept with it', () => {
