@@ -26,11 +26,14 @@ jobs:
           gradle-version: '8.11.1'
       # One debug key for every build, so a new APK installs over the last one and keeps its log
       # and battery setting. The first run without it generates one and uploads it to be committed.
-      - run: mkdir -p ~/.android && if [ -f debug.keystore ]; then cp debug.keystore ~/.android/debug.keystore; fi
-      - run: gradle --no-daemon assembleDebug && cp ~/.android/debug.keystore app/build/outputs/apk/debug/
+      - run: >
+          [ -f debug.keystore ] || keytool -genkeypair -keystore debug.keystore -storepass android
+          -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000
+          -dname "CN=Android Debug,O=Android,C=US"
+      - run: gradle --no-daemon assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: panel-widget-poc
           path: |
             poc/panel-widget/app/build/outputs/apk/debug/app-debug.apk
-            poc/panel-widget/app/build/outputs/apk/debug/debug.keystore
+            poc/panel-widget/debug.keystore

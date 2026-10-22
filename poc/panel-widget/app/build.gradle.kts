@@ -15,6 +15,16 @@ android {
         versionName = "poc-3"
     }
 
+    // The POC's own debug key (the workflow makes it once), so each build installs over the last.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
