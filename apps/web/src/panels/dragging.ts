@@ -13,11 +13,16 @@ import { movedBeside, movedRow, movedToOwnRow } from './arrangement';
  * put them - is the one thing arithmetic here cannot claim.
  */
 
-/** One panel as it is drawn: which panel, and the horizontal band it occupies. */
+/**
+ * One panel as it is drawn: which panel, the horizontal band it occupies, and
+ * the vertical one where its row is wrapped onto more than one line.
+ */
 export interface DrawnCell {
   panelId: string;
   left: number;
   right: number;
+  top?: number;
+  bottom?: number;
 }
 
 /** One row as it is drawn: the vertical band it occupies, and what is across it. */
@@ -102,17 +107,32 @@ export function placementFor(
       // **A Section's line shares nothing**: a Panel let go on it asks for
       // nothing, and the board shows nothing happening.
       if (row.section !== undefined) return null;
-      // On its own row a panel swaps once the pointer is where the swap would
+      // A wrapped row is read one line at a time: the pointer is among the
+      // Panels on its line, never those above or below it at the same x.
+      const line = { ...row, cells: onTheLineAt(point.y, row) };
+      // On its own line a panel swaps once the pointer is where the swap would
       // draw it; on any other, which half of a panel the pointer is on decides.
-      if (row.cells.some((cell) => cell.panelId === dragged)) {
-        return withinItsOwnRow(point.x, row, dragged);
+      if (line.cells.some((cell) => cell.panelId === dragged)) {
+        return withinItsOwnRow(point.x, line, dragged);
       }
-      const placement = alongTheRow(point.x, row);
+      const placement = alongTheRow(point.x, line);
       if (!placement) return null;
       return placement.panelId === dragged ? null : placement;
     }
   }
   return inTheGapUnder(rows[rows.length - 1], dragged);
+}
+
+/**
+ * The Panels drawn on the line the pointer is at, for a row wrapped onto more
+ * than one: the whole row where it is one line, or where the pointer is in the
+ * gap between two lines and so on none.
+ */
+function onTheLineAt(y: number, row: DrawnRow): readonly DrawnCell[] {
+  const onIt = row.cells.filter(
+    (cell) => cell.top === undefined || cell.bottom === undefined || (y >= cell.top && y <= cell.bottom),
+  );
+  return onIt.length > 0 ? onIt : row.cells;
 }
 
 /**

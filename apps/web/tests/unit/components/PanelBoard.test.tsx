@@ -1036,7 +1036,7 @@ describe('Panels', () => {
 
       const rows = screen
         .getAllByRole('region')
-        .map((panel) => (panel.parentElement as HTMLElement).style);
+        .map((panel) => (panel.closest('[data-panel-row]') as HTMLElement).style);
 
       expect(rows[0]!.height).toBe('248px');
       expect(rows[1]!.height).toBe('');
@@ -1525,8 +1525,10 @@ describe('Panels', () => {
         screenIs(480);
         window.dispatchEvent(new Event('resize'));
       });
+      // The arrangement is back, and at 480 two Panels do not each have 240px
+      // side by side, so its row wraps and draws no divider.
       expect(rowsDrawn()).toBe(1);
-      expect(screen.queryAllByTestId('column-line')).toHaveLength(1);
+      expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
     });
   });
 
@@ -3607,7 +3609,7 @@ describe('Dashboards', () => {
       expect(screen.queryByRole('region', { name: 'Notes' })).toBeNull();
       const rows = [...document.querySelectorAll<HTMLElement>('[data-panel-row]')];
       expect(rows).toHaveLength(1);
-      const shares = [...rows[0]!.style.gridTemplateColumns.matchAll(/minmax\(0, ([\d.]+)fr\)/g)].map((m) =>
+      const shares = [...rows[0]!.style.gridTemplateColumns.matchAll(/minmax\(240px, ([\d.]+)fr\)/g)].map((m) =>
         Number(m[1]),
       );
       expect(shares).toHaveLength(2);

@@ -1714,6 +1714,13 @@ function TheForm({
               >
                 {chosenDocked ? 'Center' : 'Dock'}
               </button>
+              {docked && (
+                // Nothing to save and nothing to discard: each field was written
+                // as it was left (`commitFields`), and closing keeps whatever is
+                // still in a box. In the top row rather than a row of its own at
+                // the foot, which held nothing else.
+                <Dialog.Close className={headerButtonClass}>Close</Dialog.Close>
+              )}
             </div>
           )}
 
@@ -2364,33 +2371,24 @@ function TheForm({
             </p>
           )}
 
-          {!onAPage && (
+          {!onAPage && !docked && (
             <div className="flex shrink-0 items-center justify-end gap-2 pt-4">
-              {docked ? (
-                // Nothing to save and nothing to discard: each field was written
-                // as it was left (`commitFields`), and closing keeps whatever is
-                // still in a box.
-                <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
-                  Close
+              <div className="flex gap-2">
+                <Dialog.Close
+                  disabled={saving}
+                  className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                >
+                  Cancel
                 </Dialog.Close>
-              ) : (
-                <div className="flex gap-2">
-                  <Dialog.Close
-                    disabled={saving}
-                    className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-                  >
-                    Cancel
-                  </Dialog.Close>
-                  <button
-                    type="button"
-                    disabled={!item || saving || tooLong}
-                    onClick={() => void save()}
-                    className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                </div>
-              )}
+                <button
+                  type="button"
+                  disabled={!item || saving || tooLong}
+                  onClick={() => void save()}
+                  className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           )}
         </Dialog.Content>
