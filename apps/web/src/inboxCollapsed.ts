@@ -78,7 +78,16 @@ export function isTypedInto(target: EventTarget | null): boolean {
   );
 }
 
-/** A menu or window is open over the page: Radix mounts these only while open. */
+/**
+ * A menu or window is open over the page: Radix mounts these only while open.
+ *
+ * **The Item form docked beside the page is not a window** - it is there to be
+ * worked next to, so the page's keys keep working (`data-docked-form`,
+ * `ItemForm.tsx`). A field inside it is still typed into, and a modal form, a
+ * menu or another dialog opened over it still counts.
+ */
 export function somethingIsOpenOverThePage(root: ParentNode = document): boolean {
-  return root.querySelector('[role="menu"], [role="dialog"], [role="alertdialog"]') !== null;
+  return (
+    root.querySelector('[role="menu"], [role="dialog"]:not([data-docked-form]), [role="alertdialog"]') !== null
+  );
 }

@@ -21,6 +21,8 @@ const SettingsWindow = lazy(() => import('../components/SettingsWindow'));
 const PlatformSettingsWindow = lazy(() => import('../components/PlatformSettingsWindow'));
 // And the shortcut tip's toast and wording, fetched with the first tip.
 const ShortcutTip = lazy(() => import('../components/ShortcutTip'));
+// The Keyboard shortcuts window and its list, fetched when first opened.
+const KeyboardShortcutsWindow = lazy(() => import('../components/KeyboardShortcutsWindow'));
 // The saving sign shows only once a change has waited half a second, so it is
 // fetched after the first paint; the queue and its leave-site guard stay in the bundle.
 const SavingMark = lazy(() => import('../components/SavingMark'));
@@ -33,7 +35,8 @@ import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
-import { MenuContent, menuItemClass, type MenuEntry } from '../components/Menu';
+import { MenuContent, menuItemClass, menuItemSplitClass, type MenuEntry } from '../components/Menu';
+import { KEY_CAP } from '../components/keyCap';
 import { creditLine } from '../credit';
 import { AddWorkspace } from '../components/AddWorkspace';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
@@ -41,6 +44,7 @@ import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
 import { Logo } from '../components/Logo';
 import { opensCapture } from '../captureShortcut';
+import { SHORTCUTS_KEY, opensTheShortcuts } from '../keyboardShortcuts';
 import { useShortcutTip } from '../shortcutTip';
 import { captureStateFor } from './CapturePage';
 import { CaptureOpenerContext, type PanelOpening } from '../captureOpener';
@@ -481,6 +485,25 @@ function TheShell() {
   const profileControl = useRef<HTMLButtonElement>(null);
   /** Open from outside too, since the Offline mark opens the same menu. */
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  /**
+   * The Keyboard shortcuts window, and what had the keyboard when it opened -
+   * which gets it back, the window having no trigger of its own to return it to
+   * (issue 1408). Only at a desk: a phone has no keys.
+   */
+  const [shortcutsFrom, setShortcutsFrom] = useState<{ control: HTMLElement | null } | null>(null);
+  useEffect(() => {
+    if (!roomForTheInbox) {
+      setShortcutsFrom(null);
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (!opensTheShortcuts(event)) return;
+      event.preventDefault();
+      setShortcutsFrom({ control: document.activeElement instanceof HTMLElement ? document.activeElement : null });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [roomForTheInbox]);
   const offline = useIsOffline();
   const openSettings = useCallback((on: SettingsKey, outcome?: ConnectOutcomeFor) => {
     setSettingsOn(on);
@@ -944,6 +967,16 @@ function TheShell() {
                 >
                   {offline ? 'Go online' : 'Work offline'}
                 </DropdownMenu.Item>
+                {/* The way to the list of keys for a mouse, at a desk only: a phone has none. */}
+                {roomForTheInbox && (
+                  <DropdownMenu.Item
+                    onSelect={() => setShortcutsFrom({ control: profileControl.current })}
+                    className={menuItemSplitClass}
+                  >
+                    <span>Keyboard shortcuts</span>
+                    <kbd className={KEY_CAP}>{SHORTCUTS_KEY}</kbd>
+                  </DropdownMenu.Item>
+                )}
                 <DropdownMenu.Item
                   onSelect={() => (unsent + untranscribed > 0 ? setAskingToSignOut(true) : leave.mutate())}
                   className={menuItemClass}
@@ -1192,6 +1225,16 @@ function TheShell() {
       {managing === 'platform' && roomForTheInbox && me?.user.role === ADMIN && (
         <Suspense fallback={null}>
           <PlatformSettingsWindow onClose={() => setManaging(null)} returnFocusTo={profileControl.current} />
+        </Suspense>
+      )}
+
+      {/* Every key Cockpit handles, over whatever is on screen, at a desk. */}
+      {shortcutsFrom && roomForTheInbox && (
+        <Suspense fallback={null}>
+          <KeyboardShortcutsWindow
+            onClose={() => setShortcutsFrom(null)}
+            returnFocusTo={shortcutsFrom.control}
+          />
         </Suspense>
       )}
 
