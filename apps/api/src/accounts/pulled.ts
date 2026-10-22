@@ -10,7 +10,14 @@ import type {
 import type { AccountDb } from './client.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
 import { SourceAccountNotFoundError, runCommand } from './command-service.js';
-import { getItem, getSourceAccount, listDashboards, listFilingsOnPanel, listPanels } from './repo.js';
+import {
+  getItem,
+  getSourceAccount,
+  listDashboards,
+  listFilingsOnPanel,
+  listPanels,
+  recentCapturedTimeZones,
+} from './repo.js';
 import { connectionFailures, connectorAccounts, items, pulledConnections, pulledLinks } from './schema.js';
 import { confirmOpenStates, openStatesWaiting } from './pulled-open-state.js';
 import { applySourceStateChange } from './source-state.js';
@@ -23,6 +30,7 @@ import {
   type NameOutcome,
   type NamedTarget,
 } from '../domain/filing-by-name.js';
+import { dueDateOnArrival } from '../domain/due-in-days.js';
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
 import { keptMessage, type CheckDid, type NamedOn } from '../domain/connection-history.js';
 import { recordCheck } from './connection-history.js';
@@ -357,7 +365,13 @@ export function filePulledItem(
       forms,
     });
     const panelIds = decided.panelIds;
-    runCommand(
+    // The date the connection gives the Item, counted from the day it arrives
+    // here and read as the connection stands now (issue 1409).
+    const given =
+      holds.dueInDays === null
+        ? null
+        : dueDateOnArrival(at, recentCapturedTimeZones(db, accountName), holds.dueInDays);
+    const captured = runCommand(
       db,
       accountName,
       'capture_item',
@@ -385,6 +399,18 @@ export function filePulledItem(
       // Filed by the source's names, so nothing is learned from it.
       { fromTheSource: true },
     );
+    // Written here, in the transaction that makes the Item, rather than through
+    // `capture_item`, whose due date is stamped as the person's own: a date a
+    // connection gives is not their choice, so a reading may replace it and a
+    // reopen may move it. The capture's entry in the command log is what tells
+    // open tabs to read the Item, date included. Only for an Item this call
+    // made: a replay leaves the Item as it is.
+    if (given !== null && captured.applied) {
+      db.update(items)
+        .set({ dueDate: given, dueDateSetAt: at })
+        .where(and(eq(items.tenantId, accountName), eq(items.id, ids.itemId)))
+        .run();
+    }
     db.insert(pulledLinks)
       .values({
         tenantId: accountName,
@@ -396,6 +422,7 @@ export function filePulledItem(
         linkedAt: at,
         choice: item.choice ?? null,
         names: names ? JSON.stringify(names) : null,
+        givenDueDate: given !== null && captured.applied ? given : null,
       })
       .onConflictDoNothing()
       .run();
@@ -706,6 +733,7 @@ function connectionOf(db: AccountDb, accountName: string, sourceAccountId: strin
       credentialNonce: connectorAccounts.credentialNonce,
       choice: connectorAccounts.choice,
       filesByName: connectorAccounts.filesByName,
+      dueInDays: connectorAccounts.dueInDays,
     })
     .from(connectorAccounts)
     .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, sourceAccountId)))

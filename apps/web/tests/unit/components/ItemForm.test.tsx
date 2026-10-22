@@ -1741,52 +1741,92 @@ describe('Item editing', () => {
     });
   });
 
-  describe('the attachments are one line until opened', () => {
-    const lineOfFiles = () => screen.queryByRole('button', { name: /^\d+ files?/ });
+  /**
+   * "Give an Item's attachments a tab of their own, and call What Cockpit
+   * changed Suggestions" (issue 1410): on the Item tab the files are one line
+   * under *On panels*, at a desk and on a phone alike. Whether the form's
+   * tabs fit one row and the description spans its width is the browser's
+   * (tests/e2e/item-editing.test.ts).
+   */
+  describe('on the Item tab an Item’s files are one line, and no line at all without files', () => {
+    const places = [
+      { where: 'a desk', width: null, open: () => theForm() },
+      { where: 'a phone', width: 390, open: () => theEditingPhonePage() },
+    ];
+    const inPlace = <T,>(width: number | null, run: () => Promise<T>) => (width === null ? run() : atWidth(width, run));
+    const theLine = () => screen.queryByRole('group', { name: 'Attachments' });
+    const theCount = () => screen.queryByRole('button', { name: /^\d+ attachments?$/ });
+    const files = (count: number) =>
+      Array.from({ length: count }, (_, at) => anAttachment({ id: `attachment-${at + 1}`, filename: `scan-${at + 1}.pdf`, contentType: 'application/pdf' }));
 
-    it('with no files there is no list line and no box, only the + Attach chip', async () => {
-      await atWidth(390, async () => {
-        await theEditingPhonePage();
+    it.each(places)('with no files there is no line and no box, only + Attach, on $where', async ({ width, open }) => {
+      await inPlace(width, async () => {
+        await open();
 
-        expect(lineOfFiles()).toBeNull();
         expect(await screen.findByRole('button', { name: '+ Attach' })).toBeVisible();
+        expect(theLine()).toBeNull();
+        expect(theCount()).toBeNull();
         expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
       });
     });
 
-    it('two files read “2 files”, collapsed, and pressing it lists both', async () => {
-      await atWidth(390, async () => {
-        held.attachments = [anAttachment(), anAttachment({ id: 'attachment-2', filename: 'scan.pdf' })];
-        const user = await theEditingPhonePage();
+    it.each(places)('an image and a PDF are a thumbnail and a file icon, each opening its file, then “2 attachments →”, on $where', async ({ width, open }) => {
+      await inPlace(width, async () => {
+        held.attachments = [anAttachment(), anAttachment({ id: 'attachment-2', filename: 'scan.pdf', contentType: 'application/pdf' })];
+        await open();
 
-        expect(lineOfFiles()).toHaveTextContent('2 files');
-        expect(screen.queryByText('receipt.png')).toBeNull();
-
-        await user.click(lineOfFiles()!);
-
-        expect(screen.getByText('receipt.png')).toBeVisible();
-        expect(screen.getByText('scan.pdf')).toBeVisible();
-        // Drawn under the chips, so Tab reaches + Attach before the list.
-        expect(
-          (await screen.findByRole('button', { name: '+ Attach' })).compareDocumentPosition(
-            screen.getByText('receipt.png'),
-          ) & Node.DOCUMENT_POSITION_FOLLOWING,
-        ).toBeTruthy();
+        const line = within(await screen.findByRole('group', { name: 'Attachments' }));
+        const thumbnail = line.getByRole('link', { name: 'receipt.png' });
+        const icon = line.getByRole('link', { name: 'scan.pdf' });
+        expect(thumbnail).toHaveAttribute('href', attachmentUrl('attachment-1'));
+        expect(within(thumbnail).getByRole('img')).toBeVisible();
+        expect(icon).toHaveAttribute('href', attachmentUrl('attachment-2'));
+        expect(within(icon).queryByRole('img')).toBeNull();
+        expect(theCount()).toHaveTextContent('2 attachments →');
       });
     });
 
-    it('a file added while collapsed raises the count', async () => {
-      await atWidth(390, async () => {
-        held.attachments = [anAttachment()];
-        const user = await theEditingPhonePage();
-        expect(lineOfFiles()).toHaveTextContent('1 file');
+    it.each(
+      places.flatMap((place) => [
+        { ...place, situation: 'one file', count: 1, icons: 1, says: '1 attachment →' },
+        { ...place, situation: 'six files', count: 6, icons: 4, says: '6 attachments →' },
+      ]),
+    )('$situation show $icons icons and read $says, on $where', async ({ width, open, count, icons, says }) => {
+      await inPlace(width, async () => {
+        held.attachments = files(count);
+        await open();
 
+        const line = within(await screen.findByRole('group', { name: 'Attachments' }));
+        expect(line.getAllByRole('link')).toHaveLength(icons);
+        expect(theCount()).toHaveTextContent(says);
+      });
+    });
+
+    it.each(places)('a file still uploading says Attaching… and counts it, on $where', async ({ width, open }) => {
+      await inPlace(width, async () => {
         const upload = heldUpload();
+        const user = await open();
 
         await user.upload(screen.getByLabelText('Files to attach'), aPhoto());
 
-        expect(lineOfFiles()).toHaveTextContent('2 files');
+        const line = within(await screen.findByRole('group', { name: 'Attachments' }));
+        expect(line.getByText('Attaching…')).toBeVisible();
+        expect(theCount()).toHaveTextContent('1 attachment →');
         await upload.land();
+        expect(line.queryByText('Attaching…')).toBeNull();
+      });
+    });
+
+    it.each(places)('pressing the count opens the Attachments tab, on $where', async ({ width, open }) => {
+      await inPlace(width, async () => {
+        held.attachments = files(2);
+        const user = await open();
+
+        await screen.findByRole('group', { name: 'Attachments' });
+        await user.click(theCount()!);
+
+        expect(screen.getByRole('tab', { name: /^Attachments/, selected: true })).toBeVisible();
+        expect(screen.getByRole('tabpanel', { name: /^Attachments/ })).toBeVisible();
       });
     });
   });
@@ -1857,7 +1897,9 @@ describe('Item editing', () => {
         expect(statusChip()).toBeVisible();
         expect(screen.getByRole('button', { name: 'Today' })).toBeVisible();
         expect(screen.getByRole('button', { name: 'High priority' })).toBeVisible();
-        expect(screen.queryByRole('button', { name: '+ Attach' })).toBeNull();
+        // + Attach is the line's own, a plain button beside the flags and not a chip.
+        expect(screen.getByRole('button', { name: '+ Attach' }).className).not.toContain('rounded-full');
+        expect(screen.queryByRole('button', { name: 'Due date' })).toBeNull();
       });
     });
   });
@@ -1997,7 +2039,7 @@ describe('Item editing', () => {
   });
 
   describe('on a phone, + Attach opens the file picker', () => {
-    it('a file chosen joins the attachments line', async () => {
+    it('a file chosen joins the files line', async () => {
       await atWidth(390, async () => {
         const user = await theEditingPhonePage();
         const upload = heldUpload();
@@ -2009,7 +2051,7 @@ describe('Item editing', () => {
         expect(opened).toHaveBeenCalledTimes(1);
         await user.upload(picker, aPhoto());
 
-        expect(screen.getByRole('button', { name: /^1 file/ })).toBeVisible();
+        expect(screen.getByRole('button', { name: '1 attachment' })).toBeVisible();
         await upload.land();
       });
     });
@@ -2315,33 +2357,82 @@ describe('Item editing', () => {
    * is what the form draws from the snapshot it is handed, and what
    * removing sends.
    */
-  describe('the files attached to an item', () => {
+  describe('the Attachments tab lists every file as its chip with ✕, then + Add, and carries the count', () => {
+    const theTab = () => screen.getByRole('tab', { name: /^Attachments/ });
+    /** The tab opened, and its panel to look inside: the Item tab's own line is drawn beside it here, since only the browser hides what is not showing. */
+    const openedTab = async (user: Awaited<ReturnType<typeof theForm>>) => {
+      await user.click(theTab());
+      return within(screen.getByRole('tabpanel', { name: /^Attachments/ }));
+    };
+
     it('shows only this item’s own, each opening its own address', async () => {
       held.attachments = [
         anAttachment(),
         anAttachment({ id: 'attachment-2', itemId: 'item-2', filename: 'other.pdf' }),
       ];
-      await theForm(anItem({ id: 'item-1' }), [anItem({ id: 'item-2' })]);
+      const user = await theForm(anItem({ id: 'item-1' }), [anItem({ id: 'item-2' })]);
 
-      expect(screen.getByText('receipt.png')).toBeVisible();
-      expect(screen.queryByText('other.pdf')).toBeNull();
-      expect(screen.getByRole('link', { name: /receipt\.png/ })).toHaveAttribute(
-        'href',
-        attachmentUrl('attachment-1'),
-      );
+      const list = await openedTab(user);
+
+      expect(list.getByText('receipt.png')).toBeVisible();
+      expect(list.getByText('2.0 KB')).toBeVisible();
+      expect(list.queryByText('other.pdf')).toBeNull();
+      expect(list.getByRole('link', { name: /receipt\.png/ })).toHaveAttribute('href', attachmentUrl('attachment-1'));
     });
 
-    it('says nothing is there where nothing is attached', async () => {
-      await theForm(anItem());
+    it('with no files has no chips, only + Add and “or drop, or paste”, and the tab reads Attachments with no count', async () => {
+      const user = await theForm(anItem());
 
-      expect(screen.getByText('Drag a file here, or')).toBeVisible();
+      const list = await openedTab(user);
+
+      expect(list.queryByRole('link')).toBeNull();
+      expect(list.getByRole('button', { name: '+ Add' })).toBeVisible();
+      expect(list.getByText('or drop, or paste')).toBeVisible();
+      expect(theTab()).toHaveAccessibleName('Attachments');
+    });
+
+    it.each([
+      { situation: 'two files', held: 2, name: 'Attachments 2' },
+      { situation: 'three files', held: 3, name: 'Attachments 3' },
+    ])('the tab reads “$name” with $situation', async ({ held: count, name }) => {
+      held.attachments = Array.from({ length: count }, (_, at) => anAttachment({ id: `attachment-${at + 1}`, filename: `scan-${at + 1}.pdf` }));
+      await theForm(anItem({ id: 'item-1' }));
+
+      expect(theTab()).toHaveAccessibleName(name);
+    });
+
+    it('lists three files, each with its name and size', async () => {
+      held.attachments = [1, 2, 3].map((at) => anAttachment({ id: `attachment-${at}`, filename: `scan-${at}.pdf`, size: at * 1024 }));
+      const user = await theForm(anItem({ id: 'item-1' }));
+
+      const list = await openedTab(user);
+
+      for (const at of [1, 2, 3]) {
+        expect(list.getByText(`scan-${at}.pdf`)).toBeVisible();
+        expect(list.getByText(`${at}.0 KB`)).toBeVisible();
+      }
+      expect(list.getAllByRole('button', { name: /^Remove / })).toHaveLength(3);
+    });
+
+    it('a file chosen with + Add reads Attaching…, then is its chip', async () => {
+      const upload = heldUpload();
+      const user = await theForm(anItem({ id: 'item-1' }));
+      const list = await openedTab(user);
+
+      await user.upload(screen.getByLabelText('Files to attach'), aPhoto());
+
+      expect(list.getByText('Attaching…')).toBeVisible();
+      await upload.land();
+      expect(list.queryByText('Attaching…')).toBeNull();
+      expect(list.getByRole('link', { name: /photo\.png/ })).toHaveAttribute('href', attachmentUrl(upload.attachmentId()));
     });
 
     it('the remove control sends a remove for this attachment, this item', async () => {
       held.attachments = [anAttachment()];
       const user = await theForm(anItem({ id: 'item-1' }));
+      const list = await openedTab(user);
 
-      await user.click(screen.getByRole('button', { name: 'Remove receipt.png' }));
+      await user.click(list.getByRole('button', { name: 'Remove receipt.png' }));
 
       expect(sent()).toContainEqual(
         expect.objectContaining({
@@ -2473,6 +2564,68 @@ describe('Item editing', () => {
       fireEvent.paste(target(), { clipboardData: { files: [aPhoto()], types: ['Files'], getData: () => '' } });
 
       await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(attached));
+    });
+  });
+
+  describe('a file attaches the same way from any tab, and a refusal names why where the person is looking', () => {
+    const carrying = (file: File) => ({ dataTransfer: { types: ['Files'], files: [file] } });
+    const aNote = () => new File(['just words'], 'notes.txt', { type: 'text/plain' });
+
+    it('+ Attach on the desk line opens the file picker', async () => {
+      const user = await theForm();
+      const opened = vi.fn();
+      screen.getByLabelText('Files to attach').addEventListener('click', opened);
+
+      await user.click(screen.getByRole('button', { name: '+ Attach' }));
+
+      expect(opened).toHaveBeenCalledTimes(1);
+    });
+
+    it('a file dropped on the form with the Attachments tab open is attached, as a chip in its list', async () => {
+      const upload = heldUpload();
+      const user = await theForm(anItem({ id: 'item-1' }));
+      await user.click(screen.getByRole('tab', { name: /^Attachments/ }));
+
+      fireEvent.drop(screen.getByRole('dialog'), carrying(aPhoto()));
+
+      const list = within(screen.getByRole('tabpanel', { name: /^Attachments/ }));
+      expect(await list.findByText('Attaching…')).toBeVisible();
+      await upload.land();
+      expect(list.getByRole('link', { name: /photo\.png/ })).toBeVisible();
+    });
+
+    it('a file dropped with the Item tab open is attached there, the tab stays on Item, and its line counts the file', async () => {
+      const upload = heldUpload();
+      await theForm(anItem({ id: 'item-1' }));
+
+      fireEvent.drop(screen.getByRole('dialog'), carrying(aPhoto()));
+
+      expect(await screen.findByRole('button', { name: '1 attachment' })).toBeVisible();
+      expect(screen.getByRole('tab', { name: 'Item', selected: true })).toBeVisible();
+      await upload.land();
+    });
+
+    it('a file pasted with the Attachments tab open is attached', async () => {
+      const user = await theForm(anItem({ id: 'item-1' }));
+      await user.click(screen.getByRole('tab', { name: /^Attachments/ }));
+
+      fireEvent.paste(screen.getByRole('tab', { name: /^Attachments/ }), {
+        clipboardData: { files: [aPhoto()], types: ['Files'], getData: () => '' },
+      });
+
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', file: aPhotoFile })));
+    });
+
+    it('a kind of file Cockpit does not accept is refused under the Item tab’s line and under the tab’s list', async () => {
+      const user = await theForm(anItem({ id: 'item-1' }));
+      const reason = '"notes.txt" is not a kind of file Cockpit accepts.';
+
+      fireEvent.drop(screen.getByRole('dialog'), carrying(aNote()));
+
+      expect(await within(screen.getByRole('tabpanel', { name: 'Item' })).findByRole('alert')).toHaveTextContent(reason);
+      await user.click(screen.getByRole('tab', { name: /^Attachments/ }));
+      expect(within(screen.getByRole('tabpanel', { name: /^Attachments/ })).getByRole('alert')).toHaveTextContent(reason);
+      expect(uploadAttachment).not.toHaveBeenCalled();
     });
   });
 
@@ -2619,11 +2772,12 @@ describe('Item editing', () => {
       expect(screen.getByLabelText('Title')).toHaveValue(`${anItem().title} extra`);
     });
 
-    it('moves between the tabs with the arrow keys', async () => {
+    it('moves between the four tabs, in order, with the arrow keys', async () => {
       const user = await theForm();
+      expect(screen.getAllByRole('tab').map((one) => one.textContent)).toEqual(['Item', 'Attachments', 'Details', 'Suggestions']);
 
       screen.getByRole('tab', { name: 'Item' }).focus();
-      await user.keyboard('{ArrowRight}');
+      await user.keyboard('{ArrowRight}{ArrowRight}');
 
       expect(screen.getByRole('tab', { name: 'Details', selected: true })).toHaveFocus();
     });
@@ -3494,12 +3648,12 @@ describe('Item editing', () => {
 
 /**
  * "Show what Cockpit changed on the item itself, and name it for what it is"
- * (issue 690): a third tab on an item's form, and a note under the tabs. What
+ * (issue 690): the fourth tab on an item's form, and a note under the tabs. What
  * decides the note from the history and what has been seen is
  * tests/unit/cockpitChanges.test.ts; what is asked here is what the form draws
  * and when it reads.
  */
-describe('What Cockpit changed', () => {
+describe('Suggestions', () => {
   let nextAttempt = 0;
 
   /** An attempt that changed nothing, unless told otherwise. */
@@ -3532,15 +3686,15 @@ describe('What Cockpit changed', () => {
   const bothChanged = (over: Partial<RewriteHistoryEntry> = {}) =>
     anAttempt({ titleAfter: 'Call Ann', descriptionAfter: 'Call Ann about the Q3 numbers.', ...over });
 
-  const changesTab = () => screen.getByRole('tab', { name: 'What Cockpit changed' });
+  const changesTab = () => screen.getByRole('tab', { name: 'Suggestions' });
   const note = () => screen.queryByText(/^Cockpit changed the /);
   /** The note arrives behind the form, so it is waited for. */
   const theNote = () => screen.findByText(/^Cockpit changed the /);
-  const seeWhatChanged = () => screen.getByRole('button', { name: 'See what changed' });
+  const seeWhatChanged = () => screen.getByRole('button', { name: 'See suggestions' });
   /** The History's read has settled once the note, or its absence, can be told from "not yet". */
   const theHistoryHasBeenRead = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-  describe('an item’s form always has a What Cockpit changed tab, listing exactly the times Cockpit changed something, newest first', () => {
+  describe('an item’s form always has a Suggestions tab, listing exactly the times Cockpit changed something, newest first', () => {
     it.each([
       { situation: 'Cockpit never touched the item', history: [] },
       { situation: 'Cockpit looked and left it as it was', history: [anAttempt({ status: 'left-as-is', message: 'nothing to act on' })] },
@@ -3555,6 +3709,18 @@ describe('What Cockpit changed', () => {
 
       expect(await screen.findByText('Cockpit has not changed anything on this item.')).toBeVisible();
       expect(screen.queryByRole('button', { name: /Changed|Failed|Working|Nothing/ })).toBeNull();
+    });
+
+    it('opens with a sentence saying what the tab holds', async () => {
+      const user = await theForm();
+
+      await user.click(changesTab());
+
+      expect(
+        await screen.findByText(
+          'What Cockpit set or changed on this Item from what your note said, field by field, with what each was before.',
+        ),
+      ).toBeVisible();
     });
 
     it('lists one change as a row saying what changed, why and when', async () => {
@@ -3616,7 +3782,7 @@ describe('What Cockpit changed', () => {
       held.history = history();
       await theForm();
 
-      expect(await theNote()).toHaveTextContent(`${says} · See what changed`);
+      expect(await theNote()).toHaveTextContent(`${says} · See suggestions`);
     });
 
     it.each([
@@ -3633,7 +3799,7 @@ describe('What Cockpit changed', () => {
       if (history().length > 0) expect(await screen.findByRole('button', { name: /suggested panel/ })).toBeVisible();
     });
 
-    it('opens the What Cockpit changed tab from See what changed', async () => {
+    it('opens the Suggestions tab from See suggestions', async () => {
       held.history = [titleChange()];
       const user = await theForm();
       await theNote();
@@ -3723,7 +3889,7 @@ describe('What Cockpit changed', () => {
     });
   });
 
-  describe('the form opens at once, and what Cockpit changed arrives behind it', () => {
+  describe('the form opens at once, and its suggestions arrive behind it', () => {
     it('draws the form and its tab with no note while the history is slow, then adds the note', async () => {
       held.history = [titleChange()];
       let arrive: () => void = () => {};
@@ -3775,7 +3941,7 @@ describe('What Cockpit changed', () => {
         await user.click(changesTab());
 
         expect(
-          await screen.findByText("What Cockpit changed was saved by an older version and can't be loaded offline."),
+          await screen.findByText("Suggestions were saved by an older version and can't be loaded offline."),
         ).toBeVisible();
         await user.click(screen.getByRole('tab', { name: 'Item' }));
         await user.type(titleBox(), ' now');
@@ -3793,7 +3959,7 @@ describe('What Cockpit changed', () => {
         stand({ found: true, connecting: false });
         await user.click(changesTab());
 
-        expect(await screen.findByText("What Cockpit changed can't be loaded offline.")).toBeVisible();
+        expect(await screen.findByText("Suggestions can't be loaded offline.")).toBeVisible();
       } finally {
         resetStanding();
       }

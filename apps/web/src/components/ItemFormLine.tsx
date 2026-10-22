@@ -21,7 +21,7 @@ const STATUSES: readonly [ItemStatus, string][] = [
  * form at a desk", issue 1102): a Status chip, then the flags and Due chips as
  * Capture's strip draws them. What a choice does is the form's - written at
  * once when docked, held until Save in the modal - so this only reports it. The
- * Repeats chip ends the line.
+ * Repeats chip comes before + Attach.
  */
 export function ItemFormLine({
   status,
@@ -32,6 +32,7 @@ export function ItemFormLine({
   onPriority,
   onDueDate,
   repeats,
+  onAttach,
 }: {
   status: ItemStatus;
   priority: Priority | null;
@@ -40,8 +41,10 @@ export function ItemFormLine({
   onStatus: (status: ItemStatus) => void;
   onPriority: (priority: Priority | null) => void;
   onDueDate: (dueDate: string | null) => void;
-  /** The Repeats chip that ends the line ("Set an Item to repeat from its form", issue 1406); absent where the Item cannot repeat. */
+  /** The Repeats chip, before + Attach on the line ("Set an Item to repeat from its form", issue 1406); absent where the Item cannot repeat. */
   repeats?: RepeatsChoice | undefined;
+  /** Opens the file picker: attaching is on the line whichever tab is open ("Give an Item's attachments a tab of their own", issue 1410). */
+  onAttach: () => void;
 }) {
   const [repeatsFailed, setRepeatsFailed] = useState(false);
   const statusName = STATUSES.find(([value]) => value === status)![1];
@@ -86,6 +89,9 @@ export function ItemFormLine({
             </Suspense>
           </WhateverTheQuestionDoes>
         ))}
+      <button type="button" disabled={disabled} onClick={onAttach} className={`${STRIP_BUTTON} ${QUIET_BUTTON} text-ink-soft`}>
+        + Attach
+      </button>
     </div>
   );
 }

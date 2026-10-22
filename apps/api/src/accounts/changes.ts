@@ -175,6 +175,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     CONNECTION_HISTORY_LISTED,
     PANEL_COLUMNS,
     DROP_WORKSPACE_COLOURS,
+    DUE_IN_DAYS,
     SERIES,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -1081,6 +1082,45 @@ const DROP_WORKSPACE_COLOURS: Change = {
 };
 
 /**
+ * A due date a connection gives each Item it brings in ("Give each email a
+ * Gmail or Outlook connection brings in a due date a set number of days out",
+ * issue 1409): the days on the connection, and the date it gave on each link;
+ * `schema.ts` says what each carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `ADD COLUMN`s, nullable, and no statement that writes
+ *   to a row. `pnpm backup:export` runs before the deploy that carries it.
+ * - **If it stops halfway:** one change is one transaction, so a failure on the
+ *   second column takes the first back with it. Were one column ever there
+ *   without the other, a connection with no days gives no date and a link with
+ *   no date is never "still the connection's", so nothing is written.
+ * - **The second time it runs:** it does not re-run once recorded, and SQLite
+ *   refuses a column that already exists rather than adding it twice.
+ * - **Rows that predate it:** every connection reads none and every link reads
+ *   as having given no date. Nothing is backfilled.
+ * - **What is in each environment:** real connections and links in staging and
+ *   production, all reading none until a person ticks the box.
+ * - **Rolled back after it has run:** an older release names neither column;
+ *   days left on a connection are honoured again when the newer release
+ *   serves, and a date already given stays on its Item as any date does.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const DUE_IN_DAYS: Change = {
+  name: '0091-due-in-days',
+  statements: [
+    {
+      sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `due_in_days` integer CONSTRAINT "connector_accounts_due_in_days_is_in_range" CHECK(due_in_days IS NULL OR due_in_days BETWEEN 1 AND 365)',
+    },
+    {
+      sql: 'ALTER TABLE `pulled_links` ADD COLUMN `given_due_date` text CONSTRAINT "pulled_links_given_due_date_is_date" CHECK(given_due_date IS NULL OR (date(given_due_date) IS NOT NULL AND date(given_due_date) = given_due_date))',
+    },
+  ],
+};
+
+/**
  * What a repeating Item repeats by ("Repeat an Item on a schedule, so it comes
  * back every Monday or every quarter", issue 1405): a new table, `series`, and
  * one nullable column on `items` naming the series an Item is an occurrence of;
@@ -1109,7 +1149,7 @@ const DROP_WORKSPACE_COLOURS: Change = {
  *   changes, so this one applies the next time the account is opened.
  */
 const SERIES: Change = {
-  name: '0091-series',
+  name: '0092-series',
   statements: [
     {
       sql: `CREATE TABLE IF NOT EXISTS \`series\` (

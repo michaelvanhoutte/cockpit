@@ -95,12 +95,16 @@ const ItemFormChips = lazy(() => import('./ItemFormChips'));
 const DESCRIPTION_LIMIT = 60_000;
 
 /** The form's tabs, left to right; the last is always there, whether or not Cockpit has changed anything. */
-const TABS = ['item', 'details', 'changes'] as const;
+const TABS = ['item', 'attachments', 'details', 'changes'] as const;
 const TAB_NAMES: Record<(typeof TABS)[number], string> = {
   item: 'Item',
+  attachments: 'Attachments',
   details: 'Details',
-  changes: 'What Cockpit changed',
+  changes: 'Suggestions',
 };
+
+/** How many of an Item's files the Item tab's line shows as icons; the Attachments tab has the rest. */
+const FILES_ON_THE_LINE = 4;
 
 const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want to keep and reopen it.';
 
@@ -344,8 +348,6 @@ function TheForm({
    * the same address, whatever the account chose.
    */
   const onAPage = screenWidth < ROOM_FOR_THE_INBOX_PX;
-  /** Whether the attachments' list is open, on a page where it is one line until asked for. */
-  const [filesOpen, setFilesOpen] = useState(false);
   /** The phone page's chips chunk never arrived: the rest of the form stays, and says so. */
   const [chipsFailed, setChipsFailed] = useState(false);
   /** The *On panels* field's chunk never arrived: the rest of the form stays, and says so. */
@@ -507,11 +509,9 @@ function TheForm({
    * predicts.
    */
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
-  // The list's line is gone with the last file, so a later file starts folded.
-  const anyFiles = attachments.length + pendingAttachments.length > 0;
-  useEffect(() => {
-    if (!anyFiles) setFilesOpen(false);
-  }, [anyFiles]);
+  /** How many files the Item has, counting those still uploading. */
+  const fileCount = attachments.length + pendingAttachments.length;
+  const anyFiles = fileCount > 0;
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   /** A file being dragged over the form anywhere a drop would attach it. */
   const [filesOver, setFilesOver] = useState(false);
@@ -1409,9 +1409,9 @@ function TheForm({
       }
     : undefined;
 
-  /** The attachments as chips, where they are drawn: above Add at a desk, below it on a page (Tab follows the DOM). */
+  /** The attachments as chips, on the Attachments tab, above its + Add. */
   const attachmentChips =
-    attachments.length + pendingAttachments.length > 0 && (!onAPage || filesOpen) ? (
+    anyFiles ? (
       <div className="flex w-full flex-col gap-1.5">
         {attachments.map((attachment) => (
           <div
@@ -1603,23 +1603,16 @@ function TheForm({
           // description already scroll inside their own box below, so
           // nothing is lost by it.
           //
-          // **`@container`, so the two-column split below can answer to this
-          // box's own width rather than the viewport's.** The dialog resizes
-          // and remembers a size independently of the window (above) - a
-          // `sm:` viewport breakpoint would keep two columns forced onto a
-          // dialog dragged down near its floor on an otherwise wide screen,
-          // squeezing the description to almost nothing.
-          //
-          // **Docked keeps the same `@container` two-column body**, per the
-          // issue this presentation shipped in: "everything else about the
-          // docked presentation matches today's form exactly" - only the
-          // positioning, the sizing and the modality below it are its own.
+          // **Docked keeps the same body**, per the issue this presentation
+          // shipped in: "everything else about the docked presentation
+          // matches today's form exactly" - only the positioning, the sizing
+          // and the modality below it are its own.
           className={`${
             onAPage
               ? 'fixed z-floating flex flex-col overflow-hidden bg-surface left-[var(--edge-left)] right-[var(--edge-right)] top-[var(--edge-top)] bottom-[var(--edge-bottom)]'
               : docked
-              ? '@container fixed z-floating right-0 top-0 flex h-full flex-col overflow-hidden rounded-l-lg border border-shade/10 bg-surface p-5 shadow-lg'
-              : '@container fixed z-floating left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-shade/10 bg-surface p-5 shadow-lg sm:resize'
+              ? 'fixed z-floating right-0 top-0 flex h-full flex-col overflow-hidden rounded-l-lg border border-shade/10 bg-surface p-5 shadow-lg'
+              : 'fixed z-floating left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-shade/10 bg-surface p-5 shadow-lg sm:resize'
           }${filesOver ? ' ring-2 ring-accent' : ''}`}
           style={
             onAPage
@@ -1738,12 +1731,11 @@ function TheForm({
             </p>
           ) : (
             draft && (
-              // `overflow-y-auto` is the fallback the two-column body below
-              // otherwise has none of: title and the banner both refuse to
-              // shrink (`shrink-0`), so a short dialog with a tall banner (or
-              // a stacked layout under `@lg` with a long attachments list)
-              // could squeeze the two-column region to nothing with no way
-              // to scroll it into view (found in review). `-mx-1 … px-1` is
+              // `overflow-y-auto` is the fallback the body below otherwise has
+              // none of: title and the banner both refuse to shrink
+              // (`shrink-0`), so a short dialog with a tall banner could
+              // squeeze the region to nothing with no way to scroll it into
+              // view (found in review). `-mx-1 … px-1` is
               // the same trick the region it replaces already needed:
               // `overflow-y-auto` computes `overflow-x` as non-`visible` too,
               // which would otherwise clip a flush `w-full` child's own
@@ -1810,16 +1802,18 @@ function TheForm({
                   </p>
                 )}
 
-                {/* Three tabs, the form, its technical record ("Give the
-                    item's form more room, and put clutter out of the way",
-                    issue 480) and what Cockpit changed on it (issue 690). The
+                {/* Four tabs, the form, its files ("Give an Item's
+                    attachments a tab of their own", issue 1410), its technical
+                    record ("Give the item's form more room, and put clutter
+                    out of the way", issue 480) and the suggestions Cockpit made
+                    on it (issue 690). The
                     form's panel stays mounted while another shows, only
                     hidden, so the editor and whatever is half typed are still
                     there when the person comes back. */}
                 <div
                   role="tablist"
                   aria-label="Item"
-                  className="mt-3 flex shrink-0 gap-4 border-b border-shade/10"
+                  className={`mt-3 flex shrink-0 border-b border-shade/10 ${onAPage ? 'gap-3' : 'gap-4'}`}
                   onKeyDown={(e) => {
                     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
                     e.preventDefault();
@@ -1846,6 +1840,12 @@ function TheForm({
                       }`}
                     >
                       {TAB_NAMES[which]}
+                      {which === 'attachments' && anyFiles && (
+                        <>
+                          {' '}
+                          <span className="ml-0.5 text-xs text-ink-faint">{fileCount}</span>
+                        </>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -1860,7 +1860,7 @@ function TheForm({
                 >
                   {/* Said once, where the surprise is, and only where Cockpit
                       changed the title or description: the rest is in the
-                      third tab ("Show what Cockpit changed on the item
+                      fourth tab ("Show what Cockpit changed on the item
                       itself", issue 690). */}
                   {cockpit.note && (
                     <p className="mt-2 shrink-0 text-xs text-ink-faint">
@@ -1870,7 +1870,7 @@ function TheForm({
                         onClick={() => setTab('changes')}
                         className="text-accent-deep underline"
                       >
-                        See what changed
+                        See suggestions
                       </button>
                     </p>
                   )}
@@ -1980,40 +1980,31 @@ function TheForm({
                     </div>
                   )}
 
-                  {/* Title/priority/due date/attachments beside the
-                    description rather than stacked above it, so the
-                    description gets whatever height the form has instead of
-                    whatever is left over (issue 480). Stacks back into one
-                    column below `@lg` of the dialog's own width (`@container`
-                    above) - answering to the box actually being dragged and
-                    remembered, not to the viewport, which can stay wide while
-                    the box itself is dragged down to its own floor. */}
+                  {/* The fields, the description and the files' line stacked
+                    in one column at every width, the description taking the
+                    form's full width: the files have a tab of their own
+                    (issue 1410), where they once had a column beside it. */}
                   <div className={`mt-4 flex flex-1 flex-col${onAPage ? '' : ' min-h-0'}`}>
-                    {/* **Three cells written in the order a person reads them -
-                      the short fields, the description, then the files - which
-                      is also the order Tab and a screen reader take, so what is
-                      drawn and what is announced never disagree.** Stacked they
-                      are one column, the description taking whatever height is
-                      left above a floor a couple of lines tall (a track of its
-                      own, since a `flex-1 1 0%` box has nothing to shrink *from*
-                      and a long Attachments list once left it at a genuine zero
-                      - found in review, issue 480). From `@lg` the fields and
-                      the files are the left column and the description spans
-                      both rows beside them; the files cell scrolls on its own, so
-                      a full Attachments list still reaches its "Add" button
-                      rather than being clipped by the dialog's `overflow-hidden`
-                      (`-mx-1 … px-1` keeps that scroll from clipping the
-                      buttons' `focus:ring-2`). */}
+                    {/* **Four cells written in the order a person reads them -
+                      the short fields, the description, the Panels, then the
+                      files' line - which is also the order Tab and a screen
+                      reader take, so what is drawn and what is announced never
+                      disagree.** The description takes whatever height is left
+                      above a floor a couple of lines tall (a track of its own,
+                      since a `flex-1 1 0%` box has nothing to shrink *from* and
+                      a long list once left it at a genuine zero - found in
+                      review, issue 480); the files' line is the fourth, an
+                      implicit row, and not drawn at all with no files. */}
                     <div
                       className={
                         readView
                           ? 'grid flex-1 grid-cols-1 grid-rows-[auto_auto_auto] content-start gap-4'
                           : onAPage
                           ? 'grid flex-1 grid-cols-1 grid-rows-[auto_minmax(16rem,1fr)_auto] gap-4'
-                          : 'grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)_auto]'
+                          : 'grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4'
                       }
                     >
-                      <div className={`flex flex-col gap-3${onAPage ? '' : ' @lg:col-span-2 @lg:col-start-1 @lg:row-start-1'}`}>
+                      <div className="flex flex-col gap-3">
                       {!onAPage && (
                         // One line at a desk, docked and modal: a choice is written at once docked, held until Save otherwise (issue 1102).
                         <ItemFormLine
@@ -2034,6 +2025,7 @@ function TheForm({
                             if (docked) void commitFields(['dueDate']);
                           }}
                           repeats={repeatsChoice}
+                          onAttach={() => attachmentInputRef.current?.click()}
                         />
                       )}
                       {readView && (
@@ -2083,7 +2075,7 @@ function TheForm({
                         to fit only what it holds (issue 480). */}
                       <div
                         ref={descriptionCell}
-                        className={`flex min-h-0 flex-col${onAPage ? '' : ' @lg:col-start-2 @lg:row-start-2'}`}
+                        className="flex min-h-0 flex-col"
                         // Left for something outside the description - the Source
                         // toggle and the editor trade the cursor between them
                         // without leaving it.
@@ -2120,7 +2112,7 @@ function TheForm({
                       </div>
 
                       {/* The Panels it is filed on, each with ✕, and the search that adds more - Capture's *File on* in the Item's own Workspace (issue 1106). Docked a change is written at once with Undo; otherwise it waits for Save. */}
-                      <div className={onAPage ? undefined : '@lg:col-start-2 @lg:row-start-3'}>
+                      <div>
                         {readView ? (
                           <p className="text-sm text-ink-soft">
                             {onPanels.shown.length === 0
@@ -2158,80 +2150,108 @@ function TheForm({
                         ("Attach a file to an item", issue 441) - added by button
                         or drag-and-drop, drawn as a chip, opened or downloaded by
                         a click on it. */}
-                      <div
-                        className={
-                          onAPage
-                            ? anyFiles || attachmentError
-                              ? undefined
-                              : 'hidden'
-                            : '@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1'
-                        }
-                      >
-                        <p className={`text-xs font-semibold uppercase tracking-wide text-ink-faint${onAPage ? ' sr-only' : ''}`}>
-                          Attachments
-                        </p>
-                        {/* Dropped on, a file is attached by the form's own
-                            drop, which takes one anywhere outside the
-                            description text ("Embed an image inline in an
-                            item's description", issue 442). */}
-                        <div
-                          className={`mt-1 flex gap-1.5 rounded-md border border-dashed px-3 py-2 ${
-                            onAPage ? 'flex-wrap items-center' : 'flex-col'
-                          } ${filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'}${onAPage && !anyFiles ? ' hidden' : ''}`}
-                        >
-                          {/* On a page the list is one line until it is asked for. */}
-                          {onAPage && attachments.length + pendingAttachments.length > 0 && (
-                            <button
-                              type="button"
-                              aria-expanded={filesOpen}
-                              onClick={() => setFilesOpen((was) => !was)}
-                              className="mr-auto text-sm font-medium text-ink"
-                            >
-                              {attachments.length + pendingAttachments.length === 1
-                                ? '1 file'
-                                : `${attachments.length + pendingAttachments.length} files`}{' '}
-                              <span aria-hidden="true">{filesOpen ? '▴' : '▾'}</span>
-                            </button>
+                      {(anyFiles || attachmentError || filesOver) && (
+                        <div role="group" aria-label="Attachments">
+                          {/* Dropped on, a file is attached by the form's own
+                              drop, which takes one anywhere outside the
+                              description text ("Embed an image inline in an
+                              item's description", issue 442). */}
+                          <div
+                            className={`flex flex-wrap items-center gap-1.5 rounded-md ${
+                              filesOver ? 'border border-dashed border-accent bg-accent-tint px-3 py-2' : ''
+                            }`}
+                          >
+                            {!anyFiles && filesOver && <p className="text-sm text-ink-faint">Drop to attach</p>}
+                            {attachments.slice(0, FILES_ON_THE_LINE).map((attachment) => (
+                              <a
+                                key={attachment.id}
+                                href={attachmentUrl(attachment.id)}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={attachment.filename}
+                                className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded border border-shade/10 bg-field hover:border-accent"
+                              >
+                                {attachment.contentType.startsWith('image/') ? (
+                                  <img src={attachmentUrl(attachment.id)} alt={attachment.filename} className="h-full w-full object-cover" />
+                                ) : (
+                                  <>
+                                    <span className="text-sm" aria-hidden="true">
+                                      📄
+                                    </span>
+                                    <span className="sr-only">{attachment.filename}</span>
+                                  </>
+                                )}
+                              </a>
+                            ))}
+                            {pendingAttachments.length > 0 && <span className="text-xs text-ink-faint">Attaching…</span>}
+                            {anyFiles && (
+                              <button
+                                type="button"
+                                onClick={() => setTab('attachments')}
+                                className="ml-1 text-sm text-accent-deep hover:underline"
+                              >
+                                {fileCount === 1 ? '1 attachment' : `${fileCount} attachments`} <span aria-hidden="true">→</span>
+                              </button>
+                            )}
+                          </div>
+                          {attachmentError && (
+                            <p role="alert" className="mt-1 text-sm text-over-ink">
+                              {attachmentError}
+                            </p>
                           )}
-                          {!onAPage && attachmentChips}
-                          {attachments.length === 0 && pendingAttachments.length === 0 && !onAPage && (
-                            <p className="text-sm text-ink-faint">Drag a file here, or</p>
-                          )}
-                          {/* On a page the + Attach chip is the way in. */}
-                          {!onAPage && (
-                            <button
-                              type="button"
-                              disabled={saving}
-                              onClick={() => attachmentInputRef.current?.click()}
-                              className="self-start rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
-                            >
-                              Add
-                            </button>
-                          )}
-                          {onAPage && attachmentChips}
-                          <input
-                            ref={attachmentInputRef}
-                            type="file"
-                            multiple
-                            aria-label="Files to attach"
-                            className="hidden"
-                            onChange={(e) => {
-                              if (e.target.files && e.target.files.length > 0) {
-                                void attachFiles(e.target.files);
-                              }
-                              e.target.value = '';
-                            }}
-                          />
                         </div>
-                        {attachmentError && (
-                          <p role="alert" className="mt-1 text-sm text-over-ink">
-                            {attachmentError}
-                          </p>
-                        )}
-                      </div>
+                      )}
                     </div>
+                    {/* The one file picker, here so + Attach on the line, the chips and the Attachments tab's + Add all open it whichever tab is showing. */}
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      multiple
+                      aria-label="Files to attach"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          void attachFiles(e.target.files);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
                   </div>
                 </div>
+
+                {tab === 'attachments' && (
+                  // Every file as its chip, then the ways to add one; a drop or a paste anywhere on the form does the same, whichever tab is open ("Give an Item's attachments a tab of their own", issue 1410).
+                  <div
+                    role="tabpanel"
+                    id={`${formId}-attachments`}
+                    aria-labelledby={`${formId}-attachments-tab`}
+                    className="mt-4 min-h-0 flex-1 overflow-y-auto"
+                  >
+                    <div
+                      className={`flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 ${
+                        filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'
+                      }`}
+                    >
+                      {attachmentChips}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => attachmentInputRef.current?.click()}
+                          className="rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                        >
+                          + Add
+                        </button>
+                        <span className="text-sm text-ink-faint">or drop, or paste</span>
+                      </div>
+                    </div>
+                    {attachmentError && (
+                      <p role="alert" className="mt-1 text-sm text-over-ink">
+                        {attachmentError}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {tab === 'details' && (
                   <div
@@ -2312,6 +2332,9 @@ function TheForm({
                     aria-labelledby={`${formId}-changes-tab`}
                     className="mt-4 min-h-0 flex-1 overflow-y-auto text-sm"
                   >
+                    <p className="mb-3 text-ink-faint">
+                      What Cockpit set or changed on this Item from what your note said, field by field, with what each was before.
+                    </p>
                     <Suspense fallback={null}>
                       <WhatCockpitChangedList
                         changes={cockpit.changes}

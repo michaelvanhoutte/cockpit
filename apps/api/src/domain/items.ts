@@ -19,6 +19,7 @@ import {
   type SetTitleCommand,
   type Source,
 } from '@cockpit/shared';
+import { dueDateIsTheConnections } from './due-in-days.js';
 
 /**
  * Pure command handlers (architecture §6.1: domain imports nothing from the
@@ -254,9 +255,19 @@ export function priorityIsOpen(item: Pick<Item, 'priority' | 'prioritySetAt'>): 
   return item.prioritySetAt === null && item.priority === null;
 }
 
-/** Whether a reading of the note may still set the due date: the person has not set or cleared it, and it holds none ("Read a due date you say when you capture, on your own calendar", issue 1077). */
-export function dueDateIsOpen(item: Pick<Item, 'dueDate' | 'dueDateChosenAt'>): boolean {
-  return item.dueDateChosenAt === null && item.dueDate === null;
+/**
+ * Whether a reading of the note may still set the due date: the person has not
+ * set or cleared it, and it holds none - or holds only the one its connection
+ * gave, `connectionGave` being the date the Item's link recorded ("Read a due
+ * date you say when you capture, on your own calendar", issue 1077; "Give each
+ * email a Gmail or Outlook connection brings in a due date a set number of days
+ * out", issue 1409).
+ */
+export function dueDateIsOpen(
+  item: Pick<Item, 'dueDate' | 'dueDateChosenAt'>,
+  connectionGave: string | null = null,
+): boolean {
+  return (item.dueDateChosenAt === null && item.dueDate === null) || dueDateIsTheConnections(item, connectionGave);
 }
 
 /**
@@ -270,8 +281,9 @@ export function dueDateIsOpen(item: Pick<Item, 'dueDate' | 'dueDateChosenAt'>): 
 export function aStatedFieldIsOpen(
   item: Pick<Item, 'priority' | 'prioritySetAt' | 'dueDate' | 'dueDateChosenAt' | 'workspaceDecided'>,
   dayKnown: boolean,
+  connectionGave: string | null = null,
 ): boolean {
-  return priorityIsOpen(item) || (dayKnown && dueDateIsOpen(item)) || !item.workspaceDecided;
+  return priorityIsOpen(item) || (dayKnown && dueDateIsOpen(item, connectionGave)) || !item.workspaceDecided;
 }
 
 /** What a reading of the note set on an Item, field by field; a field it left alone is absent. */
@@ -307,12 +319,13 @@ export function applyProposedFields(
   item: Item,
   cmd: ProposeItemFieldsCommand,
   workspaceIsLive: boolean,
+  connectionGave: string | null = null,
 ): { item: Item; set: FieldsSet } | null {
   const set: FieldsSet = {};
   if (cmd.priority !== undefined && priorityIsOpen(item)) {
     set.priority = cmd.priority;
   }
-  if (cmd.dueDate !== undefined && dueDateIsOpen(item)) {
+  if (cmd.dueDate !== undefined && dueDateIsOpen(item, connectionGave)) {
     set.dueDate = cmd.dueDate;
   }
   const settled =
@@ -346,14 +359,19 @@ export function applyProposedFields(
  * calendar", issue 1077) - the first answer wins, as `applySetPriority` says,
  * and unlike `dueDateSetAt` a clear keeps it, since a deliberate clear is an
  * answer too.
+ *
+ * **Unless a source gave it** (`asTheSource`): a date a connection gives an
+ * Item is not the person's choice, so it leaves the marker as it was ("Give
+ * each email a Gmail or Outlook connection brings in a due date a set number
+ * of days out", issue 1409).
  */
-export function applySetDueDate(item: Item, cmd: SetDueDateCommand): Item | null {
+export function applySetDueDate(item: Item, cmd: SetDueDateCommand, asTheSource = false): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
   return {
     ...item,
     dueDate: cmd.dueDate,
     dueDateSetAt: cmd.dueDate === null ? null : cmd.issuedAt,
-    dueDateChosenAt: item.dueDateChosenAt ?? cmd.issuedAt,
+    dueDateChosenAt: asTheSource ? item.dueDateChosenAt : (item.dueDateChosenAt ?? cmd.issuedAt),
     updatedAt: cmd.issuedAt,
   };
 }

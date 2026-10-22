@@ -26,6 +26,7 @@ describe('Item editing', () => {
           onStatus={() => {}}
           onPriority={() => {}}
           onDueDate={() => {}}
+          onAttach={() => {}}
           repeats={{ repeat: null, refusal: null, onRepeat: () => {}, onSettled: () => {} }}
         />,
       );

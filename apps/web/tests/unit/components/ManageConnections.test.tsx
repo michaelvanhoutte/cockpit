@@ -28,6 +28,7 @@ const held = vi.hoisted(() => ({
     asksFirst: boolean;
     refusals?: Record<string, string>;
     choice?: { question: string; options: { value: string; label: string }[] };
+    pulled?: boolean;
     textedCode?: { textTo: string };
   }[],
   /** What the Workspace's snapshot calls each source (issue 927). */
@@ -135,6 +136,7 @@ const ADA: SourceAccount = {
   lastTestedAt: null,
   failingBecause: null,
   filesByName: false,
+  dueInDays: null,
 };
 
 const MICHAEL: SourceAccount = {
@@ -145,6 +147,7 @@ const MICHAEL: SourceAccount = {
   lastTestedAt: null,
   failingBecause: null,
   filesByName: false,
+  dueInDays: null,
 };
 
 let sent: ReturnType<typeof vi.fn>;
@@ -709,6 +712,257 @@ describe('Connector management', () => {
     });
   });
 
+  /** "Give each email a Gmail or Outlook connection brings in a due date a set number of days out", issue 1409. */
+  describe('Connect and Change… ask whether to give each Item a due date, and in how many days', () => {
+    const MAIL_CARD = {
+      id: 'outlook',
+      displayName: 'Outlook',
+      cardText: 'Messages you flag arrive as items.',
+      asksFirst: true,
+      pulled: true,
+      choice: { question: 'Bring in messages', options: [{ value: 'flag', label: 'Flagged' }] },
+      names: { noun: 'category', example: 'a message with the category' },
+    };
+    const DUE_ONLY_CARD = { ...MAIL_CARD, id: 'due-only', displayName: 'Due only', choice: undefined, names: undefined };
+    const MAIL: SourceAccount = {
+      ...ADA,
+      id: 'account-mail',
+      connectorId: 'outlook',
+      displayName: 'Ada’s mail',
+      lastTestedAt: '2026-10-16T09:00:00.000Z',
+      follows: 'flag',
+      followsLabel: 'Flagged',
+      pulled: true,
+    };
+    const FAILING_MAIL: SourceAccount = { ...MAIL, failingBecause: 'Microsoft no longer accepts the sign-in.' };
+    const FILE_BOX = 'File it on the panel named after its category';
+    const DUE_BOX = 'Give it a due date';
+    const DAYS = 'Days after it arrives';
+
+    beforeEach(() => {
+      held.registry = [TEAMS_CARD, MAIL_CARD, DUE_ONLY_CARD];
+      held.sourceNames = { ...held.sourceNames, outlook: 'Outlook', 'due-only': 'Due only' };
+    });
+
+    function leavingTo(): ReturnType<typeof vi.fn> {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      return leaving;
+    }
+
+    async function change(displayName: string): Promise<HTMLElement> {
+      await userEvent.click(await screen.findByRole('button', { name: `Actions for ${displayName}` }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Change…' }));
+      return screen.findByRole('dialog', { name: `Change ${displayName}` });
+    }
+
+    it('Connect opens with the tick box unticked, under the one for filing by name, and the days not yet asked', async () => {
+      leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+
+      const due = within(asked).getByRole('checkbox', { name: DUE_BOX });
+      expect(due).not.toBeChecked();
+      const filing = within(asked).getByRole('checkbox', { name: FILE_BOX });
+      expect(filing.compareDocumentPosition(due) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(asked).queryByRole('spinbutton')).toBeNull();
+      expect(
+        within(asked).getByText('So you are reminded to follow up. A date the message names, or one you set, comes first.'),
+      ).toBeInTheDocument();
+    });
+
+    it('ticking it asks the days, which start at 3, with the words after the number', async () => {
+      leavingTo();
+      showWindow();
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+
+      await userEvent.click(within(asked).getByRole('checkbox', { name: DUE_BOX }));
+
+      const days = within(asked).getByRole('spinbutton', { name: DAYS });
+      expect(days).toHaveValue(3);
+      expect(days).toHaveAttribute('min', '1');
+      expect(days).toHaveAttribute('max', '365');
+      expect(within(asked).getByText('days after it arrives')).toBeInTheDocument();
+    });
+
+    it.each([
+      { situation: 'left unticked, Connect carries none', days: null, leaves: 'choice=flag&filesByName=false&dueInDays=none' },
+      { situation: 'ticked at 3, Connect carries 3', days: '3', leaves: 'choice=flag&filesByName=false&dueInDays=3' },
+      { situation: 'ticked at 365, Connect carries 365', days: '365', leaves: 'choice=flag&filesByName=false&dueInDays=365' },
+    ])('Connect, $situation', async ({ days, leaves }) => {
+      const leaving = leavingTo();
+      showWindow();
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      if (days !== null) {
+        await userEvent.click(within(asked).getByRole('checkbox', { name: DUE_BOX }));
+        await userEvent.clear(within(asked).getByRole('spinbutton', { name: DAYS }));
+        await userEvent.type(within(asked).getByRole('spinbutton', { name: DAYS }), days);
+      }
+
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith(`/v1/workspaces/ws-work/connections/outlook/connect?${leaves}`);
+    });
+
+    it('asks even where the connector has no choice and reports no names, and carries the answer alone', async () => {
+      const leaving = leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Due only' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Due only' });
+      await userEvent.click(within(asked).getByRole('checkbox', { name: DUE_BOX }));
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/due-only/connect?dueInDays=3');
+    });
+
+    it('asks nothing of a connector that is not pulled', async () => {
+      const leaving = leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Microsoft Teams' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/teams/connect');
+      expect(screen.queryByRole('checkbox', { name: DUE_BOX })).toBeNull();
+    });
+
+    it.each([
+      { situation: 'a row giving 3 days starts ticked at 3', held: 3, ticked: true, leaves: 'dueInDays=3' },
+      { situation: 'a row giving none starts unticked', held: null, ticked: false, leaves: 'dueInDays=none' },
+    ])('Reconnect on $situation', async ({ held: days, ticked, leaves }) => {
+      const leaving = leavingTo();
+      held.sourceAccounts = [{ ...FAILING_MAIL, dueInDays: days }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada’s mail' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Reconnect' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      expect((within(asked).getByRole('checkbox', { name: DUE_BOX }) as HTMLInputElement).checked).toBe(ticked);
+      if (days !== null) expect(within(asked).getByRole('spinbutton', { name: DAYS })).toHaveValue(days);
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith(`/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&filesByName=false&${leaves}`);
+    });
+
+    it.each([
+      { situation: 'no number', typed: null },
+      { situation: '0', typed: '0' },
+      { situation: '366', typed: '366' },
+      { situation: 'a part of a day', typed: '1.5' },
+    ])('Connect with $situation is refused beside the field, and goes nowhere', async ({ typed }) => {
+      const leaving = leavingTo();
+      showWindow();
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      await userEvent.click(within(asked).getByRole('checkbox', { name: DUE_BOX }));
+      await userEvent.clear(within(asked).getByRole('spinbutton', { name: DAYS }));
+      if (typed !== null) await userEvent.type(within(asked).getByRole('spinbutton', { name: DAYS }), typed);
+
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(within(asked).getByRole('alert')).toHaveTextContent('Use a whole number from 1 to 365.');
+      expect(leaving).not.toHaveBeenCalled();
+    });
+
+    it('offers the same box and days under Change…, ticked at the days the row holds', async () => {
+      held.sourceAccounts = [{ ...MAIL, dueInDays: 3 }];
+      showWindow();
+
+      const changing = await change('Ada’s mail');
+
+      expect(within(changing).getByRole('checkbox', { name: DUE_BOX })).toBeChecked();
+      expect(within(changing).getByRole('spinbutton', { name: DAYS })).toHaveValue(3);
+    });
+
+    it.each([
+      { situation: 'opened while giving 3 days, Save with nothing changed sends nothing', held: 3, tick: false, days: null, sends: undefined },
+      { situation: 'opened while giving none, Save with nothing changed sends nothing', held: null, tick: false, days: null, sends: undefined },
+      { situation: 'ticked and 7 typed, it sends 7 for this workspace and this row', held: null, tick: true, days: '7', sends: 7 },
+      { situation: 'ticked and left at the start, it sends 3', held: null, tick: true, days: null, sends: 3 },
+      { situation: 'unticked, it sends none', held: 3, tick: true, days: null, sends: null },
+      { situation: 'the days changed from 3 to 7, it sends 7', held: 3, tick: false, days: '7', sends: 7 },
+    ])('Change…, $situation', async ({ held: days, tick, days: typed, sends }) => {
+      held.sourceAccounts = [{ ...MAIL, dueInDays: days }];
+      showWindow();
+      const changing = await change('Ada’s mail');
+      if (tick) await userEvent.click(within(changing).getByRole('checkbox', { name: DUE_BOX }));
+      if (typed !== null) {
+        await userEvent.clear(within(changing).getByRole('spinbutton', { name: DAYS }));
+        await userEvent.type(within(changing).getByRole('spinbutton', { name: DAYS }), typed);
+      }
+
+      await userEvent.click(within(changing).getByRole('button', { name: 'Save' }));
+
+      if (sends === undefined) expect(sent).not.toHaveBeenCalled();
+      else {
+        expect(sent).toHaveBeenCalledTimes(1);
+        expect(sent.mock.calls[0]![0]).toMatchObject({
+          name: 'set_connection_due_in_days',
+          payload: { workspaceId: 'ws-work', sourceAccountId: 'account-mail', dueInDays: sends },
+        });
+      }
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change Ada’s mail' })).toBeNull());
+    });
+
+    it.each([
+      { situation: 'no number', typed: null },
+      { situation: '0', typed: '0' },
+      { situation: '366', typed: '366' },
+    ])('Save with $situation is refused beside the field, sends nothing and keeps the form open', async ({ typed }) => {
+      held.sourceAccounts = [{ ...MAIL, dueInDays: 3 }];
+      showWindow();
+      const changing = await change('Ada’s mail');
+      await userEvent.clear(within(changing).getByRole('spinbutton', { name: DAYS }));
+      if (typed !== null) await userEvent.type(within(changing).getByRole('spinbutton', { name: DAYS }), typed);
+
+      await userEvent.click(within(changing).getByRole('button', { name: 'Save' }));
+
+      expect(within(changing).getByRole('alert')).toHaveTextContent('Use a whole number from 1 to 365.');
+      expect(sent).not.toHaveBeenCalled();
+      expect(screen.getByRole('dialog', { name: 'Change Ada’s mail' })).toBeInTheDocument();
+    });
+
+    it('takes the refusal back once the number is changed', async () => {
+      held.sourceAccounts = [{ ...MAIL, dueInDays: 3 }];
+      showWindow();
+      const changing = await change('Ada’s mail');
+      await userEvent.clear(within(changing).getByRole('spinbutton', { name: DAYS }));
+      await userEvent.click(within(changing).getByRole('button', { name: 'Save' }));
+      expect(within(changing).getByRole('alert')).toBeInTheDocument();
+
+      await userEvent.type(within(changing).getByRole('spinbutton', { name: DAYS }), '5');
+
+      expect(within(changing).queryByRole('alert')).toBeNull();
+    });
+
+    it('offers no due date to a connection that is not pulled', async () => {
+      held.registry = [TEAMS_CARD, { ...MAIL_CARD, id: 'notion', displayName: 'Notion', pulled: false }];
+      held.sourceAccounts = [{ ...ADA, connectorId: 'notion', displayName: 'Ada’s pages', follows: 'flag' }];
+      showWindow();
+
+      const changing = await change('Ada’s pages');
+
+      expect(within(changing).queryByRole('checkbox', { name: DUE_BOX })).toBeNull();
+    });
+
+    it.each([
+      { situation: 'a card giving 3 days says so beside the mark', days: 3, chip: 'Due 3 days after' },
+      { situation: 'a card giving 1 day says it in the singular', days: 1, chip: 'Due 1 day after' },
+      { situation: 'a card giving none says nothing of it', days: null, chip: null },
+    ])('$situation', async ({ days, chip }) => {
+      held.sourceAccounts = [{ ...MAIL, dueInDays: days }];
+
+      showWindow();
+
+      expect(await screen.findByText('Flagged')).toBeInTheDocument();
+      expect(screen.queryByText(/^Due \d+ days? after$/)?.textContent ?? null).toBe(chip);
+    });
+  });
+
   /** "Switch Gmail onto the generic host, and take it out of the core", issue 944. */
   describe('a failing connection says why, and its row offers Reconnect, which signs in again under the choice it holds', () => {
     const GMAIL_CARD = {
@@ -897,6 +1151,7 @@ describe('Connector management', () => {
     lastTestedAt: '2026-10-20T09:00:00.000Z',
     failingBecause: null,
     filesByName: false,
+    dueInDays: null,
   };
 
   beforeEach(() => {
@@ -1053,6 +1308,7 @@ describe('Connector management', () => {
     connectedAt: '2026-10-01T09:00:00.000Z',
     lastTestedAt: '2026-10-16T12:20:00.000Z',
     filesByName: false,
+    dueInDays: null,
     failingBecause: null,
     keepsHistory: true,
     pulled: true,
@@ -1500,6 +1756,7 @@ describe('Connector management', () => {
     connectedAt: '2026-10-01T09:00:00.000Z',
     lastTestedAt: minutesAgo(2),
     filesByName: false,
+    dueInDays: null,
     failingBecause: null,
     follows: 'star',
     followsLabel: 'Starred (flagged in Outlook)',
