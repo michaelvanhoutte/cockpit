@@ -568,6 +568,8 @@ export function PanelBoard({
             panelId: cell.getAttribute('data-panel-cell') ?? '',
             left: at.left,
             right: at.right,
+            top: at.top,
+            bottom: at.bottom,
           };
         }),
       };
@@ -1403,7 +1405,11 @@ export function PanelBoard({
                               ? 'auto'
                               : row.height
                                 ? `${row.height}px`
-                                : `minmax(${MIN_ROW_HEIGHT}px, auto)`,
+                                : // `1fr` in a row of no set height is the
+                                  // tallest line's contents, so every line is
+                                  // one height, as a row's Panels are, and
+                                  // sizing it starts from what each line is.
+                                  `minmax(${MIN_ROW_HEIGHT}px, 1fr)`,
                           position: 'relative',
                         }
                       : {
