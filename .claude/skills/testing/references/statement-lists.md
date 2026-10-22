@@ -88,7 +88,11 @@ Michael says what matters; this covers how things break. Cross the two. Each ite
 - two people, or two tabs, doing something at once
 - the same command sent twice
 - one workspace seeing another's data
-- empty and very large collections
+- empty and very large collections, for every collection the change reads, writes or draws, since one-of-everything tests miss volume:
+  - more than one page from a source
+  - more than one run's cap, where a job that stops says how many still wait
+  - more than fits on screen
+  - two of a kind from one owner
 - something failing halfway through
 - invalid input
 
