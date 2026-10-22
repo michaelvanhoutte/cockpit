@@ -24,6 +24,7 @@ export function ItemFormLine({
   onStatus,
   onPriority,
   onDueDate,
+  onAttach,
 }: {
   status: ItemStatus;
   priority: Priority | null;
@@ -32,6 +33,8 @@ export function ItemFormLine({
   onStatus: (status: ItemStatus) => void;
   onPriority: (priority: Priority | null) => void;
   onDueDate: (dueDate: string | null) => void;
+  /** Opens the file picker: attaching is on the line whichever tab is open ("Give an Item's attachments a tab of their own", issue 1410). */
+  onAttach: () => void;
 }) {
   const statusName = STATUSES.find(([value]) => value === status)![1];
   return (
@@ -62,6 +65,9 @@ export function ItemFormLine({
       </DropdownMenu.Root>
       <PriorityFlags priority={priority} onPriority={onPriority} disabled={disabled} />
       <DueChips due={dueDate} onDue={onDueDate} disabled={disabled} />
+      <button type="button" disabled={disabled} onClick={onAttach} className={`${STRIP_BUTTON} ${QUIET_BUTTON} text-ink-soft`}>
+        + Attach
+      </button>
     </div>
   );
 }

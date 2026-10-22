@@ -63,7 +63,7 @@ vi.mock('../../../src/api/queries', () => ({
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
   }),
-  // Read by the Inbox heading's own "What Cockpit changed…" entry: one
+  // Read by the Inbox heading's own "Suggestions…" entry: one
   // refinement, saying which query it came from.
   rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
     queryKey: ['rewriteHistory', 'workspace', workspaceId],
@@ -224,16 +224,16 @@ describe('Capture', () => {
   });
 });
 
-describe('What Cockpit changed', () => {
+describe('Suggestions', () => {
   describe('is named for what it is wherever a person meets it, and an item row has no entry for it', () => {
     it("opens the Inbox's own changes from the Inbox menu, in a window of the same name", async () => {
       const user = userEvent.setup();
       await showWorkspace([anItem('Buy milk')]);
 
       await user.click(screen.getByRole('button', { name: 'Actions for the Inbox' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'What Cockpit changed…' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Suggestions…' }));
 
-      const dialog = await screen.findByRole('dialog', { name: 'What Cockpit changed' });
+      const dialog = await screen.findByRole('dialog', { name: 'Suggestions' });
       expect(await within(dialog).findByText('Read across ws-work')).toBeVisible();
       expect(within(dialog).getByRole('columnheader', { name: 'Item' })).toBeVisible();
     });

@@ -165,8 +165,8 @@ export function WhatCockpitChangedOnAnItem({
       <div role="status">
         <p className="text-ink-soft">
           {savedByAnOlderVersion
-            ? "What Cockpit changed was saved by an older version and can't be loaded offline."
-            : "What Cockpit changed can't be loaded offline."}
+            ? "Suggestions were saved by an older version and can't be loaded offline."
+            : "Suggestions can't be loaded offline."}
         </p>
         <button type="button" onClick={onRetry} className="mt-2 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
           Try again
