@@ -27,7 +27,11 @@ function detail(c: CategoryLine): string {
 }
 
 function categories(page: PullRequestPage): string {
-  const shown = page.query.category === null ? page.categories : page.categories.filter((c) => c.category === page.query.category);
+  // Unphased is listed only when it holds cost; a category filter lists the one it names.
+  const shown =
+    page.query.category === null
+      ? page.categories.filter((c) => c.category !== 'unphased' || c.costMicros > 0)
+      : page.categories.filter((c) => c.category === page.query.category);
   const max = Math.max(...shown.map((c) => c.costMicros), 1);
   const rows = shown
     .map(

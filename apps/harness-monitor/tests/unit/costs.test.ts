@@ -280,7 +280,7 @@ describe('Harness Monitor', () => {
       expect(t.costPerThousandLines[0]!.values).toEqual([null, null, null, null, 100, null, null]);
     });
 
-    it('Unphased is drawn only before 21 Sep 2026 and every other phase only from then on', () => {
+    it('every phase but Unphased is drawn only from 21 Sep 2026, and Unphased after it only where it holds cost', () => {
       const t = trends(
         [],
         [pr('2026-09-17', 1_000, { unphased: 1, building: 2 }), pr('2026-09-22', 1_000, { unphased: 3, building: 4 })],
@@ -290,10 +290,26 @@ describe('Harness Monitor', () => {
 
       const line = (key: string) => Object.fromEntries(t.buckets.map((b, i) => [b, t.costPerThousandLines.find((l) => l.key === key)!.values[i]])) as Record<string, number | null>;
       expect(line('unphased')['2026-09-17']).toBe(1);
-      expect(line('unphased')['2026-09-22']).toBeNull();
+      expect(line('unphased')['2026-09-22']).toBe(3);
       expect(line('building')['2026-09-17']).toBeNull();
       expect(line('building')['2026-09-22']).toBe(4);
       expect(line('total')['2026-09-22']).toBe(7);
+    });
+
+    it('Unphased is not drawn for a bucket after 21 Sep 2026 that holds none, and the new phases are drawn from then on', () => {
+      const t = trends(
+        [],
+        [pr('2026-09-17', 1_000, { unphased: 1 }), pr('2026-09-22', 1_000, { 'outside-process': 2, 'process-review': 3 })],
+        '30d',
+        Date.parse('2026-09-25T12:00:00Z'),
+      );
+
+      const line = (key: string) => Object.fromEntries(t.buckets.map((b, i) => [b, t.costPerThousandLines.find((l) => l.key === key)!.values[i]])) as Record<string, number | null>;
+      expect(line('unphased')['2026-09-17']).toBe(1);
+      expect(line('unphased')['2026-09-22']).toBeNull();
+      expect(line('outside-process')['2026-09-17']).toBeNull();
+      expect(line('outside-process')['2026-09-22']).toBe(2);
+      expect(line('process-review')['2026-09-22']).toBe(3);
     });
   });
 
@@ -456,6 +472,47 @@ describe('Harness Monitor', () => {
         'Building',
         'CI reviews',
       ]);
+    });
+
+    it('by category Outside the process comes after Unphased and Process review comes last, after CI reviews', () => {
+      const phase = (category: string, costMicros: number) => row({ category, costMicros });
+
+      expect(labels([phase('process-review', 1), phase('ci-reviews', 9), phase('scoping-planning', 1), phase('outside-process', 2), phase('unphased', 3)], 'category')).toEqual([
+        'Unphased',
+        'Outside the process',
+        'Scoping & planning',
+        'CI reviews',
+        'Process review',
+      ]);
+    });
+
+    describe('Unphased is a column and a legend entry only for a period that holds Unphased cost', () => {
+      const phases = (totals: Record<string, number>) => seriesOf('phase', totals).map((s) => s.label);
+
+      it.each([
+        {
+          situation: 'a period holding only the new phases has no Unphased',
+          totals: { 'outside-process': 4, 'process-review': 1 },
+          expected: ['Outside the process', 'Scoping & planning', 'Building', 'Local code review', 'Local security review', 'After push', 'CI reviews', 'Process review'],
+        },
+        {
+          situation: 'a period holding Unphased cost shows it first',
+          totals: { unphased: 2, 'outside-process': 4 },
+          expected: ['Unphased', 'Outside the process', 'Scoping & planning', 'Building', 'Local code review', 'Local security review', 'After push', 'CI reviews', 'Process review'],
+        },
+        {
+          situation: 'a period whose Unphased is Building before 21 Sep 2026 shows it first',
+          totals: { unphased: 5, building: 2 },
+          expected: ['Unphased', 'Outside the process', 'Scoping & planning', 'Building', 'Local code review', 'Local security review', 'After push', 'CI reviews', 'Process review'],
+        },
+        {
+          situation: 'a period holding nothing has no Unphased',
+          totals: {},
+          expected: ['Outside the process', 'Scoping & planning', 'Building', 'Local code review', 'Local security review', 'After push', 'CI reviews', 'Process review'],
+        },
+      ])('$situation', ({ totals, expected }) => {
+        expect(phases(totals)).toEqual(expected);
+      });
     });
 
     describe('sorted by total, each grouping orders dearest first, ties by name', () => {
