@@ -757,8 +757,6 @@ export function getSeries(db: AccountDb, tenantId: string, seriesId: string): Ma
     db
       .select({
         ...seriesRowColumns(),
-        workspaceId: series.workspaceId,
-        title: series.title,
         description: series.description,
         priority: series.priority,
       })
@@ -801,7 +799,7 @@ export function listRecurringItems(db: AccountDb, tenantId: string, workspaceId:
     isNotNull(series.title),
   );
   const rows = db
-    .select({ ...seriesColumns, workspaceId: series.workspaceId, title: series.title, description: series.description, priority: series.priority })
+    .select({ ...seriesColumns, description: series.description, priority: series.priority })
     .from(series)
     .where(running)
     .orderBy(series.nextOn, series.title, series.id)
@@ -875,17 +873,6 @@ export function latestOccurrence(db: AccountDb, tenantId: string, seriesId: stri
   );
 }
 
-/** The Panels an Item is filed on, live or not - the caller asks which still are. */
-export function panelIdsOf(db: AccountDb, tenantId: string, itemId: string): string[] {
-  return db
-    .select({ panelId: panelItems.panelId })
-    .from(panelItems)
-    .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, itemId)))
-    .orderBy(asc(panelItems.createdAt), asc(panelItems.panelId))
-    .all()
-    .map((row) => row.panelId);
-}
-
 const seriesColumns = {
   id: series.id,
   tenantId: series.tenantId,
@@ -894,6 +881,9 @@ const seriesColumns = {
   dueAfterDays: series.dueAfterDays,
   timeZone: series.timeZone,
   stoppedAt: series.stoppedAt,
+  // What a copy's line and mark say of its recurring item (issue 1450); null on a series never made into one.
+  title: series.title,
+  workspaceId: series.workspaceId,
 };
 
 /**

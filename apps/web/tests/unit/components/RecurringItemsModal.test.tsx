@@ -114,10 +114,10 @@ const VAT = aRecurringItem({ id: '018f0000-0000-7000-8000-000000000003', title: 
 let client: QueryClient;
 const closed = vi.fn();
 
-function open(returnFocusTo?: HTMLElement) {
+function open(returnFocusTo?: HTMLElement, openOn?: string) {
   return render(
     <QueryClientProvider client={client}>
-      <RecurringModal workspaceId={WORK} onClose={closed} returnFocusTo={returnFocusTo} />
+      <RecurringModal workspaceId={WORK} onClose={closed} returnFocusTo={returnFocusTo} openOn={openOn} />
     </QueryClientProvider>,
   );
 }
@@ -483,6 +483,41 @@ describe('Workspace management', () => {
       await show([REVIEW, INVOICES]);
 
       expect(titles()).toEqual(['Weekly review', 'Monthly invoices']);
+    });
+  });
+});
+
+describe('Workspace management', () => {
+  describe('a copy’s link opens the Recurring items modal on its recurring item’s form', () => {
+    it('reads the recurring items first, then shows that one’s form and never the list before it', async () => {
+      held.items = [REVIEW, INVOICES];
+      open(undefined, INVOICES.id);
+
+      expect(await screen.findByLabelText('Title')).toHaveValue('Monthly invoices');
+      expect(held.reads).toBe(1);
+      expect(screen.getAllByRole('dialog')).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Delete recurring item' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '+ New recurring item' })).not.toBeInTheDocument();
+    });
+
+    it('goes back to the whole list from the form it opened on', async () => {
+      held.items = [REVIEW, INVOICES];
+      open(undefined, INVOICES.id);
+      const user = userEvent.setup();
+      await screen.findByLabelText('Title');
+
+      await user.click(screen.getByRole('button', { name: 'Recurring items' }));
+
+      expect(titles()).toEqual(['Weekly review', 'Monthly invoices']);
+    });
+
+    it('lands on the list saying it is gone where that recurring item was deleted since', async () => {
+      held.items = [REVIEW];
+      open(undefined, INVOICES.id);
+
+      expect(await screen.findByRole('button', { name: '+ New recurring item' })).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('That recurring item is no longer there.');
+      expect(titles()).toEqual(['Weekly review']);
     });
   });
 });

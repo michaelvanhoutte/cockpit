@@ -338,6 +338,57 @@ describe('Workspace management', () => {
     });
   });
 
+  describe('a copy is read with the recurring item it came from, for its line and its mark', () => {
+    const snapshotSeries = async (workspaceId = WORKSPACE_ID) =>
+      ((await (await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`)).json()) as {
+        series: { id: string; title: string | null; workspaceId: string | null; frequency: string; nextOn: string; stoppedAt: string | null }[];
+      }).series;
+
+    it('carries its title, Workspace and rule, and still carries them once it is deleted', async () => {
+      const seriesId = await aMade({ repeat: { ...WEEKLY, nextOn: '2090-01-09', dueAfterDays: null } });
+      await alarmRunsAt('2090-01-09T08:00:00.000Z');
+
+      expect(await snapshotSeries()).toEqual([
+        expect.objectContaining({ id: seriesId, title: 'Weekly review', workspaceId: WORKSPACE_ID, frequency: 'weekly', stoppedAt: null }),
+      ]);
+
+      await remove(seriesId, '2090-01-10T09:00:00.000Z');
+
+      expect(await snapshotSeries()).toEqual([
+        expect.objectContaining({ id: seriesId, title: 'Weekly review', workspaceId: WORKSPACE_ID, stoppedAt: '2090-01-10T09:00:00.000Z' }),
+      ]);
+    });
+
+    it('carries the title it was last written with', async () => {
+      const seriesId = await aMade({ repeat: { ...WEEKLY, nextOn: '2090-01-09', dueAfterDays: null } });
+      await alarmRunsAt('2090-01-09T08:00:00.000Z');
+
+      await write(seriesId, { title: 'Friday review', repeat: { ...WEEKLY, nextOn: '2090-01-16', dueAfterDays: null } }, '2090-01-10T09:00:00.000Z');
+
+      expect(await snapshotSeries()).toEqual([expect.objectContaining({ id: seriesId, title: 'Friday review', nextOn: '2090-01-16' })]);
+    });
+  });
+
+  describe('the old Repeats chip\'s change is refused, and writes nothing', () => {
+    it.each([
+      { situation: 'a rule set', repeat: WEEKLY },
+      { situation: 'Never', repeat: null },
+    ])('refuses $situation from a tab still on the previous app, whatever it names', async ({ repeat }) => {
+      const itemId = nextId();
+      await post('capture_item', { commandId: nextId(), issuedAt: '2082-10-20T10:00:00.000Z', workspaceId: WORKSPACE_ID, itemId, message: 'Weekly review' });
+      const made = await aMade();
+
+      const response = await post('set_repeat', { commandId: nextId(), issuedAt: ISSUED, workspaceId: WORKSPACE_ID, itemId, seriesId: nextId(), repeat });
+
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { error: string }).error).toBe('Make recurring items from the Workspace menu');
+      expect(await seriesRows()).toHaveLength(1);
+      expect(await recurringItemsOf()).toEqual([expect.objectContaining({ id: made, title: 'Weekly review' })]);
+      const snapshot = (await (await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`)).json()) as { items: Item[] };
+      expect(snapshot.items.find((item) => item.id === itemId)?.seriesId).toBeNull();
+    });
+  });
+
   describe('a change to a recurring item is told to the Workspaces that draw its copy', () => {
     /**
      * The Workspaces the change answered at `at` is announced to, as a tab polling hears them. **A change

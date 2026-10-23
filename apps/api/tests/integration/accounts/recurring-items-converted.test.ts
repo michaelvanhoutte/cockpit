@@ -17,7 +17,7 @@ import {
 
 /**
  * Integration level, through the account's real store: every series the
- * Repeats chip set becomes a recurring item that owns its content, once, when
+ * retired Repeats chip set becomes a recurring item that owns its content, once, when
  * the store is first opened after the release ("Make each copy of a recurring
  * item from its own series", issue 1448). Only the store can say what one
  * change does to the rows already in it, and when it runs.
@@ -81,16 +81,29 @@ async function workspace(): Promise<Read> {
   return (await res.json()) as Read;
 }
 
-/** The series the chip set on `first`, with `later` Items of it made after - each the latest in turn - and its id. */
+/**
+ * A series `first` is the first Item of, with `later` Items of it made after - each the latest in turn -
+ * and its id. Made as a recurring item and linked to its Items, which is all a series the retired Repeats
+ * chip set was; `asBeforeTheChangeOver` then takes the content off it again.
+ */
 async function aSeries(first: string, ...later: string[]): Promise<string> {
-  await change('set_repeat', { itemId: first, seriesId: nextId(), repeat: WEEKLY });
-  const { series_id } = await inTheStore((sql) =>
-    sql.exec<{ series_id: string }>('SELECT series_id FROM items WHERE id = ?', first).one(),
+  const seriesId = nextId();
+  const { workspace_id } = await inTheStore((sql) =>
+    sql.exec<{ workspace_id: string }>('SELECT workspace_id FROM items WHERE id = ?', first).one(),
   );
-  for (const itemId of later) {
-    await inTheStore((sql) => sql.exec('UPDATE items SET series_id = ? WHERE id = ?', series_id, itemId));
+  await change('create_recurring_item', {
+    seriesId,
+    workspaceId: workspace_id,
+    title: 'Made before the change over',
+    description: '',
+    priority: null,
+    panelIds: [],
+    repeat: WEEKLY,
+  });
+  for (const itemId of [first, ...later]) {
+    await inTheStore((sql) => sql.exec('UPDATE items SET series_id = ? WHERE id = ?', seriesId, itemId));
   }
-  return series_id;
+  return seriesId;
 }
 
 /**
@@ -224,8 +237,8 @@ describe('Item editing', () => {
 
     it('leaves a stopped series stopped and holding nothing', async () => {
       const itemId = await anItem('Weekly review');
-      await aSeries(itemId);
-      await change('set_repeat', { itemId, seriesId: nextId(), repeat: null }, STOPPED_BY_WHOEVER);
+      const seriesId = await aSeries(itemId);
+      await change('delete_recurring_item', { seriesId }, STOPPED_BY_WHOEVER);
       await asBeforeTheChangeOver();
 
       expect(await mastersOnceOpened()).toMatchObject([{ title: null, workspace_id: null, stopped_at: STOPPED_BY_WHOEVER, panels: [] }]);
@@ -244,7 +257,7 @@ describe('Item editing', () => {
         arrange: async () => {
           await alsoWorkspaces();
           const itemId = await anItem('Weekly review', '2090-01-01T09:00:00.000Z', 'ws-atlas');
-          await change('set_repeat', { itemId, seriesId: nextId(), repeat: WEEKLY, workspaceId: 'ws-atlas' });
+          await aSeries(itemId);
           await change('delete_workspace', { workspaceId: 'ws-atlas' }, '2090-01-03T09:00:00.000Z');
         },
       },

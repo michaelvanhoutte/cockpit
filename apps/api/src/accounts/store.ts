@@ -1728,14 +1728,13 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
 /**
  * The changes after which the alarm is armed, moved or cleared: connecting,
  * disconnecting and a Workspace going with its connections ("Check a pulled
- * connector on its cadence through the generic host", issue 891), and a repeat
- * set, changed or stopped ("Bring a repeating Item back on its day", issue 1407).
+ * connector on its cadence through the generic host", issue 891), and a
+ * recurring item made, changed or deleted.
  */
 const CHANGES_THE_ALARM: ReadonlySet<CommandName> = new Set<CommandName>([
   'connect_source_account',
   'disconnect_source_account',
   'delete_workspace',
-  'set_repeat',
   // A recurring item made, changed or deleted moves the day the alarm is set for ("Make, change and delete recurring items from the Recurring items modal", issue 1449).
   'create_recurring_item',
   'write_recurring_item',

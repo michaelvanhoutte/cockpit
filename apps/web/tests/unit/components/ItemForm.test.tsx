@@ -12,6 +12,7 @@ import type {
   PossibleDuplicate,
   Priority,
   RewriteHistoryEntry,
+  Series,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
@@ -21,6 +22,7 @@ import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
 import { DEADLINE_PILLS, dueDateLabel } from '../../../src/dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../../../src/dueDateShortcuts';
 import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
+import { takeRecurringRequest } from '../../../src/recurringModal';
 import { forgetEverySavedRead, restoreSavedReads, saveRead } from '../../../src/persistence';
 import { resetStanding, stand } from '../../../src/offline';
 import { aHistoryEntrySavedBeforePanelsFiledOn } from '../support/savedReads';
@@ -46,6 +48,7 @@ const held = vi.hoisted(() => ({
   dashboards: [] as { id: string; name: string }[],
   duplicates: [] as PossibleDuplicate[],
   attachments: [] as Attachment[],
+  series: [] as Series[],
   agentRuns: [] as { id: string; itemId: string }[],
   itemFormPresentation: 'centered' as 'centered' | 'docked',
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
@@ -205,6 +208,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
       held.dashboards,
       held.duplicates,
       held.attachments,
+      held.series,
       held.itemFormPresentation,
     ],
     queryFn: async (): Promise<WorkspaceSnapshot> => {
@@ -217,6 +221,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         dashboards: held.dashboards,
         duplicates: held.duplicates,
         attachments: held.attachments,
+        series: held.series,
         agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
         // What the Workspace calls each source (issue 927).
@@ -410,6 +415,7 @@ beforeEach(() => {
   held.dashboards = [];
   held.duplicates = [];
   held.attachments = [];
+  held.series = [];
   held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
   held.history = [];
@@ -433,120 +439,97 @@ describe('Item editing', () => {
     it.each([
       {
         situation: 'the title edited and nothing else',
-        draft: { title: 'Part 12', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 12', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { title: 'Part 12' },
       },
       {
         situation: 'the description written and nothing else',
-        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { description: 'Tolerances' },
       },
       {
         situation: 'both',
-        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { title: 'Part 12', description: 'Tolerances' },
       },
       {
         situation: 'neither',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       // Adding a space to the end of a title is not a change to the title: the
       // space would not be stored either.
       {
         situation: 'a title with a space added to the end',
-        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       // Emptied is cleared, and there is no third state to send.
       {
         situation: 'a description emptied',
-        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { description: null },
       },
       {
         situation: 'a description that was never there and is still empty',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       {
         situation: 'the priority changed and nothing else',
-        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null, status: 'to_do' as const, started: false },
         asks: { priority: 'high' },
       },
       {
         situation: 'the priority cleared to none',
-        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { priority: null },
       },
       {
         situation: 'a priority left as it was',
-        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       {
         situation: 'a due date set on an item that had none',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
         asks: { dueDate: '2026-09-30' },
       },
       {
         situation: 'a due date changed to another date',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15', status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15', status: 'to_do' as const, started: false },
         asks: { dueDate: '2026-10-15' },
       },
       {
         situation: 'a due date cleared',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { dueDate: null },
       },
       {
         situation: 'the status set to done',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'done' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'done' as const, started: false },
         asks: { status: 'done' },
       },
       {
         situation: 'the status set to in progress',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'in_progress' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'in_progress' as const, started: false },
         asks: { status: 'in_progress' },
       },
       {
-        situation: 'a repeat set',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null } },
-        asks: { repeat: { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: null } },
-      },
-      {
-        situation: 'a repeat stopped with Never',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null } },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
-        asks: { repeat: null },
-      },
-      {
-        situation: 'a repeat given the same rule again, which is no change',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5 } },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5 } },
-        asks: {},
-      },
-      {
-        situation: 'a repeat whose due gap moved',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5 } },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 6 } },
-        asks: { repeat: { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 6 } },
-      },
-      {
         situation: 'a due date left as it was',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
         asks: {},
       },
     ])('$situation', ({ stored, draft, asks }) => {
       expect(
         whatChanged(
-          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
           draft,
         ),
       ).toEqual(asks);
@@ -4306,6 +4289,94 @@ describe('Item editing', () => {
       expect(await screen.findByText("Couldn't copy the link")).toBeInTheDocument();
       expect(held.send).not.toHaveBeenCalled();
       expect(held.close).not.toHaveBeenCalled();
+    });
+  });
+});
+
+/**
+ * "Point a copy at its master, and retire the Repeats chip" (issue 1450): a copy's
+ * form says which recurring item it came from and opens it; no form sets a repeat.
+ */
+describe('Item editing', () => {
+  const SERIES = '018f0000-0000-7000-8000-0000000000aa';
+  const aSeries = (over: Partial<Series> = {}): Series => ({
+    id: SERIES,
+    tenantId: 'tenant',
+    frequency: 'weekly',
+    nextOn: '2026-11-02',
+    dueAfterDays: null,
+    timeZone: 'Europe/Brussels',
+    stoppedAt: null,
+    title: 'Weekly review',
+    workspaceId: 'ws-work',
+    ...over,
+  });
+  const theLine = () => document.querySelector('[data-recurring-origin]');
+
+  describe('a copy’s form names the recurring item it came from, and opens it', () => {
+    it('reads From recurring item with its name as a link, and pressing it closes the form and asks for the recurring item’s form', async () => {
+      held.series = [aSeries()];
+      const user = await theForm(anItem({ seriesId: SERIES }));
+
+      expect(theLine()?.textContent).toBe('↻ From recurring item Weekly review ›');
+      await user.click(screen.getByRole('button', { name: 'Weekly review ›' }));
+
+      expect(held.close).toHaveBeenCalledTimes(1);
+      expect(takeRecurringRequest()).toEqual({ workspaceId: 'ws-work', seriesId: SERIES });
+    });
+
+    it('asks for the Workspace the recurring item is listed in, where the copy was moved to another', async () => {
+      held.series = [aSeries({ workspaceId: 'ws-home' })];
+      const user = await theForm(anItem({ seriesId: SERIES }));
+
+      await user.click(screen.getByRole('button', { name: 'Weekly review ›' }));
+
+      expect(takeRecurringRequest()).toEqual({ workspaceId: 'ws-home', seriesId: SERIES });
+    });
+
+    it('reads (since deleted), with no link, once the recurring item is deleted', async () => {
+      held.series = [aSeries({ stoppedAt: '2026-10-22T10:00:00.000Z' })];
+      await theForm(anItem({ seriesId: SERIES }));
+
+      expect(theLine()?.textContent).toBe('↻ From recurring item Weekly review (since deleted)');
+      expect(screen.queryByRole('button', { name: /Weekly review/ })).toBeNull();
+    });
+
+    it.each([
+      { situation: 'an Item that is no copy', item: anItem(), series: [aSeries()] },
+      { situation: 'a copy of a series that was never made into a recurring item', item: anItem({ seriesId: SERIES }), series: [aSeries({ title: null, workspaceId: null })] },
+      { situation: 'a copy whose series the Workspace does not carry', item: anItem({ seriesId: SERIES }), series: [] },
+    ])('has no such line for $situation', async ({ item, series }) => {
+      held.series = series;
+      await theForm(item);
+
+      expect(theLine()).toBeNull();
+    });
+  });
+
+  describe('the Repeats chip is gone from the form, at a desk and on a phone', () => {
+    it('is not on the desk’s line of fields, and its Item stays as the other chips leave it', async () => {
+      held.series = [aSeries()];
+      await theForm(anItem({ seriesId: SERIES }));
+
+      expect(screen.getByRole('group', { name: 'Fields' })).toBeInTheDocument();
+      expect(screen.queryByTitle('Repeats')).toBeNull();
+      expect(screen.queryByRole('button', { name: /Repeats/ })).toBeNull();
+    });
+
+    it('is not among a phone’s chips', async () => {
+      const original = window.innerWidth;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+      try {
+        held.series = [aSeries()];
+        await theEditingPhonePage(anItem({ seriesId: SERIES }));
+
+        expect(await screen.findByRole('button', { name: '+ Attach' })).toBeInTheDocument();
+        expect(screen.queryByTitle('Repeats')).toBeNull();
+        expect(screen.queryByRole('button', { name: /Repeats/ })).toBeNull();
+      } finally {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
+      }
     });
   });
 });

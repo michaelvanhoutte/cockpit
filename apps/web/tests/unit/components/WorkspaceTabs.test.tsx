@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Workspace, WorkspaceSnapshot } from '@cockpit/shared';
@@ -8,6 +8,7 @@ import { changes } from '../../../src/api/changes';
 import { useSendCommand } from '../../../src/api/queries';
 import { WorkspaceTabs } from '../../../src/components/WorkspaceTabs';
 import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
+import { askForRecurringItem, takeRecurringRequest } from '../../../src/recurringModal';
 
 /**
  * F1: what is under test is the strip's own behaviour - what its menu offers,
@@ -262,6 +263,20 @@ describe('Workspace management', () => {
       await user.click(await screen.findByRole('button', { name: 'Close' }));
 
       await waitFor(() => expect(button).toHaveFocus());
+    });
+  });
+
+  describe('a copy’s link opens the Recurring items modal from outside the menu', () => {
+    it('opens it over whatever is on screen, once, when a copy’s form asks for a recurring item', async () => {
+      showTabs(['Work', 'Personal'], { here: 'ws-work' });
+      await screen.findByRole('button', { name: 'Actions for Work' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      act(() => askForRecurringItem({ workspaceId: 'ws-personal', seriesId: '018f0000-0000-7000-8000-0000000000aa' }));
+
+      expect(await screen.findByRole('dialog')).toBeVisible();
+      expect(screen.getByText('Recurring items')).toBeVisible();
+      expect(takeRecurringRequest()).toBeNull();
     });
   });
 

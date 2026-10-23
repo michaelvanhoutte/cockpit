@@ -1,4 +1,4 @@
-import type { ItemStatus, Priority, RepeatRule } from '@cockpit/shared';
+import type { ItemStatus, Priority } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
 
 /** Where an Item stands, and whether it carries a start time - the two things the row's commands act on. Done may or may not have kept one. */
@@ -19,15 +19,11 @@ export interface Draft extends StatusState {
   priority: Priority | null;
   /** ISO calendar date (`2026-09-30`), or `null` for none - the empty string the date input shows for "unset" is never stored in the draft. */
   dueDate: string | null;
-  /** What the Item repeats by, or `null` for *Never* - the whole rule, written as one change ("Set an Item to repeat from its form", issue 1406). */
-  repeat: RepeatRule | null;
 }
 
-/** The six fields the item's form edits, in the order they are sent. */
-export const FIELDS = ['title', 'description', 'priority', 'dueDate', 'status', 'repeat'] as const;
+/** The five fields the item's form edits, in the order they are sent. */
+export const FIELDS = ['title', 'description', 'priority', 'dueDate', 'status'] as const;
 export type Field = (typeof FIELDS)[number];
-/** The fields a row, the selection bar and the form all write through `fieldWrites`: a repeat is the form's alone (`repeatWrites`). */
-export type SimpleField = Exclude<Field, 'repeat'>;
 
 /** What each field is called where a person is told it changed. */
 export const FIELD_NAMES: Record<Field, string> = {
@@ -36,7 +32,6 @@ export const FIELD_NAMES: Record<Field, string> = {
   priority: 'priority',
   dueDate: 'due date',
   status: 'status',
-  repeat: 'repeat',
 };
 
 /**
@@ -44,7 +39,7 @@ export const FIELD_NAMES: Record<Field, string> = {
  * the same reading `whatChanged` compares on, so a value sent and a value
  * compared can never differ.
  */
-export function asStored(draft: Draft, field: Field): string | Priority | ItemStatus | RepeatRule | null {
+export function asStored(draft: Draft, field: Field): string | Priority | ItemStatus | null {
   if (field === 'title') return draft.title.trim();
   if (field === 'description') return draft.description.trim() || null;
   if (field === 'status') return draft.status;
@@ -104,7 +99,7 @@ export interface FieldWrite {
  * two, so each takes its own envelope.
  */
 export function fieldWrites(
-  field: SimpleField,
+  field: Field,
   envelope: () => Envelope,
   value: string | Priority | ItemStatus | null,
   from: StatusState,
@@ -137,31 +132,4 @@ export function fieldWrites(
       });
     }
   }
-}
-
-/**
- * The change that sets an Item's Repeats to a rule, or to *Never* with `null`
- * ("Set an Item to repeat from its form, and see the rule on its row", issue
- * 1406). **One change for the whole rule**: its frequency, *Next on* and
- * due-after are one thing the server checks together. `seriesId` is the series
- * the Item joins if it has none, and `timeZone` the device's, stored with the rule.
- */
-export function repeatWrites(
-  envelope: () => Envelope,
-  rule: RepeatRule | null,
-  series: { seriesId: string; timeZone: string },
-): FieldWrite[] {
-  return [
-    {
-      command: {
-        name: 'set_repeat',
-        payload: {
-          ...envelope(),
-          seriesId: series.seriesId,
-          repeat: rule && { ...rule, timeZone: series.timeZone },
-        },
-      },
-      held: null,
-    },
-  ];
 }

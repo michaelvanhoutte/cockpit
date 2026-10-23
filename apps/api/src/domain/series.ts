@@ -2,7 +2,6 @@ import {
   RECURRING_REFUSALS,
   daysOnFrom,
   firstDayAfter,
-  itemLabel,
   type Item,
   type Priority,
   type Series,
@@ -18,7 +17,7 @@ export const NEXT_ON_PASSED = RECURRING_REFUSALS.nextOnPassed;
  * A series as its row holds it: the rule, the day it is counted from
  * (`anchorOn`, null for its `nextOn`) and the day it last came round (`lastOn`).
  */
-export type SeriesRow = Series & { anchorOn: string | null; lastOn: string | null; createdAt: string; updatedAt: string };
+export type SeriesRow = Omit<Series, 'title' | 'workspaceId'> & { anchorOn: string | null; lastOn: string | null; createdAt: string; updatedAt: string };
 
 /**
  * What each copy of a recurring item is made from ("Make each copy of a
@@ -35,56 +34,33 @@ export interface MasterContent {
 /** A series as its row holds it, with what each copy is made from. */
 export type MasterRow = SeriesRow & MasterContent;
 
-/**
- * The content the Repeats chip gives a series from the Item it is set on, until
- * the Recurring items modal replaces it: the Item's Workspace, texts and
- * priority, **its label where it has no title**, as its row shows it.
- */
-export function masterContentOf(item: Pick<Item, 'workspaceId' | 'title' | 'nextAction' | 'description' | 'priority'>): {
-  workspaceId: string;
-  title: string;
-  description: string | null;
-  priority: Priority | null;
-} {
-  return {
-    workspaceId: item.workspaceId,
-    title: item.title.trim() !== '' ? item.title : itemLabel({ title: '', nextAction: item.nextAction }),
-    description: item.description,
-    priority: item.priority,
-  };
-}
-
-/** What a Repeats change comes to for an Item and its series, if it has one. */
+/** What writing a recurring item's rule comes to, for it and its series. */
 export type RepeatDecision =
   | { kind: 'refused'; why: string }
   /** Made against an older version of the rule: logged, nothing changed. */
   | { kind: 'stale' }
-  /** *Never* on an Item that repeats nothing: there is no series to stop. */
+  /** A `null` rule for a series that is not there: there is nothing to stop. */
   | { kind: 'nothing' }
   | { kind: 'write'; row: SeriesRow; isNew: boolean };
 
 /**
- * Decides one Repeats change ("Set an Item to repeat from its form, and see the
- * rule on its row", issue 1406).
+ * Decides one write of a recurring item's rule ("Make, change and delete
+ * recurring items from the Recurring items modal", issue 1449).
  *
  * **Today is the day the change was issued on, on the zone it carries** - not the
  * moment it arrived - so the refusal of a *Next on* in the past does not depend
- * on how long the change took to get here. **A set rule starts the series
- * again** if *Never* had stopped it, and **the zone sent is the one kept**: the
+ * on how long the change took to get here. **The zone sent is the one kept**: the
  * rule is the person's as they last set it, on the calendar they set it on.
- * Setting a repeat never reads or writes the Item's own due date.
  *
  * **Only a *Next on* the person moves is held to today, and is what the series
  * is counted from after.** The form sends the stored one back with every other
- * choice and with an Undo of *Never*; a tab whose copy is from before the series
- * last came round sends that day back, which is read as the stored one too -
- * except on that day itself, when it is the person moving *Next on* back to
- * today. **A frequency changed counts from the day kept**, the one the rule is
- * read back from. A day kept that has since passed stays while the series runs,
- * so the account's alarm still brings back the one it owes; in a rule started
- * again after *Never* it moves on to the first the series comes round on from
- * today, so nothing lands on a day already passed ("Bring a repeating Item back
- * on its day", issue 1407).
+ * choice; a tab whose copy is from before the series last came round sends that
+ * day back, which is read as the stored one too - except on that day itself,
+ * when it is the person moving *Next on* back to today. **A frequency changed
+ * counts from the day kept**, the one the rule is read back from. A day kept that
+ * has since passed stays while the series runs, so the account's alarm still
+ * brings back the one it owes ("Bring a repeating Item back on its day", issue
+ * 1407). A `null` rule is the series stopped: the stop deleting a recurring item is.
  */
 export function decideRepeat(
   own: SeriesRow | null,
@@ -104,7 +80,6 @@ export function decideRepeat(
   if (rule.nextOn < today.date && !keepsItsDay) return { kind: 'refused', why: NEXT_ON_PASSED };
   const kept = keepsItsDay ? own.nextOn : rule.nextOn;
   const anchorOn = !keepsItsDay ? rule.nextOn : rule.frequency === own.frequency ? countedFrom(own) : kept;
-  const startedAgain = own !== null && own.stoppedAt !== null;
   return {
     kind: 'write',
     isNew: own === null,
@@ -112,7 +87,7 @@ export function decideRepeat(
       id: own?.id ?? cmd.seriesId,
       tenantId,
       ...rule,
-      nextOn: kept < today.date && startedAgain ? firstDayAfter(anchorOn, rule.frequency, daysOnFrom(today.date, -1)) : kept,
+      nextOn: kept,
       timeZone,
       stoppedAt: null,
       anchorOn,
