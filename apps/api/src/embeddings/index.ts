@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Env } from '../env.js';
 import { callThrough, inRealTime, NEVER_RETRIED, type CallAbout, type Outcome, type Recorder, type Trigger } from '../gateway/attempts.js';
-import { providerCallsIn } from '../gateway/record.js';
+import { recorderFor } from '../gateway/send.js';
 
 /**
  * Reading what a note *means*, behind a project-owned interface - the same
@@ -82,7 +82,7 @@ export function embeddingsFor(env: Env): EmbeddingService | null {
   // it even where a binding is also present - the same precedence `OIDC_ISSUER`
   // takes over Google (`auth/issuer.ts`).
   if (env.EMBEDDINGS_STAND_IN === 'true') return new StandInEmbeddingService();
-  if (env.AI) return new WorkersAiEmbeddingService(env.AI, providerCallsIn(env));
+  if (env.AI) return new WorkersAiEmbeddingService(env.AI, recorderFor(env));
   return null;
 }
 

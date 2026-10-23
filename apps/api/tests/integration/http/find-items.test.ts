@@ -14,7 +14,12 @@ import {
   startFromEmpty,
   withoutTheGuide,
 } from '../seed.js';
-import { ORIGIN, connected, mcp, type ToolAnswer } from '../mcp-app.js';
+import { ORIGIN, connected, mcp } from './connected-apps.support.js';
+
+interface ToolAnswer {
+  isError?: boolean;
+  content: { type: string; text: string }[];
+}
 
 /**
  * Integration level, through the whole Worker: a connected app finding items

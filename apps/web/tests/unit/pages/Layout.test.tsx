@@ -238,7 +238,7 @@ describe('Across the app', () => {
 
       expect(await sections(false)).toEqual({ listed: ['Appearance'], current: 'Appearance' });
       expect(await sections(true)).toEqual({
-        listed: ['Appearance', 'Connections', 'MCP', 'What Cockpit remembers'],
+        listed: ['Appearance', 'Connections', 'Connected apps', 'What Cockpit remembers'],
         current: 'Connections',
       });
     });
@@ -346,6 +346,7 @@ describe('Across the app', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Show All items tab',
+        'Recurring items',
         'Delete',
       ]);
     });
@@ -359,6 +360,7 @@ describe('Across the app', () => {
       expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Show All items tab',
+        'Recurring items',
         'Delete',
       ]);
     });

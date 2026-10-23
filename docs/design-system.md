@@ -109,3 +109,7 @@ Every colour, radius and shadow in the web app is a name from `styles.css`: no h
 ## Radius
 
 Three steps — `sm` (4px), `md` (10px), `lg` (14px) — used by control size rather than by component identity.
+
+## The Harness Monitor
+
+The Harness Monitor's pages wear this look: the graphite top bar with a tab per page running into the violet band, the warm grey ground, panels that put an uppercase accent heading over a sunk well, the category colours, Inter, tabular numbers, and the dark appearance. A filter holding a value takes a 2px accent border, and a pressed toggle is filled with the accent. It imports nothing from Cockpit, so `apps/harness-monitor/src/look.ts` copies the values from this document and `apps/web/src/styles.css` by value; **change one there when you change it here.** It differs: the accent is the default theme's, since it has no Workspaces; its colours are written as hex in `look.ts`, since "One token set" is the web app's rule; and Inter is a file the Monitor serves itself from `public/fonts`, under a versioned name and cached for good, because it has no bundler to take the package from.

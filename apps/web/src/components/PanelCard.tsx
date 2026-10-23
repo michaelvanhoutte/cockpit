@@ -7,11 +7,12 @@ import {
   type Dashboard,
   type Item,
   type Panel,
+  sortOf,
 } from '@cockpit/shared';
+import type { FilterGroup } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
-import type { FilterGroup } from '../filterGroups';
-import { saysHowItIsSorted, sortOf } from '../sorting';
+import { saysHowItIsSorted } from '../sorting';
 import { ItemList } from './ItemList';
 import { dashboardScope, pickAll } from '../selection';
 import { useOpenCaptureOn } from '../captureOpener';

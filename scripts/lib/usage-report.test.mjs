@@ -70,17 +70,18 @@ describe("A request's category is the phase its session was in when it was made"
   );
 
   const cases = [
-    ['on main', request('2026-10-01T09:30:00Z', { branch: 'main' }), marks, { category: 'scoping-planning' }],
+    ['on main with no process skill', request('2026-10-01T09:30:00Z', { branch: 'main' }), [], { category: 'outside-process' }],
     ['between start and scoped', request('2026-10-01T09:30:00Z'), marks, { category: 'scoping-planning' }],
     ['after scoped with no review open', request('2026-10-01T10:30:00Z'), marks, { category: 'building' }],
-    ['a branch that never marked anything', request('2026-10-01T10:30:00Z'), [], { category: 'unphased' }],
-    ['a request with no branch at all', request('2026-10-01T10:30:00Z', { branch: null }), [], { category: 'unphased' }],
-    ['before start', request('2026-10-01T08:30:00Z'), marks, { category: 'unphased' }],
+    ['a branch that never marked anything, outside the process', request('2026-10-01T10:30:00Z'), [], { category: 'outside-process' }],
+    ['a request with no branch at all, outside the process', request('2026-10-01T10:30:00Z', { branch: null }), [], { category: 'outside-process' }],
+    ['marks that never reached start, outside the process', request('2026-10-01T10:30:00Z', { branch: 'main' }), record(['2026-10-01T01:40:00Z', 'review-end', 'security-review', 'high']), { category: 'outside-process' }],
+    ['before start, outside the process', request('2026-10-01T08:30:00Z'), marks, { category: 'outside-process' }],
     [
       'marks all written seconds apart after the request',
       request('2026-10-01T10:30:00Z'),
       record(['2026-10-01T18:00:00Z', 'start'], ['2026-10-01T18:00:01Z', 'scoped'], ['2026-10-01T18:00:02Z', 'built'], ['2026-10-01T18:00:03Z', 'pushed']),
-      { category: 'unphased' },
+      { category: 'outside-process' },
     ],
     ['the security review subagent before start', request('2026-10-01T08:30:00Z', { securityReview: true }), marks, { category: 'local-security-review' }],
     ['between a code review starting and ending', request('2026-10-01T11:15:00Z'), marks, { category: 'local-code-review', reviewLevel: 'high' }],
@@ -99,7 +100,7 @@ describe("A request's category is the phase its session was in when it was made"
   });
 
   it('a review window with no end stays a review until a later mark closes it', () => {
-    const open = record(['2026-10-01T10:00:00Z', 'scoped'], ['2026-10-01T11:00:00Z', 'review-start', 'code-review', 'xhigh']);
+    const open = record(['2026-10-01T09:00:00Z', 'start'], ['2026-10-01T10:00:00Z', 'scoped'], ['2026-10-01T11:00:00Z', 'review-start', 'code-review', 'xhigh']);
     assert.deepEqual(category(request('2026-10-01T11:45:00Z'), open), { category: 'local-code-review', reviewLevel: 'xhigh' });
   });
 
@@ -121,6 +122,119 @@ describe("A request's category is the phase its session was in when it was made"
     assert.equal(plain.securityReview, false);
     const [inMain] = requestsFromLog(parseLog(skillCall), { sessionId: 's1', subagent: false });
     assert.equal(inMain.securityReview, false);
+  });
+});
+
+// A session's log with process skills in it, and where its requests land.
+const typed = (name, timestamp, args = '') =>
+  JSON.stringify({ type: 'user', timestamp, message: { role: 'user', content: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>${args}</command-args>` } });
+const invoked = (skill, timestamp, args = 'SECRET argument text') =>
+  JSON.stringify({ type: 'assistant', timestamp, message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill, args } }] } });
+const invokedTogether = (skills, timestamp) =>
+  JSON.stringify({ type: 'assistant', timestamp, message: { content: skills.map((skill) => ({ type: 'tool_use', name: 'Skill', input: { skill } })) } });
+
+/** Each request's category by id, for a session's main log lines and its subagents' logs (each a list of lines), every request made on `branch`. */
+const placed = (mainLines, { marks = [], branch = 'claude/build-1', subagents = [], ranWhere = 'local' } = {}) => {
+  const read = (lines) => parseLog(lines.join('\n')).map((line) => (line.requestId ? { ...line, gitBranch: branch } : line));
+  const logs = [
+    { lines: read(mainLines), sessionId: 's1', subagent: false },
+    ...subagents.map((lines) => ({ lines: read(lines), sessionId: 's1', subagent: true })),
+  ];
+  return Object.fromEntries(allRequests(logs).map((req) => [req.requestId, toRow(req, { ranWhere, marksOf: () => marks }).category]));
+};
+
+describe('A session is in a process skill from its invocation until another is invoked', () => {
+  const t = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00Z`;
+
+  const cases = [
+    ['a chat before any invocation is outside the process', [reply('a', t(1))], { a: 'outside-process' }],
+    ['a command typed as /scoping is in scoping from that line', [reply('a', t(1)), typed('scoping', t(2)), reply('b', t(3))], { a: 'outside-process', b: 'scoping-planning' }],
+    ['engineering-plan invoked as a skill is in it from that line', [reply('a', t(1)), invoked('engineering-plan', t(2)), reply('b', t(3))], { a: 'outside-process', b: 'scoping-planning' }],
+    ['a skill that is not a process skill leaves the session where it was', [typed('scoping', t(1)), invoked('github-issue', t(2)), reply('a', t(3))], { a: 'scoping-planning' }],
+    ['a plugin-prefixed skill name is matched on its own name', [invoked('cockpit:harness-cost-review', t(1)), reply('a', t(2))], { a: 'process-review' }],
+    ['the session-review that follows a /build is after push', [typed('build', t(1)), reply('a', t(2)), invoked('session-review', t(3)), reply('b', t(4))], { a: 'scoping-planning', b: 'after-push' }],
+    ['a session-review with no /build before it is process review', [reply('a', t(1)), invoked('session-review', t(2)), reply('b', t(3))], { a: 'outside-process', b: 'process-review' }],
+    ['a periodic-review is process review', [typed('periodic-review', t(1)), reply('a', t(2))], { a: 'process-review' }],
+    ['a harness-cost-review is process review', [invoked('harness-cost-review', t(1)), reply('a', t(2))], { a: 'process-review' }],
+    ['a process skill replaces the one before it', [typed('scoping', t(1)), reply('a', t(2)), invoked('periodic-review', t(3)), reply('b', t(4))], { a: 'scoping-planning', b: 'process-review' }],
+    ['two skills invoked in one turn are each in from their own line', [invoked('scoping', t(1)), reply('a', t(2)), invoked('session-review', t(3)), reply('b', t(4))], { a: 'scoping-planning', b: 'process-review' }],
+    ['two skills named in one line leave the session in the last', [invokedTogether(['scoping', 'harness-cost-review'], t(1)), reply('a', t(2))], { a: 'process-review' }],
+    ['a /build is scoping and planning before its branch marks a start', [typed('build', t(1)), reply('a', t(2))], { a: 'scoping-planning' }],
+  ];
+  for (const [situation, lines, expected] of cases) {
+    it(situation, () => assert.deepEqual(placed(lines, { branch: 'main' }), expected));
+  }
+
+  it("a subagent's request is placed by the step its session was in at that time", () => {
+    const main = [typed('scoping', t(1)), invoked('periodic-review', t(10))];
+    const sub = [reply('early', t(5)), reply('late', t(15)), reply('before', '2026-10-01T09:00:00Z')];
+    assert.deepEqual(placed(main, { subagents: [sub], branch: 'main' }), { early: 'scoping-planning', late: 'process-review', before: 'outside-process' });
+  });
+
+  it("a skill invoked inside a subagent's own log does not move the session's step", () => {
+    const main = [reply('a', t(5))];
+    const sub = [typed('scoping', t(1)), invoked('scoping', t(2)), reply('b', t(6))];
+    assert.deepEqual(placed(main, { subagents: [sub] }), { a: 'outside-process', b: 'outside-process' });
+  });
+
+  it('a skill named in the conversation or in a tool result, but not invoked, does not count', () => {
+    const mention = JSON.stringify({ type: 'user', timestamp: t(1), message: { content: 'please run scoping then engineering-plan' } });
+    const toolResult = JSON.stringify({ type: 'user', timestamp: t(1), message: { content: [{ type: 'tool_result', content: '<command-name>/scoping</command-name>' }] } });
+    const pasted = JSON.stringify({ type: 'user', timestamp: t(1), message: { content: 'the log showed <command-name>/scoping</command-name> earlier' } });
+    assert.deepEqual(placed([mention, toolResult, pasted, reply('a', t(2))]), { a: 'outside-process' });
+  });
+});
+
+describe("Each request lands where the process step and the branch's marks say", () => {
+  const t = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00Z`;
+  const marks = record(['2026-10-01T10:05:00Z', 'start'], ['2026-10-01T10:20:00Z', 'scoped'], ['2026-10-01T10:40:00Z', 'review-start', 'code-review', 'high']);
+
+  it('a run in Actions during scoping is a CI review', () => {
+    assert.deepEqual(placed([typed('scoping', t(1)), reply('a', t(2))], { ranWhere: 'actions' }), { a: 'ci-reviews' });
+  });
+
+  it('the security review subagent outside the process is a local security review', () => {
+    const sub = [invoked('security-review', t(1)), reply('s', t(2))];
+    assert.deepEqual(placed([reply('a', t(1))], { subagents: [sub] }), { a: 'outside-process', s: 'local-security-review' });
+  });
+
+  it("inside a /build the step places a request before the branch's start and the marks decide from it on", () => {
+    const lines = [typed('build', t(1)), reply('before', t(2)), reply('planning', t(10)), reply('building', t(30)), reply('reviewing', t(45))];
+    assert.deepEqual(placed(lines, { marks }), { before: 'scoping-planning', planning: 'scoping-planning', building: 'building', reviewing: 'local-code-review' });
+  });
+
+  it('a plain chat on a branch after its start is placed by the marks', () => {
+    assert.deepEqual(placed([reply('a', t(30))], { marks }), { a: 'building' });
+  });
+
+  it('a /build of a parent issue on a branch with no marks is scoping and planning', () => {
+    assert.deepEqual(placed([typed('build', t(1)), reply('a', t(2))], { marks: [] }), { a: 'scoping-planning' });
+  });
+
+  it('a session-review after a /build, on its own branch, is after push', () => {
+    assert.deepEqual(placed([typed('build', t(1)), invoked('session-review', t(2)), reply('a', t(3))], { branch: 'claude/session-review-1' }), { a: 'after-push' });
+  });
+
+  it('work on main is placed by the session like any branch', () => {
+    assert.deepEqual(placed([reply('a', t(1)), typed('scoping', t(2)), reply('b', t(3))], { branch: 'main' }), { a: 'outside-process', b: 'scoping-planning' });
+  });
+
+  it('a request on a branch that never marked anything, with no process skill, is outside the process', () => {
+    assert.deepEqual(placed([reply('a', t(1))], { marks: [], branch: 'claude/some-fix' }), { a: 'outside-process' });
+  });
+});
+
+describe('Which skill a session invoked never leaves the machine', () => {
+  it('a request made during scoping, with arguments, has its usual fields only', () => {
+    const lines = [typed('scoping', '2026-10-01T10:00:00Z', 'SECRET argument'), invoked('engineering-plan', '2026-10-01T10:01:00Z', 'SECRET args'), reply('req_1', '2026-10-01T10:02:00Z')];
+    const [req] = allRequests([{ lines: parseLog(lines.join('\n')), sessionId: 's1', subagent: false }]);
+    const sent = toRow(req, { ranWhere: 'local', marksOf: () => [] });
+    assert.equal(sent.category, 'scoping-planning');
+    assert.deepEqual(Object.keys(sent).sort(), [
+      'branch', 'cacheCreationTokens', 'cacheReadTokens', 'category', 'inputTokens', 'model', 'outputTokens',
+      'ranWhere', 'requestId', 'sessionId', 'source', 'speed', 'subagent', 'time',
+    ]);
+    assert.ok(!/SECRET|engineering/.test(JSON.stringify(sent)));
   });
 });
 

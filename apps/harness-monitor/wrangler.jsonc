@@ -9,6 +9,12 @@
   "preview_urls": false,
   "observability": { "logs": { "enabled": true } },
 
+  // The pages' font, served by the Monitor itself: public/fonts holds Inter
+  // under a versioned name, and public/_headers caches it for good. Everything
+  // else still reaches the Worker (src/look.ts, FONT_URL). The platform answers
+  // a file before the Worker runs; the binding exists so a test can ask for one.
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+
   // Hourly: link branches to pull requests (src/linking.ts). Daily, 03:10 UTC:
   // fetch the price list and price the rows waiting for one. 03:20 UTC: rebuild
   // the daily totals from the rows. Separate schedules, so each stays inside the

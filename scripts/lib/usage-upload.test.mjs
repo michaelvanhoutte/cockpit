@@ -24,7 +24,7 @@ const session = () => [
   { lines: parseLog(reply('req_3', '2026-10-01T11:00:00Z')), sessionId: 's1', subagent: true },
   { lines: parseLog(reply('req_4', '2026-10-01T12:00:00Z')), sessionId: 's1', subagent: false },
 ];
-const marksOf = (branch) => (branch === 'claude/build-1' ? record(['2026-10-01T09:00:00Z', 'scoped'], ['2026-10-01T10:30:00Z', 'pushed']) : []);
+const marksOf = (branch) => (branch === 'claude/build-1' ? record(['2026-10-01T08:00:00Z', 'start'], ['2026-10-01T09:00:00Z', 'scoped'], ['2026-10-01T10:30:00Z', 'pushed']) : []);
 
 describe('Harness Monitor', () => {
   describe("An upload's rows are the hook's rows", () => {
@@ -41,7 +41,7 @@ describe('Harness Monitor', () => {
       assert.ok(hook.every((row) => row.source === 'hook'));
       assert.deepEqual(
         upload.map((row) => row.category),
-        ['building', 'scoping-planning', 'after-push', 'after-push'],
+        ['building', 'outside-process', 'after-push', 'after-push'],
       );
     });
 

@@ -7,11 +7,17 @@ import { returnPathFrom } from '../auth/return-path.js';
 import type { Visitor } from '../auth/register.js';
 import { whoCanConsent, type GrantProps } from './grant.js';
 import { asReachedAt, oauthHelpersFor } from './oauth.js';
+import { kindOfResource } from './resources.js';
 import { AUTHORIZE_PATH } from '../auth/mcp-paths.js';
 
 /**
  * The consent page: "Allow Claude to create and read items in your Cockpit?"
- * ("Connect Claude to Cockpit, and capture an item from it", issue 599).
+ * ("Connect Claude to Cockpit, and capture an item from it", issue 599) - or,
+ * for an app that asks for the `/apps` resource, "Allow … to read your Panels in
+ * your Cockpit?" ("Read a Panel from an app allowed only to read, and open
+ * Capture from its address", issue 1445). **What the page says is what the
+ * grant holds**: the resource the request names is the one the grant is made
+ * for (`oauth.ts`), so nothing is granted that the page did not name.
  *
  * **The only place a grant is made**, and only by somebody signed in with
  * Google. In order, and each step before anything is shown:
@@ -61,17 +67,24 @@ consent.get(AUTHORIZE_PATH, async (c) => {
   const details = await oauth.describeConsent(request);
   const transaction = await oauth.beginConsent(request);
   transaction.headers.set('Content-Type', 'text/html; charset=utf-8');
+  const name = escape(details.clientName);
+  const asks =
+    kindOfResource(c.env, request.resource) === 'reads-panels'
+      ? {
+          heading: `Allow ${name} to read your Panels in your Cockpit?`,
+          what: `${name} will be able to read the Panels of <strong>${escape(visitor.name)}</strong>'s Cockpit: the names of your Workspaces, Dashboards and Panels and, for every Item on them, its label, priority, due date and the other Panels it is filed on. It may read your Panels, and nothing else: it cannot capture, change or delete anything.`,
+        }
+      : {
+          heading: `Allow ${name} to create and read items in your Cockpit?`,
+          what: `${name} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit, and to see the names of your workspaces and types so it can say where each note goes. It can read your items in every workspace: what each says, its status, priority and due date, where it is filed, and its attached files, which it is given links to open for an hour. It can also tell Cockpit how a task you send it from an item is going, which shows on that item. It cannot change or delete anything else.`,
+        };
   return new Response(
     page({
       title: `Allow ${details.clientName}?`,
       body: `
-        <h1>Allow ${escape(details.clientName)} to create and read items in your Cockpit?</h1>
-        <p>${escape(details.clientName)} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit, and to see the names of your workspaces and types so it can say where each note goes. It can read your items in every workspace: what each says, its status, priority and due date, where it is filed, and its attached files, which it is given links to open for an hour. It can also tell Cockpit how a task you send it from an item is going, which shows on that item. It cannot change or delete anything else.</p>
-        <p class="faint">Access will be sent to <strong>${escape(details.redirectHost)}</strong>.${
-          details.redirectIsLoopback
-            ? ' That is an app on this computer: allow it only if you just started connecting it.'
-            : ''
-        } This app named itself; Cockpit has not checked the name.</p>
+        <h1>${asks.heading}</h1>
+        <p>${asks.what}</p>
+        <p class="faint">${sentTo(details)} This app named itself; Cockpit has not checked the name.</p>
         <form method="post" action="${AUTHORIZE_PATH}">
           <input type="hidden" name="handle" value="${escape(transaction.handle)}">
           <input type="hidden" name="for" value="${escape(visitor.userId)}">
@@ -159,6 +172,21 @@ function refused(c: Context<{ Bindings: Env }>, error: unknown): Response {
     }),
   );
   return cannotConnect(c);
+}
+
+/**
+ * Where the access goes, in words. **An app's own private address is named
+ * whole**, since its host is a word the app chose and says nothing about where
+ * the access goes (RFC 8252): it is an app on this device, which is opened by
+ * that address.
+ */
+function sentTo(details: { redirectUri: string; redirectHost: string; redirectIsLoopback: boolean }): string {
+  if (!/^https?:$/.test(new URL(details.redirectUri).protocol)) {
+    return `Access will be sent to an app on this device, by opening <strong>${escape(details.redirectUri)}</strong>: allow it only if you just started connecting it.`;
+  }
+  return `Access will be sent to <strong>${escape(details.redirectHost)}</strong>.${
+    details.redirectIsLoopback ? ' That is an app on this computer: allow it only if you just started connecting it.' : ''
+  }`;
 }
 
 /** Somebody other than the person the page was shown to pressed Allow. */

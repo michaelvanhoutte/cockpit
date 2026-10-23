@@ -23,12 +23,14 @@ export interface ConnectOutcomeFor {
 }
 
 /**
- * Settings: the account's Gmail and Teams connections, the MCP apps and the
+ * Settings: the account's Gmail and Teams connections, the connected apps and the
  * sentences Cockpit remembers, each the content of the window it used to have
  * ("Open Settings from the profile menu, with connections, agent settings and
  * MCP as its sections", issue 693). *Agent settings* went with the routines
  * ("Retire the agents' dock and routines, keeping what each agent knew", issue
- * 1165), leaving MCP as the only setup Claude needs.
+ * 1165), leaving the connected apps as the only setup Claude needs - named for
+ * what they are rather than the protocol once an app could be allowed only to
+ * read your Panels (issue 1445).
  */
 export default function SettingsWindow({
   on,
@@ -69,7 +71,7 @@ export default function SettingsWindow({
           label: 'Connections',
           content: <ConnectionsOf startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
         },
-        { key: 'mcp', label: 'MCP', content: <ManageConnectedApps open onClose={onClose} /> },
+        { key: 'mcp', label: 'Connected apps', content: <ManageConnectedApps open onClose={onClose} /> },
         { key: 'remembered', label: 'What Cockpit remembers', content: <ManageRememberedSentences focus={sentenceId} /> },
       ]}
     />

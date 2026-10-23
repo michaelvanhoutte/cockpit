@@ -17,9 +17,9 @@ import {
   type Panel,
   type Priority,
   isAPeriod,
+  orderedAsDrawn,
 } from '@cockpit/shared';
 import { GROUPING_NAMES, WINDOW_LABELS } from '../filters';
-import { orderedAsDrawn } from '../filterGroups';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
 import { PRIORITY_LABELS } from '../priority';

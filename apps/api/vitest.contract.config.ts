@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { contractFiles, suitesNamed } from '../../scripts/lib/contract-selection.mjs';
+import { checkoutBranch, productionOrigin } from '../../scripts/lib/local-recording.mjs';
 import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mjs';
 
 /**
@@ -44,13 +46,25 @@ function fromDevVars(): Record<string, string> {
   }
   const found: Record<string, string> = {};
   for (const line of file.split(/\r?\n/)) {
-    const match = /^\s*((?:ANTHROPIC|CLOUDFLARE)_[A-Z_]+)\s*=\s*(.*)$/.exec(line);
+    const match = /^\s*((?:ANTHROPIC|CLOUDFLARE|USAGE)_[A-Z_]+)\s*=\s*(.*)$/.exec(line);
     if (match) found[match[1]!] = match[2]!.trim().replace(/^["']|["']$/g, '');
   }
   return found;
 }
 
 const onDisk = fromDevVars();
+
+/**
+ * Where a contract run's Claude calls are recorded ("Record every Claude call a
+ * contract run makes, as CI or local", issue 1459): production's own address
+ * unless `USAGE_RECORDING_URL` says otherwise, which is how a local Worker is
+ * made to stand in for it. Written once, in `wrangler.jsonc`.
+ */
+const recordedAt =
+  process.env.USAGE_RECORDING_URL || productionOrigin(readFileSync(new URL('wrangler.jsonc', here), 'utf8'));
+
+/** The checkout's branch, for a run by hand; a runner in GitHub Actions has the run's own variables instead. */
+const branch = process.env.GITHUB_ACTIONS === 'true' ? '' : (checkoutBranch(fileURLToPath(here)) ?? '');
 
 export default defineConfig({
   test: {
@@ -68,6 +82,13 @@ export default defineConfig({
       // binding and needs neither; this tier has no Worker to hold one.
       CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID ?? onDisk.CLOUDFLARE_ACCOUNT_ID ?? '',
       CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN ?? onDisk.CLOUDFLARE_API_TOKEN ?? '',
+      // Every Claude call is recorded in production, under CI's token in a
+      // workflow and the local one by hand (apps/api/.dev.vars, where `pnpm dev`
+      // reads it too); a key without it is red before any call
+      // (`src/gateway/contract-run.ts`).
+      USAGE_RECORDING_TOKEN: process.env.USAGE_RECORDING_TOKEN ?? onDisk.USAGE_RECORDING_TOKEN ?? '',
+      USAGE_RECORDING_URL: recordedAt,
+      CHECKOUT_BRANCH: branch,
     },
   },
 });

@@ -23,10 +23,9 @@ import {
   cookiesFrom,
   decide,
   mcp,
+  refresh,
   registerApp,
-  type App,
-  type ToolAnswer,
-} from '../mcp-app.js';
+} from './connected-apps.support.js';
 
 /**
  * Integration level, through the whole Worker: an app connecting to Cockpit
@@ -48,13 +47,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** An app trading its refresh token for new access, as it does once the hour is up. */
-function refresh(app: App, refreshToken: string): Promise<Response> {
-  return SELF.fetch(`${ORIGIN}/oauth/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: app.clientId }),
-  });
+interface ToolAnswer {
+  isError?: boolean;
+  content: { type: string; text: string }[];
 }
 
 async function createItem(token: string, args: Record<string, unknown>): Promise<ToolAnswer> {

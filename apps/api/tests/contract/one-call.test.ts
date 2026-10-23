@@ -1,9 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { ClaudeAiService, type CallFor, type EditToRemember, type ItemToPlace, type ItemToPropose } from '../../src/ai/index.js';
+import type { EditToRemember, ItemToPlace, ItemToPropose } from '../../src/ai/index.js';
 import type { PlaceTreeWorkspace } from '../../src/domain/spoken-path.js';
-
-/** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
-const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
+import { A_CONTRACT_RUN, claude, hasAKey } from './support/claude.js';
 
 /**
  * The contract tier's check on Claude: **one call per prompt, on an ordinary
@@ -21,9 +19,8 @@ const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, t
  * moved to a new version without one fails `pnpm test:scripts`.
  */
 
-const key = process.env.ANTHROPIC_API_KEY ?? '';
 const spent = { calls: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
-const asking = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+const asking = claude((_model, usage) => {
   spent.calls += 1;
   spent.input += usage.input_tokens;
   spent.cacheRead += usage.cache_read_input_tokens ?? 0;
@@ -31,13 +28,6 @@ const asking = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || un
   spent.output += usage.output_tokens;
 });
 afterAll(() => console.log(`one-call: ${JSON.stringify(spent)}`));
-
-/** A red check without a key, never a skipped one: a run that asked nothing proves nothing. */
-function hasAKey() {
-  it('has a key to ask with', () => {
-    expect(key, 'set ANTHROPIC_API_KEY, or put it in apps/api/.dev.vars').not.toBe('');
-  });
-}
 
 const NOTE = 'call the dentist tomorrow to book a check-up';
 const PANELS = [

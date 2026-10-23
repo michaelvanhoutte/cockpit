@@ -7,6 +7,7 @@ import {
   type PanelKind,
   NO_DASHBOARD_FILTER,
   isFiltering,
+  drawnRows,
 } from '@cockpit/shared';
 import { dashboardScope, pickAll, shownOn } from '../selection';
 import { filtersUsingDashboard, joinedBy } from '../filters';
@@ -35,7 +36,7 @@ import {
   WHAT_A_PANEL_IS,
   WHAT_A_SECTION_IS,
 } from '../whatThingsAre';
-import { drawnRows, rowsToSave, withSectionAdded } from '../panels/arrangement';
+import { rowsToSave, withSectionAdded } from '../panels/arrangement';
 import { boardRowsOf } from '../panels/boardRows';
 
 /**
