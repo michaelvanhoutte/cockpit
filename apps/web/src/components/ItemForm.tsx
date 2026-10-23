@@ -1140,9 +1140,16 @@ function TheForm({
           failure = error instanceof Error ? error.message : 'That could not be saved';
         }
         if (failure !== null) {
+          // A wait's value is its days when set, and what it replaced when an undo takes it back.
+          const said =
+            field === 'status'
+              ? 'The status change failed.'
+              : typeof value === 'number'
+                ? 'The wait for a reply was not set.'
+                : 'The wait for a reply was not taken back.';
           return field === 'status' || field === 'wait'
             ? {
-                failure: `${field === 'wait' ? 'The wait for a reply was not set.' : 'The status change failed.'} ${failure}`,
+                failure: `${said} ${failure}`,
                 held: held ?? { status: from.status, started: from.started, waiting: from.waiting },
               }
             : { failure, held: null };
@@ -1181,11 +1188,16 @@ function TheForm({
     const landed = async (what: Field, value: ReturnType<typeof asStored>): Promise<boolean> => {
       const { failure, held } = await writeField(what, value, editingRef.current!.was);
       const settled = failure === null ? landedAs(what, editing.now[what], held) : (held ?? {});
+      /** A wait refused is no longer chosen, and takes back the due date it gave - not one typed over it. */
+      const waitRefused = ({ was, now }: { was: Draft; now: Draft }): Partial<Draft> =>
+        what === 'wait' && now.wait
+          ? { wait: null, ...(now.dueDate === now.wait.dueDate && { dueDate: was.dueDate }) }
+          : {};
       changeEditing((now) =>
         now
           ? {
               // A status that did not all land shows what the item holds, not what was chosen.
-              now: failure === null ? now.now : { ...now.now, ...held },
+              now: failure === null ? now.now : { ...now.now, ...held, ...waitRefused(now) },
               was: { ...now.was, ...settled },
             }
           : now,

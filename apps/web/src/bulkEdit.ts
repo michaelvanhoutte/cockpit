@@ -173,12 +173,13 @@ async function answered(
  */
 export async function putBack(sending: Sending, field: BulkField, changed: readonly Changed[]): Promise<void> {
   for (const [at, { item, before, after, endedRunId }] of changed.entries()) {
-    const writes = fieldWrites(field, sending.envelope(item.id), before, after).map(({ command }) =>
-      endedRunId && command.name === 'set_done' && !command.payload.done
-        ? { ...command, payload: { ...command.payload, reopensRunId: endedRunId } }
-        : command,
-    );
     try {
+      // Inside the try: a status that cannot be put back (`WAIT_NOT_PUT_BACK`) is a refusal like any other.
+      const writes = fieldWrites(field, sending.envelope(item.id), before, after).map(({ command }) =>
+        endedRunId && command.name === 'set_done' && !command.payload.done
+          ? { ...command, payload: { ...command.payload, reopensRunId: endedRunId } }
+          : command,
+      );
       await sendAll(sending, writes);
     } catch (error) {
       throw new Error(

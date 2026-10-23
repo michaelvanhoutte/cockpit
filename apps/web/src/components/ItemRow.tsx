@@ -2,6 +2,7 @@ import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { RepeatsMark } from './RepeatsMark';
+import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import {
   itemHasOpenReadings,
   itemLabel,
@@ -837,7 +838,7 @@ export function ItemRow({
           </M.SubTrigger>
           <M.Portal>
             {/* On a phone the menu fills the width, leaving no room beside it for
-                the three states: they are laid over its right-hand end instead,
+                the four states: they are laid over its right-hand end instead,
                 a submenu's own width back from the edge. */}
             <M.SubContent
               sideOffset={roomBesideTheMenu ? 0 : -SUBMENU_WIDTH_PX}
@@ -1495,14 +1496,23 @@ export function ItemRow({
           </MenuContent>
         </DropdownMenu.Root>
         {waitAsked && (
-          <Suspense fallback={null}>
-            <WaitPopover
-              anchor={trigger}
-              waitingSince={status === 'waiting' ? item.waitingSince : null}
-              onClose={() => setWaitAsked(false)}
-              onWait={waitForReply}
-            />
-          </Suspense>
+          // A chunk that never arrives closes the question and says so on the row, rather than taking the board down.
+          <WhateverTheQuestionDoes
+            onFailure={() => {
+              setWaitAsked(false);
+              setRowNotice('Wait for reply could not load. Reload Cockpit to try again.');
+              trigger.current?.focus();
+            }}
+          >
+            <Suspense fallback={null}>
+              <WaitPopover
+                anchor={trigger}
+                waitingSince={status === 'waiting' ? item.waitingSince : null}
+                onClose={() => setWaitAsked(false)}
+                onWait={waitForReply}
+              />
+            </Suspense>
+          </WhateverTheQuestionDoes>
         )}
       </div>
     </li>

@@ -281,6 +281,17 @@ describe('Agents', () => {
         expect.objectContaining({ id: run!.id, destination: 'cowork', stage: 'sent' }),
       ]);
     });
+
+    it('leaves it open when To do only takes back a wait on an Item never started', async () => {
+      const itemId = await anItem('Chase the invoice');
+      await send(itemId);
+      const waited = { workspaceId: WORKSPACE_ID, itemId, days: 3, timeZone: 'Europe/Brussels' };
+      await postChange('wait_for_reply', waited, USER_ID, later(1));
+
+      await postChange('set_started', { workspaceId: WORKSPACE_ID, itemId, started: false }, USER_ID, later(2));
+
+      expect((await allRuns(itemId)).map((run) => run.ended_at)).toEqual([null]);
+    });
   });
 
   describe('the files of an item are linked for a Claude session that cannot sign in', () => {

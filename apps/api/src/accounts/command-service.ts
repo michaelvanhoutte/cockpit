@@ -872,8 +872,8 @@ type OccurrenceBrought =
  * **A copy is made from the series, never from an earlier copy**: its title,
  * description, priority and Workspace, **at the top of each of its Panels
  * still live in that Workspace, or in the Inbox where none is**, and no files.
- * **Never more than one open**: the latest copy still To do or In progress
- * means nothing is added; finished with or dismissed, it counts as handled.
+ * **Never more than one open**: the latest copy still To do, In progress or
+ * Waiting for reply means nothing is added; finished with or dismissed, it counts as handled.
  * Either way Next on moves to the first day the series comes round after today
  * on its own calendar, so a store asleep for a week brings back one
  * occurrence, not seven, and none on a day already passed. **A day whose Item
@@ -2440,8 +2440,11 @@ export function runCommand<N extends CommandName>(
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
-          // To do ends the run; In progress leaves it open.
-          if (!cmd.started) endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
+          // To do ends the run; In progress leaves it open. So does To do that
+          // only ends a wait on an Item never started - what undoing that wait
+          // sends - since the wait left the run open and To do held it open before.
+          const onlyEndsAWait = existing.startedAt === null && existing.waitingSince !== null;
+          if (!cmd.started && !onlyEndsAWait) endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
           tx.insert(commands).values(commandRow).run();
         });
       }

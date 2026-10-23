@@ -13,7 +13,7 @@ const RepeatsChip = lazy(() => import('./RepeatsChip').then((loaded) => ({ defau
 /** The *Wait for reply…* chip and its popover, fetched behind the line for the same reason ("Set an Item Waiting for reply", issue 1463). */
 const WaitChip = lazy(() => import('./WaitForReply').then((loaded) => ({ default: loaded.WaitChip })));
 
-export const STATUSES: readonly [ItemStatus, string][] = [
+const STATUSES: readonly [ItemStatus, string][] = [
   ['to_do', 'To do'],
   ['in_progress', 'In progress'],
   ['waiting', 'Waiting for reply'],
@@ -80,7 +80,7 @@ export function ItemFormLine({
             event.preventDefault();
           }}
         >
-          {STATUSES.filter(([value]) => value !== 'waiting' || wait).map(([value, name]) => (
+          {STATUSES.filter(([value]) => value !== 'waiting' || (wait && !waitFailed)).map(([value, name]) => (
             <DropdownMenu.Item
               key={value}
               role="menuitemradio"

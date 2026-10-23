@@ -1124,6 +1124,23 @@ describe('Item editing', () => {
 
         await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['wait_for_reply']));
       });
+
+      it('a wait refused on Save goes back to the status and due date the Item has, and is not sent again', async () => {
+        const user = await theForm(anItem({ dueDate: '2099-01-01' }));
+        held.send.mockRejectedValueOnce(new Error('Cockpit does not know the time zone this device is in.'));
+
+        await pickStatus(user, 'Waiting for reply');
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/wait for a reply was not set/));
+        expect(statusChip()).toHaveTextContent('To do');
+        held.send.mockClear();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent()).toEqual([]);
+      });
     });
 
     describe('a refusal of one of them', () => {

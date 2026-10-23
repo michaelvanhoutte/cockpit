@@ -248,7 +248,7 @@ export type ItemStatus = z.infer<typeof itemStatusSchema>;
  * alone, which is what lets undoing Done return to the status it was marked
  * done from - To do, In progress or Waiting for reply.
  */
-export function itemStatus(item: Pick<Item, 'startedAt' | 'completedAt'> & { waitingSince?: string | null }): ItemStatus {
+export function itemStatus(item: Pick<Item, 'startedAt' | 'completedAt' | 'waitingSince'>): ItemStatus {
   if (item.completedAt) return 'done';
   if (item.waitingSince) return 'waiting';
   if (item.startedAt) return 'in_progress';
