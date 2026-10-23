@@ -25,7 +25,7 @@ export const ENVIRONMENTS = ['production', 'staging', 'ci', 'local'] as const;
 export type Environment = (typeof ENVIRONMENTS)[number];
 
 /** A feature as a slug; a model id is read as the costs page reads it. Never free text. */
-const FEATURE_ID = /^[a-z0-9][a-z0-9-]{0,99}$/;
+export const FEATURE_ID = /^[a-z0-9][a-z0-9-]{0,99}$/;
 
 export interface CallsQuery {
   period: Period;
@@ -321,16 +321,15 @@ export async function callsPage(db: D1Database, query: CallsQuery, now = Date.no
   const bySeries = bag();
   for (const g of groups) for (const [key, micros] of Object.entries(g.bySeries)) bySeries[key] = (bySeries[key] ?? 0) + micros;
   const known = options!.results as { feature: string; model: string; startedBy: string }[];
-  // Only values the filters can name: the address takes a slug and a model id, so the dropdowns offer no other.
-  const distinct = (pick: (r: (typeof known)[number]) => string, allowed: RegExp | null = null) => [...new Set(known.map(pick))].filter((v) => allowed === null || allowed.test(v)).sort();
+  const distinct = (pick: (r: (typeof known)[number]) => string) => [...new Set(known.map(pick))].sort();
   const lastRun = (run!.results[0] ?? null) as { ranAt: number; startedBy: 'schedule' | 'hand'; ok: number; message: string; lastOkAt: number | null } | null;
 
   const before = bag();
   for (const r of (beforeRows?.results ?? []) as { s: string; micros: number }[]) before[r.s] = r.micros;
   return {
     query,
-    features: distinct((r) => r.feature, FEATURE_ID),
-    models: distinct((r) => r.model, MODEL_ID),
+    features: distinct((r) => r.feature),
+    models: distinct((r) => r.model),
     startedBys: distinct((r) => r.startedBy),
     groups,
     series: callSeries(query.split, bySeries),

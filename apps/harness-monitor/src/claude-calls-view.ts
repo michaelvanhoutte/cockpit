@@ -4,6 +4,7 @@ import {
   CALL_SPLITS,
   ENVIRONMENTS,
   ENVIRONMENT_NAMES,
+  FEATURE_ID,
   featureName,
   seriesName,
   type CallGroup,
@@ -12,7 +13,7 @@ import {
   type CallsPage,
   type CallsQuery,
 } from './claude-calls-page';
-import { dayChart, firstDay, PERIODS, type DayChart, type Period } from './costs';
+import { dayChart, firstDay, MODEL_ID, PERIODS, type DayChart, type Period } from './costs';
 import { band, esc, selectField, shell } from './look';
 import { costPerDay, dollars, jobLines, number, PERIOD_LABELS, signed } from './page';
 
@@ -54,6 +55,9 @@ function groupTabs({ query }: CallsPage): string {
 }
 
 function filters({ query, features, models }: CallsPage): string {
+  // The address takes a feature slug and a model id, so the dropdowns offer no other value; colours still count every one on record.
+  features = features.filter((f) => FEATURE_ID.test(f));
+  models = models.filter((m) => MODEL_ID.test(m));
   const featureOptions: [string, string][] = [['', 'Every feature'], ...features.map((f): [string, string] => [f, featureName(f)])];
   // A named feature or model no longer on record stays selectable, so the form never silently drops a filter.
   if (query.feature && !features.includes(query.feature)) featureOptions.push([query.feature, featureName(query.feature)]);

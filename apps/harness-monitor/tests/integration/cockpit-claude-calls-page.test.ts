@@ -236,6 +236,9 @@ describe('Harness Monitor', () => {
       const features = await theCallsPage('?group=feature');
       expect(callsRows(features).map((r) => r.label)).toEqual(['constructor', 'Has_Upper']);
       expect(callsColumns(await theCallsPage('?group=environment&split=feature'))).toEqual(['constructor', 'Has_Upper']);
+      // A feature the dropdown leaves out still has a colour of its own.
+      const heads = [...(await theCallsPage('?group=environment&split=feature')).matchAll(/<th scope="col" class="num"><i style="background:([^"]+)"/g)].map((m) => m[1]);
+      expect(new Set(heads).size).toBe(2);
       expect(callsColumns(await theCallsPage())).toEqual(['Production', 'valueOf']);
       expect(features).toContain('<option value="constructor">');
       expect(features).not.toContain('Has_Upper</option>');
