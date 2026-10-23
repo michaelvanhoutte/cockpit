@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import type { Connector } from '@cockpit/connector-sdk';
-import type { Attachment, CommandName, Filing, Item, Series } from '@cockpit/shared';
+import { ACCOUNT_WIDE, type Attachment, type CommandName, type Filing, type Item, type Series } from '@cockpit/shared';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue, handleScheduled } from '../../../src/jobs/index.js';
 import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
@@ -574,6 +574,28 @@ describe('Item editing', () => {
       expect(await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, '2090-01-09T10:59:00.000Z')).toMatchObject({
         status: 'ok',
         value: { events: [expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: WORKSPACE_ID })] },
+      });
+    });
+
+    it('moves on where every Workspace sees it when the open one was filed in a Workspace other than its series', async () => {
+      await alsoWorkspaces();
+      const itemId = nextId();
+      await change('capture_item', { itemId, message: 'Weekly review', workspaceDecided: false }, '2090-01-01T09:00:00.000Z');
+      await repeat(itemId);
+      const panelId = nextId();
+      await change(
+        'add_panel',
+        { dashboardId: 'ws-atlas-dashboard-1', panelId, name: 'Reviews', kind: 'items', workspaceId: 'ws-atlas' },
+        '2090-01-03T09:00:00.000Z',
+      );
+      await change('add_item_to_panel', { itemId, panelId, order: [itemId], workspaceId: 'ws-atlas' }, '2090-01-03T09:01:00.000Z');
+
+      await alarmRunsAt(morningOf(FIRST));
+
+      expect(await seriesRow()).toMatchObject({ next_on: SECOND });
+      expect(await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, '2090-01-09T07:59:00.000Z')).toMatchObject({
+        status: 'ok',
+        value: { events: [expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: ACCOUNT_WIDE })] },
       });
     });
 

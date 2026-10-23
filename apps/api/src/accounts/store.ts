@@ -1507,9 +1507,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       };
     }
 
-    // Each stored file once, however many rows name it: a repeating Item's
-    // occurrences each carry a row naming the same file ("Bring a repeating
-    // Item back on its day", issue 1407).
+    // Each stored file once, however many rows name it: occurrences brought
+    // back before a copy was made from its series each carry a row naming the
+    // same file ("Bring a repeating Item back on its day", issue 1407).
     const orphanedKeys = accountTables(sql).includes('attachments')
       ? sql
           .exec<{ r2_key: string }>('SELECT DISTINCT r2_key FROM attachments')

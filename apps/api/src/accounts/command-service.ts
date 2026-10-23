@@ -844,12 +844,13 @@ type OccurrenceBrought =
    * The previous occurrence still open, or this day's Item already written:
    * Next on moves on, and nothing is added.
    */
-  | { kind: 'passes over'; nextOn: string; anchorOn: string; workspaceId: string }
+  | { kind: 'passes over'; nextOn: string; anchorOn: string; workspaceId: string | null }
   | {
       kind: 'writes';
       nextOn: string;
       anchorOn: string;
-      workspaceId: string;
+      /** Where it is told: null for every Workspace. */
+      workspaceId: string | null;
       item: Item;
       panels: { panelId: string; rows: FilingRow[] }[];
     };
@@ -885,8 +886,12 @@ function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'
   const anchorOn = countedFrom(own);
   const nextOn = firstDayAfter(anchorOn, own.frequency, today.date);
   const previous = latestOccurrence(db, tenantId, own.id);
+  // Told to the series' Workspace, where its copies land, unless the latest is
+  // drawn elsewhere too - filed in another, or in every Inbox - when every one is.
+  const toldIn =
+    previous === null || (previous.workspaceDecided && previous.workspaceId === workspaceId) ? workspaceId : null;
   if (getItem(db, tenantId, cmd.itemId) || (previous !== null && couldStillBeActedOn(previous))) {
-    return { kind: 'passes over', nextOn, anchorOn, workspaceId };
+    return { kind: 'passes over', nextOn, anchorOn, workspaceId: toldIn };
   }
 
   const copied = occurrenceOf({ ...own, workspaceId, title }, previous, {
@@ -900,7 +905,7 @@ function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'
     const order = [copied.id, ...panel.held.map((filing) => filing.itemId)];
     return [{ panelId: panel.id, rows: filingRows(tenantId, { itemId: copied.id, panelId: panel.id, order, issuedAt: cmd.issuedAt }) }];
   });
-  return { kind: 'writes', nextOn, anchorOn, workspaceId, item: copied, panels };
+  return { kind: 'writes', nextOn, anchorOn, workspaceId: toldIn, item: copied, panels };
 }
 
 /**
@@ -2458,7 +2463,7 @@ export function runCommand<N extends CommandName>(
         break;
       }
       // Logged against the Workspace whose tabs draw the series, or every one
-      // where its Item belongs to none.
+      // where its latest copy is drawn outside the series' own.
       if (brought.workspaceId !== null) commandRow.workspaceId = brought.workspaceId;
       // Only a written Item spends the series' day: a day passed over leaves it
       // for a Next on moved back to it, under an id of the log's own.
