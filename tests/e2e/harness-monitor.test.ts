@@ -183,6 +183,76 @@ test.describe('Harness Monitor', () => {
     expect(await ground()).toBe('rgb(35, 36, 42)');
   });
 
+  test('CI stability opens from the top bar, its tabs and the Workflow filter narrow it, the filters sit in one row on a desk, and a phone scrolls the wide tables inside their panels', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
+    const run = (id: number, workflow: string, hours: number, failed: { job: string; step: string } | null) => ({
+      id,
+      workflow,
+      path: `.github/workflows/${workflow.toLowerCase()}.yml`,
+      status: 'completed',
+      conclusion: failed ? 'failure' : 'success',
+      outcome: failed ? 'fail' : 'pass',
+      headSha: 'c'.repeat(40),
+      createdAt: hoursAgo(hours),
+      url: `https://github.com/o/r/actions/runs/${id}`,
+      jobs: [
+        {
+          name: failed?.job ?? 'Test',
+          status: 'completed',
+          conclusion: failed ? 'failure' : 'success',
+          outcome: failed ? 'fail' : 'pass',
+          startedAt: hoursAgo(hours),
+          completedAt: hoursAgo(hours),
+          durationMs: 120_000,
+          failedStep: failed?.step ?? null,
+          url: `https://github.com/o/r/actions/runs/${id}/job/1`,
+          steps: [{ number: 1, name: failed?.step ?? 'Run the tests', occurrence: 1, conclusion: failed ? 'failure' : 'success', startedAt: hoursAgo(hours), completedAt: hoursAgo(hours), durationMs: 60_000 }],
+        },
+      ],
+    });
+    const runs = [
+      run(9_001_001, 'CI', 50, null),
+      run(9_001_002, 'CI', 40, { job: 'Test', step: 'Run the tests' }),
+      run(9_001_003, 'CI', 30, null),
+      run(9_001_004, 'Nightly', 5, { job: 'Test explorer', step: 'Build the snapshot' }),
+    ];
+    expect((await api.post(`${monitor}/__e2e/seed-stability`, { data: { runs } })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+
+    // From the costs page, the top bar's own tab opens it on the Job tab, with the tiles an overview has.
+    await page.goto(`${monitor}/`);
+    await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'CI stability' }).click();
+    const band = page.getByRole('navigation', { name: 'Group by' });
+    await expect(band.getByRole('link', { name: 'Job', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(band.getByRole('link')).toHaveText(['Job', 'Workflow', 'Red spells', 'Failures', 'Over time']);
+    await expect(page.getByRole('region', { name: 'How every job run ended' })).toBeVisible();
+    // While Nightly is red, the line says so on this tab and on the next.
+    await expect(page.getByRole('status').filter({ hasText: 'Nightly is red now' })).toContainText('Build the snapshot');
+
+    // The filters share one row on a desk; the page never scrolls sideways, and the wide table scrolls inside its panel.
+    const tops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(3);
+    if (!onAPhone) expect(new Set(tops).size).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const byJob = page.getByRole('region', { name: 'By job' }).locator('.table');
+    expect(await byJob.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(onAPhone);
+
+    // Failures lists where both workflows died; choosing Workflow: CI keeps the tab and leaves only CI's failure.
+    await band.getByRole('link', { name: 'Failures' }).click();
+    const died = page.getByRole('region', { name: 'Where they died' });
+    await expect(died.getByRole('row')).toHaveCount(3);
+    await expect(page.getByRole('status').filter({ hasText: 'Nightly is red now' })).toBeVisible();
+    await page.getByLabel('Workflow', { exact: true }).selectOption('CI');
+    await expect(page).toHaveURL(/[?&]workflow=CI(&|$)/);
+    await expect(page).toHaveURL(/[?&]group=failures(&|$)/);
+    await expect(band.getByRole('link', { name: 'Failures' })).toHaveAttribute('aria-current', 'page');
+    await expect(died.getByRole('row')).toHaveCount(2);
+    await expect(died).toContainText('Run the tests');
+    await expect(died).not.toContainText('Build the snapshot');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
   test('the page is drawn in Inter, which the Monitor serves itself', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);

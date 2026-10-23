@@ -131,16 +131,14 @@ interface QuantileRow {
 const durations = (row: QuantileRow): Durations | null =>
   row.count > 0 && row.median !== null && row.p90 !== null ? { median: row.median, p90: row.p90, count: row.count } : null;
 
-/**
- * The stored runs for a period: each window up to it, and per workflow each
- * job's and each step's durations, the shape the tool's model.json has. A
- * window starts at the beginning of its first Belgian day.
- */
-export async function stabilityAnswer(db: D1Database, period: Period, now: number): Promise<StabilityAnswer> {
-  const length = PERIODS[period];
-  const spans: Period[] = [...WINDOWS.filter((w) => length === null || PERIODS[w] <= length), ...(length === null ? (['all'] as const) : [])];
-  const windows = spans.map((span) => ({ days: PERIODS[span], firstDay: periodFirstDay(span, now) }));
+/** A window to read: its length in Belgian days and its first Belgian day, both null for every stored run. */
+export interface WindowSpan {
+  days: number | null;
+  firstDay: string | null;
+}
 
+/** Each window's runs and, per workflow, each job's and step's durations: the shape the tool's model.json has. A window starts at the beginning of its first Belgian day. */
+export async function stabilityWindows(db: D1Database, windows: WindowSpan[]): Promise<StabilityWindow[]> {
   const statements = windows.flatMap(({ firstDay }) => {
     const from = firstDay === null ? 0 : startOfDay(firstDay);
     return [
@@ -151,25 +149,32 @@ export async function stabilityAnswer(db: D1Database, period: Period, now: numbe
   });
   const results = await db.batch(statements);
 
-  return {
-    period,
-    firstDay: windows.at(-1)!.firstDay,
-    windows: windows.map(({ days, firstDay }, i) => {
-      const runs = (results[i * 3]!.results[0] as { runs: number }).runs;
-      const jobRows = results[i * 3 + 1]!.results as (QuantileRow & { workflow: string; job: string })[];
-      const stepRows = results[i * 3 + 2]!.results as (QuantileRow & { workflow: string; job: string; step: string; occurrence: number })[];
-      const workflows = new Map<string, StabilityWindow['workflows'][number]>();
-      for (const row of jobRows) {
-        if (!workflows.has(row.workflow)) workflows.set(row.workflow, { name: row.workflow, jobs: [] });
-        workflows.get(row.workflow)!.jobs.push({
-          name: row.job,
-          durations: durations(row),
-          steps: stepRows
-            .filter((s) => s.workflow === row.workflow && s.job === row.job)
-            .map((s) => ({ name: s.step, occurrence: s.occurrence, durations: durations(s) })),
-        });
-      }
-      return { days, firstDay, runs, workflows: [...workflows.values()] };
-    }),
-  };
+  return windows.map(({ days, firstDay }, i) => {
+    const runs = (results[i * 3]!.results[0] as { runs: number }).runs;
+    const jobRows = results[i * 3 + 1]!.results as (QuantileRow & { workflow: string; job: string })[];
+    const stepRows = results[i * 3 + 2]!.results as (QuantileRow & { workflow: string; job: string; step: string; occurrence: number })[];
+    const workflows = new Map<string, StabilityWindow['workflows'][number]>();
+    for (const row of jobRows) {
+      if (!workflows.has(row.workflow)) workflows.set(row.workflow, { name: row.workflow, jobs: [] });
+      workflows.get(row.workflow)!.jobs.push({
+        name: row.job,
+        durations: durations(row),
+        steps: stepRows
+          .filter((s) => s.workflow === row.workflow && s.job === row.job)
+          .map((s) => ({ name: s.step, occurrence: s.occurrence, durations: durations(s) })),
+      });
+    }
+    return { days, firstDay, runs, workflows: [...workflows.values()] };
+  });
+}
+
+/** The stored runs for a period: each window up to it, the shortest first (`stabilityWindows`). */
+export async function stabilityAnswer(db: D1Database, period: Period, now: number): Promise<StabilityAnswer> {
+  const length = PERIODS[period];
+  const spans: Period[] = [...WINDOWS.filter((w) => length === null || PERIODS[w] <= length), ...(length === null ? (['all'] as const) : [])];
+  const windows = await stabilityWindows(
+    db,
+    spans.map((span) => ({ days: PERIODS[span], firstDay: periodFirstDay(span, now) })),
+  );
+  return { period, firstDay: windows.at(-1)!.firstDay, windows };
 }

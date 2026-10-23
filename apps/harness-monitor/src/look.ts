@@ -21,8 +21,12 @@ export const FONT_URL = '/fonts/inter-5.3.0-latin-wght.woff2';
 /** The mark: four rounded squares, the fourth in the default theme's violet lifted for the chrome. */
 const LOGO = `<svg aria-hidden="true" viewBox="0 0 32 32" class="logo"><rect x="3" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="3" y="17" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="17" width="12" height="12" rx="2.5" fill="var(--logo-dot)"/></svg>`;
 
-/** The pages the top bar lists, in order. */
-export type PageName = 'costs';
+/** Every page the top bar lists, in tab order. A new page is a line here and its own route. */
+export const PAGES = [
+  { name: 'costs', href: '/', label: 'Claude Code costs' },
+  { name: 'stability', href: '/stability', label: 'CI stability' },
+] as const;
+export type PageName = (typeof PAGES)[number]['name'];
 
 /** A section heading: the strip Cockpit draws over a panel, with an optional note at its right. */
 export const band = (title: string, aside = '', id = '') =>
@@ -40,20 +44,20 @@ export function selectField(id: string, label: string, options: [value: string, 
 function chrome(current: PageName, now: number): string {
   return `<header class="topbar">
 <a class="brand" href="/">${LOGO}<span>Harness Monitor</span></a>
-<nav class="pages" aria-label="Pages"><a href="/"${current === 'costs' ? ' aria-current="page"' : ''}>Claude Code costs</a></nav>
+<nav class="pages" aria-label="Pages">${PAGES.map((p) => `<a href="${p.href}"${p.name === current ? ' aria-current="page"' : ''}>${p.label}</a>`).join('')}</nav>
 <span class="status">Updated ${formatDateTime(now)} · public, read-only</span>
 </header>`;
 }
 
-/** What a page is drawn with: which tab is current, the groupings on the band (none for a page without), and the page itself. */
-export function shell(page: { current: PageName; tabs?: string; body: string }, now: number): string {
+/** What a page is drawn with: which tab is current, the groupings on the band (none for a page without), the page itself, and any stylesheet it adds to the shared one. */
+export function shell(page: { current: PageName; tabs?: string; body: string; style?: string }, now: number): string {
   // A page with no groupings keeps the band as a bare strip, so its tab still runs into it.
   const strip = page.tabs === undefined ? '<div class="band"></div>' : `<nav class="band" aria-label="Group by"><div class="band-tabs">${page.tabs}</div></nav>`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
 <link rel="preload" href="${FONT_URL}" as="font" type="font/woff2" crossorigin>
-<style>${STYLE}</style>
+<style>${STYLE}${page.style ?? ''}</style>
 </head><body>
 ${chrome(page.current, now)}
 ${strip}

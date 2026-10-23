@@ -1,4 +1,6 @@
 import worker, { type Env } from '../src/worker';
+import { checkRuns } from '../src/stability';
+import { storeRuns } from '../src/stability-store';
 import { storeBatch } from '../src/store';
 import { validateBatch } from '../src/validate';
 
@@ -12,6 +14,10 @@ import { validateBatch } from '../src/validate';
  * them through the Worker's own write path, and records the pull requests the
  * hourly job would have read from GitHub. A request already stored is ignored,
  * so seeding twice (the suite runs each walk on two devices) changes nothing.
+ *
+ * A second route, `/__e2e/seed-stability`, stores CI stability's runs through the
+ * same checks and writes a send goes through; a run is stored under its id, so
+ * it too can be sent twice.
  */
 const RATES = { 'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5 } };
 
@@ -30,7 +36,13 @@ interface SeededPullRequest {
 export default {
   ...worker,
   async fetch(request, env, ctx) {
-    if (new URL(request.url).pathname !== '/__e2e/seed' || request.method !== 'POST') return worker.fetch(request, env, ctx);
+    const { pathname } = new URL(request.url);
+    if (pathname === '/__e2e/seed-stability' && request.method === 'POST') {
+      const checked = checkRuns(await request.json());
+      if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
+      return Response.json(await storeRuns(env.DB, checked.runs));
+    }
+    if (pathname !== '/__e2e/seed' || request.method !== 'POST') return worker.fetch(request, env, ctx);
 
     const { rows, pullRequests } = (await request.json()) as { rows: unknown[]; pullRequests: SeededPullRequest[] };
     const checked = validateBatch({ rows });

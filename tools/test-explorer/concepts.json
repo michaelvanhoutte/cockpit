@@ -649,7 +649,7 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 3,
+      "browserWalks": 4,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",
@@ -666,7 +666,12 @@
         "apps/harness-monitor/src/pull-request-page.ts",
         "apps/harness-monitor/src/github.ts",
         "apps/harness-monitor/src/claude-calls.ts",
-        "apps/harness-monitor/src/claude-call-shape.ts"
+        "apps/harness-monitor/src/claude-call-shape.ts",
+        "apps/harness-monitor/src/stability.ts",
+        "apps/harness-monitor/src/stability-store.ts",
+        "apps/harness-monitor/src/stability-report.ts",
+        "apps/harness-monitor/src/stability-page.ts",
+        "apps/harness-monitor/src/report.ts"
       ]
     }
   ]

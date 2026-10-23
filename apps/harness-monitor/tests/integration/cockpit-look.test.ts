@@ -34,7 +34,7 @@ describe('Harness Monitor', () => {
       { situation: "a pull request's page", page: async () => (await thePullRequest(7)).text() },
       { situation: 'the page for a pull request nothing knows', page: async () => (await thePullRequest(999)).text() },
     ])('$situation shows the mark, the name and the costs tab selected', async ({ page }) => {
-      expect(topBar(await page())).toEqual({ mark: true, name: true, tabs: [{ label: 'Claude Code costs', current: true }] });
+      expect(topBar(await page())).toEqual({ mark: true, name: true, tabs: [{ label: 'Claude Code costs', current: true }, { label: 'CI stability', current: false }] });
     });
 
     it.each([
