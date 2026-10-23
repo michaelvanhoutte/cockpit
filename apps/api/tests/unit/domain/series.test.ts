@@ -108,4 +108,20 @@ describe('Item editing', () => {
       if (after !== undefined) expect(theDayAfter((decided as { row: SeriesRow }).row)).toBe(after);
     });
   });
+
+  describe('a Next on is held to today on the calendar of the zone sent', () => {
+    it.each([
+      // 23:30 UTC on the 22nd is already the 23rd in Brussels, and still the 22nd in New York.
+      { situation: 'the 22nd, once it is the 23rd where the device is, is refused', timeZone: 'Europe/Brussels', kind: 'refused' },
+      { situation: 'the 22nd, while it is still the 22nd where the device is, is taken', timeZone: 'America/New_York', kind: 'write' },
+    ])('a Next on of $situation', ({ timeZone, kind }) => {
+      const decided = decideRepeat(
+        null,
+        { issuedAt: '2082-10-22T23:30:00.000Z', seriesId: '018f0000-0000-7000-8000-000000000001', repeat: { frequency: 'weekly', nextOn: '2082-10-22', dueAfterDays: 3, timeZone } },
+        'account',
+      );
+
+      expect(decided.kind).toBe(kind);
+    });
+  });
 });

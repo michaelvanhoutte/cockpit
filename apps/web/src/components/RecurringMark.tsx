@@ -35,7 +35,7 @@ export function RecurringOriginLine({
 }) {
   if (!origin) return null;
   return (
-    <p className="mt-2 shrink-0 text-xs text-ink-faint" data-recurring-origin>
+    <p className="mt-2 shrink-0 break-words text-xs text-ink-faint" data-recurring-origin>
       <span aria-hidden="true">↻ </span>
       From recurring item{' '}
       {origin.running ? (

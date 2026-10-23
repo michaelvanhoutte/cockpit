@@ -5,6 +5,7 @@ import {
   readBack,
   recurringOriginOf,
   recurringTitle,
+  repeatRuleSchema,
   ruleLabel,
   type RepeatRule,
   type Series,
@@ -152,6 +153,21 @@ describe('Item editing', () => {
       },
     ])('reads $situation as its origin or none', ({ item, series: held, origin: expected }) => {
       expect(recurringOriginOf(item, held)).toEqual(expected);
+    });
+  });
+
+  describe('a rule that cannot be set is turned away', () => {
+    it.each<{ situation: string; rule: unknown; takes: boolean }>([
+      { situation: 'a frequency outside the list', rule: { ...weekly, frequency: 'fortnightly' }, takes: false },
+      { situation: 'a negative due gap', rule: { ...weekly, dueAfterDays: -1 }, takes: false },
+      { situation: 'a due gap over 366 days', rule: { ...weekly, dueAfterDays: 367 }, takes: false },
+      { situation: 'a due gap that is not whole days', rule: { ...weekly, dueAfterDays: 1.5 }, takes: false },
+      { situation: 'a Next on that is not a calendar day', rule: { ...weekly, nextOn: 'next monday' }, takes: false },
+      { situation: 'a due gap of 0 days', rule: { ...weekly, dueAfterDays: 0 }, takes: true },
+      { situation: 'a due gap of 366 days', rule: { ...weekly, dueAfterDays: 366 }, takes: true },
+      { situation: 'no due gap', rule: { ...weekly, dueAfterDays: null }, takes: true },
+    ])('$situation', ({ rule, takes }) => {
+      expect(repeatRuleSchema.safeParse(rule).success).toBe(takes);
     });
   });
 });

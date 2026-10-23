@@ -367,6 +367,25 @@ describe('Workspace management', () => {
 
       expect(await snapshotSeries()).toEqual([expect.objectContaining({ id: seriesId, title: 'Friday review', nextOn: '2090-01-16' })]);
     });
+
+    it('is carried only by the Workspace its copies are in', async () => {
+      await alsoWorkspaces();
+      await aMade({ repeat: { ...WEEKLY, nextOn: '2090-01-09', dueAfterDays: null } });
+      await alarmRunsAt('2090-01-09T08:00:00.000Z');
+
+      expect(await snapshotSeries()).toHaveLength(1);
+      expect(await snapshotSeries(OTHER_WORKSPACE)).toEqual([]);
+    });
+
+    it('is no longer carried once the only copy naming it is dismissed', async () => {
+      const seriesId = await aMade({ repeat: { ...WEEKLY, nextOn: '2090-01-09', dueAfterDays: null } });
+      await alarmRunsAt('2090-01-09T08:00:00.000Z');
+      const [itemId] = await copiesOf(seriesId);
+
+      await post('set_dismissed', { commandId: nextId(), issuedAt: '2090-01-09T09:00:00.000Z', workspaceId: WORKSPACE_ID, itemId, dismissed: true });
+
+      expect(await snapshotSeries()).toEqual([]);
+    });
   });
 
   describe('the old Repeats chip\'s change is refused, and writes nothing', () => {

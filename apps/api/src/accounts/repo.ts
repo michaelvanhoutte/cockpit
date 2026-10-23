@@ -842,7 +842,7 @@ function seriesRowColumns() {
 }
 
 /**
- * Every series *Never* has not stopped ("Bring a repeating Item back on its day",
+ * Every series not yet stopped by deleting its recurring item ("Bring a repeating Item back on its day",
  * issue 1407) - what the account's alarm is set by and brings back. A handful
  * per account, so the day each is due on is worked out by the caller rather than
  * stored beside it.
@@ -887,8 +887,8 @@ const seriesColumns = {
 
 /**
  * Every series the Items of one Workspace name ("Repeat an Item on a schedule",
- * issue 1405), stopped ones included: an Item still names the series *Never*
- * stopped. **The same Items `listOpenItems` returns**, which is why this carries
+ * issue 1405), stopped ones included: an Item still names the series
+ * deleting its recurring item stopped. **The same Items `listOpenItems` returns**, which is why this carries
  * the same `or`: an Item belonging to no Workspace is drawn in every one.
  */
 export function listSeriesInWorkspace(db: AccountDb, tenantId: string, workspaceId: string): Series[] {

@@ -1603,8 +1603,8 @@ export const attachments = sqliteTable(
  *   it, and moved on by the account's alarm each time the series comes round.
  * - **`due_after_days`** is the calendar days from an occurrence appearing to its
  *   due date, NULL for none.
- * - **`stopped_at` is *Never***: the series stays and the Items keep naming it,
- *   so setting a rule again on any of them starts the same series over.
+ * - **`stopped_at` is set by deleting the recurring item**: the series stays and
+ *   the Items keep naming it; it is never started again.
  * - **`frequency` carries no CHECK**: the set the product may extend is guarded
  *   by its Zod enum alone, as this file's header says of panel kinds.
  */
