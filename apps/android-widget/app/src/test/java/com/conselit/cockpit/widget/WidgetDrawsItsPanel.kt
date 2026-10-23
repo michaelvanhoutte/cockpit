@@ -56,6 +56,8 @@ class WidgetDrawsItsPanel {
         assertEquals("2", phone.text(view, R.id.count))
         assertEquals("Updated 11:05", phone.text(view, R.id.updated))
         assertTrue(phone.isShown(view, R.id.dot))
+        val filter = view.findViewById<ImageView>(R.id.dot).colorFilter
+        assertEquals("the dot is the Workspace's colour", 0xFF2F6F9F.toInt(), org.robolectric.Shadows.shadowOf(filter as android.graphics.PorterDuffColorFilter).color)
         assertTrue(phone.isShown(view, R.id.refresh))
         assertTrue(phone.isShown(view, R.id.add))
     }

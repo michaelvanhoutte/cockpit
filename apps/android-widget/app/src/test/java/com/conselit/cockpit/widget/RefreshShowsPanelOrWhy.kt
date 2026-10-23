@@ -106,7 +106,7 @@ class RefreshShowsPanelOrWhy {
         view.findViewById<View>(R.id.message).performClick()
         val opened = shadowOf(phone.context as Application).nextStartedActivity
         assertEquals(Intent.ACTION_VIEW, opened.action)
-        assertEquals(RELEASES_PAGE, opened.dataString)
+        assertEquals("https://github.com/michaelvanhoutte/cockpit/releases", opened.dataString)
     }
 
     @Test
