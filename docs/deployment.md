@@ -195,6 +195,15 @@ The hook never sends conversation text, and a request it could not send goes aga
 
 **Uploading past sessions.** Run `pnpm harness:upload` on each desktop machine, once after its hook is set up, to send the requests the hook never saw in that machine's local logs for this repository. It needs the same two variables, and prints how many requests it sent, how many the monitor already had, and how many log lines it could not read. Re-running it is safe: a stored request is ignored. Run it before removing worktrees, since a branch whose worktree is gone has lost its marks and its requests all count as building. Cloud sessions' logs are deleted with their containers, so the hook is the only way those reach the monitor.
 
+**CI stability's runs reach the Monitor from CI.** Set the repository secret `HARNESS_WRITE_KEY` (the key from step 4) and the repository variable `HARNESS_MONITOR_URL` (the Worker's address, no path) first; until both are set, each job below records a notice and sends nothing, and fails nothing. Besides the `@claude` runs above, only these jobs hold them, both on `main`'s own code and never a pull request's:
+
+| Job | Sends |
+|---|---|
+| `Stability` in `ci.yml`, on every merge to `main` | each run, job and step from the newest run the Monitor holds less two days, or the last 30 days when it holds none |
+| *Stability backfill* (`stability-backfill.yml`), by hand | the runs of the window it is given |
+
+**Backfill CI stability once the secret and variable are set**: in the Actions tab, run *Stability backfill* on `main` with `from` 90 days ago and `to` 61 days ago, then twice more an hour apart for the next two 30-day windows, ending today. GitHub keeps 90 days of runs, so each day of waiting loses one; a window is about 400 runs and as many requests against the hourly allowance of 1,000 that every workflow shares, hence one window an hour. A window cut short by the run budget fails, naming the `to` day to send the rest with. Sending a window again stores each run once.
+
 ## 3. One Worker serves the whole application
 
 Not Pages plus a separate API Worker. One Worker per environment serves the Hono

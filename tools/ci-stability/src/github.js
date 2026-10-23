@@ -193,16 +193,20 @@ function normalizeJob(raw) {
  *   every run that *is* returned satisfies `createdAt >= since` by construction and so
  *   can never show it.
  */
-export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }) {
+export async function listRuns({ repo, branch = 'main', since, until = null, maxRuns, ...ctx }) {
   const runs = [];
   let page = 1;
   let truncated = false;
   let ignored = 0;
   let reachedWindowEdge = false;
+  // An older window (the Harness Monitor's backfill) is asked of the API as a
+  // range: a list filtered by branch stops at 1,000 runs, which paging back
+  // from today would spend before a window 60 days old was reached.
+  const created = until ? `&created=${encodeURIComponent(`${apiTime(since)}..${apiTime(until)}`)}` : '';
 
   for (;;) {
     const body = await request(
-      `/repos/${repo}/actions/runs?branch=${encodeURIComponent(branch)}&per_page=${PER_PAGE}&page=${page}`,
+      `/repos/${repo}/actions/runs?branch=${encodeURIComponent(branch)}${created}&per_page=${PER_PAGE}&page=${page}`,
       ctx,
     );
     const batch = body.workflow_runs ?? [];
@@ -210,6 +214,8 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }
 
     for (const raw of batch) {
       const run = normalizeRun(raw);
+      // The range is inclusive at both ends, and the window is not at its end.
+      if (until && new Date(run.createdAt) >= until) continue;
       if (new Date(run.createdAt) < since) {
         reachedWindowEdge = true;
         break;
@@ -231,6 +237,9 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }
 
   return { runs, truncated, ignored, reachedWindowEdge };
 }
+
+/** A time as the API's search syntax takes it: to the second, in UTC. */
+const apiTime = (date) => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 /** Every job of one run. @returns {Promise<Job[]>} */
 export async function listJobs({ repo, runId, ...ctx }) {
@@ -265,6 +274,7 @@ export async function collect({
   repo,
   branch = 'main',
   since,
+  until = null,
   maxRuns = 800,
   concurrency = 8,
   token,
@@ -281,6 +291,7 @@ export async function collect({
     repo,
     branch,
     since,
+    until,
     maxRuns,
     ...ctx,
   });

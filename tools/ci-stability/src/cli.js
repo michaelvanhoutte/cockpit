@@ -2,9 +2,12 @@
  * The wiring, and the only place github.js and render/ meet.
  *
  *   collect(repo) -> buildModel(...) -> renderHtml(Model) -> a file
+ *                 -> monitorRows(...) -> sendRuns(...)  -> the Harness Monitor, with --send
  *
  * `--json` stops after the second arrow, so anything else can consume the
- * model. Nothing is written until every request has come back: a page of
+ * model. `--send` reads once for both, back to whichever window starts earlier,
+ * and sends after the page is written, so a Monitor that refuses costs the send
+ * and never the page. Nothing is written until every request has come back: a page of
  * partial numbers looks exactly like a page of real ones, so a failed fetch
  * leaves the previous report in place rather than replacing it with a
  * plausible lie.
@@ -16,7 +19,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { collect, GitHubError } from './github.js';
-import { buildModel } from './model.js';
+import { buildModel, monitorRows } from './model.js';
+import { MonitorError, newestStored, sendRuns, sendWindow } from './monitor.js';
 import { renderHtml } from './render/html.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +36,11 @@ const USAGE = `Usage: node src/cli.js [options]
   --max-runs <n>      stop after this many runs, and report the shorter window (default 800)
   --repo <owner/name> default: $GITHUB_REPOSITORY, else this checkout's origin
   --branch <name>     default: main
+  --send              also send the runs to the Harness Monitor at $HARNESS_MONITOR_URL with
+                      $HARNESS_WRITE_KEY: those from its newest stored run less two days, or
+                      the --days window when it holds none
+  --from <YYYY-MM-DD> with --send, send the runs of this window instead and write nothing (the backfill)
+  --to <YYYY-MM-DD>   the window's last day, inclusive (default today)
   --help
 `;
 
@@ -88,6 +97,16 @@ function positive(raw, name, args) {
   return value;
 }
 
+/** A UTC day as a Date at its start, or a recorded complaint. */
+function day(raw, name, args) {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw ?? '') ? new Date(`${raw}T00:00:00Z`) : null;
+  if (!date || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== raw) {
+    args.invalid ??= `${name} needs a day as YYYY-MM-DD, not ${JSON.stringify(raw ?? null)}`;
+    return undefined;
+  }
+  return date;
+}
+
 export function parseArgs(argv) {
   const args = { windows: [7, 30] };
   for (let i = 0; i < argv.length; i += 1) {
@@ -95,6 +114,13 @@ export function parseArgs(argv) {
     const value = () => argv[(i += 1)];
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--json') args.json = true;
+    else if (arg === '--send') args.send = true;
+    else if (arg === '--from') args.from = day(value(), '--from', args);
+    // The last day is inclusive, so the window ends at the start of the day after it.
+    else if (arg === '--to') {
+      const last = day(value(), '--to', args);
+      if (last) args.to = new Date(last.getTime() + DAY_MS);
+    }
     else if (arg === '--out') args.out = value();
     else if (arg === '--model') {
       const modelValue = value();
@@ -121,6 +147,9 @@ export function parseArgs(argv) {
     // wrong word.
     else args.unknown ??= arg;
   }
+  if (args.to && !args.from) args.invalid ??= '--to needs --from';
+  if (args.from && !args.send) args.invalid ??= '--from needs --send: a window given by hand is only ever sent';
+  if (args.from && args.to && args.to <= args.from) args.invalid ??= '--to cannot be before --from';
   return args;
 }
 
@@ -173,17 +202,39 @@ export async function main(argv) {
     return 2;
   }
 
+  const monitor = args.send ? { url: process.env.HARNESS_MONITOR_URL, key: process.env.HARNESS_WRITE_KEY } : null;
+  if (monitor && (!monitor.url || !monitor.key)) {
+    process.stderr.write('--send needs HARNESS_MONITOR_URL and HARNESS_WRITE_KEY set (docs/deployment.md, "The Harness Monitor").\n');
+    return 2;
+  }
+
   const branch = args.branch ?? 'main';
   const days = args.days ?? 30;
   const now = new Date();
-  const since = new Date(now.getTime() - days * DAY_MS);
+  const pageSince = new Date(now.getTime() - days * DAY_MS);
+  const backfill = Boolean(args.from);
+
+  // A Monitor that cannot say where to start costs the send, never the page.
+  let window = null;
+  let unsent = null;
+  if (monitor) {
+    try {
+      const newest = backfill ? null : await newestStored({ url: monitor.url });
+      window = sendWindow({ newest, now, days, from: args.from, to: args.to ?? (backfill ? now : null) });
+    } catch (error) {
+      if (!(error instanceof MonitorError)) throw error;
+      unsent = error;
+    }
+  }
 
   let collected;
   try {
+    // One read serves the page and the send: back to whichever starts earlier.
     collected = await collect({
       repo,
       branch,
-      since,
+      since: backfill ? window.since : window && window.since < pageSince ? window.since : pageSince,
+      until: backfill ? window.until : null,
       maxRuns: args.maxRuns ?? 800,
       token: resolveToken(),
     });
@@ -195,13 +246,64 @@ export async function main(argv) {
     throw error;
   }
 
+  if (!backfill) {
+    const written = writeReport(args, collected, { now, days, pageSince, repo, branch });
+    process.stderr.write(
+      `wrote ${written.join(', ')} — ${collected.runs.length} runs, ${collected.requests + 1} requests\n`,
+    );
+  }
+  if (unsent) {
+    process.stderr.write(`${unsent.message}\nNothing was sent; the next send's window reaches back for it.\n`);
+    return 1;
+  }
+  return monitor ? send(monitor, collected, window, { backfill }) : 0;
+}
+
+/**
+ * Sends the runs inside the send's window. A backfill the run budget cut short
+ * fails, naming the day to send the rest from, since only a person re-runs it;
+ * the send after a merge has the next one's overlap.
+ */
+async function send(monitor, collected, window, { backfill }) {
+  const runs = collected.runs.filter((run) => new Date(run.createdAt) >= window.since);
+  const ids = new Set(runs.map((run) => run.id));
+  let result;
+  try {
+    result = await sendRuns({
+      url: monitor.url,
+      key: monitor.key,
+      runs: monitorRows({ runs, jobs: collected.jobs.filter((job) => ids.has(job.runId)) }),
+    });
+  } catch (error) {
+    if (!(error instanceof MonitorError)) throw error;
+    process.stderr.write(`${error.message}\n`);
+    return 1;
+  }
+  process.stderr.write(
+    `sent ${result.runs} runs from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n`,
+  );
+  if (collected.truncated) {
+    const oldest = runs.reduce((min, run) => (run.createdAt < min ? run.createdAt : min), runs[0]?.createdAt ?? '');
+    process.stderr.write(
+      `The run budget (--max-runs) stopped the read at ${oldest}; the runs before it were not sent.${backfill ? ` Send them with --to ${oldest.slice(0, 10)}.` : ''}\n`,
+    );
+    if (backfill) return 1;
+  }
+  return 0;
+}
+
+/** The page, or the model, over its own window, and the model beside it with --model. Returns the paths written. */
+function writeReport(args, collected, { now, days, pageSince, repo, branch }) {
+  // A send can read further back than the page shows; the page keeps to its window.
+  const runs = collected.runs.filter((run) => new Date(run.createdAt) >= pageSince);
+  const ids = new Set(runs.map((run) => run.id));
   const model = buildModel({
-    runs: collected.runs,
-    jobs: collected.jobs,
+    runs,
+    jobs: collected.jobs.filter((job) => ids.has(job.runId)),
     now,
     requestedDays: days,
     truncated: collected.truncated,
-    reachedWindowEdge: collected.reachedWindowEdge,
+    reachedWindowEdge: collected.reachedWindowEdge || runs.length < collected.runs.length,
     ignored: collected.ignored,
     repo,
     branch,
@@ -209,7 +311,7 @@ export async function main(argv) {
     windows: args.windows,
   });
 
-  const { file, content } = output(args, model);
+  const { content } = output(args, model);
   const out = path.resolve(args.out ?? defaultOut(args));
   mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, content, 'utf8');
@@ -221,11 +323,7 @@ export async function main(argv) {
     writeFileSync(modelOut, modelJson(model), 'utf8');
     writtenFiles.push(modelOut);
   }
-
-  process.stderr.write(
-    `wrote ${writtenFiles.join(', ')} — ${collected.runs.length} runs, ${collected.requests + 1} requests\n`,
-  );
-  return 0;
+  return writtenFiles;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

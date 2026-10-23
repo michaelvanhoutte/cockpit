@@ -161,6 +161,86 @@ describe('the generator, end to end against a stubbed API', () => {
     }
   });
 
+  describe('with --send, the runs reach the Harness Monitor after the page is written', () => {
+    const NOW = new Date('2026-10-23T12:00:00Z');
+
+    /** GitHub with two runs a day apart, and a Monitor that holds `newestRun` and answers each send with `answer`. */
+    function stubBoth({ newestRun = null, answer = { status: 200, body: { stored: 1 } } } = {}) {
+      const posted = [];
+      const asked = [];
+      vi.stubGlobal('fetch', async (url, init) => {
+        if (url.startsWith('https://monitor.test')) {
+          if (init?.method === 'POST') {
+            posted.push(JSON.parse(init.body).runs.map((run) => run.id));
+            return { ok: answer.status === 200, status: answer.status, json: async () => answer.body };
+          }
+          return ok({ newestRun });
+        }
+        asked.push(url);
+        if (url.includes('/jobs')) return ok({ jobs: [rawJob({ run_id: Number(url.match(/runs\/(\d+)\/jobs/)[1]) })] });
+        const page = Number(url.match(/[?&]page=(\d+)/)?.[1] ?? 1);
+        return ok({
+          workflow_runs:
+            page === 1
+              ? [rawRun({ id: 2, created_at: '2026-10-23T08:00:00Z' }), rawRun({ id: 1, created_at: '2026-10-19T08:00:00Z' })]
+              : [],
+        });
+      });
+      vi.stubEnv('HARNESS_MONITOR_URL', 'https://monitor.test');
+      vi.stubEnv('HARNESS_WRITE_KEY', 'k');
+      return { posted, asked };
+    }
+
+    const quietly = async (run) => {
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        return await run();
+      } finally {
+        stderr.mockRestore();
+      }
+    };
+
+    it('sends from the newest stored run less two days, and writes the page over its own window', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted } = stubBoth({ newestRun: '2026-10-22T08:00:00.000Z' });
+      const out = path.join(tmp(), 'index.html');
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', out, '--send']))).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[2]]);
+      expect(existsSync(out)).toBe(true);
+    });
+
+    it('a refused send fails the run and keeps the page', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted } = stubBoth({ answer: { status: 400, body: { error: 'Run 0 (2): has no conclusion.' } } });
+      const out = path.join(tmp(), 'index.html');
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', out, '--send']))).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[2, 1]]);
+      expect(existsSync(out)).toBe(true);
+    });
+
+    it('a window given by hand is read as a range, sent whatever is stored, and writes nothing', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted, asked } = stubBoth({ newestRun: '2026-10-22T08:00:00.000Z' });
+      const out = path.join(tmp(), 'index.html');
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', out, '--send', '--from', '2026-10-01', '--to', '2026-10-20']))).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(decodeURIComponent(asked[0])).toContain('created=2026-10-01T00:00:00Z..2026-10-21T00:00:00Z');
+      expect(posted).toEqual([[1]]);
+      expect(existsSync(out)).toBe(false);
+    });
+  });
+
   it('refuses when --model and --out resolve to the same path', async () => {
     const fetched = [];
     vi.stubGlobal('fetch', async (url) => {

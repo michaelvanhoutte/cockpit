@@ -5,6 +5,8 @@ import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
+import { checkRuns } from './stability';
+import { newestRun, parsePeriod, stabilityAnswer, storeRuns } from './stability-store';
 import { storeBatch, unpricedLines } from './store';
 import { validateBatch } from './validate';
 
@@ -38,21 +40,52 @@ async function refusal(request: Request, env: Env): Promise<Response | null> {
   return null;
 }
 
-async function write(request: Request, env: Env): Promise<Response> {
+/** A write's parsed body once it carries the write key, or the refusal to answer with. */
+async function writeBody(request: Request, env: Env): Promise<{ body: unknown } | Response> {
   const refused = await refusal(request, env);
   if (refused) return refused;
 
   const text = await request.text();
   if (text.length > MAX_BODY) return json({ error: `The body is over ${MAX_BODY} characters.` }, 413);
-  let body: unknown;
   try {
-    body = JSON.parse(text);
+    return { body: JSON.parse(text) };
   } catch {
     return json({ error: 'The body is not JSON.' }, 400);
   }
-  const checked = validateBatch(body);
+}
+
+async function write(request: Request, env: Env): Promise<Response> {
+  const read = await writeBody(request, env);
+  if (read instanceof Response) return read;
+  const checked = validateBatch(read.body);
   if (!checked.ok) return json({ error: checked.error }, 400);
   return json(await storeBatch(env.DB, checked.rows));
+}
+
+/** A send of CI stability's runs, stored whole or refused whole. */
+async function writeStability(request: Request, env: Env): Promise<Response> {
+  const read = await writeBody(request, env);
+  if (read instanceof Response) return read;
+  const checked = checkRuns(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await storeRuns(env.DB, checked.runs));
+}
+
+/** CI stability's stored runs for the period the address asks, as JSON, cached like the costs page. */
+async function stability(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const period = parsePeriod(url.searchParams.get('period'));
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/stability${period === '30d' ? '' : `?period=${period}`}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const response = Response.json(await stabilityAnswer(env.DB, period, Date.now()), {
+    headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
 }
 
 /**
@@ -142,6 +175,13 @@ export default {
     if (pathname === '/v1/usage') {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
     }
+    if (pathname === '/v1/stability') {
+      if (request.method === 'POST') return writeStability(request, env);
+      // Where the next send starts reading: public, as every read here is.
+      if (request.method === 'GET') return json({ newestRun: await newestRun(env.DB) });
+      return json({ error: 'Use GET or POST.' }, 405);
+    }
+    if (pathname === '/stability' && request.method === 'GET') return stability(request, env, ctx);
     const jobPath = /^\/v1\/jobs\/([^/]*)$/.exec(pathname);
     if (jobPath) return request.method === 'POST' ? startJob(request, env, jobPath[1]!) : json({ error: 'Use POST.' }, 405);
     if (pathname === '/' && request.method === 'GET') return costs(request, env, ctx);
