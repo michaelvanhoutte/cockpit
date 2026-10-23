@@ -1591,10 +1591,11 @@ export const attachments = sqliteTable(
 );
 
 /**
- * A repeating Item's rule ("Repeat an Item on a schedule, so it comes back every
- * Monday or every quarter", issue 1405): one row per series, named by every Item
- * that is one of its occurrences (`items.series_id`). Sent in the Workspace
- * snapshot, so the form and a row's mark are drawn without a read.
+ * A recurring item ("Repeat an Item on a schedule, so it comes back every
+ * Monday or every quarter", issue 1405): one row per series, its rule and the
+ * content each copy is made from, named by every Item that is one of its
+ * occurrences (`items.series_id`). Its rule is sent in the Workspace snapshot,
+ * so the form and a row's mark are drawn without a read.
  *
  * - **`next_on` is the day the next occurrence is due**, a calendar day on the
  *   series' own `time_zone` - the browser's when the rule was last set, so a day
@@ -1631,6 +1632,18 @@ export const series = sqliteTable(
     anchorOn: text('anchor_on'),
     /** The day the series last came round, an Item written or not; NULL until it has. */
     lastOn: text('last_on'),
+    /**
+     * What each copy is made from ("Make each copy of a recurring item from its
+     * own series", issue 1448): the Workspace it belongs to, its title,
+     * description and priority, beside the Panels in `series_panels`. **NULL
+     * `title` is a series that holds nothing yet** - one from before
+     * `0094-series-masters` that `0095-series-masters-from-latest-copy` left
+     * stopped - and the old Repeats chip fills it on a rule set again.
+     */
+    workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'restrict' }),
+    title: text('title'),
+    description: text('description'),
+    priority: text('priority').$type<Priority>(),
   },
   (t) => [
     check('series_next_on_is_date', isDate('next_on')),
@@ -1640,6 +1653,34 @@ export const series = sqliteTable(
     check('series_stopped_at_is_timestamp', isTimestamp('stopped_at')),
     check('series_created_at_is_timestamp', isTimestamp('created_at')),
     check('series_updated_at_is_timestamp', isTimestamp('updated_at')),
+    check('series_priority_is_known', oneOf('priority', prioritySchema.options)),
+  ],
+);
+
+/**
+ * The Panels a series files each copy on, top first ("Make each copy of a
+ * recurring item from its own series", issue 1448): none is the Inbox. A Panel
+ * deleted since is skipped when a copy is made, so a row outlives its Panel
+ * rather than being cleaned up. `(series_id, panel_id)` is the key for the
+ * reason `panel_items` has one.
+ */
+export const seriesPanels = sqliteTable(
+  'series_panels',
+  {
+    tenantId: text('tenant_id').notNull(),
+    seriesId: text('series_id')
+      .notNull()
+      .references(() => series.id, { onDelete: 'restrict' }),
+    panelId: text('panel_id')
+      .notNull()
+      .references(() => panels.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.seriesId, t.panelId] }),
+    check('series_panels_position_is_an_order', sql.raw('position >= 0')),
+    check('series_panels_created_at_is_timestamp', isTimestamp('created_at')),
   ],
 );
 

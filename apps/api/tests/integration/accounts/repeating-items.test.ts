@@ -142,7 +142,7 @@ afterEach(() => {
 });
 
 describe('Item editing', () => {
-  describe('on its day a repeating Item comes back as a fresh copy of the latest one, at the top of its live Panels', () => {
+  describe('on its day a recurring item’s copy appears at the top of each of its live Panels, or in the Inbox', () => {
     it.each([
       { situation: 'on two Panels, it tops both', panels: 2, deleted: 0 },
       { situation: 'on two Panels one of which is deleted, it tops only the live one', panels: 2, deleted: 1 },
@@ -171,31 +171,6 @@ describe('Item editing', () => {
       const onPanels = read.filings.filter((one) => one.itemId === fresh!.id).map((one) => one.panelId);
       expect(onPanels.sort()).toEqual(panels.slice(deleted).sort());
       for (const panelId of panels.slice(deleted)) expect((await panelHolds(panelId))[0]).toBe(fresh!.id);
-    });
-
-    it('carries what the latest one says now, starts To do and names the series', async () => {
-      const itemId = await anItem('Weekly review');
-      await repeat(itemId);
-      await change('set_title', { itemId, title: 'Weekly review, retitled' }, '2090-01-04T09:00:00.000Z');
-      await change('set_description', { itemId, description: 'Go through the open items' }, '2090-01-04T09:00:00.000Z');
-      await change('set_priority', { itemId, priority: 'high' }, '2090-01-04T09:00:00.000Z');
-      await change('set_started', { itemId, started: true }, '2090-01-04T09:00:00.000Z');
-      await done(itemId, '2090-01-05T09:00:00.000Z');
-
-      await alarmRunsAt(morningOf(FIRST));
-
-      const [previous, fresh] = await occurrences();
-      expect(fresh).toMatchObject({
-        title: 'Weekly review, retitled',
-        description: 'Go through the open items',
-        priority: 'high',
-        workspaceId: WORKSPACE_ID,
-        seriesId: previous!.seriesId,
-        completedAt: null,
-        startedAt: null,
-        deletedAt: null,
-      });
-      expect(fresh!.id).not.toBe(previous!.id);
     });
 
     it.each([
@@ -318,33 +293,60 @@ describe('Item editing', () => {
     });
   });
 
-  describe('a repeating Item’s files and images are its own', () => {
-    async function anImage(itemId: string): Promise<string> {
-      const attachmentId = nextId();
-      const res = await asUser(`http://cockpit.test/v1/items/${itemId}/attachments`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'image/png',
-          'x-attachment-id': attachmentId,
-          'x-command-id': nextId(),
-          'x-issued-at': '2090-01-02T08:00:00.000Z',
-          'x-workspace-id': WORKSPACE_ID,
-          'x-filename': 'photo.png',
-        },
-        body: new Uint8Array([137, 80, 78, 71]),
-      });
-      expect(res.status, await res.clone().text()).toBe(201);
-      return attachmentId;
+  describe('a copy is made from its recurring item, never from an earlier copy, so an edit to a copy stays on it', () => {
+    /** A recurring item made from an Item with a description and a priority, and that Item. */
+    async function aRecurringReview(): Promise<string> {
+      const itemId = await anItem('Weekly review');
+      await change('set_description', { itemId, description: 'Go through the open items' }, '2090-01-01T10:00:00.000Z');
+      await change('set_priority', { itemId, priority: 'high' }, '2090-01-01T10:00:00.000Z');
+      await repeat(itemId);
+      return itemId;
     }
+
+    it('carries the recurring item’s title once it is retitled after the last copy, starts To do and names the series', async () => {
+      const itemId = await aRecurringReview();
+      // Nothing on screen retitles a recurring item yet ("Make, change and delete
+      // recurring items from the Recurring items modal", issue 1449).
+      await inTheStore((sql) => sql.exec("UPDATE series SET title = 'Weekly review, retitled'"));
+      await change('set_started', { itemId, started: true }, '2090-01-04T09:00:00.000Z');
+      await done(itemId, '2090-01-05T09:00:00.000Z');
+
+      await alarmRunsAt(morningOf(FIRST));
+
+      const [previous, fresh] = await occurrences();
+      expect(fresh).toMatchObject({
+        title: 'Weekly review, retitled',
+        description: 'Go through the open items',
+        priority: 'high',
+        workspaceId: WORKSPACE_ID,
+        seriesId: previous!.seriesId,
+        completedAt: null,
+        startedAt: null,
+        deletedAt: null,
+      });
+      expect(previous!.title).toBe('Weekly review');
+    });
+
+    it('does not carry what the previous copy was changed to', async () => {
+      const itemId = await aRecurringReview();
+      await change('set_title', { itemId, title: 'Weekly review, this week only' }, '2090-01-04T09:00:00.000Z');
+      await change('set_description', { itemId, description: 'Only the invoices' }, '2090-01-04T09:00:00.000Z');
+      await change('set_priority', { itemId, priority: 'low' }, '2090-01-04T09:00:00.000Z');
+      await done(itemId, '2090-01-05T09:00:00.000Z');
+
+      await alarmRunsAt(morningOf(FIRST));
+
+      const [previous, fresh] = await occurrences();
+      expect(fresh).toMatchObject({ title: 'Weekly review', description: 'Go through the open items', priority: 'high' });
+      expect(previous).toMatchObject({ title: 'Weekly review, this week only', description: 'Only the invoices', priority: 'low' });
+    });
 
     it.each([
       { situation: 'the previous one done', dismissed: false },
       { situation: 'the previous one dismissed', dismissed: true },
-    ])('loads its files, and its description shows its own, with $situation', async ({ dismissed }) => {
-      const itemId = await anItem('Receipts to file');
-      const image = await anImage(itemId);
-      await change('set_description', { itemId, description: `The scan:\n\n![photo.png](/v1/attachments/${image})` });
-      await repeat(itemId);
+    ])('carries none of the previous copy’s files, with $situation', async ({ dismissed }) => {
+      const itemId = await aRecurringReview();
+      await anImage(itemId);
       await done(itemId);
       if (dismissed) await change('set_dismissed', { itemId, dismissed: true }, '2090-01-04T09:00:00.000Z');
 
@@ -352,15 +354,68 @@ describe('Item editing', () => {
 
       const read = await workspace();
       const fresh = read.items.find((item) => item.seriesId !== null && item.id !== itemId)!;
-      const own = read.attachments.filter((one) => one.itemId === fresh.id);
-      expect(own).toEqual([expect.objectContaining({ filename: 'photo.png', contentType: 'image/png' })]);
-      expect(own[0]!.id).not.toBe(image);
-      expect(fresh.description).toBe(`The scan:\n\n![photo.png](/v1/attachments/${own[0]!.id})`);
-      const loaded = await asUser(`http://cockpit.test/v1/attachments/${own[0]!.id}`);
-      expect(loaded.status).toBe(200);
-      expect(new Uint8Array(await loaded.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
+      expect(read.attachments.filter((one) => one.itemId === fresh.id)).toEqual([]);
+      expect(fresh.description).toBe('Go through the open items');
     });
   });
+
+  describe('the Repeats chip makes a recurring item from the Item it is set on, until the Recurring items menu replaces it', () => {
+    const master = () =>
+      inTheStore((sql) => ({
+        row: sql.exec<{ workspace_id: string; title: string; description: string; priority: string }>(
+          'SELECT workspace_id, title, description, priority FROM series',
+        ).one(),
+        panels: sql.exec<{ panel_id: string }>('SELECT panel_id FROM series_panels ORDER BY position').toArray().map((one) => one.panel_id),
+      }));
+
+    it('takes that Item’s title, description, priority, Workspace and live Panels', async () => {
+      const itemId = await anItem('Weekly review');
+      const first = await aPanel('Reviews');
+      const second = await aPanel('Fridays');
+      await fileOn(itemId, first);
+      await fileOn(itemId, second);
+      await change('set_description', { itemId, description: 'Go through the open items' }, '2090-01-01T10:00:00.000Z');
+      await change('set_priority', { itemId, priority: 'high' }, '2090-01-01T10:00:00.000Z');
+
+      await repeat(itemId);
+
+      expect(await master()).toEqual({
+        row: { workspace_id: WORKSPACE_ID, title: 'Weekly review', description: 'Go through the open items', priority: 'high' },
+        panels: [first, second],
+      });
+    });
+
+    it('keeps what it first took when the rule is changed again, or set again after Never', async () => {
+      const itemId = await anItem('Weekly review');
+      await repeat(itemId);
+      await change('set_title', { itemId, title: 'Weekly review, this week only' }, '2090-01-03T09:00:00.000Z');
+      await fileOn(itemId, await aPanel('Reviews'));
+
+      await repeat(itemId, { ...WEEKLY, frequency: 'monthly' }, '2090-01-03T10:00:00.000Z');
+      await repeat(itemId, null, '2090-01-03T11:00:00.000Z');
+      await repeat(itemId, WEEKLY, '2090-01-03T12:00:00.000Z');
+
+      expect(await master()).toMatchObject({ row: { title: 'Weekly review' }, panels: [] });
+    });
+  });
+
+  async function anImage(itemId: string): Promise<string> {
+    const attachmentId = nextId();
+    const res = await asUser(`http://cockpit.test/v1/items/${itemId}/attachments`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'image/png',
+        'x-attachment-id': attachmentId,
+        'x-command-id': nextId(),
+        'x-issued-at': '2090-01-02T08:00:00.000Z',
+        'x-workspace-id': WORKSPACE_ID,
+        'x-filename': 'photo.png',
+      },
+      body: new Uint8Array([137, 80, 78, 71]),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    return attachmentId;
+  }
 
   describe('a repeating Item comes back however the account’s alarm is kept', () => {
     const FAKE = 'fake-pull';
@@ -545,25 +600,17 @@ describe('Item editing', () => {
       expect(await seriesRow()).toMatchObject({ next_on: '2090-01-30' });
     });
 
-    it('writes no Item, no filing and no file when one of its writes fails, leaves Next on as it was, and brings it back on the next try', async () => {
+    it('writes no Item and no filing when one of its writes fails, leaves Next on as it was, and brings it back on the next try', async () => {
       const itemId = await anItem('Receipts to file');
       const panelId = await aPanel('Receipts');
       await fileOn(itemId, panelId);
-      await inTheStore((sql) =>
-        sql.exec(
-          `INSERT INTO attachments (id, tenant_id, item_id, r2_key, filename, size, content_type, created_at)
-           VALUES (?, ?, ?, ?, 'photo.png', 4, 'image/png', ?)`,
-          nextId(),
-          ACCOUNT_NAME,
-          itemId,
-          `${ACCOUNT_NAME}/${itemId}/scan`,
-          '2090-01-02T08:00:00.000Z',
-        ),
-      );
       await repeat(itemId);
       await done(itemId);
+      // The previous one is filed again as the Panel's order is rewritten; the new one is refused.
       await inTheStore((sql) =>
-        sql.exec(`CREATE TRIGGER refuse_files BEFORE INSERT ON attachments BEGIN SELECT RAISE(ABORT, 'refused'); END`),
+        sql.exec(
+          `CREATE TRIGGER refuse_filing BEFORE INSERT ON panel_items WHEN NEW.item_id <> '${itemId}' BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+        ),
       );
       vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -571,11 +618,10 @@ describe('Item editing', () => {
 
       expect(await inTheStore((sql) => sql.exec('SELECT id FROM items WHERE series_id IS NOT NULL').toArray())).toHaveLength(1);
       expect(await panelHolds(panelId)).toEqual([itemId]);
-      expect(await inTheStore((sql) => sql.exec('SELECT id FROM attachments').toArray())).toHaveLength(1);
       expect(await seriesRow()).toMatchObject({ next_on: FIRST, last_on: null });
       expect(await nextAlarm()).toBe(Date.parse(morningOf(FIRST)) + 60 * 60_000);
 
-      await inTheStore((sql) => sql.exec('DROP TRIGGER refuse_files'));
+      await inTheStore((sql) => sql.exec('DROP TRIGGER refuse_filing'));
       await alarmRunsAt('2090-01-09T09:00:00.000Z');
 
       const [, fresh] = await occurrences();
