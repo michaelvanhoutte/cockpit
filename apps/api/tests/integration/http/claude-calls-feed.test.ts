@@ -79,7 +79,7 @@ beforeEach(async () => {
   await seedRegister();
 });
 
-describe('Cockpit’s Claude calls on the Harness Monitor', () => {
+describe('AI usage', () => {
   describe('a call reaches the Monitor carrying the page’s columns and nothing that names a person, an item or a key', () => {
     it('gives a production call every column of the page and no user, account, item, workspace or key field', async () => {
       await aCallWasRecorded();
