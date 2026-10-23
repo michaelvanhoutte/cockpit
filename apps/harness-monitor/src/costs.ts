@@ -94,7 +94,7 @@ export function firstDay(period: Period, now: number): string | null {
   return days === null ? null : addDays(belgianDay(now), -(days - 1));
 }
 
-/** One series' dollars in one place, as the totals table holds them. */
+/** One series' dollars and tokens in one place, as the totals table holds them. */
 export interface TotalRow {
   /** The Belgian day, for a by-day query; '' otherwise. */
   day: string;
@@ -106,6 +106,11 @@ export interface TotalRow {
   series: string;
   costMicros: number;
   unpricedRequests: number;
+  /** Every request's tokens, priced or not. */
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
   lastAt: number;
   prNumber: number | null;
   title: string | null;
@@ -158,6 +163,11 @@ export interface CostGroup {
   bySeries: Record<string, number>;
   totalMicros: number;
   unpricedRequests: number;
+  /** Every request's tokens, priced or not, by kind. */
+  tokens: { input: number; output: number; cacheWrite: number; cacheRead: number };
+  /** All four kinds summed, per series key of the split; a key the group has none of is absent. */
+  tokensBySeries: Record<string, number>;
+  totalTokens: number;
 }
 
 /** A model id is free text, so series dollars live in an object with no prototype: no id can be `__proto__`. */
@@ -210,7 +220,7 @@ const PHASE_SHORT: Record<Category, string> = {
 
 /**
  * The columns of a split, in order. Phases, places and outcomes are fixed;
- * models are the ones with dollars in the result, biggest first.
+ * models are the ones with any of the totals given, biggest first.
  */
 export function seriesOf(split: Split, totals: Record<string, number>): Series[] {
   switch (split) {
@@ -311,13 +321,20 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     const place = placeOf(row, group, linking);
     let g = groups.get(place.key);
     if (!g) {
-      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, issue: group === 'pr' ? row.issue : group === 'issue' && row.issue !== null ? rowIssue(row) : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, openToMerged: row.openedAt !== null && row.mergedAt !== null ? openFor(row.openedAt, row.mergedAt) : null, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, ciRounds: row.ciRounds, rounds: row.localRounds !== null && row.ciRounds !== null ? row.localRounds + row.ciRounds : null, findings: row.findings, bySeries: bag(), totalMicros: 0, unpricedRequests: 0 };
+      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, issue: group === 'pr' ? row.issue : group === 'issue' && row.issue !== null ? rowIssue(row) : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, openToMerged: row.openedAt !== null && row.mergedAt !== null ? openFor(row.openedAt, row.mergedAt) : null, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, ciRounds: row.ciRounds, rounds: row.localRounds !== null && row.ciRounds !== null ? row.localRounds + row.ciRounds : null, findings: row.findings, bySeries: bag(), totalMicros: 0, unpricedRequests: 0, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, tokensBySeries: bag(), totalTokens: 0 };
       groups.set(place.key, g);
       prs.set(place.key, new Set());
     }
     g.bySeries[row.series] = (g.bySeries[row.series] ?? 0) + row.costMicros;
     g.totalMicros += row.costMicros;
     g.unpricedRequests += row.unpricedRequests;
+    const rowTokens = row.inputTokens + row.outputTokens + row.cacheCreationTokens + row.cacheReadTokens;
+    g.tokens.input += row.inputTokens;
+    g.tokens.output += row.outputTokens;
+    g.tokens.cacheWrite += row.cacheCreationTokens;
+    g.tokens.cacheRead += row.cacheReadTokens;
+    g.tokensBySeries[row.series] = (g.tokensBySeries[row.series] ?? 0) + rowTokens;
+    g.totalTokens += rowTokens;
     // Two pull requests on one issue may have been read apart, one before the title was.
     if (group === 'issue' && row.issue !== null && rowIssueTitle(row) && g.label === issueLabel(rowIssue(row), null)) g.label = issueLabel(rowIssue(row), rowIssueTitle(row));
     if (row.prNumber !== null) prs.get(place.key)!.add(row.prNumber);
@@ -342,30 +359,36 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
   return list.sort((a, b) => Number(a.catchAll) - Number(b.catchAll) || (a.catchAll ? a.key.localeCompare(b.key) : order(a, b)));
 }
 
-/** One line of the per-day chart: a series' dollars on every day of the range. */
+/** What a per-day chart counts: dollars, in micros, or the four kinds of token summed. */
+export type Measure = 'cost' | 'tokens';
+
+/** One line of a per-day chart: a series' measure on every day of the range. */
 export interface DayLine {
   key: string;
   label: string;
-  /** One value per day, in micros; 0 for a day with no cost. */
-  micros: number[];
+  /** One value per day, in micros or tokens; 0 for a day with none. */
+  values: number[];
 }
 
 export interface DayChart {
   /** Every Belgian day from the first to the last, oldest first. */
   days: string[];
-  /** A line per series with any cost. */
+  /** A line per series with any of the measure. */
   lines: DayLine[];
-  /** The total's dollars on each day. */
+  /** The total's measure on each day. */
   total: number[];
 }
 
 /**
- * Cost per day as lines: one per series of the split that has cost, and the
- * total. The range runs from the period's first day (the earliest day with
- * cost for all time) to today, so a day with no cost is a zero, not a gap.
+ * Cost or tokens per day as lines: one per series of the split that has any,
+ * and the total. The range runs from the period's first day (the earliest day
+ * with any request, priced or not, for all time) to today, so a day with none
+ * is a zero, not a gap.
  */
-export function dayChart(groups: CostGroup[], series: Series[], first: string | null, now: number): DayChart {
+export function dayChart(groups: CostGroup[], series: Series[], first: string | null, now: number, measure: Measure = 'cost'): DayChart {
   if (groups.length === 0) return { days: [], lines: [], total: [] };
+  const of = (g: CostGroup | undefined, key: string) => (measure === 'cost' ? g?.bySeries[key] : g?.tokensBySeries[key]) ?? 0;
+  const totalOf = (g: CostGroup | undefined) => (measure === 'cost' ? g?.totalMicros : g?.totalTokens) ?? 0;
   const byDay = new Map(groups.map((g) => [g.key, g]));
   const keys = groups.map((g) => g.key).sort();
   const start = first ?? keys[0]!;
@@ -374,9 +397,9 @@ export function dayChart(groups: CostGroup[], series: Series[], first: string | 
   const days: string[] = [];
   for (let day = start; day <= end; day = addDays(day, 1)) days.push(day);
   const lines = series
-    .filter((s) => groups.some((g) => (g.bySeries[s.key] ?? 0) > 0))
-    .map((s) => ({ key: s.key, label: s.label, micros: days.map((d) => byDay.get(d)?.bySeries[s.key] ?? 0) }));
-  return { days, lines, total: days.map((d) => byDay.get(d)?.totalMicros ?? 0) };
+    .filter((s) => groups.some((g) => of(g, s.key) > 0))
+    .map((s) => ({ key: s.key, label: s.label, values: days.map((d) => of(byDay.get(d), s.key)) }));
+  return { days, lines, total: days.map((d) => totalOf(byDay.get(d))) };
 }
 
 export function median(values: number[]): number {
@@ -593,6 +616,8 @@ export interface CostsPage {
   groups: CostGroup[];
   /** The split's columns, in order. */
   series: Series[];
+  /** The split's series with tokens, for Tokens per day: a model with no price still has its line. */
+  tokenSeries: Series[];
   /** Per series key, over every group (not only the shown page). */
   bySeries: Record<string, number>;
   totalMicros: number;
@@ -610,6 +635,9 @@ export interface CostsPage {
 const OUTCOME = `CASE WHEN t.branch = 'main' THEN 'on-main' WHEN l.state = 'MERGED' THEN 'merged' WHEN l.state = 'OPEN' THEN 'open'
   WHEN l.state = 'CLOSED' THEN 'closed' ELSE 'no-pr' END`;
 const SERIES_COLUMN: Record<Split, string> = { phase: PHASE, model: 't.model', where: 't.ran_where', outcome: OUTCOME };
+/** Every request's tokens by kind, priced or not: read for every grouping, drawn for each day alone. */
+const TOKEN_SUMS = `SUM(t.input_tokens) AS inputTokens, SUM(t.output_tokens) AS outputTokens,
+           SUM(t.cache_creation_tokens) AS cacheCreationTokens, SUM(t.cache_read_tokens) AS cacheReadTokens`;
 
 /**
  * Reads the page's figures from the split totals and the branch links, never
@@ -649,14 +677,14 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
   const select =
     query.group === 'day'
       ? `SELECT t.day AS day, '' AS branch, '' AS category, ${series} AS series, SUM(t.cost_micros) AS costMicros,
-           SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
+           SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt, ${TOKEN_SUMS},
            NULL AS prNumber, NULL AS title, NULL AS state, NULL AS mergedAt, NULL AS issue, NULL AS engineer,
            NULL AS linesAdded, NULL AS linesRemoved, NULL AS openedAt, NULL AS ciRounds, NULL AS localRounds, NULL AS findings, NULL AS issueTitle,
            NULL AS issueParent, NULL AS issueParentTitle
          FROM daily_split_totals t ${needsLinks ? 'LEFT JOIN branch_links l ON l.branch = t.branch' : ''}
          ${conditions} GROUP BY t.day, ${series}`
       : `SELECT '' AS day, t.branch AS branch, ${phase} AS category, ${series} AS series, SUM(t.cost_micros) AS costMicros,
-           SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
+           SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt, ${TOKEN_SUMS},
            l.pr_number AS prNumber, l.title AS title, l.state AS state, l.merged_at AS mergedAt,
            l.issue_number AS issue, l.engineer AS engineer,
            s.lines_added AS linesAdded, s.lines_removed AS linesRemoved, s.opened_at AS openedAt,
@@ -684,12 +712,15 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
   const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, lastLinkSuccessAt, query.sort);
   const bySeries = bag();
   for (const g of groups) for (const [key, micros] of Object.entries(g.bySeries)) bySeries[key] = (bySeries[key] ?? 0) + micros;
+  const tokensBySeries = bag();
+  for (const g of groups) for (const [key, n] of Object.entries(g.tokensBySeries)) tokensBySeries[key] = (tokensBySeries[key] ?? 0) + n;
   return {
     query,
     engineers: (engineers!.results as { engineer: string }[]).map((e) => e.engineer),
     models: (models!.results as { model: string }[]).map((m) => m.model),
     groups,
     series: seriesOf(query.split, bySeries),
+    tokenSeries: seriesOf(query.split, tokensBySeries),
     bySeries,
     totalMicros: groups.reduce((sum, g) => sum + g.totalMicros, 0),
     lastLinkSuccessAt,

@@ -162,27 +162,32 @@ export interface CostRow {
   widths: number[];
   total: string;
   unpriced: string | null;
+  /** The cells after Total: a day's Input, Output, Cache write and Cache read; none for any other grouping. */
+  tokens: string[];
 }
 
 /** The rows of the page's cost table, in the order shown. */
 export function costRows(html: string): CostRow[] {
   const decode = (s: string) => s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
   return [...html.matchAll(/<tr>(<td class="first">.*?)<\/tr>/gs)].map(([, row]) => {
-    const cells = [...row!.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((m) => m[1]!);
+    const all = [...row!.matchAll(/<td([^>]*)>(.*?)<\/td>/gs)];
+    const cells = all.map((m) => m[2]!);
     const [first, ...rest] = cells;
     const split = rest.findIndex((c) => c.startsWith('<div class="split'));
+    const totalAt = all.slice(1).findIndex((m) => m[1]!.includes('class="num mono total"'));
     const [, label, sub] = /^(.*?)(?:<div class="muted small">(.*?)<\/div>)?$/s.exec(first!)!;
-    const [, total, unpriced] = /^([^<]*?)(?: <span class="unpriced">(.*?)<\/span>)?$/.exec(rest.at(-1)!)!;
+    const [, total, unpriced] = /^([^<]*?)(?: <span class="unpriced">(.*?)<\/span>)?$/.exec(rest[totalAt]!)!;
     const widths = [...rest[split]!.matchAll(/<div style="width:([\d.]+)%/g)].map((m) => Number(m[1]));
     return {
       label: decode(label!.replace(/<\/?a[^>]*>/g, '')),
       sub: sub === undefined ? null : decode(sub.replace(/<\/?a[^>]*>/g, '').replace(/ · Sessions$/, '')),
       details: rest.slice(0, split).map(decode),
-      categories: rest.slice(split + 1, -1),
+      categories: rest.slice(split + 1, totalAt),
       segments: widths.length,
       widths,
       total: total!,
       unpriced: unpriced ?? null,
+      tokens: rest.slice(totalAt + 1),
     };
   });
 }
@@ -297,6 +302,15 @@ export async function splitTotals(): Promise<SplitTotal[]> {
      FROM daily_split_totals ORDER BY day, branch, category, model, ran_where, subagent`,
   ).all<SplitTotal>();
   return results;
+}
+
+/** The tokens the split totals hold, one row per key: branch, model, then input, output, cache write and cache read. */
+export async function splitTokens(): Promise<[string, string, number, number, number, number][]> {
+  const { results } = await env.DB.prepare(
+    `SELECT branch, model, input_tokens AS i, output_tokens AS o, cache_creation_tokens AS w, cache_read_tokens AS r
+     FROM daily_split_totals ORDER BY day, branch, category, model, ran_where, subagent`,
+  ).all<{ branch: string; model: string; i: number; o: number; w: number; r: number }>();
+  return results.map((t) => [t.branch, t.model, t.i, t.o, t.w, t.r]);
 }
 
 /** A pull request merged on `mergedAt` that changed `lines` lines, on branch b/<number>. */
