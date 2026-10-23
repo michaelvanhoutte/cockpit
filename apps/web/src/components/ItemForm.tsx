@@ -44,6 +44,7 @@ import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshot } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
+import { KeepWhichNote } from './KeepWhichNote';
 import { useItemPanels } from '../useItemPanels';
 import { STATUS_LABELS } from '../allItems';
 import { dueDateLabel } from '../dueDate';
@@ -466,26 +467,28 @@ function TheForm({
   };
 
   /**
-   * Dismisses this note as the copy ("Dismiss a possible duplicate from its
-   * warning", issue 1114): the same change the row's Dismiss sends, with the
-   * same way back, and the form closes because the Item it was open on has
-   * left every list. The other note stays.
+   * Dismisses one of the two notes a warning asks about as the copy ("Dismiss
+   * a possible duplicate from its warning", issue 1114; "Choose which of two
+   * possible duplicates to keep, from the warning", issue 1451): the same
+   * change the row's Dismiss sends, with the same way back, naming the note.
+   * What the form does next is the caller's, since it depends on which note
+   * went.
    */
-  const dismissAsDuplicate = () => {
+  const dismissAsDuplicate = (note: Item) => {
     // Dismissing ends the Item's open run; the undo names it, as the row's does.
-    const endedRunId = data?.agentRuns?.find((run) => run.itemId === itemId)?.id;
+    const endedRunId = data?.agentRuns?.find((run) => run.itemId === note.id)?.id;
     const endedFor = (dismissed: boolean) => ({
       commandId: uuidv7(),
       issuedAt: new Date().toISOString(),
       workspaceId,
-      itemId,
+      itemId: note.id,
       dismissed,
       ...(!dismissed && endedRunId && { reopensRunId: endedRunId }),
     });
-    const label = item ? itemLabel(item) : 'Note';
-    // Drawn at once, so the Item is already gone from every list and this form
-    // has nothing left to show: it closes and offers the way back at the click,
-    // and a refusal is said in the bar, where the offer was.
+    const label = itemLabel(note);
+    // Drawn at once, so the Item is already gone from every list: the offer to
+    // undo is made at the click, and a refusal is said in the bar, where the
+    // offer was - also once the form has moved on to the other note.
     send({ name: 'set_dismissed', payload: endedFor(true) }).catch((failure: unknown) => {
       offerToUndo({
         what: `“${label}” was not dismissed. ${failure instanceof Error ? failure.message : 'That could not be dismissed'}`,
@@ -495,7 +498,17 @@ function TheForm({
       what: `“${label}” dismissed`,
       undo: () => send({ name: 'set_dismissed', payload: endedFor(false) }),
     });
-    onClose();
+  };
+
+  /**
+   * *Keep this one* on the other note's card: this note goes, and the form
+   * moves to the other. Replacing this note's address rather than stacking on
+   * it, so Back from the other note leaves the form instead of landing on a
+   * note that has been dismissed.
+   */
+  const keepTheOther = (current: Item, other: Item) => {
+    dismissAsDuplicate(current);
+    openItem(other.id, { replace: true });
   };
 
   /**
@@ -1889,7 +1902,8 @@ function TheForm({
                     only where there is a decision to make - neither shows no
                     banner at all. */}
                   {(openReadings || saidAgain.length > 0) && (
-                    <div className="mt-3 flex max-h-48 shrink-0 flex-col gap-3 overflow-y-auto rounded-md border border-accent-soft/40 bg-accent-tint/50 p-3">
+                    // Tall enough for one pair's two cards and Keep both without a scrollbar of its own (issue 1451); on a page the cards stack, and the page scrolls instead.
+                    <div data-item-form-banner className={`mt-3 flex shrink-0 flex-col gap-3 overflow-y-auto rounded-md border border-accent-soft/40 bg-accent-tint/50 p-3 ${saidAgain.length > 0 ? 'md:max-h-80' : 'max-h-48'}`}>
                       {/* The other ways this note could genuinely be read,
                         offered beside the one already sitting in the two
                         boxes above ("Offer the other readings when a
@@ -1931,56 +1945,42 @@ function TheForm({
                         </div>
                       )}
 
-                      {/* The notes this one may be saying again, each opening
-                        its own form ("Flag a captured note that says what
-                        another one already said", issue 407). Offered rather
-                        than acted on, the way a proposed Panel is: nothing
-                        here merges, files or deletes anything, and the two
-                        notes go on being two notes until somebody decides
-                        otherwise. */}
-                      {saidAgain.length > 0 && (
+                      {/* The notes this one may be saying again, each asked
+                        about as a pair: keep this one, keep the other, or keep
+                        both ("Flag a captured note that says what another one
+                        already said", issue 407; "Choose which of two possible
+                        duplicates to keep, from the warning", issue 1451).
+                        Offered rather than acted on, the way a proposed Panel
+                        is: nothing here merges, files or deletes anything, and
+                        the two notes go on being two notes until somebody
+                        decides otherwise. */}
+                      {saidAgain.length > 0 && item && (
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                            Possible duplicate of
+                            Possible duplicate · keep which one?
                           </p>
-                          <div className="mt-1 flex flex-col gap-1.5">
+                          <div className="mt-1 flex flex-col gap-3">
                             {saidAgain.map((other) => (
-                              <div key={other.id} className="flex items-stretch gap-1.5">
-                                <button
-                                  type="button"
-                                  disabled={saving}
-                                  // Opening the other one is a change of address, so the
-                                  // back button comes back here (`useOpenItem`,
-                                  // src/itemForm.tsx) - which is what makes this a link
-                                  // between two notes rather than a jump out of one.
-                                  onClick={() => openItem(other.id)}
-                                  className="flex-1 rounded-md border border-shade/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
-                                >
-                                  <span className="block font-medium text-ink">{itemLabel(other)}</span>
-                                </button>
-                                {/* The answer "yes, it is": this note goes, the other stays. */}
-                                <button
-                                  type="button"
-                                  disabled={saving}
-                                  onClick={() => void dismissAsDuplicate()}
-                                  className="rounded-md border border-shade/10 bg-surface px-2 text-sm text-ink hover:border-accent hover:bg-accent-tint disabled:opacity-50"
-                                >
-                                  Dismiss this one
-                                </button>
-                                {/* About this pair, not about either note ("Say a
-                                  flagged pair is not a duplicate", issue 408) - it
-                                  is drawn settled at the press, and offered undo. */}
-                                <button
-                                  type="button"
-                                  disabled={saving}
-                                  onClick={() => settleNotADuplicate(other.id, other)}
-                                  title="Not a duplicate"
-                                  aria-label="Not a duplicate"
-                                  className="rounded-md border border-shade/10 bg-surface px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
-                                >
-                                  ✕
-                                </button>
-                              </div>
+                              <KeepWhichNote
+                                key={other.id}
+                                thisNote={item}
+                                other={other}
+                                sourceNames={data?.sourceNames}
+                                disabled={saving}
+                                // The answer "this one is the copy": it goes, the other stays.
+                                onKeepOther={() => keepTheOther(item, other)}
+                                // The answer "the other is the copy": it goes, this form stays.
+                                onKeepThis={() => dismissAsDuplicate(other)}
+                                // Opening the other one is a change of address, so the
+                                // back button comes back here (`useOpenItem`,
+                                // src/itemForm.tsx) - which is what makes this a link
+                                // between two notes rather than a jump out of one.
+                                onOpenOther={() => openItem(other.id)}
+                                // About this pair, not about either note ("Say a
+                                // flagged pair is not a duplicate", issue 408) - it
+                                // is drawn settled at the press, and offered undo.
+                                onKeepBoth={() => settleNotADuplicate(other.id, other)}
+                              />
                             ))}
                           </div>
                         </div>

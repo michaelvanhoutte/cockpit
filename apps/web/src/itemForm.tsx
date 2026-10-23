@@ -62,9 +62,14 @@ export function keepingTheOpenItem(was: ItemFormSearch): ItemFormSearch {
  * where a form is opened. The default opens nothing, so a list drawn outside
  * the shell is still a list.
  */
-const OpenItem = createContext<(itemId: string) => void>(() => {});
+const OpenItem = createContext<(itemId: string, options?: { replace?: boolean }) => void>(() => {});
 
-export function useOpenItem(): (itemId: string) => void {
+/**
+ * `replace` swaps the open form's own entry for the new one instead of stacking
+ * on it, for when the form being left is no longer worth returning to: Back
+ * from there leaves the form rather than landing on a note that has gone.
+ */
+export function useOpenItem(): (itemId: string, options?: { replace?: boolean }) => void {
   return useContext(OpenItem);
 }
 
@@ -122,9 +127,9 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
   const [docked, setDocked] = useState(false);
   const quietFor = useRef<string | null>(null);
   const open = useCallback(
-    (itemId: string) => {
+    (itemId: string, options?: { replace?: boolean }) => {
       quietFor.current = null;
-      void navigate({ to: '.', search: (was) => ({ ...was, item: itemId }) });
+      void navigate({ to: '.', replace: options?.replace === true, search: (was) => ({ ...was, item: itemId }) });
     },
     [navigate],
   );

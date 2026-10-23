@@ -2194,26 +2194,28 @@ describe('Item editing', () => {
     const ANOTHER_NOTE = anItem({ id: 'item-2', title: 'Part 11 audit trail, for Novy' });
     const A_THIRD_NOTE = anItem({ id: 'item-3', title: 'Novy and the audit trail' });
 
-    it('lists each one, and opens the one that is chosen', async () => {
+    it('asks which to keep for each note it is flagged against', async () => {
       held.duplicates = [
         { itemId: 'item-1', otherItemId: ANOTHER_NOTE.id },
         { itemId: A_THIRD_NOTE.id, otherItemId: 'item-1' },
       ];
-      const user = await theForm(anItem(), [ANOTHER_NOTE, A_THIRD_NOTE]);
+      await theForm(anItem(), [ANOTHER_NOTE, A_THIRD_NOTE]);
 
-      expect(screen.getByText('Possible duplicate of')).toBeVisible();
+      expect(screen.getByText('Possible duplicate · keep which one?')).toBeVisible();
       // Both of them, including the pair written the other way round - one pair
       // is one pair whichever of the two you are looking at.
-      await user.click(screen.getByRole('button', { name: 'Part 11 audit trail, for Novy' }));
-
-      expect(held.open).toHaveBeenCalledWith(ANOTHER_NOTE.id);
-      expect(screen.getByRole('button', { name: 'Novy and the audit trail' })).toBeVisible();
+      const others = screen.getAllByRole('group', { name: 'The other note' });
+      expect(others.map((card) => card.textContent)).toEqual([
+        expect.stringContaining('Part 11 audit trail, for Novy'),
+        expect.stringContaining('Novy and the audit trail'),
+      ]);
+      expect(screen.getAllByRole('group', { name: 'This note (open)' })).toHaveLength(2);
     });
 
     it('says nothing where this note repeats none', async () => {
       await theForm(anItem(), [ANOTHER_NOTE]);
 
-      expect(screen.queryByText('Possible duplicate of')).toBeNull();
+      expect(screen.queryByText('Possible duplicate · keep which one?')).toBeNull();
     });
 
     /**
@@ -2231,24 +2233,202 @@ describe('Item editing', () => {
       held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
       await theForm(anItem(), [ANOTHER_NOTE]);
 
-      expect(screen.getByText('Possible duplicate of')).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Part 11 audit trail, for Novy' })).toBeVisible();
+      expect(screen.getByText('Possible duplicate · keep which one?')).toBeVisible();
+      expect(screen.getByRole('group', { name: 'The other note' })).toHaveTextContent('Part 11 audit trail, for Novy');
     });
   });
 
   /**
-   * "Say a flagged pair is not a duplicate" (issue 408): each linked note gets
-   * its own way to settle the pair it names, distinct from opening it - and
-   * settling offers the way back the same bar every other change does.
+   * "Choose which of two possible duplicates to keep, from the warning" (issue
+   * 1451): two notes with one title are told apart by where each came from,
+   * when, and the first line of what it says.
+   */
+  describe('the cards tell two notes apart', () => {
+    const SAME_TITLE = 'Ask Novy about part 11';
+    const thisNote = (over: Partial<Item> = {}) => anItem({ title: SAME_TITLE, ...over });
+    const theOther = (over: Partial<Item> = {}) => anItem({ id: 'item-2', title: SAME_TITLE, ...over });
+
+    beforeEach(() => {
+      deviceIsIn('Europe/Brussels');
+      deviceSpeaks('nl-BE');
+      held.duplicates = [{ itemId: 'item-1', otherItemId: 'item-2' }];
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('shows each one’s title, where it came from, when it was captured and the first line of its description', async () => {
+      await theForm(
+        thisNote({
+          source: 'gmail',
+          sender: 'Anna',
+          createdAt: '2026-10-01T09:00:00.000Z',
+          description: 'Ring Novy on Monday\nThen send the audit trail.',
+        }),
+        [theOther({ createdAt: '2026-10-02T07:30:00.000Z', description: 'Part 11 is about audit trails.' })],
+      );
+
+      const open = screen.getByRole('group', { name: 'This note (open)' });
+      expect(open).toHaveTextContent(SAME_TITLE);
+      expect(open).toHaveTextContent('Gmail · 01 Oct 2026, 11:00');
+      expect(open).toHaveTextContent('Ring Novy on Monday');
+      expect(open).not.toHaveTextContent('Then send the audit trail.');
+      const other = screen.getByRole('group', { name: 'The other note' });
+      expect(other).toHaveTextContent(SAME_TITLE);
+      expect(other).toHaveTextContent('Own · 02 Oct 2026, 09:30');
+      expect(other).toHaveTextContent('Part 11 is about audit trails.');
+    });
+
+    it.each([
+      { situation: 'has no description', description: null, shown: 'No description' },
+      { situation: 'opens with a heading', description: '# Call Novy\nThen the rest', shown: 'Call Novy' },
+      { situation: 'opens with an image', description: '![](https://example.com/photo.png)\n\nCall Novy', shown: 'Call Novy' },
+      { situation: 'opens with emphasis', description: '**Call** _Novy_ today', shown: 'Call Novy today' },
+    ])('says the first line of a description that $situation without the Markdown around it', async ({ description, shown }) => {
+      await theForm(thisNote(), [theOther({ description })]);
+
+      const text = screen.getByRole('group', { name: 'The other note' }).textContent;
+      expect(text).toContain(shown);
+      expect(text).not.toMatch(/[#*_\[\]]/);
+    });
+  });
+
+  /**
+   * "Choose which of two possible duplicates to keep, from the warning" (issue
+   * 1451). Only **Open** goes to the other note without deciding; what each
+   * choice draws at once is tests/unit/components/ChangesAtOnce.test.tsx, and
+   * the route and the back button are tests/e2e/duplicates.test.ts.
+   */
+  describe('only Open goes to the other note without deciding anything', () => {
+    const ANOTHER_NOTE = anItem({ id: 'item-2', title: 'Part 11 audit trail, for Novy' });
+
+    it('does nothing when the other note’s title is pressed', async () => {
+      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
+      const user = await theForm(anItem(), [ANOTHER_NOTE]);
+
+      await user.click(within(screen.getByRole('group', { name: 'The other note' })).getByText('Part 11 audit trail, for Novy'));
+
+      expect(held.open).not.toHaveBeenCalled();
+      expect(sent()).toEqual([]);
+    });
+
+    it('opens the other note’s form, and neither dismisses nor settles anything', async () => {
+      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
+      const user = await theForm(anItem(), [ANOTHER_NOTE]);
+
+      await user.click(within(screen.getByRole('group', { name: 'The other note' })).getByRole('button', { name: 'Open' }));
+
+      expect(held.open).toHaveBeenCalledWith(ANOTHER_NOTE.id);
+      expect(sent()).toEqual([]);
+    });
+
+    it('offers Open on the other note’s card only', async () => {
+      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
+      await theForm(anItem(), [ANOTHER_NOTE]);
+
+      expect(within(screen.getByRole('group', { name: 'This note (open)' })).queryByRole('button', { name: 'Open' })).toBeNull();
+    });
+  });
+
+  /**
+   * "Choose which of two possible duplicates to keep, from the warning" (issue
+   * 1451): each **Keep this one** keeps the note on its card and dismisses the
+   * other, with the usual way back. The bar itself is `UndoWhatJustHappened`'s
+   * own (`tests/unit/undo.test.tsx`), found by text and clicked by `fireEvent`
+   * for the reason the settling describe below gives.
+   */
+  describe('keeping one of two possible duplicates dismisses the other', () => {
+    const ANOTHER_NOTE = anItem({ id: 'item-2', title: 'Part 11 audit trail, for Novy' });
+    const A_THIRD_NOTE = anItem({ id: 'item-3', title: 'Novy and the audit trail' });
+    const keepOn = (heading: string, block = 0) =>
+      within(screen.getAllByRole('group', { name: heading })[block]!).getByRole('button', { name: 'Keep this one' });
+    const dismissals = () =>
+      held.send.mock.calls
+        .map((call) => (call as unknown as [{ name: string; payload: { itemId: string; dismissed: boolean } }])[0])
+        .filter((change) => change.name === 'set_dismissed')
+        .map((change) => [change.payload.itemId, change.payload.dismissed]);
+
+    beforeEach(() => {
+      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
+    });
+
+    it('dismisses this note and opens the other one, from the other note’s card', async () => {
+      const user = await theForm(anItem(), [ANOTHER_NOTE], true);
+
+      await user.click(keepOn('The other note'));
+
+      expect(dismissals()).toEqual([['item-1', true]]);
+      expect(held.open).toHaveBeenCalledWith(ANOTHER_NOTE.id, { replace: true });
+      expect(await screen.findByText('“Part 11” dismissed')).toBeVisible();
+    });
+
+    it('dismisses the other note and leaves the form on this one, from this note’s card', async () => {
+      const user = await theForm(anItem(), [ANOTHER_NOTE], true);
+
+      await user.click(keepOn('This note (open)'));
+
+      expect(dismissals()).toEqual([['item-2', true]]);
+      expect(held.open).not.toHaveBeenCalled();
+      expect(held.close).not.toHaveBeenCalled();
+      expect(await screen.findByText('“Part 11 audit trail, for Novy” dismissed')).toBeVisible();
+    });
+
+    it('brings the other note back when keeping this one is undone', async () => {
+      const user = await theForm(anItem(), [ANOTHER_NOTE], true);
+      await user.click(keepOn('This note (open)'));
+
+      held.send.mockClear();
+      fireEvent.click(await screen.findByText('Undo'));
+
+      expect(dismissals()).toEqual([['item-2', false]]);
+    });
+
+    it('dismisses only the note of the block it was pressed in, when flagged against two', async () => {
+      held.duplicates = [
+        { itemId: 'item-1', otherItemId: ANOTHER_NOTE.id },
+        { itemId: 'item-1', otherItemId: A_THIRD_NOTE.id },
+      ];
+      const user = await theForm(anItem(), [ANOTHER_NOTE, A_THIRD_NOTE]);
+      expect(screen.getAllByRole('group', { name: 'The other note' })[1]).toHaveTextContent(A_THIRD_NOTE.title);
+
+      await user.click(keepOn('This note (open)', 1));
+
+      expect(dismissals()).toEqual([[A_THIRD_NOTE.id, true]]);
+    });
+
+    it('says in the bar that the other note was not dismissed, and why, where keeping this one is refused', async () => {
+      held.send.mockRejectedValueOnce(new Error('That note is locked.'));
+      const user = await theForm(anItem(), [ANOTHER_NOTE], true);
+
+      await user.click(keepOn('This note (open)'));
+
+      expect(await screen.findByText('“Part 11 audit trail, for Novy” was not dismissed. That note is locked.')).toBeVisible();
+    });
+
+    it('says in the bar that this note was not dismissed, and why, where keeping the other one is refused after its form has opened', async () => {
+      held.send.mockRejectedValueOnce(new Error('That note is locked.'));
+      const user = await theForm(anItem(), [ANOTHER_NOTE], true);
+
+      await user.click(keepOn('The other note'));
+
+      expect(held.open).toHaveBeenCalledWith(ANOTHER_NOTE.id, { replace: true });
+      expect(await screen.findByText('“Part 11” was not dismissed. That note is locked.')).toBeVisible();
+    });
+  });
+
+  /**
+   * "Say a flagged pair is not a duplicate" (issue 408): the pair gets its own
+   * way to be settled, distinct from keeping either note - and settling offers
+   * the way back the same bar every other change does.
    */
   describe('settling a pair as not a duplicate', () => {
     const ANOTHER_NOTE = anItem({ id: 'item-2', title: 'Part 11 audit trail, for Novy' });
 
-    it('settles the pair this link names, not the one this form is', async () => {
+    it('settles the pair this block names, not the one this form is', async () => {
       held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
       const user = await theForm(anItem(), [ANOTHER_NOTE]);
 
-      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+      await user.click(screen.getByRole('button', { name: 'Keep both: not a duplicate' }));
 
       expect(sent()).toContainEqual(
         expect.objectContaining({
@@ -2260,43 +2440,9 @@ describe('Item editing', () => {
           }),
         }),
       );
-      // The link to the other note is untouched - settling is not opening it.
+      // Neither note is opened or dismissed - settling the pair keeps both.
       expect(held.open).not.toHaveBeenCalled();
-    });
-
-    it('dismisses this note, not the other, and closes the form', async () => {
-      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
-      const user = await theForm(anItem(), [ANOTHER_NOTE]);
-
-      await user.click(screen.getByRole('button', { name: 'Dismiss this one' }));
-
-      expect(sent()).toContainEqual(
-        expect.objectContaining({
-          name: 'set_dismissed',
-          payload: expect.objectContaining({ itemId: 'item-1', dismissed: true }),
-        }),
-      );
-      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
-    });
-
-    it('offers Dismiss this one beside each note it is flagged against', async () => {
-      const A_THIRD_NOTE = anItem({ id: 'item-3', title: 'Novy and the audit trail' });
-      held.duplicates = [
-        { itemId: 'item-1', otherItemId: ANOTHER_NOTE.id },
-        { itemId: 'item-1', otherItemId: A_THIRD_NOTE.id },
-      ];
-      const user = await theForm(anItem(), [ANOTHER_NOTE, A_THIRD_NOTE]);
-
-      const buttons = screen.getAllByRole('button', { name: 'Dismiss this one' });
-      expect(buttons).toHaveLength(2);
-      await user.click(buttons[1]!);
-
-      expect(sent()).toContainEqual(
-        expect.objectContaining({
-          name: 'set_dismissed',
-          payload: expect.objectContaining({ itemId: 'item-1' }),
-        }),
-      );
+      expect(sent().map((change) => change.name)).toEqual(['set_duplicate_settled']);
     });
 
     it('says so, and offers no undo, where settling is refused', async () => {
@@ -2304,7 +2450,7 @@ describe('Item editing', () => {
       held.send.mockRejectedValueOnce(new Error('That did not reach the server. Try again.'));
       const user = await theForm(anItem(), [ANOTHER_NOTE]);
 
-      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+      await user.click(screen.getByRole('button', { name: 'Keep both: not a duplicate' }));
 
       expect(await screen.findByRole('alert')).toHaveTextContent('That did not reach the server');
       expect(screen.queryByRole('status')).toBeNull();
@@ -2332,7 +2478,7 @@ describe('Item editing', () => {
       held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
       const user = await theForm(anItem(), [ANOTHER_NOTE], true);
 
-      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+      await user.click(screen.getByRole('button', { name: 'Keep both: not a duplicate' }));
 
       const undo = await screen.findByText('Undo');
       held.send.mockClear();
