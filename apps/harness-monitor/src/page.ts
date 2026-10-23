@@ -27,36 +27,34 @@ import {
   type Who,
 } from './costs';
 import { type JobName, type JobStatus } from './jobs';
+import { band, esc, selectField, shell } from './look';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
 
 export const number = (n: number) => n.toLocaleString('en-US');
 export const dollars = (micros: number) => `$${(micros / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-/** Names, titles and logins come from outside, so they are escaped. */
-export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-
-/** Colours by category, in the design's order. Every other colour is a token in the stylesheet. */
+/** Cockpit's category colours, by name, so the dark appearance can swap them (src/look.ts). */
 export const COLOURS: Record<Category, string> = {
-  unphased: '#C9B79C',
-  'scoping-planning': '#B9C4D6',
-  building: '#2F5BEA',
-  'local-code-review': '#F0A04B',
-  'local-security-review': '#9A4A12',
-  'after-push': '#6E3FA3',
-  'ci-reviews': '#5F6672',
+  unphased: 'var(--cat-grey)',
+  'scoping-planning': 'var(--cat-slate)',
+  building: 'var(--cat-violet)',
+  'local-code-review': 'var(--cat-amber)',
+  'local-security-review': 'var(--over)',
+  'after-push': 'var(--cat-teal)',
+  'ci-reviews': 'var(--cat-green)',
 };
 const SERIES_COLOURS: Record<string, string> = {
-  local: '#2F5BEA',
-  cloud: '#2B9A8A',
-  actions: '#5F6672',
-  merged: '#2E8B57',
-  open: '#2F5BEA',
-  closed: '#C0504D',
-  'no-pr': '#B9C4D6',
-  'on-main': '#9A4A12',
+  local: 'var(--cat-violet)',
+  cloud: 'var(--cat-teal)',
+  actions: 'var(--cat-slate)',
+  merged: 'var(--cat-green)',
+  open: 'var(--cat-violet)',
+  closed: 'var(--over)',
+  'no-pr': 'var(--cat-grey)',
+  'on-main': 'var(--cat-amber)',
 };
 /** A model takes these by its place among every model on record, so it keeps its colour whatever the filters; they wrap past eight. */
-const MODEL_COLOURS = ['#2F5BEA', '#F0A04B', '#6E3FA3', '#2B9A8A', '#C0504D', '#9A4A12', '#5F6672', '#B9C4D6'];
+const MODEL_COLOURS = ['var(--cat-violet)', 'var(--cat-amber)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-slate)', 'var(--cat-grey)', 'var(--over)', 'var(--due)'];
 const colourOf = (split: Split, key: string, models: string[]) =>
   split === 'phase'
     ? COLOURS[key as Category]
@@ -111,20 +109,20 @@ function warning(unpriced: UnpricedLine[]): string {
         `<tr><td>${esc(u.model)}</td><td>${number(u.requests)}</td><td>${number(u.inputTokens)}</td><td>${number(u.outputTokens)}</td><td>${number(u.cacheCreationTokens)}</td><td>${number(u.cacheReadTokens)}</td><td>${number(u.branches)}</td></tr>`,
     )
     .join('\n');
-  return `<section class="warning" role="status"><h2>Tokens with no price</h2>
+  return `<section class="panel warning" role="status" aria-labelledby="unpriced">${band('Tokens with no price', '', 'unpriced')}<div class="well pad">
 <p>${number(requests)} request${requests === 1 ? '' : 's'} could not be priced: the price list does not cover the model, or has no rate for a kind of token it used. They are left out of every dollar total and priced by the daily job once the list covers them.</p>
 <div class="scroll"><table>
 <thead><tr><th>Model</th><th>Requests</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th>Branches</th></tr></thead>
 <tbody>
 ${rows}
-</tbody></table></div></section>`;
+</tbody></table></div></div></section>`;
 }
 
-function select(id: string, label: string, options: [value: string, text: string][], current: string): string {
-  const opts = options
-    .map(([value, text]) => `<option value="${esc(value)}"${value === current ? ' selected' : ''}>${esc(text)}</option>`)
-    .join('');
-  return `<div class="field"><label for="${id}">${label}</label><select id="${id}" name="${id}" onchange="this.form.submit()">${opts}</select></div>`;
+/** The groupings as the band's tabs; choosing one keeps every filter and starts in the grouping's own order. */
+function groupTabs({ query }: CostsPage): string {
+  return GROUPS.map(
+    (g) => `<a href="/${queryString(query, { group: g, sort: 'default', page: 1 })}"${g === query.group ? ' aria-current="page"' : ''}>${TAB_LABELS[g]}</a>`,
+  ).join('');
 }
 
 function filters({ query, engineers, models }: CostsPage): string {
@@ -138,19 +136,14 @@ function filters({ query, engineers, models }: CostsPage): string {
     (v) =>
       `<button type="submit" name="split" value="${v}"${v === query.split ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${SPLIT_LABELS[v]}</button>`,
   ).join('');
-  const buttons = GROUPS.map(
-    (g) =>
-      `<button type="submit" name="group" value="${g}"${g === query.group ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${TAB_LABELS[g]}</button>`,
-  ).join('');
   return `<form class="filters" method="get" action="/">
-${select('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_LABELS[p]]), query.period)}
-${select('engineer', 'Engineer', engineerOptions, query.engineer ?? '')}
-${select('category', 'Category', [['', 'All categories'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '')}
-${select('model', 'Model', modelOptions, query.model ?? '')}
-${select('who', 'Requests', WHOS.map((w): [string, string] => [w, WHO_LABELS[w]]), query.who)}
-<div class="field"><span id="splitby">Split by</span><div class="segmented" role="group" aria-labelledby="splitby">${splitButtons}</div></div>
+${selectField('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_LABELS[p]]), query.period, '30d')}
+${selectField('engineer', 'Engineer', engineerOptions, query.engineer ?? '')}
+${selectField('category', 'Category', [['', 'All categories'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '')}
+${selectField('model', 'Model', modelOptions, query.model ?? '')}
+${selectField('who', 'Requests', WHOS.map((w): [string, string] => [w, WHO_LABELS[w]]), query.who, 'all')}
+<div class="field"><span id="splitby">Split by</span><div class="toggles" role="group" aria-labelledby="splitby">${splitButtons}</div></div>
 <input type="hidden" name="split" value="${query.split}">
-<div class="field"><span id="groupby">Group by</span><div class="segmented" role="group" aria-labelledby="groupby"${query.sort === 'total' ? ` onclick="if(event.target.name==='group')event.target.form.elements.sort.disabled=true"` : ''}>${buttons}</div></div>
 <input type="hidden" name="group" value="${query.group}">
 ${query.sort === 'total' ? '<input type="hidden" name="sort" value="total">' : ''}
 <noscript><button type="submit">Apply</button></noscript>
@@ -166,7 +159,7 @@ function whereItWent(page: CostsPage): string {
   const summary =
     groups.length === 0
       ? ''
-      : `<span class="muted">${number(groups.length)} ${groups.length === 1 ? one : many} · median ${dollars(median(groups.map((g) => g.totalMicros)))} each · at API list price</span>`;
+      : `${number(groups.length)} ${groups.length === 1 ? one : many} · median ${dollars(median(groups.map((g) => g.totalMicros)))} each · at API list price`;
   const cost = (s: Series) => bySeries[s.key] ?? 0;
   const segments = series
     .map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / totalMicros) * 100).toFixed(2)}%;background:${colourOf(query.split, s.key, page.models)}"></div>` : ''))
@@ -175,15 +168,14 @@ function whereItWent(page: CostsPage): string {
   const legend = series
     .map(
       (s) =>
-        `<div class="legend-item"><span class="swatch" style="background:${colourOf(query.split, s.key, page.models)}" aria-hidden="true"></span><span>${esc(s.label)}</span><span class="mono muted">${dollars(cost(s))}</span></div>`,
+        `<li><i style="background:${colourOf(query.split, s.key, page.models)}" aria-hidden="true"></i><span class="name">${esc(s.label)}</span><span class="amount">${dollars(cost(s))}</span></li>`,
     )
     .join('');
-  return `<section class="card where" aria-labelledby="where">
-<div class="where-head"><h2 id="where">Where the period&rsquo;s ${dollars(totalMicros)} went</h2>${summary}</div>
+  return `<section class="panel" aria-labelledby="where">${band(`Where the period&rsquo;s ${dollars(totalMicros)} went`, summary, 'where')}<div class="well pad">
 <div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
-<div class="legend">${legend}</div>
-<p class="muted small">CI reviews counts the <span class="mono">@claude</span> runs in GitHub Actions only. Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai, and is <strong>not measured</strong>.</p>
-</section>`;
+<ul class="shares">${legend}</ul>
+<p class="note">CI reviews counts the <span class="mono">@claude</span> runs in GitHub Actions only. Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai, and is <strong>not measured</strong>.</p>
+</div></section>`;
 }
 
 const DIMENSION_LABELS: Record<Split, string> = { phase: 'Phase', model: 'Model', where: 'Where it ran', outcome: 'Outcome' };
@@ -217,12 +209,11 @@ function changeCard(c: Comparison | null, label: string): string {
       return `<div data-dimension="${split}"><h3>${DIMENSION_LABELS[split]}</h3><ul>${items}</ul></div>`;
     })
     .join('');
-  return `<section class="card change" aria-labelledby="change" data-card="change">
-<h2 id="change">Change on the previous period</h2>
+  return `<section class="panel change" aria-labelledby="change" data-card="change">${band('Change on the previous period', '', 'change')}<div class="well pad">
 <p>${esc(label)} (${formatDay(c.current.from)} to ${formatDay(c.current.to)}) cost <strong>${dollars(c.currentMicros)}</strong> against <strong>${dollars(c.previousMicros)}</strong> in the previous period (${formatDay(c.previous.from)} to ${formatDay(c.previous.to)}): ${headline}.</p>
 <div class="scroll"><table class="drivers"><thead><tr><th scope="col">Driver</th><th scope="col" class="num">This period</th><th scope="col" class="num">Previous</th></tr></thead><tbody>${drivers}</tbody></table></div>
 <div class="dimensions">${dimensions}</div>
-</section>`;
+</div></section>`;
 }
 
 const CHART = { width: 1000, height: 280, left: 72, right: 16, top: 16, bottom: 32 };
@@ -241,10 +232,10 @@ function overTime(page: CostsPage, now: number): string {
   const y = (micros: number) => top + (1 - micros / peak) * (height - top - bottom);
   const lines = [
     ...chart.lines.map((l) => ({ ...l, colour: colourOf(query.split, l.key, models), dash: false })),
-    { key: 'total', label: 'Total', micros: chart.total, colour: 'var(--ink)', dash: true },
+    { key: 'total', label: 'Total', micros: chart.total, colour: 'var(--ink-strong)', dash: true },
   ];
   const grid = [0, 0.5, 1]
-    .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" stroke="var(--line-soft)"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${dollars(peak * f)}</text>`)
+    .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" class="gridline"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${dollars(peak * f)}</text>`)
     .join('');
   const ends = [...new Set([0, Math.floor((chart.days.length - 1) / 2), chart.days.length - 1])];
   const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 10}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === chart.days.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${formatDay(chart.days[i]!)}</text>`).join('');
@@ -257,15 +248,14 @@ function overTime(page: CostsPage, now: number): string {
       return `<g data-line="${esc(l.key)}"><polyline points="${points}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>${dots}</g>`;
     })
     .join('');
-  const legend = lines
-    .map((l) => `<div class="legend-item"><span class="swatch${l.dash ? ' dash' : ''}" style="background:${l.dash ? 'none' : l.colour}" aria-hidden="true"></span><span>${esc(l.label)}</span></div>`)
-    .join('');
-  return `<section class="card chart" aria-labelledby="perday">
-<h2 id="perday">Cost per day</h2>
-<div class="scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cost per day, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${grid}${dates}${drawn}</svg></div>
-<div class="legend">${legend}</div>
+  const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${chart.total.map((m, i) => `${x(i).toFixed(1)},${y(m).toFixed(1)}`).join(' ')} ${x(chart.days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
+  return `<section class="panel" aria-labelledby="perday">${band('Cost per day', `<span class="legend">${keys(lines)}</span>`, 'perday')}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cost per day, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${drawn}</svg></div>
 </section>`;
 }
+
+/** A chart's key: a swatch and a name for each line, the total's dashed. */
+const keys = (lines: { label: string; colour: string; dash?: boolean | undefined }[]) =>
+  lines.map((l) => `<span class="key"><i${l.dash ? ' class="dash"' : ` style="background:${l.colour}"`} aria-hidden="true"></i>${esc(l.label)}</span>`).join('');
 
 /** A count as an axis reads it: 120,000 is "120k". */
 const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000).toLocaleString('en-US')}k` : n.toLocaleString('en-US', { maximumFractionDigits: 0 }));
@@ -285,13 +275,13 @@ interface TrendDrawing {
 function trendChart(t: Trends, d: TrendDrawing): string {
   const { width, height, left, right, top, bottom } = CHART;
   const shown = d.lines.filter((l) => l.values.some((v) => v !== null));
-  const head = `<section class="card chart" aria-labelledby="${d.id}"><h2 id="${d.id}">${d.title}</h2><p class="muted small">${d.note}</p>`;
-  if (shown.length === 0) return `${head}<p class="empty" data-empty="${d.id}">Nothing to chart in this period.</p></section>`;
+  const head = `<section class="trend" aria-labelledby="${d.id}"><h3 id="${d.id}">${d.title}</h3><p class="note">${d.note}</p>`;
+  if (shown.length === 0) return `${head}<p class="muted" data-empty="${d.id}">Nothing to chart in this period.</p></section>`;
   const peak = Math.max(...shown.flatMap((l) => l.values.map((v) => v ?? 0)), 1);
   const x = (i: number) => (t.buckets.length === 1 ? (left + width - right) / 2 : left + (i / (t.buckets.length - 1)) * (width - left - right));
   const y = (v: number) => top + (1 - v / peak) * (height - top - bottom);
   const grid = [0, 0.5, 1]
-    .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" stroke="var(--line-soft)"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${d.axis(peak * f)}</text>`)
+    .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" class="gridline"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${d.axis(peak * f)}</text>`)
     .join('');
   const ends = [...new Set([0, Math.floor((t.buckets.length - 1) / 2), t.buckets.length - 1])];
   const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 10}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === t.buckets.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${t.weekly ? 'Week of ' : ''}${formatDay(t.buckets[i]!)}</text>`).join('');
@@ -310,15 +300,15 @@ function trendChart(t: Trends, d: TrendDrawing): string {
       return `<g data-line="${esc(l.key)}">${paths}${dots}</g>`;
     })
     .join('');
-  const legend = shown.length === 1 ? '' : `<div class="legend">${shown.map((l) => `<div class="legend-item"><span class="swatch${l.dash ? ' dash' : ''}" style="background:${l.dash ? 'none' : l.colour}" aria-hidden="true"></span><span>${esc(l.label)}</span></div>`).join('')}</div>`;
-  return `${head}<div class="scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}${drawn}</svg></div>${legend}</section>`;
+  const legend = shown.length === 1 ? '' : `<div class="legend">${keys(shown)}</div>`;
+  return `${head}<div class="chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}${drawn}</svg></div>${legend}</section>`;
 }
 
 /** "Is the harness getting more expensive?": starting context, pull request size and cost per 1,000 lines changed. */
 function harnessTrends(page: CostsPage): string {
   const t = page.trends;
   if (t === null) return '';
-  const ink = '#2F5BEA';
+  const ink = 'var(--cat-violet)';
   const per = t.weekly ? 'week' : 'day';
   const charts = [
     trendChart(t, {
@@ -341,12 +331,12 @@ function harnessTrends(page: CostsPage): string {
       id: 'cost-per-line',
       title: 'Cost per 1,000 lines changed',
       note: `Merged pull requests&rsquo; cost divided by thousands of lines added plus removed, by ${per} merged. A phase is not drawn before it was recorded (21 Sep 2026).`,
-      lines: t.costPerThousandLines.map((l) => (l.key === 'total' ? { ...l, colour: 'var(--ink)', dash: true } : { ...l, colour: COLOURS[l.key as Category] })),
+      lines: t.costPerThousandLines.map((l) => (l.key === 'total' ? { ...l, colour: 'var(--ink-strong)', dash: true } : { ...l, colour: COLOURS[l.key as Category] })),
       value: dollars,
       axis: dollars,
     }),
   ];
-  return `<section class="trends" aria-labelledby="trends"><h2 id="trends">Is the harness getting more expensive?</h2>${charts.join('\n')}</section>`;
+  return `<section class="panel" aria-labelledby="trends">${band('Is the harness getting more expensive?', '', 'trends')}<div class="well pad">${charts.join('\n')}</div></section>`;
 }
 
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
@@ -390,12 +380,13 @@ function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: 
     : series.map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / max) * 100).toFixed(1)}%;background:${colourOf(query.split, s.key, models)}"></div>` : '')).join('');
   const cells = series.map((s) => `<td class="num mono${s.key === 'ci-reviews' ? ' muted' : ''}">${cost(s) > 0 ? dollars(cost(s)) : '—'}</td>`).join('');
   const unpriced = g.unpricedRequests > 0 ? ` <span class="unpriced">+ ${number(g.unpricedRequests)} unpriced</span>` : '';
-  return `<tr>${first}${extra}<td><div class="split${g.catchAll ? ' bare' : ''}">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td></tr>`;
+  return `<tr>${first}${extra}<td class="split-cell"><div class="split${g.catchAll ? ' bare' : ''}">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td></tr>`;
 }
 
 function table(page: CostsPage, repository: string | null): string {
   const { query, groups } = page;
-  if (groups.length === 0) return `<section class="card"><p class="empty">Nothing in this period. No Claude Code requests match the filters.</p></section>`;
+  const title = `By ${GROUP_LABELS[query.group].toLowerCase()}`;
+  if (groups.length === 0) return `<section class="panel">${band(title)}<p class="well empty">Nothing in this period. No Claude Code requests match the filters.</p></section>`;
   // A page past the end shows the last one, rather than an empty table.
   const pageNo = Math.min(query.page, Math.ceil(groups.length / PAGE_SIZE));
   const start = (pageNo - 1) * PAGE_SIZE;
@@ -403,7 +394,7 @@ function table(page: CostsPage, repository: string | null): string {
   // The bars scale to the largest row that draws one: a catch-all is left out, so it cannot shrink every other bar.
   const max = Math.max(...shown.filter((g) => !g.catchAll).map((g) => g.totalMicros), 1);
   const extraHeads = query.group === 'pr' ? '<th scope="col">Engineer</th><th scope="col">Merged</th><th scope="col">Lines</th><th scope="col">Open → merged</th><th scope="col" class="num">CI rounds</th><th scope="col" class="num">Rounds</th><th scope="col" class="num">Findings</th>' : query.group === 'issue' || query.group === 'engineer' ? '<th scope="col">Pull requests</th>' : '';
-  const heads = page.series.map((s) => `<th scope="col" class="num">${esc(s.short)}</th>`).join('');
+  const heads = page.series.map((s) => `<th scope="col" class="num"><i style="background:${colourOf(query.split, s.key, page.models)}" aria-hidden="true"></i>${esc(s.short)}</th>`).join('');
   const link = (to: number, text: string) => `<a href="/${queryString(query, { page: to })}">${text}</a>`;
   const pager = [pageNo > 1 ? link(pageNo - 1, 'Previous') : '', start + PAGE_SIZE < groups.length ? link(pageNo + 1, `Next ${PAGE_SIZE}`) : '']
     .filter(Boolean)
@@ -415,67 +406,15 @@ function table(page: CostsPage, repository: string | null): string {
   const totalHead = switchable && !byTotal ? `<a href="/${queryString(query, { sort: 'total', page: 1 })}">Total</a>` : 'Total';
   const marks = (on: boolean) => (on ? ' ▾' : '');
   const sortedBy = byTotal ? 'total' : SORTED_BY[query.group];
-  return `<section class="card table-card" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">
+  return `<section class="panel" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">${band(title)}<div class="well">
 <div class="scroll"><table class="costs">
 <thead><tr><th scope="col" class="first">${firstHead}${marks(!byTotal)}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">${totalHead}${marks(byTotal)}</th></tr></thead>
 <tbody>
 ${shown.map((g) => row(g, query.group, max, query, page.series, page.models, repository)).join('\n')}
 </tbody></table></div>
 <div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by ${sortedBy}</span><span>${pager}</span></div>
-</section>`;
+</div></section>`;
 }
-
-export const STYLE = `
-:root{--bg:#F6F6F3;--card:#FFF;--ink:#1B1D21;--muted:#5A5E66;--line:#DCDCD6;--line-soft:#EDEDE8;--control:#C9CAC3;--accent:#EEF1FB;--link:#2448C8;--warn-bg:#FDF5E6;--warn-line:#E3B25A;--warn-ink:#8A5A00;--track:#F0F0EC;--good:#2E7D4F}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 'IBM Plex Sans',system-ui,sans-serif}
-a{color:var(--link)}
-.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}.muted{color:var(--muted)}.small{font-size:13px}.nowrap{white-space:nowrap}
-header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;padding:16px;border-bottom:1px solid var(--line);background:var(--card)}
-header .name{font-weight:600;font-size:16px}header .section{padding:8px 12px;border-radius:6px;background:var(--accent);font-weight:500}
-header .status{margin-left:auto;color:var(--muted);font-size:13px}
-main{max-width:1376px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-direction:column;gap:20px}
-h1,h2,p{margin:0}h2{font-size:16px;font-weight:600}
-.filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}
-.field{display:flex;flex-direction:column;gap:4px}.field label,.field>span{font-size:12px;color:var(--muted)}
-select,button{height:40px;font:inherit;color:inherit}
-select{padding:0 12px;border:1px solid var(--control);border-radius:6px;background:var(--card)}
-.segmented{display:flex;border:1px solid var(--control);border-radius:6px;overflow:hidden;background:var(--card);flex-wrap:wrap}
-.segmented button{padding:0 14px;border:0;border-left:1px solid var(--control);background:var(--card);cursor:pointer}
-.segmented button:first-child{border-left:0}
-.segmented button[aria-pressed=true]{background:var(--ink);color:#FFF}
-a.button{display:inline-flex;align-items:center;height:40px;padding:0 14px;border:1px solid var(--control);border-radius:6px;background:var(--card);color:var(--ink);text-decoration:none;margin-left:auto}
-:focus-visible{outline:2px solid var(--link);outline-offset:2px}
-.warning{border:1px solid var(--warn-line);border-radius:8px;background:var(--warn-bg);padding:12px 16px;display:flex;flex-direction:column;gap:8px}
-.warning h2{color:var(--warn-ink)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px}
-.where{display:flex;flex-direction:column;gap:12px;padding:20px}
-.where-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 24px}
-.bar{display:flex;height:28px;border-radius:4px;overflow:hidden;background:var(--track)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 28px}.legend-item{display:flex;align-items:center;gap:8px}
-.swatch{width:12px;height:12px;border-radius:2px}
-.scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
-.costs{min-width:1100px}
-th,td{padding:12px 8px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:top}
-th{font-size:12px;font-weight:500;color:var(--muted);border-bottom-color:var(--line)}
-th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padding-right:16px}
-.num{text-align:right}.total{font-weight:500}.first{max-width:380px}
-.split-head{width:220px}.split{display:flex;height:10px;background:var(--track);border-radius:2px;overflow:hidden;margin-top:4px}.split.bare{background:none}
-.unpriced{color:var(--warn-ink);font-size:.85em;white-space:nowrap}
-.foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:12px 16px;color:var(--muted);font-size:13px}
-.jobs{list-style:none;margin:12px 16px;padding:0;font-size:13px}
-.jobs .failed{color:var(--warn-ink)}
-.empty{padding:24px;color:var(--muted)}
-.chart{display:flex;flex-direction:column;gap:12px;padding:20px}.chart svg{display:block;width:100%;min-width:640px;height:auto}.axis{font-size:12px;fill:var(--muted)}
-.trends{display:flex;flex-direction:column;gap:12px}
-.change{display:flex;flex-direction:column;gap:12px;padding:20px}.change h3{margin:0 0 4px;font-size:13px;font-weight:600}
-.change ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
-.dimensions{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
-.drivers{min-width:420px}.up{color:var(--warn-ink)}.down{color:var(--good)}
-.swatch.dash{width:18px;height:0;border-top:2px dashed var(--ink);border-radius:0}
-@media (max-width:640px){.segmented button{flex:1 1 auto}}
-`;
 
 /** The public page: Claude Code's cost, grouped and filtered. Counts and dollars only; never an email or any content. */
 export function renderPage(
@@ -484,22 +423,15 @@ export function renderPage(
   now = Date.now(),
 ): string {
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Harness Monitor</title>
-<style>${STYLE}</style>
-</head><body>
-<header><h1 class="name">Harness Monitor</h1><span class="section">Claude Code costs</span>
-<span class="status">Updated ${formatDateTime(now)} · Public, read-only.</span></header>
-<main>
-${filters(page)}
-${warning(report.unpriced)}
-${changeCard(page.comparison, PERIOD_LABELS[page.query.period])}
-${whereItWent(page)}
-${page.query.group === 'day' ? overTime(page, now) : ''}
-${harnessTrends(page)}
-${table(page, repository)}
-${jobLines(page.jobs)}
-</main>
-</body></html>`;
+  const body = [
+    filters(page),
+    warning(report.unpriced),
+    changeCard(page.comparison, PERIOD_LABELS[page.query.period]),
+    whereItWent(page),
+    page.query.group === 'day' ? overTime(page, now) : '',
+    harnessTrends(page),
+    table(page, repository),
+    jobLines(page.jobs),
+  ].join('\n');
+  return shell({ current: 'costs', tabs: groupTabs(page), body }, now);
 }
