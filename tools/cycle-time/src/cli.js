@@ -275,7 +275,8 @@ async function send(monitor, collected, window, { backfill, branch }) {
   process.stderr.write(
     `sent ${result.pulls} pull requests merged from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n${unreadable}${gap}`,
   );
-  return cut ? 1 : 0;
+  // A pull request that could not be read is not sent, and once a later merge is stored the next send's window starts past it: the run fails so it is looked at while it still reaches.
+  return cut || collected.failed.length > 0 ? 1 : 0;
 }
 
 /** The page, or the model, over its own window, and the model beside it with --model. */

@@ -1036,6 +1036,11 @@ function windowModel(pulls, { days, now, coveredSince }) {
   };
 }
 
+/** The most steps or files kept for one attempt, and characters kept of each: the Monitor refuses a send past either (apps/harness-monitor/src/cycle-time.ts), and an attempt that failed every spec would otherwise hold the whole night back. */
+const KEPT_ITEMS = 500;
+const KEPT_CHARS = 500;
+const kept = (items) => items.slice(0, KEPT_ITEMS).map((item) => item.slice(0, KEPT_CHARS));
+
 /** One round's checks as the Harness Monitor stores them: one per attempt that ran, in the order they finished. */
 function checkRows(round) {
   const rows = round.held.map((held, position) => {
@@ -1052,8 +1057,8 @@ function checkRows(round) {
       // What `failures` says of the attempt's detail: it could not be read, wholly or in part, or it was read and names no failed file.
       detailNotRecorded: failure ? failure.record === 'not-recorded' || failure.packagesNotRecorded.length > 0 || failure.why === 'unreadable' : false,
       noFileFailed: failure?.why === 'no-file-failed',
-      failedSteps: failure?.steps ?? [],
-      failedFiles: failure?.files ?? [],
+      failedSteps: kept(failure?.steps ?? []),
+      failedFiles: kept(failure?.files ?? []),
     };
   });
   // A fluke's extra minutes sit on the first attempt of its check that failed, as `flukesOf` found it.

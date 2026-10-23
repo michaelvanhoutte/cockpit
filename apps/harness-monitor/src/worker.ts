@@ -121,7 +121,7 @@ async function cycleTime(request: Request, env: Env, ctx: ExecutionContext): Pro
   return response;
 }
 
-/** Whether the request asks for the JSON answer rather than the page:`?format=json`, or an `Accept` header naming `application/json`. */
+/** Whether the request asks for the JSON answer rather than the page: `?format=json`, or an `Accept` header naming `application/json`. */
 const wantsJson = (request: Request, url: URL) => url.searchParams.get('format') === 'json' || (request.headers.get('accept') ?? '').includes('application/json');
 
 /**

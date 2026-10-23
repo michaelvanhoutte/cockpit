@@ -285,20 +285,21 @@ interface Stored {
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
+/** Appends `value` to the list under `key`, starting it where there is none. */
+function append<K, V>(map: Map<K, V[]>, key: K, value: V) {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
+}
+
 /** Groups the flat rows under their pull request, round and check. */
 function assemble(pulls: PullRow[], rounds: RoundRow[], checks: CheckRow[], failures: FailureRow[]): Stored[] {
   const failuresOf = new Map<string, FailureRow[]>();
-  for (const f of failures) {
-    const key = `${f.pull_number}:${f.round_index}:${f.position}`;
-    failuresOf.set(key, [...(failuresOf.get(key) ?? []), f]);
-  }
+  for (const f of failures) append(failuresOf, `${f.pull_number}:${f.round_index}:${f.position}`, f);
   const checksOf = new Map<string, CheckRow[]>();
-  for (const c of checks) {
-    const key = `${c.pull_number}:${c.round_index}`;
-    checksOf.set(key, [...(checksOf.get(key) ?? []), c]);
-  }
+  for (const c of checks) append(checksOf, `${c.pull_number}:${c.round_index}`, c);
   const roundsOf = new Map<number, RoundRow[]>();
-  for (const r of rounds) roundsOf.set(r.pull_number, [...(roundsOf.get(r.pull_number) ?? []), r]);
+  for (const r of rounds) append(roundsOf, r.pull_number, r);
 
   return pulls.map((pull) => ({
     pull,
@@ -405,14 +406,21 @@ function windowAnswer(stored: Stored[], { days, firstDay }: { days: number | nul
   const withRecord = inWindow.filter(({ pull }) => pull.recorded === 1);
   const placed = inWindow.filter(({ pull }) => pull.coding_ms !== null && pull.local_ms !== null);
   const reviewed = inWindow.filter(({ pull }) => pull.review_count !== null);
-  const ratioOf = ({ pull }: Stored) => (pull.coding_ms! > 0 ? (pull.ci_ms + pull.local_ms!) / pull.coding_ms! : null);
+  const dots = placed.map((s) => ({
+    number: s.pull.pull_number,
+    codingMs: s.pull.coding_ms!,
+    harnessMs: s.pull.ci_ms + s.pull.local_ms!,
+    rounds: s.rounds.length,
+    ratio: s.pull.coding_ms! > 0 ? (s.pull.ci_ms + s.pull.local_ms!) / s.pull.coding_ms! : null,
+    lines: s.pull.additions + s.pull.deletions,
+  }));
 
   const checkRows = rounds.flatMap(({ pull, round }) => round.checks.map((check) => ({ pull, round: round.row.round_index, ...check })));
   const names = [...new Set(checkRows.map((c) => c.row.name))].sort((a, b) => a.localeCompare(b));
   const queued = new Map<string, { pull: number; value: number }[]>();
   for (const c of checkRows) {
     if (c.row.queued_ms === null) continue;
-    queued.set(c.row.name, [...(queued.get(c.row.name) ?? []), { pull: c.pull, value: c.row.queued_ms }]);
+    append(queued, c.row.name, { pull: c.pull, value: c.row.queued_ms });
   }
 
   const superseded = { runs: sum(inWindow.map(({ pull }) => pull.superseded_runs)), ms: sum(inWindow.map(({ pull }) => pull.superseded_ms)) };
@@ -425,15 +433,8 @@ function windowAnswer(stored: Stored[], { days, firstDay }: { days: number | nul
     firstDay,
     pulls: { total: inWindow.length, withRecord: withRecord.length, withoutRecord: inWindow.length - withRecord.length },
     balance: {
-      dots: placed.map((s) => ({
-        number: s.pull.pull_number,
-        codingMs: s.pull.coding_ms!,
-        harnessMs: s.pull.ci_ms + s.pull.local_ms!,
-        rounds: s.rounds.length,
-        ratio: ratioOf(s),
-        lines: s.pull.additions + s.pull.deletions,
-      })),
-      ratio: figure(placed.flatMap((s) => (ratioOf(s) === null ? [] : [{ pull: s.pull.pull_number, value: ratioOf(s)! }]))),
+      dots,
+      ratio: figure(dots.flatMap((d) => (d.ratio === null ? [] : [{ pull: d.number, value: d.ratio }]))),
       noChecks: withRecord.length - placed.length,
     },
     localReviews: {

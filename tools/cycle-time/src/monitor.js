@@ -14,9 +14,15 @@ const DAY_MS = 86_400_000;
 
 /** How far before the newest stored merge the next send starts: a fluke found since lands within it. */
 export const OVERLAP_DAYS = 2;
-/** The Monitor's own caps on one send: 50 pull requests, and a body under 1,000,000 characters, kept clear of. */
+/**
+ * The Monitor's own caps on one send: 50 pull requests, and a body under 1,000,000 characters. The
+ * body is kept well clear of it: the Monitor flattens failing steps and files into one JSON string
+ * each, which can run to three times the body and must stay under D1's 2 MB a string.
+ */
 export const BATCH_PULLS = 50;
-export const BATCH_CHARS = 900_000;
+export const BATCH_CHARS = 400_000;
+/** Longest a request to the Monitor may take before the send gives up on it. */
+const REQUEST_MS = 60_000;
 
 export class MonitorError extends Error {
   constructor(message) {
@@ -50,7 +56,7 @@ const address = (url, path) => `${url.replace(/\/+$/, '')}${path}`;
 export async function newestStored({ url, fetchImpl = globalThis.fetch }) {
   let res;
   try {
-    res = await fetchImpl(address(url, '/v1/cycle-time'), { headers: { accept: 'application/json' } });
+    res = await fetchImpl(address(url, '/v1/cycle-time'), { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(REQUEST_MS) });
   } catch (error) {
     throw new MonitorError(`Could not reach the Harness Monitor at ${url}: ${error.message}`);
   }
@@ -110,6 +116,7 @@ export async function sendPulls({ url, key, pulls, fetchImpl = globalThis.fetch,
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
         body: JSON.stringify({ pulls: batch }),
+        signal: AbortSignal.timeout(REQUEST_MS),
       });
     } catch (error) {
       throw new MonitorError(`Could not reach the Harness Monitor with batch ${index + 1} of ${batches.length}: ${error.message}. ${stored}`);

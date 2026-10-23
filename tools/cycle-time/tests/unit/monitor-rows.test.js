@@ -105,6 +105,21 @@ describe('Cycle time', () => {
       expect(row.rounds[0].red).toBe(true);
       expect(row.rounds[0].checks[0]).toMatchObject({ failure: 'red', flukeMs: null, failedSteps: ['Run the tests'], failedFiles: [], detailNotRecorded: true });
     });
+
+    it('keeps the first 500 failed files of an attempt, each cut to 500 characters, so one wholesale failure cannot make the Monitor refuse the night', () => {
+      const files = Array.from({ length: 600 }, (_, index) => `${'d/'.repeat(300)}${index}.test.ts`);
+      const wholesale = {
+        ...flukyCommit,
+        checks: [check('Test', 3, 12, 'failure', { failure: { steps: ['Run the tests'], record: { state: 'read', value: { packages: [{ name: 'api', files: files.map((path) => ({ path, status: 'failed' })) }] } } } })],
+      };
+
+      const [row] = monitorRows({ pulls: [pull({ body: recorded, commits: [wholesale] })] });
+      const kept = row.rounds[0].checks[0].failedFiles;
+
+      expect(kept).toHaveLength(500);
+      expect(kept.every((path) => path.length === 500)).toBe(true);
+      expect(kept[0]).toBe(files[0].slice(0, 500));
+    });
   });
 
   describe('a pull request with no session record is sent as not recorded, never as zero', () => {
