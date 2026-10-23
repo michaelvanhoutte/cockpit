@@ -121,7 +121,7 @@ export const panelTextSchema = z.string().max(PANEL_TEXT_LIMIT);
  * *this week* has to mean the week you are in whenever you look at it, which a
  * stored Monday cannot say. Each is resolved against the viewer's own local
  * calendar at the moment the Panel is drawn, which is also why matching is
- * worked out in the client (`packages/shared/src/domain/filters.ts`).
+ * worked out from the viewer's day (`filters.ts`, in this folder).
  */
 export const DUE_WINDOWS = ['overdue', 'today', 'week', 'month', 'quarter', 'none'] as const;
 export const dueWindowSchema = z.enum(DUE_WINDOWS);
