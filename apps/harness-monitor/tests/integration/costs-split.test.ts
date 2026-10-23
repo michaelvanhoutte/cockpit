@@ -83,7 +83,7 @@ describe('Harness Monitor', () => {
       expect(byDay.bar.bar).toBe('Merged $5.00, Still open $4.00, Closed unmerged $3.00, No pull request $2.00, On main $1.00');
     });
 
-    it('by phase, which is the default, the columns are the seven phases, Unphased included', async () => {
+    it('by phase, which is the default, the columns are the phases, Unphased only where the period holds some', async () => {
       await send([
         spend('a', 3, { branch: 'b/10', category: 'building' }),
         spend('b', 1, { branch: 'b/10', category: 'after-push' }),
@@ -95,8 +95,8 @@ describe('Harness Monitor', () => {
       const asked = await split('split=phase');
       const unasked = await split('');
 
-      expect(asked.columns).toEqual(['Unphased', 'Scoping', 'Building', 'Code rev.', 'Security rev.', 'After push', 'CI rev.']);
-      expect(asked.rows.map((r) => r.categories)).toEqual([['$2.00', '—', '$3.00', '—', '—', '$1.00', '—']]);
+      expect(asked.columns).toEqual(['Unphased', 'Outside', 'Scoping', 'Building', 'Code rev.', 'Security rev.', 'After push', 'CI rev.', 'Process rev.']);
+      expect(asked.rows.map((r) => r.categories)).toEqual([['$2.00', '—', '—', '$3.00', '—', '—', '$1.00', '—', '—']]);
       expect(unasked.rows).toEqual(asked.rows);
       expect(unasked.bar).toEqual(asked.bar);
     });

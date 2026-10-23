@@ -346,6 +346,7 @@ describe('Across the app', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Show All items tab',
+        'Recurring items',
         'Delete',
       ]);
     });
@@ -359,6 +360,7 @@ describe('Across the app', () => {
       expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Show All items tab',
+        'Recurring items',
         'Delete',
       ]);
     });

@@ -16,6 +16,7 @@ export * from './domain/item.js';
 export * from './domain/item-form-presentation.js';
 export * from './domain/plain-words.js';
 export * from './domain/recording.js';
+export * from './domain/recurring-item.js';
 export * from './domain/series.js';
 export * from './domain/share.js';
 export * from './domain/panel.js';

@@ -68,14 +68,70 @@ export function subagentIdentity(fileName, metaText) {
   return { ...(id ? { subagentId: id.slice(0, 100) } : {}), ...(type ? { subagentType: type } : {}) };
 }
 
+/** The skills that make up the process: a session is in one from its invocation until another is invoked. */
+export const PROCESS_SKILLS = ['build', 'scoping', 'engineering-plan', 'session-review', 'periodic-review', 'harness-cost-review'];
+
+/** A skill's own name, without the slash of a typed command or the prefix of a plugin or namespace. */
+const ownName = (name) => String(name).trim().replace(/^\//, '').split(':').pop();
+
+/** A typed command opens its own message, `<command-message>` then `<command-name>`; the same tag inside pasted text is not an invocation. */
+const COMMAND_NAME = /^\s*(?:<command-message>[^<]*<\/command-message>\s*)?<command-name>\s*([^<\s]+)\s*<\/command-name>/;
+
+/** The names of the skills one log line invokes, in order: a typed slash command, or a Skill tool call. Names only; nothing else of the line is kept. */
+function skillsInvokedOnLine(line) {
+  const names = [];
+  const content = line?.message?.content;
+  if (line?.type === 'user') {
+    const texts = typeof content === 'string' ? [content] : Array.isArray(content) ? content.filter((b) => b?.type === 'text' && typeof b.text === 'string').map((b) => b.text) : [];
+    for (const text of texts) {
+      const match = COMMAND_NAME.exec(text);
+      if (match) names.push(ownName(match[1]));
+    }
+  } else if (line?.type === 'assistant' && Array.isArray(content)) {
+    for (const block of content) {
+      if (block?.type === 'tool_use' && block.name === 'Skill' && typeof block.input?.skill === 'string') names.push(ownName(block.input.skill));
+    }
+  }
+  return names;
+}
+
+/**
+ * When each process skill was invoked in a session's own log, in time order
+ * (log order within one moment). Only the skill's name is read, to place
+ * requests; neither it nor its arguments reach a row.
+ */
+export function processSteps(lines) {
+  const steps = [];
+  for (const line of lines) {
+    const at = Date.parse(line?.timestamp ?? '');
+    if (Number.isNaN(at)) continue;
+    for (const skill of skillsInvokedOnLine(line)) if (PROCESS_SKILLS.includes(skill)) steps.push({ at, skill });
+  }
+  return steps.map((step, order) => ({ step, order })).sort((a, b) => a.step.at - b.step.at || a.order - b.order).map(({ step }) => step);
+}
+
+/** The process step a moment falls in: the latest skill invoked by then, and whether a `/build` came at or before it. Null skill before the first. */
+export function stepAt(steps, at) {
+  let skill = null;
+  let afterBuild = false;
+  for (const step of steps) {
+    if (step.at > at) break;
+    skill = step.skill;
+    if (step.skill === 'build') afterBuild = true;
+  }
+  return { processStep: skill, afterBuild: skill === 'session-review' && afterBuild };
+}
+
 const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0);
 
 /**
  * The requests one log holds, in order, one per request id. `subagent` says
  * the log is a subagent's. Lines with no request id, model or time are not
  * requests; the first line of a request supplies its figures, as in `cost:issue`.
+ * `steps` are the session's process skill invocations (`processSteps` of its
+ * own log), which place each request, a subagent's included, by its time.
  */
-export function requestsFromLog(lines, { sessionId, subagent, identity = {} }) {
+export function requestsFromLog(lines, { sessionId, subagent, identity = {}, steps = [] }) {
   const securityReview = subagent && runsSecurityReview(lines);
   const seen = new Set();
   const requests = [];
@@ -101,6 +157,7 @@ export function requestsFromLog(lines, { sessionId, subagent, identity = {} }) {
       subagent,
       ...(subagent ? { subagentId: identity.subagentId, subagentType: identity.subagentType } : {}),
       securityReview,
+      ...stepAt(steps, at),
     });
   }
   return requests;
@@ -131,17 +188,36 @@ function readMarks(entries) {
     const closing = later.find((m) => (m.phase === 'review-end' && m.kind === mark.kind) || (m.phase !== 'review-start' && m.phase !== 'review-end'));
     windows.push({ from: mark.ms, to: closing?.ms ?? Infinity, kind: mark.kind, level: mark.level });
   });
-  return { any: marks.length > 0, started: first('start'), scoped: first('scoped'), pushed: first('pushed'), windows };
+  return { started: first('start'), scoped: first('scoped'), pushed: first('pushed'), windows };
+}
+
+/** Where a request lands by the process step its session was in, when no mark decides. */
+function categoryOfStep({ processStep, afterBuild }) {
+  switch (processStep) {
+    case 'build':
+    case 'scoping':
+    case 'engineering-plan':
+      return 'scoping-planning';
+    case 'session-review':
+      return afterBuild ? 'after-push' : 'process-review';
+    case 'periodic-review':
+    case 'harness-cost-review':
+      return 'process-review';
+    default:
+      return 'outside-process';
+  }
 }
 
 /**
  * The category a request was made in, and its review level where it is a code
  * review. Actions decide first, whatever the marks say; then the security
- * review subagent; then `main`; then Unphased where the branch has no marks or
- * the request came before its `start` mark (marks written at the end of a
- * session say nothing of the work before them); then the branch's marks at the request's own time. A
- * request after `pushed` is after push even inside a review window, so a
- * recheck of a pushed branch is the cost of having pushed.
+ * review subagent; then the branch's marks at the request's own time, from the
+ * branch's `start` on (a request before it, or on a branch whose marks never reached it, is
+ * not the marks' to place: marks written at the end of a session say nothing
+ * of the work before them); then the process step the session was in, read
+ * from its log, which leaves only work outside the process in
+ * `outside-process`. A request after `pushed` is after push even inside a
+ * review window, so a recheck of a pushed branch is the cost of having pushed.
  *
  * `marksOf(branch)` gives that branch's record entries, so a session that
  * switched branches places each request by its own branch's marks.
@@ -149,9 +225,8 @@ function readMarks(entries) {
 export function categoryOf(request, { ranWhere, marksOf }) {
   if (ranWhere === 'actions') return { category: 'ci-reviews' };
   if (request.securityReview) return { category: 'local-security-review' };
-  if (request.branch === 'main') return { category: 'scoping-planning' };
   const marks = readMarks(request.branch === null ? [] : marksOf(request.branch));
-  if (!marks.any || (marks.started !== null && request.at < marks.started)) return { category: 'unphased' };
+  if (marks.started === null || request.at < marks.started) return { category: categoryOfStep(request) };
   if (marks.pushed !== null && marks.pushed <= request.at) return { category: 'after-push' };
   const window = marks.windows.find((w) => w.from <= request.at && request.at < w.to);
   if (window?.kind === 'security-review') return { category: 'local-security-review' };
@@ -186,11 +261,20 @@ export function toRow(request, { ranWhere, marksOf, source = 'hook' }) {
   };
 }
 
-/** Every request across the main log and the subagent logs, once by request id. */
+/**
+ * Every request across the main log and the subagent logs, once by request
+ * id. A session's process steps come from its own (main) log, so a subagent's
+ * request is placed by the step the session was in at its time.
+ */
 export function allRequests(logs) {
+  const stepsBySession = new Map();
+  for (const { lines, sessionId, subagent } of logs) {
+    if (!subagent) stepsBySession.set(sessionId, [...(stepsBySession.get(sessionId) ?? []), ...processSteps(lines)]);
+  }
+  for (const [sessionId, steps] of stepsBySession) stepsBySession.set(sessionId, steps.sort((a, b) => a.at - b.at));
   const byId = new Map();
   for (const { lines, sessionId, subagent, identity } of logs) {
-    for (const request of requestsFromLog(lines, { sessionId, subagent, identity })) {
+    for (const request of requestsFromLog(lines, { sessionId, subagent, identity, steps: stepsBySession.get(sessionId) })) {
       if (!byId.has(request.requestId)) byId.set(request.requestId, request);
     }
   }

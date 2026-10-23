@@ -33,7 +33,7 @@ async function sessionStarts(): Promise<Start[]> {
 
 /** Each line of a chart as its points read ("2026-10-05 · $2.00"), keyed by the line; 'empty' where the chart has nothing to draw. */
 function chart(html: string, id: string): Record<string, string[]> | 'empty' {
-  const section = new RegExp(`<section class="card chart" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)?.[1];
+  const section = new RegExp(`<section class="trend" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)?.[1];
   if (section === undefined) throw new Error(`no chart ${id}`);
   if (section.includes(`data-empty="${id}"`)) return 'empty';
   return Object.fromEntries(
