@@ -38,12 +38,14 @@ export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt
 /** Colours by category, in the design's order. Every other colour is a token in the stylesheet. */
 export const COLOURS: Record<Category, string> = {
   unphased: '#C9B79C',
+  'outside-process': '#7A5C3E',
   'scoping-planning': '#B9C4D6',
   building: '#2F5BEA',
   'local-code-review': '#F0A04B',
   'local-security-review': '#9A4A12',
   'after-push': '#6E3FA3',
   'ci-reviews': '#5F6672',
+  'process-review': '#E7A3C2',
 };
 const SERIES_COLOURS: Record<string, string> = {
   local: '#2F5BEA',
