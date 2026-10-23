@@ -1,6 +1,4 @@
-import { panelGathers, panelTakesItems } from '@cockpit/shared';
 import type {
-  Panel,
   PanelSort,
   SortCriterion,
   SortDirection,
@@ -8,25 +6,11 @@ import type {
 } from '@cockpit/shared';
 
 /**
- * How a sorted Panel of items draws its rows ("Sort a panel of items by the
- * fields you choose", issue 526), worked out in the client for the reason a
- * Filter's rows are (`@cockpit/shared`'s `filters.ts`): the wire carries the Panel's sort and its
- * filings, and nothing about the order that makes. The ordering itself
- * (`inSortOrder`) and a Filter's default sort are `@cockpit/shared`'s.
+ * How a sorted Panel of items names and sets its sort ("Sort a panel of items by
+ * the fields you choose", issue 526): the wording and the defaults the Sort
+ * question offers. The ordering itself (`inSortOrder`), a Filter's default sort
+ * and how a Panel reads its own sort (`sortOf`) are `@cockpit/shared`'s.
  */
-
-/**
- * How a Panel draws its rows by a sort of its own, or null where it has none -
- * the one reading the board, the mark and the drag all ask, so they cannot
- * disagree about a Panel.
- *
- * For a Panel of items none is Manual; for a Filter none is the order nobody
- * has changed (`DEFAULT_FILTER_SORT`), which is why the mark stays off it. A
- * Panel of text is not sorted at all.
- */
-export function sortOf(panel: Panel): PanelSort | null {
-  return panelTakesItems(panel) || panelGathers(panel) ? panel.sort : null;
-}
 
 /** What each field is called in the Sort question and in the mark's sentence. */
 export const SORT_FIELD_LABELS: Record<SortField, string> = {

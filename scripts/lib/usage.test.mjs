@@ -36,6 +36,11 @@ function record(over = {}) {
     cacheWrite: 5,
     tokensOut: 7,
     itemId: 'item-1',
+    environment: 'production',
+    costUsd: 0.00526,
+    pullRequest: null,
+    runId: null,
+    branch: null,
     ...over,
   };
 }
@@ -53,12 +58,32 @@ describe('each record is one CSV row Excel reads back as written', () => {
     assert.ok(csv.endsWith('\r\n'));
     assert.equal(
       csv.replace(BOM, '').split('\r\n')[0],
-      'When (UTC),Operation,Prompt version,Triggered by,User name,User id,Provider,Model,Paid by,Outcome,Duration (ms),Tokens in,Cache read,Cache write,Tokens out,Item id',
+      'When (UTC),Environment,Pull request,Run,Branch,Operation,Prompt version,Triggered by,User name,User id,Provider,Model,Paid by,Outcome,Duration (ms),Tokens in,Cache read,Cache write,Tokens out,Cost (USD),Item id',
     );
     assert.equal(
       cells(csv),
-      `2026-10-06T14:01:09Z,clean-up-a-note,clean-up-a-note.v11,captured-in-app,Anna,u1,anthropic,claude-opus-5,"Cockpit's Anthropic key (workspace wrkspc_1, key ending WXYZ)",ok,4210,10,0,5,7,item-1`,
+      `2026-10-06T14:01:09Z,production,,,,clean-up-a-note,clean-up-a-note.v11,captured-in-app,Anna,u1,anthropic,claude-opus-5,"Cockpit's Anthropic key (workspace wrkspc_1, key ending WXYZ)",ok,4210,10,0,5,7,0.00526,item-1`,
     );
+  });
+
+  it('gives each record’s environment and what it cost in dollars, written out in full however small', () => {
+    const row = cells(toCsv([record({ environment: 'staging', costUsd: 0.000000263 })]));
+    assert.ok(row.startsWith('2026-10-06T14:01:09Z,staging,'), row);
+    assert.ok(row.endsWith(',7,0.000000263,item-1'), row);
+  });
+
+  it('gives where a call was made: the pull request and run of a CI contract run, or the branch of a local call', () => {
+    const ci = cells(toCsv([record({ environment: 'ci', pullRequest: 1459, runId: 18273645501 })]));
+    assert.ok(ci.startsWith('2026-10-06T14:01:09Z,ci,1459,18273645501,,clean-up-a-note,'), ci);
+    const scheduled = cells(toCsv([record({ environment: 'ci', runId: 18273645502 })]));
+    assert.ok(scheduled.startsWith('2026-10-06T14:01:09Z,ci,,18273645502,,clean-up-a-note,'), scheduled);
+    const local = cells(toCsv([record({ environment: 'local', branch: 'claude/1459-record-contract-runs' })]));
+    assert.ok(local.startsWith('2026-10-06T14:01:09Z,local,,,claude/1459-record-contract-runs,clean-up-a-note,'), local);
+  });
+
+  it('leaves the cost of a record with none empty, not 0', () => {
+    const row = cells(toCsv([record({ costUsd: null })]));
+    assert.ok(row.endsWith(',5,7,,item-1'), row);
   });
 
   const situations = [
@@ -83,8 +108,8 @@ describe('each record is one CSV row Excel reads back as written', () => {
   });
 
   it('leaves token counts the provider did not report empty, not 0', () => {
-    const row = cells(toCsv([record({ tokensIn: null, cacheRead: null, cacheWrite: null, tokensOut: null })]));
-    assert.ok(row.endsWith(',ok,4210,,,,,item-1'), row);
+    const row = cells(toCsv([record({ tokensIn: null, cacheRead: null, cacheWrite: null, tokensOut: null, costUsd: null })]));
+    assert.ok(row.endsWith(',ok,4210,,,,,,item-1'), row);
   });
 
   it('says what a failed or timed out attempt was', () => {

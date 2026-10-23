@@ -84,7 +84,7 @@ test.describe('Agents', () => {
 
       if (!isMobile) {
         const settings = await openSettings(page, 'Connections', isMobile);
-        await expect(settings.getByRole('button', { name: 'MCP', exact: true })).toBeVisible();
+        await expect(settings.getByRole('button', { name: 'Connected apps', exact: true })).toBeVisible();
         await expect(settings.getByRole('button', { name: 'Agent settings' })).toHaveCount(0);
         await closeSettings(page, isMobile);
       }
@@ -254,7 +254,7 @@ test.describe('Agents', () => {
       // Settings is over the window, on the sentence, ready to reword.
       const settings = page.getByRole('dialog', { name: 'Settings' });
       await expect(settings.getByRole('heading', { name: 'What Cockpit remembers', exact: true })).toBeVisible();
-      const box = settings.getByLabel('Sentence');
+      const box = settings.getByRole('textbox', { name: 'Sentence' });
       await expect(box).toHaveValue('Replies: Dutch, short.');
       await box.fill('Replies: Dutch, short, signed M.');
       const reworded = page.waitForResponse(

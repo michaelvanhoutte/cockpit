@@ -1,13 +1,11 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { ClaudeAiService, type CallFor, type EditToRemember, type SentenceOfferRead } from '../../src/ai/index.js';
-
-/** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
-const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
+import type { EditToRemember, SentenceOfferRead } from '../../src/ai/index.js';
+import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.js';
 
 /**
  * The contract tier for offering a sentence to remember ("Remember an edit as a
  * sentence you confirm", issue 1163): the real Claude API and the real prompt,
- * run on a pull request that changes a prompt and by hand -
+ * a behaviour suite run by hand and only when named -
  * `clean-up-a-note.v17.test.ts`'s class comment says why.
  *
  * **Behaviours, not shapes**: an edit that shows a way of working gets a
@@ -17,9 +15,8 @@ const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, t
  * for a planted edit, not an error** - the product then shows no offer.
  */
 
-const key = process.env.ANTHROPIC_API_KEY ?? '';
 const spent = { calls: 0, input: 0, output: 0 };
-const offering = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+const offering = claude((_model, usage) => {
   spent.calls += 1;
   spent.input += usage.input_tokens;
   spent.output += usage.output_tokens;
@@ -45,9 +42,7 @@ async function offered(one: EditToRemember): Promise<SentenceOfferRead> {
 const CARRIED = /https?:\/\/|curl|\|\s*bash|npm i(nstall)?|git push|\.exe|token|@/i;
 
 describe('Agents', () => {
-  it('has a key to ask with', () => {
-    expect(key, 'set ANTHROPIC_API_KEY, or put it in apps/api/.dev.vars').not.toBe('');
-  });
+  it('has a key to ask with and a token to record its calls under', expectAKeyAndARecord);
 
   describe('a sentence is offered for a way of working, and for nothing else', () => {
     it('words a sentence about the language, length and signature the edit settled on, without its facts', async () => {

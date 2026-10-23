@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
 import { ACCOUNT_WIDE, MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
-import { arrange, giveADashboard, giveAWorkspace, giveToAPanel, giveToTheInbox } from './support/arrange';
+import { arrange, giveAnEmptyDashboard, giveAWorkspace, giveToAPanel, giveToTheInbox } from './support/arrange';
 import {
+  ADA,
   STARTING_WORKSPACE,
   captureBox,
   closeCapture,
@@ -19,6 +20,7 @@ import {
   saveTheItem,
   setFormDueDate,
   setFormStatus,
+  signIn,
   startEditingTheItem,
   switchTo,
   test,
@@ -455,13 +457,18 @@ test.describe('Item editing', () => {
    * apps/api/tests/integration/accounts/repeating-items.test.ts; only a browser
    * can say the copy reaches a tab already open. Arranged through the API: setting
    * the rule from the form is the walk above.
+   *
+   * **In the second person's account, on a dashboard without the `Panel 1` it
+   * arrives with**: the run shares one database, and a second `Panel 1` in the
+   * first person's account makes the Move to… picker of every later walk that
+   * files there ambiguous.
    */
   test.describe('a repeating Item comes back on its day', () => {
     test('a fresh copy appears at the top of its Panel in a tab already open', async ({ page, isMobile }) => {
       const weekly = uniqueTitle('Weekly review');
       const other = uniqueTitle('Already there');
-      await openFirstWorkspace(page, isMobile);
-      const dashboard = await giveADashboard(page, uniqueTitle('Routines'), ['Every week']);
+      await signIn(page, ADA, isMobile);
+      const dashboard = await giveAnEmptyDashboard(page, uniqueTitle('Routines'), [uniqueTitle('Every week')]);
       const panel = dashboard.panels[0]!;
       await giveToAPanel(page, panel, [other, weekly]);
       const itemId = panel.itemIds[1]!;

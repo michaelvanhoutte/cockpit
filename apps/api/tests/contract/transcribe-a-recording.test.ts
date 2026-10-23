@@ -6,8 +6,8 @@ import { TRANSCRIPTION_MODEL, base64Of } from '../../src/transcription/index.js'
 /**
  * The contract tier: the real Whisper on Workers AI, no fake anywhere
  * (docs/testing-strategy.md, "Third parties"). It costs next to nothing - a few
- * seconds of audio at $0.0005 a minute - so it runs weekly as well as when the
- * call it holds changes ("Dictate in Write with Whisper", issue 1041).
+ * seconds of audio at $0.0005 a minute - so it runs on every contract run, the
+ * weekly one included, and when the call it holds changes ("Dictate in Write with Whisper", issue 1041).
  *
  * **What only this tier can prove:** that Workers AI accepts the two formats
  * phones record - WebM/Opus from Chrome on Android and MP4/AAC from Safari on

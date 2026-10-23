@@ -73,8 +73,8 @@ describe('Harness Monitor', () => {
       const html = await thePage('?period=all&category=after-push&sort=total');
 
       expect(costRows(html).map((r) => [r.label, r.total, ...r.categories])).toEqual([
-        ['b/2', '$3.00', '—', '—', '—', '—', '—', '$3.00', '—'],
-        ['b/1', '$2.00', '—', '—', '—', '—', '—', '$2.00', '—'],
+        ['b/2', '$3.00', '—', '—', '—', '—', '—', '$3.00', '—', '—'],
+        ['b/1', '$2.00', '—', '—', '—', '—', '—', '$2.00', '—', '—'],
       ]);
       expect(whereItWent(html)).toEqual({ heading: "Where the period's $5.00 went", bar: 'After push $5.00' });
     });

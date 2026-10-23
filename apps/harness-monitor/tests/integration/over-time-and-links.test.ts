@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
-import { costRows, emptyTheDatabase, send, spend, theBarePage, thePullRequest, withPrices } from './support';
+import { costRows, emptyTheDatabase, groupTabs, send, spend, theBarePage, thePullRequest, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -15,7 +15,7 @@ const github = `https://github.com/${env.GITHUB_REPOSITORY}`;
 const firstCells = (html: string) => [...html.matchAll(/<tr>(<td class="first">.*?<\/td>)/gs)].map((m) => m[1]!);
 const hrefs = (cell: string) => [...cell.matchAll(/<a href="([^"]*)"([^>]*)>(.*?)<\/a>/gs)].map(([, href, attributes, text]) => ({ href: href!, newTab: attributes!.includes('target="_blank"'), text: text! }));
 /** The cost-per-day chart alone: the trend charts below it draw lines of their own. */
-const perDay = (html: string) => /<section class="card chart" aria-labelledby="perday">.*?<\/section>/s.exec(html)![0];
+const perDay = (html: string) => /<section class="panel" aria-labelledby="perday">.*?<\/section>/s.exec(html)![0];
 
 describe('Harness Monitor', () => {
   describe('the page opens on Over time, newest day first; every other grouping keeps its own address', () => {
@@ -24,7 +24,7 @@ describe('Harness Monitor', () => {
 
       const html = await theBarePage('?period=all');
 
-      expect(html).toMatch(/<button type="submit" name="group" value="day" aria-pressed="true">Over time<\/button>/);
+      expect(groupTabs(html).find((t) => t.current)?.label).toBe('Over time');
       expect(html).toContain('aria-label="Cost by day"');
       expect(html).toContain('<th scope="col" class="first">Day ▾</th>');
       expect(costRows(html).map((r) => [r.label, r.total])).toEqual([
@@ -36,7 +36,7 @@ describe('Harness Monitor', () => {
     it('Over time is the first of the groupings', async () => {
       const html = await theBarePage();
 
-      expect([...html.matchAll(/name="group" value="(\w+)" aria-pressed/g)].map((m) => m[1])).toEqual(['day', 'pr', 'issue', 'engineer', 'category']);
+      expect(groupTabs(html).map((t) => t.label)).toEqual(['Over time', 'Pull request', 'Issue', 'Engineer', 'Category']);
     });
 
     it('?group=pr is the pull request grouping, as before', async () => {
@@ -59,8 +59,7 @@ describe('Harness Monitor', () => {
       expect(html).toContain('<h2 id="perday">Cost per day</h2>');
       expect(html).toContain('<svg viewBox=');
       expect([...perDay(html).matchAll(/<g data-line="([^"]*)">/g)].map((m) => m[1])).toEqual(['building', 'after-push', 'total']);
-      const legend = /<section class="card chart".*?<div class="legend">(.*?)<\/div>\s*<\/section>/s.exec(html)![1]!;
-      expect([...legend.matchAll(/<span>(.*?)<\/span>/g)].map((m) => m[1])).toEqual(['Building', 'After push', 'Total']);
+      expect([...perDay(html).matchAll(/<span class="key">.*?<\/i>(.*?)<\/span>/g)].map((m) => m[1])).toEqual(['Building', 'After push', 'Total']);
     });
 
     it('a day with no cost between two that have some is a zero point, and each point carries its value', async () => {

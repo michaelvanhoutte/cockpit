@@ -15,6 +15,17 @@ import {
   startFromEmpty,
 } from '../seed.js';
 import { issuerIsReachable, issuerWillIdentify } from '../issuer.js';
+import {
+  CALLBACK,
+  ORIGIN,
+  attempt,
+  connected,
+  cookiesFrom,
+  decide,
+  mcp,
+  refresh,
+  registerApp,
+} from './connected-apps.support.js';
 
 /**
  * Integration level, through the whole Worker: an app connecting to Cockpit
@@ -26,9 +37,6 @@ import { issuerIsReachable, issuerWillIdentify } from '../issuer.js';
  * makes of its arguments is proved at L1 (tests/unit/mcp/create-item.test.ts).
  */
 
-const ORIGIN = 'https://cockpit.test';
-const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
-
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
@@ -38,128 +46,6 @@ beforeEach(async () => {
 afterEach(() => {
   vi.useRealTimers();
 });
-
-interface App {
-  clientId: string;
-}
-
-/** Registers an app the way Claude does, by dynamic registration. */
-async function registerApp(name = 'Claude', redirect = CALLBACK): Promise<App> {
-  const answer = await SELF.fetch(`${ORIGIN}/oauth/register`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      client_name: name,
-      redirect_uris: [redirect],
-      token_endpoint_auth_method: 'none',
-      grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-    }),
-  });
-  expect(answer.status).toBe(201);
-  return { clientId: ((await answer.json()) as { client_id: string }).client_id };
-}
-
-/** One authorization attempt: the address the app opens, and the secret it keeps back. */
-async function attempt(app: App, redirect = CALLBACK, state = 'the-apps-state') {
-  const verifier = 'v'.repeat(43) + crypto.randomUUID().replaceAll('-', '');
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  const challenge = btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const query = new URLSearchParams({
-    response_type: 'code',
-    client_id: app.clientId,
-    redirect_uri: redirect,
-    state,
-    code_challenge: challenge,
-    code_challenge_method: 'S256',
-    resource: `${ORIGIN}/mcp`,
-  });
-  return { path: `/oauth/authorize?${query}`, verifier };
-}
-
-/** The cookies a response set, as a browser would send them back. */
-function cookiesFrom(response: Response): string[] {
-  return response.headers.getSetCookie().map((cookie) => cookie.split(';')[0]!).filter((c) => !c.endsWith('='));
-}
-
-/**
- * Opens the consent page as whoever holds `cookie`, and presses one of its two
- * buttons - as whoever holds `pressedWith` by then, which is the same person
- * unless a case says otherwise (`null` for nobody signed in at all).
- */
-async function decide(
-  path: string,
-  cookie: string,
-  decision: 'allow' | 'deny',
-  pressedWith: string | null = cookie,
-): Promise<Response> {
-  const shown = await SELF.fetch(`${ORIGIN}${path}`, { headers: { cookie }, redirect: 'manual' });
-  expect(shown.status).toBe(200);
-  const form = new URLSearchParams(
-    [...(await shown.text()).matchAll(/<input type="hidden" name="([^"]+)" value="([^"]+)">/g)].map(
-      ([, name, value]) => [name!, value!],
-    ),
-  );
-  form.set('decision', decision);
-  return SELF.fetch(`${ORIGIN}/oauth/authorize`, {
-    method: 'POST',
-    headers: {
-      cookie: [...(pressedWith ? [pressedWith] : []), ...cookiesFrom(shown)].join('; '),
-      'content-type': 'application/x-www-form-urlencoded',
-    },
-    body: form,
-    redirect: 'manual',
-  });
-}
-
-/** An app connected by `userId`: registered, allowed, and its code traded for access. */
-async function connected(
-  userId: string = USER_ID,
-  name = 'Claude',
-): Promise<{ app: App; token: string; refreshToken: string }> {
-  const app = await registerApp(name);
-  const asked = await attempt(app);
-  const allowed = await decide(asked.path, await signInAs(userId), 'allow');
-  expect(allowed.status).toBe(302);
-  const code = new URL(allowed.headers.get('location')!).searchParams.get('code')!;
-  const traded = await SELF.fetch(`${ORIGIN}/oauth/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: CALLBACK,
-      client_id: app.clientId,
-      code_verifier: asked.verifier,
-    }),
-  });
-  expect(traded.status).toBe(200);
-  const tokens = (await traded.json()) as { access_token: string; refresh_token: string };
-  return { app, token: tokens.access_token, refreshToken: tokens.refresh_token };
-}
-
-/** An app trading its refresh token for new access, as it does once the hour is up. */
-function refresh(app: App, refreshToken: string): Promise<Response> {
-  return SELF.fetch(`${ORIGIN}/oauth/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: app.clientId }),
-  });
-}
-
-/** One MCP request, as an app's Streamable HTTP client sends it. */
-function mcp(token: string | null, method: string, params: unknown = {}, cookie?: string): Promise<Response> {
-  return SELF.fetch(`${ORIGIN}/mcp`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'application/json, text/event-stream',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(cookie ? { cookie } : {}),
-    },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-  });
-}
 
 interface ToolAnswer {
   isError?: boolean;

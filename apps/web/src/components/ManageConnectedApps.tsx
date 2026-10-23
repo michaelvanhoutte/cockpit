@@ -8,15 +8,27 @@ import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
+import { SettingsPanel } from './SettingsPanel';
 
 /** Where an app is pointed to reach this Cockpit: this environment's own origin, then `/mcp`. */
 export const connectAddress = () => `${window.location.origin}/mcp`;
 
 const when = dateTimeLabel;
 
+/** What a row says under the app's name: when it was connected, what it may do, and when it last did it. */
+function whatItDid(app: ConnectedApp): string {
+  const connected = `Connected ${when(app.connectedAt)}`;
+  if (app.kind === 'reads-panels') {
+    return `${connected} · Reads your Panels · ${app.lastReadAt ? `last read ${when(app.lastReadAt)}` : 'nothing read yet'}`;
+  }
+  return `${connected} · ${app.lastCapturedAt ? `last captured ${when(app.lastCapturedAt)}` : 'nothing captured yet'}`;
+}
+
 /**
  * The apps allowed into your Cockpit, and the address to paste into claude.ai
- * ("See the apps connected to your Cockpit, and disconnect one", issue 600).
+ * ("See the apps connected to your Cockpit, and disconnect one", issue 600) -
+ * each saying what it may do: capture items, or only read your Panels (issue
+ * 1445).
  *
  * **Yours, not the account's**: an app somebody else allowed is not listed,
  * and Disconnect ends exactly the access you gave. The Items it captured stay.
@@ -83,34 +95,32 @@ export default function ManageConnectedApps({
   };
 
   return (
-    <ManageWindow title="MCP connections" open={open} onClose={close} returnFocusTo={returnFocusTo} ref={list}>
-      <p className="mt-2 text-sm text-ink-faint">
-        Apps you allowed to capture items into your Cockpit. To connect Claude, paste this address into
-        claude.ai.
+    <ManageWindow title="Connected apps" open={open} onClose={close} returnFocusTo={returnFocusTo} ref={list}>
+      <p className="mt-1 text-sm text-ink-soft">
+        Apps you allowed into your Cockpit: to capture items into it, or only to read your Panels.
       </p>
-      <div className="mt-3 flex items-center gap-3 rounded-md border border-shade/10 p-3">
-        <code className="min-w-0 flex-1 select-all break-all text-sm">{address}</code>
-        <button
-          type="button"
-          onClick={copy}
-          className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover"
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      </div>
+      <SettingsPanel name="Address" hint="Paste it into claude.ai to connect Claude.">
+        <div className="flex items-center gap-3">
+          <code className="min-w-0 flex-1 select-all break-all text-sm">{address}</code>
+          <button
+            type="button"
+            onClick={copy}
+            className="shrink-0 rounded-md border border-shade/20 px-2 py-1 text-xs text-ink hover:bg-accent-tint"
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      </SettingsPanel>
 
-      <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">Connected</h3>
-      <section className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto">
+      <SettingsPanel className="mt-6" name="Connected apps" hint="Only the ones you allowed are listed." flush>
+      <section>
         <ul>
           {apps.map((app) => (
-            <li key={app.id} className="border-b border-shade/5 px-4 py-2 last:border-b-0">
+            <li key={app.id} className="border-b border-shade/10 px-4 py-2.5 last:border-b-0">
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{app.name}</p>
-                  <p className="text-sm text-ink-faint">
-                    Connected {when(app.connectedAt)} ·{' '}
-                    {app.lastCapturedAt ? `last captured ${when(app.lastCapturedAt)}` : 'nothing captured yet'}
-                  </p>
+                  <p className="text-sm text-ink-faint">{whatItDid(app)}</p>
                 </div>
                 <RowMenu
                   label={`Actions for ${app.name}`}
@@ -143,9 +153,10 @@ export default function ManageConnectedApps({
           </div>
         )}
         {answered && apps.length === 0 && !isFetching && (
-          <p className="px-4 py-4 text-sm text-ink-faint">No MCP connections</p>
+          <p className="px-4 py-4 text-sm text-ink-faint">No connected apps</p>
         )}
       </section>
+      </SettingsPanel>
 
       <CloseWindow />
     </ManageWindow>

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, sized } from './github-support';
-import { costRows, emptyTheDatabase, send, spend, thePage, withPrices } from './support';
+import { costRows, emptyTheDatabase, groupTabs, send, spend, thePage, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -76,8 +76,14 @@ describe('Harness Monitor', () => {
 
       expect(html).toContain('<input type="hidden" name="sort" value="total">');
       expect(chrome(html).footer).toBe('total');
-      // The grouping buttons switch the hidden sort off before the form is sent.
-      expect(html).toContain("event.target.name==='group')event.target.form.elements.sort.disabled=true");
+      // A grouping's tab keeps the filters and drops the sort, so it opens in its own order.
+      expect(groupTabs(html).map((t) => t.href)).toEqual([
+        '/?period=all&model=claude-sonnet-5',
+        '/?period=all&model=claude-sonnet-5&group=pr',
+        '/?period=all&model=claude-sonnet-5&group=issue',
+        '/?period=all&model=claude-sonnet-5&group=engineer',
+        '/?period=all&model=claude-sonnet-5&group=category',
+      ]);
       expect(await thePage('?period=all&group=issue')).not.toContain('name="sort"');
     });
 

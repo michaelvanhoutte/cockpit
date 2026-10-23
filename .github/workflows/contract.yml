@@ -4,12 +4,13 @@ name: Contract
 # that read what a note means and transcribe a recording, and the Bot Framework's published signing keys
 # (docs/testing-strategy.md, "Third parties"):
 # everything below it runs against a fake, and this is what says the fake still
-# resembles the thing. The whole tier runs when the half of the contract we own
-# changes, which is a prompt, and by hand from the Actions tab. The Claude
-# suites never run on the schedule, because every run spends real money; the
-# weekly run takes only the suites that cost next to nothing - Teams' signing
-# keys, Gmail and the meaning model and Whisper - so a change on their side still shows
-# within a week.
+# resembles the thing. The tier runs when the half of the contract we own
+# changes, which is a prompt, weekly, and by hand from the Actions tab. Claude
+# is asked once per prompt (about five calls), so the weekly run carries the
+# Claude key and a change on Anthropic's side shows within a week with no pull
+# request. What each prompt is held to - its behaviour suite, about a hundred
+# calls - is never selected here: it runs only when named, by hand, by whoever
+# changes that prompt (.claude/skills/testing/SKILL.md).
 #
 # Not a required check: while it can fail for a reason the change did not cause
 # ("Make the nightly contract run pass again", issue 705), it reports drift on the pull request without blocking a merge.
@@ -76,12 +77,22 @@ jobs:
       # Workers AI: Read on that token beside the scopes a deploy needs
       # (docs/deployment.md, "Bootstrap runbook").
       #
-      # The weekly run names the two near-free Workers AI suites (meaning, and
-      # Whisper, a few seconds of audio at $0.0005 a minute) and withholds the Claude
-      # key, so it cannot spend on the model even if a Claude suite were selected.
-      - run: pnpm --filter @cockpit/api test:contract ${{ github.event_name == 'schedule' && 'read-what-a-note-means transcribe-a-recording' || '' }}
+      # Every run, the weekly one included, names no suite: one call per Claude
+      # prompt, and the two near-free Workers AI suites (meaning, and Whisper, a
+      # few seconds of audio at $0.0005 a minute). A behaviour suite is never
+      # selected without being named, which is what keeps the Claude key off a
+      # hundred calls (scripts/lib/contract-selection.mjs).
+      #
+      # Every Claude call is recorded in production as CI, with this run and,
+      # on a pull request, its number ("Record every Claude call a contract run
+      # makes, as CI or local", issue 1459): USAGE_RECORDING_TOKEN is CI's
+      # token, production's USAGE_TOKEN_CI. The address it is sent to is
+      # production's own, read from wrangler.jsonc by the contract config. A key
+      # without the token is red before any call.
+      - run: pnpm --filter @cockpit/api test:contract
         env:
-          ANTHROPIC_API_KEY: ${{ github.event_name != 'schedule' && secrets.ANTHROPIC_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          USAGE_RECORDING_TOKEN: ${{ secrets.USAGE_TOKEN_CI }}
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -11,7 +11,7 @@ import SettingsWindow, { type SettingsKey } from '../../../src/components/Settin
  * reach them is the browser walks in tests/e2e/connections.test.ts.
  */
 const held = vi.hoisted(() => ({
-  /** Whether the code of the MCP section has not arrived yet; the first case holds it. */
+  /** Whether the code of the Connected apps section has not arrived yet; the first case holds it. */
   mcpCodeHeld: true,
   releaseMcpCode: () => {},
   arrived: null as unknown as Promise<void>,
@@ -101,7 +101,7 @@ describe('Across the app', () => {
       open('connections');
       await screen.findByRole('heading', { name: 'Connections' });
 
-      await user.click(entry('MCP'));
+      await user.click(entry('Connected apps'));
 
       // The code of that section is held: the window is still there, the list
       // beside it still works, and the section says it is waiting.
@@ -114,7 +114,7 @@ describe('Across the app', () => {
       held.releaseMcpCode();
     });
 
-    it.each(['Connections', 'MCP'])('stays open on %s', async (name) => {
+    it.each(['Connections', 'Connected apps'])('stays open on %s', async (name) => {
       const user = userEvent.setup();
       open('connections');
       await screen.findByRole('heading', { name: 'Connections' });
@@ -141,7 +141,7 @@ describe('Across the app', () => {
   });
 
   describe('each section of Settings is headed by the name of its entry', () => {
-    it.each(['Connections', 'MCP', 'Appearance'])('heads %s with its own name', async (name) => {
+    it.each(['Connections', 'Connected apps', 'Appearance'])('heads %s with its own name', async (name) => {
       const user = userEvent.setup();
       open('connections');
       await user.click(entry(name));
@@ -154,8 +154,8 @@ describe('Across the app', () => {
   describe('Settings opens on the section asked for, with only that one selected and focus on it', () => {
     it.each([
       { situation: 'from the profile menu', on: 'connections' as const, name: 'Connections' },
-      { situation: 'to a section that no longer exists', on: 'types' as SettingsKey, name: 'Connections' },
-      { situation: 'to Agent settings, which went with the routines', on: 'agents' as SettingsKey, name: 'Connections' },
+      { situation: 'to a section that no longer exists, which falls to the first', on: 'types' as SettingsKey, name: 'Appearance' },
+      { situation: 'to Agent settings, which went with the routines and falls to the first', on: 'agents' as SettingsKey, name: 'Appearance' },
     ])('$situation selects and focuses $name and no other', async ({ on, name }) => {
       open(on);
 
@@ -167,11 +167,47 @@ describe('Across the app', () => {
       open('connections');
 
       expect(within(screen.getByRole('navigation', { name: 'Settings' })).getAllByRole('button').map((button) => button.textContent).filter((name) => name !== 'Close')).toEqual([
-        'Connections',
-        'MCP',
-        'What Cockpit remembers',
         'Appearance',
+        'Connections',
+        'Connected apps',
+        'What Cockpit remembers',
       ]);
+    });
+  });
+
+  describe('each section draws its areas in headed panels, and the controls in them are the ones it had', () => {
+    it('draws Appearance’s choice in the Theme panel', async () => {
+      const user = userEvent.setup();
+      open('appearance');
+
+      const panel = await screen.findByRole('group', { name: 'Theme' });
+      await user.click(within(panel).getByRole('radio', { name: /^Dark/ }));
+
+      expect(within(panel).getByRole('radio', { name: /^Dark/ })).toBeChecked();
+    });
+
+    it('draws the MCP address with its Copy in the Address panel, and the apps in Connected apps', async () => {
+      held.mcpCodeHeld = false;
+      held.releaseMcpCode();
+      open('mcp');
+
+      const address = await screen.findByRole('group', { name: 'Address' });
+      expect(within(address).getByRole('button', { name: 'Copy' })).toBeVisible();
+      expect(within(address).getByText(`${window.location.origin}/mcp`)).toBeVisible();
+      const apps = screen.getByRole('group', { name: 'Connected apps' });
+      expect(await within(apps).findByText('No connected apps')).toBeVisible();
+    });
+
+    it('draws Connections’ picker in the Workspace panel’s header, and the connections of the workspace picked inside it', async () => {
+      held.accounts = { 'ws-alpha': [account('a1', 'teams', 'Ada Teams')], 'ws-beta': [account('b1', 'teams', 'Bea Teams')] };
+      const user = userEvent.setup();
+      open('connections');
+
+      const panel = await screen.findByRole('group', { name: 'Workspace' });
+      expect(await within(panel).findByText('Ada Teams')).toBeVisible();
+      await user.selectOptions(within(panel).getByRole('combobox', { name: 'Workspace' }), 'ws-beta');
+
+      expect(await within(screen.getByRole('group', { name: 'Workspace' })).findByText('Bea Teams')).toBeVisible();
     });
   });
 

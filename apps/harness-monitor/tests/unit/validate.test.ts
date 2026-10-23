@@ -61,13 +61,21 @@ describe('Harness Monitor', () => {
       expect(result.ok && result.rows[0]!.day).toBe('2026-10-02');
     });
 
-    it('a category outside the seven is refused', () => {
+    it('a category outside the nine is refused', () => {
       expect(refusal([row({ category: 'lunch' })])).toContain('category "lunch"');
     });
 
     it.each(CATEGORIES.map((category) => ({ category })))('the category $category is accepted', ({ category }) => {
       expect(validateBatch({ rows: [row({ category })] }).ok).toBe(true);
     });
+
+    it.each([{ category: 'unphased' }, { category: 'outside-process' }, { category: 'process-review' }])(
+      'a hook of any checkout may send the category $category',
+      ({ category }) => {
+        const result = validateBatch({ rows: [row({ category })] });
+        expect(result.ok && result.rows[0]!.category).toBe(category);
+      },
+    );
 
     it('a review level is accepted only on a local code review', () => {
       expect(validateBatch({ rows: [row({ category: 'local-code-review', reviewLevel: 'xhigh' })] }).ok).toBe(true);
