@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
-import { USAGE_EXPORT_PAGE, usageExportPageSchema, type UsageExportPage } from '@cockpit/shared';
+import { USAGE_EXPORT_PAGE, usageExportPageSchema, type UsageExportPage } from '@cockpit/shared/usage-export';
 import { OTHER_USER_ID, USER_ID, asUser, seedRegister, signInAs, startFromEmpty } from '../seed.js';
 
 /**

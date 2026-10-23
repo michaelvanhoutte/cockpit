@@ -1,4 +1,4 @@
-import { USAGE_EXPORT_PAGE, type UsageExportPage, type UsageRecord } from '@cockpit/shared';
+import { USAGE_EXPORT_PAGE, type UsageExportPage, type UsageRecord } from '@cockpit/shared/usage-export';
 import type { Env } from '../env.js';
 
 interface Joined {
