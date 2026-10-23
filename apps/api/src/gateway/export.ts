@@ -33,7 +33,10 @@ interface Joined {
  * **Paged by the row's own number rather than by an offset**, so a record
  * written while the export runs can neither shift a page nor be read twice; it
  * joins the end. **Names come from a join that keeps the row when the user is
- * gone**: a deleted user's records export with their id and no name.
+ * gone**: a deleted user's records export with their id and no name. **A name
+ * only on production's own records**: another environment's user id is its own
+ * database's, and a local seed account can share an id with a real person here,
+ * so the join never reads it as that person.
  */
 export async function readUsageRecords(env: Env, since: string, after: number): Promise<UsageExportPage> {
   const { results } = await env.DB.prepare(
@@ -41,7 +44,7 @@ export async function readUsageRecords(env: Env, since: string, after: number): 
             c.provider, c.model, c.paid_by, c.paid_by_account, c.paid_by_key_ending, c.outcome, c.status,
             c.duration_ms, c.tokens_in, c.cache_read, c.cache_write, c.tokens_out, c.item_id, c.environment, c.cost_usd
        FROM provider_calls c
-       LEFT JOIN users u ON u.id = c.user_id
+       LEFT JOIN users u ON u.id = c.user_id AND c.environment = 'production'
       WHERE c.at >= ? AND c.id > ?
       ORDER BY c.id
       LIMIT ?`,

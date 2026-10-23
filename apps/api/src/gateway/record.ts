@@ -23,38 +23,74 @@ export const PURGE_BATCH = 500;
  */
 export function providerCallsIn(env: Env): Recorder {
   return async (row: AttemptRecord) => {
-    await env.DB.prepare(
-      `INSERT INTO provider_calls
-         (at, operation, prompt_version, triggered_by, account_name, user_id, item_id, provider, model,
-          paid_by, paid_by_account, paid_by_key_ending, outcome, status, duration_ms,
-          tokens_in, cache_read, cache_write, tokens_out, environment, cost_usd)
-       VALUES (?, ?, ?, ?, ?, (SELECT id FROM users WHERE account_id = ? ORDER BY created_at LIMIT 1), ?, ?, ?,
-               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'production', ?)`,
-    )
-      .bind(
-        row.at,
-        row.operation,
-        row.promptVersion,
-        row.triggeredBy,
-        row.accountName,
-        row.accountName,
-        row.itemId,
-        row.provider,
-        row.model,
-        row.paidBy.kind,
-        row.paidBy.account,
-        row.paidBy.keyEnding,
-        row.outcome,
-        row.outcome === 'error' ? row.status : null,
-        Math.max(0, Math.round(row.durationMs)),
-        row.tokensIn,
-        row.cacheRead,
-        row.cacheWrite,
-        row.tokensOut,
-        costOf(row),
-      )
-      .run();
+    await insert(env, row, 'production', { lookUpUserOf: row.accountName }, null);
   };
+}
+
+/**
+ * Writes a record another environment sent, as that environment's own.
+ *
+ * **The user is the id it was sent with, and is never looked up here**: staging's
+ * and a laptop's user ids are their own databases' (a local seed account shares
+ * a name slug with a real person), so resolving one against production's users
+ * would name somebody who made no call. **Priced here**, from production's own
+ * price list, as a row it writes itself is.
+ */
+export async function recordReceived(
+  env: Env,
+  row: AttemptRecord,
+  environment: 'staging' | 'ci' | 'local',
+  userId: string | null,
+  branch: string | null,
+): Promise<void> {
+  await insert(env, row, environment, { userId }, branch);
+}
+
+type Whose = { lookUpUserOf: string } | { userId: string | null };
+
+async function insert(
+  env: Env,
+  row: AttemptRecord,
+  environment: string,
+  whose: Whose,
+  branch: string | null,
+): Promise<void> {
+  const looked = 'lookUpUserOf' in whose;
+  await env.DB.prepare(
+    `INSERT INTO provider_calls
+       (at, operation, prompt_version, triggered_by, account_name, user_id, item_id, provider, model,
+        paid_by, paid_by_account, paid_by_key_ending, outcome, status, duration_ms,
+        tokens_in, cache_read, cache_write, tokens_out, environment, cost_usd, branch)
+     VALUES (?, ?, ?, ?, ?, ${
+       looked ? '(SELECT id FROM users WHERE account_id = ? ORDER BY created_at LIMIT 1)' : '?'
+     }, ?, ?, ?,
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      row.at,
+      row.operation,
+      row.promptVersion,
+      row.triggeredBy,
+      row.accountName,
+      looked ? whose.lookUpUserOf : whose.userId,
+      row.itemId,
+      row.provider,
+      row.model,
+      row.paidBy.kind,
+      row.paidBy.account,
+      row.paidBy.keyEnding,
+      row.outcome,
+      row.outcome === 'error' ? row.status : null,
+      Math.max(0, Math.round(row.durationMs)),
+      row.tokensIn,
+      row.cacheRead,
+      row.cacheWrite,
+      row.tokensOut,
+      environment,
+      costOf(row),
+      branch,
+    )
+    .run();
 }
 
 /**

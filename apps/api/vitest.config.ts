@@ -115,6 +115,25 @@ export default defineConfig({
         bindings: {
           BACKUP_TOKEN: 'test-operator-secret',
           /**
+           * Production's three recording tokens (`gateway/receive.ts`), set
+           * here for the reason `BACKUP_TOKEN` is, and distinct from it and
+           * from each other so a case can tell which one opened the route.
+           * The suite runs as production (`wrangler.jsonc`'s own
+           * `ENVIRONMENT`); a case about another environment sets it on `env`
+           * for itself.
+           */
+          USAGE_TOKEN_STAGING: 'test-staging-usage-token',
+          USAGE_TOKEN_CI: 'test-ci-usage-token',
+          USAGE_TOKEN_LOCAL: 'test-local-usage-token',
+          /**
+           * Empty for the reason `ANTHROPIC_API_KEY` is: a developer's own
+           * recording token in `.dev.vars` would let a case spend a key on
+           * the strength of one it never set. The address too, so nothing a
+           * case runs can reach a real production.
+           */
+          USAGE_RECORDING_TOKEN: '',
+          USAGE_RECORDING_URL: '',
+          /**
            * **Empty, and that is a safety property rather than a default.**
            * `.dev.vars` is read into this pool along with the rest of the
            * Worker's configuration, so a developer's real Anthropic key would

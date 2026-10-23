@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Env } from '../env.js';
 import { callThrough, inRealTime, NEVER_RETRIED, type CallAbout, type Outcome, type Recorder } from '../gateway/attempts.js';
-import { providerCallsIn } from '../gateway/record.js';
+import { recorderFor } from '../gateway/send.js';
 
 /**
  * Turning a recording into the words said in it, behind a project-owned
@@ -41,7 +41,7 @@ export function transcriberFor(env: Env): Transcriber | null {
   // The stand-in first, so a stack deliberately given one uses it even where a
   // binding is also present - the precedence `embeddingsFor` takes.
   if (env.TRANSCRIPTION_STAND_IN === 'true') return new StandInTranscriber();
-  if (env.AI) return new WhisperTranscriber(env.AI, providerCallsIn(env));
+  if (env.AI) return new WhisperTranscriber(env.AI, recorderFor(env));
   return null;
 }
 
