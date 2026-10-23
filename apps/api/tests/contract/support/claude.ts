@@ -7,13 +7,15 @@ import { A_CONTRACT_RUN, recordingContractRun, whatAContractRunLacks } from '../
  * How every contract suite asks Claude: **each attempt is recorded in
  * production**, as CI or as local ("Record every Claude call a contract run
  * makes, as CI or local", issue 1459). The service is built here and nowhere
- * else in this tier, so no call can be made that leaves no row.
+ * else in this tier, so no call is made without a token and an address to
+ * record it under. A send production refuses or does not answer is logged and
+ * costs that one row, never the call.
  */
 
 export { A_CONTRACT_RUN };
 
 /** The key, or an empty string: a red check without one, never a skipped one. */
-export const key = process.env.ANTHROPIC_API_KEY ?? '';
+const key = process.env.ANTHROPIC_API_KEY ?? '';
 
 /** What this run is missing before it may call Claude, or `null`. */
 const lacking = whatAContractRunLacks(process.env);

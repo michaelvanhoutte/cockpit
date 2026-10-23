@@ -133,8 +133,6 @@ describe('AI usage', () => {
         ...RECORD,
         userId: 'user-michael',
         branch: 'claude/1458-send-usage',
-        pullRequest: null,
-        runId: null,
       });
     });
   });

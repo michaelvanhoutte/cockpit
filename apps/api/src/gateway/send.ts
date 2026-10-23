@@ -59,8 +59,10 @@ export function sendingTo(destination: Destination, around: Around): Recorder {
           ...row,
           userId,
           branch: around.branch,
-          pullRequest: around.pullRequest ?? null,
-          runId: around.runId ?? null,
+          // Left out where there is none, so a Worker deployed before production
+          // learns these fields is not refused by its strict schema.
+          ...(around.pullRequest != null && { pullRequest: around.pullRequest }),
+          ...(around.runId != null && { runId: around.runId }),
         }),
         signal: controller.signal,
       });

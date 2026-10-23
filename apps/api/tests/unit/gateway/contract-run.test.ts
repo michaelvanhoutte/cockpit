@@ -93,7 +93,12 @@ describe('AI usage', () => {
 
       expect(sent.url).toBe(`${PRODUCTION}/v1/usage-records`);
       expect(sent.authorization).toBe(`Bearer ${TOKEN}`);
-      expect(sent.body).toMatchObject(place);
+      // A place a run has none of is left out of the body, which production reads as none.
+      expect({
+        pullRequest: sent.body.pullRequest ?? null,
+        runId: sent.body.runId ?? null,
+        branch: sent.body.branch ?? null,
+      }).toEqual(place);
     });
 
     it('names no user, and the contract run as what started a call to the prompt it exercised', async () => {
