@@ -106,7 +106,7 @@ describe('Cycle time', () => {
       expect(row.rounds[0].checks[0]).toMatchObject({ failure: 'red', flukeMs: null, failedSteps: ['Run the tests'], failedFiles: [], detailNotRecorded: true });
     });
 
-    it('keeps the first 500 failed files of an attempt, each cut to 500 characters, so one wholesale failure cannot make the Monitor refuse the night', () => {
+    it('keeps the first 500 failed files of an attempt, each cut to 500 characters, and marks its detail not wholly recorded, so one wholesale failure cannot make the Monitor refuse the night', () => {
       const files = Array.from({ length: 600 }, (_, index) => `${'d/'.repeat(300)}${index}.test.ts`);
       const wholesale = {
         ...flukyCommit,
@@ -116,6 +116,7 @@ describe('Cycle time', () => {
       const [row] = monitorRows({ pulls: [pull({ body: recorded, commits: [wholesale] })] });
       const kept = row.rounds[0].checks[0].failedFiles;
 
+      expect(row.rounds[0].checks[0].detailNotRecorded).toBe(true);
       expect(kept).toHaveLength(500);
       expect(kept.every((path) => path.length === 500)).toBe(true);
       expect(kept[0]).toBe(files[0].slice(0, 500));

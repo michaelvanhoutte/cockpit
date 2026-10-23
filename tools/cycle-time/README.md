@@ -56,7 +56,7 @@ the overlap and a re-send store each once, and a batch with a row of the wrong s
 A read the pull budget (`--max-pulls`) stopped inside the send's window fails the step and names the
 `--from` and `--to` that send the rest. So does a pull request GitHub would not let it read, named in
 the message, since once a later merge is stored the next send reaches past it. An attempt's failed
-steps and files are cut to their first 500, each to 500 characters, as the Monitor takes no more.
+steps and files are cut to their first 500, each to 500 characters, as the Monitor takes no more, and its detail is then marked not recorded.
 
 The `Cycle time` job in [`nightly.yml`](../../.github/workflows/nightly.yml) sends every night. The
 backfill is the *Cycle time backfill* workflow, run by hand

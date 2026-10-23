@@ -1040,6 +1040,7 @@ function windowModel(pulls, { days, now, coveredSince }) {
 const KEPT_ITEMS = 500;
 const KEPT_CHARS = 500;
 const kept = (items) => items.slice(0, KEPT_ITEMS).map((item) => item.slice(0, KEPT_CHARS));
+const cutShort = (items) => items.length > KEPT_ITEMS || items.some((item) => item.length > KEPT_CHARS);
 
 /** One round's checks as the Harness Monitor stores them: one per attempt that ran, in the order they finished. */
 function checkRows(round) {
@@ -1054,8 +1055,10 @@ function checkRows(round) {
       failure: failure?.outcome ?? null,
       flukeMs: null,
       queuedMs: held.queuedMs,
-      // What `failures` says of the attempt's detail: it could not be read, wholly or in part, or it was read and names no failed file.
-      detailNotRecorded: failure ? failure.record === 'not-recorded' || failure.packagesNotRecorded.length > 0 || failure.why === 'unreadable' : false,
+      // What `failures` says of the attempt's detail: it could not be read, wholly or in part, or it was read and names no failed file. Detail cut to what the Monitor takes is not wholly recorded either.
+      detailNotRecorded: failure
+        ? failure.record === 'not-recorded' || failure.packagesNotRecorded.length > 0 || failure.why === 'unreadable' || cutShort(failure.steps) || cutShort(failure.files)
+        : false,
       noFileFailed: failure?.why === 'no-file-failed',
       failedSteps: kept(failure?.steps ?? []),
       failedFiles: kept(failure?.files ?? []),

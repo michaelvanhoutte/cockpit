@@ -10,6 +10,9 @@ const LONG_ROUND_MS = 10 * 60_000;
 
 const bit = (value: boolean) => (value ? 1 : 0);
 
+/** What the harness took against the writing; null where there was no writing to weigh it against. */
+const ratioOf = (harnessMs: number, codingMs: number) => (codingMs > 0 ? harnessMs / codingMs : null);
+
 // Each insert reads one JSON array whose objects are named as the columns are,
 // so a batch is a handful of statements whatever it holds.
 const PULL_COLUMNS = [
@@ -330,7 +333,7 @@ function pullAnswer({ pull: p, rounds }: Stored): CycleTimePull {
     balance:
       p.coding_ms === null || harnessMs === null
         ? null
-        : { codingMs: p.coding_ms, harnessMs, rounds: rounds.length, ratio: p.coding_ms > 0 ? harnessMs / p.coding_ms : null },
+        : { codingMs: p.coding_ms, harnessMs, rounds: rounds.length, ratio: ratioOf(harnessMs, p.coding_ms) },
     localReviews: p.review_count === null ? null : { count: p.review_count, ms: p.review_ms ?? 0 },
     localRuns: {
       test: p.test_runs === null ? null : { count: p.test_runs, ms: p.test_ms ?? 0 },
@@ -411,7 +414,7 @@ function windowAnswer(stored: Stored[], { days, firstDay }: { days: number | nul
     codingMs: s.pull.coding_ms!,
     harnessMs: s.pull.ci_ms + s.pull.local_ms!,
     rounds: s.rounds.length,
-    ratio: s.pull.coding_ms! > 0 ? (s.pull.ci_ms + s.pull.local_ms!) / s.pull.coding_ms! : null,
+    ratio: ratioOf(s.pull.ci_ms + s.pull.local_ms!, s.pull.coding_ms!),
     lines: s.pull.additions + s.pull.deletions,
   }));
 
