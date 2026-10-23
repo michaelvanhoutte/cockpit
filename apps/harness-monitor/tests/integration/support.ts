@@ -47,6 +47,10 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM stability_runs'),
     env.DB.prepare('DELETE FROM stability_jobs'),
     env.DB.prepare('DELETE FROM stability_steps'),
+    env.DB.prepare('DELETE FROM cycle_time_pulls'),
+    env.DB.prepare('DELETE FROM cycle_time_rounds'),
+    env.DB.prepare('DELETE FROM cycle_time_checks'),
+    env.DB.prepare('DELETE FROM cycle_time_failures'),
     env.DB.prepare('DELETE FROM claude_calls'),
     env.DB.prepare('DELETE FROM claude_call_daily_totals'),
     env.DB.prepare('DELETE FROM claude_call_place'),
@@ -113,6 +117,83 @@ export async function storedRuns(): Promise<{ run_id: number; conclusion: string
             (SELECT COUNT(*) FROM stability_steps s WHERE s.run_id = r.run_id) AS steps
      FROM stability_runs r ORDER BY r.run_id`,
   ).all<{ run_id: number; conclusion: string | null; jobs: number; steps: number }>();
+  return results;
+}
+
+/** A check that held a round up `ms`, that passed unless told otherwise, as the Cycle time job sends it. */
+export const cycleCheck = (name: string, ms: number, over: Record<string, unknown> = {}) => ({
+  name,
+  attempt: 1,
+  heldMs: ms,
+  last: false,
+  failure: null,
+  flukeMs: null,
+  queuedMs: null,
+  detailNotRecorded: false,
+  noFileFailed: false,
+  failedSteps: [],
+  failedFiles: [],
+  ...over,
+});
+
+/** A round of `checks`, pushed at `pushedAt` and `ms` long, that went green unless told otherwise. */
+export const cycleRound = (checks: unknown[], over: Record<string, unknown> = {}) => ({
+  sha: 'b'.repeat(40),
+  pushedAt: '2026-10-01T10:00:00Z',
+  endedAt: '2026-10-01T10:05:00Z',
+  ms: 300_000,
+  red: false,
+  commits: 1,
+  queueNotRecorded: false,
+  checks,
+  ...over,
+});
+
+/** A merged pull request as the Cycle time job sends it: recorded, one green round of one check, merged at `mergedAt`. */
+export const cyclePull = (number: number, over: Record<string, unknown> = {}) => ({
+  number,
+  title: `Pull request ${number}`,
+  url: `https://github.com/o/r/pull/${number}`,
+  mergedAt: '2026-10-01T12:00:00Z',
+  base: 'main',
+  head: `claude/${number}-work`,
+  landing: false,
+  size: { additions: 30, deletions: 10, files: 3, commits: 2, mainMerges: 0 },
+  start: { at: '2026-10-01T08:00:00Z', from: 'session-record' },
+  recorded: true,
+  codingMs: 600_000,
+  localMs: 300_000,
+  ciMs: 300_000,
+  waitingToMergeMs: 60_000,
+  awayMs: 0,
+  totalMs: 14_400_000,
+  localReviews: { count: 2, ms: 300_000 },
+  localRuns: { test: null, browser: null },
+  runnerMs: 600_000,
+  cancelled: { superseded: { runs: 0, ms: 0 }, other: { runs: 0, ms: 0 } },
+  rounds: [cycleRound([cycleCheck('Test', 300_000, { last: true })])],
+  ...over,
+});
+
+/** A send of pull requests as the Cycle time job makes it, with the right key unless told otherwise. */
+export function sendPulls(pulls: unknown[], headers: Record<string, string> = { authorization: `Bearer ${WRITE_KEY}` }) {
+  return SELF.fetch('https://monitor.test/v1/cycle-time', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ pulls }),
+  });
+}
+
+/** What is stored: each pull request with how many rounds, checks and failing items sit under it. */
+export async function storedPulls(): Promise<{ pull_number: number; recorded: number; rounds: number; checks: number; failures: number; fluke_ms: number | null }[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT p.pull_number, p.recorded,
+            (SELECT COUNT(*) FROM cycle_time_rounds r WHERE r.pull_number = p.pull_number) AS rounds,
+            (SELECT COUNT(*) FROM cycle_time_checks c WHERE c.pull_number = p.pull_number) AS checks,
+            (SELECT COUNT(*) FROM cycle_time_failures f WHERE f.pull_number = p.pull_number) AS failures,
+            (SELECT SUM(c.fluke_ms) FROM cycle_time_checks c WHERE c.pull_number = p.pull_number) AS fluke_ms
+     FROM cycle_time_pulls p ORDER BY p.pull_number`,
+  ).all<{ pull_number: number; recorded: number; rounds: number; checks: number; failures: number; fluke_ms: number | null }>();
   return results;
 }
 

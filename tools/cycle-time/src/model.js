@@ -538,7 +538,9 @@ function buildRounds(commits, mergedAt) {
     const held = ordered.map(({ attempt, rerun, end }) => {
       const ms = end - previous;
       previous = end;
-      return { name: attempt.name, ms, ...(rerun ? { rerun: true } : {}) };
+      // `attempt` is its place among every attempt of the check, as `failures` numbers them, and `queuedMs` its own wait for a runner: what the Harness Monitor's rows are linked by.
+      const attemptNumber = push.groups.find((attempts) => attempts.includes(attempt)).indexOf(attempt) + 1;
+      return { name: attempt.name, ms, ...(rerun ? { rerun: true } : {}), attempt: attemptNumber, queuedMs: queuedMs(attempt) };
     });
 
     // What a check ended as is its last attempt that reached a verdict: a failure
@@ -1032,6 +1034,88 @@ function windowModel(pulls, { days, now, coveredSince }) {
         }
       : null,
   };
+}
+
+/** One round's checks as the Harness Monitor stores them: one per attempt that ran, in the order they finished. */
+function checkRows(round) {
+  const rows = round.held.map((held, position) => {
+    const failure = round.failures.find((candidate) => candidate.check === held.name && candidate.attempt === held.attempt) ?? null;
+    return {
+      name: held.name,
+      attempt: held.attempt,
+      heldMs: held.ms,
+      last: position === round.held.length - 1,
+      // Red where the check never passed on the commit, a fluke where a re-run did; null for an attempt that did not fail.
+      failure: failure?.outcome ?? null,
+      flukeMs: null,
+      queuedMs: held.queuedMs,
+      // What `failures` says of the attempt's detail: it could not be read, wholly or in part, or it was read and names no failed file.
+      detailNotRecorded: failure ? failure.record === 'not-recorded' || failure.packagesNotRecorded.length > 0 || failure.why === 'unreadable' : false,
+      noFileFailed: failure?.why === 'no-file-failed',
+      failedSteps: failure?.steps ?? [],
+      failedFiles: failure?.files ?? [],
+    };
+  });
+  // A fluke's extra minutes sit on the first attempt of its check that failed, as `flukesOf` found it.
+  for (const fluke of round.flukes) {
+    const first = rows.filter((row) => row.name === fluke.name && row.failure !== null).sort((a, b) => a.attempt - b.attempt)[0];
+    if (first) first.flukeMs = fluke.ms;
+  }
+  return rows;
+}
+
+/**
+ * The merged pull requests as the Harness Monitor stores them, each cut as `pullModel` cuts it and
+ * flattened to what the Monitor keeps: the time split, the rounds and each round's checks, with the
+ * steps and test files that failed an attempt. The Monitor derives nothing from them.
+ *
+ * Time nobody wrote down is `null`, never zero: a pull request with no session record, or no round to
+ * weigh it against, has no writing time (`codingMs`) and no local time (`localMs`), and a kind of local
+ * time the record has none of is `null`. `ciMs` is zero when no check ran, which is a fact.
+ *
+ * @param {object} input
+ * @param {import('./github.js').Pull[]} input.pulls
+ * @param {string} [input.trunk]
+ */
+export function monitorRows({ pulls, trunk = 'main' }) {
+  return pulls
+    .filter((pull) => time(pull.mergedAt) !== null)
+    .map((pull) => pullModel(pull, trunk))
+    .map((pull) => {
+      const ciMs = sum(pull.rounds.map((round) => round.ms));
+      return {
+        number: pull.number,
+        title: pull.title,
+        url: pull.url,
+        mergedAt: pull.mergedAt,
+        base: pull.base,
+        head: pull.head,
+        landing: pull.landing,
+        size: pull.size,
+        start: pull.start,
+        recorded: pull.recorded,
+        codingMs: pull.balance ? pull.balance.codingMs : null,
+        localMs: pull.balance ? pull.balance.harnessMs - ciMs : null,
+        ciMs,
+        waitingToMergeMs: pull.waitingToMergeMs,
+        awayMs: sum(pull.awayMs),
+        totalMs: pull.totalMs,
+        localReviews: pull.localReviews ? { count: pull.localReviews.count, ms: pull.localReviews.ms } : null,
+        localRuns: { test: pull.localRuns.test, browser: pull.localRuns.browser },
+        runnerMs: pull.runnerMs,
+        cancelled: pull.cancelled,
+        rounds: pull.rounds.map((round) => ({
+          sha: round.sha,
+          pushedAt: round.pushedAt,
+          endedAt: round.endedAt,
+          ms: round.ms,
+          red: round.red,
+          commits: round.commits,
+          queueNotRecorded: round.queueNotRecorded,
+          checks: checkRows(round),
+        })),
+      };
+    });
 }
 
 /**

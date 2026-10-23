@@ -55,6 +55,23 @@ describe('Cycle time', () => {
     });
   });
 
+  describe('a window given by hand is read as whole days, and only ever sent', () => {
+    it('reads --to as the end of that day', () => {
+      const args = parseArgs(['--send', '--from', '2026-07-25', '--to', '2026-08-24']);
+      expect(args).toMatchObject({ send: true, from: new Date('2026-07-25T00:00:00Z'), to: new Date('2026-08-25T00:00:00Z') });
+      expect(args.invalid).toBeUndefined();
+    });
+
+    it.each([
+      { situation: 'a window that is not sent', argv: ['--from', '2026-07-25'], complaint: '--from needs --send' },
+      { situation: 'an end with no start', argv: ['--send', '--to', '2026-07-25'], complaint: '--to needs --from' },
+      { situation: 'an end before its start', argv: ['--send', '--from', '2026-07-25', '--to', '2026-07-24'], complaint: '--to cannot be before --from' },
+      { situation: 'a day that does not exist', argv: ['--send', '--from', '2026-02-30'], complaint: '--from needs a day as YYYY-MM-DD' },
+    ])('refuses $situation', ({ argv, complaint }) => {
+      expect(parseArgs(argv).invalid).toContain(complaint);
+    });
+  });
+
   describe('the command writes the page, or with --json the model', () => {
     const model = buildModel({ pulls: [], now: new Date('2026-09-21T12:00:00Z'), requestedDays: 14, coveredSince: new Date('2026-09-07T12:00:00Z'), repo: 'o/r' });
 

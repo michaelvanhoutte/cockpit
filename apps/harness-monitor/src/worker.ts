@@ -3,6 +3,8 @@ import { exportClaudeCalls } from './claude-calls-export';
 import { callsPage, callsQueryString, parseCallsQuery } from './claude-calls-page';
 import { renderClaudeCalls } from './claude-calls-view';
 import { costsPage, DEFAULT_GROUP, parseQuery, queryString } from './costs';
+import { checkPulls } from './cycle-time';
+import { cycleTimeAnswer, newestMerge, storePulls } from './cycle-time-store';
 import { exportCsv } from './export';
 import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
@@ -86,7 +88,40 @@ async function writeStability(request: Request, env: Env): Promise<Response> {
   return json(await storeRuns(env.DB, checked.runs));
 }
 
-/** Whether the request asks for the JSON answer rather than the page: `?format=json`, or an `Accept` header naming `application/json`. */
+/** A send of cycle time's merged pull requests, stored whole or refused whole. */
+async function writeCycleTime(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = checkPulls(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await storePulls(env.DB, checked.pulls));
+}
+
+/**
+ * Cycle time's stored pull requests for the period the address asks, as JSON:
+ * each window's figures and every pull request merged in the period, with its
+ * rounds and checks. Cached like the costs page. The page itself is a later
+ * piece of work; until it exists the address answers JSON to every request.
+ */
+async function cycleTime(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const period = parsePeriod(url.searchParams.get('period'));
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/cycle-time?format=json${period === '30d' ? '' : `&period=${period}`}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const response = Response.json(await cycleTimeAnswer(env.DB, period, Date.now()), {
+    headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/** Whether the request asks for the JSON answer rather than the page:`?format=json`, or an `Accept` header naming `application/json`. */
 const wantsJson = (request: Request, url: URL) => url.searchParams.get('format') === 'json' || (request.headers.get('accept') ?? '').includes('application/json');
 
 /**
@@ -263,6 +298,13 @@ export default {
       return json({ error: 'Use GET or POST.' }, 405);
     }
     if (pathname === '/stability' && request.method === 'GET') return stability(request, env, ctx);
+    if (pathname === '/v1/cycle-time') {
+      if (request.method === 'POST') return writeCycleTime(request, env);
+      // Where the next send starts reading: public, as every read here is.
+      if (request.method === 'GET') return json({ newestMerge: await newestMerge(env.DB) });
+      return json({ error: 'Use GET or POST.' }, 405);
+    }
+    if (pathname === '/cycle-time' && request.method === 'GET') return cycleTime(request, env, ctx);
     if (pathname === '/v1/usage/corrections') {
       return request.method === 'POST' || request.method === 'GET' ? correct(request, env) : json({ error: 'Use POST or GET.' }, 405);
     }
