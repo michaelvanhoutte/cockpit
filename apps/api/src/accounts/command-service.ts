@@ -879,18 +879,25 @@ function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'
   if (occurrenceDueAt(own) > Date.parse(cmd.issuedAt)) return { kind: 'not due' };
   const today = captureDay(cmd.issuedAt, own.timeZone);
   const { workspaceId, title } = own;
-  if (today === null) return { kind: 'stops', because: 'its time zone cannot be read', workspaceId };
-  // Only a series an older release set after the store changed over holds nothing.
-  if (title === null || workspaceId === null) return { kind: 'stops', because: 'it holds nothing to copy', workspaceId };
-  if (!getWorkspace(db, tenantId, workspaceId)) return { kind: 'stops', because: 'its Workspace is gone', workspaceId };
-  const anchorOn = countedFrom(own);
-  const nextOn = firstDayAfter(anchorOn, own.frequency, today.date);
   const previous = latestOccurrence(db, tenantId, own.id);
   // Told to the series' Workspace, where its copies land, unless the latest is
   // drawn elsewhere too - filed in another, or in every Inbox - when every one is.
   const toldIn =
     previous === null || (previous.workspaceDecided && previous.workspaceId === workspaceId) ? workspaceId : null;
-  if (getItem(db, tenantId, cmd.itemId) || (previous !== null && couldStillBeActedOn(previous))) {
+  if (today === null) return { kind: 'stops', because: 'its time zone cannot be read', workspaceId: toldIn };
+  // Only a series an older release set after the store changed over holds nothing.
+  if (title === null || workspaceId === null) {
+    return { kind: 'stops', because: 'it holds nothing to copy', workspaceId: toldIn };
+  }
+  if (!getWorkspace(db, tenantId, workspaceId)) return { kind: 'stops', because: 'its Workspace is gone', workspaceId: toldIn };
+  const anchorOn = countedFrom(own);
+  const nextOn = firstDayAfter(anchorOn, own.frequency, today.date);
+  // A latest copy left in a Workspace deleted since can no longer be finished, so it counts as handled.
+  const previousOpen =
+    previous !== null &&
+    couldStillBeActedOn(previous) &&
+    (!previous.workspaceDecided || previous.workspaceId === workspaceId || getWorkspace(db, tenantId, previous.workspaceId) !== null);
+  if (getItem(db, tenantId, cmd.itemId) || previousOpen) {
     return { kind: 'passes over', nextOn, anchorOn, workspaceId: toldIn };
   }
 

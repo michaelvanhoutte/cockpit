@@ -677,5 +677,49 @@ describe('Item editing', () => {
       expect(warned.mock.calls.map(([line]) => String(line)).join('\n')).toContain('its Workspace is gone');
       expect(await nextAlarm()).toBeNull();
     });
+
+    it('stops where every Workspace sees it once its Workspace is deleted with the open one filed in another', async () => {
+      await alsoWorkspaces();
+      const itemId = nextId();
+      await change(
+        'capture_item',
+        { itemId, message: 'Weekly review', workspaceDecided: false, workspaceId: 'ws-atlas' },
+        '2090-01-01T09:00:00.000Z',
+      );
+      await change('set_repeat', { itemId, seriesId: nextId(), repeat: WEEKLY, workspaceId: 'ws-atlas' });
+      const panelId = await aPanel('Reviews');
+      await fileOn(itemId, panelId);
+      await change('delete_workspace', { workspaceId: 'ws-atlas' }, '2090-01-04T09:00:00.000Z');
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await alarmRunsAt(morningOf(FIRST));
+
+      expect((await seriesRow()).stopped_at).toBe(morningOf(FIRST));
+      expect(await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, '2090-01-09T07:59:00.000Z')).toMatchObject({
+        status: 'ok',
+        value: { events: [expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: ACCOUNT_WIDE })] },
+      });
+    });
+
+    it('brings one back in its own Workspace when the open one was left in a Workspace deleted since', async () => {
+      await alsoWorkspaces();
+      const itemId = nextId();
+      await change('capture_item', { itemId, message: 'Weekly review', workspaceDecided: false }, '2090-01-01T09:00:00.000Z');
+      await repeat(itemId);
+      const panelId = nextId();
+      await change(
+        'add_panel',
+        { dashboardId: 'ws-atlas-dashboard-1', panelId, name: 'Reviews', kind: 'items', workspaceId: 'ws-atlas' },
+        '2090-01-03T09:00:00.000Z',
+      );
+      await change('add_item_to_panel', { itemId, panelId, order: [itemId], workspaceId: 'ws-atlas' }, '2090-01-03T09:01:00.000Z');
+      await change('delete_workspace', { workspaceId: 'ws-atlas' }, '2090-01-04T09:00:00.000Z');
+
+      await alarmRunsAt(morningOf(FIRST));
+
+      const [fresh] = await occurrences();
+      expect(fresh).toMatchObject({ title: 'Weekly review', workspaceId: WORKSPACE_ID, createdAt: morningOf(FIRST) });
+      expect(await seriesRow()).toMatchObject({ next_on: SECOND, stopped_at: null });
+    });
   });
 });
