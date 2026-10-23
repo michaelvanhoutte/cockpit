@@ -1,4 +1,5 @@
 import {
+  RECURRING_REFUSALS,
   daysOnFrom,
   firstDayAfter,
   itemLabel,
@@ -11,7 +12,7 @@ import { captureDay } from './capture-day.js';
 
 /** A repeat that is refused, in the words the person is told beside the field ("Set an Item to repeat from its form", issue 1406). */
 export const UNKNOWN_TIME_ZONE = 'Cockpit does not know the time zone this device is in, so it cannot say when a day starts.';
-export const NEXT_ON_PASSED = 'Next on cannot be before today.';
+export const NEXT_ON_PASSED = RECURRING_REFUSALS.nextOnPassed;
 
 /**
  * A series as its row holds it: the rule, the day it is counted from
@@ -87,7 +88,7 @@ export type RepeatDecision =
  */
 export function decideRepeat(
   own: SeriesRow | null,
-  cmd: SetRepeatCommand,
+  cmd: Pick<SetRepeatCommand, 'issuedAt' | 'repeat' | 'seriesId'> & Partial<SetRepeatCommand>,
   tenantId: string,
 ): RepeatDecision {
   if (own && cmd.issuedAt < own.updatedAt) return { kind: 'stale' };

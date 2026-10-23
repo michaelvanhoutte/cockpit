@@ -182,7 +182,7 @@ describe('Workspace management', () => {
   describe('what can be done to a workspace is on the tab it is', () => {
     // The list this replaces was two presses away in the header's menu, and
     // then a row to find. What each entry does is the rules below.
-    it('offers editing, the All items tab and deleting on the tab itself', async () => {
+    it('offers editing, the All items tab, Recurring items and deleting on the tab itself', async () => {
       showTabs(['Work', 'Personal', 'Acme']);
 
       await menuOf('Personal');
@@ -190,6 +190,7 @@ describe('Workspace management', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Show All items tab',
+        'Recurring items',
         'Delete',
       ]);
     });
@@ -223,15 +224,15 @@ describe('Workspace management', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Actions for Personal' }));
 
-      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Show All items tab', '---', 'Delete']);
+      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Show All items tab', 'Recurring items', '---', 'Delete']);
     });
 
-    it('is exactly Edit…, the All items tab, then Delete, in groups, on the open workspace’s tab as well', async () => {
+    it('is exactly Edit…, the All items tab, Recurring items, then Delete, in groups, on the open workspace’s tab as well', async () => {
       showTabs(['Work', 'Personal'], { here: 'ws-work' });
 
       await menuOf('Work');
 
-      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Show All items tab', '---', 'Delete']);
+      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Show All items tab', 'Recurring items', '---', 'Delete']);
     });
 
     it('is not offered for a workspace you are not on', async () => {
@@ -248,6 +249,17 @@ describe('Workspace management', () => {
       await user.click(button);
       await user.click(screen.getByRole('menuitem', { name: 'Edit…' }));
       await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => expect(button).toHaveFocus());
+    });
+
+    it('returns the focus to it once the Recurring items modal is closed', async () => {
+      const { user } = showTabs(['Work', 'Personal'], { here: 'ws-personal' });
+      const button = await screen.findByRole('button', { name: 'Actions for Personal' });
+
+      await user.click(button);
+      await user.click(screen.getByRole('menuitem', { name: 'Recurring items' }));
+      await user.click(await screen.findByRole('button', { name: 'Close' }));
 
       await waitFor(() => expect(button).toHaveFocus());
     });

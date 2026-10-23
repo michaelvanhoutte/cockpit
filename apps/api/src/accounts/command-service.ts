@@ -1,5 +1,5 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
@@ -120,7 +120,7 @@ import {
 } from '../domain/workspaces.js';
 import { decideClaudeSend } from '../domain/claude-sends.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
-import { countedFrom, decideRepeat, masterContentOf, occurrenceDueAt, occurrenceOf } from '../domain/series.js';
+import { countedFrom, decideRepeat, masterContentOf, occurrenceDueAt, occurrenceOf, type MasterRow } from '../domain/series.js';
 import {
   applyProposedFields,
   type FieldsSet,
@@ -928,6 +928,33 @@ function masterPanelsFrom(db: AccountDb, tenantId: string, item: Item, seriesId:
       return panel !== null && panelTakesItems(panel);
     })
     .map((panelId, position) => ({ tenantId, seriesId, panelId, position, createdAt: at }));
+}
+
+/**
+ * The Panels a recurring item is to file each copy on, as the modal asked for
+ * them: each one live in the Workspace and taking Items, once, in the order
+ * given ("Make, change and delete recurring items from the Recurring items
+ * modal", issue 1449). Null where any is not, which refuses the whole write
+ * rather than dropping the one the person chose.
+ */
+function recurringPanelsOf(db: AccountDb, tenantId: string, workspaceId: string, panelIds: readonly string[]): string[] | null {
+  const once = [...new Set(panelIds)];
+  for (const panelId of once) {
+    // Only its kind and its Dashboard's Workspace matter: not the filings `panelNamedFor` loads.
+    const panel = getPanel(db, tenantId, panelId);
+    if (!panel || !getDashboard(db, tenantId, workspaceId, panel.dashboardId) || !panelTakesItems(panel)) return null;
+  }
+  return once;
+}
+
+/**
+ * Where a change to a recurring item is told: its Workspace, or every one where
+ * its latest copy is drawn outside it - the copy's ↻ is drawn from the series
+ * wherever the copy is (as `decideOccurrence` tells a day passed over).
+ */
+function recurringItemSeenIn(db: AccountDb, tenantId: string, own: MasterRow | null, commandRow: { workspaceId: string }): void {
+  const previous = own === null ? null : latestOccurrence(db, tenantId, own.id);
+  if (previous !== null && !(previous.workspaceDecided && previous.workspaceId === own?.workspaceId)) everyWorkspaceSees(commandRow);
 }
 
 /**
@@ -2457,6 +2484,76 @@ export function runCommand<N extends CommandName>(
             .run();
           for (const filing of filedOn) tx.insert(seriesPanels).values(filing).run();
         }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'create_recurring_item':
+    case 'write_recurring_item': {
+      const cmd = payload as CommandPayload<'create_recurring_item' | 'write_recurring_item'>;
+      const creating = name === 'create_recurring_item';
+      const own = getSeries(db, tenantId, cmd.seriesId);
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) throw new WorkspaceNotFoundError(cmd.workspaceId);
+      // A retried create under a new command id is the recurring item already made, not a second.
+      if (creating && own !== null) throw new RepeatRefusedError(RECURRING_REFUSALS.alreadyMade);
+      // A write to one that is gone, deleted since, or of another Workspace has nothing to write over.
+      if (!creating && (own === null || own.stoppedAt !== null || own.title === null || own.workspaceId !== cmd.workspaceId)) {
+        throw new RepeatRefusedError(RECURRING_REFUSALS.gone);
+      }
+      const filedOn = recurringPanelsOf(db, tenantId, cmd.workspaceId, cmd.panelIds);
+      if (filedOn === null) throw new RepeatRefusedError(RECURRING_REFUSALS.panelGone);
+      const decision = decideRepeat(own, cmd, tenantId);
+      if (decision.kind === 'refused') throw new RepeatRefusedError(decision.why);
+      if (decision.kind !== 'write') {
+        // Made against an older version of it than the one stored: logged, nothing changed.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      const { row } = decision;
+      const content = {
+        workspaceId: cmd.workspaceId,
+        title: cmd.title,
+        description: cmd.description === '' ? null : cmd.description,
+        priority: cmd.priority,
+      };
+      recurringItemSeenIn(db, tenantId, own, commandRow);
+      db.transaction((tx) => {
+        if (decision.isNew) tx.insert(series).values({ ...row, ...content }).run();
+        else {
+          tx.update(series)
+            .set({ ...row, ...content })
+            .where(and(eq(series.tenantId, tenantId), eq(series.id, row.id)))
+            .run();
+        }
+        tx.delete(seriesPanels)
+          .where(and(eq(seriesPanels.tenantId, tenantId), eq(seriesPanels.seriesId, row.id)))
+          .run();
+        filedOn.forEach((panelId, position) =>
+          tx.insert(seriesPanels).values({ tenantId, seriesId: row.id, panelId, position, createdAt: cmd.issuedAt }).run(),
+        );
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_recurring_item': {
+      const cmd = payload as CommandPayload<'delete_recurring_item'>;
+      const own = getSeries(db, tenantId, cmd.seriesId);
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) throw new WorkspaceNotFoundError(cmd.workspaceId);
+      if (own === null || own.title === null || own.workspaceId !== cmd.workspaceId) throw new RepeatRefusedError(RECURRING_REFUSALS.gone);
+      const decision = decideRepeat(own, { issuedAt: cmd.issuedAt, seriesId: cmd.seriesId, repeat: null }, tenantId);
+      // Already deleted, or made against an older version than the one stored: logged, nothing changed.
+      if (decision.kind !== 'write' || own.stoppedAt !== null) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      recurringItemSeenIn(db, tenantId, own, commandRow);
+      db.transaction((tx) => {
+        tx.update(series)
+          .set({ stoppedAt: decision.row.stoppedAt, updatedAt: decision.row.updatedAt })
+          .where(and(eq(series.tenantId, tenantId), eq(series.id, cmd.seriesId)))
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

@@ -263,6 +263,12 @@ const commandSenders = {
     api.v1.commands.set_due_date.$post({ json: p }, o),
   set_repeat: (p: CommandPayload<'set_repeat'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_repeat.$post({ json: p }, o),
+  create_recurring_item: (p: CommandPayload<'create_recurring_item'>, o?: ClientRequestOptions) =>
+    api.v1.commands.create_recurring_item.$post({ json: p }, o),
+  write_recurring_item: (p: CommandPayload<'write_recurring_item'>, o?: ClientRequestOptions) =>
+    api.v1.commands.write_recurring_item.$post({ json: p }, o),
+  delete_recurring_item: (p: CommandPayload<'delete_recurring_item'>, o?: ClientRequestOptions) =>
+    api.v1.commands.delete_recurring_item.$post({ json: p }, o),
   set_title: (p: CommandPayload<'set_title'>, o?: ClientRequestOptions) => api.v1.commands.set_title.$post({ json: p }, o),
   set_description: (p: CommandPayload<'set_description'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_description.$post({ json: p }, o),
