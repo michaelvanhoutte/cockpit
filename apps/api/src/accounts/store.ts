@@ -96,6 +96,7 @@ import {
   ItemNotFoundError,
   LastDashboardError,
   RepeatRefusedError,
+  WaitRefusedError,
   SentenceRefusedError,
   SentenceNotFoundError,
   LayoutNotFoundError,
@@ -1668,6 +1669,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         error instanceof UnknownThemeError ||
         // A 400 as well: the Item is there, and the rule asked for is one it cannot take.
         error instanceof RepeatRefusedError ||
+        error instanceof WaitRefusedError ||
         // A 400 rather than a 404 or a 409: the panel exists and nothing is in
         // the way - it is simply not the kind of panel that takes this.
         error instanceof PanelHoldsSomethingElseError ||

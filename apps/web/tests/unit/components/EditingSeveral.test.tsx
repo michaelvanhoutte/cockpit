@@ -227,6 +227,17 @@ describe('Selection', () => {
         expect(option).toHaveAttribute('aria-checked', 'false');
       }
     });
+
+    it('reads Waiting for reply when the picked Items all wait, though it offers no such choice', async () => {
+      const waiting = { waitingSince: '2026-08-31T08:00:00.000Z' };
+      const user = show({ ...TWO_PANELS, items: [{ ...BART, ...waiting }, { ...RENEW, ...waiting }, CHASE] });
+      await tick(user, BART.title);
+      await tick(user, RENEW.title);
+
+      await openField(user, 'Status');
+
+      expect(screen.getByRole('menuitem', { name: /^Status/ })).toHaveTextContent('Waiting for reply');
+    });
   });
 
   describe('while a run is going the bar counts it and holds back new work; afterwards the selection is still held', () => {

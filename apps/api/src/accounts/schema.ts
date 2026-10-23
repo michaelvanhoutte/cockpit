@@ -1018,6 +1018,14 @@ export const items = sqliteTable(
      * carries no CHECK, the same trade `completed_at` above already records.
      */
     startedAt: text('started_at'),
+    /**
+     * When this first started waiting for a reply ("Set an Item Waiting for
+     * reply, and wait again after chasing", issue 1463) - the third time
+     * `itemStatus` reads, after `completed_at` and before `started_at`. NULL on
+     * every Item from before it, which is not waiting. Nullable and carries no
+     * CHECK, the same trade `started_at` records.
+     */
+    waitingSince: text('waiting_since'),
     priority: text('priority').$type<Priority>(),
     /**
      * When the person first set or cleared `priority` ("Read a priority you

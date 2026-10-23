@@ -182,20 +182,21 @@ export async function saveTheItem(page: Page, isMobile: boolean): Promise<void> 
 /**
  * An open Item form's status, set through what its device draws: a chip and its
  * picker on a phone's page, the box at a desk. Held until Save either way.
+ * Waiting for reply opens the question of how long, which the walk answers.
  */
 export async function setFormStatus(
   page: Page,
-  status: 'to_do' | 'in_progress' | 'done',
+  status: 'to_do' | 'in_progress' | 'waiting' | 'done',
   isMobile: boolean,
 ): Promise<void> {
   const form = page.getByRole('dialog');
   if (!isMobile) {
     await form.getByTitle('Status').click();
-    await page.getByRole('menuitemradio', { name: { to_do: 'To do', in_progress: 'In progress', done: 'Done' }[status], exact: true }).click();
+    await page.getByRole('menuitemradio', { name: { to_do: 'To do', in_progress: 'In progress', waiting: 'Waiting for reply', done: 'Done' }[status], exact: true }).click();
     return;
   }
   await startEditingTheItem(page, isMobile);
-  const name = { to_do: 'To do', in_progress: 'In progress', done: 'Done' }[status];
+  const name = { to_do: 'To do', in_progress: 'In progress', waiting: 'Waiting for reply', done: 'Done' }[status];
   // The Status chip leads the phone's row of chips (issue 1068 took Type off it).
   await press(form.getByRole('group', { name: 'Fields' }).getByRole('button').nth(0), isMobile);
   await press(page.getByRole('menuitemradio', { name, exact: true }), isMobile);

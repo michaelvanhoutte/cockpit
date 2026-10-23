@@ -37,6 +37,7 @@ export const ALL_ITEMS_COLUMNS: readonly { key: AllItemsKey; label: string }[] =
 export const STATUS_LABELS: Record<ItemStatus, string> = {
   to_do: 'To do',
   in_progress: 'In progress',
+  waiting: 'Waiting for reply',
   done: 'Done',
 };
 
@@ -68,7 +69,7 @@ export interface AllItemsRow {
 }
 
 const PRIORITY_RANK: Record<Priority, number> = { high: 0, normal: 1, low: 2 };
-const STATUS_RANK: Record<ItemStatus, number> = { to_do: 0, in_progress: 1, done: 2 };
+const STATUS_RANK: Record<ItemStatus, number> = { to_do: 0, in_progress: 1, waiting: 2, done: 3 };
 
 function sortValue(row: AllItemsRow, key: AllItemsKey): string | number {
   switch (key) {
