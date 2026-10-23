@@ -24,3 +24,11 @@
 
 # Lockfiles are generated; keep them byte-stable across platforms.
 pnpm-lock.yaml text eol=lf -diff
+
+# The Android widget (apps/android-widget). The wrapper script runs on Linux in CI,
+# so it is stored with LF; the .bat is for Windows; the wrapper jar is not text.
+apps/android-widget/gradlew   text eol=lf
+apps/android-widget/**/*.bat  text eol=crlf
+apps/android-widget/**/*.jar  binary
+*.kt    text eol=lf
+*.kts   text eol=lf

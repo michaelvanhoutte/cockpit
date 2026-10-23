@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The phone's own look; from Android 10 it follows the phone's light or dark setting. -->
+    <style name="AppTheme" parent="android:Theme.DeviceDefault" />
+</resources>

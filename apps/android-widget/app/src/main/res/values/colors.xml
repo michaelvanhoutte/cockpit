@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The approved mock-up's tokens (parent issue 1412, "Own line (chosen)"): this file is
+  the light theme and values-night/colors.xml the dark, and a colour that is the same
+  in both is written here only. Names mirror the mock-up's.
+-->
+<resources>
+    <color name="surface">#F7F7F5</color>
+    <color name="ink">#16181D</color>
+    <color name="ink_faint">#5A5F6D</color>
+    <color name="divider">#1A16181D</color>
+    <color name="button">#0F16181D</color>
+
+    <color name="flag_high">#E0362B</color>
+    <color name="flag_normal">#C98A4B</color>
+    <color name="flag_low">#8B8D94</color>
+    <color name="flag_unset_bg">#0D16181D</color>
+    <color name="flag_unset_ink">#2616181D</color>
+    <color name="flag_glyph">#FFFFFF</color>
+
+    <color name="pill_over_bg">#A04A43</color>
+    <color name="pill_over_ink">#FFFFFF</color>
+    <color name="pill_today_bg">#C98A4B</color>
+    <color name="pill_today_ink">#2E1D08</color>
+    <color name="pill_near_bg">#F1DCC0</color>
+    <color name="pill_near_ink">#6B4515</color>
+    <color name="pill_week_ink">#6B4515</color>
+    <color name="pill_week_stroke">#C98A4B</color>
+
+    <color name="launcher_background">#23242A</color>
+</resources>
