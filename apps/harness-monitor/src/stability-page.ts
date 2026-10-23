@@ -1,6 +1,6 @@
 import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './belgium';
 import { esc, selectField } from './look';
-import { number } from './page';
+import { number, REPOSITORY } from './page';
 import { bandTabs, humanMs, outLink, pct, reportPage, section, tile } from './report';
 import {
   clipSpans,
@@ -35,12 +35,13 @@ const OUTCOMES = [
   { key: 'fail', label: 'Failed', colour: 'var(--over)' },
   { key: 'cancelled', label: 'Cancelled', colour: 'var(--cat-grey)' },
   { key: 'skipped', label: 'Skipped', colour: 'color-mix(in srgb,var(--cat-grey) 40%,transparent)' },
+  { key: 'running', label: 'Still running', colour: 'var(--cat-slate)' },
   { key: 'other', label: 'Other or unrecognised', colour: 'var(--cat-amber)' },
 ] as const;
 /** The report pages' violet ramp, dark to light: a workflow is a step on it, never red or green. */
 const RAMP = ['var(--cat-violet)', 'var(--cat-slate)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-amber)'];
 
-const bandOf = (rate: number) => (rate >= 0.99 ? 'good' : rate >= 0.9 ? 'mid' : 'poor');
+const bandOf = (rate: number) => (rate >= 0.99 ? 'ok' : rate >= 0.9 ? 'mid' : 'poor');
 
 function rateCell(t: Tally): string {
   if (t.rate === null) return '<td class="num"><span class="rate none">no data</span><span class="of">0 finished</span></td>';
@@ -53,7 +54,7 @@ function lastCell(last: Last | null | undefined): string {
   return `<td class="num">${outLink(last.url, word, `rate ${cls}`)}<span class="of">${esc(formatDateTime(last.at))}</span></td>`;
 }
 
-const counts = (t: Tally): Record<(typeof OUTCOMES)[number]['key'], number> => ({ pass: t.pass, fail: t.fail, cancelled: t.cancelled, skipped: t.skipped, other: t.other + t.unknown });
+const counts = (t: Tally): Record<(typeof OUTCOMES)[number]['key'], number> => ({ pass: t.pass, fail: t.fail, cancelled: t.cancelled, skipped: t.skipped, running: t.running, other: t.other + t.unknown });
 
 function outcomeBar(t: Tally): string {
   const c = counts(t);
@@ -77,7 +78,7 @@ const lasted = (value: number, peak: number, text: string) =>
 
 /** The CI stability page: the same figures whatever the tab, narrowed by the filters, with the overview only on the first. */
 export function renderStability(q: StabilityQuery, data: StabilityData, repository: string | undefined, now: number): string {
-  const repo = repository !== undefined && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) ? repository : null;
+  const repo = repository !== undefined && REPOSITORY.test(repository) ? repository : null;
   const { from, until } = data;
   const keep = (name: string) => q.workflow === null || name === q.workflow;
   const periodLabel = q.period === 'all' ? `Everything held · ${data.heldDays} days` : `Last ${data.periodDays} days`;
@@ -314,7 +315,7 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
     const y = (v: number) => top + (1 - v / peak) * (height - top - bottom);
     const grid = [0, 0.5, 1].map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" class="gridline"/><text x="${left - 10}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${humanMs(peak * f)}</text>`).join('');
     const ends = [...new Set([0, Math.floor((days.length - 1) / 2), days.length - 1])];
-    const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 8}" text-anchor="${i === 0 ? 'start' : i === days.length - 1 ? 'end' : 'middle'}" class="axis">${formatDay(days[i]!)}</text>`).join('');
+    const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 8}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === days.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${formatDay(days[i]!)}</text>`).join('');
     const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${total.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} ${x(days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
     const drawn = [...lines, { key: 'total', label: 'Any workflow', values: total, colour: 'var(--ink-strong)', dash: true }]
       .map(

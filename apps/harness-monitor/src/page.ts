@@ -369,7 +369,7 @@ function harnessTrends(page: CostsPage): string {
 }
 
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
-const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+export const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 /** A link that opens on GitHub in a new tab. */
 const github = (repository: string, path: string, text: string) =>

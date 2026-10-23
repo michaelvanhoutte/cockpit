@@ -93,18 +93,18 @@ const wantsJson = (request: Request, url: URL) => url.searchParams.get('format')
  */
 async function stability(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
-  const json = wantsJson(request, url);
+  const asJson = wantsJson(request, url);
   const query = parseStabilityQuery(url.searchParams);
   const period = parsePeriod(url.searchParams.get('period'));
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(json ? `${url.origin}/stability?format=json${period === '30d' ? '' : `&period=${period}`}` : `${url.origin}${stabilityAddress(query)}`);
+  const key = new Request(asJson ? `${url.origin}/stability?format=json${period === '30d' ? '' : `&period=${period}`}` : `${url.origin}${stabilityAddress(query)}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 
   const now = Date.now();
   const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
-  const response = json
+  const response = asJson
     ? Response.json(await stabilityAnswer(env.DB, period, now), { headers })
     : new Response(renderStability(query, await loadStability(env.DB, query.period, now), env.GITHUB_REPOSITORY, now), {
         headers: { ...headers, 'content-type': 'text/html; charset=utf-8' },

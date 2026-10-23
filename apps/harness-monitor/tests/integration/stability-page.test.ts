@@ -85,6 +85,22 @@ describe('Harness Monitor', () => {
       expect(row![4]).toBe('2');
       expect(row![5]).toBe('3');
     });
+
+    it('colours a rate of 99% or more green and one under 90% red', async () => {
+      await sendRuns([ran(1, '2026-10-30T09:00:00Z', 'pass'), ran(2, '2026-10-30T10:00:00Z', 'pass', { workflow: 'Nightly' }), ran(3, '2026-10-30T11:00:00Z', 'fail', { workflow: 'Nightly' })]);
+
+      const html = await thePage('?group=workflow');
+
+      expect(html).toMatch(/<span class="rate ok">100%<\/span>/);
+      expect(html).toMatch(/<span class="rate poor">50%<\/span>/);
+    });
+
+    it('counts a job run still going among the outcomes rather than dropping it', async () => {
+      const sent = await sendRuns([stabilityRun(1, { createdAt: '2026-10-30T09:00:00Z', status: 'in_progress', conclusion: null, outcome: 'running', jobs: [stabilityJob('Test', null, { status: 'in_progress', conclusion: null, outcome: 'running', completedAt: null })] })]);
+
+      expect(sent.status).toBe(200);
+      expect(await thePage()).toContain('Still running 1');
+    });
   });
 
   describe('while a red spell is open, every tab says main is red, naming the workflow and the step it died on', () => {
