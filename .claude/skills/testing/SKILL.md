@@ -60,9 +60,11 @@ It cuts the other way too: where a constraint *is* reachable, only a test throug
 - Replace a boundary at the edge (the API client, the repository, the clock), not deep inside the code under test.
 - **Assert on outcomes, not interactions** — what the code produced, not the sequence of calls it made. Choreographing mock calls survives real breakage and is a violation.
 
-**Third parties.** Never at L1/F1. At L2/F2 and per-change L3/F3, use local fakes or fixtures recorded from real responses (not hand-invented shapes), checked in — faked at the *network* boundary, by replacing `fetch`, so the application does its own request against its own client (`apps/api/tests/integration/issuer.ts`, and the model in `tests/integration/http/note-cleanup.test.ts`). Live contract tests run when the prompt they hold changes and by hand, never per change otherwise; only the suites that spend nothing on a model also run weekly. They verify the fixtures still match reality; a failing one makes updating the fixture priority work, and is never fixed by running it again.
+**Third parties.** Never at L1/F1. At L2/F2 and per-change L3/F3, use local fakes or fixtures recorded from real responses (not hand-invented shapes), checked in — faked at the *network* boundary, by replacing `fetch`, so the application does its own request against its own client (`apps/api/tests/integration/issuer.ts`, and the model in `tests/integration/http/note-cleanup.test.ts`). Live contract tests run when the prompt they hold changes, weekly, and by hand, never per change otherwise. They verify the fixtures still match reality; a failing one makes updating the fixture priority work, and is never fixed by running it again.
 
-**A model is a third party whose answer differs every time**, so its contract tests hold a *behaviour* rather than a shape: the property the prompt was written to get, and preferably one that has been measured failing. A contract run with no credential is red, never skipped.
+**A model is a third party whose answer differs every time**, so its behaviour suites hold a *behaviour* rather than a shape: the property the prompt was written to get, and preferably one that has been measured failing. A contract run with no credential is red, never skipped.
+
+**CI asks a prompt one question; its behaviour suite is by hand.** `apps/api/tests/contract/one-call.test.ts` makes one call per prompt and asserts only that the answer parses into the prompt's result, so a prompt added or moved to a new version needs its check there (`pnpm test:scripts` fails without it). A behaviour suite (`<prompt>.vN.test.ts`) costs about a hundred calls and runs only when named. **Whoever changes a prompt runs that prompt's behaviour suite locally before pushing** - `pnpm --filter @cockpit/api test:contract clean-up-a-note` - and the pull request shows that run among its recorded local runs; nothing in CI gates on it, and a bare `test:contract` never runs one.
 
 **A credential on disk reaches every tier, so every tier below the contract one has to pin it empty.** `apps/api/.dev.vars` is read by the workers pool *and* by the browser tier's own Wrangler, so a real key sitting there for `pnpm dev` silently arms both: the backend suite spends money against the real API, and the browser walks assert on text a model has since rewritten - which is how `filing.test.ts` came to fail on "Chase the invoice…" having become "Chase invoice…". Both are pinned empty where they are started (`apps/api/vitest.config.ts`, `scripts/e2e-stack.mjs`), and the next third party needs the same two lines.
 
@@ -72,7 +74,7 @@ Folders per level, inside the package that owns them — a folder is a boundary 
 
 ```
 apps/api/tests/{unit,integration}/
-apps/api/tests/contract/                         the live contract tests: on a prompt change and by hand; the free ones weekly too
+apps/api/tests/contract/                         the live contract tests: one call per Claude prompt and the free suites on a prompt change, weekly and by hand; a behaviour suite only when named
 apps/web/tests/{unit,service}/
 packages/shared/tests/unit/
 packages/connectors/*/tests/{unit,contract}/    a connector's own logic, and its own live tier

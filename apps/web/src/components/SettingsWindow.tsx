@@ -63,6 +63,7 @@ export default function SettingsWindow({
       onClose={onClose}
       returnFocusTo={returnFocusTo}
       sections={onlyAppearance ? [appearance] : [
+        appearance,
         {
           key: 'connections',
           label: 'Connections',
@@ -70,7 +71,6 @@ export default function SettingsWindow({
         },
         { key: 'mcp', label: 'MCP', content: <ManageConnectedApps open onClose={onClose} /> },
         { key: 'remembered', label: 'What Cockpit remembers', content: <ManageRememberedSentences focus={sentenceId} /> },
-        appearance,
       ]}
     />
   );
@@ -111,20 +111,18 @@ function ConnectionsOf({
       open
       onClose={onClose}
       picker={
-        <label className="mt-3 block text-sm text-ink-soft">
-          Workspace{' '}
-          <select
-            value={chosen.id}
-            onChange={(event) => setPicked(event.target.value)}
-            className="rounded border border-shade/10 px-1 py-0.5"
-          >
-            {workspaces.map((ws) => (
-              <option key={ws.id} value={ws.id}>
-                {ws.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <select
+          aria-label="Workspace"
+          value={chosen.id}
+          onChange={(event) => setPicked(event.target.value)}
+          className="rounded-md border border-shade/20 bg-field px-2 py-0.5 text-sm font-semibold text-ink-strong"
+        >
+          {workspaces.map((ws) => (
+            <option key={ws.id} value={ws.id}>
+              {ws.name}
+            </option>
+          ))}
+        </select>
       }
     />
   );

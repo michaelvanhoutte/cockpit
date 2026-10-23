@@ -5,6 +5,7 @@ import {
   GRID_COLUMNS,
   MOST_ACROSS,
   NAME_MAX_LENGTH,
+  UNTITLED,
   claudeProposalsSchema,
   demoAddress,
   filterGroupingSchema,
@@ -178,6 +179,8 @@ export function accountChanges(accountId: string): readonly Change[] {
     DUE_IN_DAYS,
     SERIES,
     SERIES_DAYS,
+    SERIES_MASTERS,
+    seriesMastersFromLatestCopy(accountId),
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1214,6 +1217,178 @@ const SERIES_DAYS: Change = {
     },
   ],
 };
+
+/**
+ * What each copy of a recurring item is made from ("Make each copy of a
+ * recurring item from its own series", issue 1448): four nullable columns on
+ * `series` - the Workspace, title, description and priority - and a new table,
+ * `series_panels`, of the Panels each copy is filed on; `schema.ts` says what
+ * each carries. The expand half: `0095-series-masters-from-latest-copy` fills
+ * them.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): four `ADD COLUMN`s and a `CREATE TABLE`, and no statement
+ *   that reads or writes a row.
+ * - **If it stops halfway:** one change is one transaction, so a failure on any
+ *   statement takes the others back, and the next open applies all.
+ * - **The second time it runs:** it does not re-run once recorded; the table is
+ *   `IF NOT EXISTS`, and SQLite refuses a column that already exists, which the
+ *   transaction makes safe.
+ * - **Rows that predate it:** every series reads NULL in all four and files on
+ *   no Panel until the next change fills it, which runs in the same opening.
+ * - **What is in each environment:** a series exists only where a person set
+ *   one with the Repeats chip; each gains four NULLs.
+ * - **Rolled back after it has run:** an older release names none of them and
+ *   copies from the latest occurrence, as it did.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const SERIES_MASTERS: Change = {
+  name: '0094-series-masters',
+  statements: [
+    {
+      sql: 'ALTER TABLE `series` ADD COLUMN `workspace_id` text REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE restrict',
+    },
+    { sql: 'ALTER TABLE `series` ADD COLUMN `title` text' },
+    { sql: 'ALTER TABLE `series` ADD COLUMN `description` text' },
+    {
+      sql: `ALTER TABLE \`series\` ADD COLUMN \`priority\` text CONSTRAINT "series_priority_is_known" CHECK(priority IN ('low', 'normal', 'high'))`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`series_panels\` (
+	\`tenant_id\` text NOT NULL,
+	\`series_id\` text NOT NULL,
+	\`panel_id\` text NOT NULL,
+	\`position\` integer NOT NULL,
+	\`created_at\` text NOT NULL,
+	PRIMARY KEY(\`series_id\`, \`panel_id\`),
+	FOREIGN KEY (\`series_id\`) REFERENCES \`series\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`panel_id\`) REFERENCES \`panels\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "series_panels_position_is_an_order" CHECK(position >= 0),
+	${timestampCheck('series_panels', 'created_at')}
+) STRICT`,
+    },
+  ],
+};
+
+/** The latest Item of the series aliased `s`, dismissed or not - the order `latestOccurrence` (repo.ts) reads. */
+const LATEST_COPY_OF = (s: string) =>
+  `(SELECT i.id FROM items AS i WHERE i.tenant_id = ${s}.tenant_id AND i.series_id = ${s}.id
+     ORDER BY i.created_at DESC, i.id DESC LIMIT 1)`;
+
+/** A running series of `s` holding nothing yet: what the change fills, and all it touches. */
+const RUNNING_AND_EMPTY = (s: string) => `${s}.stopped_at IS NULL AND ${s}.title IS NULL`;
+
+/** A series of `s` with a latest Item in a Workspace still there - what it can be made a recurring item from. */
+const HAS_A_COPY_TO_FILL_FROM = (s: string) =>
+  `EXISTS (SELECT 1 FROM items AS c JOIN workspaces AS w ON w.id = c.workspace_id AND w.tenant_id = c.tenant_id AND w.deleted_at IS NULL
+            WHERE c.id = ${LATEST_COPY_OF(s)})`;
+
+const NOW = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
+
+/** Space, tab, line feed and carriage return: what a title or next action is trimmed of before it counts as saying something. */
+const BLANKS = `' ' || char(9) || char(10) || char(13)`;
+
+/**
+ * Every series the Repeats chip set becomes a recurring item that owns its
+ * content ("Make each copy of a recurring item from its own series", issue
+ * 1448; "Make a recurring item from its own list, and copy each occurrence from
+ * it", issue 1444): its Workspace, title, description and priority from its
+ * latest Item, dismissed or not, and its Panels from that Item's live filings,
+ * in the order the Item was filed on them. A stopped series is left stopped and
+ * empty; the Repeats chip fills it if its rule is set again (`set_repeat`).
+ *
+ * **A latest Item with no title gives the Item's label**, as its row shows it
+ * (`itemLabel`): its next action on one line, or *Untitled*. A run of spaces
+ * inside a next action is kept as it is, where the row closes it up.
+ *
+ * Its failure modes, per the `scoping` skill and issue 1444's:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): an `UPDATE` that stops, an `INSERT` of filings and an
+ *   `UPDATE` that fills, each only on a running series whose content is empty.
+ *   No Item, filing or file is touched. `pnpm backup:export` runs before the
+ *   deploy that carries it.
+ * - **Stops halfway:** one change is one transaction with its record
+ *   (`transactionSync`, store.ts), so every running series in the account gets
+ *   its content or none does, and an unrecorded change runs again on the next
+ *   opening.
+ * - **Runs twice:** it fills only series whose content is empty, so a second
+ *   run finds nothing to fill; the Panels are written first, while the content
+ *   is still empty, and a filing already there is kept (`DO NOTHING`).
+ * - **Rows that break the rule:** a running series no Item names, or whose
+ *   latest Item's Workspace is gone, is stopped and logged rather than filled
+ *   with blanks (`leavesAlone` counts them before anything runs, and the store
+ *   logs the count). A latest Item with no title gives the Item's label, as
+ *   above.
+ * - **Environments:** production holds no series (product owner, 2026-10-23)
+ *   unless the old chip is used first; staging and local stores may hold some,
+ *   so it opens cleanly over none and over many, set-based, with no parameter
+ *   count growing with them.
+ * - **Interruption points:** before it runs nothing reads the new content,
+ *   since the store applies its changes before its alarm or any read
+ *   (`#bringUpToDate`, store.ts); during it, the transaction lands whole or not
+ *   at all; after it, a copy is made from the series alone.
+ * - **Rolled back after it has run:** an older release copies from the latest
+ *   occurrence again and reads none of the content; a series it sets is empty
+ *   when the newer release is back, so the Repeats chip fills it on its next
+ *   change and the alarm stops it rather than write an Item with nothing in it.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+function seriesMastersFromLatestCopy(accountId: string): Change {
+  return {
+    name: '0095-series-masters-from-latest-copy',
+    leavesAlone: {
+      count: {
+        sql: `SELECT count(*) AS n FROM series AS s
+               WHERE s.tenant_id = ? AND ${RUNNING_AND_EMPTY('s')} AND NOT ${HAS_A_COPY_TO_FILL_FROM('s')}`,
+        params: [accountId],
+      },
+      because: 'Running series no Item names, or whose Workspace is gone, were stopped rather than given nothing to copy',
+    },
+    statements: [
+      {
+        sql: `UPDATE series AS s SET stopped_at = ${NOW}
+               WHERE s.tenant_id = ? AND ${RUNNING_AND_EMPTY('s')} AND NOT ${HAS_A_COPY_TO_FILL_FROM('s')}`,
+        params: [accountId],
+      },
+      {
+        sql: `INSERT INTO series_panels (tenant_id, series_id, panel_id, position, created_at)
+              SELECT s.tenant_id, s.id, f.panel_id,
+                     ROW_NUMBER() OVER (PARTITION BY s.id ORDER BY f.created_at, f.panel_id) - 1, ${NOW}
+                FROM series AS s
+                JOIN items AS c ON c.id = ${LATEST_COPY_OF('s')}
+                JOIN panel_items AS f ON f.tenant_id = s.tenant_id AND f.item_id = c.id
+                JOIN panels AS p ON p.id = f.panel_id AND p.tenant_id = s.tenant_id AND p.deleted_at IS NULL AND p.kind = 'items'
+                JOIN dashboards AS d ON d.id = p.dashboard_id AND d.tenant_id = s.tenant_id AND d.deleted_at IS NULL
+                                    AND d.workspace_id = c.workspace_id
+               WHERE s.tenant_id = ? AND ${RUNNING_AND_EMPTY('s')}
+              ON CONFLICT DO NOTHING`,
+        params: [accountId],
+      },
+      {
+        sql: `UPDATE series
+                 SET workspace_id = latest.workspace_id,
+                     title = CASE
+                               WHEN trim(latest.title, ${BLANKS}) <> '' THEN latest.title
+                               WHEN trim(coalesce(latest.next_action, ''), ${BLANKS}) <> ''
+                                 THEN trim(replace(replace(replace(latest.next_action, char(13), ' '), char(10), ' '), char(9), ' '))
+                               ELSE ?
+                             END,
+                     description = latest.description,
+                     priority = latest.priority
+                FROM (SELECT s.id AS series_id, c.workspace_id, c.title, c.next_action, c.description, c.priority
+                        FROM series AS s JOIN items AS c ON c.id = ${LATEST_COPY_OF('s')}
+                       WHERE s.tenant_id = ?) AS latest
+               WHERE series.id = latest.series_id AND series.tenant_id = ? AND ${RUNNING_AND_EMPTY('series')}`,
+        params: [UNTITLED, accountId, accountId],
+      },
+    ],
+  };
+}
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
 export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect it to carry on.';

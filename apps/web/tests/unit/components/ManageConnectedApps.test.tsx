@@ -95,7 +95,7 @@ describe('MCP connections', () => {
     it('says it can capture items and read your items in every workspace', async () => {
       showWindow();
 
-      const said = await screen.findByText(/Apps you allowed to capture items/);
+      const said = await screen.findByText(/you allowed to capture items/);
 
       expect(said).toHaveTextContent('capture items into your Cockpit and to read your items in every workspace');
     });

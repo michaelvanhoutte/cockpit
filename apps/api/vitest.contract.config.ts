@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
+import { contractFiles, suitesNamed } from '../../scripts/lib/contract-selection.mjs';
 import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mjs';
 
 /**
@@ -9,13 +10,22 @@ import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mj
  * Worker, and they must never be picked up by `pnpm test`, which runs
  * `vitest run` over everything under `tests/` with the other config.
  *
- * **The Claude suites never run on a schedule**, because every run spends real money and takes as long as
- * the model does: `.github/workflows/contract.yml` runs them on a pull request that
- * touches the AI layer, and `pnpm --filter @cockpit/api test:contract` runs them by hand. Its weekly run
- * names only the meaning suite and withholds the Claude key. A failure here is
- * the model or the prompt having drifted, and fixing it is priority work rather
+ * **A behaviour suite runs only when it is named.** A run naming nothing - CI on
+ * a pull request touching the AI layer, the weekly run, a bare
+ * `pnpm --filter @cockpit/api test:contract` - makes one call per Claude prompt
+ * (`one-call.test.ts`) and runs the free Workers AI suites. Each prompt's
+ * behaviour suite spends real money and takes as long as the model does, so it
+ * is run by hand, named, by whoever changes that prompt:
+ * `pnpm --filter @cockpit/api test:contract clean-up-a-note`. Which files that
+ * means is `scripts/lib/contract-selection.mjs`. A failure here is the API, the
+ * model or the prompt having drifted, and fixing it is priority work rather
  * than something to re-run until it passes.
  */
+
+const here = new URL('.', import.meta.url);
+const suites = readdirSync(new URL('tests/contract/', here), { recursive: true, encoding: 'utf8' })
+  .map((file) => file.split('\\').join('/'))
+  .filter((file) => file.endsWith('.test.ts'));
 
 /**
  * The key from `.dev.vars`, so running this by hand needs nothing exported
@@ -45,7 +55,7 @@ const onDisk = fromDevVars();
 export default defineConfig({
   test: {
     reporters: ['default', sessionRunReporter],
-    include: ['tests/contract/**/*.test.ts'],
+    include: contractFiles(suites, suitesNamed(process.argv)).map((file) => `tests/contract/${file}`),
     // The model is what takes the time here, not the assertions.
     testTimeout: 120_000,
     env: {
