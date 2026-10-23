@@ -108,7 +108,7 @@ test.describe('Harness Monitor', () => {
     // Only Opus, then each pull request: the rows are pull requests and the model filter is kept.
     await choose(page, 'Rows', 'each pull request', /[?&]group=pr(&|$)/);
     // Ordering by total is kept by the sentence's other choices, but other rows start in their own order.
-    await page.getByRole('region', { name: 'Cost by pull request' }).getByRole('link', { name: 'Total' }).click();
+    await page.getByRole('region', { name: 'Cost by pull request' }).getByRole('link', { name: 'Total', exact: true }).click();
     await expect(page).toHaveURL(/[?&]sort=total(&|$)/);
     await choose(page, 'Rows', 'each issue', /[?&]group=issue(&|$)/);
     expect(new URL(page.url()).searchParams.has('sort')).toBe(false);
