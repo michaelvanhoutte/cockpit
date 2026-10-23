@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { capture, expect, itemRow, openInbox, press, test, uniqueTitle } from './support/app';
 
 /**
@@ -33,6 +33,43 @@ const form = (page: Page) => page.getByRole('dialog');
 async function expectTitle(page: Page, title: string, isMobile: boolean): Promise<void> {
   if (isMobile) await expect(form(page).locator('p.text-xl', { hasText: title })).toHaveText(title);
   else await expect(form(page).getByRole('textbox', { name: 'Title' })).toHaveValue(title);
+}
+
+/** The card the warning draws for the note with this title, as the other one of a pair. */
+const theOtherNote = (page: Page, title: string) =>
+  form(page).getByRole('group', { name: 'The other note' }).filter({ hasText: title });
+
+/**
+ * How the warning draws one pair ("Choose which of two possible duplicates to
+ * keep, from the warning", issue 1451): this note and the other side by side at
+ * a desk, stacked with this note first and each as wide as the warning on a
+ * phone, and the warning showing all of it - **Keep both** included - without a
+ * scrollbar of its own. jsdom lays nothing out, so only a browser can say.
+ */
+async function expectThePairDrawn(other: Locator, isMobile: boolean): Promise<void> {
+  const cards = other.locator('xpath=..');
+  const thisNote = await cards.getByRole('group', { name: 'This note (open)' }).boundingBox();
+  const theOther = await other.boundingBox();
+  const row = await cards.boundingBox();
+  if (!thisNote || !theOther || !row) throw new Error('the pair of cards is not drawn');
+  if (isMobile) {
+    expect(thisNote.y + thisNote.height).toBeLessThanOrEqual(theOther.y + 1);
+    expect(Math.abs(thisNote.x - theOther.x)).toBeLessThan(2);
+    expect(thisNote.width).toBeGreaterThan(row.width - 2);
+    expect(theOther.width).toBeGreaterThan(row.width - 2);
+  } else {
+    expect(thisNote.x + thisNote.width).toBeLessThanOrEqual(theOther.x + 1);
+    expect(Math.abs(thisNote.y - theOther.y)).toBeLessThan(2);
+  }
+  const keepBoth = other.locator('xpath=../..').getByRole('button', { name: 'Keep both: not a duplicate' });
+  await expect(keepBoth).toBeVisible();
+  const overflow = await keepBoth.evaluate((button) => {
+    // The warning is the nearest box around it that scrolls on its own.
+    let warning = button.parentElement;
+    while (warning && getComputedStyle(warning).overflowY !== 'auto') warning = warning.parentElement;
+    return warning ? warning.scrollHeight - warning.clientHeight : Number.NaN;
+  });
+  expect(overflow).toBeLessThanOrEqual(1);
 }
 
 /**
@@ -71,7 +108,7 @@ const somethingElse = () => `Shopping list for ${crypto.randomUUID()} and ${cryp
 
 test.describe('Triage', () => {
   test.describe('going from a flagged note to the one it repeats, and back', () => {
-    test('marks both of them, names the other one on the form, and opens it', async ({
+    test('marks both of them, names the other one on the form as a pair of cards, and opens it', async ({
       page,
       isMobile,
     }) => {
@@ -95,27 +132,33 @@ test.describe('Triage', () => {
       await expect(itemRow(page, one).getByText('Duplicate?')).toHaveAttribute('title', new RegExp(again));
       await openItem(page, one, isMobile);
       await expectTitle(page, one, isMobile);
-      await expect(form(page).getByText('Possible duplicate of')).toBeVisible();
+      await expect(form(page).getByText('Possible duplicate · keep which one?')).toBeVisible();
+      // The phone project shares the desktop's account, so it can be flagged against
+      // the desktop's leftovers too: the block that names `again` is the one looked at.
+      await expectThePairDrawn(theOtherNote(page, again), isMobile);
 
-      // Following it lands on the other note's own form...
-      await press(form(page).getByRole('button', { name: again }), isMobile);
+      // Open lands on the other note's own form...
+      await press(theOtherNote(page, again).getByRole('button', { name: 'Open' }), isMobile);
       await expectTitle(page, again, isMobile);
       // ...which names the first one back, a pair being one pair whichever of
       // the two you are looking at.
-      await expect(form(page).getByRole('button', { name: one })).toBeVisible();
+      await expect(theOtherNote(page, one)).toBeVisible();
 
       // And the way back is the browser's own, because opening one is a change
       // of address rather than something only this tab knows.
       await page.goBack();
       await expectTitle(page, one, isMobile);
 
-      // The form's warning offers the answer "yes, it is": this one goes, the other stays.
-      // The phone project shares the desktop's account, so it can be flagged against
-      // the desktop's leftovers too: each offers the same dismissal of this note.
-      await press(form(page).getByRole('button', { name: 'Dismiss this one' }).first(), isMobile);
+      // The warning's answer "this one is the copy": it goes, and the other note's form opens.
+      await press(theOtherNote(page, again).getByRole('button', { name: 'Keep this one' }), isMobile);
+      await expectTitle(page, again, isMobile);
       await expect(itemRow(page, one)).toHaveCount(0);
-      await expect(itemRow(page, again)).toBeVisible();
-      await expect(page.getByRole('status')).toContainText('dismissed');
+      // The open form hides the bar from the accessibility tree, so it is found hidden too.
+      await expect(page.getByRole('status', { includeHidden: true })).toContainText('dismissed');
+      // The other note's form took this note's place in the history, so Back leaves
+      // the form instead of landing on a note that has gone.
+      await page.goBack();
+      await expect(form(page)).toHaveCount(0);
     });
   });
 });

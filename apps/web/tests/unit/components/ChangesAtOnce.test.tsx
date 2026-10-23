@@ -49,6 +49,12 @@ vi.mock('../../../src/itemForm', async (importOriginal) => ({
   useOpenItem: () => (itemId: string) => {
     opened.item = itemId;
   },
+  useDockedItem: () => ({
+    openId: null,
+    show: (itemId: string) => {
+      opened.item = itemId;
+    },
+  }),
 }));
 
 /** The description's editor, as a box that takes text and says what is in it. */
@@ -546,11 +552,9 @@ describe('Triage', () => {
 
     it('takes the warning from the form, and the marks from the rows, when it is chosen there', async () => {
       const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA, openItem: BART });
-      await screen.findByText('Possible duplicate of');
+      await user.click(await screen.findByRole('button', { name: 'Keep both: not a duplicate' }));
 
-      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
-
-      expect(screen.queryByText('Possible duplicate of')).toBeNull();
+      expect(screen.queryByText('Possible duplicate · keep which one?')).toBeNull();
       expect(theMark('Reply to Bart')).toBeNull();
       expect(theMark('Reply to Lisa')).toBeNull();
       expect(waiting.map((request) => request.name)).toEqual(['set_duplicate_settled']);
@@ -577,9 +581,9 @@ describe('Triage', () => {
         ],
         openItem: BART,
       });
-      await screen.findByText('Possible duplicate of');
+      await screen.findByText('Possible duplicate · keep which one?');
 
-      await user.click(screen.getAllByRole('button', { name: 'Not a duplicate' })[0]!);
+      await user.click(screen.getAllByRole('button', { name: 'Keep both: not a duplicate' })[0]!);
 
       // One of the two pairs is settled: Bart, and the note it was settled against, stay flagged by the other.
       expect(theMark('Reply to Bart')).toBeVisible();
@@ -604,16 +608,16 @@ describe('Triage', () => {
 
     it('puts the warning back in the form when the pair settled there is taken back', async () => {
       const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA, openItem: BART });
-      await screen.findByText('Possible duplicate of');
-      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+      await screen.findByText('Possible duplicate · keep which one?');
+      await user.click(screen.getByRole('button', { name: 'Keep both: not a duplicate' }));
       await answerNext();
-      expect(screen.queryByText('Possible duplicate of')).toBeNull();
+      expect(screen.queryByText('Possible duplicate · keep which one?')).toBeNull();
 
       // The open form is a dialog, which hides what is behind it from the accessibility tree and from a pointer
       // here (the bar takes presses itself, styles.css); so it is pressed directly.
       fireEvent.click(await screen.findByRole('button', { name: 'Undo', hidden: true }));
 
-      expect(screen.getByText('Possible duplicate of')).toBeVisible();
+      expect(screen.getByText('Possible duplicate · keep which one?')).toBeVisible();
     });
   });
 
@@ -634,15 +638,74 @@ describe('Triage', () => {
 
     it('puts the warning back and says why in the form when the choice there is refused', async () => {
       const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA, openItem: BART });
-      await screen.findByText('Possible duplicate of');
-      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
-      expect(screen.queryByText('Possible duplicate of')).toBeNull();
+      await screen.findByText('Possible duplicate · keep which one?');
+      await user.click(screen.getByRole('button', { name: 'Keep both: not a duplicate' }));
+      expect(screen.queryByText('Possible duplicate · keep which one?')).toBeNull();
 
       await act(async () => waiting.shift()!.refuse(new CommandRefused(404, 'That note was dismissed.')));
       await settle();
 
-      expect(screen.getByText('Possible duplicate of')).toBeVisible();
+      expect(screen.getByText('Possible duplicate · keep which one?')).toBeVisible();
       expect(await screen.findByRole('alert')).toHaveTextContent('That note was dismissed.');
+      expect(screen.queryByRole('button', { name: 'Undo', hidden: true })).toBeNull();
+    });
+  });
+
+  describe('keeping one of two possible duplicates from the warning takes the other from the Inbox at once, with the server still holding the answer', () => {
+    const thePair = () => show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA, openItem: BART });
+    const keepOn = (heading: string) =>
+      within(screen.getByRole('group', { name: heading })).getByRole('button', { name: 'Keep this one' });
+
+    it('takes the other note from the Inbox and the warning from the form, which stays on this note', async () => {
+      const user = await thePair();
+      await screen.findByText('Possible duplicate · keep which one?');
+
+      await user.click(keepOn('This note (open)'));
+
+      expect(screen.queryByText('Reply to Lisa')).toBeNull();
+      expect(screen.queryByText('Possible duplicate · keep which one?')).toBeNull();
+      expect(screen.getByLabelText('Title')).toHaveValue('Reply to Bart');
+      expect(theMark('Reply to Bart')).toBeNull();
+      expect(waiting.map((request) => [request.name, request.payload.itemId, request.payload.dismissed])).toEqual([['set_dismissed', LISA, true]]);
+    });
+
+    it('takes this note from the Inbox and opens the other one', async () => {
+      const user = await thePair();
+      await screen.findByText('Possible duplicate · keep which one?');
+
+      await user.click(keepOn('The other note'));
+
+      expect(screen.queryByText('Reply to Bart')).toBeNull();
+      expect(screen.getByText('Reply to Lisa')).toBeVisible();
+      expect(opened.item).toBe(LISA);
+      expect(waiting.map((request) => [request.name, request.payload.itemId, request.payload.dismissed])).toEqual([['set_dismissed', BART, true]]);
+    });
+
+    it('puts the other note back and says why in the bar when keeping this one is refused', async () => {
+      const user = await thePair();
+      await screen.findByText('Possible duplicate · keep which one?');
+      await user.click(keepOn('This note (open)'));
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(409, 'That note is locked.')));
+      await settle();
+
+      expect(within(theInbox()).getByText('Reply to Lisa')).toBeVisible();
+      expect(screen.getByText('Possible duplicate · keep which one?')).toBeVisible();
+      expect(screen.getByRole('status', { hidden: true })).toHaveTextContent('“Reply to Lisa” was not dismissed. That note is locked.');
+      expect(screen.queryByRole('button', { name: 'Undo', hidden: true })).toBeNull();
+    });
+
+    it('puts this note back in the Inbox and says why in the bar when keeping the other one is refused', async () => {
+      const user = await thePair();
+      await screen.findByText('Possible duplicate · keep which one?');
+      await user.click(keepOn('The other note'));
+      expect(within(theInbox()).queryByText('Reply to Bart')).toBeNull();
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(409, 'That note is locked.')));
+      await settle();
+
+      expect(within(theInbox()).getByText('Reply to Bart')).toBeVisible();
+      expect(screen.getByRole('status', { hidden: true })).toHaveTextContent('“Reply to Bart” was not dismissed. That note is locked.');
       expect(screen.queryByRole('button', { name: 'Undo', hidden: true })).toBeNull();
     });
   });
