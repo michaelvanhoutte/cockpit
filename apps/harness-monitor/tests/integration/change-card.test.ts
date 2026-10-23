@@ -84,4 +84,18 @@ describe('Harness Monitor', () => {
       expect(found!.drivers.merged).toEqual(['1', '0']);
     });
   });
+
+  describe('the comparison names Outside the process and Process review by their change', () => {
+    it('over two periods, each phase appears with the dollars it moved', async () => {
+      await send([
+        spend('now1', 7, { time: ago(2), branch: 'b/1', category: 'outside-process' }),
+        spend('now2', 3, { time: ago(3), branch: 'b/1', category: 'process-review' }),
+        spend('before1', 2, { time: ago(33), branch: 'b/1', category: 'outside-process' }),
+      ]);
+
+      const found = card(await theBarePage('?period=30d'));
+
+      expect(found!.dimensions.phase).toEqual(['▲ Outside the process +$5.00 $2.00 → $7.00', '▲ Process review +$3.00 $0.00 → $3.00']);
+    });
+  });
 });

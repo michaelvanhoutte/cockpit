@@ -36,12 +36,14 @@ export const dollars = (micros: number) => `$${(micros / 1e6).toLocaleString('en
 /** Cockpit's category colours, by name, so the dark appearance can swap them (src/look.ts). */
 export const COLOURS: Record<Category, string> = {
   unphased: 'var(--cat-grey)',
+  'outside-process': 'var(--due-ink)',
   'scoping-planning': 'var(--cat-slate)',
   building: 'var(--cat-violet)',
   'local-code-review': 'var(--cat-amber)',
   'local-security-review': 'var(--over)',
   'after-push': 'var(--cat-teal)',
   'ci-reviews': 'var(--cat-green)',
+  'process-review': 'var(--accent-soft)',
 };
 const SERIES_COLOURS: Record<string, string> = {
   local: 'var(--cat-violet)',

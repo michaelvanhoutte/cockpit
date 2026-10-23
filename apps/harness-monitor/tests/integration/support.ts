@@ -135,7 +135,7 @@ export interface CostRow {
   sub: string | null;
   /** The cells between the label and the split bar: engineer and merged for pull requests, the pull request count for issues and engineers. */
   details: string[];
-  /** Dollars per column of the split, left to right (by phase: unphased, scoping, building, code review, security review, after push, CI reviews); '—' for none. */
+  /** Dollars per column of the split, left to right (by phase: unphased where the period holds some, outside the process, scoping, building, code review, security review, after push, CI reviews, process review); '—' for none. */
   categories: string[];
   /** How many coloured segments the row's split bar is drawn with. */
   segments: number;

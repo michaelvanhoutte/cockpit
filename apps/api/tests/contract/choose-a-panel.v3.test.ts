@@ -8,8 +8,8 @@ import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js'
 
 /**
  * The contract tier for a settled filing's refresh of the rest of an inbox:
- * the real Claude API, the real prompt, no fake anywhere, run on a pull request
- * that changes a prompt and by hand, never on a schedule - `clean-up-a-note.v17.test.ts`'s class comment says why,
+ * the real Claude API, the real prompt, no fake anywhere, run by hand and only
+ * when named - `clean-up-a-note.v17.test.ts`'s class comment says why,
  * and a failure here is priority work for the same reasons.
  *
  * **The same routing properties that file holds the full prompt to**, on a

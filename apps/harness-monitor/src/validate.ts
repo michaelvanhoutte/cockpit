@@ -1,14 +1,16 @@
 import { belgianDay } from './belgium';
 
-/** The seven things a request can be spent on, as the slugs stored. */
+/** The nine things a request can be spent on, as the slugs stored, in pipeline order. */
 export const CATEGORIES = [
   'unphased',
+  'outside-process',
   'scoping-planning',
   'building',
   'local-code-review',
   'local-security-review',
   'after-push',
   'ci-reviews',
+  'process-review',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 
