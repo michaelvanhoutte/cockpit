@@ -7,7 +7,9 @@ import type { PanelOpening } from '../captureOpener';
  * What the header's tab and `C` put in the navigation's state to say which
  * workspace they were pressed in. State rather than the address: the address is
  * what a link and the installed app's shortcut open, and those come from
- * outside a workspace.
+ * outside a workspace. **An address that does name one - a widget's +, with
+ * `?workspace=` and `&panel=` - is turned into this same state on the way in**
+ * (`captureAddress.ts`, `router.tsx`), so the page knows one way in.
  */
 export interface CaptureState {
   captureFrom?: string;

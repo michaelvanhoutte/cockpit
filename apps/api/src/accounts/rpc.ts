@@ -6,6 +6,8 @@ import type {
   ConnectionHistory,
   Item,
   Panel,
+  ReadableSnapshot,
+  ReadableWorkspace,
   ServerEvent,
   SourceAccount,
   Workspace,
@@ -56,6 +58,10 @@ import type { CheckDid } from '../domain/connection-history.js';
 export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   workspaces(accountName: string): Awaitable<Answer<Workspace[]>>;
   snapshot(accountName: string, workspaceId: string): Awaitable<Answer<AccountSnapshot>>;
+  /** Every live Workspace with its Dashboards, Panels and Layouts, for the list of Panels an app allowed to read is shown (issue 1445). */
+  panelCatalogue(accountName: string): Awaitable<Answer<ReadableWorkspace[]>>;
+  /** What one Panel is read from, `missing` for one deleted or never held (issue 1445). */
+  panelReadInputs(accountName: string, panelId: string): Awaitable<Answer<ReadableSnapshot>>;
   /**
    * One Item by its id, or null where the account holds no such Item.
    *

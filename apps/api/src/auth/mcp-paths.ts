@@ -12,6 +12,27 @@
 /** The MCP endpoint itself: its tools, behind an access token. */
 export const MCP_PATH = '/mcp';
 
+/**
+ * Where an app allowed only to read your Panels reads them (issue 1445): the
+ * list of Panels at this address, and one Panel at this address and its id.
+ *
+ * **Under `/mcp` because the library binds every token to one resource and
+ * answers only that resource's addresses**: a token is made for `/mcp` and
+ * everything beneath it, so a read at any other address would need a second
+ * resource and every grant made before it asked for again. The prefix is where
+ * the token is good, not what is read: `mcp/api.ts` sends an address here to
+ * the reads, and refuses it to a grant that may not read.
+ *
+ * `v1` is the address an installed app holds. A change an app cannot ignore
+ * gets `v2` and this one answers that the app needs a newer version.
+ */
+export const PANEL_READS_PATH = '/mcp/reads/v1/panels';
+
+/** Whether a path is one of the two reads of Panels (`PANEL_READS_PATH`) and not MCP's own. */
+export function isAnAddressOfTheReadsOfPanels(path: string): boolean {
+  return path === PANEL_READS_PATH || path.startsWith(`${PANEL_READS_PATH}/`);
+}
+
 /** The consent page, which is Cockpit's own and the one page here a person sees. */
 export const AUTHORIZE_PATH = '/oauth/authorize';
 

@@ -11,7 +11,7 @@ import SettingsWindow, { type SettingsKey } from '../../../src/components/Settin
  * reach them is the browser walks in tests/e2e/connections.test.ts.
  */
 const held = vi.hoisted(() => ({
-  /** Whether the code of the MCP section has not arrived yet; the first case holds it. */
+  /** Whether the code of the Connected apps section has not arrived yet; the first case holds it. */
   mcpCodeHeld: true,
   releaseMcpCode: () => {},
   arrived: null as unknown as Promise<void>,
@@ -101,7 +101,7 @@ describe('Across the app', () => {
       open('connections');
       await screen.findByRole('heading', { name: 'Connections' });
 
-      await user.click(entry('MCP'));
+      await user.click(entry('Connected apps'));
 
       // The code of that section is held: the window is still there, the list
       // beside it still works, and the section says it is waiting.
@@ -114,7 +114,7 @@ describe('Across the app', () => {
       held.releaseMcpCode();
     });
 
-    it.each(['Connections', 'MCP'])('stays open on %s', async (name) => {
+    it.each(['Connections', 'Connected apps'])('stays open on %s', async (name) => {
       const user = userEvent.setup();
       open('connections');
       await screen.findByRole('heading', { name: 'Connections' });
@@ -141,7 +141,7 @@ describe('Across the app', () => {
   });
 
   describe('each section of Settings is headed by the name of its entry', () => {
-    it.each(['Connections', 'MCP', 'Appearance'])('heads %s with its own name', async (name) => {
+    it.each(['Connections', 'Connected apps', 'Appearance'])('heads %s with its own name', async (name) => {
       const user = userEvent.setup();
       open('connections');
       await user.click(entry(name));
@@ -168,7 +168,7 @@ describe('Across the app', () => {
 
       expect(within(screen.getByRole('navigation', { name: 'Settings' })).getAllByRole('button').map((button) => button.textContent).filter((name) => name !== 'Close')).toEqual([
         'Connections',
-        'MCP',
+        'Connected apps',
         'What Cockpit remembers',
         'Appearance',
       ]);

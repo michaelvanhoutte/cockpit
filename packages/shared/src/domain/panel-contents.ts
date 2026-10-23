@@ -1,17 +1,12 @@
-import {
-  NO_CONDITIONS,
-  panelGathers,
-  isFiltering,
-  matchesDashboardFilter,
-  type DashboardFilter,
-  type Day,
-  itemsMatchingFilter,
-  DEFAULT_FILTER_SORT,
-  inSortOrder,
-} from '@cockpit/shared';
-import type { Dashboard, Filing, Item, Panel } from '@cockpit/shared';
-import { itemsOnPanel } from './filing';
-import { sortOf } from './sorting';
+import { isFiltering, matchesDashboardFilter } from './dashboard-filter.js';
+import type { DashboardFilter } from './dashboard-filter.js';
+import { itemsMatchingFilter } from './filters.js';
+import type { Day } from './filters.js';
+import { itemsOnPanel } from './filing.js';
+import type { Dashboard, Item } from './item.js';
+import { NO_CONDITIONS, panelGathers } from './panel.js';
+import type { Filing, Panel } from './panel.js';
+import { DEFAULT_FILTER_SORT, inSortOrder, sortOf } from './sorting.js';
 
 /** Everything a Panel's contents are worked out from, for the Dashboard it is on. */
 export type PanelContents = {
@@ -30,7 +25,8 @@ export type PanelContents = {
 /**
  * What a Panel shows: its own Items, or what its Filter gathers, narrowed by its
  * Dashboard's filter. The board draws this and Go to panel counts it, so a
- * count in the list is the one the header shows.
+ * count in the list is the one the header shows - and the Worker answers a
+ * Panel read with it, against the day the phone sends.
  */
 export function itemsShownOn(panel: Panel, c: PanelContents): Item[] {
   const list = panelGathers(panel)

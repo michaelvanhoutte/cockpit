@@ -145,7 +145,7 @@ spend it alone and the enrichment jobs' sends then fail.
 
 **MCP connections spend the free plan's daily KV write allowance**, which is not a
 third threshold so much as a ceiling to know about: registering an app, showing
-the consent page, trading a code and every refresh each write to `OAUTH_KV`. Once
+the consent page, trading a code and every refresh each write to `OAUTH_KV`, and so does noting when an app last read a Panel, at most once in ten minutes per app. Once
 the day's writes are spent, connecting an app and refreshing its access fail
 until the allowance resets. An app whose access is still current keeps
 capturing until that access runs out, within the hour, since checking it only

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAnsweredByTheAuthorizationServer } from '../../../src/auth/mcp-paths.js';
+import { isAnAddressOfTheReadsOfPanels, isAnsweredByTheAuthorizationServer } from '../../../src/auth/mcp-paths.js';
 
 /**
  * L1: which addresses are an app's, answered in front of the sign-in gate.
@@ -11,6 +11,8 @@ describe('MCP connections', () => {
     it.each([
       { path: '/mcp', answered: true },
       { path: '/mcp/anything', answered: true },
+      { path: '/mcp/reads/v1/panels', answered: true },
+      { path: '/mcp/reads/v1/panels/the-panel', answered: true },
       { path: '/oauth/token', answered: true },
       { path: '/oauth/register', answered: true },
       { path: '/.well-known/oauth-authorization-server', answered: true },
@@ -21,6 +23,19 @@ describe('MCP connections', () => {
       { path: '/v1/workspaces', answered: false },
     ])('$path', ({ path, answered }) => {
       expect(isAnsweredByTheAuthorizationServer(path)).toBe(answered);
+    });
+  });
+
+  describe('only the two reads of Panels are the reads, and every other address under /mcp is MCP’s', () => {
+    it.each([
+      { path: '/mcp/reads/v1/panels', read: true },
+      { path: '/mcp/reads/v1/panels/018f0000-0000-7000-8000-000000000001', read: true },
+      { path: '/mcp', read: false },
+      { path: '/mcp/reads/v1/panelsandmore', read: false },
+      { path: '/mcp/reads/v2/panels', read: false },
+      { path: '/mcp/reads', read: false },
+    ])('$path', ({ path, read }) => {
+      expect(isAnAddressOfTheReadsOfPanels(path)).toBe(read);
     });
   });
 });

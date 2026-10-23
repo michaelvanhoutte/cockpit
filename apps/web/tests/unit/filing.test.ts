@@ -4,7 +4,6 @@ import {
   fetchedChunk,
   filedOrderOnPanel,
   howToFileSelected,
-  itemsOnPanel,
   ordersForFilingSeveral,
   orderWithItemAt,
 } from '../../src/filing';
@@ -70,46 +69,6 @@ function filed(panelId: string, itemId: string, position: number): Filing {
 }
 
 describe('Panels', () => {
-  describe('a panel draws exactly the items filed on it, in the order they were filed into', () => {
-    it('draws them by position, not by the order the filings arrived in', () => {
-      const items = [anItem('a'), anItem('b'), anItem('c')];
-      const filings = [filed('falcon', 'c', 2), filed('falcon', 'a', 0), filed('falcon', 'b', 1)];
-
-      expect(itemsOnPanel(items, filings, 'falcon').map((item) => item.id)).toEqual(['a', 'b', 'c']);
-    });
-
-    it('draws an item filed on two panels on both of them', () => {
-      const items = [anItem('a')];
-      const filings = [filed('falcon', 'a', 0), filed('anna', 'a', 0)];
-
-      expect(itemsOnPanel(items, filings, 'falcon').map((i) => i.id)).toEqual(['a']);
-      expect(itemsOnPanel(items, filings, 'anna').map((i) => i.id)).toEqual(['a']);
-    });
-
-    it('leaves an item that has been finished with off the panel it was filed on', () => {
-      const filings = [filed('falcon', 'a', 0), filed('falcon', 'b', 1)];
-
-      expect(
-        itemsOnPanel([anItem('a', FINISHED), anItem('b')], filings, 'falcon').map((i) => i.id),
-      ).toEqual(['b']);
-    });
-
-    it('closes the gap rather than drawing a hole when a filing names an item that has gone', () => {
-      // An item dismissed in another tab leaves the snapshot while its filing
-      // is still on the panel.
-      const filings = [filed('falcon', 'a', 0), filed('falcon', 'gone', 1), filed('falcon', 'b', 2)];
-
-      expect(itemsOnPanel([anItem('a'), anItem('b')], filings, 'falcon').map((i) => i.id)).toEqual([
-        'a',
-        'b',
-      ]);
-    });
-
-    it('draws an empty panel as empty', () => {
-      expect(itemsOnPanel([anItem('a')], [filed('anna', 'a', 0)], 'falcon')).toEqual([]);
-    });
-  });
-
   describe('a move carries the panel’s whole order, with the item in the place it was put', () => {
     it.each([
       { situation: 'at the top', held: ['a', 'b'], at: 0, order: ['moved', 'a', 'b'] },

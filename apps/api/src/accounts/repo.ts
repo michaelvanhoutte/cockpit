@@ -393,6 +393,30 @@ export function getPanel(db: AccountDb, tenantId: string, panelId: string): Pane
 }
 
 /**
+ * The workspace a live panel is in, or null for a panel that is deleted, one
+ * whose dashboard is deleted, and one this account never held - the three a
+ * read of one Panel cannot tell apart and must not ("Read a Panel from an app
+ * allowed only to read", issue 1445). The workspace's own tombstone is the
+ * caller's to check, as `snapshot`'s is.
+ */
+export function workspaceOfPanel(db: AccountDb, tenantId: string, panelId: string): string | null {
+  const row = db
+    .select({ workspaceId: dashboards.workspaceId })
+    .from(panels)
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(panels.tenantId, tenantId),
+        eq(panels.id, panelId),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .get();
+  return row?.workspaceId ?? null;
+}
+
+/**
  * Every live panel of every live dashboard of one workspace, oldest first.
  *
  * The workspace rather than the dashboard, because that is the scope of the

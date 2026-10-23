@@ -238,7 +238,7 @@ describe('Across the app', () => {
 
       expect(await sections(false)).toEqual({ listed: ['Appearance'], current: 'Appearance' });
       expect(await sections(true)).toEqual({
-        listed: ['Connections', 'MCP', 'What Cockpit remembers', 'Appearance'],
+        listed: ['Connections', 'Connected apps', 'What Cockpit remembers', 'Appearance'],
         current: 'Connections',
       });
     });

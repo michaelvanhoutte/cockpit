@@ -1,5 +1,6 @@
 import type { Item, Priority } from './item.js';
-import type { PanelSort, SortField } from './panel.js';
+import { panelGathers, panelTakesItems } from './panel.js';
+import type { Panel, PanelSort, SortField } from './panel.js';
 
 /**
  * How a sorted Panel of items orders its rows ("Sort a panel of items by the
@@ -66,3 +67,15 @@ export function inSortOrder(items: readonly Item[], sort: PanelSort | null): Ite
   });
 }
 
+/**
+ * How a Panel draws its rows by a sort of its own, or null where it has none -
+ * the one reading the board, the mark, the drag and the Worker's Panel read all
+ * ask, so they cannot disagree about a Panel.
+ *
+ * For a Panel of items none is Manual; for a Filter none is the order nobody
+ * has changed (`DEFAULT_FILTER_SORT`), which is why the mark stays off it. A
+ * Panel of text is not sorted at all.
+ */
+export function sortOf(panel: Panel): PanelSort | null {
+  return panelTakesItems(panel) || panelGathers(panel) ? panel.sort : null;
+}

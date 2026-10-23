@@ -5,6 +5,8 @@ import type {
   ConnectionHistory,
   Item,
   Panel,
+  ReadableSnapshot,
+  ReadableWorkspace,
   ServerEvent,
   SourceAccount,
   Workspace,
@@ -116,6 +118,10 @@ export class NotFoundInAccountError extends Error {
 export interface Account {
   workspaces(): Promise<Workspace[]>;
   snapshot(workspaceId: string): Promise<AccountSnapshot>;
+  /** Every live Workspace with its Dashboards, Panels and Layouts - the list of Panels an app allowed to read is shown (issue 1445). */
+  panelCatalogue(): Promise<ReadableWorkspace[]>;
+  /** What one Panel is read from; throws `NotFoundInAccountError` for a Panel that is deleted or was never this account's (issue 1445). */
+  panelReadInputs(panelId: string): Promise<ReadableSnapshot>;
   /**
    * One Item by its id, or null where this account holds no such Item - which
    * an id belonging to another account also is, every query filtering on the
@@ -313,7 +319,7 @@ export interface Account {
   sealedCredential(
     sourceAccountId: string,
   ): Promise<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>;
-  /** An app connected to this account calling `create_item`, under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
+  /** An app connected to this account calling `create_item` or `report_run`, or reading Panels (issue 1445), under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
   /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
@@ -407,6 +413,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
   return {
     workspaces: async () => unwrap(await store.workspaces(accountName)),
     snapshot: async (workspaceId) => unwrap(await store.snapshot(accountName, workspaceId)),
+    panelCatalogue: async () => unwrap(await store.panelCatalogue(accountName)),
+    panelReadInputs: async (panelId) => unwrap(await store.panelReadInputs(accountName, panelId)),
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),
     attachmentForDownload: async (attachmentId) =>
       unwrap(await store.attachmentForDownload(accountName, attachmentId)),

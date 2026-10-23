@@ -4,6 +4,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  isRedirect,
   redirect,
   useRouter,
 } from '@tanstack/react-router';
@@ -12,6 +13,7 @@ import { changes } from './api/changes';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { setAllItemsTab } from './allItemsTab';
 import { connectionsSearch } from './connections';
+import { CAPTURE_PANEL, CAPTURE_WORKSPACE, addressNames, captureOpenedBy } from './captureAddress';
 import { loadCaptureForms, loadCaptureNote, loadCarCapture } from './captureForm';
 import { itemFormSearch } from './itemForm';
 import {
@@ -33,7 +35,7 @@ const DemoPage = lazy(() => import('./pages/DemoPage'));
 const FirstWorkspacePage = lazy(() =>
   import('./pages/FirstWorkspacePage').then((page) => ({ default: page.FirstWorkspacePage })),
 );
-import { CapturePage } from './pages/CapturePage';
+import { CapturePage, captureStateFor } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { whereToLand } from './landing';
 import { Layout } from './pages/Layout';
@@ -360,6 +362,54 @@ export const allItemsRoute = createRoute({
  */
 
 /**
+ * The Workspace's snapshot, read again from the server where the copy in hand
+ * does not hold the Panel an address names - a Panel made on another device
+ * since this browser last read the Workspace, which the cache-first read above
+ * would otherwise take for a Panel deleted. One read, and none offline, where it
+ * would only wait.
+ */
+async function snapshotHoldingPanel(queryClient: QueryClient, workspaceId: string, panelId: string) {
+  const held = await snapshotOf(queryClient, workspaceId);
+  if (held.panels.some((panel) => panel.id === panelId) || isOffline()) return held;
+  return changes.drawnOver(await orTheLogonPage(queryClient.fetchQuery({ ...snapshotQuery(workspaceId), staleTime: 0 })));
+}
+
+/**
+ * Capture opened from an address that names a Workspace and perhaps a Panel
+ * (`captureAddress.ts`, issue 1445): what an installed widget's + opens.
+ *
+ * **Turned into the navigation state a Panel's own + opens Capture with, and
+ * the address dropped**, so the page and the form know one way in and Back does
+ * not come to an address that would open it again. The Workspace's snapshot is
+ * read only to find the Panel; one that cannot be read leaves *File on* empty,
+ * which is what a Panel gone from the Workspace does as well.
+ */
+async function opensFromItsAddress(
+  queryClient: QueryClient,
+  workspaces: readonly { id: string }[],
+  location: { pathname: string; search: unknown },
+): Promise<void> {
+  const search = location.search as Record<string, unknown>;
+  const { workspaceId, panelId } = addressNames(search);
+  if (!workspaceId && !panelId) return;
+  const snapshot =
+    panelId && workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
+      ? await snapshotHoldingPanel(queryClient, workspaceId, panelId).catch((failure: unknown) => {
+          if (isRedirect(failure)) throw failure;
+          return undefined;
+        })
+      : undefined;
+  const opened = captureOpenedBy(search, workspaces, snapshot);
+  const { [CAPTURE_WORKSPACE]: _workspace, [CAPTURE_PANEL]: _panel, ...left } = search;
+  throw redirect({
+    to: location.pathname as never,
+    search: left as never,
+    state: captureStateFor(opened?.captureFrom, opened?.captureOn),
+    replace: true,
+  });
+}
+
+/**
  * Capture, as a screen rather than as a window over one ("Capture something
  * before you know which workspace it belongs to", issue 165).
  *
@@ -374,11 +424,12 @@ export const allItemsRoute = createRoute({
  */
 const capturing =
   (loadView: () => Promise<unknown>) =>
-  async ({ context }: { context: { queryClient: QueryClient } }) => {
+  async ({ context, location }: { context: { queryClient: QueryClient }; location: { pathname: string; search: unknown } }) => {
     const { workspaces } = await workspacesOf(context.queryClient);
     // No workspace to capture from is an account with none, since every other
     // answer falls back to the first one there is (`lastVisited.ts`).
     if (!workspaceToCaptureFrom(browserStore(), workspaces)) throw redirect({ to: '/start' });
+    await opensFromItsAddress(context.queryClient, workspaces, location);
     // The view, which is fetched behind the shell (`captureForm.ts`).
     await loadView();
   };

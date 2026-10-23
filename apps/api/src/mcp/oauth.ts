@@ -9,7 +9,7 @@ import type { Env } from '../env.js';
 import { GRANT_LIFETIME_S } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { AUTHORIZE_PATH, MCP_PATH, REGISTER_PATH, TOKEN_PATH } from '../auth/mcp-paths.js';
-import { answerMcp } from './server.js';
+import { answerApi } from './api.js';
 
 /**
  * Cockpit as an OAuth server for MCP clients ("Connect Claude to Cockpit, and
@@ -20,7 +20,7 @@ import { answerMcp } from './server.js';
  * this is an authorization server - client registration, PKCE, code and token
  * exchange, refresh rotation, discovery - which is far more surface than this
  * application should own. What stays Cockpit's is who may consent and what a
- * grant may do (`consent.ts`, `server.ts`).
+ * grant may do (`consent.ts`, `api.ts`).
  *
  * **One provider per address this environment is reached on.** The resource a
  * token is bound to is an absolute URL, fixed when the provider is made, and
@@ -48,7 +48,9 @@ function optionsFor(env: Env): OAuthProviderOptions<Env> {
   const origin = new URL(env.APP_ORIGIN).origin;
   return {
     apiRoute: MCP_PATH,
-    apiHandler: { fetch: (request, handlerEnv, ctx) => answerMcp(request, handlerEnv, ctx) },
+    // What a token reaches is decided there: MCP for a grant that captures, the
+    // reads of Panels for one that may only read (issue 1445).
+    apiHandler: { fetch: (request, handlerEnv, ctx) => answerApi(request, handlerEnv, ctx) },
     // Never reached: only the library's own addresses are routed to it
     // (`isAnsweredByTheAuthorizationServer`), and the consent page is routed
     // beside it rather than through it (`worker.ts`).
@@ -60,6 +62,12 @@ function optionsFor(env: Env): OAuthProviderOptions<Env> {
     // compatibility flag that changes how every `fetch` this Worker makes is
     // routed, which is a decision of its own.
     clientRegistrationEndpoint: REGISTER_PATH,
+    // An app on a phone is returned to by an address of its own - `cockpit-widget://`
+    // (RFC 8252) - which it registers and has to ask for exactly as registered. A
+    // code another app intercepts is useless without the PKCE proof the asking
+    // app kept back, so this widens who can *receive* a code and not who can use
+    // one (issue 1445). The consent page names such an address whole.
+    allowPrivateUseRedirectUris: true,
     // A sign-in's thirty days, sliding with use the way a sign-in does, and
     // cut short at once by deleting or disabling the person (`grant.ts`).
     refreshTokenTTL: GRANT_LIFETIME_S,

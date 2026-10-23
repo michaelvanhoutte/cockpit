@@ -18,7 +18,8 @@ import { MCP_PATH } from '../auth/mcp-paths.js';
 
 /**
  * `/mcp`, once the OAuth library has accepted the access token
- * ("Connect Claude to Cockpit, and capture an item from it", issue 599).
+ * ("Connect Claude to Cockpit, and capture an item from it", issue 599) and
+ * `mcp/api.ts` has found the grant is one that captures (issue 1445).
  *
  * **Built for every request and holding nothing between them.** The
  * Streamable HTTP transport runs stateless - no session id, plain JSON
@@ -31,9 +32,9 @@ import { MCP_PATH } from '../auth/mcp-paths.js';
  */
 
 /** What the library hands a protected handler, narrowed to what is read here. */
-interface ProtectedContext {
+export interface ProtectedContext {
   readonly props: unknown;
-  readonly auth?: { readonly token: string; readonly clientId?: string };
+  readonly auth?: { readonly token: string; readonly clientId?: string; readonly scope?: readonly string[] };
   waitUntil(work: Promise<unknown>): void;
 }
 
@@ -251,12 +252,12 @@ function toolError(text: string) {
  * library writes every token as (`userId:grantId:secret`). What the capture
  * limit counts by, so two apps one person connected each get their own minute.
  */
-function grantIdOf(token: string | undefined): string {
+export function grantIdOf(token: string | undefined): string {
   return token?.split(':')[1] ?? 'unknown';
 }
 
 /** The library's own answer to a token that is no good, for a person who no longer is. */
-function tokenRefused(env: Env): Response {
+export function tokenRefused(env: Env): Response {
   const origin = new URL(env.APP_ORIGIN).origin;
   const metadata = `${origin}/.well-known/oauth-protected-resource${MCP_PATH}`;
   return new Response(JSON.stringify({ error: 'invalid_token', error_description: 'This grant no longer acts for anybody' }), {
