@@ -1143,7 +1143,6 @@ describe('Connector management', () => {
       expect(within(panel).getByRole('combobox', { name: 'Workspace' })).toBeInTheDocument();
       expect(await within(panel).findByText(ADA.displayName)).toBeInTheDocument();
       expect(within(panel).getByText('connected')).toBeInTheDocument();
-      expect(within(panel).getByText(ADA.displayName)).toBeInTheDocument();
     });
 
     it('lists what can be added as one row per source, its name over its sentence, each with its own Connect', async () => {
