@@ -40,6 +40,11 @@ class FakeCockpit : AutoCloseable {
     /** Counted down when a read of a Panel has reached the server. */
     @Volatile var readArrived: java.util.concurrent.CountDownLatch? = null
 
+    private val inFlight = java.util.concurrent.atomic.AtomicInteger()
+
+    /** The most reads of Panels that were being answered at once. */
+    @Volatile var mostReadsAtOnce = 0
+
     /** Whether the server is reachable at all. */
     @Volatile var reachable = true
 
@@ -106,13 +111,19 @@ class FakeCockpit : AutoCloseable {
             bearer(request) !in acceptedAccess || grantEnded -> Answer(401, """{"error":"invalid_token"}""")
             path == "/apps/v1/panels" -> panelList
             path.startsWith("/apps/v1/panels/") -> {
-                readArrived?.countDown()
-                holdReads?.await()
-                val date = request.requestUrl?.queryParameter("date")
-                if (date == null) {
-                    Answer(400, """{"error":"date must be a day"}""")
-                } else {
-                    everyRead ?: panelReads[path.removePrefix("/apps/v1/panels/")] ?: Answer(404, """{"error":"not found"}""")
+                val during = inFlight.incrementAndGet()
+                mostReadsAtOnce = maxOf(mostReadsAtOnce, during)
+                try {
+                    readArrived?.countDown()
+                    holdReads?.await()
+                    val date = request.requestUrl?.queryParameter("date")
+                    if (date == null) {
+                        Answer(400, """{"error":"date must be a day"}""")
+                    } else {
+                        everyRead ?: panelReads[path.removePrefix("/apps/v1/panels/")] ?: Answer(404, """{"error":"not found"}""")
+                    }
+                } finally {
+                    inFlight.decrementAndGet()
                 }
             }
             else -> Answer(404, """{"error":"not found"}""")

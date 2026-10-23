@@ -74,4 +74,25 @@ class RefreshNowAndTwiceAtOnce {
         assertFalse(phone.text(phone.widget(id), R.id.updated).contains("Refreshing"))
         assertEquals(2, phone.rowFactory(id).count)
     }
+
+    @Test
+    fun `two refreshes asked at once read one after the other and leave one result`() {
+        cockpit.holdReads = CountDownLatch(1)
+        cockpit.readArrived = CountDownLatch(1)
+        val first = Thread { phone.refresh() }
+        first.start()
+        assertEquals(true, cockpit.readArrived!!.await(10, TimeUnit.SECONDS))
+        val second = Thread { phone.refresh() }
+        second.start()
+
+        // The second has had time to reach the server if nothing held it back.
+        second.join(300)
+        assertEquals("the second waits for the first", 1, cockpit.mostReadsAtOnce)
+
+        cockpit.holdReads!!.countDown()
+        first.join(10_000)
+        second.join(10_000)
+        assertEquals("Updated 11:05", phone.text(phone.widget(id), R.id.updated))
+        assertEquals(2, phone.rowFactory(id).count)
+    }
 }
