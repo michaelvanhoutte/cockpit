@@ -135,7 +135,9 @@ const PERIOD_WORDS: Record<Period, string> = { '7d': 'the last 7 days', '30d': '
 /** A select inside the sentence: its name read by assistive technology, its value shown as a word of the sentence. A filter that holds a value wears `data-set`. */
 function inline(name: string, label: string, options: [value: string, text: string, off?: boolean][], current: string, resting: string | null = null): string {
   const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
-  return `<select name="${name}" aria-label="${label}" onchange="this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
+  // New rows start in their own order, so choosing them leaves the form's sort behind; every other choice keeps it.
+  const leave = name === 'group' ? 'if(this.form.elements.sort)this.form.elements.sort.disabled=true;' : '';
+  return `<select name="${name}" aria-label="${label}" onchange="${leave}this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
 }
 
 /**

@@ -107,6 +107,12 @@ test.describe('Harness Monitor', () => {
 
     // Only Opus, then each pull request: the rows are pull requests and the model filter is kept.
     await choose(page, 'Rows', 'each pull request', /[?&]group=pr(&|$)/);
+    // Ordering by total is kept by the sentence's other choices, but other rows start in their own order.
+    await page.getByRole('region', { name: 'Cost by pull request' }).getByRole('link', { name: 'Total' }).click();
+    await expect(page).toHaveURL(/[?&]sort=total(&|$)/);
+    await choose(page, 'Rows', 'each issue', /[?&]group=issue(&|$)/);
+    expect(new URL(page.url()).searchParams.has('sort')).toBe(false);
+    await choose(page, 'Rows', 'each pull request', /[?&]group=pr(&|$)/);
     await choose(page, 'Model', OPUS, /[?&]model=claude-opus-4-8(&|$)/);
     const table = page.getByRole('region', { name: 'Cost by pull request' });
     await expect(table.getByRole('row', { name: /#9002 Save a Teams message/ })).toContainText('$1.00');

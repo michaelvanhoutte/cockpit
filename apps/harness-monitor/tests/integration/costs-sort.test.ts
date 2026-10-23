@@ -79,6 +79,14 @@ describe('Harness Monitor', () => {
       expect(await thePage('?period=all&group=issue')).not.toContain('name="sort"');
     });
 
+    it('choosing other rows leaves the order behind, and no other choice does', async () => {
+      const html = await thePage('?period=all&group=pr&sort=total');
+      const handler = (name: string) => new RegExp(`<select name="${name}"[^>]*onchange="([^"]*)"`).exec(html)![1]!;
+
+      expect(handler('group')).toContain('sort.disabled=true');
+      for (const name of ['split', 'period', 'engineer', 'category', 'model', 'who']) expect(handler(name)).not.toContain('sort');
+    });
+
     it('a pull request’s Sessions link and the CSV export leave the order behind', async () => {
       const html = await thePage('?period=all&group=pr&sort=total');
 
