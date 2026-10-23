@@ -214,7 +214,7 @@ describe('the generator, end to end against a stubbed API', () => {
       } finally {
         vi.useRealTimers();
       }
-      expect(posted).toEqual([[10, 9, 8]]);
+      expect(posted).toEqual([[8, 9, 10]]);
       expect(said.join('')).toContain('Send them with the Stability backfill, --from 2026-08-30 --to 2026-09-21.');
       expect(JSON.parse(readFileSync(path.join(dir, 'model.json'), 'utf8')).coverage).toMatchObject({ partial: false, truncated: false });
     });
@@ -231,7 +231,7 @@ describe('the generator, end to end against a stubbed API', () => {
       } finally {
         vi.useRealTimers();
       }
-      expect(posted).toEqual([[10, 9]]);
+      expect(posted).toEqual([[9, 10]]);
       expect(said.join('')).not.toContain('stopped the read');
     });
 
@@ -248,6 +248,17 @@ describe('the generator, end to end against a stubbed API', () => {
       expect(existsSync(out)).toBe(true);
     });
 
+    it('sends the oldest runs first, so a send stopped partway leaves the newest stored run before what it missed', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted } = stubBoth();
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', path.join(tmp(), 'index.html'), '--send']))).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[1, 2]]);
+    });
+
     it('a refused send fails the run and keeps the page', async () => {
       vi.useFakeTimers({ toFake: ['Date'], now: NOW });
       const { posted } = stubBoth({ answer: { status: 400, body: { error: 'Run 0 (2): has no conclusion.' } } });
@@ -257,7 +268,7 @@ describe('the generator, end to end against a stubbed API', () => {
       } finally {
         vi.useRealTimers();
       }
-      expect(posted).toEqual([[2, 1]]);
+      expect(posted).toEqual([[1, 2]]);
       expect(existsSync(out)).toBe(true);
     });
 

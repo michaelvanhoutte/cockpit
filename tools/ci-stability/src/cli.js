@@ -260,40 +260,38 @@ export async function main(argv) {
 }
 
 /**
- * Sends the runs inside the send's window. A send the run budget stopped inside
- * that window fails, naming the backfill that sends the rest: the newest runs
- * are stored all the same, so the next send starts after the gap and no
- * overlap ever reaches back into it.
+ * Sends the runs inside the send's window, oldest first, so a send that stops
+ * partway leaves the Monitor's newest run where the next send's overlap picks
+ * the rest up. A read the run budget stopped inside that window fails, naming
+ * the backfill that sends the runs before it: the next send starts from the
+ * newest stored run, after the gap, so no overlap ever reaches back into it.
  */
 async function send(monitor, collected, window, { backfill }) {
+  // listRuns reads newest first.
   const runs = collected.runs.filter((run) => new Date(run.createdAt) >= window.since);
   // A read that went on past the window's start read all of it, whatever stopped it after.
   const cut = collected.truncated && runs.length === collected.runs.length;
+  const oldest = runs.at(-1)?.createdAt ?? '';
+  const gap = cut
+    ? `The run budget (--max-runs), or the 1,000 runs GitHub lists at most, stopped the read at ${oldest}; the runs before it were not sent. Send them with ${backfill ? '' : `the Stability backfill, --from ${window.since.toISOString().slice(0, 10)} `}--to ${oldest.slice(0, 10)}.\n`
+    : '';
   const ids = new Set(runs.map((run) => run.id));
   let result;
   try {
     result = await sendRuns({
       url: monitor.url,
       key: monitor.key,
-      runs: monitorRows({ runs, jobs: collected.jobs.filter((job) => ids.has(job.runId)) }),
+      runs: monitorRows({ runs: runs.toReversed(), jobs: collected.jobs.filter((job) => ids.has(job.runId)) }),
     });
   } catch (error) {
     if (!(error instanceof MonitorError)) throw error;
-    process.stderr.write(`${error.message}\n`);
+    process.stderr.write(`${error.message}\n${gap}`);
     return 1;
   }
   process.stderr.write(
-    `sent ${result.runs} runs from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n`,
+    `sent ${result.runs} runs from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n${gap}`,
   );
-  if (cut) {
-    const oldest = runs.reduce((min, run) => (run.createdAt < min ? run.createdAt : min), runs[0]?.createdAt ?? '');
-    const from = window.since.toISOString().slice(0, 10);
-    process.stderr.write(
-      `The run budget (--max-runs), or the 1,000 runs GitHub lists at most, stopped the read at ${oldest}; the runs before it were not sent. Send them with ${backfill ? '' : `the Stability backfill, --from ${from} `}--to ${oldest.slice(0, 10)}.\n`,
-    );
-    return 1;
-  }
-  return 0;
+  return cut ? 1 : 0;
 }
 
 /** The page, or the model, over its own window, and the model beside it with --model. Returns the paths written. */
