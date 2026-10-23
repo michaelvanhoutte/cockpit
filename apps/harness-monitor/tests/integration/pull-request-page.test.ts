@@ -34,13 +34,14 @@ describe('Harness Monitor', () => {
 
       expect(figures.total).toBe('$20.00');
       expect(figures.categories.map((c) => [c.name, c.amount])).toEqual([
-        ['Unphased', '$0.00'],
+        ['Outside the process', '$0.00'],
         ['Scoping & planning', '$0.00'],
         ['Building', '$5.00'],
         ['Local code review', '$6.00'],
         ['Local security review', '$0.00'],
         ['After push', '$7.00'],
         ['CI reviews', '$2.00'],
+        ['Process review', '$0.00'],
       ]);
       expect(figures.categories.reduce((sum, c) => sum + micros(c.amount), 0)).toBe(micros(figures.total));
       const detail = Object.fromEntries(figures.categories.map((c) => [c.name, c.detail]));

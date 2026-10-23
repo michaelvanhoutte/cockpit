@@ -36,6 +36,8 @@ function record(over = {}) {
     cacheWrite: 5,
     tokensOut: 7,
     itemId: 'item-1',
+    environment: 'production',
+    costUsd: 0.00526,
     ...over,
   };
 }
@@ -53,12 +55,23 @@ describe('each record is one CSV row Excel reads back as written', () => {
     assert.ok(csv.endsWith('\r\n'));
     assert.equal(
       csv.replace(BOM, '').split('\r\n')[0],
-      'When (UTC),Operation,Prompt version,Triggered by,User name,User id,Provider,Model,Paid by,Outcome,Duration (ms),Tokens in,Cache read,Cache write,Tokens out,Item id',
+      'When (UTC),Environment,Operation,Prompt version,Triggered by,User name,User id,Provider,Model,Paid by,Outcome,Duration (ms),Tokens in,Cache read,Cache write,Tokens out,Cost (USD),Item id',
     );
     assert.equal(
       cells(csv),
-      `2026-10-06T14:01:09Z,clean-up-a-note,clean-up-a-note.v11,captured-in-app,Anna,u1,anthropic,claude-opus-5,"Cockpit's Anthropic key (workspace wrkspc_1, key ending WXYZ)",ok,4210,10,0,5,7,item-1`,
+      `2026-10-06T14:01:09Z,production,clean-up-a-note,clean-up-a-note.v11,captured-in-app,Anna,u1,anthropic,claude-opus-5,"Cockpit's Anthropic key (workspace wrkspc_1, key ending WXYZ)",ok,4210,10,0,5,7,0.00526,item-1`,
     );
+  });
+
+  it('gives each record’s environment and what it cost in dollars, written out in full however small', () => {
+    const row = cells(toCsv([record({ environment: 'staging', costUsd: 0.000000263 })]));
+    assert.ok(row.startsWith('2026-10-06T14:01:09Z,staging,'), row);
+    assert.ok(row.endsWith(',7,0.000000263,item-1'), row);
+  });
+
+  it('leaves the cost of a record with none empty, not 0', () => {
+    const row = cells(toCsv([record({ costUsd: null })]));
+    assert.ok(row.endsWith(',5,7,,item-1'), row);
   });
 
   const situations = [
@@ -83,8 +96,8 @@ describe('each record is one CSV row Excel reads back as written', () => {
   });
 
   it('leaves token counts the provider did not report empty, not 0', () => {
-    const row = cells(toCsv([record({ tokensIn: null, cacheRead: null, cacheWrite: null, tokensOut: null })]));
-    assert.ok(row.endsWith(',ok,4210,,,,,item-1'), row);
+    const row = cells(toCsv([record({ tokensIn: null, cacheRead: null, cacheWrite: null, tokensOut: null, costUsd: null })]));
+    assert.ok(row.endsWith(',ok,4210,,,,,,item-1'), row);
   });
 
   it('says what a failed or timed out attempt was', () => {

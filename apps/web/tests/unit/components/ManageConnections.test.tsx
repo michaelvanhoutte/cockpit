@@ -155,7 +155,7 @@ let sent: ReturnType<typeof vi.fn>;
 let checkedNow: string[] = [];
 let checkNowReaches = true;
 
-function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBecause) {
+function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBecause, picker?: React.ReactNode) {
   sent = vi.fn();
   // The queue is where a change is sent from; what it draws is ConnectionsAtOnce.test.tsx.
   vi.spyOn(changes, 'enqueue').mockImplementation((change) => {
@@ -179,6 +179,7 @@ function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBe
         {...(outcome ? { outcome } : {})}
         {...(because ? { because } : {})}
         guest={guest}
+        picker={picker}
         open
         onClose={() => {}}
       />
@@ -1130,6 +1131,31 @@ describe('Connector management', () => {
       showWindow();
 
       expect(await screen.findByText(TEAMS_CARD.cardText)).toBeInTheDocument();
+    });
+  });
+
+  describe('the Workspace panel holds the picker in its header, and what the workspace has in its body', () => {
+    it('draws the picker in the header, and the count and the connections under it', async () => {
+      held.sourceAccounts = [ADA];
+      showWindow(undefined, false, undefined, <select aria-label="Workspace" defaultValue="work"><option value="work">Work</option></select>);
+
+      const panel = await screen.findByRole('group', { name: 'Workspace' });
+      expect(within(panel).getByRole('combobox', { name: 'Workspace' })).toBeInTheDocument();
+      expect(await within(panel).findByText(ADA.displayName)).toBeInTheDocument();
+      expect(within(panel).getByText('connected')).toBeInTheDocument();
+    });
+
+    it('lists what can be added as one row per source, its name over its sentence, each with its own Connect', async () => {
+      held.registry = [TEAMS_CARD, { id: 'notion', displayName: 'Notion', cardText: 'Pages arrive as items.', asksFirst: false }];
+      showWindow();
+
+      const panel = await screen.findByRole('group', { name: 'Workspace' });
+      expect(await within(panel).findByRole('heading', { name: 'Add a connection' })).toBeInTheDocument();
+      for (const card of [TEAMS_CARD, { displayName: 'Notion', cardText: 'Pages arrive as items.' }]) {
+        const row = within(panel).getByRole('button', { name: `Connect ${card.displayName}` }).parentElement!;
+        expect(within(row).getByText(card.displayName)).toBeInTheDocument();
+        expect(within(row).getByText(card.cardText)).toBeInTheDocument();
+      }
     });
   });
 });
