@@ -8,6 +8,8 @@ import {
   itemIdsWithAttachments,
   itemIdsWithRun,
   dayOf,
+  drawnRows,
+  itemsShownOn,
 } from '@cockpit/shared';
 import type { Panel, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { snapshotQuery } from './api/queries';
@@ -15,9 +17,7 @@ import { useWorkspaces } from './api/useWorkspaces';
 import { useDrawnSelect } from './api/useSnapshot';
 import { readDashboardFilter } from './dashboardFilter';
 import { browserStore } from './lastVisited';
-import { itemsShownOn } from './panelContents';
 import type { PanelListEntry, PanelListSection } from './panelList';
-import { drawnRows } from './panels/arrangement';
 
 /**
  * Where Go to panel searches: 1 this Dashboard, 2 every Dashboard of this

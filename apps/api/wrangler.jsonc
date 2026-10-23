@@ -11,10 +11,12 @@
   // Static assets (apps/web/dist) are served *before* the Worker runs, so a
   // cold page load bills no Worker invocation. Only the API prefixes reach the
   // Worker; everything else falls back to index.html for the SPA router. The
-  // last four are what an MCP client reaches ("Connect Claude to Cockpit, and
-  // capture an item from it", issue 599): the endpoint, the consent page and
-  // token exchange under `/oauth/`, and the discovery documents, which would
-  // otherwise be answered with the app's own page and a 200. `/share-target` is
+  // ones for `/mcp`, `/apps`, `/oauth/` and `/.well-known/oauth-` are what an MCP
+  // client or a connected app reaches ("Connect Claude to Cockpit, and capture an
+  // item from it", issue 599; "Read a Panel from an app allowed only to read", issue
+  // 1445): the `/mcp` endpoint, the `/apps` reads, the consent page and token
+  // exchange under `/oauth/`, and the discovery documents, which would otherwise
+  // be answered with the app's own page and a 200. `/share-target` is
   // the installed app's share address, reaching the Worker only when the service
   // worker did not take the share (src/share-target.ts); it is in the
   // service worker's denylist too, so a visit by address reaches the Worker.
@@ -43,6 +45,8 @@
       "/ingress/*",
       "/mcp",
       "/mcp/*",
+      "/apps",
+      "/apps/*",
       "/oauth/*",
       "/.well-known/oauth-*",
       "/share-target"

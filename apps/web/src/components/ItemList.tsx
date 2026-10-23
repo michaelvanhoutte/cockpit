@@ -14,7 +14,9 @@ import {
   dayOf,
   panelAndFilterIdsByItem,
   itemIdsWithRun,
+  itemsOnPanel,
 } from '@cockpit/shared';
+import type { FilterGroup } from '@cockpit/shared';
 import {
   refusalFrom,
   useCommand,
@@ -42,9 +44,8 @@ import {
   type SelectionInTheAir,
 } from '../itemInTheAir';
 import { columnsStyle, landingOnRow } from '../panelColumns';
-import { fetchedChunk, filedOrderOnPanel, itemsOnPanel, orderWithItemAt } from '../filing';
+import { fetchedChunk, filedOrderOnPanel, orderWithItemAt } from '../filing';
 import { alsoShownOn } from '../filters';
-import type { FilterGroup } from '../filterGroups';
 import { useFilteredDashboardIds } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';

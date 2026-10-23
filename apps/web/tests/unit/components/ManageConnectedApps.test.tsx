@@ -41,15 +41,28 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
 const CLAUDE: ConnectedApp = {
   id: 'grant-claude',
   name: 'Claude',
+  kind: 'captures',
   connectedAt: '2026-09-30T09:00:00.000Z',
   lastCapturedAt: '2026-10-01T08:00:00.000Z',
+  lastReadAt: null,
 };
 const QUIET: ConnectedApp = {
   id: 'grant-quiet',
   name: 'Quiet app',
+  kind: 'captures',
   connectedAt: '2026-09-30T10:00:00.000Z',
   lastCapturedAt: null,
+  lastReadAt: null,
 };
+const WIDGET: ConnectedApp = {
+  id: 'grant-widget',
+  name: 'Cockpit widget',
+  kind: 'reads-panels',
+  connectedAt: '2026-10-02T10:00:00.000Z',
+  lastCapturedAt: null,
+  lastReadAt: '2026-10-23T09:30:00.000Z',
+};
+const NEW_WIDGET: ConnectedApp = { ...WIDGET, id: 'grant-new-widget', lastReadAt: null };
 
 function showWindow() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -82,11 +95,23 @@ describe('MCP connections', () => {
       expect(within(quiet).getByText(/nothing captured yet/)).toBeInTheDocument();
     });
 
+    it('says of an app allowed only to read your Panels that it reads them, and when it last read one', async () => {
+      held.apps = [WIDGET, NEW_WIDGET];
+
+      showWindow();
+
+      const read = (await screen.findAllByText('Cockpit widget'))[0]!.closest('li')!;
+      expect(within(read).getByText(/Connected .* · Reads your Panels · last read /)).toBeInTheDocument();
+      const unread = screen.getAllByText('Cockpit widget')[1]!.closest('li')!;
+      expect(within(unread).getByText(/Reads your Panels · nothing read yet/)).toBeInTheDocument();
+      expect(screen.queryByText(/captured/)).toBeNull();
+    });
+
     it('says no app is connected only once the answer has come back, and still shows the address', async () => {
       showWindow();
 
-      expect(screen.queryByText('No MCP connections')).toBeNull();
-      expect(await screen.findByText('No MCP connections')).toBeInTheDocument();
+      expect(screen.queryByText('No connected apps')).toBeNull();
+      expect(await screen.findByText('No connected apps')).toBeInTheDocument();
       expect(screen.getByText(`${window.location.origin}/mcp`)).toBeInTheDocument();
     });
   });

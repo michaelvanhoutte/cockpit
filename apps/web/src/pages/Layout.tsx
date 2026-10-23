@@ -46,7 +46,7 @@ import { Logo } from '../components/Logo';
 import { opensCapture } from '../captureShortcut';
 import { SHORTCUTS_KEY, opensTheShortcuts } from '../keyboardShortcuts';
 import { useShortcutTip } from '../shortcutTip';
-import { captureStateFor } from './CapturePage';
+import { captureStateFor } from '../captureState';
 import { CaptureOpenerContext, type PanelOpening } from '../captureOpener';
 import { browserStore } from '../lastVisited';
 import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
@@ -67,7 +67,7 @@ import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindo
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
 import { useKeepingRecordings, useKeptRecordings, useWaitingRecordings } from '../keptRecordings';
-import { loadCaptureForms, loadCaptureNote } from '../captureForm';
+import { loadCaptureForms, loadCaptureNote, loadCapturePage } from '../captureForm';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 
 /**
@@ -574,6 +574,7 @@ function TheShell() {
   useEffect(() => {
     loadCaptureNote().catch(() => {});
     loadCaptureForms().catch(() => {});
+    loadCapturePage().catch(() => {});
   }, []);
 
   /**

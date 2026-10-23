@@ -1,10 +1,14 @@
-import { panelTakesItems, filingsThatFile } from '@cockpit/shared';
-import type { Dashboard, Filing, FilterGrouping, Item, Layout, Panel } from '@cockpit/shared';
-import { drawnRows } from './panels/arrangement';
+import { drawnRows } from './arrangement.js';
+import { filingsThatFile } from './filing.js';
+import type { Dashboard, Item } from './item.js';
+import { panelTakesItems } from './panel.js';
+import type { Filing, FilterGrouping, Layout, Panel } from './panel.js';
 
 /**
  * One heading of a grouped Filter panel and the rows under it ("Group a Filter
- * panel's items by the Dashboard or Panel they are filed on", issue 805).
+ * panel's items by the Dashboard or Panel they are filed on", issue 805): a
+ * decision over the Workspace's rows, so the browser draws and the Worker
+ * answers under the same headings.
  */
 export interface FilterGroup {
   /** Stable across redraws: the Dashboard's or the Panel's id. */

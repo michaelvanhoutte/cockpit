@@ -18,6 +18,7 @@ import {
   uniqueTitle,
 } from './support/app';
 import type { Page } from '@playwright/test';
+import { giveAnEmptyDashboard, giveToAPanel } from './support/arrange';
 
 /**
  * F3, because the whole of this rule is one item being in two workspaces at
@@ -291,6 +292,45 @@ test.describe('Capture', () => {
       await expect(page.getByRole('dialog', { name: 'Capture', exact: true })).toBeHidden();
       expect(page.url()).toBe(where);
       await expect(itemRow(page, second)).toBeVisible();
+    });
+  });
+
+  test.describe('opening Capture from an address that names a Workspace and a Panel behaves as that Panel’s own +', () => {
+    test('opens on that Workspace and Panel whatever Workspace was last open, keeps one note at the top of the Panel and closes to its Dashboard', async ({
+      page,
+      isMobile,
+    }) => {
+      // What an installed widget's + opens (`/capture?workspace=…&panel=…`, issue
+      // 1445). Only a browser proves the address is read on arriving, that it
+      // beats the Workspace remembered from the last visit, and that the note
+      // kept from it is a row at the top of the Panel on the Dashboard Capture
+      // closes to.
+      await openInbox(page, isMobile);
+      const workspaceId = new URL(page.url()).pathname.match(/^\/w\/([^/]+)/)![1]!;
+      const board = await giveAnEmptyDashboard(page, uniqueTitle('Widget'), ['Falcon']);
+      const falcon = board.panels[0]!;
+      const already = uniqueTitle('Already on it');
+      await giveToAPanel(page, falcon, [already]);
+      await switchTo(page, ELSEWHERE, isMobile);
+
+      await page.goto(`/capture?workspace=${workspaceId}&panel=${falcon.id}`);
+
+      await expect(captureBox(page)).toBeVisible();
+      await expect(
+        page.getByRole('group', { name: 'Where' }).getByRole('button', { name: CAPTURED_FROM }),
+      ).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+      await expectNoSidewaysScroll(page);
+
+      const note = uniqueTitle('Book the venue');
+      await captureBox(page).fill(note);
+      await captureBox(page).press('ControlOrMeta+Enter');
+
+      await expect(captureBox(page)).toBeHidden();
+      await expect(page).toHaveURL(new RegExp(`/d/${board.id}`));
+      const panel = page.getByRole('region', { name: 'Falcon' });
+      await expect(panel.getByRole('listitem').first()).toContainText(note);
+      await expect(panel.getByRole('listitem').nth(1)).toContainText(already);
     });
   });
 });

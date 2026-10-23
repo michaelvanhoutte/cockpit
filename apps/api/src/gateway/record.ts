@@ -23,7 +23,7 @@ export const PURGE_BATCH = 500;
  */
 export function providerCallsIn(env: Env): Recorder {
   return async (row: AttemptRecord) => {
-    await insert(env, row, 'production', { lookUpUserOf: row.accountName }, null);
+    await insert(env, row, 'production', { lookUpUserOf: row.accountName }, NO_PLACE);
   };
 }
 
@@ -41,10 +41,19 @@ export async function recordReceived(
   row: AttemptRecord,
   environment: 'staging' | 'ci' | 'local',
   userId: string | null,
-  branch: string | null,
+  place: Place,
 ): Promise<void> {
-  await insert(env, row, environment, { userId }, branch);
+  await insert(env, row, environment, { userId }, place);
 }
+
+/** Where a call outside production was made: the branch of a local checkout, or the pull request and run of a CI contract run. */
+export interface Place {
+  branch: string | null;
+  pullRequest: number | null;
+  runId: number | null;
+}
+
+const NO_PLACE: Place = { branch: null, pullRequest: null, runId: null };
 
 type Whose = { lookUpUserOf: string } | { userId: string | null };
 
@@ -53,18 +62,18 @@ async function insert(
   row: AttemptRecord,
   environment: string,
   whose: Whose,
-  branch: string | null,
+  place: Place,
 ): Promise<void> {
   const looked = 'lookUpUserOf' in whose;
   await env.DB.prepare(
     `INSERT INTO provider_calls
        (at, operation, prompt_version, triggered_by, account_name, user_id, item_id, provider, model,
         paid_by, paid_by_account, paid_by_key_ending, outcome, status, duration_ms,
-        tokens_in, cache_read, cache_write, tokens_out, environment, cost_usd, branch)
+        tokens_in, cache_read, cache_write, tokens_out, environment, cost_usd, branch, pull_request, run_id)
      VALUES (?, ?, ?, ?, ?, ${
        looked ? '(SELECT id FROM users WHERE account_id = ? ORDER BY created_at LIMIT 1)' : '?'
      }, ?, ?, ?,
-             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       row.at,
@@ -88,7 +97,9 @@ async function insert(
       row.tokensOut,
       environment,
       costOf(row),
-      branch,
+      place.branch,
+      place.pullRequest,
+      place.runId,
     )
     .run();
 }

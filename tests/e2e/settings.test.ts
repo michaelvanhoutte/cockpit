@@ -9,7 +9,7 @@ import { expect, press, signIn, test, MICHAEL, dashboardBar } from './support/ap
  */
 test.describe('Settings', () => {
   test.describe('the sections are listed in order and each name fits inside its highlight', () => {
-    test('lists Appearance, Connections, MCP and What Cockpit remembers, and the longest name stays inside its highlight', async ({ page, isMobile }) => {
+    test('lists Appearance, Connections, Connected apps and What Cockpit remembers, and the longest name stays inside its highlight', async ({ page, isMobile }) => {
       test.skip(isMobile, 'a phone holds Appearance alone');
       await signIn(page, MICHAEL, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
@@ -18,7 +18,7 @@ test.describe('Settings', () => {
       await press(page.getByRole('menuitem', { name: 'Settings…', exact: true }), isMobile);
       const settings = page.getByRole('dialog', { name: 'Settings' });
       const sections = settings.getByRole('navigation', { name: 'Settings' }).getByRole('button');
-      await expect(sections).toHaveText(['Appearance', 'Connections', 'MCP', 'What Cockpit remembers', 'Close']);
+      await expect(sections).toHaveText(['Appearance', 'Connections', 'Connected apps', 'What Cockpit remembers', 'Close']);
       // Opened from the profile menu on Connections, the one selected.
       await expect(settings.getByRole('button', { name: 'Connections', exact: true })).toHaveAttribute('aria-current', 'true');
 

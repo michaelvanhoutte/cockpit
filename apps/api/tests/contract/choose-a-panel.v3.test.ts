@@ -1,10 +1,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { ClaudeAiService, type CallFor, type ItemToPlace } from '../../src/ai/index.js';
-
-/** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
-const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
+import type { ItemToPlace } from '../../src/ai/index.js';
 import { buildChooseAPanel } from '../../src/ai/prompts/choose-a-panel.v3.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
+import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.js';
 
 /**
  * The contract tier for a settled filing's refresh of the rest of an inbox:
@@ -29,9 +27,8 @@ import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js'
  * that introduced this file has the runs.
  */
 
-const key = process.env.ANTHROPIC_API_KEY ?? '';
 const spent = { calls: 0, input: 0, output: 0 };
-const choosing = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+const choosing = claude((_model, usage) => {
   spent.calls += 1;
   spent.input += usage.input_tokens;
   spent.output += usage.output_tokens;
@@ -60,8 +57,8 @@ async function choose(
 }
 
 describe('Triage', () => {
-  it('has a key to ask with', () => {
-    expect(key, 'set ANTHROPIC_API_KEY, or put it in apps/api/.dev.vars').not.toBe('');
+  it('has a key to ask with and a token to record its calls under', () => {
+    expectAKeyAndARecord();
     // The cases below are only evidence about the version and model they ran against.
     expect(buildChooseAPanel(anItem('a note'), [], [], [])).toMatchObject({ version: 'v3', model: 'claude-haiku-4-5' });
   });

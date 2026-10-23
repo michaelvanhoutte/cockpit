@@ -14,6 +14,10 @@ import {
   itemIdsWithAttachments,
   itemIdsWithRun,
   DEFAULT_FILTER_SORT,
+  drawnRows,
+  groupFilterRows,
+  itemsShownOn,
+  sortOf,
 } from '@cockpit/shared';
 import type {
   Dashboard,
@@ -32,18 +36,14 @@ import { useSendCommand, whyNotDone } from '../api/queries';
 import type { CommandArgs } from '../api/queries';
 import { useUndo } from '../undo';
 import { scrollWhileDragging } from '../dragScroll';
-import { groupFilterRows } from '../filterGroups';
 import { filtersUsingPanel, isGrouped, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
 import { clearDashboardFilter, useDashboardFilter } from '../dashboardFilter';
-import { itemsShownOn } from '../panelContents';
 import { DashboardFilterBar } from './DashboardFilterBar';
-import { sortOf } from '../sorting';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import { lastPanelSpan, linesOf, panelsPerLine, tracksOf, wrappedTracksOf } from '../panels/wrapping';
 import {
   dividerMoved,
-  drawnRows,
   layoutToDraw,
   movedBeside,
   rowsDrawnWithout,
@@ -434,7 +434,7 @@ export function PanelBoard({
   const today = dayOf(new Date());
   const withAttachments = itemIdsWithAttachments(attachments);
   const withRun = itemIdsWithRun(agentRuns);
-  /** What a Panel shows: its own Items, or what its Filter gathers, narrowed by the Dashboard filter (`panelContents.ts`, which Go to panel counts with too). */
+  /** What a Panel shows: its own Items, or what its Filter gathers, narrowed by the Dashboard filter (`itemsShownOn`, which Go to panel counts with too). */
   const itemsOf = (panel: Panel): Item[] =>
     itemsShownOn(panel, {
       items,
