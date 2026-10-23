@@ -7,17 +7,17 @@ import { returnPathFrom } from '../auth/return-path.js';
 import type { Visitor } from '../auth/register.js';
 import { whoCanConsent, type GrantProps } from './grant.js';
 import { asReachedAt, oauthHelpersFor } from './oauth.js';
-import { kindOfScope, scopeToGrant } from './scope.js';
+import { kindOfResource } from './resources.js';
 import { AUTHORIZE_PATH } from '../auth/mcp-paths.js';
 
 /**
  * The consent page: "Allow Claude to create items in your Cockpit?"
  * ("Connect Claude to Cockpit, and capture an item from it", issue 599) - or,
- * for an app that asks only for the read scope, "Allow … to read your Panels in
+ * for an app that asks for the `/apps` resource, "Allow … to read your Panels in
  * your Cockpit?" ("Read a Panel from an app allowed only to read, and open
  * Capture from its address", issue 1445). **What the page says is what the
- * grant holds**: the same request decides both (`scope.ts`), so nothing is
- * granted that the page did not name.
+ * grant holds**: the resource the request names is the one the grant is made
+ * for (`oauth.ts`), so nothing is granted that the page did not name.
  *
  * **The only place a grant is made**, and only by somebody signed in with
  * Google. In order, and each step before anything is shown:
@@ -69,7 +69,7 @@ consent.get(AUTHORIZE_PATH, async (c) => {
   transaction.headers.set('Content-Type', 'text/html; charset=utf-8');
   const name = escape(details.clientName);
   const asks =
-    kindOfScope(request.scope) === 'reads-panels'
+    kindOfResource(c.env, request.resource) === 'reads-panels'
       ? {
           heading: `Allow ${name} to read your Panels in your Cockpit?`,
           what: `${name} will be able to read the Panels of <strong>${escape(visitor.name)}</strong>'s Cockpit: their names, and the label, priority and due date of every Item on them. It may read your Panels, and nothing else: it cannot capture, change or delete anything.`,
@@ -138,8 +138,7 @@ consent.post(AUTHORIZE_PATH, async (c) => {
       request: approved.request,
       userId: visitor.userId,
       metadata: { clientName: details.clientName },
-      // The page named one kind of app, and the grant is that kind alone.
-      scope: scopeToGrant(approved.request.scope),
+      scope: approved.request.scope,
       props,
     });
     approved.headers.set('Location', redirectTo);

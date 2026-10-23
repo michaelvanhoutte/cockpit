@@ -209,7 +209,7 @@ absorbed into Workers.
 
 The routing rule lives in `apps/api/wrangler.jsonc`:
 
-- `run_worker_first` sends the application's own prefixes to the Worker: `/v1/*`, `/health` and `/ingress/*`, plus what an MCP client reaches — `/mcp`, `/mcp/*`, `/oauth/*` and `/.well-known/oauth-*` ("Connect Claude to Cockpit, and capture an item from it", issue 599), and `/share-target`, which only a share the service worker did not take reaches ("Share photos, files and links into Cockpit from Android's share sheet", issue 789).
+- `run_worker_first` sends the application's own prefixes to the Worker: `/v1/*`, `/health` and `/ingress/*`, plus what an MCP client or a connected app reaches — `/mcp`, `/mcp/*`, `/apps`, `/apps/*`, `/oauth/*` and `/.well-known/oauth-*` ("Connect Claude to Cockpit, and capture an item from it", issue 599; "Read a Panel from an app allowed only to read, and open Capture from its address", issue 1445), and `/share-target`, which only a share the service worker did not take reaches ("Share photos, files and links into Cockpit from Android's share sheet", issue 789).
 - Everything else is served from `apps/web/dist` **before the Worker runs**, so a cold page load bills no Worker invocation.
 - `not_found_handling: "single-page-application"` returns `index.html` for unmatched paths, so client-side routes deep-link.
 

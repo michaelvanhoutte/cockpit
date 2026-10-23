@@ -16,8 +16,9 @@ export const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
 /** Where the widget app is sent back to: an address of its own on the phone (RFC 8252). */
 export const WIDGET_CALLBACK = 'cockpit-widget://oauth';
 
-/** The one scope: to read the Panels there are and the Items on one. */
-export const READ_PANELS = 'panels:read';
+/** The two protected resources an app signs in for: MCP, to capture, and the reads of Panels. */
+export const MCP_RESOURCE = `${ORIGIN}/mcp`;
+export const APPS_RESOURCE = `${ORIGIN}/apps`;
 
 export interface App {
   clientId: string;
@@ -40,8 +41,17 @@ export async function registerApp(name = 'Claude', redirect = CALLBACK): Promise
   return { clientId: ((await answer.json()) as { client_id: string }).client_id };
 }
 
-/** One authorization attempt: the address the app opens, and the secret it keeps back. */
-export async function attempt(app: App, redirect = CALLBACK, state = 'the-apps-state', scope?: string) {
+/**
+ * One authorization attempt: the address the app opens, and the secret it keeps
+ * back. `resource` is the one it asks to be signed in for, `null` for an app
+ * that names none.
+ */
+export async function attempt(
+  app: App,
+  redirect = CALLBACK,
+  state = 'the-apps-state',
+  resource: string | null = MCP_RESOURCE,
+) {
   const verifier = 'v'.repeat(43) + crypto.randomUUID().replaceAll('-', '');
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   const challenge = btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -52,8 +62,7 @@ export async function attempt(app: App, redirect = CALLBACK, state = 'the-apps-s
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',
-    resource: `${ORIGIN}/mcp`,
-    ...(scope ? { scope } : {}),
+    ...(resource ? { resource } : {}),
   });
   return { path: `/oauth/authorize?${query}`, verifier };
 }
@@ -115,32 +124,37 @@ export async function tradeCode(
 
 /**
  * An app connected by `userId`: registered, allowed, and its code traded for
- * access. `reading` is an app that asks for the read scope and returns to the
- * address of its own, as the widget does; left out, an app as Claude is.
+ * access. `reading` is an app that asks to be signed in for `/apps` and returns to
+ * the address of its own, as the widget does; left out, an app as Claude is.
  */
 export async function connected(
   userId: string = USER_ID,
   name = 'Claude',
   { reading = false }: { reading?: boolean } = {},
-): Promise<{ app: App; token: string; refreshToken: string }> {
+): Promise<{ app: App; token: string; refreshToken: string; resource: string }> {
   const redirect = reading ? WIDGET_CALLBACK : CALLBACK;
   const app = await registerApp(name, redirect);
-  const asked = await attempt(app, redirect, 'the-apps-state', reading ? READ_PANELS : undefined);
+  const asked = await attempt(app, redirect, 'the-apps-state', reading ? APPS_RESOURCE : MCP_RESOURCE);
   const allowed = await decide(asked.path, await signInAs(userId), 'allow');
   expect(allowed.status).toBe(302);
   const code = new URL(allowed.headers.get('location')!).searchParams.get('code')!;
   const traded = await tradeCode(app, code, asked.verifier, redirect);
   expect(traded.status).toBe(200);
-  const tokens = (await traded.json()) as { access_token: string; refresh_token: string };
-  return { app, token: tokens.access_token, refreshToken: tokens.refresh_token };
+  const tokens = (await traded.json()) as { access_token: string; refresh_token: string; resource: string };
+  return { app, token: tokens.access_token, refreshToken: tokens.refresh_token, resource: tokens.resource };
 }
 
-/** An app trading its refresh token for new access, as it does once the hour is up. */
-export function refresh(app: App, refreshToken: string): Promise<Response> {
+/** An app trading its refresh token for new access, as it does once the hour is up; `resource` for one that names the resource again. */
+export function refresh(app: App, refreshToken: string, resource?: string): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/oauth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: app.clientId }),
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: app.clientId,
+      ...(resource ? { resource } : {}),
+    }),
   });
 }
 

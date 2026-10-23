@@ -1,7 +1,7 @@
 import type { ConnectedApp } from '@cockpit/shared';
 import { SIGN_IN_LIFETIME_MS } from '../auth/session.js';
 import type { Env } from '../env.js';
-import { kindOfScope } from './scope.js';
+import { kindOfResource } from './resources.js';
 
 /**
  * The apps somebody has allowed, and cutting one off ("See the apps connected
@@ -88,7 +88,7 @@ export async function connectedAppsOf(env: Env, userId: string): Promise<Connect
   const grants = await grantsOf(env, userId);
   const apps = await Promise.all(
     grants.map(async (grant): Promise<ConnectedApp> => {
-      const kind = kindOfScope(grant.scope);
+      const kind = kindOfResource(env, grant.resource);
       const [captured, read] = await Promise.all([
         kind === 'captures' ? env.OAUTH_KV.get(lastCaptureKey(grant.id)) : null,
         kind === 'reads-panels' ? env.OAUTH_KV.get(lastReadKey(grant.id)) : null,

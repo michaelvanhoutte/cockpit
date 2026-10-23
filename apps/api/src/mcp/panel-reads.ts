@@ -2,24 +2,25 @@ import { z } from 'zod';
 import { panelList, panelRead } from '@cockpit/shared';
 import { NotFoundInAccountError, openAccount } from '../accounts/index.js';
 import type { Env } from '../env.js';
-import { PANEL_READS_PATH } from '../auth/mcp-paths.js';
+import { APPS_PATH, PANEL_READS_PATH, isAnAddressOfTheReadsOfPanels } from '../auth/mcp-paths.js';
 import { noteRead } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { grantIdOf, tokenRefused, type ProtectedContext } from './server.js';
 
 /**
- * The two reads of Panels an app allowed only to read is given ("Read a Panel
+ * The two reads of Panels a connected app is given ("Read a Panel
  * from an app allowed only to read, and open Capture from its address", issue
  * 1445): the list of Panels to choose from, and one Panel's rows.
  *
  * | Address | Answers |
  * |---|---|
- * | `GET /mcp/reads/v1/panels` | every Workspace with its Dashboards and Panels (`panelList`) |
- * | `GET /mcp/reads/v1/panels/<id>?date=2026-10-23` | that Panel's rows, as Cockpit draws them, judged by `date` (`panelRead`) |
+ * | `GET /apps/v1/panels` | every Workspace with its Dashboards and Panels (`panelList`) |
+ * | `GET /apps/v1/panels/<id>?date=2026-10-23` | that Panel's rows, as Cockpit draws them, judged by `date` (`panelRead`) |
  *
- * **Reached only by a grant holding the read scope** (`api.ts`), and asked
- * again on every read who the grant acts for (`grant.ts`), so Disconnect, a
- * deleted person and a person whose access was taken away all end the next read.
+ * **Reached only with a token made for `/apps`** (`oauth.ts`: the library refuses
+ * any other before this runs), and asked again on every read who the grant acts
+ * for (`grant.ts`), so Disconnect, a deleted person and a person whose access was
+ * taken away all end the next read.
  *
  * **Counted with the grant's captures**, the same 60 a minute and refused ones
  * included: the two reads of a phone with several widgets are a few a half hour,
@@ -41,10 +42,12 @@ const dateSchema = z.iso.date();
 
 export async function answerPanelRead(request: Request, env: Env, ctx: ProtectedContext): Promise<Response> {
   if (request.method !== 'GET') return said(405, { error: 'reads are asked for with GET' }, { allow: 'GET' });
+  // Anything else under `/apps` is no read there is: `v2` is not held until it exists.
+  if (!isAnAddressOfTheReadsOfPanels(new URL(request.url).pathname)) return notFound();
 
   try {
     const holder = await grantHolder(env, ctx.props);
-    if (!holder) return tokenRefused(env);
+    if (!holder) return tokenRefused(env, APPS_PATH);
     const account = await openAccount(env, holder.accountName);
     const grantId = grantIdOf(ctx.auth?.token);
     const now = new Date().toISOString();

@@ -70,7 +70,7 @@ export interface Env {
       userId: string,
       options?: { cursor?: string },
     ): Promise<{
-      items: { id: string; createdAt: number; scope: string[]; metadata?: unknown }[];
+      items: { id: string; createdAt: number; resource?: string | string[]; metadata?: unknown }[];
       cursor?: string;
     }>;
     revokeGrant(grantId: string, userId: string): Promise<void>;

@@ -27,7 +27,7 @@ import { satisfiesSample } from '../../samples.js';
  * apps/api/tests/integration/http/panel-reads-access.test.ts.
  */
 
-const PANELS = `${ORIGIN}/mcp/reads/v1/panels`;
+const PANELS = `${ORIGIN}/apps/v1/panels`;
 const AT = '2026-10-01T10:00:00.000Z';
 /** A day far enough from the one this Worker is run on that judging by its clock could not pass for judging by the phone's. */
 const FAR_AHEAD = '2999-01-02';
@@ -316,6 +316,23 @@ describe('Panels', () => {
       const notes = await aPanel('Notes', 'text');
 
       expect((await readPanel(await aWidget(), notes)).status).toBe(404);
+    });
+
+    it.each([
+      { situation: 'the root of the apps address', path: '/apps' },
+      { situation: 'a version the app does not hold', path: '/apps/v2/panels' },
+      { situation: 'an address only like the list’s', path: '/apps/v1/panelsandmore' },
+    ])('answers $situation as not found, though the token is good for /apps', async ({ path }) => {
+      const answer = await SELF.fetch(`${ORIGIN}${path}`, { headers: { authorization: `Bearer ${await aWidget()}` } });
+
+      expect([answer.status, await answer.text()]).toEqual([404, '{"error":"not found"}']);
+    });
+
+    it('answers anything but a GET with the one method a read is asked for', async () => {
+      const answer = await SELF.fetch(PANELS, { method: 'POST', headers: { authorization: `Bearer ${await aWidget()}` } });
+
+      expect(answer.status).toBe(405);
+      expect(answer.headers.get('allow')).toBe('GET');
     });
 
     it.each([

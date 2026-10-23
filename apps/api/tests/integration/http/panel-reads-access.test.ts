@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest'
 import { applyD1Migrations, env, SELF } from 'cloudflare:test';
 import { DASHBOARD_ID, OTHER_USER_ID, USER_ID, WORKSPACE_ID, asUser, besidesTheGuide, seedRegister, signInAs, startFromEmpty } from '../seed.js';
 import {
+  APPS_RESOURCE,
   CALLBACK,
+  MCP_RESOURCE,
   ORIGIN,
-  READ_PANELS,
   WIDGET_CALLBACK,
   attempt,
   connected,
@@ -20,13 +21,13 @@ import {
  * Panels ("Read a Panel from an app allowed only to read, and open Capture from
  * its address", issue 1445). Every case enters as the app does - registering,
  * the consent page, the code exchange, then the address it reads - because what
- * a token may reach is routing and token checks, and only the real routes and
- * the real library hold them. What the reads answer is
+ * a token may reach is the resource it was made for, checked by the real library
+ * on the real routes. What the reads answer is
  * apps/api/tests/integration/http/panel-reads.test.ts, and the rules the answers
  * are made by are packages/shared/tests/unit/domain/panel-read.test.ts.
  */
 
-const PANELS = `${ORIGIN}/mcp/reads/v1/panels`;
+const PANELS = `${ORIGIN}/apps/v1/panels`;
 const A_DAY = '2026-10-23';
 
 beforeEach(async () => {
@@ -83,18 +84,37 @@ async function itemsOf(userId: string = USER_ID): Promise<string[]> {
 const capturing = (token: string) =>
   mcp(token, 'tools/call', { name: 'create_item', arguments: { message: 'Stored by an app that may only read' } });
 
+/**
+ * Takes every grant and token in the OAuth store back to what the library wrote
+ * before it knew of protected resources: no resource on the grant, no audience on
+ * a token, and none of the key metadata a newer version adds. That is what a
+ * grant made under the old single-resource setup is, and the one honest way to
+ * hold one is to write it, since the library offers no way to make one today.
+ */
+async function asMadeBeforeResources(): Promise<void> {
+  for (const prefix of ['grant:', 'token:']) {
+    const { keys } = await env.OAUTH_KV.list({ prefix });
+    for (const { name } of keys) {
+      const record = await env.OAUTH_KV.get<Record<string, unknown>>(name, { type: 'json' });
+      if (!record) continue;
+      delete record.resource;
+      delete record.audience;
+      await env.OAUTH_KV.put(name, JSON.stringify(record));
+    }
+  }
+}
+
 describe('MCP connections', () => {
-  describe('an app allowed only to read your Panels can read them and do nothing else, and an app allowed to capture cannot read them', () => {
-    const asksToCapture = (token: string) => capturing(token);
+  describe('an app signed in for the Panel reads can read them and do nothing else, and an app signed in for MCP cannot read them', () => {
     it.each([
       {
-        situation: 'allowed to read Panels, asks to list Panels',
+        situation: 'signed in for the Panel reads, asks to list Panels',
         send: async () => read((await connected(USER_ID, 'Widget', { reading: true })).token),
         status: 200,
         stored: 0,
       },
       {
-        situation: 'allowed to read Panels, asks to read a Panel',
+        situation: 'signed in for the Panel reads, asks to read a Panel',
         send: async () => {
           const panelId = await aPanel();
           return read((await connected(USER_ID, 'Widget', { reading: true })).token, panelId);
@@ -103,40 +123,64 @@ describe('MCP connections', () => {
         stored: 0,
       },
       {
-        situation: 'allowed to read Panels, asks to capture an Item',
-        send: async () => asksToCapture((await connected(USER_ID, 'Widget', { reading: true })).token),
-        status: 403,
+        situation: 'signed in for the Panel reads, asks to capture an Item',
+        send: async () => capturing((await connected(USER_ID, 'Widget', { reading: true })).token),
+        status: 401,
+        refusedAt: '/mcp',
         stored: 0,
       },
       {
-        situation: 'allowed to capture, as Claude is, asks to read a Panel',
+        situation: 'signed in for MCP, as Claude is, asks to read a Panel',
         send: async () => {
           const panelId = await aPanel();
           return read((await connected(USER_ID, 'Claude')).token, panelId);
         },
-        status: 403,
+        status: 401,
+        refusedAt: '/apps',
         stored: 0,
       },
       {
-        situation: 'allowed to capture, as Claude is, asks to capture an Item',
-        send: async () => asksToCapture((await connected(USER_ID, 'Claude')).token),
+        situation: 'signed in for MCP, as Claude is, asks to capture an Item',
+        send: async () => capturing((await connected(USER_ID, 'Claude')).token),
         status: 200,
         stored: 1,
       },
       {
-        situation: 'allowed to read Panels and, in the same breath, to something else, asks to capture an Item',
+        situation: 'connected before resources existed, asks to capture an Item, without signing in again',
         send: async () => {
-          const app = await registerApp('Greedy', WIDGET_CALLBACK);
-          const asked = await attempt(app, WIDGET_CALLBACK, 'state', `${READ_PANELS} create_items`);
-          const allowed = await decide(asked.path, await signInAs(USER_ID), 'allow');
-          const code = new URL(allowed.headers.get('location')!).searchParams.get('code')!;
-          const traded = await tradeCode(app, code, asked.verifier, WIDGET_CALLBACK);
-          return asksToCapture(((await traded.json()) as { access_token: string }).access_token);
+          const { token } = await connected(USER_ID, 'Claude');
+          await asMadeBeforeResources();
+          return capturing(token);
         },
-        status: 403,
+        status: 200,
+        stored: 1,
+      },
+      {
+        situation: 'connected before resources existed, asks to read a Panel',
+        send: async () => {
+          const panelId = await aPanel();
+          const { token } = await connected(USER_ID, 'Claude');
+          await asMadeBeforeResources();
+          return read(token, panelId);
+        },
+        status: 401,
+        refusedAt: '/apps',
         stored: 0,
       },
-      { situation: 'showing no sign-in, asks to read a Panel', send: async () => read(null, await aPanel()), status: 401, stored: 0 },
+      {
+        situation: 'named no resource when signing in, asks to capture an Item',
+        send: async () => {
+          const app = await registerApp('Claude');
+          const asked = await attempt(app, CALLBACK, 'state', null);
+          const allowed = await decide(asked.path, await signInAs(USER_ID), 'allow');
+          const code = new URL(allowed.headers.get('location')!).searchParams.get('code')!;
+          const traded = await tradeCode(app, code, asked.verifier);
+          return capturing(((await traded.json()) as { access_token: string }).access_token);
+        },
+        status: 200,
+        stored: 1,
+      },
+      { situation: 'showing no sign-in, asks to read a Panel', send: async () => read(null, await aPanel()), status: 401, refusedAt: '/apps', stored: 0 },
       {
         situation: 'showing a sign-in that has run out, asks to read a Panel',
         send: async () => {
@@ -146,15 +190,17 @@ describe('MCP connections', () => {
           return read(token, await aPanel());
         },
         status: 401,
+        refusedAt: '/apps',
         stored: 0,
       },
       {
         situation: 'a browser signed in to Cockpit, with no app, asks to read a Panel',
         send: async () => read(null, await aPanel(), await signInAs(USER_ID)),
         status: 401,
+        refusedAt: '/apps',
         stored: 0,
       },
-    ])('$situation', async ({ send, status, stored }) => {
+    ])('$situation', async ({ send, status, stored, refusedAt }) => {
       const before = (await itemsOf()).length;
 
       const answer = await send();
@@ -163,14 +209,61 @@ describe('MCP connections', () => {
       if (status === 401) {
         // Where to go to be let in, which is what an app follows to the consent page.
         expect(answer.headers.get('www-authenticate')).toContain(
-          `resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource/mcp"`,
+          `resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource${refusedAt}"`,
         );
       }
       // An app refused for what it may do has written nothing; the one that captured wrote its own.
       expect((await itemsOf()).length - before).toBe(stored);
     });
-  });
 
+    it('keeps an app signed in for the Panel reads reading, and only reading, after its access is renewed', async () => {
+      const { app, refreshToken } = await connected(USER_ID, 'Widget', { reading: true });
+
+      const renewed = await refresh(app, refreshToken);
+      const { access_token: token, resource } = (await renewed.json()) as { access_token: string; resource: string };
+
+      expect(renewed.status).toBe(200);
+      expect(resource).toBe(APPS_RESOURCE);
+      expect((await read(token)).status).toBe(200);
+      expect((await capturing(token)).status).toBe(401);
+    });
+
+    it('files an app that named no resource, and one connected before resources existed, under MCP', async () => {
+      const claude = await connected(USER_ID, 'Claude');
+      const before = await connected(USER_ID, 'Claude from before');
+      await asMadeBeforeResources();
+
+      const renewed = await refresh(before.app, before.refreshToken);
+      const renewedWith = (await renewed.json()) as { access_token: string; resource: string };
+
+      expect(claude.resource).toBe(MCP_RESOURCE);
+      expect(renewed.status).toBe(200);
+      expect(renewedWith.resource).toBe(MCP_RESOURCE);
+      expect((await capturing(renewedWith.access_token)).status).toBe(200);
+    });
+
+    it('refuses to move a grant made before resources existed to the Panel reads', async () => {
+      const { app, refreshToken } = await connected(USER_ID, 'Claude');
+      await asMadeBeforeResources();
+
+      const renewed = await refresh(app, refreshToken, APPS_RESOURCE);
+
+      expect(renewed.status).toBe(400);
+      expect(((await renewed.json()) as { error: string }).error).toBe('invalid_target');
+    });
+
+    it('refuses an app asking to be signed in for a resource that is not one of Cockpit’s', async () => {
+      const app = await registerApp('Elsewhere');
+      const asked = await attempt(app, CALLBACK, 'state', 'https://elsewhere.test/apps');
+
+      const shown = await SELF.fetch(`${ORIGIN}${asked.path}`, {
+        headers: { cookie: await signInAs(USER_ID) },
+        redirect: 'manual',
+      });
+
+      expect(await shown.text()).not.toContain('name="handle"');
+    });
+  });
   describe('signing in from the widget app returns only to the app’s own address, and only with the proof it started with', () => {
     it('accepts an app registering its own address as where sign-in returns', async () => {
       const registered = await SELF.fetch(`${ORIGIN}/oauth/register`, {
@@ -191,7 +284,7 @@ describe('MCP connections', () => {
 
     it('sends the app back to its own address with a code when sign-in finishes', async () => {
       const app = await registerApp('Cockpit widget', WIDGET_CALLBACK);
-      const asked = await attempt(app, WIDGET_CALLBACK, 'the-apps-state', READ_PANELS);
+      const asked = await attempt(app, WIDGET_CALLBACK, 'the-apps-state', APPS_RESOURCE);
 
       const allowed = await decide(asked.path, await signInAs(USER_ID), 'allow');
 
@@ -203,7 +296,7 @@ describe('MCP connections', () => {
 
     it('refuses the code exchanged without the proof the app began with', async () => {
       const app = await registerApp('Cockpit widget', WIDGET_CALLBACK);
-      const asked = await attempt(app, WIDGET_CALLBACK, 'state', READ_PANELS);
+      const asked = await attempt(app, WIDGET_CALLBACK, 'state', APPS_RESOURCE);
       const allowed = await decide(asked.path, await signInAs(USER_ID), 'allow');
       const code = new URL(allowed.headers.get('location')!).searchParams.get('code')!;
 
@@ -215,7 +308,7 @@ describe('MCP connections', () => {
 
     it('refuses an app that registered one private address and asks to return to a different one', async () => {
       const app = await registerApp('Cockpit widget', WIDGET_CALLBACK);
-      const asked = await attempt(app, 'cockpit-widget://somewhere-else', 'state', READ_PANELS);
+      const asked = await attempt(app, 'cockpit-widget://somewhere-else', 'state', APPS_RESOURCE);
 
       const shown = await SELF.fetch(`${ORIGIN}${asked.path}`, {
         headers: { cookie: await signInAs(USER_ID) },
@@ -232,14 +325,21 @@ describe('MCP connections', () => {
     it.each([
       {
         situation: 'reading your Panels',
-        asks: READ_PANELS,
+        asks: APPS_RESOURCE,
         redirect: WIDGET_CALLBACK,
         says: ['Allow Cockpit widget to read your Panels in your Cockpit?', 'It may read your Panels, and nothing else'],
         doesNotSay: ['create items', 'capture notes'],
       },
       {
-        situation: 'capturing, as today',
-        asks: undefined,
+        situation: 'capturing, naming MCP, as today',
+        asks: MCP_RESOURCE,
+        redirect: CALLBACK,
+        says: ['Allow Cockpit widget to create items in your Cockpit?', 'see the names of your workspaces and types'],
+        doesNotSay: ['read your Panels'],
+      },
+      {
+        situation: 'nothing named, as Claude asks',
+        asks: null,
         redirect: CALLBACK,
         says: ['Allow Cockpit widget to create items in your Cockpit?', 'see the names of your workspaces and types'],
         doesNotSay: ['read your Panels'],
@@ -258,7 +358,7 @@ describe('MCP connections', () => {
 
     it('names an app’s own address whole, since its host says nothing about where access goes', async () => {
       const app = await registerApp('Cockpit widget', WIDGET_CALLBACK);
-      const { path } = await attempt(app, WIDGET_CALLBACK, 'state', READ_PANELS);
+      const { path } = await attempt(app, WIDGET_CALLBACK, 'state', APPS_RESOURCE);
 
       const shown = await SELF.fetch(`${ORIGIN}${path}`, { headers: { cookie: await signInAs(USER_ID) } });
 
@@ -371,6 +471,13 @@ describe('MCP connections', () => {
         ['Claude', 'captures'],
         ['Cockpit widget', 'reads-panels'],
       ]);
+    });
+
+    it('lists a grant made before resources existed as an app that captures', async () => {
+      await connected(USER_ID, 'Claude');
+      await asMadeBeforeResources();
+
+      expect((await listed()).map(({ name, kind }) => [name, kind])).toEqual([['Claude', 'captures']]);
     });
 
     it('says when an app last read a Panel, which is not when it last captured', async () => {
