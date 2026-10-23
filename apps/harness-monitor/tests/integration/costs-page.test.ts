@@ -68,9 +68,9 @@ describe('Harness Monitor', () => {
       const another = await viewWith(env.DB, '?period=all&group=day&group=pr&junk=1&engineer=', cached);
 
       expect(first.headers.get('cache-control')).toBe('public, max-age=300');
-      expect(whereItWent(await second.text()).heading).toBe("Where the period's $1.00 went");
-      expect(whereItWent(await another.text()).heading).toBe("Where the period's $1.00 went");
-      expect(whereItWent(await thePage('?period=all&group=day')).heading).toBe("Where the period's $6.00 went");
+      expect(whereItWent(await second.text()).heading).toBe("Where the period's $1.00 went, by phase");
+      expect(whereItWent(await another.text()).heading).toBe("Where the period's $1.00 went, by phase");
+      expect(whereItWent(await thePage('?period=all&group=day')).heading).toBe("Where the period's $6.00 went, by phase");
     });
   });
 
@@ -80,7 +80,7 @@ describe('Harness Monitor', () => {
 
       expect(html).toContain('Nothing in this period');
       expect(costRows(html)).toEqual([]);
-      expect(whereItWent(html).heading).toBe("Where the period's $0.00 went");
+      expect(whereItWent(html).heading).toBe("Where the period's $0.00 went, by phase");
     });
 
     it('the not-measured note and the list-price label are always there', async () => {

@@ -9,12 +9,12 @@ import {
   PAGE_SIZE,
   PERIODS,
   queryString,
+  SAME_AS_ROWS,
   SPLITS,
   UNATTRIBUTED,
+  UNKNOWN_ENGINEER,
   WHOS,
-  type Comparison,
   type CostGroup,
-  type Driver,
   type DayChart,
   type CostQuery,
   type CostsPage,
@@ -28,7 +28,7 @@ import {
   type Who,
 } from './costs';
 import { type JobName, type JobStatus } from './jobs';
-import { band, esc, selectField, shell } from './look';
+import { band, esc, shell } from './look';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
 
@@ -56,20 +56,21 @@ const SERIES_COLOURS: Record<string, string> = {
   'no-pr': 'var(--cat-grey)',
   'on-main': 'var(--cat-amber)',
 };
-/** A model takes these by its place among every model on record, so it keeps its colour whatever the filters; they wrap past five, the ramp's steps. */
+/** A model or an engineer takes these by its place among all on record, so it keeps its colour whatever the filters; they wrap past five, the ramp's steps. The requests no pull request claims and the pull requests with no known author take the ramp's grey, for "other or none". */
 const MODEL_COLOURS = ['var(--cat-violet)', 'var(--cat-amber)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-slate)'];
-const colourOf = (split: Split, key: string, models: string[]) =>
+const colourOf = (split: Split, key: string, known: string[]) =>
   split === 'phase'
     ? COLOURS[key as Category]
-    : split === 'model'
-      ? MODEL_COLOURS[Math.max(models.indexOf(key), 0) % MODEL_COLOURS.length]!
+    : split === 'model' || split === 'engineer'
+      ? key === UNATTRIBUTED || key === UNKNOWN_ENGINEER
+        ? 'var(--cat-grey)'
+        : MODEL_COLOURS[Math.max(known.indexOf(key), 0) % MODEL_COLOURS.length]!
       : SERIES_COLOURS[key]!;
+/** The keys a colouring takes its colours from: every engineer on record, or every model. */
+const knownKeys = (page: CostsPage) => (page.query.split === 'engineer' ? page.engineers : page.models);
 export const PERIOD_LABELS: Record<Period, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All time' };
-const SPLIT_LABELS: Record<Split, string> = { phase: 'Phase', model: 'Model', where: 'Where', outcome: 'Outcome' };
 export const WHO_LABELS: Record<Who, string> = { all: 'All', main: 'Main session', subagents: 'Subagents' };
 const GROUP_LABELS: Record<Group, string> = { pr: 'Pull request', issue: 'Issue', engineer: 'Engineer', category: 'Category', day: 'Day' };
-/** What the grouping's tab reads; the table's own first column keeps GROUP_LABELS. */
-const TAB_LABELS: Record<Group, string> = { ...GROUP_LABELS, day: 'Over time' };
 /** What the footer calls each grouping's own order. */
 const SORTED_BY: Record<Group, string> = { pr: 'newest first', issue: 'newest first', engineer: 'total', category: 'pipeline order', day: 'day, newest first' };
 const UNITS: Record<Group, [string, string]> = {
@@ -127,36 +128,43 @@ ${rows}
 </tbody></table></div></div></section>`;
 }
 
-/** The groupings as the band's tabs; choosing one keeps every filter and starts in the grouping's own order. */
-function groupTabs({ query }: CostsPage): string {
-  return GROUPS.map(
-    (g) => `<a href="/${queryString(query, { group: g, sort: 'default', page: 1 })}"${g === query.group ? ' aria-current="page"' : ''}>${TAB_LABELS[g]}</a>`,
-  ).join('');
+const ROW_WORDS: Record<Group, string> = { day: 'each day', pr: 'each pull request', issue: 'each issue', engineer: 'each engineer', category: 'each phase' };
+const COLOUR_WORDS: Record<Split, string> = { phase: 'phase', engineer: 'engineer', model: 'model', where: 'where it ran', outcome: 'outcome' };
+const PERIOD_WORDS: Record<Period, string> = { '7d': 'the last 7 days', '30d': 'the last 30 days', '90d': 'the last 90 days', all: 'all time' };
+
+/** A select inside the sentence: its name read by assistive technology, its value shown as a word of the sentence. A filter that holds a value wears `data-set`. */
+function inline(name: string, label: string, options: [value: string, text: string, off?: boolean][], current: string, resting: string | null = null): string {
+  const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
+  // New rows start in their own order, so choosing them leaves the form's sort behind; every other choice keeps it.
+  const leave = name === 'group' ? 'if(this.form.elements.sort)this.form.elements.sort.disabled=true;' : '';
+  return `<select name="${name}" aria-label="${label}" onchange="${leave}this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
 }
 
-function filters({ query, engineers, models }: CostsPage): string {
+/**
+ * The page's controls as one sentence on the band, pinned to the top: what the
+ * rows are, what colours them and over when; then the filters that narrow it.
+ * Everything below follows them. A colouring that would repeat the rows is
+ * offered but disabled.
+ */
+function controls({ query, engineers, models }: CostsPage): string {
   const engineerOptions: [string, string][] = [['', 'Everyone'], ...engineers.map((e): [string, string] => [e, e]), [UNATTRIBUTED, 'Unattributed']];
   // A named engineer who is no longer in the list stays selectable, so the form never silently drops a filter.
   if (query.engineer && !engineerOptions.some(([v]) => v === query.engineer)) engineerOptions.push([query.engineer, query.engineer]);
   const modelOptions: [string, string][] = [['', 'All models'], ...models.map((m): [string, string] => [m, m])];
   // A named model no longer on record stays selectable, so the form never silently drops a filter.
   if (query.model && !models.includes(query.model)) modelOptions.push([query.model, query.model]);
-  const splitButtons = SPLITS.map(
-    (v) =>
-      `<button type="submit" name="split" value="${v}"${v === query.split ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${SPLIT_LABELS[v]}</button>`,
-  ).join('');
-  return `<form class="filters" method="get" action="/">
-${selectField('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_LABELS[p]]), query.period, '30d')}
-${selectField('engineer', 'Engineer', engineerOptions, query.engineer ?? '')}
-${selectField('category', 'Category', [['', 'All categories'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '')}
-${selectField('model', 'Model', modelOptions, query.model ?? '')}
-${selectField('who', 'Requests', WHOS.map((w): [string, string] => [w, WHO_LABELS[w]]), query.who, 'all')}
-<div class="field"><span id="splitby">Split by</span><div class="toggles" role="group" aria-labelledby="splitby">${splitButtons}</div></div>
-<input type="hidden" name="split" value="${query.split}">
-<input type="hidden" name="group" value="${query.group}">
+  return `<form class="sentence-form" method="get" action="/">
+<p class="sentence">Show cost for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), query.group)}
+coloured by ${inline('split', 'Colours', SPLITS.map((v): [string, string, boolean] => [v, COLOUR_WORDS[v], SAME_AS_ROWS[query.group] === v]), query.split)}
+over ${inline('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]), query.period)}</p>
+<div class="only"><span>Only</span>
+${inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', '')}
+${inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', '')}
+${inline('model', 'Model', modelOptions, query.model ?? '', '')}
+${inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all')}
+<a class="button" href="/export.csv${queryString(query, { group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 })}" download>Export CSV</a></div>
 ${query.sort === 'total' ? '<input type="hidden" name="sort" value="total">' : ''}
 <noscript><button type="submit">Apply</button></noscript>
-<a class="button" href="/export.csv${queryString(query, { group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 })}" download>Export CSV</a>
 </form>`;
 }
 
@@ -171,59 +179,24 @@ function whereItWent(page: CostsPage): string {
       : `${number(groups.length)} ${groups.length === 1 ? one : many} · median ${dollars(median(groups.map((g) => g.totalMicros)))} each · at API list price`;
   const cost = (s: Series) => bySeries[s.key] ?? 0;
   const segments = series
-    .map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / totalMicros) * 100).toFixed(2)}%;background:${colourOf(query.split, s.key, page.models)}"></div>` : ''))
+    .map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / totalMicros) * 100).toFixed(2)}%;background:${colourOf(query.split, s.key, knownKeys(page))}"></div>` : ''))
     .join('');
   const label = series.map((s) => `${s.label} ${dollars(cost(s))}`).join(', ');
   const legend = series
     .map(
       (s) =>
-        `<li><i style="background:${colourOf(query.split, s.key, page.models)}" aria-hidden="true"></i><span class="name">${esc(s.label)}</span><span class="amount">${dollars(cost(s))}</span></li>`,
+        `<li><i style="background:${colourOf(query.split, s.key, knownKeys(page))}" aria-hidden="true"></i><span class="name">${esc(s.label)}</span><span class="amount">${dollars(cost(s))}</span></li>`,
     )
     .join('');
-  return `<section class="panel" aria-labelledby="where">${band(`Where the period&rsquo;s ${dollars(totalMicros)} went`, summary, 'where')}<div class="well pad">
+  return `<section class="panel" aria-labelledby="where">${band(`Where the period&rsquo;s ${dollars(totalMicros)} went, by ${COLOUR_WORDS[query.split]}`, summary, 'where')}<div class="well pad">
 <div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
 <ul class="shares">${legend}</ul>
 <p class="note">CI reviews counts the <span class="mono">@claude</span> runs in GitHub Actions only. Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai, and is <strong>not measured</strong>.</p>
 </div></section>`;
 }
 
-const DIMENSION_LABELS: Record<Split, string> = { phase: 'Phase', model: 'Model', where: 'Where it ran', outcome: 'Outcome' };
+/** A change in dollars with its sign; the Claude calls page's change on the previous period reads it. */
 export const signed = (micros: number) => `${micros < 0 ? '−' : '+'}${dollars(Math.abs(micros))}`;
-const driverValue = (d: Driver, n: number | null) =>
-  n === null ? '—' : d.unit === 'dollars' ? dollars(n) : `${number(Math.round(n))}${d.unit === 'lines' ? ' lines' : d.unit === 'tokens' ? ' tokens' : ''}`;
-
-/**
- * This period's total against the previous period of the same length, under
- * the same filters, with the drivers and each way of splitting's four largest
- * changes. Absent for all time, which has no period before it.
- */
-function changeCard(c: Comparison | null, label: string): string {
-  if (c === null) return '';
-  const percent = c.changePercent === null ? '' : ` (${c.changePercent < 0 ? '−' : '+'}${Math.abs(c.changePercent).toFixed(1)}%)`;
-  const headline = c.changeMicros === 0 ? 'no change' : `<strong class="${c.changeMicros > 0 ? 'up' : 'down'}">${signed(c.changeMicros)}${percent}</strong>`;
-  const drivers = c.drivers
-    .map((d) => `<tr data-driver="${d.key}"><th scope="row">${d.label}</th><td class="num mono">${driverValue(d, d.current)}</td><td class="num mono muted">${driverValue(d, d.previous)}</td></tr>`)
-    .join('');
-  const dimensions = c.dimensions
-    .map(({ split, changes }) => {
-      const items =
-        changes.length === 0
-          ? '<li class="muted">no change</li>'
-          : changes
-              .map(
-                (ch) =>
-                  `<li class="${ch.changeMicros > 0 ? 'up' : 'down'}"><span aria-hidden="true">${ch.changeMicros > 0 ? '▲' : '▼'}</span> ${esc(ch.label)} <strong class="mono">${signed(ch.changeMicros)}</strong> <span class="muted mono">${dollars(ch.previousMicros)} → ${dollars(ch.currentMicros)}</span></li>`,
-              )
-              .join('');
-      return `<div data-dimension="${split}"><h3>${DIMENSION_LABELS[split]}</h3><ul>${items}</ul></div>`;
-    })
-    .join('');
-  return `<section class="panel change" aria-labelledby="change" data-card="change">${band('Change on the previous period', '', 'change')}<div class="well pad">
-<p>${esc(label)} (${formatDay(c.current.from)} to ${formatDay(c.current.to)}) cost <strong>${dollars(c.currentMicros)}</strong> against <strong>${dollars(c.previousMicros)}</strong> in the previous period (${formatDay(c.previous.from)} to ${formatDay(c.previous.to)}): ${headline}.</p>
-<div class="scroll"><table class="drivers"><thead><tr><th scope="col">Driver</th><th scope="col" class="num">This period</th><th scope="col" class="num">Previous</th></tr></thead><tbody>${drivers}</tbody></table></div>
-<div class="dimensions">${dimensions}</div>
-</div></section>`;
-}
 
 const CHART = { width: 1000, height: 280, left: 72, right: 16, top: 16, bottom: 32 };
 
@@ -251,9 +224,9 @@ const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) 
  * total. Every day of the range has a point, and each point's title carries its value.
  */
 function overTime(page: CostsPage, now: number, measure: Measure): string {
-  const { query, models } = page;
+  const { query } = page;
   const chart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, firstDay(query.period, now), now, measure);
-  return costPerDay(chart, (key) => colourOf(query.split, key, models), measure);
+  return costPerDay(chart, (key) => colourOf(query.split, key, knownKeys(page)), measure);
 }
 
 /** The per-day panel for a chart in its measure, each line in the colour `colour` gives its series; empty where the chart has no day. */
@@ -370,7 +343,7 @@ function harnessTrends(page: CostsPage): string {
       axis: dollars,
     }),
   ];
-  return `<section class="panel" aria-labelledby="trends">${band('Is the harness getting more expensive?', '', 'trends')}<div class="well pad">${charts.join('\n')}</div></section>`;
+  return `<section class="panel" aria-labelledby="trends">${band('Is the harness getting more expensive?', 'Not affected by &ldquo;coloured by&rdquo;: these follow the period and the &ldquo;Only&rdquo; filters.', 'trends')}<div class="well pad">${charts.join('\n')}</div></section>`;
 }
 
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
@@ -395,15 +368,13 @@ function firstCell(g: CostGroup, query: CostQuery, repository: string | null): s
   return `<td class="first">${label}<div class="muted small">${issue}${sessions}</div></td>`;
 }
 
-function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: Series[], models: string[], repository: string | null): string {
+function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: Series[], known: string[], repository: string | null): string {
   const first = firstCell(g, query, repository);
   const extra =
     group === 'pr'
       ? `<td>${g.engineer === null ? '' : esc(g.engineer)}</td><td class="nowrap">${g.merged === null ? '' : esc(g.merged)}</td>` +
-        // Blank, not zero, for what linking has not read.
-        `<td class="nowrap mono">${g.lines === null ? '' : `+${number(g.lines.added)} −${number(g.lines.removed)}`}</td>` +
-        `<td class="nowrap">${g.openToMerged ?? ''}</td><td class="num mono">${g.ciRounds === null ? '' : number(g.ciRounds)}</td>` +
-        `<td class="num mono">${g.rounds === null ? '' : number(g.rounds)}</td><td class="num mono">${g.findings === null ? '' : number(g.findings)}</td>`
+        // Blank, not zero, for what linking has not read. No open-to-merged or review columns: they say nothing about cost, and the title needs the room.
+        `<td class="nowrap mono">${g.lines === null ? '' : `+${number(g.lines.added)} −${number(g.lines.removed)}`}</td>`
       : group === 'issue' || group === 'engineer'
         ? `<td>${number(g.pullRequests)}</td>`
         : '';
@@ -411,13 +382,14 @@ function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: 
   // A catch-all draws nothing in its split cell, not even the track, which would read as a bar at $0.
   const split = g.catchAll
     ? ''
-    : series.map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / max) * 100).toFixed(1)}%;background:${colourOf(query.split, s.key, models)}"></div>` : '')).join('');
-  const cells = series.map((s) => `<td class="num mono${s.key === 'ci-reviews' ? ' muted' : ''}">${cost(s) > 0 ? dollars(cost(s)) : '—'}</td>`).join('');
+    : series.map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / max) * 100).toFixed(1)}%;background:${colourOf(query.split, s.key, known)}"></div>` : '')).join('');
+  // No column per colour: hovering the bar names each colour's dollars.
+  const hover = g.catchAll ? '' : ` title="${esc(series.filter((s) => cost(s) > 0).map((s) => `${s.label} ${dollars(cost(s))}`).join(' · '))}"`;
   const unpriced = g.unpricedRequests > 0 ? ` <span class="unpriced">+ ${number(g.unpricedRequests)} unpriced</span>` : '';
   // Each day's tokens by kind, priced or not; no other grouping counts them.
   const tokens =
     group === 'day' ? [g.tokens.input, g.tokens.output, g.tokens.cacheWrite, g.tokens.cacheRead].map((n) => `<td class="num mono muted">${tokenCount(n)}</td>`).join('') : '';
-  return `<tr>${first}${extra}<td class="split-cell"><div class="split${g.catchAll ? ' bare' : ''}">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td>${tokens}</tr>`;
+  return `<tr>${first}${extra}<td class="split-cell"${hover}><div class="split${g.catchAll ? ' bare' : ''}">${split}</div></td><td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td>${tokens}</tr>`;
 }
 
 function table(page: CostsPage, repository: string | null): string {
@@ -430,8 +402,7 @@ function table(page: CostsPage, repository: string | null): string {
   const shown = groups.slice(start, start + PAGE_SIZE);
   // The bars scale to the largest row that draws one: a catch-all is left out, so it cannot shrink every other bar.
   const max = Math.max(...shown.filter((g) => !g.catchAll).map((g) => g.totalMicros), 1);
-  const extraHeads = query.group === 'pr' ? '<th scope="col">Engineer</th><th scope="col">Merged</th><th scope="col">Lines</th><th scope="col">Open → merged</th><th scope="col" class="num">CI rounds</th><th scope="col" class="num">Rounds</th><th scope="col" class="num">Findings</th>' : query.group === 'issue' || query.group === 'engineer' ? '<th scope="col">Pull requests</th>' : '';
-  const heads = page.series.map((s) => `<th scope="col" class="num"><i style="background:${colourOf(query.split, s.key, page.models)}" aria-hidden="true"></i>${esc(s.short)}</th>`).join('');
+  const extraHeads = query.group === 'pr' ? '<th scope="col">Engineer</th><th scope="col">Merged</th><th scope="col">Lines</th>' : query.group === 'issue' || query.group === 'engineer' ? '<th scope="col">Pull requests</th>' : '';
   const tokenHeads = query.group === 'day' ? '<th scope="col" class="num">Input</th><th scope="col" class="num">Output</th><th scope="col" class="num">Cache write</th><th scope="col" class="num">Cache read</th>' : '';
   const link = (to: number, text: string) => `<a href="/${queryString(query, { page: to })}">${text}</a>`;
   const pager = [pageNo > 1 ? link(pageNo - 1, 'Previous') : '', start + PAGE_SIZE < groups.length ? link(pageNo + 1, `Next ${PAGE_SIZE}`) : '']
@@ -446,9 +417,9 @@ function table(page: CostsPage, repository: string | null): string {
   const sortedBy = byTotal ? 'total' : SORTED_BY[query.group];
   return `<section class="panel" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">${band(title)}<div class="well">
 <div class="scroll"><table class="costs">
-<thead><tr><th scope="col" class="first">${firstHead}${marks(!byTotal)}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">${totalHead}${marks(byTotal)}</th>${tokenHeads}</tr></thead>
+<thead><tr><th scope="col" class="first">${firstHead}${marks(!byTotal)}</th>${extraHeads}<th scope="col" class="split-head">Coloured by ${COLOUR_WORDS[query.split]}</th><th scope="col" class="num">${totalHead}${marks(byTotal)}</th>${tokenHeads}</tr></thead>
 <tbody>
-${shown.map((g) => row(g, query.group, max, query, page.series, page.models, repository)).join('\n')}
+${shown.map((g) => row(g, query.group, max, query, page.series, knownKeys(page), repository)).join('\n')}
 </tbody></table></div>
 <div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by ${sortedBy}</span><span>${pager}</span></div>
 </div></section>`;
@@ -461,17 +432,16 @@ export function renderPage(
   now = Date.now(),
 ): string {
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
+  // What the sentence changes comes first, in reading order; the trends, which only the filters change, come last.
   const body = [
     '<h1 class="sr-only">Claude Code costs</h1>',
-    filters(page),
     warning(report.unpriced),
-    changeCard(page.comparison, PERIOD_LABELS[page.query.period]),
     whereItWent(page),
     page.query.group === 'day' ? overTime(page, now, 'cost') : '',
     page.query.group === 'day' ? overTime(page, now, 'tokens') : '',
-    harnessTrends(page),
     table(page, repository),
+    harnessTrends(page),
     jobLines(page.jobs),
   ].join('\n');
-  return shell({ current: 'costs', tabs: groupTabs(page), body }, now);
+  return shell({ current: 'costs', controls: controls(page), body }, now);
 }
