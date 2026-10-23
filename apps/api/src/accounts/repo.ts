@@ -866,7 +866,7 @@ function seriesRowColumns() {
 }
 
 /**
- * Every series *Never* has not stopped ("Bring a repeating Item back on its day",
+ * Every series not yet stopped by deleting its recurring item ("Bring a repeating Item back on its day",
  * issue 1407) - what the account's alarm is set by and brings back. A handful
  * per account, so the day each is due on is worked out by the caller rather than
  * stored beside it.
@@ -899,17 +899,6 @@ export function latestOccurrence(db: AccountDb, tenantId: string, seriesId: stri
   );
 }
 
-/** The Panels an Item is filed on, live or not - the caller asks which still are. */
-export function panelIdsOf(db: AccountDb, tenantId: string, itemId: string): string[] {
-  return db
-    .select({ panelId: panelItems.panelId })
-    .from(panelItems)
-    .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, itemId)))
-    .orderBy(asc(panelItems.createdAt), asc(panelItems.panelId))
-    .all()
-    .map((row) => row.panelId);
-}
-
 const seriesColumns = {
   id: series.id,
   tenantId: series.tenantId,
@@ -922,13 +911,14 @@ const seriesColumns = {
 
 /**
  * Every series the Items of one Workspace name ("Repeat an Item on a schedule",
- * issue 1405), stopped ones included: an Item still names the series *Never*
- * stopped. **The same Items `listOpenItems` returns**, which is why this carries
+ * issue 1405), stopped ones included: an Item still names the series
+ * deleting its recurring item stopped. **The same Items `listOpenItems` returns**, which is why this carries
  * the same `or`: an Item belonging to no Workspace is drawn in every one.
  */
 export function listSeriesInWorkspace(db: AccountDb, tenantId: string, workspaceId: string): Series[] {
   return db
-    .selectDistinct(seriesColumns)
+    // With the recurring item's own title and Workspace, which a copy's line and mark say ("Point a copy at its master, and retire the Repeats chip", issue 1450); null on a series never made into one.
+    .selectDistinct({ ...seriesColumns, title: series.title, workspaceId: series.workspaceId })
     .from(series)
     .innerJoin(items, eq(items.seriesId, series.id))
     .where(

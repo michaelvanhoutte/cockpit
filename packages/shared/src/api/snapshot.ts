@@ -45,7 +45,7 @@ export const workspaceSnapshotSchema = z.object({
   /**
    * The series the Items above name ("Repeat an Item on a schedule, so it
    * comes back every Monday or every quarter", issue 1405) - stopped ones too,
-   * since an Item still names the series *Never* stopped. Defaulted for the
+   * since an Item still names the series deleting its recurring item stopped. Defaulted for the
    * reason `attachments` above is: a stored copy taken before this field
    * existed is an app with nothing repeating.
    */

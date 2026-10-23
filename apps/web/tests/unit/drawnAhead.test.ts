@@ -912,60 +912,50 @@ describe('Item editing', () => {
 });
 
 /**
- * "Set an Item to repeat from its form, and see the rule on its row" (issue
- * 1406): a repeat is the Item's series as the server will hold it, drawn from the
- * rule the change carries. That it is shown at once on the form and the row is
- * tests/unit/components/RepeatsAtOnce.test.tsx.
+ * "Point a copy at its master, and retire the Repeats chip" (issue 1450): a
+ * recurring item written or deleted is its series as the server will hold it,
+ * drawn on every copy's line and mark at once.
  */
 describe('Item editing', () => {
-  describe('a repeat shows the moment it is set, before the server has answered', () => {
+  describe('a recurring item written or deleted shows on its copies the moment it is, before the server has answered', () => {
     const SERIES = '11111111-1111-7111-8111-0000000000aa';
-    const rule: { frequency: 'daily' | 'weekly' | 'monthly'; nextOn: string; dueAfterDays: number; timeZone: string } = { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 5, timeZone: 'Europe/Brussels' };
-    const set = (repeat: typeof rule | null, seriesId = SERIES): CommandArgs => ({
-      name: 'set_repeat',
-      payload: { ...envelope(BART), seriesId, repeat },
+    const rule: { frequency: 'weekly' | 'monthly'; nextOn: string; dueAfterDays: number; timeZone: string } = { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 5, timeZone: 'Europe/Brussels' };
+    const own = { id: SERIES, tenantId: 'tenant', frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5, timeZone: 'Europe/Brussels', stoppedAt: null, title: 'Weekly review', workspaceId: 'ws-work' };
+    const written = (title: string, repeat: typeof rule = rule, seriesId = SERIES): CommandArgs => ({
+      name: 'write_recurring_item',
+      payload: { commandId: 'c', issuedAt: AT, workspaceId: 'ws-work', seriesId, title, description: '', priority: null, panelIds: [], repeat },
     });
-    const held = (items: Item[], series: WorkspaceSnapshot['series'] = []) =>
-      ({ ...workspace(items), workspace: { tenantId: 'tenant' }, series }) as unknown as WorkspaceSnapshot;
+    const deleted = (seriesId = SERIES): CommandArgs => ({
+      name: 'delete_recurring_item',
+      payload: { commandId: 'c', issuedAt: AT, workspaceId: 'ws-work', seriesId },
+    });
+    const held = (series: WorkspaceSnapshot['series']) =>
+      ({ ...workspace([anItem(BART, { seriesId: SERIES })]), workspace: { tenantId: 'tenant' }, series }) as unknown as WorkspaceSnapshot;
 
-    it('makes the series from the rule and has the Item name it', () => {
-      const copy = held([anItem(BART, { seriesId: null }), anItem(LISA, { seriesId: null })]);
+    it('carries the title and rule it was written with', () => {
+      const copy = held([own]);
 
-      const drawn = drawnAhead(copy, set(rule));
+      const drawn = drawnAhead(copy, written('Friday review', { ...rule, frequency: 'monthly' }));
 
-      expect(drawn.series).toEqual([{ id: SERIES, tenantId: 'tenant', ...rule, stoppedAt: null }]);
+      expect(drawn.series).toEqual([{ ...own, title: 'Friday review', frequency: 'monthly' }]);
       expect(read(drawn, BART)?.seriesId).toBe(SERIES);
-      expect(read(drawn, LISA)?.seriesId).toBeNull();
-      expect(copy.series).toEqual([]);
+      expect(copy.series).toEqual([own]);
     });
 
-    it('changes the series the Item already names rather than making another', () => {
-      const own = { id: 'series-own', tenantId: 'tenant', ...rule, stoppedAt: null };
-      const copy = held([anItem(BART, { seriesId: 'series-own' })], [own]);
-
-      const drawn = drawnAhead(copy, set({ ...rule, frequency: 'monthly' }));
-
-      expect(drawn.series).toEqual([{ ...own, frequency: 'monthly' }]);
-      expect(read(drawn, BART)?.seriesId).toBe('series-own');
-    });
-
-    it('stops the series on Never and leaves the Item naming it', () => {
-      const own = { id: 'series-own', tenantId: 'tenant', ...rule, stoppedAt: null };
-      const copy = held([anItem(BART, { seriesId: 'series-own' })], [own]);
-
-      const drawn = drawnAhead(copy, set(null));
+    it('stops the series on a delete and leaves its title and its copies naming it', () => {
+      const drawn = drawnAhead(held([own]), deleted());
 
       expect(drawn.series).toEqual([{ ...own, stoppedAt: AT }]);
-      expect(read(drawn, BART)?.seriesId).toBe('series-own');
+      expect(read(drawn, BART)?.seriesId).toBe(SERIES);
     });
 
     it.each([
-      { situation: 'Never on an Item that repeats nothing', change: set(null), items: [anItem(BART, { seriesId: null })] },
-      { situation: 'a repeat on an Item the copy does not hold', change: set(rule), items: [anItem(LISA, { seriesId: null })] },
-    ])('leaves the copy as it is for $situation', ({ change, items }) => {
-      const copy = held(items);
+      { situation: 'a write to a recurring item no copy here names', change: written('Other', rule, 'series-other') },
+      { situation: 'a delete of a recurring item no copy here names', change: deleted('series-other') },
+    ])('leaves the Workspace as it is for $situation', ({ change }) => {
+      const copy = held([own]);
 
-      expect(drawnAhead(copy, change)).toBe(copy);
+      expect(drawnAhead(copy, change).series).toEqual(copy.series);
     });
   });
 });
