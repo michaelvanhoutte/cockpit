@@ -56,8 +56,13 @@ jobs:
             echo "::error::The tag $TAG is not widget-v<major>.<minor>.<patch>, such as widget-v1.0.0 (minor and patch below 100, no leading zeros)."
             exit 1
           fi
+          code=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))
+          if [ "$code" -lt 1 ]; then
+            echo "::error::The tag $TAG would give version code 0, which Android refuses. Start at widget-v0.0.1 or widget-v1.0.0."
+            exit 1
+          fi
           echo "name=$version" >> "$GITHUB_OUTPUT"
-          echo "code=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
 
       # Named, so a missing one says which, instead of Gradle failing on an empty path.
       - name: Check the signing key is stored

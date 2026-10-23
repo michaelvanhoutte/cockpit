@@ -117,12 +117,17 @@ class SessionStore(context: Context, private val box: SecretBox) {
     /** The sign-in in flight. Looking does not spend it: an address that is not its way back, from any app, must not cancel it. */
     fun pending(): Pending? {
         val sealed = prefs.getString(PENDING, null) ?: return null
-        val plain = box.open(sealed) ?: return null
-        return try {
-            Wire.json.decodeFromString<Pending>(plain)
-        } catch (e: Exception) {
-            null
+        val plain = box.open(sealed)
+        val pending = plain?.let {
+            try {
+                Wire.json.decodeFromString<Pending>(it)
+            } catch (e: Exception) {
+                null
+            }
         }
+        // One that cannot be read never will be: its secret does not stay on the phone.
+        if (pending == null) finishPending()
+        return pending
     }
 
     /** The way back has come: a way back is answered a single time. */

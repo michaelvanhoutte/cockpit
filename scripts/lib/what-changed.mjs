@@ -331,7 +331,7 @@ export function isStoredDataPath(path) {
  * What the Android widget's build and tests read: the app itself, the sample
  * answers its tests are held to (`packages/shared/samples/`, which the server's
  * own tests check against its real answers), and the workflow that runs them.
- * Nothing else can change what `./gradlew test` says.
+ * Nothing else can change what the widget's Gradle tests say.
  */
 const WIDGET_PATHS = ['apps/android-widget/', 'packages/shared/samples/', '.github/workflows/ci.yml'];
 
