@@ -22,20 +22,23 @@ export function environmentOf(env: Pick<Env, 'ENVIRONMENT'>): WorkerEnvironment 
 /**
  * Whether this Worker can record the calls it makes: production writes its own
  * rows, and every other environment needs the token it sends them to
- * production under.
+ * production under and the address to send them to.
  */
-export function canRecord(env: Pick<Env, 'ENVIRONMENT' | 'USAGE_RECORDING_TOKEN'>): boolean {
-  return environmentOf(env) === 'production' || Boolean(env.USAGE_RECORDING_TOKEN);
+export function canRecord(env: Pick<Env, 'ENVIRONMENT' | 'USAGE_RECORDING_TOKEN' | 'USAGE_RECORDING_URL'>): boolean {
+  return environmentOf(env) === 'production' || Boolean(env.USAGE_RECORDING_TOKEN && env.USAGE_RECORDING_URL);
 }
 
 /**
- * What to say where a job found no key to use: which of the two it is missing,
- * since the remedy for each is a different secret.
+ * What to say where a job found no key to use: which thing it is missing,
+ * since the remedy for each is different.
  */
-export function noClaudeKeyBecause(env: Pick<Env, 'ANTHROPIC_API_KEY'>): string {
-  return env.ANTHROPIC_API_KEY
-    ? 'this environment has no USAGE_RECORDING_TOKEN to record its Claude calls under'
-    : 'this environment has no ANTHROPIC_API_KEY';
+export function noClaudeKeyBecause(
+  env: Pick<Env, 'ANTHROPIC_API_KEY' | 'USAGE_RECORDING_TOKEN'>,
+): string {
+  if (!env.ANTHROPIC_API_KEY) return 'this environment has no ANTHROPIC_API_KEY';
+  return env.USAGE_RECORDING_TOKEN
+    ? 'this environment has no USAGE_RECORDING_URL to send its Claude calls’ records to'
+    : 'this environment has no USAGE_RECORDING_TOKEN to record its Claude calls under';
 }
 
 /**
@@ -43,6 +46,8 @@ export function noClaudeKeyBecause(env: Pick<Env, 'ANTHROPIC_API_KEY'>): string 
  * key with no recording token counts as no key**, so nothing is spent on it
  * without leaving a row. The one reading `aiFor`, the jobs and `/health` share.
  */
-export function hasClaudeKey(env: Pick<Env, 'ENVIRONMENT' | 'USAGE_RECORDING_TOKEN' | 'ANTHROPIC_API_KEY'>): boolean {
+export function hasClaudeKey(
+  env: Pick<Env, 'ENVIRONMENT' | 'USAGE_RECORDING_TOKEN' | 'USAGE_RECORDING_URL' | 'ANTHROPIC_API_KEY'>,
+): boolean {
   return Boolean(env.ANTHROPIC_API_KEY) && canRecord(env);
 }

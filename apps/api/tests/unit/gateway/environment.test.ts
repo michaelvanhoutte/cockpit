@@ -24,15 +24,21 @@ describe('AI usage', () => {
 
   describe('outside production a key with no recording token counts as no key', () => {
     it.each([
-      { situation: 'production, a key and no token', environment: 'production', key: 'sk-a', token: '', counts: true },
-      { situation: 'production, no key', environment: 'production', key: '', token: '', counts: false },
-      { situation: 'staging, a key and a token', environment: 'staging', key: 'sk-a', token: 'tok', counts: true },
-      { situation: 'staging, a key and no token', environment: 'staging', key: 'sk-a', token: '', counts: false },
-      { situation: 'local, a key and no token', environment: undefined, key: 'sk-a', token: undefined, counts: false },
-      { situation: 'local, a token and no key', environment: undefined, key: '', token: 'tok', counts: false },
-    ])('is $counts for $situation', ({ environment, key, token, counts }) => {
+      { situation: 'production, a key and no token', environment: 'production', key: 'sk-a', token: '', url: '', counts: true },
+      { situation: 'production, no key', environment: 'production', key: '', token: '', url: '', counts: false },
+      { situation: 'staging, a key, a token and an address', environment: 'staging', key: 'sk-a', token: 'tok', url: 'https://p.test', counts: true },
+      { situation: 'staging, a key and no token', environment: 'staging', key: 'sk-a', token: '', url: 'https://p.test', counts: false },
+      { situation: 'staging, a key and a token but no address', environment: 'staging', key: 'sk-a', token: 'tok', url: '', counts: false },
+      { situation: 'local, a key and no token', environment: undefined, key: 'sk-a', token: undefined, url: 'https://p.test', counts: false },
+      { situation: 'local, a token and no key', environment: undefined, key: '', token: 'tok', url: 'https://p.test', counts: false },
+    ])('is $counts for $situation', ({ environment, key, token, url, counts }) => {
       expect(
-        hasClaudeKey({ ENVIRONMENT: environment, ANTHROPIC_API_KEY: key, USAGE_RECORDING_TOKEN: token }),
+        hasClaudeKey({
+          ENVIRONMENT: environment,
+          ANTHROPIC_API_KEY: key,
+          USAGE_RECORDING_TOKEN: token,
+          USAGE_RECORDING_URL: url,
+        }),
       ).toBe(counts);
     });
   });

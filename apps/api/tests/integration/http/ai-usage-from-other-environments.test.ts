@@ -140,6 +140,8 @@ describe('AI usage', () => {
       { situation: 'a record missing its model', authorization: () => `Bearer ${TOKENS.staging}`, record: { model: undefined }, status: 400 },
       { situation: 'a record missing its time', authorization: () => `Bearer ${TOKENS.staging}`, record: { at: undefined }, status: 400 },
       { situation: 'a record whose time is not one', authorization: () => `Bearer ${TOKENS.staging}`, record: { at: 'yesterday' }, status: 400 },
+      { situation: 'a record whose time is a day that does not exist', authorization: () => `Bearer ${TOKENS.staging}`, record: { at: '2026-02-31T00:00:00Z' }, status: 400 },
+      { situation: 'a record whose time is the end of a day written as the next one', authorization: () => `Bearer ${TOKENS.staging}`, record: { at: '2026-10-08T24:00:00Z' }, status: 400 },
     ])('refuses a call sent with $situation, and records nothing', async ({ authorization, record, status }) => {
       const answered = await send(aRecord(record), authorization());
 

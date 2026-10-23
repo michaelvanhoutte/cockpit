@@ -320,12 +320,12 @@ export interface Env {
    * so an unconfigured Worker never writes a row as production's. Decides
    * whether a Claude call is recorded here or sent to production.
    */
-  ENVIRONMENT?: string;
+  ENVIRONMENT?: string | undefined;
   /**
    * The branch the local checkout is on, handed to the Worker by `pnpm dev`
    * (`scripts/dev.mjs`) and carried on every record a local Worker sends.
    */
-  CHECKOUT_BRANCH?: string;
+  CHECKOUT_BRANCH?: string | undefined;
   /**
    * What an environment other than production sends its records to
    * production under, and so the one thing that lets it spend its Claude key:
@@ -335,13 +335,13 @@ export interface Env {
    * `USAGE_TOKEN_STAGING` or `USAGE_TOKEN_LOCAL`. Unused in production, which
    * writes its own rows.
    */
-  USAGE_RECORDING_TOKEN?: string;
+  USAGE_RECORDING_TOKEN?: string | undefined;
   /**
    * Production's address, where those records go; the route is
    * `gateway/receive.ts`'s. Configuration rather than a secret: set in
    * `wrangler.jsonc` for staging and by `pnpm dev` for a local Worker.
    */
-  USAGE_RECORDING_URL?: string;
+  USAGE_RECORDING_URL?: string | undefined;
   /**
    * **Production's three recording tokens, one per environment that sends**,
    * each a separate secret so one leaked is revoked alone. Which one a request

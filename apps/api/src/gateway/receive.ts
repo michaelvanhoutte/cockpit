@@ -99,7 +99,12 @@ const sentRecordSchema = z
     at: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/)
-      .refine((at) => !Number.isNaN(Date.parse(at))),
+      // A real instant on the day it names: `2026-02-31` and `T24:00:00` parse but
+      // roll over, and the table's own check refuses them with a 500 if let in.
+      .refine((at) => {
+        const instant = Date.parse(at);
+        return !Number.isNaN(instant) && new Date(instant).toISOString().slice(0, 10) === at.slice(0, 10);
+      }),
     durationMs: z.number().min(0).max(86_400_000),
     /** The sender's own user id, which is never resolved against production's users. */
     userId: z.string().max(200).nullable(),
