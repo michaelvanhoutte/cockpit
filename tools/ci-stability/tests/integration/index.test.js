@@ -164,8 +164,12 @@ describe('the generator, end to end against a stubbed API', () => {
   describe('with --send, the runs reach the Harness Monitor after the page is written', () => {
     const NOW = new Date('2026-10-23T12:00:00Z');
 
-    /** GitHub with two runs a day apart, and a Monitor that holds `newestRun` and answers each send with `answer`. */
-    function stubBoth({ newestRun = null, answer = { status: 200, body: { stored: 1 } } } = {}) {
+    /** GitHub with `runs` (by default two, days apart), and a Monitor that holds `newestRun` and answers each send with `answer`. */
+    function stubBoth({
+      newestRun = null,
+      answer = { status: 200, body: { stored: 1 } },
+      runs = [rawRun({ id: 2, created_at: '2026-10-23T08:00:00Z' }), rawRun({ id: 1, created_at: '2026-10-19T08:00:00Z' })],
+    } = {}) {
       const posted = [];
       const asked = [];
       vi.stubGlobal('fetch', async (url, init) => {
@@ -179,26 +183,57 @@ describe('the generator, end to end against a stubbed API', () => {
         asked.push(url);
         if (url.includes('/jobs')) return ok({ jobs: [rawJob({ run_id: Number(url.match(/runs\/(\d+)\/jobs/)[1]) })] });
         const page = Number(url.match(/[?&]page=(\d+)/)?.[1] ?? 1);
-        return ok({
-          workflow_runs:
-            page === 1
-              ? [rawRun({ id: 2, created_at: '2026-10-23T08:00:00Z' }), rawRun({ id: 1, created_at: '2026-10-19T08:00:00Z' })]
-              : [],
-        });
+        return ok({ workflow_runs: page === 1 ? runs : [] });
       });
       vi.stubEnv('HARNESS_MONITOR_URL', 'https://monitor.test');
       vi.stubEnv('HARNESS_WRITE_KEY', 'k');
       return { posted, asked };
     }
 
-    const quietly = async (run) => {
-      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const quietly = async (run, said = []) => {
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((text) => said.push(String(text)));
       try {
         return await run();
       } finally {
         stderr.mockRestore();
       }
     };
+
+    it('a run budget that stops the read inside the send window fails, naming the backfill, and the page over its own window is whole', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      // The Monitor is weeks behind, so the send reads past the page's 30 days and the budget stops it on 21 Sep.
+      const { posted } = stubBoth({
+        newestRun: '2026-09-01T08:00:00.000Z',
+        runs: ['2026-10-23', '2026-09-22', '2026-09-21', '2026-09-20'].map((date, i) => rawRun({ id: 10 - i, created_at: `${date}T08:00:00Z` })),
+      });
+      const dir = tmp();
+      const said = [];
+      try {
+        const args = ['--repo', 'o/r', '--out', path.join(dir, 'index.html'), '--model', path.join(dir, 'model.json'), '--send', '--max-runs', '3'];
+        expect(await quietly(() => main(args), said)).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[10, 9, 8]]);
+      expect(said.join('')).toContain('Send them with the Stability backfill, --from 2026-08-30 --to 2026-09-21.');
+      expect(JSON.parse(readFileSync(path.join(dir, 'model.json'), 'utf8')).coverage).toMatchObject({ partial: false, truncated: false });
+    });
+
+    it('a run budget that stops the read past the send window\'s start sends it all and fails nothing', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted } = stubBoth({
+        newestRun: '2026-10-23T08:00:00.000Z',
+        runs: ['2026-10-23', '2026-10-22', '2026-10-19', '2026-10-18'].map((date, i) => rawRun({ id: 10 - i, created_at: `${date}T08:00:00Z` })),
+      });
+      const said = [];
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', path.join(tmp(), 'index.html'), '--send', '--max-runs', '3']), said)).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[10, 9]]);
+      expect(said.join('')).not.toContain('stopped the read');
+    });
 
     it('sends from the newest stored run less two days, and writes the page over its own window', async () => {
       vi.useFakeTimers({ toFake: ['Date'], now: NOW });

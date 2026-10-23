@@ -560,8 +560,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
           HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
-      # A send the Monitor refused fails the step above with the page already
-      # written, so the page is still uploaded.
+      # A send the Monitor refused, or the run budget cut short, fails the step
+      # above with the page already written, so the page is still uploaded.
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:

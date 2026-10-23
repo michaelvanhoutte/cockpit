@@ -135,6 +135,15 @@ describe('listRuns', () => {
     expect(runs).toHaveLength(101);
     expect(calls.filter((url) => url.includes('page=2'))).toHaveLength(1);
   });
+
+  it('says it stopped short at the 1,000 runs a filtered list ends at, which arrives as an empty page', async () => {
+    const pages = Array.from({ length: 10 }, () => Array.from({ length: 100 }, () => rawRun()));
+    const { fetchImpl, calls } = stubFetch({ pages });
+    const { runs, truncated } = await listRuns({ repo: 'o/r', since: SINCE, maxRuns: 5_000, fetchImpl });
+    expect(runs).toHaveLength(1_000);
+    expect(truncated).toBe(true);
+    expect(calls).toHaveLength(10);
+  });
 });
 
 describe('collect', () => {

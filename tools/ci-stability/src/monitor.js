@@ -41,7 +41,12 @@ export function sendWindow({ newest, now, days, from = null, to = null }) {
 
 const address = (url, path) => `${url.replace(/\/+$/, '')}${path}`;
 
-/** The newest run the Monitor holds, or null when it holds none. */
+/**
+ * The newest run the Monitor holds, or null when it holds none. Any answer that
+ * is not one is a MonitorError, which costs the send and never the page: a
+ * login page answering 200, or a time that does not parse, would otherwise
+ * crash the run or compare false against every run and send none.
+ */
 export async function newestStored({ url, fetchImpl = globalThis.fetch }) {
   let res;
   try {
@@ -50,8 +55,18 @@ export async function newestStored({ url, fetchImpl = globalThis.fetch }) {
     throw new MonitorError(`Could not reach the Harness Monitor at ${url}: ${error.message}`);
   }
   if (!res.ok) throw new MonitorError(`The Harness Monitor answered ${res.status} when asked its newest run.`);
-  const { newestRun } = await res.json();
-  return newestRun ? new Date(newestRun) : null;
+  let newestRun;
+  try {
+    ({ newestRun } = await res.json());
+  } catch {
+    throw new MonitorError(`The Harness Monitor at ${url} did not answer JSON when asked its newest run.`);
+  }
+  if (newestRun === null || newestRun === undefined) return null;
+  const newest = new Date(newestRun);
+  if (Number.isNaN(newest.getTime())) {
+    throw new MonitorError(`The Harness Monitor answered ${JSON.stringify(newestRun)} as its newest run, which is not a time.`);
+  }
+  return newest;
 }
 
 /**

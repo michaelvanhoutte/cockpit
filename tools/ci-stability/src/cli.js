@@ -260,12 +260,15 @@ export async function main(argv) {
 }
 
 /**
- * Sends the runs inside the send's window. A backfill the run budget cut short
- * fails, naming the day to send the rest from, since only a person re-runs it;
- * the send after a merge has the next one's overlap.
+ * Sends the runs inside the send's window. A send the run budget stopped inside
+ * that window fails, naming the backfill that sends the rest: the newest runs
+ * are stored all the same, so the next send starts after the gap and no
+ * overlap ever reaches back into it.
  */
 async function send(monitor, collected, window, { backfill }) {
   const runs = collected.runs.filter((run) => new Date(run.createdAt) >= window.since);
+  // A read that went on past the window's start read all of it, whatever stopped it after.
+  const cut = collected.truncated && runs.length === collected.runs.length;
   const ids = new Set(runs.map((run) => run.id));
   let result;
   try {
@@ -282,28 +285,31 @@ async function send(monitor, collected, window, { backfill }) {
   process.stderr.write(
     `sent ${result.runs} runs from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n`,
   );
-  if (collected.truncated) {
+  if (cut) {
     const oldest = runs.reduce((min, run) => (run.createdAt < min ? run.createdAt : min), runs[0]?.createdAt ?? '');
+    const from = window.since.toISOString().slice(0, 10);
     process.stderr.write(
-      `The run budget (--max-runs) stopped the read at ${oldest}; the runs before it were not sent.${backfill ? ` Send them with --to ${oldest.slice(0, 10)}.` : ''}\n`,
+      `The run budget (--max-runs), or the 1,000 runs GitHub lists at most, stopped the read at ${oldest}; the runs before it were not sent. Send them with ${backfill ? '' : `the Stability backfill, --from ${from} `}--to ${oldest.slice(0, 10)}.\n`,
     );
-    if (backfill) return 1;
+    return 1;
   }
   return 0;
 }
 
 /** The page, or the model, over its own window, and the model beside it with --model. Returns the paths written. */
 function writeReport(args, collected, { now, days, pageSince, repo, branch }) {
-  // A send can read further back than the page shows; the page keeps to its window.
+  // A send can read further back than the page shows; the page keeps to its window,
+  // and a read that went on past it read all of it, whatever stopped it after.
   const runs = collected.runs.filter((run) => new Date(run.createdAt) >= pageSince);
+  const pastPage = runs.length < collected.runs.length;
   const ids = new Set(runs.map((run) => run.id));
   const model = buildModel({
     runs,
     jobs: collected.jobs.filter((job) => ids.has(job.runId)),
     now,
     requestedDays: days,
-    truncated: collected.truncated,
-    reachedWindowEdge: collected.reachedWindowEdge || runs.length < collected.runs.length,
+    truncated: collected.truncated && !pastPage,
+    reachedWindowEdge: collected.reachedWindowEdge || pastPage,
     ignored: collected.ignored,
     repo,
     branch,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { cutBatches, MonitorError, sendRuns, sendWindow } from '../../src/monitor.js';
+import { cutBatches, MonitorError, newestStored, sendRuns, sendWindow } from '../../src/monitor.js';
 
 const NOW = new Date('2026-10-23T12:00:00Z');
 
@@ -45,6 +45,14 @@ describe('CI stability', () => {
       },
     ])('$situation', ({ input, expected }) => {
       expect(sendWindow({ now: NOW, ...input })).toEqual(expected);
+    });
+
+    it.each([
+      { situation: 'a page that is not JSON, such as a login page', json: async () => JSON.parse('<!doctype html>') },
+      { situation: 'a newest run that is not a time', json: async () => ({ newestRun: 'yesterday' }) },
+    ])('an answer that is not a newest run, $situation, is the Monitor\'s failure, not a crash', async ({ json }) => {
+      const fetchImpl = async () => ({ ok: true, status: 200, json });
+      await expect(newestStored({ url: 'https://monitor.test', fetchImpl })).rejects.toThrow(MonitorError);
     });
   });
 

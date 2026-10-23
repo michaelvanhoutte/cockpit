@@ -3,7 +3,7 @@ name: Stability backfill
 # Sends an older window of `main`'s runs to the Harness Monitor, which the
 # `Stability` job in ci.yml otherwise feeds from the newest run it holds. Run
 # by hand from the Actions tab, because the write key lives only in repository
-# secrets (docs/deployment.md, "The Harness Monitor", says which windows).
+# secrets (docs/deployment.md, "The Harness Monitor", says how to cover 90 days).
 # Sending a window twice stores each run once.
 on:
   workflow_dispatch:

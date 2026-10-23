@@ -20,6 +20,8 @@
 
 const API = 'https://api.github.com';
 const PER_PAGE = 100;
+/** The most runs a filtered list returns, however many pages are asked for. */
+const LISTED_AT_MOST = 1_000;
 
 /** Thrown for anything that means the picture would be incomplete. */
 export class GitHubError extends Error {
@@ -173,9 +175,11 @@ function normalizeJob(raw) {
  * Runs on one branch, newest first, back to `since` or until `maxRuns` is
  * reached — whichever comes first.
  *
- * Paginates and stops on the first run older than `since` rather than passing
- * the API's `created` filter, because the stop condition is then the same one
- * the budget uses and both are visible here.
+ * Paginates and stops on the first run older than `since`, because the stop
+ * condition is then the same one the budget uses and both are visible here. Only
+ * a window with an `until` (the backfill) passes the API's `created` filter too.
+ * A list filtered by branch or `created` ends at 1,000 runs, as an empty page;
+ * reaching that is counted as `truncated`, since the runs past it went unread.
  *
  * Runs that belong to no workflow file are dropped here, counted rather than
  * silently: Dependabot's update jobs appear in this list as one pseudo-workflow
@@ -232,6 +236,10 @@ export async function listRuns({ repo, branch = 'main', since, until = null, max
     }
 
     if (reachedWindowEdge || truncated || batch.length < PER_PAGE) break;
+    if (page * PER_PAGE >= LISTED_AT_MOST) {
+      truncated = true;
+      break;
+    }
     page += 1;
   }
 

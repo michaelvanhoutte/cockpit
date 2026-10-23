@@ -202,7 +202,7 @@ The hook never sends conversation text, and a request it could not send goes aga
 | `Stability` in `ci.yml`, on every merge to `main` | each run, job and step from the newest run the Monitor holds less two days, or the last 30 days when it holds none |
 | *Stability backfill* (`stability-backfill.yml`), by hand | the runs of the window it is given |
 
-**Backfill CI stability once the secret and variable are set**: in the Actions tab, run *Stability backfill* on `main` with `from` 90 days ago and `to` 61 days ago, then twice more an hour apart for the next two 30-day windows, ending today. GitHub keeps 90 days of runs, so each day of waiting loses one; a window is about 400 runs and as many requests against the hourly allowance of 1,000 that every workflow shares, hence one window an hour. A window cut short by the run budget fails, naming the `to` day to send the rest with. Sending a window again stores each run once.
+**Backfill CI stability once the secret and variable are set**: in the Actions tab, run *Stability backfill* on `main` with `from` 90 days ago and `to` empty. It reads newest first and stops at the run budget, 800 runs or about nine days of `main`, failing and naming the `to` day it reached; run it again with the same `from` and that `to` until it passes. Leave an hour between runs, and between a run and a merge, since each spends about 800 requests of the hourly allowance of 1,000 that every workflow shares, as the `Stability` job does. Newest first keeps the Monitor's newest run today's, so no merge in between reads further back than its own page. GitHub keeps 90 days of runs, so each day of waiting loses one. Sending a window again stores each run once.
 
 ## 3. One Worker serves the whole application
 
