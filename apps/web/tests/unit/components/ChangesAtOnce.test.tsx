@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CommandResult, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
+import { dayOf, daysOnFrom, type CommandResult, type Item, type PossibleDuplicate, type WorkspaceSnapshot } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
 import { CommandRefused, fetchSnapshot, fetchWorkspaces, sendCommand } from '../../../src/api/client';
 import { InboxPanel } from '../../../src/components/InboxPanel';
@@ -106,6 +106,7 @@ function anItem(id: string, title: string, over: Partial<Item> = {}): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,
@@ -143,7 +144,14 @@ function keep(name: string, payload: Record<string, unknown>) {
     stored = stored.map((item) => (item.id === itemId ? { ...item, ...fields } : item));
   };
   if (name === 'set_done') change({ completedAt: payload.done ? (payload.issuedAt as string) : null });
-  if (name === 'set_started') change({ startedAt: payload.started ? (payload.issuedAt as string) : null });
+  if (name === 'set_started') change({ startedAt: payload.started ? (payload.issuedAt as string) : null, waitingSince: null });
+  if (name === 'wait_for_reply') {
+    const held = stored.find((item) => item.id === itemId);
+    change({
+      waitingSince: held?.waitingSince ?? (payload.issuedAt as string),
+      dueDate: daysOnFrom(dayOf(new Date(payload.issuedAt as string)), payload.days as number),
+    });
+  }
   if (name === 'set_priority') change({ priority: payload.priority as Item['priority'] });
   if (name === 'set_due_date') change({ dueDate: payload.dueDate as string | null });
   if (name === 'set_title') change({ title: payload.title as string });
@@ -275,7 +283,7 @@ async function chooseStatus(user: ReturnType<typeof userEvent.setup>, title: str
   (await screen.findByRole('menuitem', { name: /^Status/ })).focus();
   await user.keyboard('{ArrowRight}');
   await screen.findAllByRole('menuitemradio');
-  for (let step = 0; step < ['To do', 'In progress', 'Done'].indexOf(state); step += 1) await user.keyboard('{ArrowDown}');
+  for (let step = 0; step < ['To do', 'In progress', 'Waiting for reply', 'Done'].indexOf(state); step += 1) await user.keyboard('{ArrowDown}');
   await user.keyboard('{Enter}');
 }
 
@@ -443,6 +451,39 @@ describe('Item editing', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent('That item is locked.');
       expect(descriptionBox()).toHaveValue('Ask about the tolerances');
       expect(opened.close).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a wait for a reply shows on the row the moment it is chosen, and goes back with its reason if refused', () => {
+    /** Opens a row's menu and its *Wait for reply…*, and accepts the days it starts on with Enter. */
+    async function waitThreeDays(user: ReturnType<typeof userEvent.setup>, title: string) {
+      await user.click(within(rowOf(title)).getByLabelText('Item actions'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Wait for reply…' }));
+      expect(await screen.findByLabelText('Days to wait')).toHaveValue(3);
+      await user.keyboard('{Enter}');
+    }
+
+    it('wears Waiting since and a due date three days out before the server answers', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart', { dueDate: '2099-01-01' })]);
+
+      await waitThreeDays(user, 'Reply to Bart');
+
+      expect(within(rowOf('Reply to Bart')).getByText(/^Waiting since/)).toBeVisible();
+      expect(within(rowOf('Reply to Bart')).getByText('Due in 3d')).toBeVisible();
+      expect(waiting.map((request) => request.name)).toEqual(['wait_for_reply']);
+      expect(waiting[0]?.payload).toMatchObject({ itemId: BART, days: 3 });
+    });
+
+    it('takes the pill and the due date back when the server refuses, and the bar says why', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart', { dueDate: '2099-01-01' })]);
+      await waitThreeDays(user, 'Reply to Bart');
+
+      await act(async () => waiting.shift()!.refuse(new CommandRefused(400, 'Cockpit does not know the time zone this device is in.')));
+      await settle();
+
+      expect(within(rowOf('Reply to Bart')).queryByText(/^Waiting since/)).toBeNull();
+      expect(within(rowOf('Reply to Bart')).queryByText('Due in 3d')).toBeNull();
+      expect(await screen.findByText(/is not waiting for a reply\. Cockpit does not know the time zone/)).toBeVisible();
     });
   });
 

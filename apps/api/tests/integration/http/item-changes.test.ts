@@ -134,6 +134,18 @@ describe('Offline', () => {
         }),
       },
       {
+        situation: 'waiting for a reply',
+        name: 'wait_for_reply',
+        change: (targetId, requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T11:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: targetId,
+          days: 3,
+          timeZone: 'Europe/Brussels',
+        }),
+      },
+      {
         situation: 'linking it to a person',
         name: 'associate',
         change: (targetId, requestId) => ({

@@ -722,6 +722,7 @@ const itemColumns = {
   nextAction: items.nextAction,
   completedAt: items.completedAt,
   startedAt: items.startedAt,
+  waitingSince: items.waitingSince,
   priority: items.priority,
   prioritySetAt: items.prioritySetAt,
   dueDate: items.dueDate,

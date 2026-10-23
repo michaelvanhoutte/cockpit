@@ -17,7 +17,7 @@ function topBar(html: string) {
   return {
     mark: bar.includes('<svg') && bar.includes('class="logo"'),
     name: /<span>Harness Monitor<\/span>/.test(bar),
-    tabs: [...bar.matchAll(/<a href="\/"( aria-current="page")?>(Claude Code costs)<\/a>/g)].map((m) => ({ label: m[2]!, current: m[1] !== undefined })),
+    tabs: [...(/<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(bar)?.[1] ?? '').matchAll(/<a href="[^"]*"( aria-current="page")?>([^<]*)<\/a>/g)].map((m) => ({ label: m[2]!, current: m[1] !== undefined })),
   };
 }
 
@@ -46,7 +46,8 @@ describe('Harness Monitor', () => {
     });
 
     it("Cockpit's Claude calls is not a tab until its page exists", async () => {
-      expect(await theBarePage()).not.toContain('Claude calls');
+      // The job list below names the import of those calls; only a tab would be the page.
+      expect(topBar(await theBarePage()).tabs.map((t) => t.label)).not.toContainEqual(expect.stringContaining('Claude calls'));
     });
   });
 

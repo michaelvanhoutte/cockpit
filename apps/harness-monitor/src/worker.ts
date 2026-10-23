@@ -20,12 +20,21 @@ export interface Env {
   GITHUB_TOKEN?: string;
   /** `owner/name`, set in wrangler.jsonc. */
   GITHUB_REPOSITORY?: string;
+  /** A secret, the value Cockpit's production holds under the same name. Unset, the import of Cockpit's Claude calls skips. */
+  USAGE_READ_TOKEN?: string;
+  /** Cockpit's production address, set in wrangler.jsonc; `pnpm dev:harness` points it at the local API. */
+  COCKPIT_URL?: string;
   /** How long the edge keeps the costs page, in seconds; 0 turns the cache off (local runs and tests). */
   PAGE_CACHE_SECONDS?: string;
 }
 
 /** Which job each cron in wrangler.jsonc starts. */
-const SCHEDULES: Record<string, JobName> = { '0 * * * *': 'linking', '10 3 * * *': 'prices', '20 3 * * *': 'rebuild' };
+const SCHEDULES: Record<string, JobName> = {
+  '0 * * * *': 'linking',
+  '10 3 * * *': 'prices',
+  '20 3 * * *': 'rebuild',
+  '30 */12 * * *': 'claude-calls',
+};
 
 /** Far above MAX_BATCH full rows, so only a malformed write reaches it. */
 const MAX_BODY = 1_000_000;

@@ -198,6 +198,7 @@ export function occurrenceOf(
     nextAction: null,
     completedAt: null,
     startedAt: null,
+    waitingSince: null,
     priority: master.priority,
     prioritySetAt: asked.at,
     dueDate,

@@ -1,4 +1,5 @@
 import {
+  daysOnFrom,
   textsFromCapture,
   type AssociateCommand,
   type Association,
@@ -18,6 +19,7 @@ import {
   type SetStartedCommand,
   type SetTitleCommand,
   type Source,
+  type WaitForReplyCommand,
 } from '@cockpit/shared';
 import { dueDateIsTheConnections } from './due-in-days.js';
 
@@ -123,6 +125,7 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     nextAction: cmd.nextAction ?? null,
     completedAt: null,
     startedAt: null,
+    waitingSince: null,
     priority: cmd.priority ?? null,
     // A capture that carried a priority is the person's own choice, which the
     // note's reading never replaces ("Read a priority you say when you
@@ -200,12 +203,40 @@ export function applySetDone(item: Item, cmd: SetDoneCommand): Item | null {
  * `completedAt` alone, so an item finished with straight from To do carries no
  * start time to begin with and undoing it returns there instead. Nothing here
  * has to know which of the two that will be.
+ *
+ * **Either way it ends a wait for a reply** ("Set an Item Waiting for reply",
+ * issue 1463): To do and In progress are both a status the Item is in instead.
  */
 export function applySetStarted(item: Item, cmd: SetStartedCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
   return {
     ...item,
     startedAt: cmd.started ? (item.startedAt ?? cmd.issuedAt) : null,
+    waitingSince: null,
+    updatedAt: cmd.issuedAt,
+  };
+}
+
+/**
+ * *Wait for reply…* and *Wait again…* ("Set an Item Waiting for reply, and wait
+ * again after chasing", issue 1463): the Item waits, and is due `days` after
+ * `today` - the day the change was issued on, on its own calendar - whatever due
+ * date it had.
+ *
+ * **Waiting again keeps the day it first started waiting**, the first-answer-wins
+ * rule `applySetStarted` keeps for a start: chasing is not a new wait. The due
+ * date is the person's own, so its marker is stamped as `applySetDueDate`
+ * stamps it, and its ramp starts now. The start time is left alone, so the
+ * status reads In progress again only once something clears the wait.
+ */
+export function applyWaitForReply(item: Item, cmd: WaitForReplyCommand, today: string): Item | null {
+  if (isStale(item, cmd.issuedAt)) return null;
+  return {
+    ...item,
+    waitingSince: item.waitingSince ?? cmd.issuedAt,
+    dueDate: daysOnFrom(today, cmd.days),
+    dueDateSetAt: cmd.issuedAt,
+    dueDateChosenAt: item.dueDateChosenAt ?? cmd.issuedAt,
     updatedAt: cmd.issuedAt,
   };
 }

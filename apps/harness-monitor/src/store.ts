@@ -1,4 +1,5 @@
 import { belgianDaySql } from './belgium';
+import { rebuildCallStatements } from './claude-calls';
 import { currentPrices } from './price-list';
 import { costMicros, priceOf } from './prices';
 import { PHASES_BEGIN_MS, requestPhaseSql, type Correction, type UsageRow } from './validate';
@@ -160,10 +161,17 @@ export async function stillUnphased(db: D1Database): Promise<number> {
  * on its row: rows stored before the Monitor counted in Belgian days carry a UTC
  * day, and rows stored since carry a Belgian one. Running it again, after a
  * failed run or a finished one, gives the same totals.
+ *
+ * The same batch drops Cockpit's Claude calls copied more than 12 months
+ * before `now` and rebuilds their totals from the copies left; it never deletes
+ * a Claude Code request. Returns the days covered and the copies dropped.
  */
-export async function rebuildTotals(db: D1Database): Promise<number> {
+export async function rebuildTotals(db: D1Database, now = Date.now()): Promise<{ days: number; dropped: number }> {
   const day = belgianDaySql('occurred_at');
-  await db.batch([
+  const calls = rebuildCallStatements(db, now);
+  const [dropped] = await db.batch([
+    calls.drop,
+    ...calls.rebuild,
     db.prepare('DELETE FROM daily_totals'),
     db.prepare('DELETE FROM daily_split_totals'),
     db.prepare('DELETE FROM session_starts'),
@@ -181,7 +189,7 @@ export async function rebuildTotals(db: D1Database): Promise<number> {
       ${SESSION_STARTS_SELECT(day, '')}`),
   ]);
   const covered = await db.prepare('SELECT COUNT(DISTINCT day) AS days FROM daily_totals').first<{ days: number }>();
-  return covered?.days ?? 0;
+  return { days: covered?.days ?? 0, dropped: dropped!.meta.changes ?? 0 };
 }
 
 export interface UnpricedLine {

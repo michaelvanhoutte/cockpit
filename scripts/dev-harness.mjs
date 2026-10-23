@@ -51,6 +51,10 @@ supervise([
       // No edge cache locally: the page should show what was just sent.
       '--var',
       'PAGE_CACHE_SECONDS:0',
+      // The import of Cockpit's Claude calls reads this checkout's own API, never
+      // production. It still skips until USAGE_READ_TOKEN is in apps/harness-monitor/.dev.vars.
+      '--var',
+      `COCKPIT_URL:http://localhost:${ports.devApi}`,
     ],
     'harness-monitor',
     '36',

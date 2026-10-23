@@ -15,6 +15,7 @@ import type {
   Series,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
+import { dayOf, daysOnFrom } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
@@ -251,6 +252,7 @@ function anItem(over: Partial<Item> = {}): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     title: 'Part 11',
     description: null,
@@ -526,11 +528,36 @@ describe('Item editing', () => {
         draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
         asks: {},
       },
+      {
+        // One change for the status and the due date it gives (issue 1463).
+        situation: 'a wait for a reply chosen',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-12-01', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-26', status: 'waiting' as const, started: false, wait: { days: 3, dueDate: '2026-10-26' } },
+        asks: { wait: 3 },
+      },
+      {
+        situation: 'a wait for a reply chosen, then another due date typed',
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-30', status: 'waiting' as const, started: false, wait: { days: 3, dueDate: '2026-10-26' } },
+        asks: { wait: 3, dueDate: '2026-10-30' },
+      },
+      {
+        situation: 'a wait for a reply chosen, then the due date cleared back to none',
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'waiting' as const, started: false, wait: { days: 3, dueDate: '2026-10-26' } },
+        asks: { wait: 3, dueDate: null },
+      },
+      {
+        situation: 'a wait for a reply already written, chosen alike again',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-26', status: 'waiting' as const, started: false, waiting: true, wait: { days: 3, dueDate: '2026-10-26' } },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-26', status: 'waiting' as const, started: false, waiting: true, wait: { days: 3, dueDate: '2026-10-26' } },
+        asks: {},
+      },
     ])('$situation', ({ stored, draft, asks }) => {
+      // Nothing waits unless the case says so.
+      const nothingWaits = { waiting: false, wait: null };
       expect(
         whatChanged(
-          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
-          draft,
+          { ...nothingWaits, ...(stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false }) },
+          { ...nothingWaits, ...draft },
         ),
       ).toEqual(asks);
     });
@@ -949,7 +976,8 @@ describe('Item editing', () => {
         { situation: 'a to do item', over: {}, shown: 'To do' },
         { situation: 'an item in progress', over: { startedAt: '2026-09-01T08:00:00.000Z' }, shown: 'In progress' },
         { situation: 'a finished item', over: { completedAt: '2026-09-01T08:00:00.000Z' }, shown: 'Done' },
-      ])('shows the one $situation is, among To do, In progress and Done in that order', async ({ over, shown }) => {
+        { situation: 'an item waiting for a reply', over: { waitingSince: '2026-09-01T08:00:00.000Z' }, shown: 'Waiting for reply' },
+      ])('shows the one $situation is, among To do, In progress, Waiting for reply and Done in that order', async ({ over, shown }) => {
         await theForm(anItem(over));
 
         expect(statusChip()).toHaveTextContent(shown);
@@ -957,6 +985,7 @@ describe('Item editing', () => {
         expect((await screen.findAllByRole('menuitemradio')).map((option) => option.textContent?.replace('✓', ''))).toEqual([
           'To do',
           'In progress',
+          'Waiting for reply',
           'Done',
         ]);
       });
@@ -1005,6 +1034,120 @@ describe('Item editing', () => {
         await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
         expect(sent().map((change) => change.name)).toEqual(['set_done']);
         expect(sent()[0]).toMatchObject({ payload: { done: false } });
+      });
+    });
+
+    /**
+     * "Set an Item Waiting for reply, and wait again after chasing" (issue
+     * 1463): the form asks how long from its chip and its Status, shows the
+     * status and the due date the wait gives, and writes them as one change by
+     * its usual rule. The day arithmetic is the server's (`waiting-for-reply.test.ts`).
+     */
+    describe('waiting for a reply', () => {
+      const theLine = () => screen.getByRole('group', { name: 'Fields' });
+      const dueIn = (days: number) => daysOnFrom(dayOf(new Date()), days);
+
+      it('Waiting for reply on Status asks how long, and Save sends that one wait alone', async () => {
+        const user = await theForm(anItem({ dueDate: '2099-01-01' }));
+
+        await pickStatus(user, 'Waiting for reply');
+        await screen.findByLabelText('Days to wait');
+        await user.click(screen.getByRole('button', { name: '7 days' }));
+        expect(statusChip()).toHaveTextContent('Waiting for reply');
+        expect(held.send).not.toHaveBeenCalled();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent()).toEqual([
+          { name: 'wait_for_reply', payload: expect.objectContaining({ itemId: anItem().id, days: 7 }) },
+        ]);
+      });
+
+      it('reopens a finished Item, then waits, from Wait for reply… on the line', async () => {
+        const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
+
+        await user.click(within(theLine()).getByRole('button', { name: 'Wait for reply…' }));
+        await screen.findByLabelText('Days to wait');
+        await user.keyboard('{Enter}');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_done', 'wait_for_reply']);
+        expect(sent()[1]).toMatchObject({ payload: { days: 3 } });
+      });
+
+      it('a waiting Item offers Wait again…, and a date typed after the wait is sent after it', async () => {
+        const user = await theForm(anItem({ waitingSince: '2026-09-01T08:00:00.000Z', dueDate: '2026-09-04' }));
+
+        expect(statusChip()).toHaveTextContent('Waiting for reply');
+        await user.click(within(theLine()).getByRole('button', { name: 'Wait again…' }));
+        await user.click(await screen.findByRole('button', { name: '14 days' }));
+        await user.click(within(theLine()).getByRole('button', { name: 'Tmrw' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['wait_for_reply', 'set_due_date']);
+        expect(sent()[0]).toMatchObject({ payload: { days: 14 } });
+        expect(sent()[1]).toMatchObject({ payload: { dueDate: dueIn(1) } });
+      });
+
+      it('a status chosen after a wait is the status, and the wait is not sent', async () => {
+        const user = await theForm();
+
+        await user.click(within(theLine()).getByRole('button', { name: 'Wait for reply…' }));
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+        await pickStatus(user, 'In progress');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_due_date', 'set_started']);
+      });
+
+      it('is written at once when docked', async () => {
+        held.itemFormPresentation = 'docked';
+        const user = await theForm();
+
+        await pickStatus(user, 'Waiting for reply');
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['wait_for_reply']));
+      });
+
+      it('a wait refused when docked leaves standing a due date chosen while it was on its way', async () => {
+        held.itemFormPresentation = 'docked';
+        const user = await theForm(anItem({ dueDate: '2099-01-01' }), [], true);
+        let refuse: (error: Error) => void = () => {};
+        held.send.mockImplementation(((change: { name: string }) =>
+          change.name === 'wait_for_reply'
+            ? new Promise((_, reject) => (refuse = reject))
+            : Promise.resolve({ ok: true as const, applied: true })) as never);
+
+        await pickStatus(user, 'Waiting for reply');
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+        await user.click(within(theLine()).getByRole('button', { name: 'Tmrw' }));
+        await waitFor(() => expect(sent().map((change) => change.name)).toContain('wait_for_reply'));
+        await act(async () => refuse(new Error('Refused.')));
+
+        await waitFor(() => expect(statusChip()).toHaveTextContent('To do'));
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['wait_for_reply', 'set_due_date']));
+        expect(within(theLine()).getByRole('button', { name: 'Tmrw' })).toHaveAttribute('aria-pressed', 'true');
+      });
+
+      it('a wait refused on Save goes back to the status and due date the Item has, and is not sent again', async () => {
+        const user = await theForm(anItem({ dueDate: '2099-01-01' }));
+        held.send.mockRejectedValueOnce(new Error('Cockpit does not know the time zone this device is in.'));
+
+        await pickStatus(user, 'Waiting for reply');
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/wait for a reply was not set/));
+        expect(statusChip()).toHaveTextContent('To do');
+        held.send.mockClear();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent()).toEqual([]);
       });
     });
 

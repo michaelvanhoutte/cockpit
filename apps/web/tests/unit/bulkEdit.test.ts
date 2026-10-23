@@ -222,6 +222,18 @@ describe('Selection', () => {
       expect(summary(refusing.sent)).toEqual(['set_priority:a', 'set_priority:b']);
     });
 
+    it('says how far it got when an Item it reaches was waiting for a reply, which cannot be put back', async () => {
+      const { sent, sending } = aSender();
+      const waiting = anItem('b', { waitingSince: '2026-10-01T09:00:00.000Z' });
+      const { changed } = await edit(sending, [anItem('a'), waiting, anItem('c')], 'status', 'in_progress');
+      sent.length = 0;
+
+      await expect(putBack(sending, 'status', changed)).rejects.toThrow(
+        '1 of 3 put back, the rest still changed. A wait for a reply cannot be put back.',
+      );
+      expect(summary(sent)).toEqual(['set_started:a']);
+    });
+
     it('puts a finished Item back to what it was, naming the run Done ended', async () => {
       const { sent, sending } = aSender();
       const started = anItem('a', { startedAt: '2026-09-30T09:00:00.000Z' });
