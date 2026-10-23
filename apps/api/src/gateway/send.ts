@@ -59,8 +59,9 @@ export function sendingTo(destination: Destination, around: Around): Recorder {
           ...row,
           userId,
           branch: around.branch,
-          // Left out where there is none, so a Worker deployed before production
-          // learns these fields is not refused by its strict schema.
+          // Left out where there is none, so a staging or local Worker deployed
+          // before production learns these fields is not refused by its strict
+          // schema; a CI run always has a run, so production ships first.
           ...(around.pullRequest != null && { pullRequest: around.pullRequest }),
           ...(around.runId != null && { runId: around.runId }),
         }),
