@@ -94,7 +94,7 @@ const NEVER_RAN: Record<JobName, string> = {
 };
 
 /** What each job's last run did, scheduled or by hand: when, how it was started, and its outcome or error. */
-function jobLines(statuses: JobStatus[]): string {
+export function jobLines(statuses: JobStatus[]): string {
   const items = statuses.map(({ job, run, lastSucceededAt }) => {
     // A deployment from before runs were recorded knows only when the job last succeeded.
     const text = run
@@ -188,7 +188,7 @@ function whereItWent(page: CostsPage): string {
 }
 
 const DIMENSION_LABELS: Record<Split, string> = { phase: 'Phase', model: 'Model', where: 'Where it ran', outcome: 'Outcome' };
-const signed = (micros: number) => `${micros < 0 ? '−' : '+'}${dollars(Math.abs(micros))}`;
+export const signed = (micros: number) => `${micros < 0 ? '−' : '+'}${dollars(Math.abs(micros))}`;
 const driverValue = (d: Driver, n: number | null) =>
   n === null ? '—' : d.unit === 'dollars' ? dollars(n) : `${number(Math.round(n))}${d.unit === 'lines' ? ' lines' : d.unit === 'tokens' ? ' tokens' : ''}`;
 
@@ -252,7 +252,12 @@ const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) 
  */
 function overTime(page: CostsPage, now: number, measure: Measure): string {
   const { query, models } = page;
-  const chart: DayChart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, firstDay(query.period, now), now, measure);
+  const chart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, firstDay(query.period, now), now, measure);
+  return costPerDay(chart, (key) => colourOf(query.split, key, models), measure);
+}
+
+/** The per-day panel for a chart in its measure, each line in the colour `colour` gives its series; empty where the chart has no day. */
+export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure = 'cost'): string {
   if (chart.days.length === 0) return '';
   const { title, id, value, axis, note } = MEASURES[measure];
   const { width, height, left, right, top, bottom } = CHART;
@@ -260,7 +265,7 @@ function overTime(page: CostsPage, now: number, measure: Measure): string {
   const x = (i: number) => (chart.days.length === 1 ? (left + width - right) / 2 : left + (i / (chart.days.length - 1)) * (width - left - right));
   const y = (v: number) => top + (1 - v / peak) * (height - top - bottom);
   const lines = [
-    ...chart.lines.map((l) => ({ ...l, colour: colourOf(query.split, l.key, models), dash: false })),
+    ...chart.lines.map((l) => ({ ...l, colour: colour(l.key), dash: false })),
     { key: 'total', label: 'Total', values: chart.total, colour: 'var(--ink-strong)', dash: true },
   ];
   const grid = [0, 0.5, 1]

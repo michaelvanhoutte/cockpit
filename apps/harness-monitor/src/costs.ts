@@ -24,7 +24,7 @@ export type Split = (typeof SPLITS)[number];
 export const WHOS = ['all', 'main', 'subagents'] as const;
 export type Who = (typeof WHOS)[number];
 /** A model id as the usage hook sends it: letters, digits and a few separators, never free text. */
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,99}$/;
+export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,99}$/;
 
 /** The engineer filter's value for requests no pull request claims. */
 export const UNATTRIBUTED = '~unattributed';
@@ -379,16 +379,19 @@ export interface DayChart {
   total: number[];
 }
 
+/** A day's group as a per-day chart reads it; the calls page has dollars only, so tokens are optional. */
+export type DayGroup = Pick<CostGroup, 'key' | 'bySeries' | 'totalMicros'> & Partial<Pick<CostGroup, 'tokensBySeries' | 'totalTokens'>>;
+
 /**
  * Cost or tokens per day as lines: one per series of the split that has any,
  * and the total. The range runs from the period's first day (the earliest day
  * with any request, priced or not, for all time) to today, so a day with none
  * is a zero, not a gap.
  */
-export function dayChart(groups: CostGroup[], series: Series[], first: string | null, now: number, measure: Measure = 'cost'): DayChart {
+export function dayChart(groups: DayGroup[], series: Series[], first: string | null, now: number, measure: Measure = 'cost'): DayChart {
   if (groups.length === 0) return { days: [], lines: [], total: [] };
-  const of = (g: CostGroup | undefined, key: string) => (measure === 'cost' ? g?.bySeries[key] : g?.tokensBySeries[key]) ?? 0;
-  const totalOf = (g: CostGroup | undefined) => (measure === 'cost' ? g?.totalMicros : g?.totalTokens) ?? 0;
+  const of = (g: DayGroup | undefined, key: string) => (measure === 'cost' ? g?.bySeries[key] : g?.tokensBySeries?.[key]) ?? 0;
+  const totalOf = (g: DayGroup | undefined) => (measure === 'cost' ? g?.totalMicros : g?.totalTokens) ?? 0;
   const byDay = new Map(groups.map((g) => [g.key, g]));
   const keys = groups.map((g) => g.key).sort();
   const start = first ?? keys[0]!;
