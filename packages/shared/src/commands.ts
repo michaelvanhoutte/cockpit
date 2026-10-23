@@ -632,16 +632,14 @@ export type SetRepeatCommand = z.infer<typeof setRepeatSchema>;
  * Deleting is the stop a series already has: its copies keep naming it and no
  * more are made.
  */
-export const createRecurringItemSchema = commandEnvelopeSchema.extend({
+const recurringItemWholeSchema = commandEnvelopeSchema.extend({
   seriesId: z.uuid(),
   ...recurringItemContentSchema.shape,
 });
+export const createRecurringItemSchema = recurringItemWholeSchema;
 export type CreateRecurringItemCommand = z.infer<typeof createRecurringItemSchema>;
 
-export const writeRecurringItemSchema = commandEnvelopeSchema.extend({
-  seriesId: z.uuid(),
-  ...recurringItemContentSchema.shape,
-});
+export const writeRecurringItemSchema = recurringItemWholeSchema;
 export type WriteRecurringItemCommand = z.infer<typeof writeRecurringItemSchema>;
 
 export const deleteRecurringItemSchema = commandEnvelopeSchema.extend({

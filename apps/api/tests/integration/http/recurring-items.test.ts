@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations, runDurableObjectAlarm } from 'cloudflare:test';
-import type { CommandPayload, Item, RecurringItem } from '@cockpit/shared';
+import { ACCOUNT_WIDE, type CommandPayload, type Item, type RecurringItem } from '@cockpit/shared';
 import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, alsoWorkspaces, asUser, inTheStore, seedRegister, startFromEmpty, storeNamed } from '../seed.js';
 
 /**
@@ -328,8 +328,47 @@ describe('Workspace management', () => {
       expect(((await seriesRows())[0] as { stopped_at: string | null }).stopped_at).toBe(LATER);
     });
 
-    it('refuses one that is not there', async () => {
+    it('refuses one that is not there, and one of another Workspace', async () => {
+      await alsoWorkspaces();
+      const atlas = await aMade({}, OTHER_WORKSPACE);
+
       expect((await remove(nextId())).status).toBe(400);
+      expect((await remove(atlas)).status).toBe(400);
+      expect(await recurringItemsOf(OTHER_WORKSPACE)).toHaveLength(1);
+    });
+  });
+
+  describe('a change to a recurring item is told to the Workspaces that draw its copy', () => {
+    /**
+     * The Workspaces the change answered at `at` is announced to, as a tab polling hears them. **A change
+     * to the series' own Workspace is hidden behind the copy the alarm made there**, which carries a later
+     * stamp (the alarm runs on the day it is due), so what this can tell is whether it went account-wide.
+     */
+    const heardOf = async (at: string | undefined) => {
+      const heard = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, '');
+      if (heard.status !== 'ok') throw new Error(JSON.stringify(heard));
+      return heard.value.events.flatMap((event) =>
+        event.type === 'snapshot_invalidated' && event.at === at ? [event.workspaceId] : [],
+      );
+    };
+
+    it.each([
+      { audience: 'its own Workspace alone', where: 'in its own Workspace', moved: false, heard: [] },
+      { audience: 'every Workspace', where: 'in another Workspace', moved: true, heard: [ACCOUNT_WIDE] },
+    ])('is told to $audience when its latest copy is drawn $where, for a write and for a delete', async ({ moved, heard }) => {
+      await alsoWorkspaces();
+      const seriesId = await aMade({ repeat: { ...WEEKLY, nextOn: '2090-01-09', dueAfterDays: null } });
+      await alarmRunsAt('2090-01-09T08:00:00.000Z');
+      expect(await copiesOf(seriesId)).toHaveLength(1);
+      if (moved) await inTheStore((sql) => sql.exec('UPDATE items SET workspace_id = ? WHERE series_id = ?', OTHER_WORKSPACE, seriesId));
+
+      const written = await write(seriesId, { repeat: { ...WEEKLY, nextOn: '2090-01-20', dueAfterDays: null } }, '2090-01-10T09:00:00.000Z');
+      expect(written.status).toBe(200);
+      expect(await heardOf(((await written.json()) as { at?: string }).at)).toEqual(heard);
+
+      const deleted = await remove(seriesId, '2090-01-11T09:00:00.000Z');
+      expect(deleted.status).toBe(200);
+      expect(await heardOf(((await deleted.json()) as { at?: string }).at)).toEqual(heard);
     });
   });
 });

@@ -9,6 +9,7 @@ import { fetchSnapshot, fetchWorkspaces } from '../../../src/api/client';
 import { readForAnnouncement } from '../../../src/api/snapshotReads';
 import RecurringModal from '../../../src/components/RecurringModal';
 import { resetStanding, stand } from '../../../src/offline';
+import { UndoWhatJustHappened } from '../../../src/undo';
 
 /**
  * The Recurring items modal: what it draws from a read (F1) and what a save, a
@@ -381,6 +382,40 @@ describe('Workspace management', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('A Panel it files on is no longer in this Workspace.');
       await user.click(screen.getByRole('button', { name: 'Cancel' }));
       expect(titles()).toEqual(['Weekly review']);
+    });
+
+    it.each([
+      { change: 'a save', verb: 'saved', press: ['Save'] },
+      { change: 'a delete', verb: 'deleted', press: ['Delete recurring item', 'Delete'] },
+    ])('says the refusal of $change in the undo bar when the modal has been closed meanwhile', async ({ verb, press }) => {
+      held.items = [REVIEW];
+      const shown = (modal: boolean) => (
+        <QueryClientProvider client={client}>
+          <UndoWhatJustHappened>{modal && <RecurringModal workspaceId={WORK} onClose={closed} />}</UndoWhatJustHappened>
+        </QueryClientProvider>
+      );
+      const view = render(shown(true));
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole('button', { name: 'Weekly review' }));
+      for (const name of press) await user.click(screen.getByRole('button', { name }));
+      view.rerender(shown(false));
+
+      await refuseNext('That recurring item is no longer there.');
+
+      expect(await screen.findByText(`“Weekly review” was not ${verb}. That recurring item is no longer there.`)).toBeInTheDocument();
+    });
+
+    it('does not let a title past the length the server takes be saved, and says so', async () => {
+      const user = await show([]);
+      await user.click(screen.getByRole('button', { name: '+ New recurring item' }));
+
+      fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'x'.repeat(201) } });
+
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+      expect(screen.getByRole('alert')).toHaveTextContent('A title is at most 200 characters.');
+      fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'x'.repeat(200) } });
+      expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('says a refusal after the person has opened another form, in the list, and leaves them where they are', async () => {

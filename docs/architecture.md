@@ -480,7 +480,7 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 
 **Moved from 233KB to 235KB for Repeats** ("Set an Item to repeat from its form, and see the rule on its row", issue 1406): the chip and its popover are a chunk of their own, and what stays in the entry is the rule's wording for a row's ↻, the form's draft of it and its drawing ahead, about 1.5KB; the second KB is headroom the entry had already used up.
 
-**Moved from 235KB to 236KB for Recurring items** ("Make, change and delete recurring items from the Recurring items modal", issue 1449): the menu entry and the code that fetches the modal on click are in the entry, and it had 52 bytes left.
+**Moved from 235KB to 236KB for Recurring items** ("Make, change and delete recurring items from the Recurring items modal", issue 1449): the menu entry and the code that fetches the modal on click are in the entry.
 
 One standing rule follows: **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 

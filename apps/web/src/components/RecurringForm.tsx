@@ -2,6 +2,7 @@ import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   MOST_DUE_AFTER_DAYS,
+  TITLE_LENGTH,
   dayOf,
   firstNextOn,
   panelPlace,
@@ -36,6 +37,9 @@ const FREQUENCIES: readonly [RepeatFrequency, string][] = [
 const LABEL = 'block text-xs font-semibold uppercase tracking-wide text-ink-faint';
 const BOX =
   'w-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40';
+
+/** How long a description may be, as the Item form holds it to. */
+const DESCRIPTION_LIMIT = 60_000;
 
 /** A day the server takes: a four-digit year, which is what a date box passes while a fifth digit is being typed. */
 const DAY = /^\d{4}-\d{2}-\d{2}$/u;
@@ -91,7 +95,16 @@ export function RecurringFormBody({
     name: placeOf(snapshot, panelId) ?? panelNames[panelId] ?? 'Panel',
     workspaceId,
   }));
-  const canSave = draft.title.trim().length > 0 && DAY.test(draft.nextOn);
+  // What the server would refuse with no field to name, said before the row is drawn.
+  const tooLong =
+    draft.title.trim().length > TITLE_LENGTH
+      ? `A title is at most ${TITLE_LENGTH} characters.`
+      : /[\p{Cc}\p{Zl}\p{Zp}]/u.test(draft.title.trim())
+        ? 'A title is a single line, without tabs or line breaks.'
+        : draft.description.trim().length > DESCRIPTION_LIMIT
+          ? `A description is at most ${DESCRIPTION_LIMIT.toLocaleString()} characters.`
+          : null;
+  const canSave = draft.title.trim().length > 0 && DAY.test(draft.nextOn) && tooLong === null;
 
   return (
     <>
@@ -163,7 +176,7 @@ export function RecurringFormBody({
 
         <fieldset className="rounded-md border border-shade/10 p-3 text-sm">
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">Repeats</legend>
-          <div role="group" aria-label="Repeats" className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1">
             {FREQUENCIES.map(([value, name]) => (
               <button
                 key={value}
@@ -231,6 +244,11 @@ export function RecurringFormBody({
         </fieldset>
       </div>
 
+      {tooLong !== null && (
+        <p role="alert" className="mt-2 shrink-0 text-sm text-over-ink">
+          {tooLong}
+        </p>
+      )}
       {refused?.field === 'other' && (
         <p role="alert" className="mt-2 shrink-0 text-sm text-over-ink">
           {refused.text}

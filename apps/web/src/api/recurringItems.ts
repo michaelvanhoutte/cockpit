@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { RecurringItemList } from '@cockpit/shared';
+import { recurringItemListSchema, type RecurringItemList } from '@cockpit/shared';
 import { recurringItemsDrawnOver } from '../recurringItemsDrawnAhead';
 import { api, refusal } from './client';
 import { changeList, readBegins, useDrawnOver } from './ownList';
@@ -31,7 +31,7 @@ export const recurringItemsQuery = (workspaceId: string) =>
       readBegins(client, queryKey);
       const res = await api.v1.workspaces[':workspaceId']['recurring-items'].$get({ param: { workspaceId } });
       if (!res.ok) throw refusal('recurring items', res.status);
-      return (await res.json()) as RecurringItemList;
+      return recurringItemListSchema.parse(await res.json()) satisfies RecurringItemList;
     },
     staleTime: 0,
     gcTime: 0,

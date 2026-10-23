@@ -16,6 +16,7 @@ import { takesFiles } from '../attachmentQueue';
 import { weekdayDayLabel } from '../dateFormat';
 import { deviceTimeZone } from '../deviceTimeZone';
 import { useIsOffline } from '../offline';
+import { useUndo } from '../undo';
 import { RecurringFormBody, placeOf, type Refused } from './RecurringForm';
 
 /**
@@ -86,6 +87,7 @@ export default function RecurringModal({
   const list = useRecurringItems(workspaceId);
   const change = useChangeRecurringItem();
   const offline = useIsOffline();
+  const offerToUndo = useUndo();
   const [view, setView] = useState<View>({ kind: 'list' });
   const [notice, setNotice] = useState<string | null>(null);
   // What is on screen *now*, for a refusal that comes back after the person moved on.
@@ -101,6 +103,7 @@ export default function RecurringModal({
 
   const rows = [...(list.data?.recurringItems ?? [])].sort((a, b) => a.nextOn.localeCompare(b.nextOn) || a.title.localeCompare(b.title));
   const toList = () => setView({ kind: 'list' });
+  const openForm = (item: RecurringItem) => setView({ kind: 'form', isNew: false, item, refusal: null });
 
   /** Saves at the click: the form closes and the list has the row at once. Refused, the form comes back with the reason. */
   const save = (item: RecurringItem, isNew: boolean) => {
@@ -121,7 +124,8 @@ export default function RecurringModal({
         repeat: { frequency, nextOn, dueAfterDays, timeZone: deviceTimeZone() ?? 'UTC' },
       },
     }).catch((failure: unknown) => {
-      if (!open.current) return;
+      // The modal is gone: said in the bar, as a refusal after the person moved on is everywhere else.
+      if (!open.current) return offerToUndo({ what: `“${item.title}” was not saved. ${whyNotDone(failure)}` });
       // Moved on to another form meanwhile: not pulled back into this one.
       if (viewNow.current.kind !== 'list') return setNotice(`“${item.title}” was not saved. ${whyNotDone(failure)}`);
       setView({ kind: 'form', isNew, item, refusal: refusedWith(failure) });
@@ -136,7 +140,9 @@ export default function RecurringModal({
       name: 'delete_recurring_item',
       payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, seriesId: item.id },
     }).catch((failure: unknown) => {
-      if (open.current) setNotice(`“${item.title}” was not deleted. ${whyNotDone(failure)}`);
+      const what = `“${item.title}” was not deleted. ${whyNotDone(failure)}`;
+      if (open.current) setNotice(what);
+      else offerToUndo({ what });
     });
   };
 
@@ -243,7 +249,7 @@ export default function RecurringModal({
                         <li key={one.id} className="border-b border-shade/5 py-2 last:border-b-0">
                           <button
                             type="button"
-                            onClick={() => setView({ kind: 'form', isNew: false, item: one, refusal: null })}
+                            onClick={() => openForm(one)}
                             className="block w-full text-left"
                           >
                             <span className="block text-sm font-medium text-ink">{one.title}</span>
@@ -271,7 +277,7 @@ export default function RecurringModal({
                             <tr
                               key={one.id}
                               data-master-id={one.id}
-                              onClick={() => setView({ kind: 'form', isNew: false, item: one, refusal: null })}
+                              onClick={() => openForm(one)}
                               className="cursor-pointer border-b border-shade/5 align-top last:border-b-0 hover:bg-accent-tint"
                             >
                               <td className="max-w-[14rem] px-2 py-1.5">
@@ -279,7 +285,7 @@ export default function RecurringModal({
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    setView({ kind: 'form', isNew: false, item: one, refusal: null });
+                                    openForm(one);
                                   }}
                                   className="max-w-full truncate text-left focus-visible:outline-2 focus-visible:outline-accent"
                                 >
