@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CommandResult, RecurringItemList, WindowCommandName } from '@cockpit/shared';
-import type { Requested } from '../drawnAhead';
+import type { RecurringItemList } from '@cockpit/shared';
 import { recurringItemsDrawnOver } from '../recurringItemsDrawnAhead';
-import { CommandRefused, api, refusal } from './client';
-import { readBegins, requestToChangeList, useDrawnOver } from './ownList';
-import { snapshotQuery } from './queries';
+import { api, refusal } from './client';
+import { changeList, readBegins, useDrawnOver } from './ownList';
+import { snapshotQuery, type CommandArgs } from './queries';
+
+/** The three commands that change a recurring item. */
+type RecurringItemChange = Extract<CommandArgs, { name: 'create_recurring_item' | 'write_recurring_item' | 'delete_recurring_item' }>;
 
 /**
  * The recurring items a Workspace has, and the changes made to them ("Make,
@@ -63,29 +65,6 @@ export function useRecurringItems(workspaceId: string) {
   return useQuery({ ...recurringItemsQuery(workspaceId), select });
 }
 
-/** What the server said, in its own words where it gave any. */
-async function wordsOf(res: Response): Promise<string | undefined> {
-  try {
-    const body: unknown = await res.json();
-    return body && typeof body === 'object' && 'error' in body && typeof body.error === 'string' ? body.error : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Sends one of the modal's commands to its own endpoint, refused with the server's words. */
-async function send(change: Extract<Requested, { name: WindowCommandName }>, signal: AbortSignal): Promise<CommandResult> {
-  const options = { init: { signal } };
-  const res =
-    change.name === 'create_recurring_item'
-      ? await api.v1.commands.create_recurring_item.$post({ json: change.payload }, options)
-      : change.name === 'write_recurring_item'
-        ? await api.v1.commands.write_recurring_item.$post({ json: change.payload }, options)
-        : await api.v1.commands.delete_recurring_item.$post({ json: change.payload }, options);
-  if (!res.ok) throw new CommandRefused(res.status, (await wordsOf(res)) ?? `${change.name} failed: ${res.status}`);
-  return (await res.json()) as CommandResult;
-}
-
 /**
  * Sends a change to a recurring item - made, written whole or deleted. It joins
  * the tab's queue and is drawn at once (`useRecurringItems`); it settles with the
@@ -93,18 +72,12 @@ async function send(change: Extract<Requested, { name: WindowCommandName }>, sig
  * Workspace are read once the queue has emptied**, not waited for: the Workspace
  * carries the rule each copy's ↻ is drawn from.
  */
-export function useChangeRecurringItem(): (change: Extract<Requested, { name: WindowCommandName }>) => Promise<void> {
+export function useChangeRecurringItem(): (change: RecurringItemChange) => Promise<void> {
   const client = useQueryClient();
   return useCallback(
     async (change) => {
       const workspaceId = change.payload.workspaceId;
-      await requestToChangeList(
-        client,
-        recurringItemsQuery(workspaceId).queryKey,
-        change,
-        (signal) => send(change, signal),
-        [snapshotQuery(workspaceId).queryKey],
-      );
+      await changeList(client, recurringItemsQuery(workspaceId).queryKey, change, [snapshotQuery(workspaceId).queryKey]);
     },
     [client],
   );

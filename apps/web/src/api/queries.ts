@@ -3,7 +3,6 @@ import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query
 import type { QueryClient } from '@tanstack/react-query';
 import type {
   ClientCommandName,
-  WindowCommandName,
   CommandPayload,
   CommandResult,
   WorkspaceSnapshot,
@@ -129,11 +128,8 @@ export const rewriteHistoryForItemQuery = (itemId: string) =>
  * and has no endpoint (issue 296).
  */
 export type CommandArgs = {
-  [N in SentFromHere]: { name: N; payload: CommandPayload<N> };
-}[SentFromHere];
-
-/** The client commands this file's queue sends itself: all but a window's own (`WindowCommandName`). */
-type SentFromHere = Exclude<ClientCommandName, WindowCommandName>;
+  [N in ClientCommandName]: { name: N; payload: CommandPayload<N> };
+}[ClientCommandName];
 
 /**
  * The changes after which the list of workspaces is not what it was: which

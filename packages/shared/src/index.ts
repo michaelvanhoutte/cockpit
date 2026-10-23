@@ -16,6 +16,7 @@ export * from './domain/item.js';
 export * from './domain/item-form-presentation.js';
 export * from './domain/plain-words.js';
 export * from './domain/recording.js';
+export * from './domain/recurring-item.js';
 export * from './domain/series.js';
 export * from './domain/share.js';
 export * from './domain/panel.js';
@@ -35,12 +36,3 @@ export * from './api/connected-apps.js';
 export * from './api/claude-links.js';
 export * from './api/usage.js';
 export * from './api/usage-export.js';
-
-// Only the types: the values are `@cockpit/shared/recurring-items`, which the initial bundle leaves out.
-export type {
-  CreateRecurringItemCommand,
-  DeleteRecurringItemCommand,
-  RecurringItem,
-  RecurringItemList,
-  WriteRecurringItemCommand,
-} from './recurring-items.js';

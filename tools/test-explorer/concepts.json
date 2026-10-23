@@ -363,8 +363,7 @@
         "apps/web/src/components/RecurringForm.tsx",
         "apps/web/src/api/recurringItems.ts",
         "apps/web/src/recurringItemsDrawnAhead.ts",
-        "packages/shared/src/recurring-items.ts",
-        "packages/shared/src/recurring-refusals.ts"
+        "packages/shared/src/domain/recurring-item.ts"
       ]
     },
     {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
+  RECURRING_REFUSALS,
   dayOf,
   firstNextOn,
   ruleLabel,
@@ -8,7 +9,6 @@ import {
   type RecurringItem,
   type WorkspaceSnapshot,
 } from '@cockpit/shared';
-import { RECURRING_REFUSALS } from '@cockpit/shared/recurring-refusals';
 import { useChangeRecurringItem, useRecurringItems } from '../api/recurringItems';
 import { whyNotDone } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';

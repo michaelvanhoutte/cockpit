@@ -31,6 +31,7 @@ import {
   phoneCodeSentSchema,
   confirmPhoneCodeSchema,
   phoneConnectedSchema,
+  recurringItemListSchema,
   sourceAccountListSchema,
   DUE_IN_DAYS_MAX,
   DUE_IN_DAYS_MIN,
@@ -82,7 +83,6 @@ import {
   type AccountBackup,
   type RegisterBackup,
 } from '../accounts/index.js';
-import { recurringItemListSchema, windowCommandSchemas } from '@cockpit/shared/recurring-items';
 import { checkHealth } from '../accounts/probe.js';
 import { transcriberFor } from '../transcription/index.js';
 import { ALLOWANCE_SPENT_MESSAGE, allowanceSpent } from '../accounts/allowance.js';
@@ -1029,8 +1029,6 @@ const rewriteHistoryForItemRoute = createRoute({
 // endpoint (`add_attachment`, `packages/shared/src/commands.ts`) must not be
 // wired onto this route at all, or it would accept a client-claimed
 // `size`/`contentType` the upload route exists specifically to not trust.
-const clientCommandSchemas = { ...commandSchemas, ...windowCommandSchemas };
-
 function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: string }) {
   return createRoute({
     method: 'post',
@@ -1038,7 +1036,7 @@ function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: 
     request: {
       body: {
         required: true,
-        content: { 'application/json': { schema: clientCommandSchemas[name] } },
+        content: { 'application/json': { schema: commandSchemas[name] } },
       },
     },
     responses: {

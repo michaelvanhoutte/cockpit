@@ -27,14 +27,9 @@ import type { CommandArgs } from './api/queries';
  * user changes and disconnecting a connected app. It joins the queue as it is
  * (`enqueue`'s `request`), so the saving sign and the leave-site prompt count it,
  * and the window's own chunk draws it. **An added user's `userId` is one this tab
- * made up** to tell the row apart; the server decides the real one. **So are a
- * recurring item's three commands** (`WindowCommandName`, issue 1449): commands the
- * window sends from its own chunk rather than the queue's map of senders.
+ * made up** to tell the row apart; the server decides the real one.
  */
 export type Requested =
-  | { name: 'create_recurring_item'; payload: CommandPayload<'create_recurring_item'> }
-  | { name: 'write_recurring_item'; payload: CommandPayload<'write_recurring_item'> }
-  | { name: 'delete_recurring_item'; payload: CommandPayload<'delete_recurring_item'> }
   | { name: 'disconnect_app'; payload: { appId: string } }
   | { name: 'add_user'; payload: { userId: string; name: string; email: string } }
   | { name: 'change_user'; payload: { userId: string; name: string; role: Role } }

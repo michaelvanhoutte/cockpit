@@ -1,7 +1,6 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, Item, PanelKind } from '@cockpit/shared';
-import { RECURRING_REFUSALS } from '@cockpit/shared/recurring-refusals';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';

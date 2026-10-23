@@ -12,7 +12,6 @@ import {
   workspaceListSchema,
   workspaceSnapshotSchema,
   type ClientCommandName,
-  type WindowCommandName,
   type CommandPayload,
   type CommandResult,
   type Usage,
@@ -264,6 +263,12 @@ const commandSenders = {
     api.v1.commands.set_due_date.$post({ json: p }, o),
   set_repeat: (p: CommandPayload<'set_repeat'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_repeat.$post({ json: p }, o),
+  create_recurring_item: (p: CommandPayload<'create_recurring_item'>, o?: ClientRequestOptions) =>
+    api.v1.commands.create_recurring_item.$post({ json: p }, o),
+  write_recurring_item: (p: CommandPayload<'write_recurring_item'>, o?: ClientRequestOptions) =>
+    api.v1.commands.write_recurring_item.$post({ json: p }, o),
+  delete_recurring_item: (p: CommandPayload<'delete_recurring_item'>, o?: ClientRequestOptions) =>
+    api.v1.commands.delete_recurring_item.$post({ json: p }, o),
   set_title: (p: CommandPayload<'set_title'>, o?: ClientRequestOptions) => api.v1.commands.set_title.$post({ json: p }, o),
   set_description: (p: CommandPayload<'set_description'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_description.$post({ json: p }, o),
@@ -377,7 +382,7 @@ export function attachmentUrl(attachmentId: string): string {
  * endpoint and so no sender above ("Clean up a captured note into a clear title
  * and a fuller message", issue 296).
  */
-export async function sendCommand<N extends Exclude<ClientCommandName, WindowCommandName>>(
+export async function sendCommand<N extends ClientCommandName>(
   name: N,
   payload: CommandPayload<N>,
   /** Aborts the request, for a sender that has given up waiting on it (`captureOutboxSender.tsx`). */

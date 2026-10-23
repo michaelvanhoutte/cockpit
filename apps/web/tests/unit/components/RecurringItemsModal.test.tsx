@@ -32,15 +32,14 @@ const held = vi.hoisted(() => ({
 
 vi.mock('../../../src/api/client', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../../src/api/client')>();
-  const post = (name: string) => (request: { json: Record<string, any> }) =>
-    new Promise<Response>((resolve) => {
-      held.sent.push({ name, payload: request.json });
+  const send = (name: string, payload: Record<string, any>) =>
+    new Promise<unknown>((resolve, reject) => {
+      held.sent.push({ name, payload });
       held.waiting.push({
         name,
-        payload: request.json,
+        payload,
         answer: () => {
           const items = held.items as RecurringItem[];
-          const payload = request.json;
           if (name === 'delete_recurring_item') held.items = items.filter((one) => one.id !== payload.seriesId);
           else {
             const row: RecurringItem = {
@@ -54,20 +53,15 @@ vi.mock('../../../src/api/client', async (importOriginal) => {
             };
             held.items = name === 'create_recurring_item' ? [...items, row] : items.map((one) => (one.id === row.id ? row : one));
           }
-          resolve(Response.json({ ok: true, applied: true }));
+          resolve({ ok: true, applied: true });
         },
-        refuse: (reason) => resolve(Response.json({ error: reason }, { status: 400 })),
+        refuse: (reason) => reject(new original.CommandRefused(400, reason)),
       });
     });
   return {
     ...original,
     api: {
       v1: {
-        commands: {
-          create_recurring_item: { $post: post('create_recurring_item') },
-          write_recurring_item: { $post: post('write_recurring_item') },
-          delete_recurring_item: { $post: post('delete_recurring_item') },
-        },
         workspaces: {
           ':workspaceId': {
             'recurring-items': {
@@ -82,6 +76,7 @@ vi.mock('../../../src/api/client', async (importOriginal) => {
     },
     fetchSnapshot: vi.fn(),
     fetchWorkspaces: vi.fn(),
+    sendCommand: send,
   };
 });
 

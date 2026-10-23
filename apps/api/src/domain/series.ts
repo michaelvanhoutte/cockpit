@@ -1,4 +1,5 @@
 import {
+  RECURRING_REFUSALS,
   daysOnFrom,
   firstDayAfter,
   itemLabel,
@@ -7,7 +8,6 @@ import {
   type Series,
   type SetRepeatCommand,
 } from '@cockpit/shared';
-import { RECURRING_REFUSALS } from '@cockpit/shared/recurring-refusals';
 import { captureDay } from './capture-day.js';
 
 /** A repeat that is refused, in the words the person is told beside the field ("Set an Item to repeat from its form", issue 1406). */
