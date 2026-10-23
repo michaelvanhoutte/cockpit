@@ -254,7 +254,7 @@ test.describe('Agents', () => {
       // Settings is over the window, on the sentence, ready to reword.
       const settings = page.getByRole('dialog', { name: 'Settings' });
       await expect(settings.getByRole('heading', { name: 'What Cockpit remembers', exact: true })).toBeVisible();
-      const box = settings.getByLabel('Sentence');
+      const box = settings.getByRole('textbox', { name: 'Sentence' });
       await expect(box).toHaveValue('Replies: Dutch, short.');
       await box.fill('Replies: Dutch, short, signed M.');
       const reworded = page.waitForResponse(

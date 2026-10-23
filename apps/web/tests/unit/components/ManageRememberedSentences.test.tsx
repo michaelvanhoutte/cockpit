@@ -109,6 +109,24 @@ describe('Agents', () => {
     });
   });
 
+  describe('the section draws its sentences in a Sentences panel, and its empty line inside it', () => {
+    it('puts a sentence’s row inside the panel', async () => {
+      held.sentences = [SENTENCE({ id: A, sentence: 'Sign as Michael.' })];
+
+      showSection();
+
+      const panel = await screen.findByRole('group', { name: 'Sentences' });
+      expect(await within(panel).findByText('Sign as Michael.')).toBeVisible();
+    });
+
+    it('puts the line saying nothing is remembered inside the panel', async () => {
+      showSection();
+
+      const panel = await screen.findByRole('group', { name: 'Sentences' });
+      expect(await within(panel).findByText(/Nothing remembered yet/)).toBeVisible();
+    });
+  });
+
   describe('a sentence is reworded or deleted from its row', () => {
     it('sends the reworded sentence and shows it as reworded', async () => {
       held.sentences = [SENTENCE({ id: A, sentence: 'Mails to the supplier: Dutch.' })];

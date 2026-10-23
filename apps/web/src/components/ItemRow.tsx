@@ -26,7 +26,7 @@ import { dragEnded, inTheOrderDrawn, liftItem, useCarriedIds } from '../itemInTh
 import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
-import { capturingApp, openableAtSource, sourceNamed, type SourceNames } from '../itemSource';
+import { capturingApp, openableAtSource, sourceOnARow, type SourceNames } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
@@ -1311,7 +1311,7 @@ export function ItemRow({
               {/* The source by the name its connector gives it - "Gmail",
                   never the id `gmail` ("Take source names out of the shared
                   contract", issue 927). */}
-              {capturingApp(item) ?? (item.source === 'internal' ? 'Own' : sourceNamed(sourceNames, item.source))}
+              {sourceOnARow(item, sourceNames)}
               {item.sender && !capturingApp(item) ? ` · ${item.sender}` : ''}
             </span>
             {/* The way back to the original, where the source gave one ("Open an

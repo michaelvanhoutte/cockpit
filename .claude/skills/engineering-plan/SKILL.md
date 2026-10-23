@@ -58,6 +58,14 @@ The ticket (its number is what you are given), [architecture.md](../../../docs/a
 | **On a known path** | it breaks the rule on a path an open issue is already fixing | name that issue, nothing more |
 | **A trigger** | it breaks the rule on a path nothing is fixing | measure it, then open the round below |
 
+**Draw each row as two Mermaid sequence diagrams: before, the path today's code takes, and after, the path proposed.** For a new action, before is the nearest existing path it builds on. A row's numbers are easy to agree with and hard to challenge, and the diagram shows where they come from, so an engineer who never opens the code can point at the arrow that is wrong.
+
+- **Use only the lanes the action touches, named for what they do**: UI, Local cache (what the device saves), Change announcements (the stream that tells open tabs something changed), API, Account store (the account's own database), Shared register (D1: accounts, sessions, and the directory an incoming message is attributed through), Queue, Files, and an outside sender or source by its own name.
+- **Label every arrow with what it carries and how much**: "the whole Workspace, every Item in any status", "1 row", "3 queries". An arrow that says only "read" hides what a slow path is made of.
+- **End each diagram with one note giving the count**: the round trips the screen waits on, and the reads the change causes after it. That count is the row's, so a count over the rule makes the row a trigger.
+- **Draw the path, and a branch only where it changes the count**, such as an announcement landing while a read is still in flight, since a diagram carrying every condition is too dense to challenge.
+- **Name parts and the platform, never this repository's code**, as everywhere in the design.
+
 **Measure only a trigger row, and never by changing deployed data**: time reads and their size on the deployed app, and time a change locally or while the person makes it, since "Deployed data is real" in CLAUDE.md forbids sending one there to time it.
 
 **Take "no design needed" as the default** where every row is within the rule or on a known path, and say so in one line: a change that stays inside existing stores, commands, connectors and budgets decides nothing architectural. Open a design round only when a trigger fires:
@@ -71,7 +79,7 @@ The ticket (its number is what you are given), [architecture.md](../../../docs/a
 - a request-path row whose verdict is a trigger
 - state it cannot put back (step 5)
 
-Name which trigger fired. If none can be named, record "No design needed" with the rows and go to step 6.
+Name which trigger fired. If none can be named, record "No design needed" with the rows and their diagrams and go to step 6.
 
 ### 3. Walk the decisions the change forces
 
@@ -93,7 +101,7 @@ Settle the placement questions explicitly: which store owns each piece of data, 
 
 ### 4. Record the decisions
 
-One entry per decision, four lines at most: the decision as an arrangement of parts, the option rejected and why in a clause, what it costs or limits in the system, and the risk it leaves open. A remaining risk goes in its entry, not in a closing note. These become the ticket's **Technical design** section, opened by step 2's rows, each trigger row as decided beside what was measured, and added through [github-issue](../github-issue/SKILL.md) with the rest of the body untouched.
+One entry per decision, four lines at most: the decision as an arrangement of parts, the option rejected and why in a clause, what it costs or limits in the system, and the risk it leaves open. A remaining risk goes in its entry, not in a closing note. These become the ticket's **Technical design** section, opened by step 2's rows and their diagrams, each trigger row as decided beside what was measured, and added through [github-issue](../github-issue/SKILL.md) with the rest of the body untouched.
 
 **A decision that outlives the issue goes to `architecture.md`, edited in place and only once built**, as the rule now stands with its reason in a clause. Nothing goes to `docs/adr/`; what was weighed stays in the issue.
 
@@ -121,7 +129,7 @@ Add the decisions and failure modes to the ticket, then **stop and ask the engin
 
 Do not ask, and do not slice, if:
 
-- An action the ticket adds or changes has no row in step 2, or a trigger row was never measured.
+- An action the ticket adds or changes has no row or no before and after diagram in step 2, or a trigger row was never measured.
 - A trigger fired in step 2 and its decisions are not recorded.
 - A placement question (store, sync or async, service) is still open.
 - The work changes state it cannot put back and its failure modes are not written down.
@@ -179,4 +187,4 @@ Through [github-issue](../github-issue/SKILL.md), which holds the template and c
 
 ## Output
 
-"No design needed" with step 2's rows and the trigger check in one line, or a **Technical design** section and the **Failure modes** where step 5 applied; then, once the design is agreed, the ticket finished, or a parent with its children. Build each by number with `/build`.
+"No design needed" with step 2's rows and their diagrams, and the trigger check in one line, or a **Technical design** section and the **Failure modes** where step 5 applied; then, once the design is agreed, the ticket finished, or a parent with its children. Build each by number with `/build`.

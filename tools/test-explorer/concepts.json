@@ -90,6 +90,9 @@
         "apps/api/src/gateway/attempts.ts",
         "apps/api/src/gateway/record.ts",
         "apps/api/src/gateway/export.ts",
+        "apps/api/src/gateway/environment.ts",
+        "apps/api/src/gateway/receive.ts",
+        "apps/api/src/gateway/send.ts",
         "apps/api/src/ai/index.ts"
       ]
     },
@@ -347,7 +350,7 @@
     {
       "key": "Workspace management",
       "label": "Workspace management",
-      "browserWalks": 8,
+      "browserWalks": 9,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/domain/workspaces.ts",
@@ -368,7 +371,12 @@
         "apps/web/src/reorder.ts",
         "apps/web/src/tabDrag.ts",
         "apps/web/src/components/Menu.tsx",
-        "apps/web/src/components/DeleteQuestion.tsx"
+        "apps/web/src/components/DeleteQuestion.tsx",
+        "apps/web/src/components/RecurringModal.tsx",
+        "apps/web/src/components/RecurringForm.tsx",
+        "apps/web/src/api/recurringItems.ts",
+        "apps/web/src/recurringItemsDrawnAhead.ts",
+        "packages/shared/src/domain/recurring-item.ts"
       ]
     },
     {
@@ -560,6 +568,17 @@
       ]
     },
     {
+      "key": "Settings",
+      "label": "Settings",
+      "browserWalks": 1,
+      "parent": "Across the app",
+      "sourcePatterns": [
+        "apps/web/src/components/SettingsModal.tsx",
+        "apps/web/src/components/SettingsWindow.tsx",
+        "apps/web/src/components/SettingsPanel.tsx"
+      ]
+    },
+    {
       "key": "Appearance",
       "label": "Appearance",
       "browserWalks": 1,
@@ -630,13 +649,14 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 1,
+      "browserWalks": 3,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",
         "apps/harness-monitor/src/auth.ts",
         "apps/harness-monitor/src/store.ts",
         "apps/harness-monitor/src/page.ts",
+        "apps/harness-monitor/src/look.ts",
         "apps/harness-monitor/src/prices.ts",
         "apps/harness-monitor/src/price-list.ts",
         "apps/harness-monitor/src/linking.ts",

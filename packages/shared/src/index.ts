@@ -18,6 +18,7 @@ export * from './domain/item.js';
 export * from './domain/item-form-presentation.js';
 export * from './domain/plain-words.js';
 export * from './domain/recording.js';
+export * from './domain/recurring-item.js';
 export * from './domain/series.js';
 export * from './domain/share.js';
 export * from './domain/panel.js';
@@ -38,4 +39,5 @@ export * from './api/users.js';
 export * from './api/connected-apps.js';
 export * from './api/claude-links.js';
 export * from './api/usage.js';
-export * from './api/usage-export.js';
+// The usage export's schema is imported from '@cockpit/shared/usage-export',
+// not from here, so the web app, which never reads it, does not carry it.

@@ -16,6 +16,7 @@ import {
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
+import { recurringItemContentSchema } from './domain/recurring-item.js';
 import { repeatRuleSchema } from './domain/series.js';
 import {
   REMEMBERED_ACTION_LIMIT,
@@ -620,6 +621,33 @@ export const setRepeatSchema = commandEnvelopeSchema.extend({
 export type SetRepeatCommand = z.infer<typeof setRepeatSchema>;
 
 /**
+ * create_recurring_item / write_recurring_item / delete_recurring_item - a
+ * recurring item made, written whole and deleted from the Recurring items modal.
+ * **`seriesId` is the recurring item's id**, made up by the tab so it is drawn
+ * before the server answers; `workspaceId` is the Workspace it belongs to, which
+ * a write never moves. **A write is the whole of it**: its texts, priority, the
+ * Panels each copy is filed on and its rule, the later of two tabs' winning. A
+ * *Next on* before today on `repeat.timeZone`'s calendar, or a Panel that is not
+ * live in the Workspace, is refused with its reason (`RECURRING_REFUSALS`).
+ * Deleting is the stop a series already has: its copies keep naming it and no
+ * more are made.
+ */
+const recurringItemWholeSchema = commandEnvelopeSchema.extend({
+  seriesId: z.uuid(),
+  ...recurringItemContentSchema.shape,
+});
+export const createRecurringItemSchema = recurringItemWholeSchema;
+export type CreateRecurringItemCommand = z.infer<typeof createRecurringItemSchema>;
+
+export const writeRecurringItemSchema = recurringItemWholeSchema;
+export type WriteRecurringItemCommand = z.infer<typeof writeRecurringItemSchema>;
+
+export const deleteRecurringItemSchema = commandEnvelopeSchema.extend({
+  seriesId: z.uuid(),
+});
+export type DeleteRecurringItemCommand = z.infer<typeof deleteRecurringItemSchema>;
+
+/**
  * bring_back_occurrence - a repeating Item's next occurrence, which the account's
  * store sends itself when its series' day comes ("Bring a repeating Item back on
  * its day, as a fresh copy", issue 1407). **Its id and the new Item's are derived
@@ -1001,6 +1029,9 @@ export const commandSchemas = {
   set_priority: setPrioritySchema,
   set_due_date: setDueDateSchema,
   set_repeat: setRepeatSchema,
+  create_recurring_item: createRecurringItemSchema,
+  write_recurring_item: writeRecurringItemSchema,
+  delete_recurring_item: deleteRecurringItemSchema,
   bring_back_occurrence: bringBackOccurrenceSchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,

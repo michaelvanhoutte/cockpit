@@ -1,23 +1,58 @@
 import {
-  attachmentAddress,
+  RECURRING_REFUSALS,
   daysOnFrom,
   firstDayAfter,
+  itemLabel,
   type Item,
+  type Priority,
   type Series,
   type SetRepeatCommand,
 } from '@cockpit/shared';
 import { captureDay } from './capture-day.js';
-import type { AttachmentRow } from './attachments.js';
 
 /** A repeat that is refused, in the words the person is told beside the field ("Set an Item to repeat from its form", issue 1406). */
 export const UNKNOWN_TIME_ZONE = 'Cockpit does not know the time zone this device is in, so it cannot say when a day starts.';
-export const NEXT_ON_PASSED = 'Next on cannot be before today.';
+export const NEXT_ON_PASSED = RECURRING_REFUSALS.nextOnPassed;
 
 /**
  * A series as its row holds it: the rule, the day it is counted from
  * (`anchorOn`, null for its `nextOn`) and the day it last came round (`lastOn`).
  */
 export type SeriesRow = Series & { anchorOn: string | null; lastOn: string | null; createdAt: string; updatedAt: string };
+
+/**
+ * What each copy of a recurring item is made from ("Make each copy of a
+ * recurring item from its own series", issue 1448), beside the Panels it files
+ * on. `title` is null on a series that holds nothing yet.
+ */
+export interface MasterContent {
+  workspaceId: string | null;
+  title: string | null;
+  description: string | null;
+  priority: Priority | null;
+}
+
+/** A series as its row holds it, with what each copy is made from. */
+export type MasterRow = SeriesRow & MasterContent;
+
+/**
+ * The content the Repeats chip gives a series from the Item it is set on, until
+ * the Recurring items modal replaces it: the Item's Workspace, texts and
+ * priority, **its label where it has no title**, as its row shows it.
+ */
+export function masterContentOf(item: Pick<Item, 'workspaceId' | 'title' | 'nextAction' | 'description' | 'priority'>): {
+  workspaceId: string;
+  title: string;
+  description: string | null;
+  priority: Priority | null;
+} {
+  return {
+    workspaceId: item.workspaceId,
+    title: item.title.trim() !== '' ? item.title : itemLabel({ title: '', nextAction: item.nextAction }),
+    description: item.description,
+    priority: item.priority,
+  };
+}
 
 /** What a Repeats change comes to for an Item and its series, if it has one. */
 export type RepeatDecision =
@@ -53,7 +88,7 @@ export type RepeatDecision =
  */
 export function decideRepeat(
   own: SeriesRow | null,
-  cmd: SetRepeatCommand,
+  cmd: Pick<SetRepeatCommand, 'issuedAt' | 'repeat' | 'seriesId'> & Partial<SetRepeatCommand>,
   tenantId: string,
 ): RepeatDecision {
   if (own && cmd.issuedAt < own.updatedAt) return { kind: 'stale' };
@@ -141,27 +176,33 @@ export interface OccurrenceAsked {
 }
 
 /**
- * The next occurrence of a series, copied from the previous one ("Bring a
- * repeating Item back on its day, as a fresh copy", issue 1407): its title,
- * description, priority and Workspace - so this week's edits carry into next
- * week's - To do, due `dueAfterDays` after the day it appears, and naming the
- * series. **A fresh Item, not the previous one's history**: nothing captured,
- * no source, nothing proposed, and its texts and priority the person's own, so
- * no reading replaces them. **Made after the one it copies**, even one stamped
- * by a device whose clock runs ahead, since the latest made is what the next
- * is copied from and what must be finished before one more comes.
+ * The next occurrence of a recurring item, made from its series ("Make each
+ * copy of a recurring item from its own series", issue 1448): the series'
+ * title, description, priority and Workspace - **never an earlier copy's**, so
+ * an edit to a copy stays on that copy - To do, due `dueAfterDays` after the
+ * day it appears, and naming the series. **A fresh Item**: nothing captured,
+ * no source, nothing proposed, no files, and its texts and priority the
+ * person's own, so no reading replaces them. **Made after the previous one**,
+ * even one stamped by a device whose clock runs ahead, since the latest made is
+ * what must be finished before one more comes.
  */
-export function occurrenceOf(previous: Item, series: Pick<Series, 'id' | 'dueAfterDays'>, asked: OccurrenceAsked): Item {
-  const dueDate = series.dueAfterDays === null ? null : daysOnFrom(asked.today, series.dueAfterDays);
+export function occurrenceOf(
+  master: Pick<SeriesRow, 'id' | 'tenantId' | 'dueAfterDays'> & { workspaceId: string; title: string } & Pick<MasterContent, 'description' | 'priority'>,
+  previous: Pick<Item, 'createdAt'> | null,
+  asked: OccurrenceAsked,
+): Item {
+  const dueDate = master.dueAfterDays === null ? null : daysOnFrom(asked.today, master.dueAfterDays);
   // A second on where it is not already later: whole seconds sort after it as
   // text however finely it was stamped, and text is how the latest is found.
   const createdAt =
-    asked.at > previous.createdAt ? asked.at : new Date(Date.parse(previous.createdAt) + 1000).toISOString();
+    previous === null || asked.at > previous.createdAt
+      ? asked.at
+      : new Date(Date.parse(previous.createdAt) + 1000).toISOString();
   return {
     id: asked.itemId,
-    tenantId: previous.tenantId,
-    workspaceId: previous.workspaceId,
-    workspaceDecided: previous.workspaceDecided,
+    tenantId: master.tenantId,
+    workspaceId: master.workspaceId,
+    workspaceDecided: true,
     capturedMessage: null,
     capturedTimeZone: null,
     source: 'internal',
@@ -170,8 +211,8 @@ export function occurrenceOf(previous: Item, series: Pick<Series, 'id' | 'dueAft
     sender: null,
     sourceTimestamp: null,
     sourceResolvedAt: null,
-    title: previous.title,
-    description: previous.description,
+    title: master.title,
+    description: master.description,
     textsSettledAt: asked.at,
     textsProposedAt: null,
     readings: null,
@@ -182,12 +223,12 @@ export function occurrenceOf(previous: Item, series: Pick<Series, 'id' | 'dueAft
     nextAction: null,
     completedAt: null,
     startedAt: null,
-    priority: previous.priority,
+    priority: master.priority,
     prioritySetAt: asked.at,
     dueDate,
     dueDateSetAt: dueDate === null ? null : asked.at,
     dueDateChosenAt: dueDate === null ? null : asked.at,
-    seriesId: series.id,
+    seriesId: master.id,
     unseen: false,
     deletedAt: null,
     createdAt,
@@ -195,25 +236,3 @@ export function occurrenceOf(previous: Item, series: Pick<Series, 'id' | 'dueAft
   };
 }
 
-/**
- * The previous occurrence's attachments as the new one's own: **new rows naming
- * the same stored files**, so nothing is copied and each loads however the
- * previous one ends - and its description with every image pointed at the new
- * row standing in for the one it named ("Bring a repeating Item back on its
- * day, as a fresh copy", issue 1407). Each keeps when its file
- * was attached, so they stay in the order the previous one listed them.
- */
-export function attachmentsCarriedOver(
-  rows: readonly AttachmentRow[],
-  description: string | null,
-  itemId: string,
-  newId: () => string,
-): { rows: AttachmentRow[]; description: string | null } {
-  let pointed = description;
-  const carried = rows.map((row) => {
-    const id = newId();
-    if (pointed !== null) pointed = pointed.replaceAll(attachmentAddress(row.id), attachmentAddress(id));
-    return { ...row, id, itemId };
-  });
-  return { rows: carried, description: pointed };
-}

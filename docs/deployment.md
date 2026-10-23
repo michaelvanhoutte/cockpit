@@ -132,32 +132,29 @@ Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which
 commit shipped.
 
-Three D1 databases, Cockpit's two and the Harness Monitor's, out of the free plan's
-ten. The two thresholds that would force
-the $5/month Workers Paid plan, recorded so they are recognised rather than
-rediscovered: **a database crossing 500 MB** (or 5 GB across all three), and **needing
-queue retention beyond 24 hours**. Cloudflare Queues moved onto the free plan in
-February 2026, so it is no longer a reason to upgrade on its own - but its
-**10,000 operations a day** are shared by both environments, and each message
-costs three (write, read, delete): every pulled connection's checks spend about
-860 a day, a Gmail connection not yet reconnected included, so a dozen of them
-spend it alone and the enrichment jobs' sends then fail.
+**Every environment, the Harness Monitor's included, is on one Cloudflare account
+on Workers Paid ($5/month).** Size a run against its per-invocation ceilings:
+**10,000 subrequests**, calls out and calls to Cloudflare's own services alike,
+**1,000 D1 queries**, and 30 seconds of CPU time for a request (configurable to 5
+minutes) or a cron run, 15 minutes for a schedule an hour or more apart.
+Usage past an included allowance is billed rather than refused, so no allowance
+stops the app; these are what grow the bill:
 
-**MCP connections spend the free plan's daily KV write allowance**, which is not a
-third threshold so much as a ceiling to know about: registering an app, showing
-the consent page, trading a code and every refresh each write to `OAUTH_KV`, and so does noting when an app last read a Panel, at most once in ten minutes per app. Once
-the day's writes are spent, connecting an app and refreshing its access fail
-until the allowance resets. An app whose access is still current keeps
-capturing until that access runs out, within the hour, since checking it only
-reads KV; the rest of Cockpit does not use KV and is unaffected.
+| Service | Included | Past it | What spends it |
+|---|---|---|---|
+| Queues | 1,000,000 operations a month | $0.40 a million | both environments; a message costs three (write, read, delete), so each pulled connection's checks spend about 26,000 a month, a Gmail connection not yet reconnected included, and some three dozen spend the million alone |
+| KV | 1,000,000 writes a month | $5 a million | only connected apps: registering an app, the consent page, trading a code and every refresh each write to `OAUTH_KV`, and so does noting when an app last read a Panel, at most once in ten minutes per app |
+| Durable Objects | 1,000,000 requests and 400,000 GB-s a month | $0.15 a million requests, $12.50 a million GB-s | each account's store |
+| D1 | 25 billion rows read and 50 million written a month | $0.001 a million read, $1 a million written | three databases, Cockpit's two and the Harness Monitor's, each allowed 10 GB |
+| Workers AI | 10,000 neurons a day | $0.011 per 1,000 | embeddings and transcription |
 
 ### The Harness Monitor
 
-A second, separate service: Worker `harness-monitor` with its own D1 database `harness-monitor`, in `apps/harness-monitor`. It shares no code, binding or secret with Cockpit ("The Harness Monitor" in the architecture document says why). Its database is the third of the free plan's ten.
+A second, separate service: Worker `harness-monitor` with its own D1 database `harness-monitor`, in `apps/harness-monitor`. It shares no code, binding or secret with Cockpit ("The Harness Monitor" in the architecture document says why). It is on Cockpit's Cloudflare account, so the plan and ceilings above are its too.
 
 | | Deployed by | Worker | Database | Cron | URL |
 |---|---|---|---|---|---|
-| **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | hourly: branch linking; daily, 03:10 UTC: fetch the price list and price waiting rows; 03:20 UTC: rebuild the daily totals (separate invocations, to stay inside the free plan's 50 queries each) | `harness-monitor.<subdomain>.workers.dev` |
+| **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | hourly: branch linking; daily, 03:10 UTC: fetch the price list and price waiting rows; 03:20 UTC: rebuild the daily totals (separate invocations, each sized to 50 queries) | `harness-monitor.<subdomain>.workers.dev` |
 
 - **No staging.** Migrations are expand-then-contract like Cockpit's; D1's point-in-time restore is the backstop, since rows from cloud sessions exist nowhere else. The workflow applies migrations, then deploys.
 - **The page is cached at the edge** for `PAGE_CACHE_SECONDS` (`wrangler.jsonc`, 300) **only once a custom domain or route is attached**, because Cloudflare's Cache API does nothing on `workers.dev`. Until then every view reads D1, from the totals alone. A cached request costs no database read, and a new report shows within that time. Local runs and tests set it to 0.
@@ -359,7 +356,7 @@ migrations to the *register* will collide, because a migration applied by one is
 immediately visible to every other. There is no mitigation, only a detection
 story — deploying applies migrations first, so the branch that breaks is the
 branch that notices. If this bites, the recorded escalation is per-branch
-databases on the Workers Paid plan.
+databases, which the account's plan allows.
 
 ### The footgun this configuration exists to defuse
 
@@ -483,7 +480,7 @@ And `pnpm usage:export` writes one environment's usage records — every paid pr
 pnpm usage:export --env production --days 30 --out ./usage/2026-10.csv
 ```
 
-`--days` is 1 to 365, the records being kept for twelve months. `--out` has to be a file that does not exist, and is refused rather than written over. It reads that environment's own `BACKUP_TOKEN` from `backup-tokens.json` like `pnpm backup:export`, and only reads: nothing is written to the environment. A token count the provider does not report is an empty cell, and a user who has since been deleted is their id with an empty name. The file names users: `usage/` is gitignored, and anywhere else in the checkout is not.
+`--days` is 1 to 365, the records being kept for twelve months. `--out` has to be a file that does not exist, and is refused rather than written over. It reads that environment's own `BACKUP_TOKEN` from `backup-tokens.json` like `pnpm backup:export`, and only reads: nothing is written to the environment. A token count the provider does not report, and a cost with no price, are empty cells rather than 0, and a user who has since been deleted is their id with an empty name, as is the user of every record another environment sent. The file names users: `usage/` is gitignored, and anywhere else in the checkout is not.
 
 And `pnpm duplicates:backfill` reads the notes that were already in the Inbox when duplicate flagging shipped, so that a duplicate can be caught among them rather than only among notes captured since ("Give every item already there a vector", issue 409):
 
@@ -501,7 +498,7 @@ pnpm duplicates:backfill --env production --user tenant-anna --batch 50 --stop-a
 
 **It never writes to a note itself**, only to what a note means and which notes repeat each other — `pnpm backup:export` first, the same as any other command that writes to a deployed environment. A note that already has a reading is not read again, so re-running costs nothing for what was done and is how a run that stopped is finished — and a note with nothing written on it is counted and named rather than passed over. A note's own pairs are recomputed each time it is read, not merely appended to, so a reading taken under a since-retired model can lose a pair a person could see before; nothing here deletes a *note*. It skips the guest account, which is reset nightly, so naming it explicitly with `--user` is the only way to spend a reading there. **A command rather than a change to the store**, because a change that has shipped may never be edited and this has to stay re-runnable.
 
-**Pacing it is the operator's, and `--stop-after` is the lever.** A reading is one Workers AI call per note, and a few thousand notes in one sitting can pass a day's free neuron allocation; nothing schedules this, so the answer is to run it again tomorrow, which picks up exactly where it left off. Left alone it reads everything in one go — the deliberate choice while an account holds hundreds of notes rather than thousands, and the counts it prints are what say when that stops being true.
+**Pacing it is the operator's, and `--stop-after` is the lever.** A reading is one Workers AI call per note, and a few thousand notes in one sitting can pass the day's included neurons, past which Workers AI is billed ("The environments"); nothing schedules this, so to stay inside them, stop and run it again tomorrow, which picks up exactly where it left off. Left alone it reads everything in one go — the deliberate choice while an account holds hundreds of notes rather than thousands, and the counts it prints are what say when that stops being true.
 
 ## 6. Secrets and access
 
@@ -517,6 +514,8 @@ wrangler secret put <NAME> --env staging
 |---|---|
 | `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/operator/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally, as long as it is the same string the commands send — see below for where they read it from. |
 | `ANTHROPIC_API_KEY` | what Cockpit reads a captured note with ("Clean up a captured note into a clear title and a fuller message", issue 296). Issued in the Anthropic Console; the application's own credential rather than anybody's, so it has no settings screen. **An environment without one works** — every capture succeeds and the Item keeps the title capture wrote — which is exactly why `/health` reports whether it is set: without that, a deployment nobody put a key in enriches nothing for months with every check green, the failure `CLAUDE_CODE_OAUTH_TOKEN` below already records. |
+| `USAGE_TOKEN_STAGING`, `USAGE_TOKEN_CI`, `USAGE_TOKEN_LOCAL` | **Production alone.** What each other environment sends the record of its Claude calls to production under ("Record staging's and local Claude calls in production, under a token per environment", issue 1458): staging's Worker, a contract run in CI and a laptop's `pnpm dev`. **Which token arrived is what says which environment the record is**, and each opens `/v1/usage-records` and nothing else, so a leaked one can only add records of its own environment until it is rotated, and rotating one revokes that environment alone. **Invent three, distinct from each other and from `BACKUP_TOKEN`** (`openssl rand -base64 32`); one left unset refuses that environment's records. Staging's and the local one are what those environments hold as `USAGE_RECORDING_TOKEN` below; CI's is put in GitHub with the contract run that sends it. |
+| `USAGE_RECORDING_TOKEN` | **Staging, and a local `.dev.vars`; never production**, which writes its own records. The same string as production's `USAGE_TOKEN_STAGING` (staging, `wrangler secret put USAGE_RECORDING_TOKEN --env staging`) or `USAGE_TOKEN_LOCAL` (a laptop, in `apps/api/.dev.vars`; the owner hands it over). **Without it a Claude key counts as no key** outside production: a captured note stays as typed and `/health` reports `ai: false`, so nothing is spent that leaves no record. |
 | `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | the Entra application a Workspace connects its Teams account and its Outlook mailbox through ("Connect a Microsoft Teams source account", issue 485; "Connect Outlook from Settings, wherever the Microsoft client is set", issue 1048) — see "An Entra application" below for what to register. **The client id is a secret here only for want of a registration**: nothing has been registered yet, so a placeholder in `wrangler.jsonc` would be configuration nobody chose; it moves beside `GOOGLE_CLIENT_ID` the day one exists. An environment with neither refuses Connect and works in every other way. **Connecting Teams also needs `MS_BOT_APP_ID`**: the connector is only registered where it is set, and an unregistered source is not found by the connect route. |
 | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` | the Google OAuth client a Workspace connects a Gmail account through ("Connect a Gmail account to a workspace, and disconnect it", issue 724) — see "A Google Cloud project for Gmail" below. **Its own client, never the sign-in one**, because it asks to change mail and is published unverified. An environment with neither does not offer Gmail at all and works in every other way. |
 | `MS_BOT_APP_ID` | the Azure Bot resource whose calls this Cockpit believes — the audience of every Bot Framework token a saved Teams message arrives with ("Save a Teams message to Cockpit", issue 486), and see "An Azure Bot" below. An environment without it has no `/ingress/teams/` address at all, which is a 404 rather than a route that refuses everything. |
@@ -559,6 +558,8 @@ secret that leaks from one cannot sign anybody in to the other.
 | Variable | `GOOGLE_CLIENT_ID` | `apps/api/wrangler.jsonc`, per environment — not a secret |
 | Variable | `APP_ORIGIN` | same; must match a registered redirect URI exactly |
 | Variable | `GUEST_SIGN_IN` | same, production's block only — see below |
+| Variable | `ENVIRONMENT` | same: `production` in production's block and `staging` in staging's. **A Worker with none is local**, which is `pnpm dev`'s; it decides whether a Claude call is recorded in this database or sent to production |
+| Variable | `USAGE_RECORDING_URL` | same, staging's block only: production's address, where its records are sent. `pnpm dev` reads production's from `APP_ORIGIN` and hands it over, and `USAGE_RECORDING_URL` in the shell that starts it points a local Worker at another one |
 | Variable | `WEB_ANALYTICS_URL` | same, production's block only; empty until a person enables Cloudflare Web Analytics for the app and pastes its dashboard address, and an empty value shows no link in Usage |
 | Secret | `GOOGLE_CLIENT_SECRET` | `wrangler secret put`, per environment |
 
@@ -685,7 +686,7 @@ or the `Cockpit` category on a message, taken off or put back as its Item is
 closed or reopened. Disconnecting forgets the sign-in; Microsoft offers no
 revoke for one application, so the person removes Cockpit at Microsoft to end
 the grant. Each connection is checked through the generic host about every five
-minutes, within the free plan's 50 calls out (`OUTLOOK_CALLS_PER_RUN`, 45).
+minutes, at most 45 calls out a run (`OUTLOOK_CALLS_PER_RUN`).
 
 ### An Azure Bot
 
@@ -799,8 +800,8 @@ Google does not answer is logged and never keeps the connection.
 account's alarm every five minutes and ten seconds apart while a newly
 connected mailbox is still being brought in ("Switch Gmail onto the generic
 host, and take it out of the core", issue 944): about 288 queued checks per
-connection a day, and at most 41 outbound calls per run against the free
-plan's 50 (`CALLS_PER_RUN` and one discovery read). Nothing needs configuring;
+connection a day, and at most 41 outbound calls per run
+(`CALLS_PER_RUN` and one discovery read). Nothing needs configuring;
 the nightly cron re-arms any alarm that was lost. **A Gmail connection made
 before that release reads as needing a reconnect**, once, and Reconnect on its
 row is the remedy; nothing it stored is migrated or deleted.
@@ -842,9 +843,9 @@ has to be told to leave it alone.
 and nothing else, so it discloses only whether each half answered — never *why*
 one did not, since the reason an update will not apply names tables and columns
 and this endpoint answers anyone. That reason goes to the logs. The one exception is `"allowanceSpent":true`, added
-while the free tier's daily allowance is spent: it names a limit rather than a
-table, and it is what keeps that failure from reading as an update that will not
-apply.
+while a Workers Free daily Durable Objects allowance is spent, which Workers Paid
+bills past instead: it names a limit rather than a table, and it is what keeps that
+failure from reading as an update that will not apply.
 
 **`ai` is reported and is deliberately not part of `ok`.** It says whether this
 environment has an `ANTHROPIC_API_KEY` — never what it is, and nothing about it
@@ -1288,7 +1289,7 @@ curl -i https://cockpit-staging.vanhoutte-michael.workers.dev/health
 |---|---|---|
 | `200 {"ok":true,...}` | Worker up, register answering, an account store openable. The deployment is fine. | *In the browser*, below |
 | `200 {"ok":true,...,"ai":false}` | The deployment is fine and will never clean up a captured note: no `ANTHROPIC_API_KEY` is set on it. Not an outage — every capture works and keeps the title it was typed with. | *Secrets and access* |
-| `200 {"ok":false,"register":true,"store":false,"allowanceSpent":true}` | The free tier's daily Durable Objects allowance is spent, so nothing can say whether the update applies. It clears at 00:00 UTC, or on Workers Paid. Every API request that reaches an account's data answers `503` while it lasts. | Wait, or upgrade |
+| `200 {"ok":false,"register":true,"store":false,"allowanceSpent":true}` | A Workers Free daily Durable Objects allowance is spent, so nothing can say whether the update applies. Workers Paid bills past its allowances instead, so the account is no longer on it; the allowance clears at 00:00 UTC. Every API request that reaches an account's data answers `503` while it lasts. | The account's plan in the Cloudflare dashboard |
 | `200 {"ok":false,"register":true,"store":false}` | A store would not open — most often an update that will not apply. | *At the deployment*, below |
 | `200 {"ok":false,"register":false,...}` | Either D1 did not answer, **or** somebody registered an account under the health check's own name, which makes it refuse to run rather than open their data. Two faults with one shape, so read the logs — the reason is never in the body. | *At the deployment*, below |
 | `200` with any other body | Something answered in front of the Worker rather than the Worker itself | *In the browser* |

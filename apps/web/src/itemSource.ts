@@ -46,6 +46,17 @@ export function capturingApp(item: Pick<Item, 'source' | 'sender'>): string | nu
 }
 
 /**
+ * Where an Item came from, as its row says it: the capturing app, *Own* for a
+ * note typed in here, otherwise the source by its connector's name. The sender
+ * is the row's to add beside it. The row and a duplicate warning's cards say
+ * this one thing ("Choose which of two possible duplicates to keep, from the
+ * warning", issue 1451).
+ */
+export function sourceOnARow(item: Pick<Item, 'source' | 'sender'>, names: SourceNames): string {
+  return capturingApp(item) ?? (item.source === 'internal' ? 'Own' : sourceNamed(names, item.source));
+}
+
+/**
  * Where an Item can be opened at its source ("Open an Item at its source",
  * issue 487): the source's own name and the link back to the original.
  *

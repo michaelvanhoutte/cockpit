@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
-import { USAGE_EXPORT_PAGE, usageExportPageSchema, type UsageExportPage } from '@cockpit/shared';
+import { USAGE_EXPORT_PAGE, usageExportPageSchema, type UsageExportPage } from '@cockpit/shared/usage-export';
 import { OTHER_USER_ID, USER_ID, asUser, seedRegister, signInAs, startFromEmpty } from '../seed.js';
 
 /**
@@ -126,6 +126,38 @@ describe('AI usage', () => {
 
       expect(res.status).toBe(401);
       expect(await res.text()).not.toContain('clean-up-a-note');
+    });
+  });
+
+  describe('the export carries each record’s environment and cost', () => {
+    it.each([
+      { situation: 'a priced production record', environment: 'production', cost: 0.00526, expected: { environment: 'production', costUsd: 0.00526 } },
+      { situation: 'a record with no cost', environment: 'production', cost: null, expected: { environment: 'production', costUsd: null } },
+      { situation: 'a record another environment made', environment: 'staging', cost: 0.00526, expected: { environment: 'staging', costUsd: 0.00526 } },
+    ])('gives $situation its environment and cost', async ({ environment, cost, expected }) => {
+      await recordsMadeAt(daysAgo(1), 1, USER_ID, 'priced');
+      await env.DB.prepare("UPDATE provider_calls SET environment = ?, cost_usd = ? WHERE item_id = 'priced'")
+        .bind(environment, cost)
+        .run();
+
+      const [record] = await everyRecord(daysAgo(7));
+
+      expect(record).toMatchObject(expected);
+    });
+  });
+
+  describe('the export names a user only on production’s own records', () => {
+    it('gives another environment’s record the id and an empty name, though production has that user too', async () => {
+      await recordsMadeAt(daysAgo(1), 1, USER_ID, 'local-call');
+      await recordsMadeAt(daysAgo(1), 1, USER_ID, 'production-call');
+      await env.DB.prepare("UPDATE provider_calls SET environment = 'local' WHERE item_id = 'local-call'").run();
+
+      const read = await everyRecord(daysAgo(7));
+
+      expect(read.map(({ itemId, environment, userId, userName }) => ({ itemId, environment, userId, userName }))).toEqual([
+        { itemId: 'local-call', environment: 'local', userId: USER_ID, userName: '' },
+        { itemId: 'production-call', environment: 'production', userId: USER_ID, userName: 'Michael' },
+      ]);
     });
   });
 

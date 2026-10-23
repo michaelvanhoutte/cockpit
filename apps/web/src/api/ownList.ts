@@ -126,11 +126,17 @@ function join(
 /**
  * Sends a command that changes the list under `key`. It joins the tab's queue and
  * is drawn at once; it settles with the server's answer, or its refusal, which the
- * caller says.
+ * caller says. `alsoRead` are lists the change also moved, read with the list once the
+ * queue has emptied.
  */
-export async function changeList(client: QueryClient, key: QueryKey, change: CommandArgs): Promise<CommandResult> {
+export async function changeList(
+  client: QueryClient,
+  key: QueryKey,
+  change: CommandArgs,
+  alsoRead: readonly QueryKey[] = [],
+): Promise<CommandResult> {
   refuseWhileOffline();
-  return join(client, key, change);
+  return join(client, key, change, undefined, alsoRead);
 }
 
 /**

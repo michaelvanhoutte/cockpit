@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { firstDayAfter, type RepeatFrequency } from '@cockpit/shared';
-import { countedFrom, dayStartsAt, decideRepeat, type SeriesRow } from '../../../src/domain/series.js';
+import { countedFrom, dayStartsAt, decideRepeat, masterContentOf, type SeriesRow } from '../../../src/domain/series.js';
 
 /**
  * L1: when a repeating Item's day starts ("Bring a repeating Item back on its
@@ -116,6 +116,25 @@ describe('Item editing', () => {
 
       expect(decided).toMatchObject({ kind: 'write', row: { nextOn } });
       if (after !== undefined) expect(theDayAfter((decided as { row: SeriesRow }).row)).toBe(after);
+    });
+  });
+});
+
+describe('Item editing', () => {
+  describe('a recurring item set from an Item is named as that Item’s row names it', () => {
+    const item = { workspaceId: 'ws-1', description: 'Go through the open items', priority: 'high' as const };
+    it.each([
+      { situation: 'by its title', title: 'Weekly review', nextAction: 'Call the plumber', named: 'Weekly review' },
+      { situation: 'with no title, by its next action on one line', title: '', nextAction: 'Call\nthe plumber', named: 'Call the plumber' },
+      { situation: 'with only spaces for a title, by its next action', title: '  ', nextAction: 'Call the plumber', named: 'Call the plumber' },
+      { situation: 'with neither, as Untitled', title: '', nextAction: null, named: 'Untitled' },
+    ])('$situation', ({ title, nextAction, named }) => {
+      expect(masterContentOf({ ...item, title, nextAction })).toEqual({
+        workspaceId: 'ws-1',
+        title: named,
+        description: 'Go through the open items',
+        priority: 'high',
+      });
     });
   });
 });

@@ -8,6 +8,7 @@ import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
+import { SettingsPanel } from './SettingsPanel';
 
 /** Where an app is pointed to reach this Cockpit: this environment's own origin, then `/mcp`. */
 export const connectAddress = () => `${window.location.origin}/mcp`;
@@ -95,26 +96,27 @@ export default function ManageConnectedApps({
 
   return (
     <ManageWindow title="Connected apps" open={open} onClose={close} returnFocusTo={returnFocusTo} ref={list}>
-      <p className="mt-2 text-sm text-ink-faint">
-        Apps you allowed into your Cockpit: to capture items into it, or only to read your Panels. To connect
-        Claude, paste this address into claude.ai.
+      <p className="mt-1 text-sm text-ink-soft">
+        Apps you allowed into your Cockpit: to capture items into it, or only to read your Panels.
       </p>
-      <div className="mt-3 flex items-center gap-3 rounded-md border border-shade/10 p-3">
-        <code className="min-w-0 flex-1 select-all break-all text-sm">{address}</code>
-        <button
-          type="button"
-          onClick={copy}
-          className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover"
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      </div>
+      <SettingsPanel name="Address" hint="Paste it into claude.ai to connect Claude.">
+        <div className="flex items-center gap-3">
+          <code className="min-w-0 flex-1 select-all break-all text-sm">{address}</code>
+          <button
+            type="button"
+            onClick={copy}
+            className="shrink-0 rounded-md border border-shade/20 px-2 py-1 text-xs text-ink hover:bg-accent-tint"
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      </SettingsPanel>
 
-      <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">Connected</h3>
-      <section className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto">
+      <SettingsPanel className="mt-6" name="Connected apps" hint="Only the ones you allowed are listed." flush>
+      <section>
         <ul>
           {apps.map((app) => (
-            <li key={app.id} className="border-b border-shade/5 px-4 py-2 last:border-b-0">
+            <li key={app.id} className="border-b border-shade/10 px-4 py-2.5 last:border-b-0">
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{app.name}</p>
@@ -154,6 +156,7 @@ export default function ManageConnectedApps({
           <p className="px-4 py-4 text-sm text-ink-faint">No connected apps</p>
         )}
       </section>
+      </SettingsPanel>
 
       <CloseWindow />
     </ManageWindow>

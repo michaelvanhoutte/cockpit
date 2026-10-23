@@ -317,6 +317,47 @@ export interface Env {
    */
   ANTHROPIC_WORKSPACE_ID?: string;
   /**
+   * Which system this deployment is, named by its own configuration
+   * (`wrangler.jsonc`): `production` or `staging`. **A Worker with none is
+   * local**, and anything else reads as local too (`gateway/environment.ts`),
+   * so an unconfigured Worker never writes a row as production's. Decides
+   * whether a Claude call is recorded here or sent to production.
+   */
+  ENVIRONMENT?: string | undefined;
+  /**
+   * The branch the local checkout is on, handed to the Worker by `pnpm dev`
+   * (`scripts/dev.mjs`) and carried on every record a local Worker sends.
+   */
+  CHECKOUT_BRANCH?: string | undefined;
+  /**
+   * What an environment other than production sends its records to
+   * production under, and so the one thing that lets it spend its Claude key:
+   * without it a key counts as no key (`gateway/environment.ts`). A secret
+   * (`wrangler secret put USAGE_RECORDING_TOKEN --env staging`, or `.dev.vars`
+   * locally), holding the same value production holds as its own
+   * `USAGE_TOKEN_STAGING` or `USAGE_TOKEN_LOCAL`. Unused in production, which
+   * writes its own rows.
+   */
+  USAGE_RECORDING_TOKEN?: string | undefined;
+  /**
+   * Production's address, where those records go; the route is
+   * `gateway/receive.ts`'s. Configuration rather than a secret: set in
+   * `wrangler.jsonc` for staging and by `pnpm dev` for a local Worker.
+   */
+  USAGE_RECORDING_URL?: string | undefined;
+  /**
+   * **Production's three recording tokens, one per environment that sends**,
+   * each a separate secret so one leaked is revoked alone. Which one a request
+   * carries is the only thing that says which environment its records are
+   * (`gateway/receive.ts`). Optional in the type for the reason `BACKUP_TOKEN`
+   * is: an environment holding none refuses every record sent to it. Set in
+   * production only (`wrangler secret put USAGE_TOKEN_STAGING`), and distinct
+   * from each other and from `BACKUP_TOKEN`.
+   */
+  USAGE_TOKEN_STAGING?: string;
+  USAGE_TOKEN_CI?: string;
+  USAGE_TOKEN_LOCAL?: string;
+  /**
    * How many seconds a settle- or correction-triggered refresh waits for a
    * later one to take its place (`src/accounts/debounce.ts`). Unset everywhere
    * but the backend suite, which sets `0` so a case going through the real

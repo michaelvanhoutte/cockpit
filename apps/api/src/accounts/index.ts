@@ -8,6 +8,7 @@ import type {
   ReadableSnapshot,
   ReadableWorkspace,
   ServerEvent,
+  RecurringItem,
   SourceAccount,
   Workspace,
   RememberedSentenceList,
@@ -300,6 +301,8 @@ export interface Account {
    * account", issue 485).
    */
   sourceAccounts(workspaceId: string): Promise<SourceAccount[]>;
+  /** One Workspace's recurring items, soonest first ("Make, change and delete recurring items from the Recurring items modal", issue 1449). */
+  recurringItems(workspaceId: string): Promise<RecurringItem[]>;
   /**
    * The connection one Workspace holds to an account at a source, by the key
    * that source names it with, or null ("Save a Teams message to Cockpit",
@@ -458,6 +461,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.rememberWhatTheseItemsMean(accountName, model, readings)),
     sourceAccounts: async (workspaceId) =>
       unwrap(await store.sourceAccounts(accountName, workspaceId)),
+    recurringItems: async (workspaceId) => unwrap(await store.recurringItems(accountName, workspaceId)),
     connectionUnder: async (workspaceId, connectorId, externalAccountKey) =>
       unwrap(await store.connectionUnder(accountName, workspaceId, connectorId, externalAccountKey)),
     sealedCredential: async (sourceAccountId) =>

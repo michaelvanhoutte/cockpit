@@ -9,6 +9,7 @@ import type {
   ReadableSnapshot,
   ReadableWorkspace,
   ServerEvent,
+  RecurringItem,
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
@@ -144,6 +145,7 @@ import {
   meaningsOfItems,
   listOpenItems,
   listPanelsInWorkspace,
+  listRecurringItems,
   listWorkspaces,
   meaningsToCompareWith,
   queueRewriteAttempt,
@@ -772,6 +774,21 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /**
+   * One Workspace's recurring items, soonest first ("Make, change and delete
+   * recurring items from the Recurring items modal", issue 1449): its own read
+   * rather than a slice of the Workspace's snapshot, since the modal that shows
+   * them is opened now and then and every read of the Workspace would carry them.
+   * A Workspace that is not there is `missing`, not an empty list that reads as
+   * "nothing recurs".
+   */
+  recurringItems(accountName: string, workspaceId: string): Answer<RecurringItem[]> {
+    return this.#answer(accountName, (db) => {
+      if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+      return listRecurringItems(db, accountName, workspaceId);
+    });
+  }
+
+  /**
    * The connection one Workspace holds to an account at a source, by the key
    * that source names it with - what an inbound push is matched against ("Save
    * a Teams message to Cockpit", issue 486). Null where this Workspace holds
@@ -1180,9 +1197,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /**
    * Brings back every series whose day has come, each as its own self-sent
    * change under ids derived from the series and the day ("Bring a repeating
-   * Item back on its day, as a fresh copy", issue 1407): the Item, its filings,
-   * its attachments and the Next on moved on are one transaction, so a run that
-   * stops leaves the series due and the next one writes it once.
+   * Item back on its day, as a fresh copy", issue 1407): the Item made from its
+   * series, its filings and the Next on moved on are one transaction, so a run
+   * that stops leaves the series due and the next one writes it once. The
+   * store is brought up to date first, so no copy is made from a series an
+   * unapplied change has still to fill.
    *
    * **A day whose Item is already written is passed over**: that change is in
    * the log, so it writes nothing again, and it is sent once more under an id
@@ -1548,9 +1567,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       };
     }
 
-    // Each stored file once, however many rows name it: a repeating Item's
-    // occurrences each carry a row naming the same file ("Bring a repeating
-    // Item back on its day", issue 1407).
+    // Each stored file once, however many rows name it: occurrences brought
+    // back before a copy was made from its series each carry a row naming the
+    // same file ("Bring a repeating Item back on its day", issue 1407).
     const orphanedKeys = accountTables(sql).includes('attachments')
       ? sql
           .exec<{ r2_key: string }>('SELECT DISTINCT r2_key FROM attachments')
@@ -1760,6 +1779,10 @@ const CHANGES_THE_ALARM: ReadonlySet<CommandName> = new Set<CommandName>([
   'disconnect_source_account',
   'delete_workspace',
   'set_repeat',
+  // A recurring item made, changed or deleted moves the day the alarm is set for ("Make, change and delete recurring items from the Recurring items modal", issue 1449).
+  'create_recurring_item',
+  'write_recurring_item',
+  'delete_recurring_item',
 ]);
 
 /**

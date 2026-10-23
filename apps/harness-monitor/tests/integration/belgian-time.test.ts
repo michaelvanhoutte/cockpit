@@ -19,13 +19,13 @@ const at = (iso: string) => vi.useFakeTimers({ toFake: ['Date'], now: new Date(i
 /** A request 90 minutes before Brussels midnight turned 21 Oct into 22 Oct: 00:30 on 22 Oct there. */
 const AFTER_MIDNIGHT = '2026-10-21T22:30:00Z';
 
-const updatedLine = (html: string) => /<span class="status">(.*?) · Public/.exec(html)![1]!;
+const updatedLine = (html: string) => /<span class="status">(.*?) · public/.exec(html)![1]!;
 /** The cost-per-day chart alone: the trend charts below it draw lines of their own. */
-const perDay = (html: string) => /<section class="card chart" aria-labelledby="perday">.*?<\/section>/s.exec(html)![0];
+const perDay = (html: string) => /<section class="panel" aria-labelledby="perday">.*?<\/section>/s.exec(html)![0];
 const titles = (html: string) => [...html.matchAll(/<title>(.*?)<\/title>/g)].map((m) => m[1]!);
 /** A trend chart's points ("22 Oct 2026 · 80 tokens"), whichever line draws them. */
 function points(html: string, id: string): string[] {
-  const section = new RegExp(`<section class="card chart" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)![1]!;
+  const section = new RegExp(`<section class="trend" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)![1]!;
   return titles(section).map((t) => t.split(' · ').slice(1).join(' · ').replace('week of ', ''));
 }
 
@@ -124,7 +124,7 @@ describe('Harness Monitor', () => {
       });
 
       it('the comparison names Belgian days for both of its windows', async () => {
-        const card = /<section class="card change".*?<\/p>/s.exec(await theBarePage('?period=7d'))![0];
+        const card = /<section class="panel change".*?<\/p>/s.exec(await theBarePage('?period=7d'))![0];
 
         expect(card).toContain('(16 Oct 2026 to 22 Oct 2026)');
         expect(card).toContain('(9 Oct 2026 to 15 Oct 2026)');

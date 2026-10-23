@@ -29,7 +29,7 @@ const sessions = () =>
     spend('x2', 0.25, { branch: null, category: 'scoping-planning' }),
   ]);
 
-/** Each row as label, total, then the seven categories. */
+/** Each row as label, total, then the categories Unphased leaves out unless it holds cost. */
 const rows = async (group: string, sort = 'total') => costRows(await thePage(`?period=all&group=${group}&sort=${sort}`)).map((r) => [r.label, r.total, ...r.categories]);
 
 describe('Harness Monitor', () => {
@@ -41,27 +41,27 @@ describe('Harness Monitor', () => {
 
     it('by pull request, each pull request’s sessions are summed and split by category', async () => {
       expect(await rows('pr')).toEqual([
-        ['#10 First', '$8.00', '—', '—', '$4.00', '—', '—', '$4.00', '—'],
-        ['#12 Third', '$3.00', '—', '—', '—', '$3.00', '—', '—', '—'],
-        ['#11 Second', '$2.00', '—', '—', '$1.00', '—', '—', '—', '$1.00'],
-        ['claude/nobody', '$0.50', '—', '—', '$0.50', '—', '—', '—', '—'],
-        ['No branch', '$0.25', '—', '$0.25', '—', '—', '—', '—', '—'],
+        ['#10 First', '$8.00', '—', '—', '$4.00', '—', '—', '$4.00', '—', '—'],
+        ['#12 Third', '$3.00', '—', '—', '—', '$3.00', '—', '—', '—', '—'],
+        ['#11 Second', '$2.00', '—', '—', '$1.00', '—', '—', '—', '$1.00', '—'],
+        ['claude/nobody', '$0.50', '—', '—', '$0.50', '—', '—', '—', '—', '—'],
+        ['No branch', '$0.25', '—', '$0.25', '—', '—', '—', '—', '—', '—'],
       ]);
     });
 
     it('by issue, pull requests closing the same issue are summed together', async () => {
       expect(await rows('issue')).toEqual([
-        ['#5', '$10.00', '—', '—', '$5.00', '—', '—', '$4.00', '$1.00'],
-        ['No issue', '$3.00', '—', '—', '—', '$3.00', '—', '—', '—'],
-        ['Unattributed', '$0.75', '—', '$0.25', '$0.50', '—', '—', '—', '—'],
+        ['#5', '$10.00', '—', '—', '$5.00', '—', '—', '$4.00', '$1.00', '—'],
+        ['No issue', '$3.00', '—', '—', '—', '$3.00', '—', '—', '—', '—'],
+        ['Unattributed', '$0.75', '—', '$0.25', '$0.50', '—', '—', '—', '—', '—'],
       ]);
     });
 
     it('by engineer, requests are summed per pull request author and unattributed ones stand alone', async () => {
       expect(await rows('engineer')).toEqual([
-        ['alice', '$11.00', '—', '—', '$4.00', '$3.00', '—', '$4.00', '—'],
-        ['bob', '$2.00', '—', '—', '$1.00', '—', '—', '—', '$1.00'],
-        ['Unattributed', '$0.75', '—', '$0.25', '$0.50', '—', '—', '—', '—'],
+        ['alice', '$11.00', '—', '—', '$4.00', '$3.00', '—', '$4.00', '—', '—'],
+        ['bob', '$2.00', '—', '—', '$1.00', '—', '—', '—', '$1.00', '—'],
+        ['Unattributed', '$0.75', '—', '$0.25', '$0.50', '—', '—', '—', '—', '—'],
       ]);
     });
 
@@ -99,7 +99,7 @@ describe('Harness Monitor', () => {
 
       expect(whereItWent(html).heading).toBe("Where the period's $13.75 went");
       expect(whereItWent(html).bar).toBe(
-        'Unphased $0.00, Scoping & planning $0.25, Building $5.50, Local code review $3.00, Local security review $0.00, After push $4.00, CI reviews $1.00',
+        'Outside the process $0.00, Scoping & planning $0.25, Building $5.50, Local code review $3.00, Local security review $0.00, After push $4.00, CI reviews $1.00, Process review $0.00',
       );
     });
   });

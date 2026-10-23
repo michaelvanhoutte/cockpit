@@ -66,7 +66,7 @@ export function SettingsModal({
           }}
           className="fixed inset-0 z-floating flex flex-col overflow-hidden bg-surface pb-[var(--edge-bottom)] pt-[var(--edge-top)] sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-[min(40rem,calc(100dvh-4rem))] sm:w-[min(56rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:flex-row sm:rounded-lg sm:border sm:border-shade/10 sm:p-0 sm:shadow-lg"
         >
-          <nav aria-label={title} className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-shade/10 p-3 sm:w-48 sm:flex-col sm:items-stretch sm:overflow-visible sm:border-b-0 sm:border-r">
+          <nav aria-label={title} className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-shade/10 p-3 sm:w-56 sm:flex-col sm:items-stretch sm:overflow-visible sm:border-b-0 sm:border-r">
             <Dialog.Title className="px-2 text-base font-semibold sm:pb-2">{title}</Dialog.Title>
             {sections.map((section) => {
               const here = section.key === current?.key;
