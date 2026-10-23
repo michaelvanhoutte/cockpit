@@ -387,6 +387,68 @@ test.describe('Workspace management', () => {
       expect(page.url()).not.toBe(itsUrl);
     });
   });
+
+  test.describe('recurring items are made, changed and deleted from the Workspace menu', () => {
+    /**
+     * F3, because the modal opens from a menu a desk right-clicks and a phone
+     * taps, is a window over the Dashboard at 1280px and the whole screen at
+     * 480px with its list as cards, and writes to the account's own store. What
+     * it lists, swaps and refuses is apps/web/tests/unit/components/RecurringItemsModal.test.tsx,
+     * and what the store keeps is apps/api/tests/integration/http/recurring-items.test.ts.
+     */
+    test('opens over the Dashboard, makes a recurring item, changes it and deletes it', async ({ page, isMobile }) => {
+      const workspace = uniqueTitle('Recurring');
+      await openFirstWorkspace(page, isMobile);
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+
+      await chooseTabAction(page, workspaceTab(page, workspace), 'Recurring items', isMobile);
+      const modal = page.getByRole('dialog');
+      await expect(modal.getByRole('heading', { name: 'Recurring items' })).toBeVisible();
+      await expect(modal.getByText(/Nothing recurs yet/)).toBeVisible();
+      // A window over the Dashboard on a desk, the whole screen on a phone.
+      const box = (await modal.boundingBox())!;
+      const screen = page.viewportSize()!;
+      if (isMobile) expect(box.width).toBeGreaterThanOrEqual(screen.width - 1);
+      else expect(box.width).toBeLessThan(screen.width - 40);
+
+      // Made: the form is the same window, and the list has the row on Save.
+      const title = uniqueTitle('Weekly review');
+      await press(modal.getByRole('button', { name: '+ New recurring item' }), isMobile);
+      await expect(page.getByRole('dialog')).toHaveCount(1);
+      await modal.getByLabel('Title').fill(title);
+      await press(modal.getByRole('button', { name: 'Save' }), isMobile);
+      // A phone's list is cards, a desk's a table.
+      const row = isMobile ? modal.getByRole('listitem').filter({ hasText: title }) : modal.getByRole('row').filter({ hasText: title });
+      await expect(row).toBeVisible();
+      await expect(row).toContainText('Weekly on');
+      await expect(row).toContainText('Inbox');
+      await expectNoSidewaysScroll(page);
+
+      // Changed: from its row, and the list says so.
+      await press(modal.getByRole('button', { name: title }), isMobile);
+      const renamed = uniqueTitle('Friday review');
+      await modal.getByLabel('Title').fill(renamed);
+      await press(modal.getByRole('button', { name: 'Save' }), isMobile);
+      await expect(modal.getByRole('button', { name: renamed })).toBeVisible();
+      await expect(modal.getByRole('button', { name: title })).toHaveCount(0);
+
+      // Still there once the store has it: the modal is read again when it opens.
+      await press(modal.getByRole('button', { name: 'Close' }), isMobile);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await chooseTabAction(page, workspaceTab(page, workspace), 'Recurring items', isMobile);
+      await expect(page.getByRole('dialog').getByRole('button', { name: renamed })).toBeVisible();
+
+      // Deleted: asked first, then gone from the list.
+      await press(page.getByRole('dialog').getByRole('button', { name: renamed }), isMobile);
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Delete recurring item' }), isMobile);
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing recurs yet/)).toBeVisible();
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Close' }), isMobile);
+
+      await deleteWorkspace(page, workspace, isMobile);
+    });
+  });
 });
 
 test.describe('Workspace management', () => {

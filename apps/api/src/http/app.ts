@@ -31,6 +31,7 @@ import {
   phoneCodeSentSchema,
   confirmPhoneCodeSchema,
   phoneConnectedSchema,
+  recurringItemListSchema,
   sourceAccountListSchema,
   DUE_IN_DAYS_MAX,
   DUE_IN_DAYS_MIN,
@@ -732,6 +733,28 @@ const sourceAccountsRoute = createRoute({
 });
 
 /**
+ * The recurring items one Workspace holds, soonest first ("Make, change and
+ * delete recurring items from the Recurring items modal", issue 1449) - read
+ * when the modal opens, never part of the Workspace snapshot, which every
+ * navigation reads.
+ */
+const recurringItemsRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/recurring-items',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: "The Workspace's running recurring items, soonest first",
+      content: { 'application/json': { schema: recurringItemListSchema } },
+    },
+    404: {
+      description: 'Unknown workspace',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * One connection's history, newest line first ("See when a pulled connection
  * was checked, and why it failed, from its row's History…", issue 1140) - read
  * when *History…* opens it, never part of the Workspace snapshot, which would
@@ -1343,6 +1366,11 @@ const routes = app
       200,
     );
   })
+  .openapi(recurringItemsRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ recurringItems: await account.recurringItems(workspaceId) }, 200);
+  })
   .openapi(connectionHistoryRoute, async (c) => {
     const { workspaceId, sourceAccountId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -1698,6 +1726,15 @@ const routes = app
   .openapi(commandRoute('set_priority'), async (c) => c.json(await change(c, 'set_priority', c.req.valid('json')), 200))
   .openapi(commandRoute('set_due_date'), async (c) => c.json(await change(c, 'set_due_date', c.req.valid('json')), 200))
   .openapi(commandRoute('set_repeat'), async (c) => c.json(await change(c, 'set_repeat', c.req.valid('json')), 200))
+  .openapi(commandRoute('create_recurring_item'), async (c) =>
+    c.json(await change(c, 'create_recurring_item', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('write_recurring_item'), async (c) =>
+    c.json(await change(c, 'write_recurring_item', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('delete_recurring_item'), async (c) =>
+    c.json(await change(c, 'delete_recurring_item', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_title'), async (c) =>
     c.json(await changeThatRewritesTheTexts(c, 'set_title', c.req.valid('json')), 200),
   )
