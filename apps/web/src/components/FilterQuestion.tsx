@@ -539,7 +539,7 @@ type ValueOption = { id: string; label: string; group?: string };
  * **One shape for all four.** *Is not* matches an Item holding none of the
  * chosen values ("Include or exclude a Filter panel condition's values, and
  * filter on To do as well as In progress", issue 908); a new card opens on
- * *is*. Status's options are To do and In progress. Priority's are the three
+ * *is*. Status's options are To do, In progress and Waiting for reply. Priority's are the three
  * levels the schema carries; a Panel's
  * are the Workspace's own items Panels - never a Filter or a Panel of text,
  * nothing being filed onto either.
