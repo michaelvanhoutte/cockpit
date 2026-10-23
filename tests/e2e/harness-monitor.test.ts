@@ -160,7 +160,7 @@ test.describe('Harness Monitor', () => {
 
     // The five filters: one row on a desk, no more than two to a row on a phone.
     const fields = await page.locator('.filters .field:has(select)').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
-    const perRow = Object.values(Object.groupBy(fields, (top) => top)).map((row) => row!.length);
+    const perRow = [...new Set(fields)].map((top) => fields.filter((t) => t === top).length);
     expect(fields).toHaveLength(5);
     expect(onAPhone ? Math.max(...perRow) : perRow).toEqual(onAPhone ? 2 : [5]);
     if (onAPhone) {
