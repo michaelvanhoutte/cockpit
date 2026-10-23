@@ -19,6 +19,7 @@ import {
   isAPeriod,
   orderedAsDrawn,
 } from '@cockpit/shared';
+import { STATUS_LABELS } from '../allItems';
 import { GROUPING_NAMES, WINDOW_LABELS } from '../filters';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
@@ -383,7 +384,7 @@ function ConditionRow({
         onExclude={(exclude) => onChange(withExclusion(row, exclude))}
         values={statusValuesOf(row)}
         options={STATUS_OPTIONS}
-        onChange={(values) => onChange({ ...row, values: values as ('to_do' | 'in_progress')[] })}
+        onChange={(values) => onChange({ ...row, values: values as ('to_do' | 'in_progress' | 'waiting')[] })}
         onRemove={onRemove}
       />
     );
@@ -416,10 +417,11 @@ function panelOptions(
   );
 }
 
-/** The two statuses a Status card offers - never Done, which a Filter panel does not draw. */
+/** The three statuses a Status card offers - never Done, which a Filter panel does not draw. */
 const STATUS_OPTIONS = [
-  { id: 'to_do', label: 'To do' },
-  { id: 'in_progress', label: 'In progress' },
+  { id: 'to_do', label: STATUS_LABELS.to_do },
+  { id: 'in_progress', label: STATUS_LABELS.in_progress },
+  { id: 'waiting', label: STATUS_LABELS.waiting },
 ];
 
 /** A values condition with its *is* / *is not* set, writing no `exclude` at all for *is* so a card never saved as *is not* stays as it was stored. */

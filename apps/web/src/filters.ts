@@ -7,6 +7,7 @@ import type {
   Panel,
 } from '@cockpit/shared';
 import { NO_CONDITIONS, isAPeriod, panelGathers, panelTakesItems, statusValuesOf } from '@cockpit/shared';
+import { STATUS_LABELS } from './allItems';
 import { PRIORITY_LABELS } from './priority';
 
 /**
@@ -200,7 +201,7 @@ function sentenceFor(
   }
   if (condition.field === 'agent') return 'Agent running';
   if (condition.field === 'status') {
-    const names = statusValuesOf(condition).map((value) => (value === 'to_do' ? 'To do' : 'In progress'));
+    const names = statusValuesOf(condition).map((value) => STATUS_LABELS[value]);
     return valuesSentence('Status is', 'Status is not', condition.exclude, names);
   }
   const reads = WINDOW_READS[condition.window];

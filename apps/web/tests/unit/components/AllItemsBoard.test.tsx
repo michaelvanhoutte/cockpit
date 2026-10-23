@@ -171,7 +171,7 @@ describe('Inbox', () => {
   });
 
   describe('the filter narrows All items over every row, not only the page drawn', () => {
-    it('offers To do, In progress and Done, and lists only the finished items once Done is chosen', async () => {
+    it('offers To do, In progress, Waiting for reply and Done, and lists only the finished items once Done is chosen', async () => {
       const user = theTable(
         [anItem('open'), anItem('finished', { completedAt: '2026-09-11T09:00:00.000Z' })],
         { barOpen: true },
@@ -182,11 +182,30 @@ describe('Inbox', () => {
         within(screen.getByRole('group', { name: 'Status' }))
           .getAllByRole('button')
           .map((chip) => chip.textContent),
-      ).toEqual(['To do', 'In progress', 'Done']);
+      ).toEqual(['To do', 'In progress', 'Waiting for reply', 'Done']);
       await user.click(statusChip('Done'));
 
       expect(titlesInOrder()).toEqual(['finished']);
       expect(screen.getByRole('heading', { name: /All items\s*1 of 2/ })).toBeVisible();
+    });
+
+    it('lists a waiting item only under Waiting for reply, never under To do or In progress', async () => {
+      const items = [
+        anItem('plain'),
+        anItem('started', { startedAt: '2026-09-10T09:00:00.000Z' }),
+        anItem('waiting', { waitingSince: '2026-09-10T09:00:00.000Z' }),
+      ];
+      const user = theTable(items, { barOpen: true });
+      await screen.findByRole('table');
+
+      await user.click(statusChip('To do'));
+      await user.click(statusChip('In progress'));
+      expect(titlesInOrder()).toEqual(['plain', 'started']);
+
+      await user.click(statusChip('To do'));
+      await user.click(statusChip('In progress'));
+      await user.click(statusChip('Waiting for reply'));
+      expect(titlesInOrder()).toEqual(['waiting']);
     });
 
     it('gives a phone the same summary and sheet, the sheet offering Done under Status', async () => {

@@ -242,6 +242,18 @@ describe('Panels', () => {
       expect(read?.rows).toEqual([conditions]);
     });
 
+    it('keeps a Filter saved before Waiting for reply was a Status value exactly as it was, and takes the new value beside the old ones', () => {
+      const before: FilterCondition = { field: 'status', values: ['to_do', 'in_progress'] };
+      const after: FilterCondition = { field: 'status', values: ['to_do', 'in_progress', 'waiting'] };
+
+      for (const condition of [before, after]) {
+        const saved = save([condition]);
+        expect(saved.success).toBe(true);
+        if (!saved.success) return;
+        expect(panelFilterFrom(panelFilterAsStored(saved.data.rows, saved.data.groupBy))?.rows).toEqual([[condition]]);
+      }
+    });
+
     it('refuses a Status value of Done, which a Filter never draws', () => {
       expect(save([{ field: 'status', values: ['done'] }]).success).toBe(false);
     });

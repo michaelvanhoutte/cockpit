@@ -46,6 +46,7 @@ function anItem(
     priority?: Priority | null;
     completedAt?: string | null;
     startedAt?: string | null;
+    waitingSince?: string | null;
     createdAt?: string;
     workspaceId?: string;
   } = {},
@@ -71,7 +72,7 @@ function anItem(
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
-    waitingSince: null,
+    waitingSince: holding.waitingSince ?? null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: holding.completedAt ?? null,
@@ -555,10 +556,22 @@ describe('Panels', () => {
   describe('a Status condition matches the statuses it holds, and one stored without any reads as In progress', () => {
     const todo = anItem('todo');
     const doing = anItem('doing', { startedAt: '2026-09-04T10:00:00.000Z' });
-    const filings = [filed('falcon', 'todo'), filed('falcon', 'doing')];
+    const waiting = anItem('waiting', { waitingSince: '2026-09-05T10:00:00.000Z' });
+    const filings = [filed('falcon', 'todo'), filed('falcon', 'doing'), filed('falcon', 'waiting')];
 
     it.each([
       { situation: 'Status is To do', condition: { field: 'status', values: ['to_do'] }, drawn: ['todo'] },
+      { situation: 'Status is Waiting for reply', condition: { field: 'status', values: ['waiting'] }, drawn: ['waiting'] },
+      {
+        situation: 'Status is In progress and Waiting for reply',
+        condition: { field: 'status', values: ['in_progress', 'waiting'] },
+        drawn: ['doing', 'waiting'],
+      },
+      {
+        situation: 'Status is not Waiting for reply',
+        condition: { field: 'status', values: ['waiting'], exclude: true },
+        drawn: ['todo', 'doing'],
+      },
       {
         situation: 'Status is To do and In progress',
         condition: { field: 'status', values: ['to_do', 'in_progress'] },
@@ -567,11 +580,11 @@ describe('Panels', () => {
       {
         situation: 'Status is not In progress',
         condition: { field: 'status', values: ['in_progress'], exclude: true },
-        drawn: ['todo'],
+        drawn: ['todo', 'waiting'],
       },
       { situation: 'a Status stored with no values, from before', condition: { field: 'status' }, drawn: ['doing'] },
     ] as { situation: string; condition: FilterCondition; drawn: string[] }[])('$situation draws $drawn', ({ condition, drawn }) => {
-      expect(shown([todo, doing], filings, [condition]).sort()).toEqual([...drawn].sort());
+      expect(shown([todo, doing, waiting], filings, [condition]).sort()).toEqual([...drawn].sort());
     });
   });
 

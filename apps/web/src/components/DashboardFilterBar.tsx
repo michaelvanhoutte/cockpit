@@ -10,6 +10,7 @@ import {
 } from '@cockpit/shared';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useDashboardFilter, closeEveryFilterBar, useFilterBarOpen } from '../dashboardFilter';
+import { STATUS_LABELS } from '../allItems';
 import { WINDOW_LABELS } from '../filters';
 import { browserStore } from '../lastVisited';
 import { PRIORITY_LABELS } from '../priority';
@@ -26,9 +27,10 @@ export const PRIORITIES: { value: PriorityChoice; label: string }[] = [
 ];
 
 export const STATUSES: { value: ItemStatus; label: string }[] = [
-  { value: 'to_do', label: 'To do' },
-  { value: 'in_progress', label: 'In progress' },
-  { value: 'done', label: 'Done' },
+  { value: 'to_do', label: STATUS_LABELS.to_do },
+  { value: 'in_progress', label: STATUS_LABELS.in_progress },
+  { value: 'waiting', label: STATUS_LABELS.waiting },
+  { value: 'done', label: STATUS_LABELS.done },
 ];
 
 // Neither pressed is no attachments condition (stored as 'any'), so no button says "Any".

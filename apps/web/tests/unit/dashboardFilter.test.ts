@@ -124,8 +124,8 @@ describe('Dashboards', () => {
 
     it('drops a stored status that is not one of the three and keeps the rest', () => {
       const store = aStore();
-      store.setItem('cockpit.dashboard-filter.a', JSON.stringify({ statuses: ['in_progress', 'blocked'], text: 'vat' }));
-      expect(readDashboardFilter(store, 'a')).toEqual(filterOf({ statuses: ['in_progress'], text: 'vat' }));
+      store.setItem('cockpit.dashboard-filter.a', JSON.stringify({ statuses: ['in_progress', 'waiting', 'blocked'], text: 'vat' }));
+      expect(readDashboardFilter(store, 'a')).toEqual(filterOf({ statuses: ['in_progress', 'waiting'], text: 'vat' }));
     });
 
     it.each([
