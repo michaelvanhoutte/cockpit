@@ -106,8 +106,12 @@ class SessionStore(context: Context, private val box: SecretBox) {
     fun saveClientId(id: String) = prefs.edit().putString(CLIENT, id).apply()
     fun forgetClientId() = prefs.edit().remove(CLIENT).apply()
 
-    fun savePending(pending: Pending) {
+    /** False where the phone's key store would not seal it: a sign-in that cannot be kept safe is not begun. */
+    fun savePending(pending: Pending): Boolean = try {
         prefs.edit().putString(PENDING, box.seal(Wire.json.encodeToString(pending))).apply()
+        true
+    } catch (e: Exception) {
+        false
     }
 
     /** The sign-in in flight, once: a way back is answered a single time. */

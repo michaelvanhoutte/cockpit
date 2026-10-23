@@ -98,7 +98,11 @@ class MainActivity : Activity() {
                 } else {
                     val verifier = Pkce.verifier()
                     val state = Pkce.state()
-                    graph.session.savePending(Pending(state, verifier, closeWhenDone))
+                    if (!graph.session.savePending(Pending(state, verifier, closeWhenDone))) {
+                        note = "This phone could not keep a sign-in safe, so the widget cannot sign in."
+                        show()
+                        return@runOnUiThread
+                    }
                     val address = SignInAddress.authorize(
                         graph.origin, clientId, graph.redirectUri, state, Pkce.challenge(verifier),
                     )

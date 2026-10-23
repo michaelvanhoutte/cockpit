@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import okhttp3.OkHttpClient
 import java.time.Clock
+import java.time.Instant
+import java.time.ZoneId
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 
@@ -16,7 +18,7 @@ class Graph(
     context: Context,
     val origin: String = BuildConfig.ORIGIN,
     val redirectUri: String = BuildConfig.REDIRECT_URI,
-    val clock: Clock = Clock.systemDefaultZone(),
+    val clock: Clock = DeviceClock,
     secretBox: SecretBox = KeystoreSecretBox(),
     http: OkHttpClient = CockpitClient.defaultHttp(),
     /** Where work that must not block a receiver or a screen runs. */
@@ -35,6 +37,17 @@ class Graph(
         session.clear()
         widgets.wipeKept()
     }
+}
+
+/**
+ * The phone's own clock and zone, asked every time: a process can outlive the
+ * traveller's change of time zone, and "today" and *Updated 11:05* are the
+ * phone's, not the zone it was started in.
+ */
+object DeviceClock : Clock() {
+    override fun getZone(): ZoneId = ZoneId.systemDefault()
+    override fun withZone(zone: ZoneId): Clock = Clock.system(zone)
+    override fun instant(): Instant = Instant.now()
 }
 
 open class CockpitApp : Application() {

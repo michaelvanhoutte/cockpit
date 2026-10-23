@@ -94,6 +94,34 @@ class OneSignInServesEveryWidget {
         assertNull(cockpit.lastTokenForm["code"])
     }
 
+    /** A phone whose key store refuses everything. */
+    private val unable = object : SecretBox {
+        override fun seal(plain: String): String = throw java.security.ProviderException("Keystore operation failed")
+        override fun open(sealed: String): String? = null
+    }
+
+    @Test
+    fun `a phone whose key store cannot keep a sign-in safe never sends the browser, and says so`() {
+        phone = Phone(cockpit, secretBox = unable)
+        val screen = Robolectric.buildActivity(MainActivity::class.java).setup()
+
+        screen.get().button("Sign in").performClick()
+
+        assertNull("no browser was opened", shadowOf(screen.get()).peekNextStartedActivity())
+        assertTrue(screen.get().texts().any { it.startsWith("This phone could not keep a sign-in safe") })
+    }
+
+    @Test
+    fun `a code traded on a phone whose key store refuses signs nobody in`() {
+        phone = Phone(cockpit, secretBox = unable)
+        phone.graph.session.saveClientId("client-1")
+
+        val outcome = phone.graph.client.signIn("the-code", "a-verifier")
+
+        assertEquals(SignedIn.Failed("could not keep the sign-in safe on this phone"), outcome)
+        assertEquals(false, phone.graph.session.isSignedIn())
+    }
+
     @Test
     fun `a refresh refused because the app was disconnected leaves every widget saying signed out, with its kept list wiped`() {
         phone.signedIn()

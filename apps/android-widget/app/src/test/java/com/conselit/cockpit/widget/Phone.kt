@@ -51,7 +51,17 @@ class ManualExecutor : Executor {
     }
 }
 
-class Phone(val cockpit: FakeCockpit, workExecutor: Executor = SynchronousExecutor()) {
+/** Stands in for the phone's key store, which a JVM does not have: it keeps what it is given in the clear, marked. */
+object MarkedBox : SecretBox {
+    override fun seal(plain: String) = "sealed:$plain"
+    override fun open(sealed: String) = sealed.removePrefix("sealed:").takeIf { sealed.startsWith("sealed:") }
+}
+
+class Phone(
+    val cockpit: FakeCockpit,
+    workExecutor: Executor = SynchronousExecutor(),
+    secretBox: SecretBox = MarkedBox,
+) {
     val context: Context = ApplicationProvider.getApplicationContext()
     val clock = TestClock(Instant.parse("2026-10-23T11:05:00Z"))
     val app = context as TestApp
@@ -68,10 +78,7 @@ class Phone(val cockpit: FakeCockpit, workExecutor: Executor = SynchronousExecut
             origin = cockpit.origin,
             redirectUri = "cockpit-widget://oauth",
             clock = clock,
-            secretBox = object : SecretBox {
-                override fun seal(plain: String) = "sealed:$plain"
-                override fun open(sealed: String) = sealed.removePrefix("sealed:").takeIf { sealed.startsWith("sealed:") }
-            },
+            secretBox = secretBox,
             io = Executor { it.run() },
         )
         app.graph = graph

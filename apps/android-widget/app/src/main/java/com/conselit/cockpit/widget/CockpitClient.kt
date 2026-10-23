@@ -106,8 +106,9 @@ class CockpitClient(
         return try {
             http.newCall(Request.Builder().url("$root/oauth/token").post(form).build()).execute().use { response ->
                 if (response.isSuccessful) {
-                    session.save(sessionFrom(response, previousRefresh = null))
-                    SignedIn.Yes
+                    val signedIn = sessionFrom(response, previousRefresh = null)
+                    // A phone whose key store cannot keep it safe keeps nothing, and says so.
+                    if (!keep(signedIn)) SignedIn.Failed("could not keep the sign-in safe on this phone") else SignedIn.Yes
                 } else {
                     val reason = errorOf(response)
                     // A registration the server no longer holds is made again at the next sign-in.
@@ -208,8 +209,12 @@ class CockpitClient(
                     response.isSuccessful -> {
                         // Written before it is used: the old refresh token is spent the moment the server answers.
                         val renewed = sessionFrom(response, previousRefresh = held.refreshToken)
-                        session.save(renewed)
-                        Token.Have(renewed.accessToken)
+                        if (keep(renewed)) {
+                            Token.Have(renewed.accessToken)
+                        } else {
+                            session.clear()
+                            Token.SignedOut
+                        }
                     }
                     response.code >= 500 -> Token.Offline
                     else -> {
@@ -224,6 +229,14 @@ class CockpitClient(
         } catch (e: kotlinx.serialization.SerializationException) {
             Token.Offline
         }
+    }
+
+    /** Seals and stores a sign-in; false where the phone's key store would not. */
+    private fun keep(signedIn: Session): Boolean = try {
+        session.save(signedIn)
+        true
+    } catch (e: Exception) {
+        false
     }
 
     private fun sessionFrom(response: Response, previousRefresh: String?): Session {
