@@ -37,14 +37,18 @@ export function suitesNamed(argv) {
   return named;
 }
 
+/** The prompt a behaviour suite holds, `clean-up-a-note` for `area/clean-up-a-note.v17.test.ts`. */
+const promptOf = (file) => file.split('/').pop().replace(BEHAVIOUR_SUITE, '');
+
 /**
- * The files a run is given to filter. A run naming nothing gets everything
- * but the behaviour suites; a run naming something gets every file and Vitest
+ * The files a run is given to filter. Every file but the behaviour suites, and
+ * a behaviour suite only where a name is part of its prompt's name - so a
+ * stray value read as a name (`--bail 1`) selects none of them. Vitest then
  * keeps those whose path holds a name, which no one-call check or free suite
  * does for a behaviour suite's name.
  */
 export function contractFiles(files, named) {
-  return named.length === 0 ? files.filter((file) => !BEHAVIOUR_SUITE.test(file)) : files;
+  return files.filter((file) => !BEHAVIOUR_SUITE.test(file) || named.some((name) => promptOf(file).includes(name)));
 }
 
 /** The files Vitest runs once it has filtered `files` by `named` as its command line does. */
@@ -53,9 +57,13 @@ export function filesRun(files, named) {
   return named.length === 0 ? given : given.filter((file) => named.some((name) => file.includes(name)));
 }
 
-/** The versioned prompt names (`clean-up-a-note.v17`) that `check`'s source does not name, as `X.vN` and not as the front of `X.vNN`. */
+/**
+ * The versioned prompt names (`clean-up-a-note.v17`) that open no case title in
+ * `check`'s source, as `X.vN` and not as the front of `X.vNN` - a title and not
+ * anywhere, since a comment naming the prompt checks nothing.
+ */
 export function promptsWithoutACheck(prompts, check) {
-  return prompts.filter((prompt) => !new RegExp(`${prompt.replace(/\./g, '\\.')}(?!\\d)`).test(check));
+  return prompts.filter((prompt) => !new RegExp(`\\bit\\(\\s*['"\`]${prompt.replace(/\./g, '\\.')}(?!\\d)`).test(check));
 }
 
 /** The suites, other than the one-call checks, that ask Claude and are not named as behaviour suites - so would run on a bare run. */

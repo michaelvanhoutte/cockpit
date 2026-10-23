@@ -25,7 +25,9 @@ import {
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const contract = join(repo, 'apps/api/tests/contract');
 
-const files = readdirSync(contract).filter((file) => file.endsWith('.test.ts'));
+const files = readdirSync(contract, { recursive: true, encoding: 'utf8' })
+  .map((file) => file.split('\\').join('/'))
+  .filter((file) => file.endsWith('.test.ts'));
 const behaviour = files.filter((file) => BEHAVIOUR_SUITE.test(file));
 const free = ['read-what-a-note-means.test.ts', 'transcribe-a-recording.test.ts'];
 const prompts = readdirSync(join(repo, 'apps/api/src/ai/prompts'))
@@ -80,9 +82,22 @@ describe('Contract runs', () => {
       assert.deepEqual(contractFiles(['a.v1.test.ts', 'b.test.ts'], []), ['b.test.ts']);
     });
 
+    it('a stray value read as a name selects no behaviour suite', () => {
+      // `--bail 1`: a flag this module does not know takes its value as a name.
+      const named = suitesNamed(commandLine('--bail', '1'));
+      assert.deepEqual(named, ['1']);
+      for (const suite of behaviour) assert.ok(!filesRun(files, named).includes(suite), `--bail 1 picked up ${suite}`);
+    });
+
+    it('a suite in a folder of its own is selected as one beside the others is', () => {
+      assert.deepEqual(contractFiles(['area/a.v1.test.ts', 'area/b.test.ts'], []), ['area/b.test.ts']);
+      assert.deepEqual(filesRun(['area/a.v1.test.ts', 'b.test.ts'], ['a']), ['area/a.v1.test.ts']);
+    });
+
     it('a Claude prompt with no one-call check fails, naming the prompt', () => {
       assert.deepEqual(promptsWithoutACheck(['one-more.v2', 'resolve-a-place.v1'], "it('resolve-a-place.v1 answers')"), ['one-more.v2']);
       assert.deepEqual(promptsWithoutACheck(['resolve-a-place.v1'], "it('resolve-a-place.v12 answers')"), ['resolve-a-place.v1']);
+      assert.deepEqual(promptsWithoutACheck(['resolve-a-place.v1'], '// see resolve-a-place.v1.test.ts'), ['resolve-a-place.v1']);
 
       const check = readFileSync(join(contract, ONE_CALL_CHECKS), 'utf8');
       assert.ok(prompts.length >= 5, 'the prompts were not found');

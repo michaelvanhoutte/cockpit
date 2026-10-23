@@ -23,7 +23,9 @@ import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mj
  */
 
 const here = new URL('.', import.meta.url);
-const suites = readdirSync(new URL('tests/contract/', here)).filter((file) => file.endsWith('.test.ts'));
+const suites = readdirSync(new URL('tests/contract/', here), { recursive: true, encoding: 'utf8' })
+  .map((file) => file.split('\\').join('/'))
+  .filter((file) => file.endsWith('.test.ts'));
 
 /**
  * The key from `.dev.vars`, so running this by hand needs nothing exported
