@@ -114,7 +114,7 @@ export function summarizeRePlace({ sent, changed, left, batches, stopped, unphas
     const what = `batch ${stopped.batch} of ${batches} (corrections ${stopped.first}-${stopped.last})`;
     lines.push(
       stopped.refused
-        ? `Stopped: the monitor refused ${what}: ${stopped.reason}. Nothing from it or after it was sent.`
+        ? `Stopped: the monitor refused ${what}: ${stopped.reason}. Nothing from it was applied, and nothing after it was sent.`
         : `Stopped at ${what}: ${stopped.reason}. Re-run to finish; rows already placed are left.`,
     );
   }

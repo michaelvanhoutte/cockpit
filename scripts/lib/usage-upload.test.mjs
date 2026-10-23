@@ -168,8 +168,19 @@ describe('Harness Monitor', () => {
       const lines = summarizeRePlace({ ...totals, unphased: null, unreadable: 0 });
 
       assert.equal(lines[0], 'Sent 200 corrections: 200 placed again, 0 left as they were (already in a phase, dated before 21 Sep, from a cloud session, or not stored).');
-      assert.ok(lines.includes('Stopped: the monitor refused batch 2 of 3 (corrections 201-400): Correction 3 (r203): has category "building". Nothing from it or after it was sent.'));
+      assert.ok(lines.includes('Stopped: the monitor refused batch 2 of 3 (corrections 201-400): Correction 3 (r203): has category "building". Nothing from it was applied, and nothing after it was sent.'));
       assert.ok(!lines.some((line) => line.includes('still Unphased')));
+    });
+
+    it('a batch that fails to reach the monitor stops the run, is named, is not counted as sent, and says to re-run', async () => {
+      const totals = await postCorrections(list, async (batch) => {
+        if (batch[0].requestId === 'r200') throw new Error('the monitor answered 502');
+        return { changed: batch.length, left: 0 };
+      });
+      const lines = summarizeRePlace({ ...totals, unphased: null, unreadable: 0 });
+
+      assert.equal(lines[0], 'Sent 200 corrections: 200 placed again, 0 left as they were (already in a phase, dated before 21 Sep, from a cloud session, or not stored).');
+      assert.ok(lines.includes('Stopped at batch 2 of 3 (corrections 201-400): the monitor answered 502. Re-run to finish; rows already placed are left.'));
     });
   });
 });

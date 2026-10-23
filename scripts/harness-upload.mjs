@@ -141,7 +141,10 @@ async function placeAgain() {
       if (!Number.isSafeInteger(body?.changed) || !Number.isSafeInteger(body?.left)) throw new Error('the monitor answered without counts');
       return { changed: body.changed, left: body.left };
     }
-    if (response.status === 400 || response.status === 413) return { refused: typeof body?.error === 'string' ? body.error : `the monitor answered ${response.status}` };
+    // Refused for what it is (400, 413), the key (401, 503) or a monitor without this route (404, 405): a re-run cannot help.
+    if ([400, 401, 404, 405, 413, 503].includes(response.status)) {
+      return { refused: typeof body?.error === 'string' ? body.error : `the monitor answered ${response.status}` };
+    }
     throw new Error(`the monitor answered ${response.status}`);
   });
   // The count is the report's alone: the corrections are already applied, so failing to read it fails nothing.
