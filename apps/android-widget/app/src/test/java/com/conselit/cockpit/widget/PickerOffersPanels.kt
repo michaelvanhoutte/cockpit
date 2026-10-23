@@ -25,12 +25,14 @@ import org.robolectric.annotation.Config
 class PickerOffersPanels {
     private lateinit var cockpit: FakeCockpit
     private lateinit var phone: Phone
-    private val falcon = "018f0000-0000-7000-8000-00000000a002"
+
+    private lateinit var work: ManualExecutor
 
     @Before
     fun startPhone() {
         cockpit = FakeCockpit()
-        phone = Phone(cockpit).signedIn()
+        work = ManualExecutor()
+        phone = Phone(cockpit, work).signedIn()
     }
 
     @After
@@ -88,7 +90,7 @@ class PickerOffersPanels {
 
     @Test
     fun `a Panel picked is shown by the widget at once, and the widget is placed`() {
-        cockpit.panelReads[falcon] = Answer(200, Samples.flatPanel)
+        cockpit.panelReads["018f0000-0000-7000-8000-00000000a001"] = Answer(200, Samples.flatPanel)
         val id = phone.placeWidget()
         val picker = pickerFor(id)
         val list = picker.get().window.decorView.all<ListView>().single()
@@ -100,9 +102,15 @@ class PickerOffersPanels {
         assertTrue(picker.get().isFinishing)
         assertEquals(android.app.Activity.RESULT_OK, shadowOf(picker.get()).resultCode)
         assertEquals(id, shadowOf(picker.get()).resultIntent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1))
+        assertEquals(Binding("018f0000-0000-7000-8000-00000000a001", "items", "0015-first-workspace"), phone.graph.widgets.binding(id))
+        // Before any read has come back, the widget already names its Panel.
         val view = phone.widget(id)
         assertEquals("Admin", phone.text(view, R.id.panel_name))
-        assertEquals(Binding("018f0000-0000-7000-8000-00000000a001", "items", "0015-first-workspace"), phone.graph.widgets.binding(id))
+        assertEquals("Refreshing…", phone.text(view, R.id.updated))
+        assertEquals(0, phone.rowFactory(id).count)
+
+        work.runAll()
+        assertEquals("then its rows", 2, phone.rowFactory(id).count)
     }
 
     @Test

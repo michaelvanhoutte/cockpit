@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -69,7 +70,7 @@ class SigningOutLeavesNothing {
 
     @Test
     fun `the sign-in is kept sealed in the app's private storage, not as written`() {
-        val stored = phone.context.getSharedPreferences("session", android.content.Context.MODE_PRIVATE).all.values.joinToString()
-        assertFalse(stored.contains(phone.graph.session.get()!!.accessToken) && !stored.contains("sealed:"))
+        val stored = phone.context.getSharedPreferences("session", android.content.Context.MODE_PRIVATE).getString("session", null)!!
+        assertTrue("written through the secret box", stored.startsWith("sealed:"))
     }
 }
