@@ -168,6 +168,8 @@ export const itemSchema = z.object({
   completedAt: z.iso.datetime().nullable(),
   /** When work on this started, cleared by going back to To do and kept by finishing with it ("Mark an item In progress, and see since when", issue 568). See `itemStatus`. */
   startedAt: z.iso.datetime().nullable(),
+  /** When this first started waiting for a reply, cleared by To do and In progress and kept by finishing with it and by waiting again ("Set an Item Waiting for reply, and wait again after chasing", issue 1463). See `itemStatus`. A default, so a saved read from before it still draws. */
+  waitingSince: z.iso.datetime().nullable().default(null),
   priority: prioritySchema.nullable(),
   /** When the person first set or cleared `priority` - by a capture that carried one or by an edit - and null while Cockpit may still set it from what the note said ("Read a priority you say when you capture", issue 1076). */
   prioritySetAt: z.iso.datetime().nullable(),
@@ -234,23 +236,36 @@ export function itemHasOpenReadings(item: Pick<Item, 'readings' | 'textsSettledA
   return item.textsSettledAt === null && !!item.readings && item.readings.length > 0;
 }
 
-/** The three things an Item can be ("Mark an item In progress, and see since when", issue 568). */
-export const ITEM_STATUSES = ['to_do', 'in_progress', 'done'] as const;
+/** The four things an Item can be, in the order they are offered ("Mark an item In progress, and see since when", issue 568; "Set an Item Waiting for reply", issue 1463). */
+export const ITEM_STATUSES = ['to_do', 'in_progress', 'waiting', 'done'] as const;
 export const itemStatusSchema = z.enum(ITEM_STATUSES);
 export type ItemStatus = z.infer<typeof itemStatusSchema>;
 
 /**
- * An Item's status, worked out from its two times rather than stored as a
- * third ("Mark an item In progress, and see since when", issue 568): finished
- * with wins regardless of whether it was started first, which is what lets
- * marking something done directly from To do be undone back to To do, and
- * marking it done from In progress be undone back to In progress.
+ * An Item's status, worked out from its three times rather than stored as a
+ * fourth ("Mark an item In progress, and see since when", issue 568): finished
+ * with wins, then waiting, then started. Finishing with it leaves the other two
+ * alone, which is what lets undoing Done return to the status it was marked
+ * done from - To do, In progress or Waiting for reply.
  */
-export function itemStatus(item: Pick<Item, 'startedAt' | 'completedAt'>): ItemStatus {
+export function itemStatus(item: Pick<Item, 'startedAt' | 'completedAt'> & { waitingSince?: string | null }): ItemStatus {
   if (item.completedAt) return 'done';
+  if (item.waitingSince) return 'waiting';
   if (item.startedAt) return 'in_progress';
   return 'to_do';
 }
+
+/**
+ * How many days *Wait for reply…* offers to wait before the Item is due
+ * ("Set an Item Waiting for reply, and wait again after chasing", issue 1463):
+ * 3, until Settings › Follow-ups makes it the person's own (issue 1465).
+ */
+export const FOLLOW_UP_DAYS = 3;
+/** The waits the popover offers in one press. */
+export const FOLLOW_UP_CHOICES = [1, 3, 7, 14] as const;
+/** The longest wait: a whole number of days from 1 to this. */
+export const MOST_FOLLOW_UP_DAYS = 365;
+export const followUpDaysSchema = z.number().int().min(1).max(MOST_FOLLOW_UP_DAYS);
 
 /** What an Association can point at (functional-definition.md §4.2). */
 export const associationKindSchema = z.enum(['person', 'project', 'topic']);

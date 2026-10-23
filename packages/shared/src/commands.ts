@@ -9,6 +9,7 @@ import {
   capturedFromSchema,
   captureTimeZoneSchema,
   dashboardNameSchema,
+  followUpDaysSchema,
   itemDescriptionSchema,
   itemReadingSchema,
   itemTitleSchema,
@@ -507,6 +508,21 @@ export const setStartedSchema = commandEnvelopeSchema.extend({
 export type SetStartedCommand = z.infer<typeof setStartedSchema>;
 
 /**
+ * wait_for_reply - *Wait for reply…* and *Wait again…* ("Set an Item Waiting for
+ * reply, and wait again after chasing", issue 1463): the Item waits from now, or
+ * from the day it first started waiting, and is due `days` after today, its due
+ * date replaced. **One change for both**, so a failure between them cannot leave
+ * an Item waiting on its old date. Today is the day the change was issued on, on
+ * the calendar of `timeZone`, the device's.
+ */
+export const waitForReplySchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  days: followUpDaysSchema,
+  timeZone: captureTimeZoneSchema,
+});
+export type WaitForReplyCommand = z.infer<typeof waitForReplySchema>;
+
+/**
  * send_item_to_claude — an Item sent to Cowork or Claude Code from its row,
  * recorded as a Run that is *Sent* just before the browser opens the
  * `claude://` address ("Send an item to Cowork or Claude Code with its prompt
@@ -992,6 +1008,7 @@ export const commandSchemas = {
   remove_item_from_panel: removeItemFromPanelSchema,
   set_done: setDoneSchema,
   set_started: setStartedSchema,
+  wait_for_reply: waitForReplySchema,
   send_item_to_claude: sendItemToClaudeSchema,
   report_claude_run: reportClaudeRunSchema,
   finish_agent_run: finishAgentRunSchema,

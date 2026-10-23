@@ -14,6 +14,7 @@ const SUBMENU_WIDTH_PX = 176;
 export const STATUS_NAMES: Record<ItemStatus, string> = {
   to_do: 'To do',
   in_progress: 'In progress',
+  waiting: 'Waiting for reply',
   done: 'Done',
 };
 

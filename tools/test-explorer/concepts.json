@@ -163,7 +163,7 @@
     {
       "key": "Triage",
       "label": "Triage",
-      "browserWalks": 14,
+      "browserWalks": 15,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -297,7 +297,7 @@
     {
       "key": "Item editing",
       "label": "Item editing",
-      "browserWalks": 18,
+      "browserWalks": 19,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",

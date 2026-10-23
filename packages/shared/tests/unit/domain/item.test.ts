@@ -117,25 +117,25 @@ describe('Item editing', () => {
   });
 
   /**
-   * L1: which of To do, In progress or Done an item reads as is a pure
-   * decision over its two times ("Mark an item In progress, and see since
-   * when", issue 568). That the row and a Filter actually ask it is
+   * L1: which of To do, In progress, Waiting for reply or Done an item reads as
+   * is a pure decision over its three times ("Mark an item In progress, and see
+   * since when", issue 568; issue 1463). That the row and a Filter actually ask it is
    * apps/web/tests/unit/components/ItemRow.test.tsx and
    * packages/shared/tests/unit/domain/filters.test.ts.
    */
-  describe('an item’s status is worked out from when it started and when it was finished with', () => {
+  describe('an item’s status is Done once finished with, else Waiting for reply once waiting, else In progress once started, else To do', () => {
+    const AT = '2026-09-04T10:00:00.000Z';
     it.each([
-      { situation: 'neither happened yet', startedAt: null, completedAt: null, status: 'to_do' },
-      { situation: 'started and not finished with', startedAt: '2026-09-04T10:00:00.000Z', completedAt: null, status: 'in_progress' },
-      { situation: 'finished with, never started', startedAt: null, completedAt: '2026-09-04T10:00:00.000Z', status: 'done' },
-      {
-        situation: 'finished with, having been started first',
-        startedAt: '2026-09-04T09:00:00.000Z',
-        completedAt: '2026-09-04T10:00:00.000Z',
-        status: 'done',
-      },
-    ])('$situation is $status', ({ startedAt, completedAt, status }) => {
-      expect(itemStatus({ startedAt, completedAt })).toBe(status);
+      { situation: 'none happened yet', startedAt: null, waitingSince: null, completedAt: null, status: 'to_do' },
+      { situation: 'started and not finished with', startedAt: AT, waitingSince: null, completedAt: null, status: 'in_progress' },
+      { situation: 'finished with, never started', startedAt: null, waitingSince: null, completedAt: AT, status: 'done' },
+      { situation: 'finished with, having been started first', startedAt: '2026-09-04T09:00:00.000Z', waitingSince: null, completedAt: AT, status: 'done' },
+      // "Set an Item Waiting for reply, and wait again after chasing" (issue 1463).
+      { situation: 'waiting only', startedAt: null, waitingSince: AT, completedAt: null, status: 'waiting' },
+      { situation: 'waiting, having been started first', startedAt: '2026-09-04T09:00:00.000Z', waitingSince: AT, completedAt: null, status: 'waiting' },
+      { situation: 'waiting and finished with', startedAt: null, waitingSince: '2026-09-04T09:00:00.000Z', completedAt: AT, status: 'done' },
+    ])('$situation is $status', ({ startedAt, waitingSince, completedAt, status }) => {
+      expect(itemStatus({ startedAt, waitingSince, completedAt })).toBe(status);
     });
   });
 

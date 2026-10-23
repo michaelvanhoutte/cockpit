@@ -191,12 +191,14 @@ describe('Item editing', () => {
     it.each([
       { situation: 'still To do on the day, nothing is added and Next on moves on', finish: null, added: false },
       { situation: 'In progress on the day, nothing is added and Next on moves on', finish: 'set_started', added: false },
+      { situation: 'still Waiting for reply on the day, nothing is added and Next on moves on', finish: 'wait_for_reply', added: false },
       { situation: 'Done on the day, the next one is added', finish: 'set_done', added: true },
       { situation: 'dismissed on the day, the next one is added', finish: 'set_dismissed', added: true },
     ] as const)('$situation', async ({ finish, added }) => {
       const itemId = await anItem('Weekly review');
       await repeat(itemId);
       if (finish === 'set_started') await change('set_started', { itemId, started: true }, '2090-01-03T09:00:00.000Z');
+      if (finish === 'wait_for_reply') await change('wait_for_reply', { itemId, days: 14, timeZone: ZONE }, '2090-01-03T09:00:00.000Z');
       if (finish === 'set_done') await done(itemId);
       if (finish === 'set_dismissed') await change('set_dismissed', { itemId, dismissed: true }, '2090-01-03T09:00:00.000Z');
 

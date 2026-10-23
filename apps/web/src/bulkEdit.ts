@@ -33,7 +33,7 @@ export function valueOf(item: Item, field: BulkField): BulkValue {
 
 /** Where an Item stands, which the status commands are chosen by. */
 export function stateOf(item: Item): StatusState {
-  return { status: itemStatus(item), started: item.startedAt != null };
+  return { status: itemStatus(item), started: item.startedAt != null, waiting: item.waitingSince != null };
 }
 
 /**

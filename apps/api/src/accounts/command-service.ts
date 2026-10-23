@@ -120,7 +120,7 @@ import {
 } from '../domain/workspaces.js';
 import { decideClaudeSend } from '../domain/claude-sends.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
-import { countedFrom, decideRepeat, masterContentOf, occurrenceDueAt, occurrenceOf } from '../domain/series.js';
+import { UNKNOWN_TIME_ZONE, countedFrom, decideRepeat, masterContentOf, occurrenceDueAt, occurrenceOf } from '../domain/series.js';
 import {
   applyProposedFields,
   type FieldsSet,
@@ -131,6 +131,7 @@ import {
   applySetDismissed,
   applySetDone,
   applySetStarted,
+  applyWaitForReply,
   applySetDueDate,
   applySetNextAction,
   applySetPriority,
@@ -191,6 +192,14 @@ export class RepeatRefusedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'RepeatRefusedError';
+  }
+}
+
+/** A wait for a reply that is refused, in the words the person is told ("Set an Item Waiting for reply", issue 1463). */
+export class WaitRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WaitRefusedError';
   }
 }
 
@@ -2406,6 +2415,35 @@ export function runCommand<N extends CommandName>(
             .run();
           // To do ends the run; In progress leaves it open.
           if (!cmd.started) endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
+          tx.insert(commands).values(commandRow).run();
+        });
+      }
+      break;
+    }
+    case 'wait_for_reply': {
+      const cmd = payload as CommandPayload<'wait_for_reply'>;
+      // Refused on a finished or dismissed Item, for the reason `set_started`
+      // above gives: a wait on one would sit unseen behind Done, and read as
+      // Waiting for reply from a moment undoing Done never meant ("Set an Item
+      // Waiting for reply", issue 1463). The Status control reopens one first.
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing || !couldStillBeActedOn(existing)) throw new ItemNotFoundError(cmd.itemId);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      const today = captureDay(cmd.issuedAt, cmd.timeZone);
+      if (today === null) throw new WaitRefusedError(UNKNOWN_TIME_ZONE);
+
+      const updated = applyWaitForReply(existing, cmd, today.date);
+      if (updated === null) {
+        // Stale by last-write-wins: log the command, change nothing.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        // Open before and after, so nothing is mirrored at the source and no run ends.
+        db.transaction((tx) => {
+          tx.update(items)
+            .set(asStored(updated))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
           tx.insert(commands).values(commandRow).run();
         });
       }

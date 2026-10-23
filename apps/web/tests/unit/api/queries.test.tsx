@@ -574,6 +574,7 @@ function anItem(over: Partial<Item> = {}): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     title: 'Part 11',
     description: null,

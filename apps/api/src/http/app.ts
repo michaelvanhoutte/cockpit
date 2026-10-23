@@ -1687,6 +1687,7 @@ const routes = app
   })
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))
+  .openapi(commandRoute('wait_for_reply'), async (c) => c.json(await change(c, 'wait_for_reply', c.req.valid('json')), 200))
   .openapi(commandRoute('finish_agent_run'), async (c) =>
     c.json(await change(c, 'finish_agent_run', c.req.valid('json')), 200),
   )

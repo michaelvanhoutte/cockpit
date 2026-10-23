@@ -91,6 +91,9 @@ export const timeOfDayLabel = (instant: string | number | Date) => at('time', in
 /** A day with no time attached (a due date), written in the region's order and never moved by the zone. */
 export const dayLabel = (day: string) => onTheDay('date', day);
 
+/** The day a moment falls on in the device's zone, with its weekday (*Fri 23 Oct*): what *Waiting since* says. */
+export const momentWeekdayDayLabel = (instant: string | number | Date) => at('weekdayAndDay', instant);
+
 /** A day with its weekday (*Mon 2 Nov*), as a repeating rule's read-back says its days. */
 export const weekdayDayLabel = (day: string) => onTheDay('weekdayAndDay', day) ?? day;
 

@@ -40,6 +40,7 @@ function anItem(id: string, completedAt: string | null = null): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt,

@@ -42,6 +42,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,
@@ -220,7 +221,7 @@ async function choose(user: ReturnType<typeof userEvent.setup>, option: string) 
   await user.click(await screen.findByText(option));
 }
 
-const STATES = ['To do', 'In progress', 'Done'];
+const STATES = ['To do', 'In progress', 'Waiting for reply', 'Done'];
 
 /**
  * Picks a state from the menu already open, by keyboard: arrow-right opens
@@ -352,7 +353,7 @@ describe('Triage', () => {
       expect(screen.queryByRole('status')).toBeNull();
     });
 
-    it('opens the three states by arrow-right and chooses one by arrows and Enter', async () => {
+    it('opens the four states by arrow-right and chooses one by arrows and Enter', async () => {
       const user = userEvent.setup();
       const { mutate } = aRow();
 
@@ -360,7 +361,7 @@ describe('Triage', () => {
       const row = await screen.findByRole('menuitem', { name: /^Status/ });
       row.focus();
       await user.keyboard('{ArrowRight}');
-      expect(await screen.findAllByRole('menuitemradio')).toHaveLength(3);
+      expect(await screen.findAllByRole('menuitemradio')).toHaveLength(4);
       await user.keyboard('{ArrowDown}{Enter}');
 
       expect(mutate).toHaveBeenCalledTimes(1);
@@ -1048,7 +1049,7 @@ describe('Item editing', () => {
       );
     };
 
-    it('orders Open, Filing, Claude, Status and Dismiss, a divider between each', async () => {
+    it('orders Open, Filing, Claude, Status with Wait for reply…, and Dismiss, a divider between each', async () => {
       const user = userEvent.setup();
       onAScreen(A_DESK);
       aRow({
@@ -1068,6 +1069,7 @@ describe('Item editing', () => {
         '---',
         'Send to Claude…',
         '---',
+        'Wait for reply…',
         expect.stringMatching(/^Status/),
         '---',
         'Dismiss',
@@ -1087,6 +1089,7 @@ describe('Item editing', () => {
         '---',
         'Move to…',
         '---',
+        'Wait for reply…',
         expect.stringMatching(/^Status/),
         '---',
         'Dismiss',
@@ -1751,6 +1754,127 @@ describe('Triage', () => {
       else expect(within(title).queryByText(/^(Due|Overdue)/)).toBeNull();
       expect(within(meta).queryByText(/^(Due in|Due today|Due tomorrow|Overdue)/)).toBeNull();
       expect(within(meta).queryByText(/^Due .*2026/) !== null).toBe(date);
+    });
+  });
+
+  /**
+   * "Set an Item Waiting for reply, and wait again after chasing" (issue 1463):
+   * which line carries *Waiting since* is the same branch on the screen's width
+   * as the deadline pill's, and the pill is worn only while the Item waits.
+   */
+  describe('a waiting row wears Waiting since beside its deadline pill, on the title line at a desk and under the title on a phone', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    const lines = () => ({
+      title: screen.getByText('Make appointment with Novy').parentElement as HTMLElement,
+      meta: screen.getByText(/Own/).parentElement as HTMLElement,
+    });
+
+    it.each([
+      { situation: 'at a desk', width: A_DESK, on: 'title' as const },
+      { situation: 'on a phone', width: A_PHONE, on: 'meta' as const },
+    ])('$situation', ({ width, on }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-17T12:00:00'));
+      onAScreen(width);
+      aRow({ item: anItem({ waitingSince: '2026-09-14T09:00:00.000Z', dueDate: '2026-09-19' }) });
+
+      const line = lines()[on];
+      const pills = within(line).getAllByText(/^(Waiting since|Due in)/).map((pill) => pill.textContent);
+      expect(pills).toEqual([expect.stringMatching(/^Waiting since .*14/), 'Due in 2d']);
+      expect(within(lines()[on === 'title' ? 'meta' : 'title']).queryByText(/^Waiting since/)).toBeNull();
+    });
+
+    it.each([
+      { situation: 'To do', over: {} },
+      { situation: 'In progress', over: { startedAt: '2026-09-14T09:00:00.000Z' } },
+    ])('a row $situation wears none', ({ over }) => {
+      aRow({ item: anItem(over) });
+
+      expect(screen.queryByText(/^Waiting since/)).toBeNull();
+    });
+  });
+});
+
+describe('Triage', () => {
+  /**
+   * "Set an Item Waiting for reply, and wait again after chasing" (issue 1463):
+   * F1, the entries the row offers and what a choice in the question asks for.
+   * What a wait does to the Item is L2 (`waiting-for-reply.test.ts`); that the
+   * row is drawn at once and goes back when refused is
+   * `ChangesAtOnce.test.tsx`.
+   */
+  describe('a row asks how long to wait for a reply from Wait for reply…, Wait again… and Status ▸ Waiting for reply', () => {
+    it.each([
+      { situation: 'a To do row offers Wait for reply…', over: {}, entry: 'Wait for reply…', status: 'To do' },
+      {
+        situation: 'a waiting row offers Wait again…',
+        over: { waitingSince: '2026-08-12T10:00:00.000Z' },
+        entry: 'Wait again…',
+        status: 'Waiting for reply',
+      },
+    ])('$situation', async ({ over, entry, status }) => {
+      const user = userEvent.setup();
+      aRow({ item: anItem(over) });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+
+      expect(await screen.findByRole('menuitem', { name: entry })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: /^Status/ })).toHaveTextContent(status);
+    });
+
+    it.each([
+      { situation: 'Enter takes the 3 it starts on', press: null, days: 3 },
+      { situation: 'a choice of 14 days', press: '14 days', days: 14 },
+      { situation: 'a number typed, then Enter', press: '5', days: 5 },
+    ])('$situation asks for that many days, for this row', async ({ press, days }) => {
+      const user = userEvent.setup();
+      const { send, mutate } = aRow({ item: anItem({ waitingSince: '2026-08-12T10:00:00.000Z' }) });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Wait again…' }));
+      const box = await screen.findByLabelText('Days to wait');
+      if (press === null) await user.keyboard('{Enter}');
+      else if (/^\d+$/u.test(press)) {
+        await user.clear(box);
+        await user.type(box, `${press}{Enter}`);
+      } else await user.click(screen.getByRole('button', { name: press }));
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({
+        name: 'wait_for_reply',
+        payload: expect.objectContaining({ itemId: 'item-1', workspaceId: 'ws-work', days, timeZone: expect.any(String) }),
+      });
+      expect(screen.queryByLabelText('Days to wait')).toBeNull();
+    });
+
+    it('Waiting for reply in the Status submenu opens the same question', async () => {
+      const user = userEvent.setup();
+      const { send } = aRow();
+
+      await chooseStatus(user, 'Waiting for reply');
+      await screen.findByLabelText('Days to wait');
+      await user.keyboard('{Enter}');
+
+      expect(send).toHaveBeenCalledWith({ name: 'wait_for_reply', payload: expect.objectContaining({ days: 3 }) });
+    });
+
+    it.each(['0', '366', '2.5'])('asks nothing for %s days, and says what it takes', async (typed) => {
+      const user = userEvent.setup();
+      const { send } = aRow();
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Wait for reply…' }));
+      const box = await screen.findByLabelText('Days to wait');
+      await user.clear(box);
+      await user.type(box, `${typed}{Enter}`);
+
+      expect(send).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent('Use a whole number from 1 to 365.');
     });
   });
 });

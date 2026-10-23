@@ -44,6 +44,7 @@ function anItem(
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,

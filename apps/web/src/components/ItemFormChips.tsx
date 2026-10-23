@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
 import { prioritySchema, type ItemStatus, type Priority, type Day } from '@cockpit/shared';
@@ -7,6 +7,7 @@ import { dueSevenDaysOut, dueToday, dueTomorrow } from '../dueDateShortcuts';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 import { MenuContent, menuItemSplitClass } from './Menu';
 import { REPEATS_POPOVER, RepeatsChoices, type RepeatsChoice } from './RepeatsChip';
+import { WaitChip, type WaitChoice } from './WaitForReply';
 import { ruleLabel } from '@cockpit/shared';
 
 /**
@@ -21,6 +22,7 @@ import { ruleLabel } from '@cockpit/shared';
 const STATUSES: readonly [ItemStatus, string][] = [
   ['to_do', 'To do'],
   ['in_progress', 'In progress'],
+  ['waiting', 'Waiting for reply'],
   ['done', 'Done'],
 ];
 
@@ -45,6 +47,8 @@ export interface ItemFormChipsProps {
   onDueDate: (dueDate: string | null) => void;
   /** Opens the file picker. */
   onAttach: () => void;
+  /** *Wait for reply…* or *Wait again…*, one more chip, and what Waiting for reply on Status asks ("Set an Item Waiting for reply", issue 1463); absent where the Item cannot wait. */
+  wait?: WaitChoice | undefined;
   /** The Repeats chip, one more in the row ("Set an Item to repeat from its form", issue 1406); absent where the Item cannot repeat. */
   repeats?: RepeatsChoice | undefined;
 }
@@ -63,6 +67,9 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
     props.onDueDate(next);
     setDueOpen(false);
   };
+  const [waitOpen, setWaitOpen] = useState(false);
+  /** That the Status menu is closing to open the wait's question, which takes the focus itself. */
+  const askingToWait = useRef(false);
 
   return (
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Fields">
@@ -70,14 +77,26 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
         <DropdownMenu.Trigger disabled={disabled} className={`${CHIP} ${SET} bg-shade/5 text-ink`}>
           {statusName}
         </DropdownMenu.Trigger>
-        <MenuContent align="start">
-          {STATUSES.map(([value, name]) => (
+        <MenuContent
+          align="start"
+          onCloseAutoFocus={(event) => {
+            if (!askingToWait.current) return;
+            askingToWait.current = false;
+            event.preventDefault();
+          }}
+        >
+          {STATUSES.filter(([value]) => value !== 'waiting' || props.wait).map(([value, name]) => (
             <DropdownMenu.Item
               key={value}
               role="menuitemradio"
               aria-checked={value === status}
               className={menuItemSplitClass}
-              onSelect={() => props.onStatus(value)}
+              onSelect={() => {
+                if (value !== 'waiting') return props.onStatus(value);
+                if (value === status) return;
+                askingToWait.current = true;
+                setWaitOpen(true);
+              }}
             >
               <span>{name}</span>
               <Ticked on={value === status} />
@@ -185,6 +204,16 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
+
+      {props.wait && (
+        <WaitChip
+          open={waitOpen}
+          onOpenChange={setWaitOpen}
+          disabled={disabled}
+          className={`${CHIP} ${UNSET} hover:border-accent hover:text-ink`}
+          {...props.wait}
+        />
+      )}
 
       {props.repeats && (
         <Popover.Root onOpenChange={(open) => !open && props.repeats?.onSettled()}>

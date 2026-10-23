@@ -488,8 +488,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0095-series-masters-from-latest-copy` fills columns the change before it
-    // added, and the guest's demonstration adds rows only, and only to the guest.
+    // `0096-item-waiting-since` adds the time an Item started waiting for a
+    // reply; the guest's demonstration adds rows only, and only to the guest.
+    items: ['waiting_since'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

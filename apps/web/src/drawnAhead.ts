@@ -3,6 +3,8 @@ import {
   FIRST_DASHBOARD_NAME,
   FIRST_PANEL_NAME,
   NO_CONDITIONS,
+  dayOf,
+  daysOnFrom,
   firstDashboardId,
   itemSchema,
   textsFromCapture,
@@ -108,7 +110,11 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
     case 'set_started':
       return withItem(snapshot, change.payload.itemId, {
         startedAt: change.payload.started ? change.payload.issuedAt : null,
+        // To do and In progress both end a wait for a reply (issue 1463).
+        waitingSince: null,
       });
+    case 'wait_for_reply':
+      return waitDrawn(snapshot, change.payload);
     case 'set_priority':
       return withItem(snapshot, change.payload.itemId, { priority: change.payload.priority });
     case 'set_due_date':
@@ -283,6 +289,21 @@ function repeatDrawn(snapshot: WorkspaceSnapshot, change: CommandPayload<'set_re
   };
   const series = own ? snapshot.series.map((one) => (one === own ? drawn : one)) : [...snapshot.series, drawn];
   return withItem({ ...snapshot, series }, item.id, { seriesId: drawn.id });
+}
+
+/**
+ * A wait for a reply as the server will hold it ("Set an Item Waiting for reply,
+ * and wait again after chasing", issue 1463): waiting since the change, or since
+ * the day it first started waiting, and due `days` after the day the change was
+ * made on, on this device's calendar.
+ */
+function waitDrawn(snapshot: WorkspaceSnapshot, change: CommandPayload<'wait_for_reply'>): WorkspaceSnapshot {
+  const item = snapshot.items.find((one) => one.id === change.itemId);
+  if (!item) return snapshot;
+  return withItem(snapshot, item.id, {
+    waitingSince: item.waitingSince ?? change.issuedAt,
+    dueDate: daysOnFrom(dayOf(new Date(change.issuedAt)), change.days),
+  });
 }
 
 /**
@@ -516,6 +537,7 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'remove_attachment',
   'set_done',
   'set_started',
+  'wait_for_reply',
   'set_priority',
   'set_due_date',
   'set_repeat',

@@ -391,6 +391,31 @@ test.describe('Item editing', () => {
   });
 
   /**
+   * F3, because this is the capability ("Set an Item Waiting for reply, and wait
+   * again after chasing", issue 1463): a person opens an Item, chooses Waiting
+   * for reply from its Status, says how long, saves, and finds the wait on its
+   * row. What the form sends on Save is apps/web/tests/unit/components/ItemForm.test.tsx
+   * and what the server keeps apps/api/tests/integration/http/waiting-for-reply.test.ts;
+   * neither can say the question opens over a real form on either device.
+   */
+  test.describe('waiting for a reply is asked from the form’s Status, and saved with the form', () => {
+    test('Waiting for reply, 7 days, then Save: the row waits and is due in 7 days', async ({ page, isMobile }) => {
+      const thought = uniqueTitle('Reply from Jan about the audit trail');
+      await openInboxHolding(page, isMobile, [thought]);
+      await openItem(page, thought, isMobile);
+
+      await setFormStatus(page, 'waiting', isMobile);
+      await press(page.getByRole('button', { name: '7 days' }), isMobile);
+      await expect(form(page).getByTitle('Status').or(chips(page).nth(0))).toContainText('Waiting for reply');
+      await saveTheItem(page, isMobile);
+
+      await expect(form(page)).toHaveCount(0);
+      await expect(itemRow(page, thought).getByText(/^Waiting since/)).toBeVisible();
+      await expect(itemRow(page, thought).getByText('Due in 7d', { exact: true })).toBeVisible();
+    });
+  });
+
+  /**
    * F3, because this is the capability ("Set an Item to repeat from its form, and
    * see the rule on its row", issue 1406): a person opens an Item, sets it to
    * repeat, and finds the rule again on its form and its row. What the rule says
@@ -413,7 +438,7 @@ test.describe('Item editing', () => {
       await expect(repeatsChip).toBeVisible();
       if (isMobile) {
         // One more chip in the row, after Due and before + Attach.
-        await expect(chips(page)).toHaveText(['To do', 'Priority', 'Due date', '↻Repeats', '+ Attach']);
+        await expect(chips(page)).toHaveText(['To do', 'Priority', 'Due date', 'Wait for reply…', '↻Repeats', '+ Attach']);
       } else {
         // The end of the line the status, priority and Due choices make.
         const dueGroup = (await form(page).getByRole('group', { name: 'Due', exact: true }).boundingBox())!;

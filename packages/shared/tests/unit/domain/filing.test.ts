@@ -32,6 +32,7 @@ function anItem(id: string, completedAt: string | null = null): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt,
@@ -82,6 +83,10 @@ describe('Panels', () => {
         'b',
       ]);
     });
+
+    it('keeps an item waiting for a reply, which is still to deal with', () => {
+      expect(itemsInTheInbox([{ ...anItem('a'), waitingSince: '2026-09-01T09:00:00.000Z' }], []).map((i) => i.id)).toEqual(['a']);
+    });
   });
 
   /**
@@ -111,6 +116,12 @@ describe('Panels', () => {
       expect(
         itemsThatAreFiled([anItem('a', FINISHED), anItem('b')], filings).map((i) => i.id),
       ).toEqual(['b']);
+    });
+
+    it('keeps an item waiting for a reply on the panels it is filed on', () => {
+      const waiting = { ...anItem('a'), waitingSince: '2026-09-01T09:00:00.000Z' };
+
+      expect(itemsThatAreFiled([waiting], [filed('falcon', 'a', 0)]).map((i) => i.id)).toEqual(['a']);
     });
   });
 });
