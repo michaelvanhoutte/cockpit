@@ -43,8 +43,8 @@ export function noClaudeKeyBecause(
 
 /**
  * Whether this environment has a Claude key it may spend: **outside production a
- * key with no recording token counts as no key**, so nothing is spent on it
- * without leaving a row. The one reading `aiFor`, the jobs and `/health` share.
+ * key with no recording token, or no address to send the records to, counts as
+ * no key**, so nothing is spent on it without leaving a row. The one reading `aiFor`, the jobs and `/health` share.
  */
 export function hasClaudeKey(
   env: Pick<Env, 'ENVIRONMENT' | 'USAGE_RECORDING_TOKEN' | 'USAGE_RECORDING_URL' | 'ANTHROPIC_API_KEY'>,

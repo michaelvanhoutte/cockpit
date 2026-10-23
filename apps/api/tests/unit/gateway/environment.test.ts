@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { environmentOf, hasClaudeKey } from '../../../src/gateway/environment.js';
+import { environmentOf, hasClaudeKey, noClaudeKeyBecause } from '../../../src/gateway/environment.js';
 import { environmentOfToken } from '../../../src/gateway/receive.js';
 
 /**
@@ -40,6 +40,16 @@ describe('AI usage', () => {
           USAGE_RECORDING_URL: url,
         }),
       ).toBe(counts);
+    });
+  });
+
+  describe('a job that found no key names the thing that is missing', () => {
+    it.each([
+      { situation: 'no key', key: '', token: 'tok', says: 'ANTHROPIC_API_KEY' },
+      { situation: 'a key and no token', key: 'sk-a', token: '', says: 'USAGE_RECORDING_TOKEN' },
+      { situation: 'a key and a token, with no address', key: 'sk-a', token: 'tok', says: 'USAGE_RECORDING_URL' },
+    ])('names $says for $situation', ({ key, token, says }) => {
+      expect(noClaudeKeyBecause({ ANTHROPIC_API_KEY: key, USAGE_RECORDING_TOKEN: token })).toContain(says);
     });
   });
 

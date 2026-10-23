@@ -183,8 +183,9 @@ export interface AiService {
  * environment that will never enrich anything says so out loud rather than
  * being discovered months later (docs/deployment.md, "Secrets and access").
  *
- * **Outside production a key with no recording token counts as no key**
- * (`gateway/environment.ts`): the call would spend the key and leave no row.
+ * **Outside production a key with no recording token, or no address to send
+ * the records to, counts as no key** (`gateway/environment.ts`): the call
+ * would spend the key and leave no row.
  */
 export function aiFor(env: Env): AiService | null {
   if (!env.ANTHROPIC_API_KEY || !hasClaudeKey(env)) return null;

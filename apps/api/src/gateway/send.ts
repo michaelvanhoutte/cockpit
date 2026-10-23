@@ -62,8 +62,8 @@ export function sendingTo(destination: Destination, around: Around): Recorder {
         answered.catch(() => {});
         return lost(`it did not answer in ${SEND_TIMEOUT_MS / 1000} seconds`);
       }
-      // Unread either way, so it is let go before the answer is judged.
-      await result.body?.cancel();
+      // Unread either way, so it is let go; not awaited, since the send has used its time.
+      void result.body?.cancel().catch(() => {});
       if (!result.ok) return lost(`it answered ${result.status}`);
     } catch (error) {
       lost(error instanceof Error ? error.message : String(error));

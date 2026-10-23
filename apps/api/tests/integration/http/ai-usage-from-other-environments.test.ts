@@ -68,12 +68,13 @@ interface Row {
   operation: string;
   model: string;
   tokens_in: number | null;
+  at: string;
 }
 
 async function rows(): Promise<Row[]> {
   return (
     await env.DB.prepare(
-      'SELECT environment, branch, user_id, account_name, cost_usd, operation, model, tokens_in FROM provider_calls ORDER BY id',
+      'SELECT environment, branch, user_id, account_name, cost_usd, operation, model, tokens_in, at FROM provider_calls ORDER BY id',
     ).all<Row>()
   ).results;
 }
@@ -121,6 +122,8 @@ describe('AI usage', () => {
         recorded: { environment: 'local', branch: 'claude/1458-send-usage' },
       },
       { situation: 'CI’s token', token: TOKENS.ci, record: {}, recorded: { environment: 'ci', branch: null } },
+      { situation: 'a time on a leap day', token: TOKENS.staging, record: { at: '2024-02-29T12:00:00Z' }, recorded: { at: '2024-02-29T12:00:00Z' } },
+      { situation: 'a time on the last second of a year, to the nanosecond', token: TOKENS.staging, record: { at: '2026-12-31T23:59:59.123456789Z' }, recorded: { at: '2026-12-31T23:59:59.123456789Z' } },
     ])('records a call sent with $situation', async ({ token, record, recorded }) => {
       const answered = await send(aRecord(record), `Bearer ${token}`);
 
