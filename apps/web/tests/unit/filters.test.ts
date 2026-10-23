@@ -185,7 +185,7 @@ describe('Panels', () => {
 
     const priority = (...values: Priority[]): FilterCondition => ({ field: 'priority', values });
     const panel = (...values: string[]): FilterCondition => ({ field: 'panel', values });
-    const status = (...values: ('to_do' | 'in_progress')[]): FilterCondition =>
+    const status = (...values: ('to_do' | 'in_progress' | 'waiting')[]): FilterCondition =>
       values.length === 0 ? { field: 'status' } : { field: 'status', values };
 
     it.each([
@@ -253,6 +253,11 @@ describe('Panels', () => {
         reads: 'Status is In progress',
       },
       { situation: 'status is To do', conditions: [status('to_do')], reads: 'Status is To do' },
+      {
+        situation: 'status is In progress or Waiting for reply',
+        conditions: [status('in_progress', 'waiting')],
+        reads: 'Status is In progress or Waiting for reply',
+      },
       {
         situation: 'status is not In progress',
         conditions: [{ ...status('in_progress'), exclude: true } as FilterCondition],

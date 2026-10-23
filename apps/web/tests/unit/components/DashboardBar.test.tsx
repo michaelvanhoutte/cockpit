@@ -1407,16 +1407,21 @@ describe('Dashboards', () => {
       expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeDisabled();
     });
 
-    it('offers To do and In progress on a dashboard, and Done as well where it is told to', async () => {
+    it('offers To do, In progress and Waiting for reply on a dashboard, and Done as well where it is told to', async () => {
       const group = () => within(screen.getByRole('group', { name: 'Status' }));
       writeDashboardFilter(localStorage, 'offers-a', { ...NO_DASHBOARD_FILTER, text: 'x' });
       const { unmount } = render(<DashboardFilterBar dashboardId="offers-a" />);
-      expect(group().getAllByRole('button').map((b) => b.textContent)).toEqual(['To do', 'In progress']);
+      expect(group().getAllByRole('button').map((b) => b.textContent)).toEqual(['To do', 'In progress', 'Waiting for reply']);
       unmount();
 
       writeDashboardFilter(localStorage, 'offers-b', { ...NO_DASHBOARD_FILTER, text: 'x' });
       render(<DashboardFilterBar dashboardId="offers-b" withDone />);
-      expect(group().getAllByRole('button').map((b) => b.textContent)).toEqual(['To do', 'In progress', 'Done']);
+      expect(group().getAllByRole('button').map((b) => b.textContent)).toEqual([
+        'To do',
+        'In progress',
+        'Waiting for reply',
+        'Done',
+      ]);
     });
 
     it('reads Status, Priority, Due, Containing, Attachments (With, Without, no Any), Agent running, with Status, Priority and Attachments each one group', () => {
