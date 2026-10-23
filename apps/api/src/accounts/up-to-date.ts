@@ -28,10 +28,11 @@ export interface Change {
   readonly name: string;
   readonly statements: readonly Statement[];
   /**
-   * Rows the change leaves as they are on purpose though they break its rule:
-   * `count` answers how many as `n`, read before the statements run, and any
-   * found are logged as `because` rather than overwritten or failing the
-   * account's bring-up ("Store Gmail Items under their connector id", issue 926).
+   * Rows the change keeps out of its rule on purpose though they break it -
+   * left as they are, or stopped where its header says so: `count` answers how
+   * many as `n`, read before the statements run, and any found are logged as
+   * `because` rather than overwritten or failing the account's bring-up ("Store
+   * Gmail Items under their connector id", issue 926).
    */
   readonly leavesAlone?: { readonly count: Statement; readonly because: string };
 }

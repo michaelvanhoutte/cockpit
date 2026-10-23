@@ -23,6 +23,7 @@ import {
   panels,
   pulledConnections,
   series,
+  seriesPanels,
   textCorrections,
   workspaces,
 } from './schema.js';
@@ -30,7 +31,6 @@ import {
   commandAlreadyApplied,
   anotherRunStartedSince,
   getAgentRun,
-  attachmentRowsOf,
   getAttachment,
   getDashboard,
   getItem,
@@ -45,6 +45,7 @@ import {
   lastDashboardPosition,
   lastWorkspacePosition,
   latestOccurrence,
+  masterPanelIdsOf,
   panelIdsOf,
   listDashboards,
   openAgentRunOn,
@@ -64,7 +65,7 @@ import {
   storedRowsOf,
   textCorrectionExistsFor,
 } from './repo.js';
-import { attachmentFromCommand, type AttachmentRow } from '../domain/attachments.js';
+import { attachmentFromCommand } from '../domain/attachments.js';
 import { captureDay } from '../domain/capture-day.js';
 import { recordOfSend } from '../domain/claude-send-records.js';
 import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
@@ -119,7 +120,7 @@ import {
 } from '../domain/workspaces.js';
 import { decideClaudeSend } from '../domain/claude-sends.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
-import { attachmentsCarriedOver, countedFrom, decideRepeat, occurrenceDueAt, occurrenceOf } from '../domain/series.js';
+import { countedFrom, decideRepeat, masterContentOf, occurrenceDueAt, occurrenceOf } from '../domain/series.js';
 import {
   applyProposedFields,
   type FieldsSet,
@@ -837,7 +838,7 @@ function writePanelOrders(tx: InATransaction, tenantId: string, panels: readonly
 type OccurrenceBrought =
   /** Stopped, or its Next on moved, since the alarm read it. */
   | { kind: 'not due' }
-  /** A series with nothing to copy, or a Workspace gone: it stops rather than write an Item. */
+  /** A series holding nothing to copy, or whose Workspace is gone: it stops rather than write an Item. */
   | { kind: 'stops'; because: string; workspaceId: string | null }
   /**
    * The previous occurrence still open, or this day's Item already written:
@@ -848,63 +849,85 @@ type OccurrenceBrought =
       kind: 'writes';
       nextOn: string;
       anchorOn: string;
+      /** Where it is told: null for every Workspace. */
       workspaceId: string | null;
       item: Item;
       panels: { panelId: string; rows: FilingRow[] }[];
-      attachments: AttachmentRow[];
     };
 
 /**
- * Reads what a series' day comes to ("Bring a repeating Item back on its day,
- * as a fresh copy", issue 1407), for `bring_back_occurrence` to write in one
+ * Reads what a series' day comes to ("Make each copy of a recurring item from
+ * its own series", issue 1448), for `bring_back_occurrence` to write in one
  * transaction.
  *
- * **Never more than one open**: the previous occurrence still To do or In
- * progress means nothing is added; finished with or dismissed, a new one is
- * copied from it, **at the top of each live Panel it was on, or in the Inbox
- * where it is on none**. Either way Next on moves to the first day the series
- * comes round after today on its own calendar, so a store asleep for a week
- * brings back one occurrence, not seven, and none on a day already passed.
- * **A day whose Item is already written is passed over** - its Next on put
- * back on it after it came round - so it is never written twice. The day it
- * is counted from is kept as it was read (`countedFrom`), so a series set
- * before it was stored counts from the same day ever after.
+ * **A copy is made from the series, never from an earlier copy**: its title,
+ * description, priority and Workspace, **at the top of each of its Panels
+ * still live in that Workspace, or in the Inbox where none is**, and no files.
+ * **Never more than one open**: the latest copy still To do or In progress
+ * means nothing is added; finished with or dismissed, it counts as handled.
+ * Either way Next on moves to the first day the series comes round after today
+ * on its own calendar, so a store asleep for a week brings back one
+ * occurrence, not seven, and none on a day already passed. **A day whose Item
+ * is already written is passed over** - its Next on put back on it after it
+ * came round - so it is never written twice. The day it is counted from is
+ * kept as it was read (`countedFrom`), so a series set before it was stored
+ * counts from the same day ever after.
  */
 function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'bring_back_occurrence'>): OccurrenceBrought {
   const own = getSeries(db, tenantId, cmd.seriesId);
   if (!own || own.stoppedAt !== null || own.nextOn !== cmd.day) return { kind: 'not due' };
   if (occurrenceDueAt(own) > Date.parse(cmd.issuedAt)) return { kind: 'not due' };
   const today = captureDay(cmd.issuedAt, own.timeZone);
+  const { workspaceId, title } = own;
   const previous = latestOccurrence(db, tenantId, own.id);
-  const workspaceId = previous?.workspaceDecided ? previous.workspaceId : null;
-  if (today === null) return { kind: 'stops', because: 'its time zone cannot be read', workspaceId };
-  if (!previous) return { kind: 'stops', because: 'no Item names it', workspaceId };
-  if (previous.workspaceDecided && !getWorkspace(db, tenantId, previous.workspaceId)) {
-    return { kind: 'stops', because: 'its Workspace is gone', workspaceId };
+  // Told to the series' Workspace, where its copies land, unless the latest is
+  // drawn elsewhere too - filed in another, or in every Inbox - when every one is.
+  const toldIn =
+    previous === null || (previous.workspaceDecided && previous.workspaceId === workspaceId) ? workspaceId : null;
+  if (today === null) return { kind: 'stops', because: 'its time zone cannot be read', workspaceId: toldIn };
+  // Only a series an older release set after the store changed over holds nothing.
+  if (title === null || workspaceId === null) {
+    return { kind: 'stops', because: 'it holds nothing to copy', workspaceId: toldIn };
   }
+  if (!getWorkspace(db, tenantId, workspaceId)) return { kind: 'stops', because: 'its Workspace is gone', workspaceId: toldIn };
   const anchorOn = countedFrom(own);
   const nextOn = firstDayAfter(anchorOn, own.frequency, today.date);
-  if (getItem(db, tenantId, cmd.itemId) || couldStillBeActedOn(previous)) {
-    return { kind: 'passes over', nextOn, anchorOn, workspaceId };
+  // A latest copy left in a Workspace deleted since can no longer be finished, so it counts as handled.
+  const previousOpen =
+    previous !== null &&
+    couldStillBeActedOn(previous) &&
+    (!previous.workspaceDecided || previous.workspaceId === workspaceId || getWorkspace(db, tenantId, previous.workspaceId) !== null);
+  if (getItem(db, tenantId, cmd.itemId) || previousOpen) {
+    return { kind: 'passes over', nextOn, anchorOn, workspaceId: toldIn };
   }
 
-  const copied = occurrenceOf(previous, own, { itemId: cmd.itemId, at: cmd.issuedAt, today: today.date });
-  const carried = attachmentsCarriedOver(attachmentRowsOf(db, tenantId, previous.id), copied.description, copied.id, () => uuidv7());
-  const panels = panelIdsOf(db, tenantId, previous.id).flatMap((panelId) => {
-    const panel = panelNamedFor(db, tenantId, previous.workspaceId, panelId);
+  const copied = occurrenceOf({ ...own, workspaceId, title }, previous, {
+    itemId: cmd.itemId,
+    at: cmd.issuedAt,
+    today: today.date,
+  });
+  const panels = masterPanelIdsOf(db, tenantId, own.id).flatMap((panelId) => {
+    const panel = panelNamedFor(db, tenantId, workspaceId, panelId);
     if (!panel || !panelTakesItems(panel)) return [];
     const order = [copied.id, ...panel.held.map((filing) => filing.itemId)];
     return [{ panelId: panel.id, rows: filingRows(tenantId, { itemId: copied.id, panelId: panel.id, order, issuedAt: cmd.issuedAt }) }];
   });
-  return {
-    kind: 'writes',
-    nextOn,
-    anchorOn,
-    workspaceId,
-    item: { ...copied, description: carried.description },
-    panels,
-    attachments: carried.rows,
-  };
+  return { kind: 'writes', nextOn, anchorOn, workspaceId: toldIn, item: copied, panels };
+}
+
+/**
+ * The Panels the Repeats chip gives a series from the Item it is set on: the
+ * Item's own, still live in its Workspace and taking Items, in the order it was
+ * filed on them ("Make each copy of a recurring item from its own series",
+ * issue 1448).
+ */
+function masterPanelsFrom(db: AccountDb, tenantId: string, item: Item, seriesId: string, at: string) {
+  return panelIdsOf(db, tenantId, item.id)
+    .filter((panelId) => {
+      const panel = panelNamedFor(db, tenantId, item.workspaceId, panelId);
+      return panel !== null && panelTakesItems(panel);
+    })
+    .map((panelId, position) => ({ tenantId, seriesId, panelId, position, createdAt: at }));
 }
 
 /**
@@ -2407,9 +2430,16 @@ export function runCommand<N extends CommandName>(
         break;
       }
       const { row } = decision;
+      // Until the Recurring items modal replaces it, a series the chip sets that
+      // holds nothing yet - a new one, or one stopped empty - takes the Item's
+      // content and Panels once; a rule changed later leaves them as taken
+      // ("Make each copy of a recurring item from its own series", issue 1448).
+      const fills = cmd.repeat !== null && (own === null || own.title === null);
+      const content = fills ? masterContentOf(item) : null;
+      const filedOn = fills ? masterPanelsFrom(db, tenantId, item, row.id, cmd.issuedAt) : [];
       db.transaction((tx) => {
         if (decision.isNew) {
-          tx.insert(series).values(row).run();
+          tx.insert(series).values({ ...row, ...content }).run();
           // The Item's own `updated_at` is left alone: a repeat is the series', and a title edit in flight must not go stale for it.
           tx.update(items)
             .set({ seriesId: row.id })
@@ -2417,9 +2447,15 @@ export function runCommand<N extends CommandName>(
             .run();
         } else {
           tx.update(series)
-            .set(row)
+            .set({ ...row, ...content })
             .where(and(eq(series.tenantId, tenantId), eq(series.id, row.id)))
             .run();
+        }
+        if (fills) {
+          tx.delete(seriesPanels)
+            .where(and(eq(seriesPanels.tenantId, tenantId), eq(seriesPanels.seriesId, row.id)))
+            .run();
+          for (const filing of filedOn) tx.insert(seriesPanels).values(filing).run();
         }
         tx.insert(commands).values(commandRow).run();
       });
@@ -2434,7 +2470,7 @@ export function runCommand<N extends CommandName>(
         break;
       }
       // Logged against the Workspace whose tabs draw the series, or every one
-      // where its Item belongs to none.
+      // where its latest copy is drawn outside the series' own.
       if (brought.workspaceId !== null) commandRow.workspaceId = brought.workspaceId;
       // Only a written Item spends the series' day: a day passed over leaves it
       // for a Next on moved back to it, under an id of the log's own.
@@ -2443,7 +2479,6 @@ export function runCommand<N extends CommandName>(
         if (brought.kind === 'writes') {
           tx.insert(items).values({ ...asStored(brought.item), status: DEAD_STATUS_VALUE }).run();
           writePanelOrders(tx, tenantId, brought.panels);
-          for (const row of brought.attachments) tx.insert(attachments).values(row).run();
         }
         tx.update(series)
           .set(
