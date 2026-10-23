@@ -358,6 +358,17 @@ export interface Env {
   USAGE_TOKEN_CI?: string;
   USAGE_TOKEN_LOCAL?: string;
   /**
+   * **What the Harness Monitor reads Cockpit's Claude calls under**, and the
+   * only thing that opens `GET /v1/usage-records` ("Let the Harness Monitor
+   * read Cockpit's Claude calls, without users, under a token of its own",
+   * issue 1481). It opens that and nothing else, and no other token opens it.
+   * Optional in the type for the reason `BACKUP_TOKEN` is: an environment
+   * holding none refuses every read. Set in production
+   * (`wrangler secret put USAGE_READ_TOKEN`) and in the Harness Monitor under
+   * the same name; distinct from every token above.
+   */
+  USAGE_READ_TOKEN?: string;
+  /**
    * How many seconds a settle- or correction-triggered refresh waits for a
    * later one to take its place (`src/accounts/debounce.ts`). Unset everywhere
    * but the backend suite, which sets `0` so a case going through the real
