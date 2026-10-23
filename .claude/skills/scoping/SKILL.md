@@ -31,6 +31,8 @@ Prose that reads fine fails on contact — two designs agreed in discussion over
 
 **Challenge the result rather than presenting it**: name what you chose and what you rejected, and ask about the concept and its presentation separately — the concept is usually right and the presentation is what comes back.
 
+**Alternatives shown side by side differ in one thing, and say so on screen when it is what the page can do**, since a person comparing two changes at once cannot tell which one they are reacting to: under "Say the costs page's controls as one sentence, and show tokens per day" (issue 1510), two layouts differed in which tabs they offered as well as in their look, and both were rejected as confusing.
+
 **A POC is throwaway**: in the real app rather than `poc/`, no tests, no docs. Save the diff outside git before reverting, because what it found is an input to step 3 and rows in step 6.
 
 **What the person picks on screen is the spec — a POC, or an artboard chosen on a design canvas — never a prose retelling of it.** Record the pick in their words and by its label ("B · Layout chosen by picture"), confirm it back before filing, and post its source on the ticket as a comment — the POC's saved diff, or the canvas link with the chosen artboard's file — saying so in What to build. Whoever builds it reproduces that source's layout, controls, wording and order, wired to the real data, compares the built screen with it side by side before shipping, and names any deviation in the pull request — because a builder working from a description rebuilds the screen rather than reproducing the one that was chosen.
