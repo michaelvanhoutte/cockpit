@@ -9,7 +9,6 @@ import {
   PAGE_SIZE,
   PERIODS,
   queryString,
-  seriesOf,
   SPLITS,
   UNATTRIBUTED,
   WHOS,
@@ -222,9 +221,12 @@ function changeCard(c: Comparison | null, label: string): string {
 
 const CHART = { width: 1000, height: 280, left: 72, right: 16, top: 16, bottom: 32 };
 
-/** A token count as people say one: 9,946, 74k, 665.6M, 1.31B. */
+/**
+ * A token count as people say one: 9,946, 74k, 665.6M, 1.31B. Each unit starts
+ * where the one below would round up to a thousand of it, so 999,600 reads 1.0M, not 1000k.
+ */
 export const tokenCount = (n: number) =>
-  n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : number(Math.round(n));
+  n >= 999.95e6 ? `${(n / 1e9).toFixed(2)}B` : n >= 999.5e3 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : number(Math.round(n));
 
 /** How each per-day chart is headed, labelled and read. */
 const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) => string; axis: (n: number) => string; note: string }> = {
@@ -244,11 +246,7 @@ const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) 
  */
 function overTime(page: CostsPage, now: number, measure: Measure): string {
   const { query, models } = page;
-  // The split's series are those with dollars; tokens take those with tokens, so a model with no price still has its line.
-  const tokenTotals: Record<string, number> = Object.create(null);
-  if (measure === 'tokens') for (const g of page.groups) for (const [key, n] of Object.entries(g.tokensBySeries)) tokenTotals[key] = (tokenTotals[key] ?? 0) + n;
-  const series = measure === 'cost' ? page.series : seriesOf(query.split, tokenTotals);
-  const chart: DayChart = dayChart(page.groups, series, firstDay(query.period, now), now, measure);
+  const chart: DayChart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, firstDay(query.period, now), now, measure);
   if (chart.days.length === 0) return '';
   const { title, id, value, axis, note } = MEASURES[measure];
   const { width, height, left, right, top, bottom } = CHART;

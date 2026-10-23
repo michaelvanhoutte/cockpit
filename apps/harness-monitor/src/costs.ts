@@ -220,7 +220,7 @@ const PHASE_SHORT: Record<Category, string> = {
 
 /**
  * The columns of a split, in order. Phases, places and outcomes are fixed;
- * models are the ones with dollars in the result, biggest first.
+ * models are the ones with any of the totals given, biggest first.
  */
 export function seriesOf(split: Split, totals: Record<string, number>): Series[] {
   switch (split) {
@@ -382,7 +382,8 @@ export interface DayChart {
 /**
  * Cost or tokens per day as lines: one per series of the split that has any,
  * and the total. The range runs from the period's first day (the earliest day
- * with cost for all time) to today, so a day with none is a zero, not a gap.
+ * with any request, priced or not, for all time) to today, so a day with none
+ * is a zero, not a gap.
  */
 export function dayChart(groups: CostGroup[], series: Series[], first: string | null, now: number, measure: Measure = 'cost'): DayChart {
   if (groups.length === 0) return { days: [], lines: [], total: [] };
@@ -615,6 +616,8 @@ export interface CostsPage {
   groups: CostGroup[];
   /** The split's columns, in order. */
   series: Series[];
+  /** The split's series with tokens, for Tokens per day: a model with no price still has its line. */
+  tokenSeries: Series[];
   /** Per series key, over every group (not only the shown page). */
   bySeries: Record<string, number>;
   totalMicros: number;
@@ -709,12 +712,15 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
   const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, lastLinkSuccessAt, query.sort);
   const bySeries = bag();
   for (const g of groups) for (const [key, micros] of Object.entries(g.bySeries)) bySeries[key] = (bySeries[key] ?? 0) + micros;
+  const tokensBySeries = bag();
+  for (const g of groups) for (const [key, n] of Object.entries(g.tokensBySeries)) tokensBySeries[key] = (tokensBySeries[key] ?? 0) + n;
   return {
     query,
     engineers: (engineers!.results as { engineer: string }[]).map((e) => e.engineer),
     models: (models!.results as { model: string }[]).map((m) => m.model),
     groups,
     series: seriesOf(query.split, bySeries),
+    tokenSeries: seriesOf(query.split, tokensBySeries),
     bySeries,
     totalMicros: groups.reduce((sum, g) => sum + g.totalMicros, 0),
     lastLinkSuccessAt,
