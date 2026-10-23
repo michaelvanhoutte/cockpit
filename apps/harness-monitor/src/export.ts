@@ -69,7 +69,41 @@ export function cell(value: string | number | null): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-const line = (cells: (string | number | null)[]) => `${cells.map(cell).join(',')}\r\n`;
+export const line = (cells: (string | number | null)[]) => `${cells.map(cell).join(',')}\r\n`;
+
+/**
+ * A CSV as a stream: the header, then one page of lines each time the response
+ * is consumed, so a year of rows is never held at once and the response starts
+ * at once. `read` takes the cursor after the last line sent (null for the first
+ * page) and answers the page's lines, how many rows it held, and the cursor after
+ * them; a page short of `pageSize` is the last.
+ */
+export function csvStream<C>(
+  header: string[],
+  pageSize: number,
+  read: (cursor: C | null) => Promise<{ text: string; count: number; cursor: C | null }>,
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  let cursor: C | null = null;
+  let started = false;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (!started) {
+        started = true;
+        controller.enqueue(encoder.encode(line(header)));
+        return;
+      }
+      try {
+        const page = await read(cursor);
+        if (page.count > 0) controller.enqueue(encoder.encode(page.text));
+        cursor = page.cursor;
+        if (page.count < pageSize) controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
+}
 
 interface RequestRow {
   occurred_at: number;
@@ -138,29 +172,11 @@ export function exportCsv(db: D1Database, query: CostQuery, pullRequest: number 
   const after = `${base} ${where === '' ? 'WHERE' : `${where} AND`} (u.occurred_at, u.request_id) > (?, ?)
     ORDER BY u.occurred_at, u.request_id LIMIT ${EXPORT_PAGE_SIZE}`;
 
-  const encoder = new TextEncoder();
-  let cursor: [number, string] | null = null;
-  let started = false;
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      if (!started) {
-        started = true;
-        controller.enqueue(encoder.encode(line(HEADER)));
-        return;
-      }
-      try {
-        const statement = cursor === null ? db.prepare(first).bind(...binds) : db.prepare(after).bind(...binds, ...cursor);
-        const { results } = await statement.all<RequestRow>();
-        if (results.length > 0) {
-          controller.enqueue(encoder.encode(results.map(csvLine).join('')));
-          const last = results[results.length - 1]!;
-          cursor = [last.occurred_at, last.request_id];
-        }
-        if (results.length < EXPORT_PAGE_SIZE) controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    },
+  const body = csvStream<[number, string]>(HEADER, EXPORT_PAGE_SIZE, async (cursor) => {
+    const statement = cursor === null ? db.prepare(first).bind(...binds) : db.prepare(after).bind(...binds, ...cursor);
+    const { results } = await statement.all<RequestRow>();
+    const last = results[results.length - 1];
+    return { text: results.map(csvLine).join(''), count: results.length, cursor: last ? [last.occurred_at, last.request_id] : cursor };
   });
   return new Response(body, {
     headers: {

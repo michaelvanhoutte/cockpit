@@ -671,7 +671,10 @@
         "apps/harness-monitor/src/stability-store.ts",
         "apps/harness-monitor/src/stability-report.ts",
         "apps/harness-monitor/src/stability-page.ts",
-        "apps/harness-monitor/src/report.ts"
+        "apps/harness-monitor/src/report.ts",
+        "apps/harness-monitor/src/claude-calls-page.ts",
+        "apps/harness-monitor/src/claude-calls-view.ts",
+        "apps/harness-monitor/src/claude-calls-export.ts"
       ]
     }
   ]

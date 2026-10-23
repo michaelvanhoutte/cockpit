@@ -31,6 +31,7 @@ function anItem(fields: Partial<Item> = {}): Item {
     priority: null,
     dueDate: null,
     startedAt: null,
+    waitingSince: null,
     completedAt: null,
     ...fields,
   } as Item;
@@ -43,6 +44,7 @@ function filterOf(fields: Partial<DashboardFilter>): DashboardFilter {
 const NONE = new Set<string>();
 const STARTED = '2026-09-08T09:00:00.000Z';
 const DONE = '2026-09-08T17:00:00.000Z';
+const WAITING = '2026-09-08T12:00:00.000Z';
 
 describe('Dashboards', () => {
   describe('a Dashboard filter lets through only the Items meeting every condition set', () => {
@@ -58,6 +60,24 @@ describe('Dashboards', () => {
         filter: filterOf({ statuses: ['in_progress'] }),
         passes: [anItem({ startedAt: STARTED })],
         stopped: [anItem(), anItem({ startedAt: STARTED, completedAt: DONE })],
+      },
+      {
+        situation: 'Status To do and In progress leave a waiting Item out, however it was started',
+        filter: filterOf({ statuses: ['to_do', 'in_progress'] }),
+        passes: [anItem(), anItem({ startedAt: STARTED })],
+        stopped: [anItem({ waitingSince: WAITING }), anItem({ startedAt: STARTED, waitingSince: WAITING })],
+      },
+      {
+        situation: 'Status Waiting for reply takes only Items waiting and not finished',
+        filter: filterOf({ statuses: ['waiting'] }),
+        passes: [anItem({ waitingSince: WAITING }), anItem({ startedAt: STARTED, waitingSince: WAITING })],
+        stopped: [anItem(), anItem({ startedAt: STARTED }), anItem({ waitingSince: WAITING, completedAt: DONE })],
+      },
+      {
+        situation: 'Status In progress and Waiting for reply takes Items in either',
+        filter: filterOf({ statuses: ['in_progress', 'waiting'] }),
+        passes: [anItem({ startedAt: STARTED }), anItem({ waitingSince: WAITING })],
+        stopped: [anItem()],
       },
       {
         situation: 'Status Done takes Items finished, started or not',
