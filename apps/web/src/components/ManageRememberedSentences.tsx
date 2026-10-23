@@ -8,6 +8,7 @@ import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
+import { SettingsPanel } from './SettingsPanel';
 
 const when = momentDateLabel;
 
@@ -103,13 +104,14 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
   };
   return (
     <ManageWindow title="What Cockpit remembers" open onClose={() => undefined}>
-      <p className="mt-2 text-sm text-ink-faint">
+      <p className="mt-1 text-sm text-ink-soft">
         Sentences Cockpit kept from your edits. Each shapes what it proposes for the kind of action it applies to.
       </p>
-      <section className="-mx-2 mt-3 min-h-0 flex-1 overflow-y-auto">
+      <SettingsPanel name="Sentences" hint="Newest first. Edit or delete any of them." flush>
+      <section>
         <ul>
           {sentences.map((one) => (
-            <li key={one.id} className="border-b border-shade/5 px-4 py-2 last:border-b-0">
+            <li key={one.id} className="border-b border-shade/10 px-4 py-2.5 last:border-b-0">
               {editing === one.id ? (
                 <form
                   onSubmit={(event) => {
@@ -209,6 +211,7 @@ export default function ManageRememberedSentences({ focus }: { focus?: string | 
           <p className="px-4 py-4 text-sm text-ink-faint">Nothing remembered yet. Edit what Cockpit proposes before you send it, and it offers to keep a sentence.</p>
         )}
       </section>
+      </SettingsPanel>
       <CloseWindow />
     </ManageWindow>
   );
