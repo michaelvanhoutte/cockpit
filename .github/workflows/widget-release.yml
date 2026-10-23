@@ -1,0 +1,124 @@
+name: Widget release
+
+# Pushing a tag `widget-v1.2.3` builds the Android widget, signed with the key the
+# owner keeps, and attaches the APK to a GitHub Release. The one versioned artefact
+# Cockpit has: an installed app cannot update from the origin as the web app does
+# (docs/deployment.md, "The Android widget"). Production only; the staging build is
+# for engineers and is built by hand.
+#
+# **The key is four repository secrets, made once by the owner** (steps in
+# docs/deployment.md, "The Android widget"): the keystore as base64, its password,
+# the key's alias and the key's password. A lost key forces every phone to uninstall
+# the app before a differently signed one will install, so the owner keeps an
+# offline copy and this workflow only ever reads it.
+on:
+  push:
+    tags: ['widget-v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release the widget
+    runs-on: ubuntu-latest
+    # Writes the release, and nothing else in this file may.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The tag, read through the environment and never into a script's text. A
+      # version is three numbers, and the code Android compares versions by grows with
+      # them: 1.2.3 is 10203.
+      - name: Read the version from the tag
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#widget-v}"
+          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::The tag $TAG is not widget-v<major>.<minor>.<patch>, such as widget-v1.0.0."
+            exit 1
+          fi
+          echo "name=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))" >> "$GITHUB_OUTPUT"
+
+      # Named, so a missing one says which, instead of Gradle failing on an empty path.
+      - name: Check the signing key is stored
+        env:
+          KEYSTORE: ${{ secrets.WIDGET_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.WIDGET_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.WIDGET_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.WIDGET_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for name in KEYSTORE KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::The repository secret WIDGET_$name is not set. docs/deployment.md, \"The Android widget\", lists the four."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Put the keystore on the runner
+        env:
+          KEYSTORE: ${{ secrets.WIDGET_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/widget-release.jks"
+
+      # The tests first: a release that fails them is not cut.
+      - name: Test, then build the signed APK
+        working-directory: apps/android-widget
+        env:
+          WIDGET_KEYSTORE_PATH: ${{ runner.temp }}/widget-release.jks
+          WIDGET_KEYSTORE_PASSWORD: ${{ secrets.WIDGET_KEYSTORE_PASSWORD }}
+          WIDGET_KEY_ALIAS: ${{ secrets.WIDGET_KEY_ALIAS }}
+          WIDGET_KEY_PASSWORD: ${{ secrets.WIDGET_KEY_PASSWORD }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          bash ./gradlew --no-daemon testProductionReleaseUnitTest assembleProductionRelease \
+            "-PwidgetVersionName=$VERSION_NAME" "-PwidgetVersionCode=$VERSION_CODE"
+
+      # Shows whose key signed it, to be compared with the fingerprint the owner noted
+      # when making the key. A release signed with any other key would not install over
+      # the one already on a phone.
+      - name: Check the APK is signed, and say by what
+        id: apk
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          built=apps/android-widget/app/build/outputs/apk/production/release/app-production-release.apk
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$apksigner" verify --print-certs "$built" | tee "$RUNNER_TEMP/certs.txt"
+          renamed="$RUNNER_TEMP/cockpit-widget-$VERSION_NAME.apk"
+          cp "$built" "$renamed"
+          echo "file=$renamed" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Signed by"
+            echo
+            echo '```'
+            grep -E 'certificate (SHA-256|SHA-1)' "$RUNNER_TEMP/certs.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          APK: ${{ steps.apk.outputs.file }}
+        run: |
+          gh release create "$TAG" "$APK" \
+            --title "Cockpit widget $VERSION_NAME" \
+            --notes "Install \`cockpit-widget-$VERSION_NAME.apk\` on an Android phone. It installs over an earlier release of this widget; it never updates itself." \
+            --verify-tag
