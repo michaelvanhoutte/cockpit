@@ -74,7 +74,8 @@ export const PROCESS_SKILLS = ['build', 'scoping', 'engineering-plan', 'session-
 /** A skill's own name, without the slash of a typed command or the prefix of a plugin or namespace. */
 const ownName = (name) => String(name).trim().replace(/^\//, '').split(':').pop();
 
-const COMMAND_NAME = /<command-name>\s*([^<\s]+)\s*<\/command-name>/g;
+/** A typed command opens its own message, `<command-message>` then `<command-name>`; the same tag inside pasted text is not an invocation. */
+const COMMAND_NAME = /^\s*(?:<command-message>[^<]*<\/command-message>\s*)?<command-name>\s*([^<\s]+)\s*<\/command-name>/;
 
 /** The names of the skills one log line invokes, in order: a typed slash command, or a Skill tool call. Names only; nothing else of the line is kept. */
 function skillsInvokedOnLine(line) {
@@ -82,7 +83,10 @@ function skillsInvokedOnLine(line) {
   const content = line?.message?.content;
   if (line?.type === 'user') {
     const texts = typeof content === 'string' ? [content] : Array.isArray(content) ? content.filter((b) => b?.type === 'text' && typeof b.text === 'string').map((b) => b.text) : [];
-    for (const text of texts) for (const match of text.matchAll(COMMAND_NAME)) names.push(ownName(match[1]));
+    for (const text of texts) {
+      const match = COMMAND_NAME.exec(text);
+      if (match) names.push(ownName(match[1]));
+    }
   } else if (line?.type === 'assistant' && Array.isArray(content)) {
     for (const block of content) {
       if (block?.type === 'tool_use' && block.name === 'Skill' && typeof block.input?.skill === 'string') names.push(ownName(block.input.skill));

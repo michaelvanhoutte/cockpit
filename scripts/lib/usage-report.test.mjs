@@ -180,7 +180,8 @@ describe('A session is in a process skill from its invocation until another is i
   it('a skill named in the conversation or in a tool result, but not invoked, does not count', () => {
     const mention = JSON.stringify({ type: 'user', timestamp: t(1), message: { content: 'please run scoping then engineering-plan' } });
     const toolResult = JSON.stringify({ type: 'user', timestamp: t(1), message: { content: [{ type: 'tool_result', content: '<command-name>/scoping</command-name>' }] } });
-    assert.deepEqual(placed([mention, toolResult, reply('a', t(2))]), { a: 'outside-process' });
+    const pasted = JSON.stringify({ type: 'user', timestamp: t(1), message: { content: 'the log showed <command-name>/scoping</command-name> earlier' } });
+    assert.deepEqual(placed([mention, toolResult, pasted, reply('a', t(2))]), { a: 'outside-process' });
   });
 });
 
