@@ -9,6 +9,7 @@ import {
   PAGE_SIZE,
   PERIODS,
   queryString,
+  seriesOf,
   SPLITS,
   UNATTRIBUTED,
   WHOS,
@@ -19,6 +20,7 @@ import {
   type CostQuery,
   type CostsPage,
   type Group,
+  type Measure,
   type Period,
   type Series,
   type Split,
@@ -220,38 +222,59 @@ function changeCard(c: Comparison | null, label: string): string {
 
 const CHART = { width: 1000, height: 280, left: 72, right: 16, top: 16, bottom: 32 };
 
+/** A token count as people say one: 9,946, 74k, 665.6M, 1.31B. */
+export const tokenCount = (n: number) =>
+  n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : number(Math.round(n));
+
+/** How each per-day chart is headed, labelled and read. */
+const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) => string; axis: (n: number) => string; note: string }> = {
+  cost: { title: 'Cost per day', id: 'perday', value: dollars, axis: dollars, note: '' },
+  tokens: {
+    title: 'Tokens per day',
+    id: 'tokensperday',
+    value: (n) => `${tokenCount(n)} tokens`,
+    axis: tokenCount,
+    note: '<p class="note chart-note">Input, output, cache write and cache read tokens summed, priced or not.</p>',
+  },
+};
+
 /**
- * Cost per day as lines, one per series of the split with a dashed total.
- * Every day of the range has a point, and each point's title carries its value.
+ * Cost or tokens per day as lines, one per series of the split with a dashed
+ * total. Every day of the range has a point, and each point's title carries its value.
  */
-function overTime(page: CostsPage, now: number): string {
+function overTime(page: CostsPage, now: number, measure: Measure): string {
   const { query, models } = page;
-  const chart: DayChart = dayChart(page.groups, page.series, firstDay(query.period, now), now);
+  // The split's series are those with dollars; tokens take those with tokens, so a model with no price still has its line.
+  const tokenTotals: Record<string, number> = Object.create(null);
+  if (measure === 'tokens') for (const g of page.groups) for (const [key, n] of Object.entries(g.tokensBySeries)) tokenTotals[key] = (tokenTotals[key] ?? 0) + n;
+  const series = measure === 'cost' ? page.series : seriesOf(query.split, tokenTotals);
+  const chart: DayChart = dayChart(page.groups, series, firstDay(query.period, now), now, measure);
   if (chart.days.length === 0) return '';
+  const { title, id, value, axis, note } = MEASURES[measure];
   const { width, height, left, right, top, bottom } = CHART;
   const peak = Math.max(...chart.total, 1);
   const x = (i: number) => (chart.days.length === 1 ? (left + width - right) / 2 : left + (i / (chart.days.length - 1)) * (width - left - right));
-  const y = (micros: number) => top + (1 - micros / peak) * (height - top - bottom);
+  const y = (v: number) => top + (1 - v / peak) * (height - top - bottom);
   const lines = [
     ...chart.lines.map((l) => ({ ...l, colour: colourOf(query.split, l.key, models), dash: false })),
-    { key: 'total', label: 'Total', micros: chart.total, colour: 'var(--ink-strong)', dash: true },
+    { key: 'total', label: 'Total', values: chart.total, colour: 'var(--ink-strong)', dash: true },
   ];
   const grid = [0, 0.5, 1]
-    .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" class="gridline"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${dollars(peak * f)}</text>`)
+    .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" class="gridline"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${axis(peak * f)}</text>`)
     .join('');
   const ends = [...new Set([0, Math.floor((chart.days.length - 1) / 2), chart.days.length - 1])];
   const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 10}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === chart.days.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${formatDay(chart.days[i]!)}</text>`).join('');
   const drawn = lines
     .map((l) => {
-      const points = l.micros.map((m, i) => `${x(i).toFixed(1)},${y(m).toFixed(1)}`).join(' ');
-      const dots = l.micros
-        .map((m, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(m).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${dollars(m)}</title></circle>`)
+      const points = l.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+      const dots = l.values
+        .map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${value(v)}</title></circle>`)
         .join('');
       return `<g data-line="${esc(l.key)}"><polyline points="${points}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>${dots}</g>`;
     })
     .join('');
-  const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${chart.total.map((m, i) => `${x(i).toFixed(1)},${y(m).toFixed(1)}`).join(' ')} ${x(chart.days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
-  return `<section class="panel" aria-labelledby="perday">${band('Cost per day', `<span class="legend">${keys(lines)}</span>`, 'perday')}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Cost per day, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${drawn}</svg></div>
+  const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${chart.total.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} ${x(chart.days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
+  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id)}<div class="well chart">${note}<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${drawn}</svg></div>
 </section>`;
 }
 
@@ -382,7 +405,10 @@ function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: 
     : series.map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / max) * 100).toFixed(1)}%;background:${colourOf(query.split, s.key, models)}"></div>` : '')).join('');
   const cells = series.map((s) => `<td class="num mono${s.key === 'ci-reviews' ? ' muted' : ''}">${cost(s) > 0 ? dollars(cost(s)) : '—'}</td>`).join('');
   const unpriced = g.unpricedRequests > 0 ? ` <span class="unpriced">+ ${number(g.unpricedRequests)} unpriced</span>` : '';
-  return `<tr>${first}${extra}<td class="split-cell"><div class="split${g.catchAll ? ' bare' : ''}">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td></tr>`;
+  // Each day's tokens by kind, priced or not; no other grouping counts them.
+  const tokens =
+    group === 'day' ? [g.tokens.input, g.tokens.output, g.tokens.cacheWrite, g.tokens.cacheRead].map((n) => `<td class="num mono muted">${tokenCount(n)}</td>`).join('') : '';
+  return `<tr>${first}${extra}<td class="split-cell"><div class="split${g.catchAll ? ' bare' : ''}">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td>${tokens}</tr>`;
 }
 
 function table(page: CostsPage, repository: string | null): string {
@@ -397,6 +423,7 @@ function table(page: CostsPage, repository: string | null): string {
   const max = Math.max(...shown.filter((g) => !g.catchAll).map((g) => g.totalMicros), 1);
   const extraHeads = query.group === 'pr' ? '<th scope="col">Engineer</th><th scope="col">Merged</th><th scope="col">Lines</th><th scope="col">Open → merged</th><th scope="col" class="num">CI rounds</th><th scope="col" class="num">Rounds</th><th scope="col" class="num">Findings</th>' : query.group === 'issue' || query.group === 'engineer' ? '<th scope="col">Pull requests</th>' : '';
   const heads = page.series.map((s) => `<th scope="col" class="num"><i style="background:${colourOf(query.split, s.key, page.models)}" aria-hidden="true"></i>${esc(s.short)}</th>`).join('');
+  const tokenHeads = query.group === 'day' ? '<th scope="col" class="num">Input</th><th scope="col" class="num">Output</th><th scope="col" class="num">Cache write</th><th scope="col" class="num">Cache read</th>' : '';
   const link = (to: number, text: string) => `<a href="/${queryString(query, { page: to })}">${text}</a>`;
   const pager = [pageNo > 1 ? link(pageNo - 1, 'Previous') : '', start + PAGE_SIZE < groups.length ? link(pageNo + 1, `Next ${PAGE_SIZE}`) : '']
     .filter(Boolean)
@@ -410,7 +437,7 @@ function table(page: CostsPage, repository: string | null): string {
   const sortedBy = byTotal ? 'total' : SORTED_BY[query.group];
   return `<section class="panel" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">${band(title)}<div class="well">
 <div class="scroll"><table class="costs">
-<thead><tr><th scope="col" class="first">${firstHead}${marks(!byTotal)}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">${totalHead}${marks(byTotal)}</th></tr></thead>
+<thead><tr><th scope="col" class="first">${firstHead}${marks(!byTotal)}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">${totalHead}${marks(byTotal)}</th>${tokenHeads}</tr></thead>
 <tbody>
 ${shown.map((g) => row(g, query.group, max, query, page.series, page.models, repository)).join('\n')}
 </tbody></table></div>
@@ -431,7 +458,8 @@ export function renderPage(
     warning(report.unpriced),
     changeCard(page.comparison, PERIOD_LABELS[page.query.period]),
     whereItWent(page),
-    page.query.group === 'day' ? overTime(page, now) : '',
+    page.query.group === 'day' ? overTime(page, now, 'cost') : '',
+    page.query.group === 'day' ? overTime(page, now, 'tokens') : '',
     harnessTrends(page),
     table(page, repository),
     jobLines(page.jobs),

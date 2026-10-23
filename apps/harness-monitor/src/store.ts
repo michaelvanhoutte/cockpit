@@ -50,16 +50,18 @@ ON CONFLICT (day, category, model) DO UPDATE SET
   unpriced_requests = unpriced_requests + excluded.unpriced_requests`;
 
 const SPLIT_TOTALS_COLUMNS = `day, branch, category, model, ran_where, subagent, requests, cost_micros, unpriced_requests,
-  unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at`;
+  unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at,
+  input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens`;
 const SPLIT_TOTALS_SELECT = (day: string) => `SELECT ${day}, COALESCE(branch, ''), ${PHASE}, model, ran_where, subagent, COUNT(*), SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL),
        SUM(CASE WHEN cost_micros IS NULL THEN input_tokens ELSE 0 END),
        SUM(CASE WHEN cost_micros IS NULL THEN output_tokens ELSE 0 END),
        SUM(CASE WHEN cost_micros IS NULL THEN cache_creation_tokens ELSE 0 END),
        SUM(CASE WHEN cost_micros IS NULL THEN cache_read_tokens ELSE 0 END),
-       MAX(occurred_at)
+       MAX(occurred_at),
+       SUM(input_tokens), SUM(output_tokens), SUM(cache_creation_tokens), SUM(cache_read_tokens)
 FROM usage_requests`;
 const SPLIT_TOTALS_KEYS = (day: string) => `${day}, COALESCE(branch, ''), ${PHASE}, model, ran_where, subagent`;
-/** The same rows folded into the totals the costs page reads: dollars by day, branch, phase, model, place and agent. */
+/** The same rows folded into the totals the costs page reads: dollars and tokens by day, branch, phase, model, place and agent. */
 const ADD_TO_SPLIT_TOTALS = `INSERT INTO daily_split_totals (${SPLIT_TOTALS_COLUMNS})
 ${SPLIT_TOTALS_SELECT('day')} WHERE ingest_id = ?
 GROUP BY ${SPLIT_TOTALS_KEYS('day')}
@@ -71,7 +73,11 @@ ON CONFLICT (day, branch, category, model, ran_where, subagent) DO UPDATE SET
   unpriced_output_tokens = unpriced_output_tokens + excluded.unpriced_output_tokens,
   unpriced_cache_creation_tokens = unpriced_cache_creation_tokens + excluded.unpriced_cache_creation_tokens,
   unpriced_cache_read_tokens = unpriced_cache_read_tokens + excluded.unpriced_cache_read_tokens,
-  last_at = MAX(last_at, excluded.last_at)`;
+  last_at = MAX(last_at, excluded.last_at),
+  input_tokens = input_tokens + excluded.input_tokens,
+  output_tokens = output_tokens + excluded.output_tokens,
+  cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens,
+  cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens`;
 const SESSION_START_COLUMNS = `session_id, request_id, occurred_at, day, branch, model, input_tokens, cache_creation_tokens, cache_read_tokens`;
 /** Each session's earliest main-agent request among the rows `from` selects; the request id breaks a tie. */
 const SESSION_STARTS_SELECT = (day: string, from: string) => `SELECT session_id, request_id, occurred_at, ${day}, COALESCE(branch, ''), model, input_tokens, cache_creation_tokens, cache_read_tokens
