@@ -249,11 +249,11 @@ export function dueHolds(
  * direction, which is what lets a Filter with only a Priority
  * condition mix dated and undated Items freely.
  */
-export function inFilterOrder(items: readonly Item[], sort: PanelSort): Item[] {
+export function inFilterOrder(items: readonly Item[], sort: PanelSort, locale?: string): Item[] {
   const withTheTie = sort.some((criterion) => criterion.field === 'createdAt')
     ? sort
     : [...sort, { field: 'createdAt' as const, direction: 'asc' as const }];
-  return inSortOrder(items, withTheTie);
+  return inSortOrder(items, withTheTie, locale);
 }
 
 /**
@@ -286,6 +286,8 @@ export function itemsMatchingFilter(
   on: Day,
   /** How the Filter is sorted, which a Filter nobody has sorted answers with `DEFAULT_FILTER_SORT`. */
   sort: PanelSort = DEFAULT_FILTER_SORT,
+  /** What titles sort by where the sort names Title: the runtime's own where none is given. */
+  locale?: string,
 ): Item[] {
   if (filter.rows.length === 0) return [];
   // What a Panel condition's values are read against - every items Panel of
@@ -315,6 +317,7 @@ export function itemsMatchingFilter(
       );
     }),
     sort,
+    locale,
   );
 }
 

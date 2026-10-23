@@ -107,6 +107,7 @@ import { offerToRemember } from '../jobs/offer-to-remember.js';
 import { onOneLine } from '../domain/remembered-sentences.js';
 import { readUsage } from '../accounts/usage.js';
 import { USAGE_RECORDS_PATH, receiveRecord } from '../gateway/receive.js';
+import { readClaudeCalls, readTokenAccepted } from '../gateway/feed.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -2424,6 +2425,26 @@ const routes = app
   .post(USAGE_RECORDS_PATH, async (c) => {
     const received = await receiveRecord(c.env, c.req.header('authorization'), () => c.req.json());
     return received.status === 201 ? c.body(null, 201) : c.json({ error: received.error }, received.status);
+  })
+  // What the Harness Monitor reads of Cockpit's Claude calls ("Let the Harness
+  // Monitor read Cockpit's Claude calls, without users, under a token of its
+  // own", issue 1481): the same address, read rather than written. Admitted by
+  // `USAGE_READ_TOKEN` alone, checked in `gateway/feed.ts`; unset, it refuses
+  // every request and says why, the one state worth telling the Monitor's
+  // operator about.
+  .get(USAGE_RECORDS_PATH, async (c) => {
+    if (!c.env.USAGE_READ_TOKEN) {
+      return c.json({ error: 'reading is not set up here' }, 503);
+    }
+    if (!(await readTokenAccepted(c.env.USAGE_READ_TOKEN, c.req.header('authorization')))) {
+      return c.json({ error: 'not allowed' }, 401);
+    }
+    const asked = c.req.query('after') ?? '0';
+    const after = /^\d+$/.test(asked) ? Number(asked) : Number.NaN;
+    if (!Number.isSafeInteger(after)) {
+      return c.json({ error: 'after has to be a row number, or left out' }, 400);
+    }
+    return c.json(await readClaudeCalls(c.env, after), 200);
   })
   // Restoring, which is the half that destroys something. Accounts go in first
   // and the register after, so a user never exists pointing at a store that has

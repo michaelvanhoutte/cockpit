@@ -1,9 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ClaudeAiService, type CallFor, type ProposalRead } from '../../src/ai/index.js';
-
-/** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
-const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
+import type { ClaudeAiService, ProposalRead } from '../../src/ai/index.js';
+import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.js';
 import { NOTE_MARKER } from '@cockpit/connector-teams';
 import { TITLE_LENGTH } from '@cockpit/shared';
 import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v17.js';
@@ -41,8 +39,6 @@ import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corre
  * is priority work. It is never fixed by running it again.
  */
 
-const key = process.env.ANTHROPIC_API_KEY ?? '';
-
 /**
  * A service whose calls are tallied under `name`, and said once at the end of
  * the run, so a prompt change can be priced from the same run that proved it
@@ -53,7 +49,7 @@ function tallied(name: string): ClaudeAiService {
   // turns on them ("Enable prompt caching on the note-cleanup prompt", issue 584).
   const spent = { calls: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
   afterAll(() => console.log(`${name}: ${JSON.stringify(spent)}`));
-  return new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+  return claude((_model, usage) => {
     spent.calls += 1;
     spent.input += usage.input_tokens;
     spent.cacheRead += usage.cache_read_input_tokens ?? 0;
@@ -189,11 +185,10 @@ function fiftyFilings(panels: readonly { id: string; name: string }[]): Decision
 }
 
 describe('Capture', () => {
-  it('has a key to read a note with', () => {
-    // Red rather than skipped: a contract run with no credential is a run that
-    // proved nothing, and a skipped tier reads green from the outside.
-    expect(key, 'set ANTHROPIC_API_KEY, or put it in apps/api/.dev.vars').not.toBe('');
-  });
+  // Red rather than skipped: a contract run with no credential is a run that
+  // proved nothing, and a skipped tier reads green from the outside. A key with
+  // no token to record its calls under is red too.
+  it('has a key to read a note with and a token to record its calls under', expectAKeyAndARecord);
 
   describe.each(WAYS)('when a note is $situation', ({ ask }) => {
     const read = readerFor(ask);
@@ -782,7 +777,7 @@ describe('Capture', () => {
   describe('notes read back to back for one account pay the full rate for the fixed instructions only once', () => {
     it('reads the fixed instructions back at the lower rate on the second of two notes', async () => {
       const usages: Anthropic.Usage[] = [];
-      const service = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+      const service = claude((_model, usage) => {
         usages.push(usage);
       });
 
@@ -802,7 +797,7 @@ describe('Capture', () => {
      */
     it('reads the history back at the lower rate too, paying the full rate only for the note and the recent notes', async () => {
       const usages: Anthropic.Usage[] = [];
-      const service = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+      const service = claude((_model, usage) => {
         usages.push(usage);
       });
       const history = fiftyFilings(TWO_PANELS);

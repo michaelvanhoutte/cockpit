@@ -133,6 +133,8 @@ export default defineConfig({
           /^\/ingress\//,
           // Workbox tests the path with its query, so `/mcp?x` has to match too.
           /^\/mcp([/?]|$)/,
+          // What a connected app reads Panels from (issue 1445), likewise.
+          /^\/apps([/?]|$)/,
           /^\/oauth\//,
           /^\/\.well-known\/oauth-/,
           /^\/cdn-cgi\//,
@@ -163,6 +165,9 @@ export default defineConfig({
       // item from it", issue 599): the endpoint, the consent page and token
       // exchange, and the two discovery documents.
       '/mcp': apiProxy,
+      // What a connected app reads Panels from (issue 1445). Anchored: a bare
+      // prefix would also catch a file like apps.json.
+      '^/apps([/?]|$)': apiProxy,
       '/oauth': apiProxy,
       // What the installed app's share sheet posts to when the service worker
       // did not take it (apps/api/src/worker.ts); dev registers no worker.

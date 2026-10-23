@@ -54,8 +54,8 @@ export interface Env {
    * before the first deploy that names it (docs/deployment.md, "Bootstrap
    * runbook"). Nothing in it is an account's work: losing it disconnects
    * every app, and each is connected again by adding it again. That includes
-   * the one key Cockpit adds of its own, when each grant last captured
-   * (`mcp/connected-apps.ts`).
+   * the two keys Cockpit adds of its own, when each grant last captured and when
+   * it last read a Panel (`mcp/connected-apps.ts`).
    */
   OAUTH_KV: KVNamespace;
   /**
@@ -69,7 +69,10 @@ export interface Env {
     listUserGrants(
       userId: string,
       options?: { cursor?: string },
-    ): Promise<{ items: { id: string; createdAt: number; metadata?: unknown }[]; cursor?: string }>;
+    ): Promise<{
+      items: { id: string; createdAt: number; resource?: string | string[]; metadata?: unknown }[];
+      cursor?: string;
+    }>;
     revokeGrant(grantId: string, userId: string): Promise<void>;
   };
   /**
@@ -354,6 +357,17 @@ export interface Env {
   USAGE_TOKEN_STAGING?: string;
   USAGE_TOKEN_CI?: string;
   USAGE_TOKEN_LOCAL?: string;
+  /**
+   * **What the Harness Monitor reads Cockpit's Claude calls under**, and the
+   * only thing that opens `GET /v1/usage-records` ("Let the Harness Monitor
+   * read Cockpit's Claude calls, without users, under a token of its own",
+   * issue 1481). It opens that and nothing else, and no other token opens it.
+   * Optional in the type for the reason `BACKUP_TOKEN` is: an environment
+   * holding none refuses every read. Set in production
+   * (`wrangler secret put USAGE_READ_TOKEN`) and in the Harness Monitor under
+   * the same name; distinct from every token above.
+   */
+  USAGE_READ_TOKEN?: string;
   /**
    * How many seconds a settle- or correction-triggered refresh waits for a
    * later one to take its place (`src/accounts/debounce.ts`). Unset everywhere
