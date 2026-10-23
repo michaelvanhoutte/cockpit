@@ -459,8 +459,8 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 | Cold open → glanceable dashboard (installed PWA, warm cache), counting the server's read | **< 1s** |
 | Capture: entry point → note persisted (excluding typing) | **< 2s** |
 | Panel interactions (filter, drag, reorder, switch dashboard) | **< 100ms** |
-| Initial JS bundle (compressed) | **< 235KB**, hard CI gate |
-| Any one file fetched separately (compressed) | **< 235KB**, same gate, charged on its own |
+| Initial JS bundle (compressed) | **< 240KB**, hard CI gate |
+| Any one file fetched separately (compressed) | **< 240KB**, same gate, charged on its own |
 | The server's answer on opening (the Workspace list) | held at most **3s**, then the saved reads are drawn and a later answer replaces them; nothing shows for the first 300ms |
 | Cold open's check for a new version (a waiting service worker, or the browser asked for one) | holds the app **at most 1.5s**; an answer after that shows the message over the open app |
 
@@ -479,6 +479,8 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 **Moved from 230KB to 233KB at once, for drawing changes the moment they are made** ("Show a Panel or Dashboard change the moment you make it", issue 1351, and the Workspace, capture, attachment and Not a duplicate tickets beside it, which share these 3KB): the drawing code is in the entry because the first gesture on the board needs it, and a chunk of its own would delay that gesture.
 
 **Moved from 233KB to 235KB for Repeats** ("Set an Item to repeat from its form, and see the rule on its row", issue 1406): the chip and its popover are a chunk of their own, and what stays in the entry is the rule's wording for a row's ↻, the form's draft of it and its drawing ahead, about 1.5KB; the second KB is headroom the entry had already used up.
+
+**Moved from 235KB to 240KB at once, by the engineer's decision**, after "Choose which of two possible duplicates to keep, from the warning" (issue 1451) left the entry 1 byte under the gate, its cards already a chunk of their own: as at 230KB, a gate with no headroom fails the next feature that touches the entry.
 
 One standing rule follows: **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 
