@@ -249,7 +249,13 @@ export const spend = (requestId: string, dollars: number, over: Record<string, u
 export function splitColumns(html: string): string[] {
   const found = /<th scope="col" class="split-head">Split<\/th>(.*?)<th scope="col" class="num">(?:<a[^>]*>)?Total/s.exec(html);
   if (!found) return [];
-  return [...found[1]!.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((m) => m[1]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))));
+  return [...found[1]!.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((m) => m[1]!.replace(/<i [^>]*><\/i>/, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))));
+}
+
+/** The groupings as the band offers them, left to right: the name, where it goes, and whether it is the page's. */
+export function groupTabs(html: string): { label: string; href: string; current: boolean }[] {
+  const tabs = /<div class="band-tabs">(.*?)<\/div>/s.exec(html)?.[1] ?? '';
+  return [...tabs.matchAll(/<a href="([^"]*)"( aria-current="page")?>(.*?)<\/a>/g)].map(([, href, current, label]) => ({ label: label!, href: href!.replace(/&amp;/g, '&'), current: current !== undefined }));
 }
 
 export interface SplitTotal {

@@ -7,6 +7,7 @@ import type {
   Item,
   Panel,
   ServerEvent,
+  RecurringItem,
   SourceAccount,
   Workspace,
   RememberedSentenceList,
@@ -272,6 +273,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * account", issue 485). `missing` where there is no such Workspace.
    */
   sourceAccounts(accountName: string, workspaceId: string): Awaitable<Answer<SourceAccount[]>>;
+  /**
+   * One Workspace's recurring items, soonest first ("Make, change and delete
+   * recurring items from the Recurring items modal", issue 1449). `missing`
+   * where there is no such Workspace.
+   */
+  recurringItems(accountName: string, workspaceId: string): Awaitable<Answer<RecurringItem[]>>;
   /**
    * The connection one Workspace holds to an account at a source, by the key
    * that source names it with, or null ("Save a Teams message to Cockpit",

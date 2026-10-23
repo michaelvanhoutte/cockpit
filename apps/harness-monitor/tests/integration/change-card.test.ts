@@ -23,7 +23,7 @@ async function merged(number: number, daysAgo: number, lines: number, engineer =
 
 /** The card as a person reads it: its sentence, the drivers by key, and each dimension's lines. */
 function card(html: string) {
-  const section = /<section class="card change"[^>]*>(.*?)<\/section>/s.exec(html)?.[1];
+  const section = /<section class="panel change"[^>]*>(.*?)<\/section>/s.exec(html)?.[1];
   if (section === undefined) return null;
   const text = (s: string) => s.replace(/<[^>]*>/g, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
   return {

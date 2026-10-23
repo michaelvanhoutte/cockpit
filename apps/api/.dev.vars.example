@@ -28,3 +28,14 @@ ANTHROPIC_API_KEY=
 # found in the Console URL of the workspace. Anthropic's "workspace" is a
 # billing grouping and has nothing to do with Cockpit's Workspaces.
 ANTHROPIC_WORKSPACE_ID=
+
+# What this machine sends the record of each Claude call to production under
+# ("Record staging's and local Claude calls in production, under a token per
+# environment", issue 1458). **A key with no token here counts as no key**: a
+# captured note stays as typed and `/health` reports `ai: false`, because a call
+# that left no record is not made. Ask the owner for the local token, which is
+# production's `USAGE_TOKEN_LOCAL` (docs/deployment.md, "Secrets and access");
+# it can add usage records and do nothing else. Records go to production's
+# address, which `pnpm dev` reads from wrangler.jsonc; point them at another
+# Worker with `USAGE_RECORDING_URL` in the shell that starts `pnpm dev`, not here.
+USAGE_RECORDING_TOKEN=

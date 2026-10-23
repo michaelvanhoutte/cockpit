@@ -146,6 +146,21 @@ describe('AI usage', () => {
     });
   });
 
+  describe('the export names a user only on production’s own records', () => {
+    it('gives another environment’s record the id and an empty name, though production has that user too', async () => {
+      await recordsMadeAt(daysAgo(1), 1, USER_ID, 'local-call');
+      await recordsMadeAt(daysAgo(1), 1, USER_ID, 'production-call');
+      await env.DB.prepare("UPDATE provider_calls SET environment = 'local' WHERE item_id = 'local-call'").run();
+
+      const read = await everyRecord(daysAgo(7));
+
+      expect(read.map(({ itemId, environment, userId, userName }) => ({ itemId, environment, userId, userName }))).toEqual([
+        { itemId: 'local-call', environment: 'local', userId: USER_ID, userName: '' },
+        { itemId: 'production-call', environment: 'production', userId: USER_ID, userName: 'Michael' },
+      ]);
+    });
+  });
+
   describe('a deleted user’s records export with their id and an empty name', () => {
     it('names a user who is there, and keeps the id of one who is not', async () => {
       await recordsMadeAt(daysAgo(1), 1, USER_ID, 'mine');

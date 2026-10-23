@@ -1,6 +1,7 @@
-import { formatDate, formatDateTime } from './belgium';
+import { formatDate } from './belgium';
 import { categoryName, DEFAULT_GROUP, PERIODS, queryString, WHOS, type CostQuery, type Period } from './costs';
-import { COLOURS, dollars, esc, number, PERIOD_LABELS, STYLE, WHO_LABELS } from './page';
+import { band, esc, selectField, shell } from './look';
+import { COLOURS, dollars, number, PERIOD_LABELS, WHO_LABELS } from './page';
 import type { CategoryLine, PullRequestPage, SessionLine } from './pull-request';
 import { CATEGORIES } from './validate';
 
@@ -41,7 +42,7 @@ function categories(page: PullRequestPage): string {
         `<div class="num mono">${dollars(c.costMicros)}${unpriced(c.unpricedRequests)}</div><div class="muted small">${detail(c)}</div></div>`,
     )
     .join('\n');
-  return `<section class="card pad" aria-labelledby="bycat"><h2 id="bycat">By category</h2>\n${rows}</section>`;
+  return `<section class="panel" aria-labelledby="bycat">${band('By category', '', 'bycat')}<div class="well pad">\n${rows}</div></section>`;
 }
 
 const share = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—');
@@ -63,8 +64,9 @@ function sessionRows(s: SessionLine): string {
 }
 
 function sessions(page: PullRequestPage): string {
-  if (page.sessions.length === 0) return `<section class="card" aria-labelledby="sessions"><h2 id="sessions" class="pad">Sessions</h2><p class="empty">No requests match the filters.</p></section>`;
-  return `<section class="card" aria-labelledby="sessions"><h2 id="sessions" class="pad">Sessions</h2><div class="scroll"><table class="sessions">
+  const title = band('Sessions', '', 'sessions');
+  if (page.sessions.length === 0) return `<section class="panel" aria-labelledby="sessions">${title}<p class="well empty">No requests match the filters.</p></section>`;
+  return `<section class="panel" aria-labelledby="sessions">${title}<div class="well scroll"><table class="sessions">
 <thead><tr><th scope="col" class="first">Session / agent</th><th scope="col">Where</th><th scope="col">Models</th><th scope="col" class="num">Requests</th><th scope="col" class="num">Tokens</th><th scope="col" class="num">Cost</th><th scope="col" class="num">Share</th></tr></thead>
 <tbody>
 ${page.sessions.map(sessionRows).join('\n')}
@@ -74,37 +76,18 @@ ${page.sessions.map(sessionRows).join('\n')}
 /** The filters that apply to one pull request: period, category, model and requests. The engineer is the pull request's own. */
 function filters(page: PullRequestPage): string {
   const q = page.query;
-  const periods = (Object.keys(PERIODS) as Period[]).map((p) => `<option value="${p}"${p === q.period ? ' selected' : ''}>${PERIOD_LABELS[p]}</option>`).join('');
-  const cats = [['', 'All categories'] as const, ...CATEGORIES.map((c) => [c, categoryName(c)] as const)]
-    .map(([v, t]) => `<option value="${v}"${v === (q.category ?? '') ? ' selected' : ''}>${esc(t)}</option>`)
-    .join('');
   // The models this pull request's sessions used, and the one the address names, so a filter carried in from the costs page shows and can be cleared.
   const used = [...new Set([...page.sessions.flatMap((s) => s.models), ...(q.model === null ? [] : [q.model])])].sort();
-  const models = [['', 'All models'] as const, ...used.map((m) => [m, m] as const)]
-    .map(([v, t]) => `<option value="${esc(v)}"${v === (q.model ?? '') ? ' selected' : ''}>${esc(t)}</option>`)
-    .join('');
-  const whos = WHOS.map((w) => `<option value="${w}"${w === q.who ? ' selected' : ''}>${WHO_LABELS[w]}</option>`).join('');
   const csv = `/export.csv?pr=${page.number}${queryString(q, { engineer: null, group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 }).replace('?', '&')}`;
   return `<form class="filters" method="get" action="/pr/${page.number}">
-<div class="field"><label for="period">Period</label><select id="period" name="period" onchange="this.form.submit()">${periods}</select></div>
-<div class="field"><label for="category">Category</label><select id="category" name="category" onchange="this.form.submit()">${cats}</select></div>
-<div class="field"><label for="model">Model</label><select id="model" name="model" onchange="this.form.submit()">${models}</select></div>
-<div class="field"><label for="who">Requests</label><select id="who" name="who" onchange="this.form.submit()">${whos}</select></div>
+${selectField('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_LABELS[p]]), q.period, '30d')}
+${selectField('category', 'Category', [['', 'All categories'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], q.category ?? '')}
+${selectField('model', 'Model', [['', 'All models'], ...used.map((m): [string, string] => [m, m])], q.model ?? '')}
+${selectField('who', 'Requests', WHOS.map((w): [string, string] => [w, WHO_LABELS[w]]), q.who, 'all')}
 <noscript><button type="submit">Apply</button></noscript>
 <a class="button" href="${csv}" download>Export CSV</a>
 </form>`;
 }
-
-const EXTRA_STYLE = `
-.back{display:inline-flex;align-items:center;min-height:44px;align-self:flex-start}
-.head{display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px 40px}.head .title{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:6px}
-h1{margin:0;font-size:24px;font-weight:600;line-height:1.3}.big{font-size:32px;font-weight:500;text-align:right}.head .total-box{flex:1 1 200px;text-align:right}
-.pad{padding:20px;display:flex;flex-direction:column;gap:14px}h2.pad{padding:16px 16px 4px}
-.cat{display:grid;grid-template-columns:200px minmax(0,1fr) 150px 300px;gap:16px;align-items:center}.cat-name{display:flex;align-items:center;gap:8px}
-.track{height:14px;background:var(--track);border-radius:2px;overflow:hidden}
-.sessions{min-width:900px}.sessions tr.session td{font-weight:500;background:var(--track)}.sessions tr.agent td.agent-name{padding-left:28px}.sessions tr.agent td.indent{padding-left:48px}
-@media (max-width:900px){.cat{grid-template-columns:1fr 1fr}.track{grid-column:1/-1}}
-`;
 
 const periodNote = (q: CostQuery) => PERIOD_LABELS[q.period].toLowerCase();
 
@@ -118,27 +101,15 @@ function summary(page: PullRequestPage): string {
 <div class="total-box"><div class="mono big" id="pr-total">${dollars(page.totalMicros)}${unpriced(page.unpricedRequests)}</div><div class="muted">at API list price, ${periodNote(page.query)}${share}</div></div></div>`;
 }
 
-function shell(body: string, now: number): string {
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Harness Monitor</title>
-<style>${STYLE}${EXTRA_STYLE}</style>
-</head><body>
-<header><div class="name">Harness Monitor</div><a class="section" href="/" style="text-decoration:none;color:inherit">Claude Code costs</a>
-<span class="status">Updated ${formatDateTime(now)} · Public, read-only.</span></header>
-<main>
-<a class="back" href="/">&larr; All costs</a>
-${body}
-</main>
-</body></html>`;
-}
+/** A pull request's page is part of the costs page: its tab stays current, over a band with no groupings. */
+const framed = (body: string, now: number) => shell({ current: 'costs', body: `<a class="back" href="/">&larr; All costs</a>\n${body}` }, now);
 
 /** One pull request's cost. Counts, dollars and opaque ids only; never an email or any content. */
 export function renderPullRequest(page: PullRequestPage, now = Date.now()): string {
-  return shell(`${summary(page)}\n${filters(page)}\n${categories(page)}\n${sessions(page)}`, now);
+  return framed(`${summary(page)}\n${filters(page)}\n${categories(page)}\n${sessions(page)}`, now);
 }
 
 /** A number no pull request is known by. */
 export function renderNothingFound(now = Date.now()): string {
-  return shell(`<section class="card"><p class="empty">Nothing found. No pull request with that number has been linked to any Claude Code request.</p></section>`, now);
+  return framed(`<h1 class="sr-only">Pull request</h1><section class="panel">${band('Pull request')}<p class="well empty">Nothing found. No pull request with that number has been linked to any Claude Code request.</p></section>`, now);
 }

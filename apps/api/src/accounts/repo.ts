@@ -7,6 +7,7 @@ import {
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
   panelColumnsSchema,
+  panelTakesItems,
   panelSortFrom,
   themeOf,
   type AgentRun,
@@ -20,6 +21,7 @@ import {
   type LayoutRow,
   type Panel,
   type PossibleDuplicate,
+  type RecurringItem,
   type Series,
   prioritySchema,
   refinementScopeSchema,
@@ -779,6 +781,54 @@ export function masterPanelIdsOf(db: AccountDb, tenantId: string, seriesId: stri
     .orderBy(asc(seriesPanels.position), asc(seriesPanels.panelId))
     .all()
     .map((row) => row.panelId);
+}
+
+/**
+ * The recurring items of one Workspace - the series that run and hold what each
+ * copy is made from - soonest *Next on* first ("Make, change and delete
+ * recurring items from the Recurring items modal", issue 1449). **Every one,
+ * with no page**: a person's handful. Each carries the Panels it files on that
+ * are still live in the Workspace and take Items, top first, since a Panel
+ * deleted since is skipped when a copy is made and so is not offered again.
+ * Read in three statements however many there are: a list of ids to look the
+ * Panels up by would meet the store's limit on bound values.
+ */
+export function listRecurringItems(db: AccountDb, tenantId: string, workspaceId: string): RecurringItem[] {
+  const running = and(
+    eq(series.tenantId, tenantId),
+    eq(series.workspaceId, workspaceId),
+    isNull(series.stoppedAt),
+    isNotNull(series.title),
+  );
+  const rows = db
+    .select({ ...seriesColumns, workspaceId: series.workspaceId, title: series.title, description: series.description, priority: series.priority })
+    .from(series)
+    .where(running)
+    .orderBy(series.nextOn, series.title, series.id)
+    .all();
+  const live = new Set(listPanelsInWorkspace(db, tenantId, workspaceId).filter(panelTakesItems).map((panel) => panel.id));
+  const filedOn = new Map<string, string[]>();
+  const filings = db
+    .select({ seriesId: seriesPanels.seriesId, panelId: seriesPanels.panelId })
+    .from(seriesPanels)
+    .innerJoin(series, eq(series.id, seriesPanels.seriesId))
+    .where(and(running, eq(seriesPanels.tenantId, tenantId)))
+    .orderBy(asc(seriesPanels.position), asc(seriesPanels.panelId))
+    .all();
+  for (const { seriesId, panelId } of filings) {
+    if (live.has(panelId)) filedOn.set(seriesId, [...(filedOn.get(seriesId) ?? []), panelId]);
+  }
+  return rows.map((row) => ({
+    id: row.id,
+    workspaceId,
+    title: row.title ?? '',
+    description: row.description ?? '',
+    priority: row.priority,
+    frequency: row.frequency,
+    nextOn: row.nextOn,
+    dueAfterDays: row.dueAfterDays,
+    panelIds: filedOn.get(row.id) ?? [],
+  }));
 }
 
 function seriesRowColumns() {

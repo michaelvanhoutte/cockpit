@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
 import { canReadMeaning } from '../embeddings/index.js';
+import { hasClaudeKey } from '../gateway/environment.js';
 import { canTranscribe } from '../transcription/index.js';
 import { ALLOWANCE_SPENT_MESSAGE, allowanceSpent } from './allowance.js';
 
@@ -86,7 +87,7 @@ export async function checkHealth(env: Env): Promise<Health> {
   // Configuration rather than a probe, so they are answered whichever way the
   // two below go: an environment that cannot reach its data still has to be
   // able to say whether somebody remembered to put the key in.
-  const ai = Boolean(env.ANTHROPIC_API_KEY);
+  const ai = hasClaudeKey(env);
   const embeddings = canReadMeaning(env);
   const transcription = canTranscribe(env);
 

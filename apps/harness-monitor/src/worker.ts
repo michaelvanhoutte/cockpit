@@ -10,6 +10,8 @@ import { validateBatch } from './validate';
 
 export interface Env {
   DB: D1Database;
+  /** The static files in public/ (the font). The platform answers for them before this Worker runs, so only a test asks for one by name. */
+  ASSETS: Fetcher;
   /** A secret. Unset, every write is refused. */
   HARNESS_WRITE_KEY?: string;
   /** A secret: a fine-grained, read-only GitHub token. Unset, branch linking skips. */
