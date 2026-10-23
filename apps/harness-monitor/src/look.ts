@@ -4,7 +4,8 @@ import { belgianDay, formatDateTime } from './belgium';
  * Cockpit's look on the Monitor's pages: the stylesheet, the top bar, the band,
  * the section heading and the page around them. The Monitor imports nothing
  * from Cockpit, so the values below are copied by value from
- * docs/design-system.md and apps/web/src/styles.css, not shared.
+ * docs/design-system.md and apps/web/src/styles.css, not shared, except the
+ * cat-* series colours, which are the calmer palette and differ from the web app's.
  */
 
 /** Names, titles and logins come from outside, so they are escaped. */
