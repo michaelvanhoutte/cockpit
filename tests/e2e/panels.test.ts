@@ -1183,7 +1183,7 @@ test.describe('Panels', () => {
 
     test('narrows the dashboard to what is in progress', async ({ page, isMobile }) => {
       // One item is started, then the filter's Status group keeps only it.
-      // Which statuses match is apps/web/tests/unit/dashboardFilter.test.ts's.
+      // Which statuses match is packages/shared/tests/unit/domain/dashboard-filter.test.ts's.
       const { first, items } = await twoPanelsInARow(page, isMobile, {
         items: 2,
         also: async (panel) => {
@@ -1426,7 +1426,7 @@ test.describe('Panels', () => {
  * that it worked is that a row filed somewhere else appears on it.
  *
  * Which Items a window takes in is settled against a fixed day in
- * apps/web/tests/unit/filters.test.ts, what the Panel does with them in
+ * packages/shared/tests/unit/domain/filters.test.ts, what the Panel does with them in
  * apps/web/tests/unit/components/PanelBoard.test.tsx, and that the store
  * refuses a filing onto one in
  * apps/api/tests/integration/http/panel-items.test.ts. This is the walk.

@@ -4,9 +4,7 @@ import {
   fetchedChunk,
   filedOrderOnPanel,
   howToFileSelected,
-  itemsInTheInbox,
   itemsOnPanel,
-  itemsThatAreFiled,
   ordersForFilingSeveral,
   orderWithItemAt,
 } from '../../src/filing';
@@ -109,58 +107,6 @@ describe('Panels', () => {
 
     it('draws an empty panel as empty', () => {
       expect(itemsOnPanel([anItem('a')], [filed('anna', 'a', 0)], 'falcon')).toEqual([]);
-    });
-  });
-
-  describe('the Inbox holds every item you still have to deal with that is filed nowhere', () => {
-    it.each([
-      { situation: 'filed on a panel', filings: [filed('falcon', 'a', 0)], inTheInbox: false },
-      { situation: 'filed nowhere', filings: [], inTheInbox: true },
-      {
-        situation: 'filed only on a panel that is no longer in the snapshot',
-        filings: [filed('anna', 'somebody else', 0)],
-        inTheInbox: true,
-      },
-    ])('$situation', ({ filings, inTheInbox }) => {
-      const inbox = itemsInTheInbox([anItem('a')], filings).map((item) => item.id);
-
-      expect(inbox.includes('a')).toBe(inTheInbox);
-    });
-
-    it('leaves out an item that has been finished with', () => {
-      expect(itemsInTheInbox([anItem('a', FINISHED), anItem('b')], []).map((i) => i.id)).toEqual([
-        'b',
-      ]);
-    });
-  });
-
-  /**
-   * The complement of `itemsInTheInbox`, built the same direct way rather than
-   * by inverting that function's own result ("Flag a duplicate between two
-   * cards on dashboards", issue 410) - so it is proved the same way, at the
-   * same level, with the same cases turned around.
-   */
-  describe('everything still to deal with that is filed somewhere', () => {
-    it.each([
-      { situation: 'filed on a panel', filings: [filed('falcon', 'a', 0)], filed: true },
-      { situation: 'filed nowhere', filings: [], filed: false },
-      {
-        situation: 'filed only on a panel that is no longer in the snapshot',
-        filings: [filed('anna', 'somebody else', 0)],
-        filed: false,
-      },
-    ])('$situation', ({ filings, filed: isFiled }) => {
-      expect(itemsThatAreFiled([anItem('a')], filings).map((item) => item.id).includes('a')).toBe(
-        isFiled,
-      );
-    });
-
-    it('leaves out an item that has been finished with, even though it is still filed', () => {
-      const filings = [filed('falcon', 'a', 0), filed('falcon', 'b', 1)];
-
-      expect(
-        itemsThatAreFiled([anItem('a', FINISHED), anItem('b')], filings).map((i) => i.id),
-      ).toEqual(['b']);
     });
   });
 

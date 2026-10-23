@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_THEMES, attachmentSchema, itemLabel, itemSchema, itemStatus, type Attachment, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
+import { WORKSPACE_THEMES, attachmentSchema, itemLabel, itemSchema, itemStatus, itemsInTheInbox, type Attachment, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
 import { drawnAhead, drawnOver, listDrawnOver, noSnapshotYet, type Drawn } from '../../src/drawnAhead';
 import { itemsThatMayBeDuplicates } from '../../src/duplicates';
-import { itemsInTheInbox } from '../../src/filing';
 
 /**
  * F1: what the screen shows of a change before the server has answered it -

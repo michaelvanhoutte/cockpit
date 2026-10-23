@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind } from '@cockpit/shared';
+import {
+  isPhoneWidth,
+  uuidv7,
+  type Dashboard,
+  type PanelKind,
+  NO_DASHBOARD_FILTER,
+  isFiltering,
+} from '@cockpit/shared';
 import { dashboardScope, pickAll, shownOn } from '../selection';
 import { filtersUsingDashboard, joinedBy } from '../filters';
 import { useSendCommand, whyNotDone as whyNot } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
-import {
-  NO_DASHBOARD_FILTER,
-  isFiltering,
-  useDashboardFilter,
-  useFilterBarOpen,
-  useFilteredDashboardIds,
-} from '../dashboardFilter';
+import { useDashboardFilter, useFilterBarOpen, useFilteredDashboardIds } from '../dashboardFilter';
 import { usePanelsCollapsed } from '../panelsCollapsed';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { allItemsFilterId, setAllItemsTab, useAllItemsTab } from '../allItemsTab';

@@ -1,6 +1,5 @@
-import { panelTakesItems } from '@cockpit/shared';
+import { panelTakesItems, filingsThatFile } from '@cockpit/shared';
 import type { Dashboard, Filing, FilterGrouping, Item, Layout, Panel } from '@cockpit/shared';
-import { filingsThatFile } from './filing';
 import { drawnRows } from './panels/arrangement';
 
 /**

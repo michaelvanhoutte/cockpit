@@ -120,8 +120,8 @@ export const panelTextSchema = z.string().max(PANEL_TEXT_LIMIT);
  * **Named periods rather than a pair of dates.** A Filter is a standing view —
  * *this week* has to mean the week you are in whenever you look at it, which a
  * stored Monday cannot say. Each is resolved against the viewer's own local
- * calendar at the moment the Panel is drawn, which is also why matching is
- * worked out in the client (`apps/web/src/filters.ts`).
+ * calendar at the moment the Panel is drawn, which is also why matching takes the
+ * viewer's day from its caller (`filters.ts`, in this folder).
  */
 export const DUE_WINDOWS = ['overdue', 'today', 'week', 'month', 'quarter', 'none'] as const;
 export const dueWindowSchema = z.enum(DUE_WINDOWS);
@@ -245,7 +245,7 @@ export type DashboardCondition = z.infer<typeof dashboardConditionSchema>;
  * an item In progress, and see since when", issue 568).
  *
  * **Only the two open statuses are on offer**: a Filter only ever sees an Item
- * still open (`itemsThatAreFiled`, `apps/web/src/filing.ts`), which is already
+ * still open (`itemsThatAreFiled`, `packages/shared/src/domain/filing.ts`), which is already
  * either To do or In progress.
  */
 export const statusConditionSchema = z.object({
@@ -427,7 +427,7 @@ export type SortField = z.infer<typeof sortFieldSchema>;
 /**
  * Which way one criterion runs. Ascending is A→Z, Low→High, oldest first,
  * soonest first; an Item with no value goes last
- * either way (`apps/web/src/sorting.ts`).
+ * either way (`packages/shared/src/domain/sorting.ts`).
  */
 export const SORT_DIRECTIONS = ['asc', 'desc'] as const;
 export const sortDirectionSchema = z.enum(SORT_DIRECTIONS);

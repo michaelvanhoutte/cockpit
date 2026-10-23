@@ -3260,7 +3260,7 @@ describe('Accounts', () => {
  * condition, *Any* one row of them all - so it goes on showing the same Items.
  * Integration because it rewrites stored text with SQL, inside the store's own
  * bring-up; that rows match the Items they did is the client's
- * (apps/web/tests/unit/filters.test.ts).
+ * (packages/shared/tests/unit/domain/filters.test.ts).
  */
 const FILTER_ROWS = '0071-filter-rows';
 

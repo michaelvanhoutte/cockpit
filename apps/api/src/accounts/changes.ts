@@ -3134,7 +3134,7 @@ const REWRITE_HISTORY: Change = {
  * - **Rolled back after it has run:** an older release reads a Filter as an
  *   empty Panel of items and will accept a filing onto it. That filing is why
  *   the client counts a filing onto a Filter as no filing at all
- *   (`filingsThatFile`, apps/web/src/filing.ts): the Item stays in the Inbox
+ *   (`filingsThatFile`, packages/shared/src/domain/filing.ts): the Item stays in the Inbox
  *   rather than leaving it for a Panel that draws it nowhere.
  * - **A backup restored from before it:** the restore replays the recorded
  *   changes, so this one applies the next time the account is opened.

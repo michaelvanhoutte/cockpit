@@ -1,5 +1,11 @@
-import { pairedWith, type Filing, type Item, type PossibleDuplicate } from '@cockpit/shared';
-import { itemsInTheInbox, itemsThatAreFiled } from './filing';
+import {
+  pairedWith,
+  type Filing,
+  type Item,
+  type PossibleDuplicate,
+  itemsInTheInbox,
+  itemsThatAreFiled,
+} from '@cockpit/shared';
 
 /**
  * Whether an id is still open at all - in the Inbox or filed - which is the
@@ -38,7 +44,7 @@ function eligiblePartner(
  * filed Items).
  *
  * **A view over the snapshot, like the Inbox itself** (`itemsInTheInbox`,
- * filing.ts): the wire carries which Items were paired, and whether a pair is
+ * `packages/shared/src/domain/filing.ts`): the wire carries which Items were paired, and whether a pair is
  * *offered* is worked out here, where what is filed is already known.
  *
  * The server has already left out everything a person could no longer act on
