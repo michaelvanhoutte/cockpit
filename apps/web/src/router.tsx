@@ -4,7 +4,6 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
-  isRedirect,
   redirect,
   useRouter,
 } from '@tanstack/react-router';
@@ -13,7 +12,6 @@ import { changes } from './api/changes';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { setAllItemsTab } from './allItemsTab';
 import { connectionsSearch } from './connections';
-import { CAPTURE_PANEL, CAPTURE_WORKSPACE, addressNames, captureOpenedBy } from './captureAddress';
 import { loadCaptureForms, loadCaptureNote, loadCarCapture } from './captureForm';
 import { itemFormSearch } from './itemForm';
 import {
@@ -35,11 +33,19 @@ const DemoPage = lazy(() => import('./pages/DemoPage'));
 const FirstWorkspacePage = lazy(() =>
   import('./pages/FirstWorkspacePage').then((page) => ({ default: page.FirstWorkspacePage })),
 );
-import { CapturePage, captureStateFor } from './pages/CapturePage';
+
+/*
+ * The Capture page is fetched with the form under it, before the route is
+ * drawn (`capturing` below), so a typed address and the header's tab find it
+ * already here and the first bundle does not carry it.
+ */
+const loadCapturePage = () => import('./pages/CapturePage');
+const CapturePage = lazy(() => loadCapturePage().then((page) => ({ default: page.CapturePage })));
 import { DashboardPage } from './pages/DashboardPage';
 import { whereToLand } from './landing';
 import { Layout } from './pages/Layout';
-import { LogonPage } from './pages/LogonPage';
+// Fetched when the address is, rather than carried by everybody who is signed in already.
+const LogonPage = lazy(() => import('./pages/LogonPage').then((page) => ({ default: page.LogonPage })));
 import { WorkspacePage } from './pages/WorkspacePage';
 
 interface RouterContext {
@@ -161,7 +167,11 @@ const workspacesOf = async (queryClient: QueryClient) =>
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/signin',
-  component: LogonPage,
+  component: () => (
+    <Suspense fallback={null}>
+      <LogonPage />
+    </Suspense>
+  ),
 });
 
 /**
@@ -375,41 +385,6 @@ async function snapshotHoldingPanel(queryClient: QueryClient, workspaceId: strin
 }
 
 /**
- * Capture opened from an address that names a Workspace and perhaps a Panel
- * (`captureAddress.ts`, issue 1445): what an installed widget's + opens.
- *
- * **Turned into the navigation state a Panel's own + opens Capture with, and
- * the address dropped**, so the page and the form know one way in and Back does
- * not come to an address that would open it again. The Workspace's snapshot is
- * read only to find the Panel; one that cannot be read leaves *File on* empty,
- * which is what a Panel gone from the Workspace does as well.
- */
-async function opensFromItsAddress(
-  queryClient: QueryClient,
-  workspaces: readonly { id: string }[],
-  location: { pathname: string; search: unknown },
-): Promise<void> {
-  const search = location.search as Record<string, unknown>;
-  const { workspaceId, panelId } = addressNames(search);
-  if (!workspaceId && !panelId) return;
-  const snapshot =
-    panelId && workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
-      ? await snapshotHoldingPanel(queryClient, workspaceId, panelId).catch((failure: unknown) => {
-          if (isRedirect(failure)) throw failure;
-          return undefined;
-        })
-      : undefined;
-  const opened = captureOpenedBy(search, workspaces, snapshot);
-  const { [CAPTURE_WORKSPACE]: _workspace, [CAPTURE_PANEL]: _panel, ...left } = search;
-  throw redirect({
-    to: location.pathname as never,
-    search: left as never,
-    state: captureStateFor(opened?.captureFrom, opened?.captureOn),
-    replace: true,
-  });
-}
-
-/**
  * Capture, as a screen rather than as a window over one ("Capture something
  * before you know which workspace it belongs to", issue 165).
  *
@@ -429,17 +404,34 @@ const capturing =
     // No workspace to capture from is an account with none, since every other
     // answer falls back to the first one there is (`lastVisited.ts`).
     if (!workspaceToCaptureFrom(browserStore(), workspaces)) throw redirect({ to: '/start' });
-    await opensFromItsAddress(context.queryClient, workspaces, location);
+    // Only an address that names a Workspace or a Panel pays for reading it
+    // (`captureOpening.ts`, issue 1445); the words are `captureAddress.ts`'s,
+    // spelt here so that module stays out of the first bundle.
+    const search = location.search as Record<string, unknown>;
+    if (typeof search.workspace === 'string' || typeof search.panel === 'string') {
+      const { opensFromItsAddress } = await import('./captureOpening');
+      await opensFromItsAddress(
+        (workspaceId, panelId) => snapshotHoldingPanel(context.queryClient, workspaceId, panelId),
+        workspaces,
+        location,
+      );
+    }
     // The view, which is fetched behind the shell (`captureForm.ts`).
-    await loadView();
+    await Promise.all([loadCapturePage(), loadView()]);
   };
+
+const CapturePageRoute = () => (
+  <Suspense fallback={null}>
+    <CapturePage />
+  </Suspense>
+);
 
 const captureRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/capture',
   // With the forms around it, which hold both sides of the switch.
   beforeLoad: capturing(() => Promise.all([loadCaptureForms(), loadCaptureNote()])),
-  component: CapturePage,
+  component: CapturePageRoute,
 });
 
 /**
@@ -452,7 +444,7 @@ const captureCarRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/capture/car',
   beforeLoad: capturing(() => Promise.all([loadCaptureForms(), loadCarCapture()])),
-  component: CapturePage,
+  component: CapturePageRoute,
 });
 
 const routeTree = rootRoute.addChildren([

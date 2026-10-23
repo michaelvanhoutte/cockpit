@@ -46,7 +46,7 @@ import { Logo } from '../components/Logo';
 import { opensCapture } from '../captureShortcut';
 import { SHORTCUTS_KEY, opensTheShortcuts } from '../keyboardShortcuts';
 import { useShortcutTip } from '../shortcutTip';
-import { captureStateFor } from './CapturePage';
+import { captureStateFor } from '../captureState';
 import { CaptureOpenerContext, type PanelOpening } from '../captureOpener';
 import { browserStore } from '../lastVisited';
 import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
