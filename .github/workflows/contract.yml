@@ -82,9 +82,17 @@ jobs:
       # few seconds of audio at $0.0005 a minute). A behaviour suite is never
       # selected without being named, which is what keeps the Claude key off a
       # hundred calls (scripts/lib/contract-selection.mjs).
+      #
+      # Every Claude call is recorded in production as CI, with this run and,
+      # on a pull request, its number ("Record every Claude call a contract run
+      # makes, as CI or local", issue 1459): USAGE_RECORDING_TOKEN is CI's
+      # token, production's USAGE_TOKEN_CI. The address it is sent to is
+      # production's own, read from wrangler.jsonc by the contract config. A key
+      # without the token is red before any call.
       - run: pnpm --filter @cockpit/api test:contract
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          USAGE_RECORDING_TOKEN: ${{ secrets.USAGE_TOKEN_CI }}
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

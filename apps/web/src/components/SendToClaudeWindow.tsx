@@ -159,7 +159,8 @@ export function SendToClaudeWindow({
   const link = claudeLinkFor(destination, prompt.trim(), folder);
   const tooLong = link.length > MAX_CLAUDE_LINK_LENGTH;
   const canOpen = ready && !sending && prompt.trim().length > 0 && !tooLong;
-  const noAppConnected = apps.data !== undefined && apps.data.apps.length === 0;
+  // An app allowed only to read your Panels cannot report on a Run, so it is no app to follow the work.
+  const noAppConnected = apps.data !== undefined && !apps.data.apps.some((app) => app.kind === 'captures');
 
   const open = async () => {
     if (!canOpen) return;
@@ -354,7 +355,7 @@ export function SendToClaudeWindow({
 
             {noAppConnected && (
               <p role="status" className="mt-3 rounded-md bg-due-soft px-3 py-2 text-sm text-due-ink">
-                No app is connected under Settings › MCP, so this row will not follow the work. You can still
+                No app that captures is connected under Settings › Connected apps, so this row will not follow the work. You can still
                 open it in {name}; connect Claude there first to have the row follow it.
               </p>
             )}

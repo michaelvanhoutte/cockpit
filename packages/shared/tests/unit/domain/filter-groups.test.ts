@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { Dashboard, Filing, FilterGrouping, Item, Layout, Panel } from '@cockpit/shared';
-import { groupFilterRows } from '../../src/filterGroups';
+import type { Dashboard, Item } from '../../../src/domain/item.js';
+import type { Filing, FilterGrouping, Layout, Panel } from '../../../src/domain/panel.js';
+import { groupFilterRows } from '../../../src/domain/filter-groups.js';
 
 /**
- * F1: which heading a Filter's row goes under is a calculation over rows,
+ * L1: which heading a Filter's row goes under is a calculation over rows,
  * Panels, Dashboards and Layouts the Workspace read already holds ("Group a
  * Filter panel's items by the Dashboard or Panel they are filed on", issue 805).
  * What a heading says and what a row under it says is

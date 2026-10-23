@@ -128,7 +128,7 @@ async function prompt() {
 }
 
 beforeEach(() => {
-  held.apps = [{ id: 'grant-claude', name: 'Claude', connectedAt: '2026-10-01T09:00:00.000Z', lastCapturedAt: null }];
+  held.apps = [{ id: 'grant-claude', name: 'Claude', kind: 'captures', connectedAt: '2026-10-01T09:00:00.000Z', lastCapturedAt: null, lastReadAt: null }];
   held.links = { 'att-1': 'https://cockpit.test/v1/attachment-links/abc' };
   held.sent = [];
   held.opened = [];
@@ -146,14 +146,22 @@ beforeEach(() => {
 });
 
 describe('Agents', () => {
-  describe('the window warns when no app is connected under MCP', () => {
+  describe('the window warns when no app that captures is connected under Connected apps', () => {
     it('says the row will not follow the work and where to connect, and still offers Open', async () => {
       held.apps = [];
 
       showWindow();
 
-      expect(await screen.findByRole('status')).toHaveTextContent(/No app is connected under Settings › MCP/);
+      expect(await screen.findByRole('status')).toHaveTextContent(/No app that captures is connected under Settings › Connected apps/);
       expect(await screen.findByRole('button', { name: /Open in Cowork/ })).toBeEnabled();
+    });
+
+    it('still says it where the only app connected is one allowed only to read your Panels', async () => {
+      held.apps = [{ id: 'grant-widget', name: 'Cockpit widget', kind: 'reads-panels', connectedAt: '2026-10-01T09:00:00.000Z', lastCapturedAt: null, lastReadAt: null }];
+
+      showWindow();
+
+      expect(await screen.findByRole('status')).toHaveTextContent(/No app that captures is connected/);
     });
 
     it('says nothing where an app is connected', async () => {

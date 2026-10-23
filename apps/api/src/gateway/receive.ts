@@ -27,12 +27,12 @@ export type SendingEnvironment = (typeof TOKENS)[number][0];
 
 const encoder = new TextEncoder();
 
-async function digest(text: string): Promise<Uint8Array> {
+export async function digest(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
 }
 
 /** Whether two digests are equal, looking at every byte whatever the first difference is. */
-function sameDigest(a: Uint8Array, b: Uint8Array): boolean {
+export function sameDigest(a: Uint8Array, b: Uint8Array): boolean {
   let difference = a.length ^ b.length;
   for (let i = 0; i < a.length; i += 1) difference |= a[i]! ^ (b[i] ?? 0);
   return difference === 0;
@@ -110,6 +110,10 @@ const sentRecordSchema = z
     userId: z.string().max(200).nullable(),
     /** The branch a local checkout was on. */
     branch: z.string().max(250).nullable().optional(),
+    /** The pull request a CI contract run made the call for; none on a scheduled or by-hand run. */
+    pullRequest: z.number().int().min(1).nullable().optional(),
+    /** The GitHub Actions run a CI contract run made the call in. */
+    runId: z.number().int().min(1).nullable().optional(),
   })
   .strict();
 
@@ -142,13 +146,17 @@ export async function receiveRecord(
     return { status: 400, error: `that is not a record: ${problem?.path.join('.') || 'the body'} ${problem?.message ?? ''}`.trim() };
   }
 
-  const { userId, branch, status, ...sent } = parsed.data;
+  const { userId, branch, pullRequest, runId, status, ...sent } = parsed.data;
   // What started a call is open-ended (`connector:<id>`), so any text is a `Trigger`.
   const about = { ...sent, triggeredBy: sent.triggeredBy as Trigger | null };
   const row: AttemptRecord =
     about.outcome === 'error'
       ? { ...about, outcome: 'error', status: status ?? null }
       : { ...about, outcome: about.outcome };
-  await recordReceived(env, row, environment, userId, branch ?? null);
+  await recordReceived(env, row, environment, userId, {
+    branch: branch ?? null,
+    pullRequest: pullRequest ?? null,
+    runId: runId ?? null,
+  });
   return { status: 201 };
 }

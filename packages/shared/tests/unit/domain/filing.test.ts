@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Dashboard, Item } from '../../../src/domain/item.js';
 import type { Filing, Panel } from '../../../src/domain/panel.js';
-import { itemsInTheInbox, itemsThatAreFiled, whereItIs } from '../../../src/domain/filing.js';
+import { itemsInTheInbox, itemsOnPanel, itemsThatAreFiled, whereItIs } from '../../../src/domain/filing.js';
 
 /**
  * L1: what the Inbox holds is a view over the snapshot, so this is pure logic
@@ -63,6 +63,46 @@ function filed(panelId: string, itemId: string, position: number): Filing {
 }
 
 describe('Panels', () => {
+  describe('a panel draws exactly the items filed on it, in the order they were filed into', () => {
+    it('draws them by position, not by the order the filings arrived in', () => {
+      const items = [anItem('a'), anItem('b'), anItem('c')];
+      const filings = [filed('falcon', 'c', 2), filed('falcon', 'a', 0), filed('falcon', 'b', 1)];
+
+      expect(itemsOnPanel(items, filings, 'falcon').map((item) => item.id)).toEqual(['a', 'b', 'c']);
+    });
+
+    it('draws an item filed on two panels on both of them', () => {
+      const items = [anItem('a')];
+      const filings = [filed('falcon', 'a', 0), filed('anna', 'a', 0)];
+
+      expect(itemsOnPanel(items, filings, 'falcon').map((i) => i.id)).toEqual(['a']);
+      expect(itemsOnPanel(items, filings, 'anna').map((i) => i.id)).toEqual(['a']);
+    });
+
+    it('leaves an item that has been finished with off the panel it was filed on', () => {
+      const filings = [filed('falcon', 'a', 0), filed('falcon', 'b', 1)];
+
+      expect(
+        itemsOnPanel([anItem('a', FINISHED), anItem('b')], filings, 'falcon').map((i) => i.id),
+      ).toEqual(['b']);
+    });
+
+    it('closes the gap rather than drawing a hole when a filing names an item that has gone', () => {
+      // An item dismissed in another tab leaves the snapshot while its filing
+      // is still on the panel.
+      const filings = [filed('falcon', 'a', 0), filed('falcon', 'gone', 1), filed('falcon', 'b', 2)];
+
+      expect(itemsOnPanel([anItem('a'), anItem('b')], filings, 'falcon').map((i) => i.id)).toEqual([
+        'a',
+        'b',
+      ]);
+    });
+
+    it('draws an empty panel as empty', () => {
+      expect(itemsOnPanel([anItem('a')], [filed('anna', 'a', 0)], 'falcon')).toEqual([]);
+    });
+  });
+
   describe('the Inbox holds every item you still have to deal with that is filed nowhere', () => {
     it.each([
       { situation: 'filed on a panel', filings: [filed('falcon', 'a', 0)], inTheInbox: false },

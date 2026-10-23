@@ -164,7 +164,7 @@ test.describe('MCP connections', () => {
       await expect(ready).toHaveAttribute('rel', 'noopener noreferrer');
       await expect(ready).toHaveAttribute('title', 'Opens example.com - Two drafts, A and B');
 
-      const window = await openSettings(page, 'MCP', isMobile);
+      const window = await openSettings(page, 'Connected apps', isMobile);
       await expect(window.getByText(new URL(page.url()).origin + '/mcp')).toBeVisible();
       const listed = window.getByRole('listitem').filter({ hasText: 'Claude' });
       await expect(listed).toContainText(/last captured/);
@@ -172,7 +172,7 @@ test.describe('MCP connections', () => {
       await press(listed.getByRole('button', { name: 'Actions for Claude' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Disconnect' }), isMobile);
       await press(page.getByRole('button', { name: 'Yes, disconnect Claude' }), isMobile);
-      await expect(window.getByText('No MCP connections')).toBeVisible();
+      await expect(window.getByText('No connected apps')).toBeVisible();
 
       // Cut off at once, and what it captured is still there.
       const refused = await page.request.post('/mcp', {

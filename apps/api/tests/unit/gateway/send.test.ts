@@ -135,5 +135,13 @@ describe('AI usage', () => {
         branch: 'claude/1458-send-usage',
       });
     });
+
+    it('adds the pull request and run of a contract run in CI, and only then', async () => {
+      const { doing, sent } = around('answers', { branch: null, pullRequest: 1459, runId: 18273645501 });
+
+      await sendingTo(DESTINATION, doing)(RECORD);
+
+      expect(JSON.parse(String(sent[0]!.init.body))).toMatchObject({ pullRequest: 1459, runId: 18273645501 });
+    });
   });
 });

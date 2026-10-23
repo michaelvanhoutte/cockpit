@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
   Dashboard,
   Filing,
+  FilterGroup,
   Item,
   Panel,
   PanelColumns,
@@ -17,7 +18,6 @@ import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { landItem, liftItem, selectionCarried } from '../../../src/itemInTheAir';
 import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection, useEndingASinglePick } from '../../../src/selection';
 import { ItemList } from '../../../src/components/ItemList';
-import type { FilterGroup } from '../../../src/filterGroups';
 import { UndoWhatJustHappened } from '../../../src/undo';
 import { useShowRequest } from '../../../src/showItem';
 
@@ -803,7 +803,7 @@ describe('Panels', () => {
 
   /**
    * "Group a Filter panel's items by the Dashboard or Panel they are filed on"
-   * (issue 805): which groups there are is `filterGroups.test.ts`'s; what is
+   * (issue 805): which groups there are is `packages/shared/tests/unit/domain/filter-groups.test.ts`'s; what is
    * asked here is that a row under a heading is told the right answer for where
    * it is drawn, which only a list reading the snapshot can decide.
    */

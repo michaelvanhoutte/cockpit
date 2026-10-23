@@ -29,6 +29,9 @@ export interface Around {
   userOf: (accountName: string) => Promise<string | null>;
   /** The branch a local checkout is on; `null` anywhere else. */
   branch: string | null;
+  /** The pull request and GitHub Actions run a CI contract run is for; absent anywhere else (issue 1459). */
+  pullRequest?: number | null;
+  runId?: number | null;
 }
 
 const TIMED_OUT = Symbol('timed out');
@@ -52,7 +55,16 @@ export function sendingTo(destination: Destination, around: Around): Recorder {
       const answered = around.send(destination.url, {
         method: 'POST',
         headers: { authorization: `Bearer ${destination.token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ ...row, userId, branch: around.branch }),
+        body: JSON.stringify({
+          ...row,
+          userId,
+          branch: around.branch,
+          // Left out where there is none, so a staging or local Worker deployed
+          // before production learns these fields is not refused by its strict
+          // schema; a CI run always has a run, so production ships first.
+          ...(around.pullRequest != null && { pullRequest: around.pullRequest }),
+          ...(around.runId != null && { runId: around.runId }),
+        }),
         signal: controller.signal,
       });
       const gaveUp = around.wait(SEND_TIMEOUT_MS).then((): typeof TIMED_OUT => TIMED_OUT);
