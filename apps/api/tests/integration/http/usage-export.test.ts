@@ -131,11 +131,14 @@ describe('AI usage', () => {
 
   describe('the export carries each record’s environment and cost', () => {
     it.each([
-      { situation: 'a priced production record', cost: 0.00526, expected: { environment: 'production', costUsd: 0.00526 } },
-      { situation: 'a record with no cost', cost: null, expected: { environment: 'production', costUsd: null } },
-    ])('gives $situation its environment and cost', async ({ cost, expected }) => {
+      { situation: 'a priced production record', environment: 'production', cost: 0.00526, expected: { environment: 'production', costUsd: 0.00526 } },
+      { situation: 'a record with no cost', environment: 'production', cost: null, expected: { environment: 'production', costUsd: null } },
+      { situation: 'a record another environment made', environment: 'staging', cost: 0.00526, expected: { environment: 'staging', costUsd: 0.00526 } },
+    ])('gives $situation its environment and cost', async ({ environment, cost, expected }) => {
       await recordsMadeAt(daysAgo(1), 1, USER_ID, 'priced');
-      await env.DB.prepare("UPDATE provider_calls SET cost_usd = ? WHERE item_id = 'priced'").bind(cost).run();
+      await env.DB.prepare("UPDATE provider_calls SET environment = ?, cost_usd = ? WHERE item_id = 'priced'")
+        .bind(environment, cost)
+        .run();
 
       const [record] = await everyRecord(daysAgo(7));
 

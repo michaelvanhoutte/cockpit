@@ -37,6 +37,18 @@ describe('AI usage', () => {
         cost: 0.000263,
       },
       {
+        situation: 'a Haiku 5.5 prompt of exactly 100,000 tokens, cache included',
+        // 1200 × $0.10 + 98,240 × $0.01 + 560 × $0.125 + 78 × $0.50, per million
+        record: call({ model: 'claude-haiku-5-5', cacheRead: 98_240 }),
+        cost: 0.0012114,
+      },
+      {
+        situation: 'a Haiku 5.5 prompt one token longer, on its long-prompt rates',
+        // 1200 × $0.50 + 98,241 × $0.05 + 560 × $0.625 + 78 × $2.50, per million
+        record: call({ model: 'claude-haiku-5-5', cacheRead: 98_241 }),
+        cost: 0.00605705,
+      },
+      {
         situation: 'a call that read and wrote no cache',
         record: call({ cacheRead: null, cacheWrite: null }),
         // 1200 × $2 + 78 × $10, per million
@@ -60,10 +72,6 @@ describe('AI usage', () => {
       {
         situation: 'a routine fired on the person’s own Claude plan',
         record: call({ paidBy: { kind: 'claude-plan', account: 'trig_01', keyEnding: null } }),
-      },
-      {
-        situation: 'a Haiku 5.5 prompt longer than its published rates cover',
-        record: call({ model: 'claude-haiku-5-5', tokensIn: 100_001, cacheRead: 0, cacheWrite: 0 }),
       },
     ] satisfies { situation: string; record: Pick<AttemptRecord, keyof Priced> }[])(
       'leaves the cost blank, rather than zero, for $situation',
