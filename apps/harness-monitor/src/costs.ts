@@ -24,7 +24,7 @@ export type Split = (typeof SPLITS)[number];
 export const WHOS = ['all', 'main', 'subagents'] as const;
 export type Who = (typeof WHOS)[number];
 /** A model id as the usage hook sends it: letters, digits and a few separators, never free text. */
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,99}$/;
+export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,99}$/;
 
 /** The engineer filter's value for requests no pull request claims. */
 export const UNATTRIBUTED = '~unattributed';

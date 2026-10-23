@@ -187,7 +187,7 @@ function whereItWent(page: CostsPage): string {
 }
 
 const DIMENSION_LABELS: Record<Split, string> = { phase: 'Phase', model: 'Model', where: 'Where it ran', outcome: 'Outcome' };
-const signed = (micros: number) => `${micros < 0 ? '−' : '+'}${dollars(Math.abs(micros))}`;
+export const signed = (micros: number) => `${micros < 0 ? '−' : '+'}${dollars(Math.abs(micros))}`;
 const driverValue = (d: Driver, n: number | null) =>
   n === null ? '—' : d.unit === 'dollars' ? dollars(n) : `${number(Math.round(n))}${d.unit === 'lines' ? ' lines' : d.unit === 'tokens' ? ' tokens' : ''}`;
 

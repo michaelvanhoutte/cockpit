@@ -226,6 +226,20 @@ describe('Harness Monitor', () => {
       expect(callsRows(await theCallsPage('?group=environment')).map((r) => r.label)).toEqual(['Production', 'preview']);
       expect(callsColumns(await theCallsPage())).toEqual(['Production', 'preview']);
     });
+
+    it('a feature or environment named like an object property stays as recorded, and a feature the address cannot name is not offered as a filter', async () => {
+      await importTheCalls([
+        callLike({ id: 1, at: '2026-10-22T09:00:00Z', feature: 'constructor', environment: 'valueOf', costUsd: 4 }),
+        callLike({ id: 2, at: '2026-10-22T09:01:00Z', feature: 'Has_Upper', costUsd: 2 }),
+      ]);
+
+      const features = await theCallsPage('?group=feature');
+      expect(callsRows(features).map((r) => r.label)).toEqual(['constructor', 'Has_Upper']);
+      expect(callsColumns(await theCallsPage('?group=environment&split=feature'))).toEqual(['constructor', 'Has_Upper']);
+      expect(callsColumns(await theCallsPage())).toEqual(['Production', 'valueOf']);
+      expect(features).toContain('<option value="constructor">');
+      expect(features).not.toContain('Has_Upper</option>');
+    });
   });
 
   describe('a filter narrows every panel alike', () => {

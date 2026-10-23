@@ -14,7 +14,7 @@ import {
 } from './claude-calls-page';
 import { dayChart, firstDay, PERIODS, type DayChart, type Period } from './costs';
 import { band, esc, selectField, shell } from './look';
-import { costPerDay, dollars, jobLines, number, PERIOD_LABELS } from './page';
+import { costPerDay, dollars, jobLines, number, PERIOD_LABELS, signed } from './page';
 
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -39,16 +39,14 @@ const RAMP = ['var(--cat-violet)', 'var(--cat-amber)', 'var(--cat-teal)', 'var(-
 /** The colour of a series: grey for a call with no starter, a step on the ramp otherwise. */
 function colourOf(page: CallsPage, key: string): string {
   const { split } = page.query;
-  if (split === 'environment') return ENVIRONMENT_COLOURS[key] ?? 'var(--cat-grey)';
+  if (split === 'environment') return Object.hasOwn(ENVIRONMENT_COLOURS, key) ? ENVIRONMENT_COLOURS[key]! : 'var(--cat-grey)';
   if (split === 'startedBy' && key === '') return 'var(--cat-grey)';
   const known = split === 'feature' ? page.features : split === 'model' ? page.models : page.startedBys.filter((s) => s !== '');
   return RAMP[Math.max(known.indexOf(key), 0) % RAMP.length]!;
 }
 
 /** A change under half a cent reads $0.00 either way, so it is no change. */
-const SMALLEST_CHANGE_MICROS = 5_000;
-
-const signed = (micros: number) => `${micros < 0 ? '−' : '+'}${dollars(Math.abs(micros))}`;
+const SMALLEST_CALLS_CHANGE_MICROS = 5_000;
 
 /** A group's tabs on the band; choosing one keeps every filter and the split. */
 function groupTabs({ query }: CallsPage): string {
@@ -85,7 +83,7 @@ function warning(unpriced: number): string {
 function tiles({ query, totalMicros, calls, unpriced, previous }: CallsPage): string {
   const tile = (label: string, value: string, note: string, cls = '') => `<div class="tile${cls}"><span class="tile-label">${label}</span><span class="tile-value">${value}</span><span class="tile-note">${note}</span></div>`;
   const priced = calls - unpriced;
-  const diff = previous === null || Math.abs(totalMicros - previous.micros) < SMALLEST_CHANGE_MICROS ? 0 : totalMicros - previous.micros;
+  const diff = previous === null || Math.abs(totalMicros - previous.micros) < SMALLEST_CALLS_CHANGE_MICROS ? 0 : totalMicros - previous.micros;
   return `<div class="tiles">
 ${tile('Spent', dollars(totalMicros), `${esc(PERIOD_LABELS[query.period])} · at API list price`)}
 ${tile('Calls', number(calls), calls === 0 ? 'none in this period' : priced === 0 ? 'none could be priced' : `${dollars(totalMicros / priced)} a priced call on average`)}
@@ -116,7 +114,7 @@ function changes({ query, bySeries, previous }: CallsPage): string {
   if (previous === null) return '';
   const list = [...new Set([...Object.keys(bySeries), ...Object.keys(previous.bySeries)])]
     .map((key) => ({ key, now: bySeries[key] ?? 0, before: previous.bySeries[key] ?? 0 }))
-    .filter((x) => Math.abs(x.now - x.before) >= SMALLEST_CHANGE_MICROS)
+    .filter((x) => Math.abs(x.now - x.before) >= SMALLEST_CALLS_CHANGE_MICROS)
     .sort((a, b) => Math.abs(b.now - b.before) - Math.abs(a.now - a.before) || seriesName(a.key, query.split).localeCompare(seriesName(b.key, query.split)))
     .slice(0, 4);
   const items = list.length

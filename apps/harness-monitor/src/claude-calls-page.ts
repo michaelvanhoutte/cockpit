@@ -1,5 +1,5 @@
 import { formatDay } from './belgium';
-import { firstDay, PERIODS, windowsOf, type Period, type Series } from './costs';
+import { firstDay, MODEL_ID, PERIODS, windowsOf, type Period, type Series } from './costs';
 import type { JobStatus } from './jobs';
 
 /**
@@ -24,8 +24,7 @@ export const DEFAULT_CALL_SPLIT: CallSplit = 'environment';
 export const ENVIRONMENTS = ['production', 'staging', 'ci', 'local'] as const;
 export type Environment = (typeof ENVIRONMENTS)[number];
 
-/** A model id as Cockpit records it, and a feature as a slug: never free text. */
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,99}$/;
+/** A feature as a slug; a model id is read as the costs page reads it. Never free text. */
 const FEATURE_ID = /^[a-z0-9][a-z0-9-]{0,99}$/;
 
 export interface CallsQuery {
@@ -83,7 +82,9 @@ const FEATURE_NAMES: Record<string, string> = {
   'transcribe-a-recording': 'Transcribe a recording',
 };
 /** A known feature as the product says it; one this list does not know stays as recorded. */
-export const featureName = (slug: string) => FEATURE_NAMES[slug] ?? slug;
+export const featureName = (slug: string) => (Object.hasOwn(FEATURE_NAMES, slug) ? FEATURE_NAMES[slug]! : slug);
+/** An environment as the page names it; one it does not know stays as recorded. Own keys only: a recorded value can be `constructor`. */
+export const environmentName = (key: string) => (Object.hasOwn(ENVIRONMENT_NAMES, key) ? ENVIRONMENT_NAMES[key as Environment] : key);
 
 /** What started a call, as words: `connector:teams` is Teams, `captured-in-app` is Captured in app, `mcp` is MCP, and none is Not recorded. */
 export const startedByName = (value: string) =>
@@ -93,7 +94,7 @@ export const startedByName = (value: string) =>
 export function seriesName(key: string, split: CallSplit): string {
   switch (split) {
     case 'environment':
-      return ENVIRONMENT_NAMES[key as Environment] ?? key;
+      return environmentName(key);
     case 'feature':
       return featureName(key);
     case 'startedBy':
@@ -199,7 +200,7 @@ export function groupCalls(rows: TotalsRow[], group: CallGroup, runs: Map<number
           : group === 'feature'
             ? featureName(key)
             : group === 'environment'
-              ? (ENVIRONMENT_NAMES[key as Environment] ?? key)
+              ? environmentName(key)
               : group === 'startedBy'
                 ? startedByName(key)
                 : pr !== null
@@ -320,15 +321,16 @@ export async function callsPage(db: D1Database, query: CallsQuery, now = Date.no
   const bySeries = bag();
   for (const g of groups) for (const [key, micros] of Object.entries(g.bySeries)) bySeries[key] = (bySeries[key] ?? 0) + micros;
   const known = options!.results as { feature: string; model: string; startedBy: string }[];
-  const distinct = (pick: (r: (typeof known)[number]) => string) => [...new Set(known.map(pick))].sort();
+  // Only values the filters can name: the address takes a slug and a model id, so the dropdowns offer no other.
+  const distinct = (pick: (r: (typeof known)[number]) => string, allowed: RegExp | null = null) => [...new Set(known.map(pick))].filter((v) => allowed === null || allowed.test(v)).sort();
   const lastRun = (run!.results[0] ?? null) as { ranAt: number; startedBy: 'schedule' | 'hand'; ok: number; message: string; lastOkAt: number | null } | null;
 
   const before = bag();
   for (const r of (beforeRows?.results ?? []) as { s: string; micros: number }[]) before[r.s] = r.micros;
   return {
     query,
-    features: distinct((r) => r.feature),
-    models: distinct((r) => r.model),
+    features: distinct((r) => r.feature, FEATURE_ID),
+    models: distinct((r) => r.model, MODEL_ID),
     startedBys: distinct((r) => r.startedBy),
     groups,
     series: callSeries(query.split, bySeries),
