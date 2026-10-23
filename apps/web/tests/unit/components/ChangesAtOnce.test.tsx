@@ -552,9 +552,7 @@ describe('Triage', () => {
 
     it('takes the warning from the form, and the marks from the rows, when it is chosen there', async () => {
       const user = await show([anItem(BART, 'Reply to Bart'), anItem(LISA, 'Reply to Lisa')], { pairs: BART_AND_LISA, openItem: BART });
-      await screen.findByText('Possible duplicate · keep which one?');
-
-      await user.click(screen.getByRole('button', { name: 'Keep both: not a duplicate' }));
+      await user.click(await screen.findByRole('button', { name: 'Keep both: not a duplicate' }));
 
       expect(screen.queryByText('Possible duplicate · keep which one?')).toBeNull();
       expect(theMark('Reply to Bart')).toBeNull();

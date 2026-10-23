@@ -64,7 +64,9 @@ async function expectThePairDrawn(other: Locator, isMobile: boolean): Promise<vo
   const keepBoth = other.locator('xpath=../..').getByRole('button', { name: 'Keep both: not a duplicate' });
   await expect(keepBoth).toBeVisible();
   const overflow = await keepBoth.evaluate((button) => {
-    const warning = button.closest('[data-item-form-banner]');
+    // The warning is the nearest box around it that scrolls on its own.
+    let warning = button.parentElement;
+    while (warning && getComputedStyle(warning).overflowY !== 'auto') warning = warning.parentElement;
     return warning ? warning.scrollHeight - warning.clientHeight : Number.NaN;
   });
   expect(overflow).toBeLessThanOrEqual(1);

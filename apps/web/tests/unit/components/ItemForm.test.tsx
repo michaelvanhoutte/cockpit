@@ -2207,7 +2207,7 @@ describe('Item editing', () => {
       expect(screen.getByText('Possible duplicate · keep which one?')).toBeVisible();
       // Both of them, including the pair written the other way round - one pair
       // is one pair whichever of the two you are looking at.
-      const others = screen.getAllByRole('group', { name: 'The other note' });
+      const others = await screen.findAllByRole('group', { name: 'The other note' });
       expect(others.map((card) => card.textContent)).toEqual([
         expect.stringContaining('Part 11 audit trail, for Novy'),
         expect.stringContaining('Novy and the audit trail'),

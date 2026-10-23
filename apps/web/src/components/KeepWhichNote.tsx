@@ -1,7 +1,22 @@
-import { itemLabel, type Item } from '@cockpit/shared';
+import { itemLabel, plainWords, type Item } from '@cockpit/shared';
 import { dateTimeLabel } from '../dateFormat';
-import { firstLineOf } from '../duplicates';
 import { sourceOnARow, type SourceNames } from '../itemSource';
+
+/**
+ * The first line of a description that has any words, without the Markdown
+ * around them, or null where there are none: what tells two notes with one
+ * title apart on the cards below. A line of nothing but an image, a rule or a
+ * code fence is passed over for the next, and a quote is read without its `>`,
+ * since `plainWords` leaves all three as typed.
+ */
+function firstLineOf(description: string | null | undefined): string | null {
+  for (const line of (description ?? '').split(/\r\n|[\n\r]/u)) {
+    if (/^\s*(?:(?:[-*_]\s*){3,}|`{3,}.*|~{3,}.*)$/u.test(line)) continue;
+    const words = plainWords(line.replace(/^\s*(?:>\s?)+/u, ''));
+    if (words !== '') return words;
+  }
+  return null;
+}
 
 /**
  * One note on the duplicate warning: enough of it to tell it from the other (its
@@ -75,7 +90,8 @@ function NoteCard({
  * this one first), and under them the answer that keeps both.
  *
  * Offered rather than acted on: nothing here merges or files anything, and what
- * each button does is the form's to say.
+ * each button does is the form's to say. Loaded behind the form, since only a
+ * flagged note draws it, so the initial bundle does not carry it.
  */
 export function KeepWhichNote({
   thisNote,

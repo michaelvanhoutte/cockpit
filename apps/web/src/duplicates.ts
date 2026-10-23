@@ -1,6 +1,5 @@
 import {
   pairedWith,
-  plainWords,
   type Filing,
   type Item,
   type PossibleDuplicate,
@@ -88,23 +87,6 @@ export function itemsThatMayBeDuplicates(
     if (eligiblePartner(pair.otherItemId, pair.itemId, inbox, filed)) flagged.add(pair.otherItemId);
   }
   return flagged;
-}
-
-/**
- * The first line of a description that has any words, without the Markdown
- * around them, or null where there are none: what tells two notes with one
- * title apart on a duplicate warning's cards ("Choose which of two possible
- * duplicates to keep, from the warning", issue 1451). A line of nothing but an
- * image, a rule or a code fence is passed over for the next, and a quote is
- * read without its `>`, since `plainWords` leaves all three as typed.
- */
-export function firstLineOf(description: string | null | undefined): string | null {
-  for (const line of (description ?? '').split(/\r\n|[\n\r]/u)) {
-    if (/^\s*(?:(?:[-*_]\s*){3,}|`{3,}.*|~{3,}.*)$/u.test(line)) continue;
-    const words = plainWords(line.replace(/^\s*(?:>\s?)+/u, ''));
-    if (words !== '') return words;
-  }
-  return null;
 }
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [

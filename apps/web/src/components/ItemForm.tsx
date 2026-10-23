@@ -44,7 +44,6 @@ import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshot } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
-import { KeepWhichNote } from './KeepWhichNote';
 import { useItemPanels } from '../useItemPanels';
 import { STATUS_LABELS } from '../allItems';
 import { dueDateLabel } from '../dueDate';
@@ -91,6 +90,9 @@ const WhatCockpitChangedList = lazy(() => import('./WhatCockpitChangedList'));
 
 /** The *On panels* field, loaded behind the form like the editor, so the initial bundle does not carry it (issue 1106). */
 const FileOnLine = lazy(() => import('./FileOnLine').then((loaded) => ({ default: loaded.FileOnLine })));
+
+/** The duplicate warning's cards, loaded only where a note is flagged, so the initial bundle does not carry them (issue 1451). */
+const KeepWhichNote = lazy(() => import('./KeepWhichNote').then((loaded) => ({ default: loaded.KeepWhichNote })));
 
 /** The phone page's chips, loaded only where the form is a page (issue 787). */
 const ItemFormChips = lazy(() => import('./ItemFormChips'));
@@ -356,6 +358,8 @@ function TheForm({
   const [chipsFailed, setChipsFailed] = useState(false);
   /** The *On panels* field's chunk never arrived: the rest of the form stays, and says so. */
   const [onPanelsFailed, setOnPanelsFailed] = useState(false);
+  /** The duplicate warning's chunk never arrived: the rest of the form stays, and says so. */
+  const [keepWhichFailed, setKeepWhichFailed] = useState(false);
   /**
    * What is actually drawn - the account's own choice, unless the screen is
    * a page (`onAPage`), which is never docked: "out of scope" has to mean
@@ -1905,7 +1909,7 @@ function TheForm({
                     banner at all. */}
                   {(openReadings || saidAgain.length > 0) && (
                     // Tall enough for one pair's two cards and Keep both without a scrollbar of its own (issue 1451); on a page the cards stack, and the page scrolls instead.
-                    <div data-item-form-banner className={`mt-3 flex shrink-0 flex-col gap-3 overflow-y-auto rounded-md border border-accent-soft/40 bg-accent-tint/50 p-3 ${saidAgain.length > 0 ? 'md:max-h-80' : 'max-h-48'}`}>
+                    <div className={`mt-3 flex shrink-0 flex-col gap-3 overflow-y-auto rounded-md border border-accent-soft/40 bg-accent-tint/50 p-3 ${saidAgain.length > 0 ? 'md:max-h-80' : 'max-h-48'}`}>
                       {/* The other ways this note could genuinely be read,
                         offered beside the one already sitting in the two
                         boxes above ("Offer the other readings when a
@@ -1961,6 +1965,13 @@ function TheForm({
                           <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
                             Possible duplicate · keep which one?
                           </p>
+                          {keepWhichFailed ? (
+                            <p role="alert" className="mt-1 text-sm text-over-ink">
+                              The warning could not load. Reload Cockpit to try again.
+                            </p>
+                          ) : (
+                          <WhateverTheQuestionDoes onFailure={() => setKeepWhichFailed(true)}>
+                          <Suspense fallback={<div className="h-14" aria-hidden="true" />}>
                           <div className="mt-1 flex flex-col gap-3">
                             {saidAgain.map((other) => (
                               <KeepWhichNote
@@ -1985,6 +1996,9 @@ function TheForm({
                               />
                             ))}
                           </div>
+                          </Suspense>
+                          </WhateverTheQuestionDoes>
+                          )}
                         </div>
                       )}
                     </div>
