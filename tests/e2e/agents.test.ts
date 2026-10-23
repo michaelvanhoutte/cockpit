@@ -84,7 +84,7 @@ test.describe('Agents', () => {
 
       if (!isMobile) {
         const settings = await openSettings(page, 'Connections', isMobile);
-        await expect(settings.getByRole('button', { name: 'MCP', exact: true })).toBeVisible();
+        await expect(settings.getByRole('button', { name: 'Connected apps', exact: true })).toBeVisible();
         await expect(settings.getByRole('button', { name: 'Agent settings' })).toHaveCount(0);
         await closeSettings(page, isMobile);
       }

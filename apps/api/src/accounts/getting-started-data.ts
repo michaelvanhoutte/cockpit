@@ -96,7 +96,7 @@ Choose **Send to Claude…** from an item's own menu (the three dots). A window 
 
 Press **Open in Cowork ↗** (or Code), and Claude's desktop app opens with that prompt typed. Press send there. Where you changed the proposal, Cockpit offers to remember how you like it done, and you find what it remembers under **Settings › What Cockpit remembers**.
 
-Connect Claude under **Settings › MCP** too, and the item's row follows the work: *Sent*, then *on it*, then *Ready* or *Needs you*.`,
+Connect Claude under **Settings › Connected apps** too, and the item's row follows the work: *Sent*, then *on it*, then *Ready* or *Needs you*.`,
   },
   {
     title: 'Name your workspace',

@@ -1,0 +1,31 @@
+{
+  "panel": {
+    "id": "018f0000-0000-7000-8000-00000000a002",
+    "name": "Falcon",
+    "kind": "items",
+    "dashboardId": "018f0000-0000-7000-8000-00000000d001"
+  },
+  "workspace": { "id": "0015-first-workspace", "name": "Work", "color": "#2f6f9f" },
+  "count": 2,
+  "groups": [
+    {
+      "heading": null,
+      "rows": [
+        {
+          "itemId": "018f0000-0000-7000-8000-00000000e002",
+          "label": "Renew the domain",
+          "priority": null,
+          "dueDate": null,
+          "places": []
+        },
+        {
+          "itemId": "018f0000-0000-7000-8000-00000000e001",
+          "label": "Send the Q4 forecast to Sander",
+          "priority": "high",
+          "dueDate": "2026-10-21",
+          "places": ["Day to day ▸ Admin"]
+        }
+      ]
+    }
+  ]
+}

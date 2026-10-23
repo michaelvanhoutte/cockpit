@@ -9,8 +9,8 @@ import { connectedAppsDrawnOver } from '../../src/connectedAppsDrawnAhead';
  * tests/unit/changeQueue.test.ts.
  */
 
-const CLAUDE: ConnectedApp = { id: 'grant-claude', name: 'Claude', connectedAt: '2026-09-30T09:00:00.000Z', lastCapturedAt: null };
-const QUIET: ConnectedApp = { id: 'grant-quiet', name: 'Quiet app', connectedAt: '2026-09-30T10:00:00.000Z', lastCapturedAt: null };
+const CLAUDE: ConnectedApp = { id: 'grant-claude', name: 'Claude', kind: 'captures', connectedAt: '2026-09-30T09:00:00.000Z', lastCapturedAt: null, lastReadAt: null };
+const QUIET: ConnectedApp = { id: 'grant-quiet', name: 'Quiet app', kind: 'captures', connectedAt: '2026-09-30T10:00:00.000Z', lastCapturedAt: null, lastReadAt: null };
 const held: ConnectedAppList = { apps: [CLAUDE, QUIET] };
 
 const disconnected = (appId: string) => ({ name: 'disconnect_app', payload: { appId } }) as const;

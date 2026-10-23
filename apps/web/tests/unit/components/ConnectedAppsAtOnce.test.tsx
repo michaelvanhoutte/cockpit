@@ -62,8 +62,8 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
   },
 }));
 
-const CLAUDE: ConnectedApp = { id: 'grant-claude', name: 'Claude', connectedAt: '2026-09-30T09:00:00.000Z', lastCapturedAt: null };
-const QUIET: ConnectedApp = { id: 'grant-quiet', name: 'Quiet app', connectedAt: '2026-09-30T10:00:00.000Z', lastCapturedAt: null };
+const CLAUDE: ConnectedApp = { id: 'grant-claude', name: 'Claude', kind: 'captures', connectedAt: '2026-09-30T09:00:00.000Z', lastCapturedAt: null, lastReadAt: null };
+const QUIET: ConnectedApp = { id: 'grant-quiet', name: 'Quiet app', kind: 'captures', connectedAt: '2026-09-30T10:00:00.000Z', lastCapturedAt: null, lastReadAt: null };
 
 let client: QueryClient;
 
@@ -136,12 +136,12 @@ describe('MCP connections', () => {
       expect(held.waiting.map((request) => request.appId)).toEqual(['grant-claude']);
     });
 
-    it('says there are no MCP connections once the last one is disconnected', async () => {
+    it('says there are no connected apps once the last one is disconnected', async () => {
       const user = await show([CLAUDE]);
 
       await disconnect(user, 'Claude');
 
-      expect(await screen.findByText('No MCP connections')).toBeVisible();
+      expect(await screen.findByText('No connected apps')).toBeVisible();
     });
   });
 
@@ -180,7 +180,7 @@ describe('MCP connections', () => {
       await waitFor(() => expect(held.reads).toBe(before + 1));
       await settle();
       expect(held.reads).toBe(before + 1);
-      expect(screen.getByText('No MCP connections')).toBeVisible();
+      expect(screen.getByText('No connected apps')).toBeVisible();
     });
 
     it('treats an app already disconnected from another tab as disconnected', async () => {

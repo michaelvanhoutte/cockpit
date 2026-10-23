@@ -6,6 +6,8 @@ import type {
   ConnectionHistory,
   Item,
   Panel,
+  ReadableSnapshot,
+  ReadableWorkspace,
   ServerEvent,
   RecurringItem,
   SourceAccount,
@@ -110,6 +112,7 @@ import {
   runCommand,
 } from './command-service.js';
 import {
+  workspaceOfPanel,
   connectionUnder,
   decisionHistoryForWorkspace,
   everyMeaning,
@@ -262,6 +265,46 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
+        agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
+      };
+    });
+  }
+
+  /**
+   * Every live Workspace with its Dashboards, Panels and Layouts and nothing
+   * of the Items - what the list of Panels an app allowed to read is made from
+   * ("Read a Panel from an app allowed only to read", issue 1445).
+   */
+  panelCatalogue(accountName: string): Answer<ReadableWorkspace[]> {
+    return this.#answer(accountName, (db) =>
+      listWorkspaces(db, accountName).map((workspace) => ({
+        workspace,
+        dashboards: listDashboards(db, accountName, workspace.id),
+        panels: listPanelsInWorkspace(db, accountName, workspace.id),
+        layouts: listLayoutsInWorkspace(db, accountName, workspace.id),
+      })),
+    );
+  }
+
+  /**
+   * What one Panel is read from: its Workspace's rows without the ones a Panel
+   * never draws (associations, attachments, series, duplicates and the Item
+   * form's presentation), so a widget's refresh every half hour does not pay
+   * for the whole snapshot. `missing` for a Panel that is deleted, one never
+   * held, and one in a deleted Workspace, which are the same answer.
+   */
+  panelReadInputs(accountName: string, panelId: string): Answer<ReadableSnapshot> {
+    return this.#answer(accountName, (db) => {
+      const workspaceId = workspaceOfPanel(db, accountName, panelId);
+      const workspace = workspaceId && getWorkspace(db, accountName, workspaceId);
+      if (!workspaceId || !workspace) throw new PanelNotFoundError(panelId);
+      return {
+        workspace,
+        items: listOpenItems(db, accountName, workspaceId),
+        dashboards: listDashboards(db, accountName, workspaceId),
+        panels: listPanelsInWorkspace(db, accountName, workspaceId),
+        layouts: listLayoutsInWorkspace(db, accountName, workspaceId),
+        filings: listFilingsInWorkspace(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
       };
     });

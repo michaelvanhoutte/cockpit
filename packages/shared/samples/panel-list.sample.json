@@ -1,0 +1,19 @@
+{
+  "workspaces": [
+    {
+      "id": "0015-first-workspace",
+      "name": "Work",
+      "color": "#2f6f9f",
+      "dashboards": [
+        {
+          "id": "018f0000-0000-7000-8000-00000000d001",
+          "name": "Day to day",
+          "panels": [
+            { "id": "018f0000-0000-7000-8000-00000000a001", "name": "Admin", "kind": "items" },
+            { "id": "018f0000-0000-7000-8000-00000000a003", "name": "This week", "kind": "filter" }
+          ]
+        }
+      ]
+    }
+  ]
+}
