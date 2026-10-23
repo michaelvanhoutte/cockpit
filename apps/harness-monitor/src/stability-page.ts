@@ -385,6 +385,10 @@ ${repo ? `<a class="button" href="https://github.com/${repo}/actions?query=branc
 }
 
 const EXTRA = `
+.toggles{display:flex;gap:2px;padding:3px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--shade) 7%,transparent)}
+.toggles button{height:32px;padding:0 14px;border:0;border-radius:7px;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--ink-soft);cursor:pointer}
+.toggles button:hover{color:var(--ink-strong);background:color-mix(in srgb,var(--shade) 6%,transparent)}
+.toggles button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);box-shadow:inset 0 1px 0 rgb(255 255 255 / .15),0 1px 2px rgb(22 24 29 / .2)}
 .rate{font-weight:600;text-decoration:none;color:var(--ink-strong)}.rate.ok{color:var(--good)}.rate.poor{color:var(--over-ink)}
 .rate.none{color:var(--ink-faint);font-weight:400}
 a.rate:hover{text-decoration:underline}
