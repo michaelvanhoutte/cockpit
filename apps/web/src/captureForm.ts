@@ -12,6 +12,13 @@ import { lazy } from 'react';
 export const loadCaptureNote = () => import('./components/CaptureNote');
 
 /**
+ * The Capture page itself, fetched with the router's own preload before the
+ * route is drawn and, like the form, straight after the shell paints
+ * (`pages/Layout.tsx`), so pressing Capture or `C` finds it already here.
+ */
+export const loadCapturePage = () => import('./pages/CapturePage');
+
+/**
  * The Car view of the same page ("Capture by voice in the car", issue 730),
  * fetched the same way and for the same reason; the route asks for it before
  * the page is drawn, so switching to Car finds it already here.

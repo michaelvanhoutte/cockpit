@@ -4,6 +4,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   redirect,
   useRouter,
 } from '@tanstack/react-router';
@@ -12,7 +13,8 @@ import { changes } from './api/changes';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { setAllItemsTab } from './allItemsTab';
 import { connectionsSearch } from './connections';
-import { loadCaptureForms, loadCaptureNote, loadCarCapture } from './captureForm';
+import { CAPTURE_PANEL, CAPTURE_WORKSPACE } from './captureAddressWords';
+import { loadCapturePage, loadCaptureForms, loadCaptureNote, loadCarCapture } from './captureForm';
 import { itemFormSearch } from './itemForm';
 import {
   INBOX,
@@ -33,19 +35,9 @@ const DemoPage = lazy(() => import('./pages/DemoPage'));
 const FirstWorkspacePage = lazy(() =>
   import('./pages/FirstWorkspacePage').then((page) => ({ default: page.FirstWorkspacePage })),
 );
-
-/*
- * The Capture page is fetched with the form under it, before the route is
- * drawn (`capturing` below), so a typed address and the header's tab find it
- * already here and the first bundle does not carry it.
- */
-const loadCapturePage = () => import('./pages/CapturePage');
-const CapturePage = lazy(() => loadCapturePage().then((page) => ({ default: page.CapturePage })));
 import { DashboardPage } from './pages/DashboardPage';
 import { whereToLand } from './landing';
 import { Layout } from './pages/Layout';
-// Fetched when the address is, rather than carried by everybody who is signed in already.
-const LogonPage = lazy(() => import('./pages/LogonPage').then((page) => ({ default: page.LogonPage })));
 import { WorkspacePage } from './pages/WorkspacePage';
 
 interface RouterContext {
@@ -86,11 +78,21 @@ function readFor<T, K extends QueryKey>(
  * is answered from that, nothing throws here, and the sign-in that has gone is
  * noticed behind the screen instead (`pages/Layout.tsx`).
  */
+/**
+ * The logon page is fetched when the address is, rather than carried by
+ * everybody who is signed in already; the read that finds the sign-in gone
+ * starts the fetch, so it is on its way while the redirect is made.
+ */
+const loadLogonPage = () => import('./pages/LogonPage');
+
 async function orTheLogonPage<T>(read: Promise<T>): Promise<T> {
   try {
     return await read;
   } catch (failure) {
-    if (failure instanceof NotSignedIn) throw redirect({ to: '/signin' });
+    if (failure instanceof NotSignedIn) {
+      loadLogonPage().catch(() => {});
+      throw redirect({ to: '/signin' });
+    }
     throw failure;
   }
 }
@@ -167,11 +169,7 @@ const workspacesOf = async (queryClient: QueryClient) =>
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/signin',
-  component: () => (
-    <Suspense fallback={null}>
-      <LogonPage />
-    </Suspense>
-  ),
+  component: lazyRouteComponent(loadLogonPage, 'LogonPage'),
 });
 
 /**
@@ -405,33 +403,27 @@ const capturing =
     // answer falls back to the first one there is (`lastVisited.ts`).
     if (!workspaceToCaptureFrom(browserStore(), workspaces)) throw redirect({ to: '/start' });
     // Only an address that names a Workspace or a Panel pays for reading it
-    // (`captureOpening.ts`, issue 1445); the words are `captureAddress.ts`'s,
-    // spelt here so that module stays out of the first bundle.
+    // (`captureOpening.ts`, issue 1445). A helper that cannot be fetched is an
+    // address that opens Capture as a typed one does: it is dropped, never refused.
     const search = location.search as Record<string, unknown>;
-    if (typeof search.workspace === 'string' || typeof search.panel === 'string') {
-      const { opensFromItsAddress } = await import('./captureOpening');
-      await opensFromItsAddress(
+    if (typeof search[CAPTURE_WORKSPACE] === 'string' || typeof search[CAPTURE_PANEL] === 'string') {
+      const opening = await import('./captureOpening').catch(() => undefined);
+      await opening?.opensFromItsAddress(
         (workspaceId, panelId) => snapshotHoldingPanel(context.queryClient, workspaceId, panelId),
         workspaces,
         location,
       );
     }
     // The view, which is fetched behind the shell (`captureForm.ts`).
-    await Promise.all([loadCapturePage(), loadView()]);
+    await loadView();
   };
-
-const CapturePageRoute = () => (
-  <Suspense fallback={null}>
-    <CapturePage />
-  </Suspense>
-);
 
 const captureRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/capture',
   // With the forms around it, which hold both sides of the switch.
   beforeLoad: capturing(() => Promise.all([loadCaptureForms(), loadCaptureNote()])),
-  component: CapturePageRoute,
+  component: lazyRouteComponent(loadCapturePage, 'CapturePage'),
 });
 
 /**
@@ -444,7 +436,7 @@ const captureCarRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/capture/car',
   beforeLoad: capturing(() => Promise.all([loadCaptureForms(), loadCarCapture()])),
-  component: CapturePageRoute,
+  component: lazyRouteComponent(loadCapturePage, 'CapturePage'),
 });
 
 const routeTree = rootRoute.addChildren([

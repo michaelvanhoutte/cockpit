@@ -1,6 +1,7 @@
 import { panelTakesItems } from '@cockpit/shared';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
 import type { PanelOpening } from './captureOpener';
+import { CAPTURE_PANEL, CAPTURE_WORKSPACE } from './captureAddressWords';
 
 /**
  * Capture opened from an address ("Read a Panel from an app allowed only to
@@ -11,7 +12,7 @@ import type { PanelOpening } from './captureOpener';
  *
  * It does what a Panel's own **+** does - *Where* is that Workspace, *File on*
  * that Panel, and Capture closes to the Panel's Dashboard once one note is
- * kept - by arriving as the same navigation state (`pages/CapturePage.tsx`), so
+ * kept - by arriving as the same navigation state (`captureState.ts`), so
  * nothing about the form is told twice.
  *
  * | Address names | Capture opens with |
@@ -26,9 +27,7 @@ import type { PanelOpening } from './captureOpener';
  * write the note.
  */
 
-/** The two words of the address, as the router reads a search. */
-export const CAPTURE_WORKSPACE = 'workspace';
-export const CAPTURE_PANEL = 'panel';
+export { CAPTURE_PANEL, CAPTURE_WORKSPACE };
 
 /** The id a search holds under `name`, or null where it holds none that is text. */
 export function addressedBy(search: Record<string, unknown>, name: string): string | null {

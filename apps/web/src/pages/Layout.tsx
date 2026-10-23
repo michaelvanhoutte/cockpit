@@ -67,7 +67,7 @@ import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindo
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
 import { useKeepingRecordings, useKeptRecordings, useWaitingRecordings } from '../keptRecordings';
-import { loadCaptureForms, loadCaptureNote } from '../captureForm';
+import { loadCaptureForms, loadCaptureNote, loadCapturePage } from '../captureForm';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 
 /**
@@ -574,6 +574,7 @@ function TheShell() {
   useEffect(() => {
     loadCaptureNote().catch(() => {});
     loadCaptureForms().catch(() => {});
+    loadCapturePage().catch(() => {});
   }, []);
 
   /**
