@@ -550,6 +550,17 @@
       ]
     },
     {
+      "key": "Settings",
+      "label": "Settings",
+      "browserWalks": 1,
+      "parent": "Across the app",
+      "sourcePatterns": [
+        "apps/web/src/components/SettingsModal.tsx",
+        "apps/web/src/components/SettingsWindow.tsx",
+        "apps/web/src/components/SettingsPanel.tsx"
+      ]
+    },
+    {
       "key": "Appearance",
       "label": "Appearance",
       "browserWalks": 1,
