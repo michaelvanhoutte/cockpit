@@ -43,6 +43,7 @@ const ACCOUNT_IS = Object.freeze({ 'claude-plan': 'routine' });
 /** The columns, in the order Excel shows them, each reading one record. */
 const COLUMNS = Object.freeze([
   ['When (UTC)', (r) => r.at.replace(/\.\d+Z$/, 'Z')],
+  ['Environment', (r) => r.environment],
   ['Operation', (r) => r.operation],
   ['Prompt version', (r) => r.promptVersion],
   ['Triggered by', (r) => r.triggeredBy],
@@ -57,8 +58,19 @@ const COLUMNS = Object.freeze([
   ['Cache read', (r) => r.cacheRead],
   ['Cache write', (r) => r.cacheWrite],
   ['Tokens out', (r) => r.tokensOut],
+  ['Cost (USD)', costOf],
   ['Item id', (r) => r.itemId],
 ]);
+
+/**
+ * Dollars written out in full: a call costing a fraction of a millionth of a
+ * dollar would otherwise come out as `2.63e-7`. Twelve places hold a single
+ * token at any rate on the price list (apps/api/src/gateway/prices.ts).
+ */
+function costOf(record) {
+  if (record.costUsd === null || record.costUsd === undefined) return null;
+  return record.costUsd.toFixed(12).replace(/\.?0+$/, '');
+}
 
 function paidBy(record) {
   const details = [

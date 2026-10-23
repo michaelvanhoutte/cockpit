@@ -1,4 +1,4 @@
-import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import type { Role } from '@cockpit/shared';
 
@@ -378,6 +378,24 @@ export const providerCalls = sqliteTable(
     cacheRead: integer('cache_read'),
     cacheWrite: integer('cache_write'),
     tokensOut: integer('tokens_out'),
+    /**
+     * Which system made the call: `production`, `staging`, `ci` or `local`. A
+     * row written before there was one is production's own, which is what the
+     * default says of it.
+     */
+    environment: text('environment').notNull().default('production'),
+    /**
+     * What the attempt cost in US dollars, from the price list deployed where
+     * the row was written (`src/gateway/prices.ts`), and never recomputed.
+     * Blank where there is no price or no token count - never 0 for "unknown".
+     */
+    costUsd: real('cost_usd'),
+    /** The pull request a CI contract run made the call for. */
+    pullRequest: integer('pull_request'),
+    /** The GitHub Actions run a CI contract run made the call in. */
+    runId: integer('run_id'),
+    /** The branch checked out where a local call was made. */
+    branch: text('branch'),
   },
   (table) => [
     // What the nightly purge and an export's period both range over.
