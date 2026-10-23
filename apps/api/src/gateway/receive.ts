@@ -27,12 +27,12 @@ export type SendingEnvironment = (typeof TOKENS)[number][0];
 
 const encoder = new TextEncoder();
 
-async function digest(text: string): Promise<Uint8Array> {
+export async function digest(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
 }
 
 /** Whether two digests are equal, looking at every byte whatever the first difference is. */
-function sameDigest(a: Uint8Array, b: Uint8Array): boolean {
+export function sameDigest(a: Uint8Array, b: Uint8Array): boolean {
   let difference = a.length ^ b.length;
   for (let i = 0; i < a.length; i += 1) difference |= a[i]! ^ (b[i] ?? 0);
   return difference === 0;
