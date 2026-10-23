@@ -37,6 +37,11 @@ describe('Harness Monitor', () => {
       expect(topBar(await page())).toEqual({ mark: true, name: true, tabs: [{ label: 'Claude Code costs', current: true }] });
     });
 
+    it('each page has exactly one top-level heading', async () => {
+      expect((await theBarePage()).match(/<h1[ >]/g)).toHaveLength(1);
+      expect(((await (await thePullRequest(7)).text()).match(/<h1[ >]/g) ?? [])).toHaveLength(1);
+    });
+
     it("Cockpit's Claude calls is not a tab until its page exists", async () => {
       expect(await theBarePage()).not.toContain('Claude calls');
     });

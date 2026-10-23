@@ -54,7 +54,7 @@ const SERIES_COLOURS: Record<string, string> = {
   'on-main': 'var(--cat-amber)',
 };
 /** A model takes these by its place among every model on record, so it keeps its colour whatever the filters; they wrap past eight. */
-const MODEL_COLOURS = ['var(--cat-violet)', 'var(--cat-amber)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-slate)', 'var(--cat-grey)', 'var(--over)', 'var(--due)'];
+const MODEL_COLOURS = ['var(--cat-violet)', 'var(--cat-amber)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-slate)', 'var(--cat-grey)', 'var(--over)', 'var(--due-ink)'];
 const colourOf = (split: Split, key: string, models: string[]) =>
   split === 'phase'
     ? COLOURS[key as Category]
@@ -424,6 +424,7 @@ export function renderPage(
 ): string {
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
   const body = [
+    '<h1 class="sr-only">Claude Code costs</h1>',
     filters(page),
     warning(report.unpriced),
     changeCard(page.comparison, PERIOD_LABELS[page.query.period]),
