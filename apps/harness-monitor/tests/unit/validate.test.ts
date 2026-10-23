@@ -109,11 +109,15 @@ describe('Harness Monitor', () => {
       expect(validateBatch({ rows: many.slice(0, MAX_BATCH) }).ok).toBe(true);
     });
 
-    it('a request just after midnight UTC belongs to the new day', () => {
+    it('a request belongs to the Belgian day it was made on, not the UTC day', () => {
       const result = validateBatch({
-        rows: [row({ requestId: 'a', time: '2026-10-01T23:59:59Z' }), row({ requestId: 'b', time: '2026-10-02T00:00:01Z' })],
+        rows: [
+          row({ requestId: 'a', time: '2026-10-21T21:59:59Z' }),
+          row({ requestId: 'b', time: '2026-10-21T22:00:01Z' }),
+          row({ requestId: 'c', time: '2026-10-22T01:30:00+02:00' }),
+        ],
       });
-      expect(result.ok && result.rows.map((r) => r.day)).toEqual(['2026-10-01', '2026-10-02']);
+      expect(result.ok && result.rows.map((r) => r.day)).toEqual(['2026-10-21', '2026-10-22', '2026-10-22']);
     });
   });
 });

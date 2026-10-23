@@ -1,3 +1,5 @@
+import { belgianDay } from './belgium';
+
 /** The seven things a request can be spent on, as the slugs stored. */
 export const CATEGORIES = [
   'unphased',
@@ -13,12 +15,24 @@ export type Category = (typeof CATEGORIES)[number];
 /**
  * No phase marks existed before this UTC day, so a Building request dated earlier
  * was never really Building. Stored rows are not rewritten: every read and every
- * rebuild of the totals applies this rule.
+ * rebuild of the totals applies this rule. The cut-off is the instant it always
+ * was, 00:00 UTC, whatever day the Monitor counts the request on.
  */
 export const PHASES_BEGIN = '2026-09-21';
+export const PHASES_BEGIN_MS = Date.parse(PHASES_BEGIN);
 
-/** The phase a stored row counts as, as SQL over a table alias (with its dot, or none). */
-export function phaseSql(prefix = ''): string {
+/** The phase a request row counts as, as SQL over a table alias (with its dot, or none): judged by the exact instant. */
+export function requestPhaseSql(prefix = ''): string {
+  return `CASE WHEN ${prefix}category = 'building' AND ${prefix}occurred_at < ${PHASES_BEGIN_MS} THEN 'unphased' ELSE ${prefix}category END`;
+}
+
+/**
+ * The phase a totals row counts as: its stored one, which was judged by the
+ * instant, except Building on a day before the cut-off. A day filed under the
+ * old UTC rule holds the same instants either side of the cut-off as ever, and a
+ * Belgian day before it holds only earlier ones, so this never moves a request.
+ */
+export function totalsPhaseSql(prefix = ''): string {
   return `CASE WHEN ${prefix}category = 'building' AND ${prefix}day < '${PHASES_BEGIN}' THEN 'unphased' ELSE ${prefix}category END`;
 }
 
@@ -34,6 +48,7 @@ export interface UsageRow {
   requestId: string;
   sessionId: string;
   occurredAt: number;
+  /** The Belgian day the request is counted on. */
   day: string;
   branch: string | null;
   category: Category;
@@ -169,7 +184,7 @@ function validateRow(raw: unknown): UsageRow | string {
     requestId,
     sessionId,
     occurredAt: when.getTime(),
-    day: when.toISOString().slice(0, 10),
+    day: belgianDay(when.getTime()),
     branch,
     category,
     reviewLevel,

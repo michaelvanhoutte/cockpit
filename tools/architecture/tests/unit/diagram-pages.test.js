@@ -66,7 +66,7 @@ describe('Architecture diagrams', () => {
       const html = page();
       expect(html).toContain('<b>abc1234</b>');
       expect(html).toContain('https://github.com/o/r/commit/abc1234def5678');
-      expect(html).toContain('<b>2026-10-08</b>');
+      expect(html).toContain('<b>8 Oct 2026</b>');
       expect(html).toContain('<a href="index.html">');
     });
 

@@ -311,7 +311,7 @@ export function ItemRow({
     itemId: item.id,
   });
 
-  /** To do, In progress or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `filing.ts`. */
+  /** To do, In progress or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `packages/shared/src/domain/filing.ts`. */
   const status = itemStatus(item);
   /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();

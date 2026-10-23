@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { formatDate } from '../../../../scripts/lib/belgian-time.mjs';
 import { renderChanges } from './changes.js';
 import { renderContext } from './context.js';
 import { renderDependencies, cycleSummary, orderNote } from './dependencies.js';
@@ -26,7 +27,8 @@ const esc = (value) =>
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
-const day = (iso) => iso.slice(0, 10);
+/** The Belgian day a commit's own timestamp falls on: its committer's offset is not the reader's. */
+const day = formatDate;
 
 /** The report's commit line, shared by every page so none words it again. */
 function commitLine({ commit, repo }) {

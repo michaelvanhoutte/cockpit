@@ -23,7 +23,9 @@ beforeEach(async () => {
 });
 afterEach(() => vi.restoreAllMocks());
 
+/** One second before phase marks began (00:00 UTC on 21 Sep): already 21 Sep, 01:59 in Brussels, and still Unphased. */
 const BEFORE = '2026-09-20T23:59:59Z';
+const LONG_BEFORE = '2026-09-19T12:00:00Z';
 const AFTER = '2026-09-21T00:00:01Z';
 
 /** The categories the page's bar names with dollars above zero. */
@@ -33,9 +35,9 @@ const spent = async (query: string) =>
 describe('Harness Monitor', () => {
   describe('a Building request from before phase marks existed is Unphased', () => {
     it.each([
-      { situation: 'Building on 20 Sep', category: 'building', time: BEFORE, shown: 'Unphased $4.00' },
-      { situation: 'Building on 21 Sep', category: 'building', time: AFTER, shown: 'Building $4.00' },
-      { situation: 'Scoping on 20 Sep', category: 'scoping-planning', time: BEFORE, shown: 'Scoping & planning $4.00' },
+      { situation: 'Building the second before 21 Sep UTC (01:59 on 21 Sep in Brussels)', category: 'building', time: BEFORE, shown: 'Unphased $4.00' },
+      { situation: 'Building the second after it', category: 'building', time: AFTER, shown: 'Building $4.00' },
+      { situation: 'Scoping the second before it', category: 'scoping-planning', time: BEFORE, shown: 'Scoping & planning $4.00' },
       { situation: 'stored as Unphased', category: 'unphased', time: BEFORE, shown: 'Unphased $4.00' },
     ])('$situation counts as $shown on the costs page', async ({ category, time, shown }) => {
       await send([spend('r', 4, { category, time })]);
@@ -64,21 +66,23 @@ describe('Harness Monitor', () => {
     });
 
     it('totals stored before the rule existed read the same, and the nightly rebuild writes what the rows write', async () => {
-      await send([spend('old', 4, { time: BEFORE }), spend('new', 2, { time: AFTER })]);
+      await send([spend('old', 4, { time: LONG_BEFORE }), spend('edge', 1, { time: BEFORE }), spend('new', 2, { time: AFTER })]);
       const written = await totals();
       // A totals row from a deployment that predates the rule: Building, on a day before it.
-      await env.DB.prepare("UPDATE daily_totals SET category = 'building'").run();
-      await env.DB.prepare("UPDATE daily_split_totals SET category = 'building'").run();
+      await env.DB.prepare("UPDATE daily_totals SET category = 'building' WHERE day < '2026-09-21'").run();
+      await env.DB.prepare("UPDATE daily_split_totals SET category = 'building' WHERE day < '2026-09-21'").run();
 
-      expect(await spent('?period=all')).toEqual(['Unphased $4.00', 'Building $2.00']);
+      expect(await spent('?period=all')).toEqual(['Unphased $5.00', 'Building $2.00']);
 
       await runTheDailyJob();
 
       expect(await totals()).toEqual(written);
-      expect(await spent('?period=all')).toEqual(['Unphased $4.00', 'Building $2.00']);
-      expect(written.map((t) => [t.day, t.category])).toEqual([
-        ['2026-09-20', 'unphased'],
-        ['2026-09-21', 'building'],
+      expect(await spent('?period=all')).toEqual(['Unphased $5.00', 'Building $2.00']);
+      // The second before 21 Sep UTC is 21 Sep in Brussels, but it is no later a request for it: it stays Unphased.
+      expect(written.map((t) => [t.day, t.category, t.requests])).toEqual([
+        ['2026-09-19', 'unphased', 1],
+        ['2026-09-21', 'building', 1],
+        ['2026-09-21', 'unphased', 1],
       ]);
     });
   });

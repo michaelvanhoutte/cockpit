@@ -64,6 +64,13 @@ describe('Cycle time', () => {
       expect(content).toMatch(/^<!doctype html>/);
     });
 
+    it('keeps the model file in ISO UTC times, though the page beside it reads Belgian time', () => {
+      const dated = buildModel({ pulls: [], now: new Date('2026-10-22T13:05:00Z'), requestedDays: 14, coveredSince: new Date('2026-10-08T13:05:00Z'), repo: 'o/r' });
+      const file = JSON.parse(output(parseArgs(['--json']), dated).content);
+      expect([file.generatedAt, file.coverage.coveredSince, file.coverage.until]).toEqual(['2026-10-22T13:05:00.000Z', '2026-10-08T13:05:00.000Z', '2026-10-22T13:05:00.000Z']);
+      expect(output(parseArgs([]), dated).content).toContain('22 Oct 2026, 15:05');
+    });
+
     it('writes the model rather than the page with --json', () => {
       const { file, content } = output(parseArgs(['--json']), model);
       expect(file).toBe('model.json');

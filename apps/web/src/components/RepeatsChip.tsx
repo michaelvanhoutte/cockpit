@@ -1,12 +1,12 @@
 import * as Popover from '@radix-ui/react-popover';
 import {
   MOST_DUE_AFTER_DAYS,
+  dayOf,
   firstNextOn,
   readBack,
   ruleLabel,
   type RepeatFrequency,
   type RepeatRule,
-  dayOf,
 } from '@cockpit/shared';
 import { weekdayDayLabel } from '../dateFormat';
 import { LIT_BUTTON, QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';

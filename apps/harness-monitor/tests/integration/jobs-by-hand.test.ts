@@ -326,8 +326,8 @@ describe('Harness Monitor', () => {
         vi.useRealTimers();
       }
 
-      expect(await jobLine('rebuild')).toBe('Daily totals: last run 2026-04-01 12:00 UTC (scheduled) — Rebuilt the totals for 0 days.');
-      expect(await jobLine('prices')).toMatch(/^Price list: last run 2026-04-01 12:00 UTC \(scheduled\) — Fetched \d+ model prices; priced 0 waiting requests\.$/);
+      expect(await jobLine('rebuild')).toBe('Daily totals: last run 1 Apr 2026, 14:00 (scheduled) — Rebuilt the totals for 0 days.');
+      expect(await jobLine('prices')).toMatch(/^Price list: last run 1 Apr 2026, 14:00 \(scheduled\) — Fetched \d+ model prices; priced 0 waiting requests\.$/);
     });
 
     it('a failed run by hand shows its time, "by hand" and the error', async () => {
@@ -340,7 +340,7 @@ describe('Harness Monitor', () => {
         vi.useRealTimers();
       }
 
-      expect(await jobLine('linking')).toBe('Branch linking: last run 2026-04-01 12:00 UTC (by hand) — GitHub refused the token (401). Never succeeded.');
+      expect(await jobLine('linking')).toBe('Branch linking: last run 1 Apr 2026, 14:00 (by hand) — GitHub refused the token (401). Never succeeded.');
     });
 
     it('a failed run also says when the job last succeeded', async () => {
@@ -359,7 +359,7 @@ describe('Harness Monitor', () => {
       }
 
       expect(await jobLine('linking')).toBe(
-        'Branch linking: last run 2026-04-01 13:00 UTC (by hand) — GitHub refused the token (401). Last succeeded 2026-04-01 12:00 UTC.',
+        'Branch linking: last run 1 Apr 2026, 15:00 (by hand) — GitHub refused the token (401). Last succeeded 1 Apr 2026, 14:00.',
       );
     });
 
@@ -373,7 +373,7 @@ describe('Harness Monitor', () => {
         vi.useRealTimers();
       }
 
-      expect(await jobLine('rebuild')).toMatch(/^Daily totals: last run 2026-04-01 12:00 UTC/);
+      expect(await jobLine('rebuild')).toMatch(/^Daily totals: last run 1 Apr 2026, 14:00/);
     });
 
     it('a success recorded late is kept beside a newer failure', async () => {
@@ -396,7 +396,7 @@ describe('Harness Monitor', () => {
       await env.DB.prepare('DELETE FROM link_state').run();
 
       expect(await jobLine('linking')).toBe(
-        'Branch linking: last run 2026-04-01 13:00 UTC (by hand) — GitHub refused the token (401). Last succeeded 2026-04-01 12:00 UTC.',
+        'Branch linking: last run 1 Apr 2026, 15:00 (by hand) — GitHub refused the token (401). Last succeeded 1 Apr 2026, 14:00.',
       );
     });
 
@@ -406,8 +406,8 @@ describe('Harness Monitor', () => {
         env.DB.prepare('INSERT INTO price_list (id, models, fetched_at, last_attempt_at) VALUES (1, ?, ?, ?)').bind('{}', Date.parse('2026-10-02T03:10:00Z'), Date.parse('2026-10-02T03:10:00Z')),
       ]);
 
-      expect(await jobLine('linking')).toBe('Branch linking: last succeeded 2026-10-01 08:00 UTC.');
-      expect(await jobLine('prices')).toBe('Price list: last succeeded 2026-10-02 03:10 UTC.');
+      expect(await jobLine('linking')).toBe('Branch linking: last succeeded 1 Oct 2026, 10:00.');
+      expect(await jobLine('prices')).toBe('Price list: last succeeded 2 Oct 2026, 05:10.');
       expect(await jobLine('rebuild')).toBe('Daily totals: has not run yet.');
     });
 
@@ -422,7 +422,7 @@ describe('Harness Monitor', () => {
         vi.useRealTimers();
       }
 
-      expect(await jobLine('linking')).toContain('Last succeeded 2026-10-01 08:00 UTC.');
+      expect(await jobLine('linking')).toContain('Last succeeded 1 Oct 2026, 10:00.');
     });
 
     it('a schedule no job answers to runs nothing and says so', async () => {

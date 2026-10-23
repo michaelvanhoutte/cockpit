@@ -230,7 +230,7 @@ describe('Panels', () => {
       },
       {
         // Left out rather than named: there is no live Panel to read its name
-        // off, the same reason matching ignores it (`filters.ts`).
+        // off, the same reason matching ignores it (`@cockpit/shared`'s `filters.ts`).
         situation: 'a Panel among the values has since been deleted',
         conditions: [panel(wiki.id, 'panel-deleted')],
         panels: [wiki],

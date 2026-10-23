@@ -1,8 +1,9 @@
+import { addDays, belgianDay, formatDate, formatDay, startOfDay, weekStart } from './belgium';
 import { jobReads, jobStatuses, type JobStatus } from './jobs';
-import { CATEGORIES, PHASES_BEGIN, phaseSql, WHERE, type Category } from './validate';
+import { CATEGORIES, PHASES_BEGIN, totalsPhaseSql, WHERE, type Category } from './validate';
 
 /** The phase a totals row counts as: the stored one, except Building before phase marks existed. */
-const PHASE = phaseSql('t.');
+const PHASE = totalsPhaseSql('t.');
 
 /** What the costs page can be asked, parsed from the address; anything unrecognised is the default. */
 export const PERIODS = { '7d': 7, '30d': 30, '90d': 90, all: null } as const;
@@ -87,15 +88,15 @@ export function queryString(q: CostQuery, over: Partial<CostQuery> = {}): string
   return text === '' ? '' : `?${text}`;
 }
 
-/** The first UTC day inside the period, or null for all time. */
+/** The first Belgian day inside the period, or null for all time. */
 export function firstDay(period: Period, now: number): string | null {
   const days = PERIODS[period];
-  return days === null ? null : new Date(now - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  return days === null ? null : addDays(belgianDay(now), -(days - 1));
 }
 
 /** One series' dollars in one place, as the totals table holds them. */
 export interface TotalRow {
-  /** The UTC day, for a by-day query; '' otherwise. */
+  /** The Belgian day, for a by-day query; '' otherwise. */
   day: string;
   /** '' for requests that ran on no branch. */
   branch: string;
@@ -230,7 +231,7 @@ function placeOf(row: TotalRow, group: Group, linking: (row: TotalRow) => 'linki
     case 'category':
       return { key: row.category, label: categoryName(row.category as Category), sub: null, catchAll: false };
     case 'day':
-      return { key: row.day, label: row.day, sub: null, catchAll: false };
+      return { key: row.day, label: formatDay(row.day), sub: null, catchAll: false };
     case 'engineer':
       return linked
         ? { key: row.engineer ?? '~unknown', label: row.engineer ?? 'unknown', sub: null, catchAll: row.engineer === null }
@@ -271,7 +272,7 @@ export function openFor(openedAt: string, closedAt: string): string {
 }
 
 const mergedOf = (row: TotalRow) =>
-  row.prNumber === null ? null : row.mergedAt !== null ? row.mergedAt.slice(0, 10) : (row.state ?? '').toLowerCase();
+  row.prNumber === null ? null : row.mergedAt !== null ? formatDate(Date.parse(row.mergedAt)) : (row.state ?? '').toLowerCase();
 
 const ms = (iso: string | null) => (iso === null ? 0 : Date.parse(iso) || 0);
 
@@ -346,15 +347,13 @@ export interface DayLine {
 }
 
 export interface DayChart {
-  /** Every UTC day from the first to the last, oldest first. */
+  /** Every Belgian day from the first to the last, oldest first. */
   days: string[];
   /** A line per series with any cost. */
   lines: DayLine[];
   /** The total's dollars on each day. */
   total: number[];
 }
-
-const DAY_MS = 86_400_000;
 
 /**
  * Cost per day as lines: one per series of the split that has cost, and the
@@ -366,10 +365,10 @@ export function dayChart(groups: CostGroup[], series: Series[], first: string | 
   const byDay = new Map(groups.map((g) => [g.key, g]));
   const keys = groups.map((g) => g.key).sort();
   const start = first ?? keys[0]!;
-  const today = new Date(now).toISOString().slice(0, 10);
+  const today = belgianDay(now);
   const end = today > keys.at(-1)! ? today : keys.at(-1)!;
   const days: string[] = [];
-  for (let t = Date.parse(start); t <= Date.parse(end); t += DAY_MS) days.push(new Date(t).toISOString().slice(0, 10));
+  for (let day = start; day <= end; day = addDays(day, 1)) days.push(day);
   const lines = series
     .filter((s) => groups.some((g) => (g.bySeries[s.key] ?? 0) > 0))
     .map((s) => ({ key: s.key, label: s.label, micros: days.map((d) => byDay.get(d)?.bySeries[s.key] ?? 0) }));
@@ -406,7 +405,7 @@ export interface TrendLine {
 }
 
 export interface Trends {
-  /** The first UTC day of each bucket, oldest first: a day, or the Monday of a week. */
+  /** The first Belgian day of each bucket, oldest first: a day, or the Monday of a week. */
   buckets: string[];
   weekly: boolean;
   /** Median tokens in a session's first main-agent request. */
@@ -415,12 +414,6 @@ export interface Trends {
   prSize: (number | null)[];
   /** Micros per 1,000 lines changed: the total first, then each phase that is drawn anywhere. */
   costPerThousandLines: TrendLine[];
-}
-
-/** The Monday of the week a UTC day falls in. */
-export function weekStart(day: string): string {
-  const t = Date.parse(day);
-  return new Date(t - ((new Date(t).getUTCDay() + 6) % 7) * DAY_MS).toISOString().slice(0, 10);
 }
 
 /**
@@ -435,11 +428,11 @@ export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest
   const weekly = period !== '7d' && period !== '30d';
   const bucketOf = (day: string) => (weekly ? weekStart(day) : day);
   const span = weekly ? 7 : 1;
-  const today = new Date(now).toISOString().slice(0, 10);
+  const today = belgianDay(now);
   const earliest = [...sessions.map((s) => s.day), ...pullRequests.map((p) => p.day)].sort()[0];
   const first = firstDay(period, now) ?? earliest;
   const buckets: string[] = [];
-  if (first !== undefined) for (let t = Date.parse(bucketOf(first)); t <= Date.parse(today); t += span * DAY_MS) buckets.push(new Date(t).toISOString().slice(0, 10));
+  if (first !== undefined) for (let bucket = bucketOf(first); bucket <= today; bucket = addDays(bucket, span)) buckets.push(bucket);
 
   const index = new Map(buckets.map((b, i) => [b, i]));
   const tokens: number[][] = buckets.map(() => []);
@@ -455,7 +448,7 @@ export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest
     return (cost / lines) * 1000;
   };
   const drawn = (phase: string, bucket: string) => {
-    const last = new Date(Date.parse(bucket) + (span - 1) * DAY_MS).toISOString().slice(0, 10);
+    const last = addDays(bucket, span - 1);
     return phase === 'unphased' ? bucket < PHASES_BEGIN : last >= PHASES_BEGIN;
   };
   const phaseLines = CATEGORIES.map((c) => ({
@@ -578,9 +571,9 @@ export function compare(current: WindowFigures, previous: WindowFigures, windows
 export function windowsOf(period: Period, now: number): Pick<Comparison, 'current' | 'previous'> | null {
   const days = PERIODS[period];
   if (days === null) return null;
-  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
-  const from = now - (days - 1) * DAY_MS;
-  return { current: { from: day(from), to: day(now) }, previous: { from: day(from - days * DAY_MS), to: day(from - DAY_MS) } };
+  const today = belgianDay(now);
+  const from = addDays(today, -(days - 1));
+  return { current: { from, to: today }, previous: { from: addDays(from, -days), to: addDays(from, -1) } };
 }
 
 export interface CostsPage {
@@ -759,7 +752,7 @@ interface Narrowing {
 function trendReads(db: D1Database, query: CostQuery, first: string | null, f: Narrowing) {
   const since = first === null ? [] : [first];
   const starts = [...(first === null ? [] : ['ss.day >= ?']), ...(query.model === null ? [] : ['ss.model = ?']), ...f.byEngineer];
-  const merged = ["l.state = 'MERGED' AND l.merged_at IS NOT NULL", ...(first === null ? [] : ['substr(l.merged_at, 1, 10) >= ?']), ...f.narrowing, ...f.byEngineer];
+  const merged = ["l.state = 'MERGED' AND l.merged_at IS NOT NULL", ...(first === null ? [] : ["strftime('%s', l.merged_at) * 1000 >= ?"]), ...f.narrowing, ...f.byEngineer];
   return [
     db
       .prepare(
@@ -770,19 +763,19 @@ function trendReads(db: D1Database, query: CostQuery, first: string | null, f: N
       .bind(...since, ...(query.model === null ? [] : [query.model]), ...f.engineerBinds),
     db
       .prepare(
-        `SELECT l.pr_number AS pr, substr(l.merged_at, 1, 10) AS day, s.lines_added + s.lines_removed AS lines, ${PHASE} AS category, SUM(t.cost_micros) AS costMicros
+        `SELECT l.pr_number AS pr, l.merged_at AS mergedAt, s.lines_added + s.lines_removed AS lines, ${PHASE} AS category, SUM(t.cost_micros) AS costMicros
          FROM daily_split_totals t JOIN branch_links l ON l.branch = t.branch
          LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
          WHERE ${merged.join(' AND ')}
          GROUP BY l.pr_number, ${PHASE}`,
       )
-      .bind(...since, ...f.narrowBinds, ...f.engineerBinds),
+      .bind(...(first === null ? [] : [startOfDay(first)]), ...f.narrowBinds, ...f.engineerBinds),
   ];
 }
 
 interface MergedRow {
   pr: number;
-  day: string;
+  mergedAt: string;
   lines: number | null;
   category: string;
   costMicros: number;
@@ -792,7 +785,7 @@ interface MergedRow {
 function mergedPullRequests(rows: MergedRow[]): MergedPullRequest[] {
   const found = new Map<number, MergedPullRequest>();
   for (const r of rows) {
-    const p = found.get(r.pr) ?? { day: r.day, lines: r.lines, costByPhase: {} };
+    const p = found.get(r.pr) ?? { day: belgianDay(Date.parse(r.mergedAt)), lines: r.lines, costByPhase: {} };
     p.costByPhase[r.category] = (p.costByPhase[r.category] ?? 0) + r.costMicros;
     found.set(r.pr, p);
   }

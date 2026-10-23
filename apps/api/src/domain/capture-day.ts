@@ -14,6 +14,32 @@ export interface CaptureDay {
   weekday: string;
 }
 
+/** One per zone: finding a day's start asks for the day of a few hundred instants, and constructing a formatter resolves locale data each time. */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+/** More zones than exist: a name is client input, so what is kept has a bound. */
+const MOST_FORMATTERS_KEPT = 600;
+
+function formatterFor(timeZone: string): Intl.DateTimeFormat | null {
+  const known = formatters.get(timeZone);
+  if (known) return known;
+  try {
+    const format = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+    });
+    if (formatters.size >= MOST_FORMATTERS_KEPT) formatters.clear();
+    formatters.set(timeZone, format);
+    return format;
+  } catch (error) {
+    if (error instanceof RangeError) return null;
+    throw error;
+  }
+}
+
 /**
  * The capture's day, or null where there is no zone to read it on - none
  * given, or a name this runtime does not know, which reads as none rather
@@ -23,19 +49,9 @@ export function captureDay(capturedAt: string, timeZone: string | null): Capture
   if (timeZone === null) return null;
   const instant = new Date(capturedAt);
   if (Number.isNaN(instant.getTime())) return null;
-  let parts: Intl.DateTimeFormatPart[];
-  try {
-    parts = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      weekday: 'long',
-    }).formatToParts(instant);
-  } catch (error) {
-    if (error instanceof RangeError) return null;
-    throw error;
-  }
+  const format = formatterFor(timeZone);
+  if (format === null) return null;
+  const parts = format.formatToParts(instant);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((one) => one.type === type)?.value ?? '';
   return { date: `${part('year')}-${part('month')}-${part('day')}`, weekday: part('weekday') };
 }

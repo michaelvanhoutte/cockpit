@@ -80,17 +80,17 @@ describe('Harness Monitor', () => {
       ]);
     });
 
-    it('by day there is one group per UTC day, the newest first', async () => {
+    it('by day there is one group per Belgian day, the newest first', async () => {
       await send([
-        spend('d1', 1, { time: '2026-10-02T23:59:59Z', branch: 'b/10' }),
-        spend('d2', 1, { time: '2026-10-03T00:00:01Z', branch: 'b/10' }),
-        spend('d3', 5, { time: '2026-10-03T01:30:00+02:00', branch: 'b/11' }),
+        spend('d1', 1, { time: '2026-10-02T21:59:59Z', branch: 'b/10' }),
+        spend('d2', 1, { time: '2026-10-02T22:00:01Z', branch: 'b/10' }),
+        spend('d3', 5, { time: '2026-10-02T23:30:00+02:00', branch: 'b/11' }),
       ]);
 
       expect((await rows('day', 'default')).map((r) => [r[0], r[1]])).toEqual([
-        ['2026-10-03', '$1.00'],
-        ['2026-10-02', '$6.00'],
-        ['2026-10-01', '$13.75'],
+        ['3 Oct 2026', '$1.00'],
+        ['2 Oct 2026', '$6.00'],
+        ['1 Oct 2026', '$13.75'],
       ]);
     });
 

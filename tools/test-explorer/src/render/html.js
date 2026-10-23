@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { formatDateTime } from '../../../../scripts/lib/belgian-time.mjs';
 import { LEVELS, summarise } from '../model.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -56,7 +57,7 @@ export function renderHtml(model, { repoRelPrefix }) {
           ? `<span>commit <a href="${esc(model.commitUrl)}" target="_blank" rel="noopener"><b>${esc(model.commit)}</b></a></span>`
           : `<span>commit <b>${esc(model.commit)}</b></span>`
       }
-      <span>generated <b>${esc(model.generatedAt.slice(0, 19).replace('T', ' '))}Z</b></span>
+      <span>generated <b>${esc(formatDateTime(model.generatedAt))}</b></span>
       <span>rules <b>${totals.rules}</b></span>
       <span>files nothing runs <b>${totals.filesNothingRuns}</b></span>
       <span>branches nothing takes <b>${model.coverageAvailable ? totals.branchesNothingTakes : 'unknown'}</b></span>

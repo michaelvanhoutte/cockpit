@@ -545,7 +545,7 @@ type ValueOption = { id: string; label: string; group?: string };
  * **Chips are drawn from the options, not from the stored values.** A value
  * naming a Panel since deleted is not among them, so it shows no
  * chip and the list does not offer it - matching what it now means
- * (`filters.ts`) with nothing here needing to know about a deleted one.
+ * (`@cockpit/shared`'s `filters.ts`) with nothing here needing to know about a deleted one.
  *
  * **Chips rather than a row of checkboxes** because a Workspace holds dozens of
  * Panels and a row of names stops being something to read: the chips are what

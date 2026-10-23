@@ -73,13 +73,15 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('a period is whole UTC days ending today', () => {
+  describe('a period is whole Belgian days ending today', () => {
     it.each([
-      { period: '7d', first: '2026-10-25' },
-      { period: '30d', first: '2026-10-02' },
-      { period: 'all', first: null },
-    ] as const)('$period starts $first', ({ period, first }) => {
-      expect(firstDay(period, Date.parse('2026-10-31T23:59:59Z'))).toBe(first);
+      { period: '7d', now: '2026-10-31T23:59:59Z', first: '2026-10-26' },
+      { period: '30d', now: '2026-10-31T23:59:59Z', first: '2026-10-03' },
+      { period: 'all', now: '2026-10-31T23:59:59Z', first: null },
+      { period: '7d', now: '2026-10-31T22:59:59Z', first: '2026-10-25' },
+      { period: '7d', now: '2026-10-22T12:00:00Z', first: '2026-10-16' },
+    ] as const)('$period at $now starts $first', ({ period, now, first }) => {
+      expect(firstDay(period, Date.parse(now))).toBe(first);
     });
   });
 
@@ -180,7 +182,7 @@ describe('Harness Monitor', () => {
     it('a newer day that cost less sits above an older one that cost more', () => {
       const groups = groupRows([day('2026-10-01', 'building', 9), day('2026-10-02', 'building', 1)], 'day', null);
 
-      expect(groups.map((g) => g.label)).toEqual(['2026-10-02', '2026-10-01']);
+      expect(groups.map((g) => g.label)).toEqual(['2 Oct 2026', '1 Oct 2026']);
     });
 
     it('split by phase there is a line per phase with cost, and the total', () => {
@@ -468,7 +470,7 @@ describe('Harness Monitor', () => {
           situation: 'by day',
           group: 'day' as const,
           rows: [row({ day: '2026-10-03', costMicros: 1 }), row({ day: '2026-10-01', costMicros: 9 }), row({ day: '2026-10-02', costMicros: 5 })],
-          expected: ['2026-10-01', '2026-10-02', '2026-10-03'],
+          expected: ['1 Oct 2026', '2 Oct 2026', '3 Oct 2026'],
         },
         {
           situation: 'by issue',

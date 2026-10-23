@@ -399,6 +399,21 @@ describe('Cycle time', () => {
       expect(ticks[ticks.length - 1].atMs).toBe(clock(430));
     });
 
+    it('puts the ticks between on round Belgian clock times, which a step of several hours tells from round Greenwich ones', () => {
+      // 24 hours from 13:05 UTC (15:05 in Brussels) is drawn in three-hour steps: Brussels' 18:00, 21:00 and 00:00 are 16:00, 19:00 and 22:00 UTC.
+      const start = Date.parse('2026-10-22T13:05:00Z');
+      const zoomed = fitTo(partsOf(pull([[0, 24 * 60]], 24 * 60)), Infinity);
+      const between = axisFor(start, zoomed).filter((tick) => tick.align === 'mid');
+      expect(between.slice(0, 3).map((tick) => new Date(tick.atMs).toISOString())).toEqual(['2026-10-22T16:00:00.000Z', '2026-10-22T19:00:00.000Z', '2026-10-22T22:00:00.000Z']);
+    });
+
+    it('keeps a daily step on Belgian midnight, 25 hours after the last across the change of clock', () => {
+      const start = Date.parse('2026-10-23T12:00:00Z');
+      const zoomed = fitTo(partsOf(pull([[0, 5 * 24 * 60]], 5 * 24 * 60)), Infinity);
+      const days = axisFor(start, zoomed).filter((tick) => tick.align === 'mid').map((tick) => new Date(tick.atMs).toISOString());
+      expect(days.slice(0, 3)).toEqual(['2026-10-23T22:00:00.000Z', '2026-10-24T22:00:00.000Z', '2026-10-25T23:00:00.000Z']);
+    });
+
     it('covers the whole pull request, though it was cut on the shared scale', () => {
       const parts = partsOf(pull([[0, 60], [70, 200]], 200));
       expect(fitTo(parts, 120 * MIN).clipped).not.toBeNull();

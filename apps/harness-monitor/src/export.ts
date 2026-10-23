@@ -1,5 +1,6 @@
+import { startOfDay } from './belgium';
 import { firstDay, UNATTRIBUTED, type CostQuery } from './costs';
-import { phaseSql } from './validate';
+import { requestPhaseSql } from './validate';
 
 /**
  * Rows read per D1 query. The free plan allows 50 queries per invocation, so a
@@ -8,17 +9,20 @@ import { phaseSql } from './validate';
  */
 export const EXPORT_PAGE_SIZE = 20_000;
 
-/** The request rows a question keeps: the same day, category and engineer rules the page's totals apply, and one pull request if asked. */
+/**
+ * The request rows a question keeps: the same day, category and engineer rules the page's totals apply, and one pull request if asked.
+ * The period starts at a Belgian midnight and is cut on the request's exact time, never on the day stored on its row, which for older rows is a UTC day.
+ */
 export function requestFilter(query: CostQuery, pullRequest: number | null, now = Date.now()): { where: string; binds: (string | number)[] } {
   const where: string[] = [];
   const binds: (string | number)[] = [];
   const first = firstDay(query.period, now);
   if (first !== null) {
-    where.push('u.day >= ?');
-    binds.push(first);
+    where.push('u.occurred_at >= ?');
+    binds.push(startOfDay(first));
   }
   if (query.category !== null) {
-    where.push(`${phaseSql('u.')} = ?`);
+    where.push(`${requestPhaseSql('u.')} = ?`);
     binds.push(query.category);
   }
   if (query.model !== null) {
@@ -121,7 +125,7 @@ function csvLine(r: RequestRow): string {
 export function exportCsv(db: D1Database, query: CostQuery, pullRequest: number | null, filename: string, now = Date.now()): Response {
   const { where, binds } = requestFilter(query, pullRequest, now);
   const base = `SELECT u.occurred_at, u.request_id, u.session_id, u.branch, l.pr_number AS prNumber, l.issue_number AS issue,
-      l.engineer AS engineer, ${phaseSql('u.')} AS category, u.model, u.speed, u.ran_where, u.input_tokens, u.output_tokens,
+      l.engineer AS engineer, ${requestPhaseSql('u.')} AS category, u.model, u.speed, u.ran_where, u.input_tokens, u.output_tokens,
       u.cache_creation_tokens, u.cache_read_tokens, u.cost_micros, u.price_basis
     FROM ${
       // One pull request starts from its few branches and reads their rows through usage_requests_branch;

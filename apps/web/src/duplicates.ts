@@ -44,7 +44,7 @@ function eligiblePartner(
  * filed Items).
  *
  * **A view over the snapshot, like the Inbox itself** (`itemsInTheInbox`,
- * filing.ts): the wire carries which Items were paired, and whether a pair is
+ * `packages/shared/src/domain/filing.ts`): the wire carries which Items were paired, and whether a pair is
  * *offered* is worked out here, where what is filed is already known.
  *
  * The server has already left out everything a person could no longer act on

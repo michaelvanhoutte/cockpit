@@ -10,7 +10,7 @@ import type {
 /**
  * How a sorted Panel of items draws its rows ("Sort a panel of items by the
  * fields you choose", issue 526), worked out in the client for the reason a
- * Filter's rows are (`filters.ts`): the wire carries the Panel's sort and its
+ * Filter's rows are (`@cockpit/shared`'s `filters.ts`): the wire carries the Panel's sort and its
  * filings, and nothing about the order that makes. The ordering itself
  * (`inSortOrder`) and a Filter's default sort are `@cockpit/shared`'s.
  */

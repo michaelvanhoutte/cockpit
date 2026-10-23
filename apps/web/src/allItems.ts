@@ -14,7 +14,7 @@ import {
  * The table on *All items* ("Put each setting where a person looks for it",
  * issue 688): every item of the workspace in one table, and how it is ordered.
  *
- * **A view over the snapshot**, like the Inbox (`filing.ts`): finished items
+ * **A view over the snapshot**, like the Inbox (`packages/shared/src/domain/filing.ts`): finished items
  * travel in it and dismissed ones do not, so the table is the snapshot's items
  * as they stand and asks the server for nothing. It is sorted and filtered over
  * every row, then drawn `ALL_ITEMS_PAGE` at a time.
