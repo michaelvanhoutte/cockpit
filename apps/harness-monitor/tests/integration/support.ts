@@ -44,11 +44,76 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM link_state'),
     env.DB.prepare('DELETE FROM job_runs'),
     env.DB.prepare('DELETE FROM pull_request_stats'),
+    env.DB.prepare('DELETE FROM stability_runs'),
+    env.DB.prepare('DELETE FROM stability_jobs'),
+    env.DB.prepare('DELETE FROM stability_steps'),
     env.DB.prepare('DELETE FROM claude_calls'),
     env.DB.prepare('DELETE FROM claude_call_daily_totals'),
     env.DB.prepare('DELETE FROM claude_call_place'),
     env.DB.prepare('DELETE FROM claude_call_job_runs'),
   ]);
+}
+
+/** A step as the Stability job sends it, `ms` long. */
+export const stabilityStep = (name: string, ms: number | null, over: Record<string, unknown> = {}) => ({
+  number: 1,
+  name,
+  occurrence: 1,
+  conclusion: 'success',
+  startedAt: '2026-10-01T10:00:00Z',
+  completedAt: '2026-10-01T10:01:00Z',
+  durationMs: ms,
+  ...over,
+});
+
+/** A job as the Stability job sends it, `ms` long, that passed unless told otherwise. */
+export const stabilityJob = (name: string, ms: number | null, over: Record<string, unknown> = {}) => ({
+  name,
+  status: 'completed',
+  conclusion: 'success',
+  outcome: 'pass',
+  startedAt: '2026-10-01T10:00:00Z',
+  completedAt: '2026-10-01T10:05:00Z',
+  durationMs: ms,
+  failedStep: null,
+  url: 'https://github.com/o/r/actions/runs/1/job/1',
+  steps: [],
+  ...over,
+});
+
+/** A run of CI on `main` as the Stability job sends it, started at `createdAt`, that passed unless told otherwise. */
+export const stabilityRun = (id: number, over: Record<string, unknown> = {}) => ({
+  id,
+  workflow: 'CI',
+  path: '.github/workflows/ci.yml',
+  status: 'completed',
+  conclusion: 'success',
+  outcome: 'pass',
+  headSha: 'a'.repeat(40),
+  createdAt: '2026-10-01T10:00:00Z',
+  url: `https://github.com/o/r/actions/runs/${id}`,
+  jobs: [stabilityJob('Test', 300_000, { steps: [stabilityStep('Run the tests', 240_000)] })],
+  ...over,
+});
+
+/** A send of runs as the Stability job makes it, with the right key unless told otherwise. */
+export function sendRuns(runs: unknown[], headers: Record<string, string> = { authorization: `Bearer ${WRITE_KEY}` }) {
+  return SELF.fetch('https://monitor.test/v1/stability', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ runs }),
+  });
+}
+
+/** What is stored: each run with its conclusion, and how many jobs and steps sit under it. */
+export async function storedRuns(): Promise<{ run_id: number; conclusion: string | null; jobs: number; steps: number }[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT r.run_id, r.conclusion,
+            (SELECT COUNT(*) FROM stability_jobs j WHERE j.run_id = r.run_id) AS jobs,
+            (SELECT COUNT(*) FROM stability_steps s WHERE s.run_id = r.run_id) AS steps
+     FROM stability_runs r ORDER BY r.run_id`,
+  ).all<{ run_id: number; conclusion: string | null; jobs: number; steps: number }>();
+  return results;
 }
 
 export interface Total {

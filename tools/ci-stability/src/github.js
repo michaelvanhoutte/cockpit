@@ -20,6 +20,8 @@
 
 const API = 'https://api.github.com';
 const PER_PAGE = 100;
+/** The most runs a filtered list returns, however many pages are asked for. */
+const LISTED_AT_MOST = 1_000;
 
 /** Thrown for anything that means the picture would be incomplete. */
 export class GitHubError extends Error {
@@ -173,9 +175,11 @@ function normalizeJob(raw) {
  * Runs on one branch, newest first, back to `since` or until `maxRuns` is
  * reached — whichever comes first.
  *
- * Paginates and stops on the first run older than `since` rather than passing
- * the API's `created` filter, because the stop condition is then the same one
- * the budget uses and both are visible here.
+ * Paginates and stops on the first run older than `since`, because the stop
+ * condition is then the same one the budget uses and both are visible here. Only
+ * a window with an `until` (the backfill) passes the API's `created` filter too.
+ * A list filtered by branch or `created` ends at 1,000 runs, as an empty page;
+ * reaching that is counted as `truncated`, since the runs past it went unread.
  *
  * Runs that belong to no workflow file are dropped here, counted rather than
  * silently: Dependabot's update jobs appear in this list as one pseudo-workflow
@@ -193,16 +197,20 @@ function normalizeJob(raw) {
  *   every run that *is* returned satisfies `createdAt >= since` by construction and so
  *   can never show it.
  */
-export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }) {
+export async function listRuns({ repo, branch = 'main', since, until = null, maxRuns, ...ctx }) {
   const runs = [];
   let page = 1;
   let truncated = false;
   let ignored = 0;
   let reachedWindowEdge = false;
+  // An older window (the Harness Monitor's backfill) is asked of the API as a
+  // range: a list filtered by branch stops at 1,000 runs, which paging back
+  // from today would spend before a window 60 days old was reached.
+  const created = until ? `&created=${encodeURIComponent(`${apiTime(since)}..${apiTime(until)}`)}` : '';
 
   for (;;) {
     const body = await request(
-      `/repos/${repo}/actions/runs?branch=${encodeURIComponent(branch)}&per_page=${PER_PAGE}&page=${page}`,
+      `/repos/${repo}/actions/runs?branch=${encodeURIComponent(branch)}${created}&per_page=${PER_PAGE}&page=${page}`,
       ctx,
     );
     const batch = body.workflow_runs ?? [];
@@ -210,6 +218,8 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }
 
     for (const raw of batch) {
       const run = normalizeRun(raw);
+      // The range is inclusive at both ends, and the window is not at its end.
+      if (until && new Date(run.createdAt) >= until) continue;
       if (new Date(run.createdAt) < since) {
         reachedWindowEdge = true;
         break;
@@ -226,11 +236,18 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }
     }
 
     if (reachedWindowEdge || truncated || batch.length < PER_PAGE) break;
+    if (page * PER_PAGE >= LISTED_AT_MOST) {
+      truncated = true;
+      break;
+    }
     page += 1;
   }
 
   return { runs, truncated, ignored, reachedWindowEdge };
 }
+
+/** A time as the API's search syntax takes it: to the second, in UTC. */
+const apiTime = (date) => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 /** Every job of one run. @returns {Promise<Job[]>} */
 export async function listJobs({ repo, runId, ...ctx }) {
@@ -265,6 +282,7 @@ export async function collect({
   repo,
   branch = 'main',
   since,
+  until = null,
   maxRuns = 800,
   concurrency = 8,
   token,
@@ -281,6 +299,7 @@ export async function collect({
     repo,
     branch,
     since,
+    until,
     maxRuns,
     ...ctx,
   });

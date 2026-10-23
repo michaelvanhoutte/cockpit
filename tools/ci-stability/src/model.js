@@ -356,6 +356,59 @@ function windowModel(runs, jobsByRun, { days, now, oldestRun, reachedWindowEdge,
 }
 
 /**
+ * The runs as the Harness Monitor stores them: each with its jobs, a shard family
+ * folded into one job exactly as the model counts it, and each run's and job's
+ * outcome decided here, so the Monitor derives nothing. A duration is the span
+ * the model would count, or null where it has none; whether it counts is the
+ * outcome's to say (only `pass` and `fail` do), and a skipped or cancelled step
+ * has none. A step carries its occurrence of its name in the job, its key.
+ *
+ * @param {{ runs: import('./github.js').Run[], jobs: import('./github.js').Job[] }} input
+ */
+export function monitorRows({ runs, jobs }) {
+  const jobsByRun = group(jobs, (job) => job.runId);
+  return runs.map((run) => ({
+    id: run.id,
+    workflow: run.workflow,
+    path: run.path,
+    status: run.status,
+    conclusion: run.conclusion ?? null,
+    outcome: classify(run),
+    headSha: run.headSha,
+    createdAt: run.createdAt,
+    url: run.url,
+    jobs: foldFamilies(jobsByRun.get(run.id) ?? []).map((job) => {
+      const seen = new Map();
+      return {
+        name: job.name,
+        status: job.status,
+        conclusion: job.conclusion ?? null,
+        outcome: classify(job),
+        startedAt: job.startedAt ?? null,
+        completedAt: job.completedAt ?? null,
+        durationMs: durationMs(job),
+        failedStep: job.failedStep ?? null,
+        url: job.url ?? null,
+        steps: (job.steps ?? []).map((step) => {
+          const name = step.name ?? '';
+          const occurrence = (seen.get(name) ?? 0) + 1;
+          seen.set(name, occurrence);
+          return {
+            number: step.number ?? null,
+            name,
+            occurrence,
+            conclusion: step.conclusion ?? null,
+            startedAt: step.startedAt ?? null,
+            completedAt: step.completedAt ?? null,
+            durationMs: stepDurationMs(step),
+          };
+        }),
+      };
+    }),
+  }));
+}
+
+/**
  * @param {object} input
  * @param {import('./github.js').Run[]} input.runs
  * @param {import('./github.js').Job[]} input.jobs

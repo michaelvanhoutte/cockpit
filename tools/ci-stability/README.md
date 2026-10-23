@@ -2,7 +2,8 @@
 
 Answers, without opening the Actions tab and counting: **is `main` staying green, and
 which job is least reliable.** Reads the GitHub Actions API and writes one self-contained
-HTML page. Keeps no state — GitHub already stores this history, so every run re-derives it.
+HTML page. Keeps no state — GitHub already stores this history, so every run re-derives it —
+and with `--send` hands the runs to the Harness Monitor, which keeps them past GitHub's 90 days.
 
 The options considered and rejected, and the measured baseline, are in
 [docs/ci-stability-options.md](../../docs/ci-stability-options.md).
@@ -35,6 +36,16 @@ node src/cli.js --repo owner/name     # a different repository
 node src/cli.js --model out/model.json   # writes the page and, beside it, the model
 node src/cli.js --help
 ```
+
+```bash
+node src/cli.js --send                                  # also sends the runs to the Harness Monitor
+node src/cli.js --send --from 2026-07-25 --to 2026-08-24   # sends that window only, writes nothing
+```
+
+`--send` needs `HARNESS_MONITOR_URL` and `HARNESS_WRITE_KEY`, and sends each run with its jobs
+and steps, counted as this page counts them, from the newest run the Monitor holds less two
+days. The `Stability` job does it on every merge; the backfill is the *Stability backfill*
+workflow ([deployment.md](../../docs/deployment.md), "The Harness Monitor").
 
 `out/index.html` is a complete file — open it directly, no server needed, and it is
 gitignored. A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without
