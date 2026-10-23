@@ -92,6 +92,21 @@ export function theFileAnswers(answer: unknown) {
   });
 }
 
+type WorkerSetting = 'GITHUB_TOKEN' | 'GITHUB_REPOSITORY' | 'USAGE_READ_TOKEN' | 'COCKPIT_URL';
+
+/** Gives the Worker these settings, and returns what puts each back as it was. */
+export function giveTheWorker(settings: Partial<Record<WorkerSetting, string>>) {
+  const given = Object.entries(settings) as [WorkerSetting, string][];
+  const before = given.map(([name]) => [name, env[name]] as const);
+  for (const [name, value] of given) env[name] = value;
+  return () => {
+    for (const [name, value] of before) {
+      if (value === undefined) delete env[name];
+      else env[name] = value;
+    }
+  };
+}
+
 /** The day's two schedules, prices then totals, run the way the platform runs them. */
 export async function runTheDailyJob() {
   const ctx = createExecutionContext();

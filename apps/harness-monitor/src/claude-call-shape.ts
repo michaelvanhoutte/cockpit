@@ -62,7 +62,7 @@ export function checkCallsPage(body: unknown, after: number): CheckedPage {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return { ok: false, error: 'the answer is not an object.' };
   const page = body as Record<string, unknown>;
   const extra = Object.keys(page).find((key) => key !== 'calls' && key !== 'more');
-  if (extra) return { ok: false, error: `the answer carries "${extra}", which is not part of a page.` };
+  if (extra !== undefined) return { ok: false, error: `the answer carries "${extra}", which is not part of a page.` };
   if (!Array.isArray(page.calls)) return { ok: false, error: 'the answer has no list of calls.' };
   if (typeof page.more !== 'boolean') return { ok: false, error: 'the answer does not say whether there are more calls.' };
   if (page.more && page.calls.length === 0) return { ok: false, error: 'the answer says there are more calls but carries none to continue after.' };
@@ -86,7 +86,7 @@ function checkCall(raw: unknown): ClaudeCall | string {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'is not an object.';
   const r = raw as Record<string, unknown>;
   const extra = Object.keys(r).find((key) => !(FIELDS as readonly string[]).includes(key));
-  if (extra) return `carries "${extra}", which a call does not have.`;
+  if (extra !== undefined) return `carries "${extra}", which a call does not have.`;
 
   if (!positive(r.id)) return 'has no row number.';
   if (typeof r.at !== 'string' || !ISO_TIME.test(r.at) || Number.isNaN(Date.parse(r.at))) return 'has no time, or one that is not an ISO 8601 timestamp with a time zone.';

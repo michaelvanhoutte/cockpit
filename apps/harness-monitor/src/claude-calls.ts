@@ -14,8 +14,10 @@ export const FEED_PATH = '/v1/usage-records';
 /**
  * Most pages one run reads, each up to 1,000 calls. Each is a subrequest, and
  * each stores as one statement of the batch: with the place read, the batch's
- * two more statements and the run's record, a run makes at most 24 of the 50 an
- * invocation allows, and no bound page is near D1's 2 MB a value.
+ * two more statements and the run's record, a run makes at most 10 subrequests
+ * and 14 queries of the 50 each that the Monitor's jobs are sized to
+ * (docs/architecture.md, "The Harness Monitor"), and no bound page is near D1's
+ * 2 MB a value.
  */
 export const MAX_PAGES = 10;
 

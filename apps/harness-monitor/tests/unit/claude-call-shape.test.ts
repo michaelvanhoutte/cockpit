@@ -64,6 +64,8 @@ describe('Harness Monitor', () => {
       { situation: 'a call carrying a user', calls: [call({ userId: 'user-anna' })], named: '"userId"' },
       { situation: 'a call carrying an account', calls: [call({ accountName: 'anna' })], named: '"accountName"' },
       { situation: 'a page carrying more than its calls', page: { calls: [call()], more: false, users: [] }, named: '"users"' },
+      { situation: 'a call carrying a field with no name', calls: [call({ '': 'anna' })], named: '""' },
+      { situation: 'a page carrying a field with no name', page: { calls: [call()], more: false, '': 'anna' }, named: '""' },
     ])('$situation is refused, so nothing of it is stored', ({ calls, page, named }) => {
       const checked = checkCallsPage(page ?? { calls, more: false }, 0);
       expect(checked).toEqual({ ok: false, error: expect.stringContaining(named) });

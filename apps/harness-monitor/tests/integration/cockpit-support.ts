@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 import worker from '../../src/worker';
 import recorded from './fixtures/cockpit-claude-calls.json';
 import refused from './fixtures/cockpit-claude-calls-refused.json';
+import { giveTheWorker } from './support';
 
 /** Where the tests' Cockpit answers; production's real address is never reached. */
 export const COCKPIT = 'https://cockpit.test';
@@ -75,17 +76,7 @@ export const theRoute =
   };
 
 /** Gives the Worker the read token and Cockpit's address, and returns what puts both back as they were. */
-export function giveTheWorkerTheReadToken() {
-  const before = { USAGE_READ_TOKEN: env.USAGE_READ_TOKEN, COCKPIT_URL: env.COCKPIT_URL };
-  env.USAGE_READ_TOKEN = READ_TOKEN;
-  env.COCKPIT_URL = COCKPIT;
-  return () => {
-    for (const [name, value] of Object.entries(before) as [keyof typeof before, string | undefined][]) {
-      if (value === undefined) delete env[name];
-      else env[name] = value;
-    }
-  };
-}
+export const giveTheWorkerTheReadToken = () => giveTheWorker({ USAGE_READ_TOKEN: READ_TOKEN, COCKPIT_URL: COCKPIT });
 
 /** A cron firing, entered through the Worker's own scheduled handler. */
 export async function fire(cron: string) {
