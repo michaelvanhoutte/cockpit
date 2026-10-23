@@ -132,32 +132,29 @@ Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which
 commit shipped.
 
-Three D1 databases, Cockpit's two and the Harness Monitor's, out of the free plan's
-ten. The two thresholds that would force
-the $5/month Workers Paid plan, recorded so they are recognised rather than
-rediscovered: **a database crossing 500 MB** (or 5 GB across all three), and **needing
-queue retention beyond 24 hours**. Cloudflare Queues moved onto the free plan in
-February 2026, so it is no longer a reason to upgrade on its own - but its
-**10,000 operations a day** are shared by both environments, and each message
-costs three (write, read, delete): every pulled connection's checks spend about
-860 a day, a Gmail connection not yet reconnected included, so a dozen of them
-spend it alone and the enrichment jobs' sends then fail.
+**Every environment, the Harness Monitor's included, is on one Cloudflare account
+on Workers Paid ($5/month).** Size a run against its per-invocation ceilings:
+**10,000 subrequests**, calls out and calls to Cloudflare's own services alike,
+**1,000 D1 queries**, and 30 seconds of CPU time for a request (configurable to 5
+minutes) or a cron run, 15 minutes for a schedule an hour or more apart.
+Usage past an included allowance is billed rather than refused, so no allowance
+stops the app; these are what grow the bill:
 
-**MCP connections spend the free plan's daily KV write allowance**, which is not a
-third threshold so much as a ceiling to know about: registering an app, showing
-the consent page, trading a code and every refresh each write to `OAUTH_KV`. Once
-the day's writes are spent, connecting an app and refreshing its access fail
-until the allowance resets. An app whose access is still current keeps
-capturing until that access runs out, within the hour, since checking it only
-reads KV; the rest of Cockpit does not use KV and is unaffected.
+| Service | Included | Past it | What spends it |
+|---|---|---|---|
+| Queues | 1,000,000 operations a month | $0.40 a million | both environments; a message costs three (write, read, delete), so each pulled connection's checks spend about 26,000 a month, a Gmail connection not yet reconnected included, and some three dozen spend the million alone |
+| KV | 1,000,000 writes a month | $5 a million | only MCP connections: registering an app, the consent page, trading a code and every refresh each write to `OAUTH_KV` |
+| Durable Objects | 1,000,000 requests and 400,000 GB-s a month | $0.15 a million requests, $12.50 a million GB-s | each account's store |
+| D1 | 25 billion rows read and 50 million written a month | $0.001 a million read, $1 a million written | three databases, Cockpit's two and the Harness Monitor's, each allowed 10 GB |
+| Workers AI | 10,000 neurons a day | $0.011 per 1,000 | embeddings and transcription |
 
 ### The Harness Monitor
 
-A second, separate service: Worker `harness-monitor` with its own D1 database `harness-monitor`, in `apps/harness-monitor`. It shares no code, binding or secret with Cockpit ("The Harness Monitor" in the architecture document says why). Its database is the third of the free plan's ten.
+A second, separate service: Worker `harness-monitor` with its own D1 database `harness-monitor`, in `apps/harness-monitor`. It shares no code, binding or secret with Cockpit ("The Harness Monitor" in the architecture document says why). It is on Cockpit's Cloudflare account, so the plan and ceilings above are its too.
 
 | | Deployed by | Worker | Database | Cron | URL |
 |---|---|---|---|---|---|
-| **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | hourly: branch linking; daily, 03:10 UTC: fetch the price list and price waiting rows; 03:20 UTC: rebuild the daily totals (separate invocations, to stay inside the free plan's 50 queries each) | `harness-monitor.<subdomain>.workers.dev` |
+| **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | hourly: branch linking; daily, 03:10 UTC: fetch the price list and price waiting rows; 03:20 UTC: rebuild the daily totals (separate invocations, each sized to 50 queries) | `harness-monitor.<subdomain>.workers.dev` |
 
 - **No staging.** Migrations are expand-then-contract like Cockpit's; D1's point-in-time restore is the backstop, since rows from cloud sessions exist nowhere else. The workflow applies migrations, then deploys.
 - **The page is cached at the edge** for `PAGE_CACHE_SECONDS` (`wrangler.jsonc`, 300) **only once a custom domain or route is attached**, because Cloudflare's Cache API does nothing on `workers.dev`. Until then every view reads D1, from the totals alone. A cached request costs no database read, and a new report shows within that time. Local runs and tests set it to 0.
@@ -359,7 +356,7 @@ migrations to the *register* will collide, because a migration applied by one is
 immediately visible to every other. There is no mitigation, only a detection
 story — deploying applies migrations first, so the branch that breaks is the
 branch that notices. If this bites, the recorded escalation is per-branch
-databases on the Workers Paid plan.
+databases, which the account's plan allows.
 
 ### The footgun this configuration exists to defuse
 
@@ -501,7 +498,7 @@ pnpm duplicates:backfill --env production --user tenant-anna --batch 50 --stop-a
 
 **It never writes to a note itself**, only to what a note means and which notes repeat each other — `pnpm backup:export` first, the same as any other command that writes to a deployed environment. A note that already has a reading is not read again, so re-running costs nothing for what was done and is how a run that stopped is finished — and a note with nothing written on it is counted and named rather than passed over. A note's own pairs are recomputed each time it is read, not merely appended to, so a reading taken under a since-retired model can lose a pair a person could see before; nothing here deletes a *note*. It skips the guest account, which is reset nightly, so naming it explicitly with `--user` is the only way to spend a reading there. **A command rather than a change to the store**, because a change that has shipped may never be edited and this has to stay re-runnable.
 
-**Pacing it is the operator's, and `--stop-after` is the lever.** A reading is one Workers AI call per note, and a few thousand notes in one sitting can pass a day's free neuron allocation; nothing schedules this, so the answer is to run it again tomorrow, which picks up exactly where it left off. Left alone it reads everything in one go — the deliberate choice while an account holds hundreds of notes rather than thousands, and the counts it prints are what say when that stops being true.
+**Pacing it is the operator's, and `--stop-after` is the lever.** A reading is one Workers AI call per note, and a few thousand notes in one sitting can pass the day's included neurons, past which Workers AI is billed ("The environments"); nothing schedules this, so to stay inside them, stop and run it again tomorrow, which picks up exactly where it left off. Left alone it reads everything in one go — the deliberate choice while an account holds hundreds of notes rather than thousands, and the counts it prints are what say when that stops being true.
 
 ## 6. Secrets and access
 
@@ -685,7 +682,7 @@ or the `Cockpit` category on a message, taken off or put back as its Item is
 closed or reopened. Disconnecting forgets the sign-in; Microsoft offers no
 revoke for one application, so the person removes Cockpit at Microsoft to end
 the grant. Each connection is checked through the generic host about every five
-minutes, within the free plan's 50 calls out (`OUTLOOK_CALLS_PER_RUN`, 45).
+minutes, at most 45 calls out a run (`OUTLOOK_CALLS_PER_RUN`).
 
 ### An Azure Bot
 
@@ -799,8 +796,8 @@ Google does not answer is logged and never keeps the connection.
 account's alarm every five minutes and ten seconds apart while a newly
 connected mailbox is still being brought in ("Switch Gmail onto the generic
 host, and take it out of the core", issue 944): about 288 queued checks per
-connection a day, and at most 41 outbound calls per run against the free
-plan's 50 (`CALLS_PER_RUN` and one discovery read). Nothing needs configuring;
+connection a day, and at most 41 outbound calls per run
+(`CALLS_PER_RUN` and one discovery read). Nothing needs configuring;
 the nightly cron re-arms any alarm that was lost. **A Gmail connection made
 before that release reads as needing a reconnect**, once, and Reconnect on its
 row is the remedy; nothing it stored is migrated or deleted.
@@ -842,9 +839,9 @@ has to be told to leave it alone.
 and nothing else, so it discloses only whether each half answered — never *why*
 one did not, since the reason an update will not apply names tables and columns
 and this endpoint answers anyone. That reason goes to the logs. The one exception is `"allowanceSpent":true`, added
-while the free tier's daily allowance is spent: it names a limit rather than a
-table, and it is what keeps that failure from reading as an update that will not
-apply.
+while a Workers Free daily Durable Objects allowance is spent, which Workers Paid
+bills past instead: it names a limit rather than a table, and it is what keeps that
+failure from reading as an update that will not apply.
 
 **`ai` is reported and is deliberately not part of `ok`.** It says whether this
 environment has an `ANTHROPIC_API_KEY` — never what it is, and nothing about it
@@ -1288,7 +1285,7 @@ curl -i https://cockpit-staging.vanhoutte-michael.workers.dev/health
 |---|---|---|
 | `200 {"ok":true,...}` | Worker up, register answering, an account store openable. The deployment is fine. | *In the browser*, below |
 | `200 {"ok":true,...,"ai":false}` | The deployment is fine and will never clean up a captured note: no `ANTHROPIC_API_KEY` is set on it. Not an outage — every capture works and keeps the title it was typed with. | *Secrets and access* |
-| `200 {"ok":false,"register":true,"store":false,"allowanceSpent":true}` | The free tier's daily Durable Objects allowance is spent, so nothing can say whether the update applies. It clears at 00:00 UTC, or on Workers Paid. Every API request that reaches an account's data answers `503` while it lasts. | Wait, or upgrade |
+| `200 {"ok":false,"register":true,"store":false,"allowanceSpent":true}` | A Workers Free daily Durable Objects allowance is spent, so nothing can say whether the update applies. Workers Paid bills past its allowances instead, so the account is no longer on it; the allowance clears at 00:00 UTC. Every API request that reaches an account's data answers `503` while it lasts. | The account's plan in the Cloudflare dashboard |
 | `200 {"ok":false,"register":true,"store":false}` | A store would not open — most often an update that will not apply. | *At the deployment*, below |
 | `200 {"ok":false,"register":false,...}` | Either D1 did not answer, **or** somebody registered an account under the health check's own name, which makes it refuse to run rather than open their data. Two faults with one shape, so read the logs — the reason is never in the body. | *At the deployment*, below |
 | `200` with any other body | Something answered in front of the Worker rather than the Worker itself | *In the browser* |
