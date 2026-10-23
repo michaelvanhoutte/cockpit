@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { linked, pullRequest } from './github-support';
-import { costRows, emptyTheDatabase, send, spend, splitColumns, theExport, thePage, whereItWent, withPrices } from './support';
+import { costRows, emptyTheDatabase, send, spend, theExport, thePage, whereItWent, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -16,29 +16,28 @@ const onOpus = (id: string, dollars: number, over: Record<string, unknown> = {})
 
 const split = async (query: string) => {
   const html = await thePage(`?period=all&${query}`);
-  return { html, columns: splitColumns(html), rows: costRows(html), bar: whereItWent(html) };
+  return { html, rows: costRows(html), bar: whereItWent(html) };
 };
 
 describe('Harness Monitor', () => {
-  describe('the split decides what the bar, its legend, each row and the dollar columns show', () => {
-    it('by model, a pull request on two models has a column and a segment for each', async () => {
+  describe('the colouring decides what the bar, its legend and each row’s bar and hover show', () => {
+    it('by model, a pull request on two models has a segment for each, and its hover names both', async () => {
       await send([spend('a', 3, { branch: 'b/10' }), onOpus('b', 2, { branch: 'b/10' }), spend('c', 1, { branch: 'b/11' })]);
       await linked(
         pullRequest({ number: 10, title: 'Two models', headRefName: 'b/10' }),
         pullRequest({ number: 11, title: 'One model', headRefName: 'b/11' }),
       );
 
-      const { columns, rows, bar } = await split('split=model');
+      const { rows, bar } = await split('split=model');
 
-      expect(columns).toEqual([SONNET, OPUS]);
-      expect(rows.map((r) => [r.label, r.total, ...r.categories, r.segments])).toEqual([
-        ['#10 Two models', '$5.00', '$3.00', '$2.00', 2],
-        ['#11 One model', '$1.00', '$1.00', '—', 1],
+      expect(rows.map((r) => [r.label, r.total, r.colours, r.segments])).toEqual([
+        ['#10 Two models', '$5.00', `${SONNET} $3.00 · ${OPUS} $2.00`, 2],
+        ['#11 One model', '$1.00', `${SONNET} $1.00`, 1],
       ]);
-      expect(bar).toEqual({ heading: "Where the period's $6.00 went", bar: `${SONNET} $4.00, ${OPUS} $2.00` });
+      expect(bar).toEqual({ heading: "Where the period's $6.00 went, by model", bar: `${SONNET} $4.00, ${OPUS} $2.00` });
     });
 
-    it("by where, requests from engineers' machines and from Actions each have their own column", async () => {
+    it("by where, requests from engineers' machines, from cloud sessions and from Actions each have their own colour", async () => {
       await send([
         spend('a', 3, { branch: 'b/10', ranWhere: 'local' }),
         spend('b', 1, { branch: 'b/10', ranWhere: 'actions', category: 'ci-reviews' }),
@@ -46,14 +45,13 @@ describe('Harness Monitor', () => {
       ]);
       await linked(pullRequest({ number: 10, title: 'Everywhere', headRefName: 'b/10' }));
 
-      const { columns, rows, bar } = await split('split=where');
+      const { rows, bar } = await split('split=where');
 
-      expect(columns).toEqual(["Engineers' machines", 'Cloud', 'CI']);
-      expect(rows.map((r) => [r.total, ...r.categories])).toEqual([['$6.00', '$3.00', '$2.00', '$1.00']]);
+      expect(rows.map((r) => [r.total, r.colours])).toEqual([['$6.00', "Engineers' machines $3.00 · Cloud sessions $2.00 · CI (GitHub Actions) $1.00"]]);
       expect(bar.bar).toBe("Engineers' machines $3.00, Cloud sessions $2.00, CI (GitHub Actions) $1.00");
     });
 
-    it('by outcome, merged, open, closed, an unlinked branch and main each have their own column', async () => {
+    it('by outcome, merged, open, closed, an unlinked branch and main each have their own colour', async () => {
       await send([
         spend('m', 5, { branch: 'b/merged' }),
         spend('o', 4, { branch: 'b/open' }),
@@ -70,20 +68,19 @@ describe('Harness Monitor', () => {
       const byPullRequest = await split('split=outcome&sort=total');
       const byDay = await split('split=outcome&group=day');
 
-      expect(byPullRequest.columns).toEqual(['Merged', 'Open', 'Closed', 'No PR', 'On main']);
-      expect(byPullRequest.rows.map((r) => [r.label, ...r.categories])).toEqual([
-        ['#1 Merged', '$5.00', '—', '—', '—', '—'],
-        ['#2 Open', '—', '$4.00', '—', '—', '—'],
-        ['#3 Closed', '—', '—', '$3.00', '—', '—'],
-        ['b/unlinked', '—', '—', '—', '$2.00', '—'],
-        ['main', '—', '—', '—', '—', '$1.00'],
+      expect(byPullRequest.rows.map((r) => [r.label, r.colours])).toEqual([
+        ['#1 Merged', 'Merged $5.00'],
+        ['#2 Open', 'Still open $4.00'],
+        ['#3 Closed', 'Closed unmerged $3.00'],
+        ['b/unlinked', 'No pull request $2.00'],
+        ['main', 'On main $1.00'],
       ]);
       // A by-day question has no branch of its own, and still places each request by its pull request.
-      expect(byDay.rows.map((r) => [r.label, ...r.categories])).toEqual([['1 Oct 2026', '$5.00', '$4.00', '$3.00', '$2.00', '$1.00']]);
+      expect(byDay.rows.map((r) => [r.label, r.colours])).toEqual([['1 Oct 2026', 'Merged $5.00 · Still open $4.00 · Closed unmerged $3.00 · No pull request $2.00 · On main $1.00']]);
       expect(byDay.bar.bar).toBe('Merged $5.00, Still open $4.00, Closed unmerged $3.00, No pull request $2.00, On main $1.00');
     });
 
-    it('by phase, which is the default, the columns are the phases, Unphased only where the period holds some', async () => {
+    it('by phase, which is the default, the colours are the phases, Unphased only where the period holds some', async () => {
       await send([
         spend('a', 3, { branch: 'b/10', category: 'building' }),
         spend('b', 1, { branch: 'b/10', category: 'after-push' }),
@@ -95,14 +92,13 @@ describe('Harness Monitor', () => {
       const asked = await split('split=phase');
       const unasked = await split('');
 
-      expect(asked.columns).toEqual(['Unphased', 'Outside', 'Scoping', 'Building', 'Code rev.', 'Security rev.', 'After push', 'CI rev.', 'Process rev.']);
-      expect(asked.rows.map((r) => r.categories)).toEqual([['$2.00', '—', '—', '$3.00', '—', '—', '$1.00', '—', '—']]);
+      expect(asked.rows.map((r) => r.colours)).toEqual(['Unphased $2.00 · Building $3.00 · After push $1.00']);
       expect(unasked.rows).toEqual(asked.rows);
       expect(unasked.bar).toEqual(asked.bar);
     });
   });
 
-  describe('a catch-all row keeps every number and its total but draws no split bar', () => {
+  describe('a catch-all row keeps every number and its total but draws no bar and has nothing to hover', () => {
     beforeEach(async () => {
       await send([
         spend('none', 2, { branch: null, category: 'building' }),
@@ -122,8 +118,8 @@ describe('Harness Monitor', () => {
       const row = costRows(await thePage(`?period=all&group=${group}`)).find((r) => r.label === label)!;
 
       expect(row.segments).toBe(0);
+      expect(row.colours).toBe('');
       expect(row.total).toBe(total);
-      expect(row.categories.filter((c) => c !== '—')).toEqual([total]);
     });
   });
 
@@ -154,7 +150,7 @@ describe('Harness Monitor', () => {
       const html = await thePage('?period=all&group=pr');
 
       expect(costRows(html).map((r) => [r.label, r.total, r.widths])).toEqual([['No branch', '$2.00', []]]);
-      expect(whereItWent(html).heading).toBe("Where the period's $2.00 went");
+      expect(whereItWent(html).heading).toBe("Where the period's $2.00 went, by phase");
     });
   });
 
@@ -196,13 +192,13 @@ describe('Harness Monitor', () => {
       const { rows, heading } = await figures('model=claude-opus-4-8');
 
       expect(rows).toEqual([['#10 First', '$2.00']]);
-      expect(heading).toBe("Where the period's $2.00 went");
+      expect(heading).toBe("Where the period's $2.00 went, by phase");
     });
 
     it('main session leaves out the subagents, and subagents leaves out the main agent', async () => {
       expect((await figures('who=main')).rows).toEqual([['#10 First', '$5.00'], ['#11 Second', '$4.00']]);
       expect((await figures('who=subagents')).rows).toEqual([['#10 First', '$1.00']]);
-      expect((await figures('who=subagents')).heading).toBe("Where the period's $1.00 went");
+      expect((await figures('who=subagents')).heading).toBe("Where the period's $1.00 went, by phase");
     });
 
     it('a model and an engineer together keep only what matches both', async () => {
@@ -211,10 +207,9 @@ describe('Harness Monitor', () => {
       expect((await figures('model=claude-opus-4-8&engineer=bob')).rows).toEqual([]);
     });
 
-    it('the filters narrow the split too, and the page offers every model on record', async () => {
-      const { columns, bar, html } = await split('split=model&who=subagents');
+    it('the filters narrow the colouring too, and the page offers every model on record', async () => {
+      const { bar, html } = await split('split=model&who=subagents');
 
-      expect(columns).toEqual([SONNET]);
       expect(bar.bar).toBe(`${SONNET} $1.00`);
       expect(html).toContain(`<option value="${OPUS}">${OPUS}</option>`);
       expect(html).toContain('<option value="subagents" selected>Subagents</option>');

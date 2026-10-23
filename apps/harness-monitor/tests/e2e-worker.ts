@@ -8,12 +8,15 @@ import { validateBatch } from '../src/validate';
  * a walk can put a page's worth of data in without GitHub or a write key. It is
  * in no deployment, and `pnpm dev:harness` does not use it.
  *
- * The route prices the walk's requests from one rate it stores itself, stores
+ * The route prices the walk's requests from the rates it stores itself, stores
  * them through the Worker's own write path, and records the pull requests the
  * hourly job would have read from GitHub. A request already stored is ignored,
  * so seeding twice (the suite runs each walk on two devices) changes nothing.
  */
-const RATES = { 'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5 } };
+const RATES = {
+  'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5 },
+  'claude-opus-4-8': { input: 5, output: 25, cacheRead: 0.5, cacheWrite5m: 6.25 },
+};
 
 interface SeededPullRequest {
   branch: string;

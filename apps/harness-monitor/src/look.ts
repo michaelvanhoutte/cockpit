@@ -45,10 +45,19 @@ function chrome(current: PageName, now: number): string {
 </header>`;
 }
 
-/** What a page is drawn with: which tab is current, the groupings on the band (none for a page without), and the page itself. */
-export function shell(page: { current: PageName; tabs?: string; body: string }, now: number): string {
-  // A page with no groupings keeps the band as a bare strip, so its tab still runs into it.
-  const strip = page.tabs === undefined ? '<div class="band"></div>' : `<nav class="band" aria-label="Group by"><div class="band-tabs">${page.tabs}</div></nav>`;
+/**
+ * What a page is drawn with: which tab is current, what its band carries, and
+ * the page itself. The band carries `controls`, pinned to the top as the page
+ * scrolls, or grouping `tabs`, or nothing: a bare strip, so the page's tab
+ * still runs into it.
+ */
+export function shell(page: { current: PageName; tabs?: string; controls?: string; body: string }, now: number): string {
+  const strip =
+    page.controls !== undefined
+      ? `<div class="band band-controls">${page.controls}</div>`
+      : page.tabs === undefined
+        ? '<div class="band"></div>'
+        : `<nav class="band" aria-label="Group by"><div class="band-tabs">${page.tabs}</div></nav>`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
@@ -114,6 +123,14 @@ h1,h2,h3,p{margin:0}
 .band-tabs a:hover{opacity:1;background:rgb(255 255 255 / .08)}
 .band-tabs a[aria-current=page]{background:var(--ground);color:var(--ink-strong);opacity:1;font-weight:600}
 
+/* The costs page's sentence, on the band and pinned */
+.band-controls{position:sticky;top:0;z-index:5;padding:12px 20px 14px;box-shadow:0 2px 6px rgb(22 24 29 / .18)}
+.sentence-form{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+.sentence{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:18px;color:var(--chrome-ink)}
+.sentence select{height:40px;font-size:17px;font-weight:600}
+.only{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.only>span{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--chrome-ink-soft);margin-right:4px}
+.only select{height:34px;font-size:13px}.only .button{height:34px}
 main{max-width:1320px;margin:0 auto;padding:20px 20px 40px;display:flex;flex-direction:column;gap:20px}
 
 /* Filters */
@@ -123,10 +140,6 @@ main{max-width:1320px;margin:0 auto;padding:20px 20px 40px;display:flex;flex-dir
 select{height:38px;padding:0 32px 0 12px;font:inherit;font-size:14px;color:var(--ink-strong);background:var(--field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235a5f6d' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 12px center;border:1px solid color-mix(in srgb,var(--shade) 18%,transparent);border-radius:var(--radius-md);appearance:none;box-shadow:inset 0 1px 2px rgb(22 24 29 / .06);cursor:pointer}
 @media (prefers-color-scheme:dark){select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c2c5cd' stroke-width='1.5'/%3E%3C/svg%3E")}}
 select[data-set]{border:2px solid var(--accent);padding-left:11px}
-.toggles{display:flex;gap:2px;padding:3px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--shade) 7%,transparent)}
-.toggles button{height:32px;padding:0 14px;border:0;border-radius:7px;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--ink-soft);cursor:pointer}
-.toggles button:hover{color:var(--ink-strong);background:color-mix(in srgb,var(--shade) 6%,transparent)}
-.toggles button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);box-shadow:inset 0 1px 0 rgb(255 255 255 / .15),0 1px 2px rgb(22 24 29 / .2)}
 .button{margin-left:auto;display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:var(--radius-md);background:var(--surface);box-shadow:var(--shadow-panel);color:var(--ink-strong);font-size:14px;font-weight:500;text-decoration:none}
 .button:hover{background:var(--field)}
 noscript button{height:38px;padding:0 16px;font:inherit}
@@ -154,12 +167,6 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .note{font-size:13px;color:var(--ink-faint);border-top:1px solid color-mix(in srgb,var(--shade) 10%,transparent);padding-top:12px}
 .note strong{color:var(--ink)}
 
-/* The change on the previous period */
-.change h3{margin:0 0 4px;font-size:13px;font-weight:600;color:var(--ink-strong)}
-.change ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
-.dimensions{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
-.drivers{min-width:420px}
-.up{color:var(--over-ink)}.down{color:var(--good)}
 
 /* Charts */
 .chart{padding:16px 12px 8px;overflow-x:auto}
@@ -178,7 +185,7 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 
 /* Tables */
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
-.costs{min-width:1100px}
+.costs{min-width:760px}
 th{position:sticky;top:0;padding:10px 12px;text-align:left;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);background:var(--well);border-bottom:1px solid color-mix(in srgb,var(--shade) 14%,transparent);white-space:nowrap}
 th a{color:inherit}
 th i{margin-right:6px;vertical-align:-1px}
@@ -213,10 +220,11 @@ footer{padding:0 20px 28px;text-align:center;font-size:12px;color:var(--ink-fain
 @media (max-width:640px){
   .topbar{padding:10px 12px 0}.status{display:none}.band{padding:8px 12px 0}
   .pages{width:100%;overflow-x:auto;scrollbar-width:none}.pages a{white-space:nowrap;font-size:14px;padding:8px 12px 9px}.band-tabs a{font-size:14px;padding:7px 12px 9px}
-  .toggles button{white-space:nowrap;font-size:13px}
   main{padding:16px 16px 32px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px}.filters select{width:100%}
-  .filters .field:has(.toggles),.button{grid-column:1/-1}.toggles button{flex:1;padding:0 6px}.button{margin-left:0;justify-content:center}
+  .button{grid-column:1/-1;margin-left:0;justify-content:center}
+  .band-controls{padding:8px 12px 10px}.sentence-form{gap:6px}.sentence{font-size:15px;gap:6px 8px}.sentence select{height:34px;font-size:15px}
+  .only{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px}.only>span{grid-column:1/-1;margin:0}.only select,.only .button{height:32px}.only select{width:100%;min-width:0}
   .big{font-size:26px}
 }
 `;

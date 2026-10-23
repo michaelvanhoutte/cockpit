@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
-import { costRows, emptyTheDatabase, groupTabs, send, spend, theBarePage, thePullRequest, withPrices } from './support';
+import { costRows, emptyTheDatabase, send, spend, theBarePage, theSentence, thePullRequest, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -19,12 +19,12 @@ const perDay = (html: string) => /<section class="panel" aria-labelledby="perday
 
 describe('Harness Monitor', () => {
   describe('the page opens on Over time, newest day first; every other grouping keeps its own address', () => {
-    it('the bare address has Over time pressed and its table shown, the newer cheaper day above the older dearer one', async () => {
+    it('the bare address has each day chosen and its table shown, the newer cheaper day above the older dearer one', async () => {
       await send([spend('old', 5, { time: '2026-10-01T10:00:00Z' }), spend('new', 1, { time: '2026-10-02T10:00:00Z' })]);
 
       const html = await theBarePage('?period=all');
 
-      expect(groupTabs(html).find((t) => t.current)?.label).toBe('Over time');
+      expect(theSentence(html).choices.group!.chosen).toBe('each day');
       expect(html).toContain('aria-label="Cost by day"');
       expect(html).toContain('<th scope="col" class="first">Day ▾</th>');
       expect(costRows(html).map((r) => [r.label, r.total])).toEqual([
@@ -33,10 +33,10 @@ describe('Harness Monitor', () => {
       ]);
     });
 
-    it('Over time is the first of the groupings', async () => {
+    it('each day is the first of the rows the sentence offers', async () => {
       const html = await theBarePage();
 
-      expect(groupTabs(html).map((t) => t.label)).toEqual(['Over time', 'Pull request', 'Issue', 'Engineer', 'Category']);
+      expect(theSentence(html).choices.group!.offered).toEqual(['each day', 'each pull request', 'each issue', 'each engineer', 'each phase']);
     });
 
     it('?group=pr is the pull request grouping, as before', async () => {

@@ -219,8 +219,10 @@ export interface CostRow {
   sub: string | null;
   /** The cells between the label and the split bar: engineer and merged for pull requests, the pull request count for issues and engineers. */
   details: string[];
-  /** Dollars per column of the split, left to right (by phase: unphased where the period holds some, outside the process, scoping, building, code review, security review, after push, CI reviews, process review); '—' for none. */
-  categories: string[];
+  /** What hovering the row's bar says, each colour with its dollars in the colouring's order and joined by " · "; '' for a row that draws no bar. */
+  colours: string;
+  /** The colour of each segment of the row's bar, left to right. */
+  fills: string[];
   /** How many coloured segments the row's split bar is drawn with. */
   segments: number;
   /** Each segment's width as a percentage of the track, left to right; none for a row that draws no bar. */
@@ -247,7 +249,8 @@ export function costRows(html: string): CostRow[] {
       label: decode(label!.replace(/<\/?a[^>]*>/g, '')),
       sub: sub === undefined ? null : decode(sub.replace(/<\/?a[^>]*>/g, '').replace(/ · Sessions$/, '')),
       details: rest.slice(0, split).map(decode),
-      categories: rest.slice(split + 1, totalAt),
+      colours: decode(/ title="([^"]*)"/.exec(all.slice(1)[split]![1]!)?.[1] ?? ''),
+      fills: [...rest[split]!.matchAll(/;background:([^"]*)"/g)].map((m) => m[1]!),
       segments: widths.length,
       widths,
       total: total!,
@@ -334,17 +337,35 @@ export const spend = (requestId: string, dollars: number, over: Record<string, u
     ...over,
   });
 
-/** The names over the split's columns, left to right. */
-export function splitColumns(html: string): string[] {
-  const found = /<th scope="col" class="split-head">Split<\/th>(.*?)<th scope="col" class="num">(?:<a[^>]*>)?Total/s.exec(html);
-  if (!found) return [];
-  return [...found[1]!.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((m) => m[1]!.replace(/<i [^>]*><\/i>/, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))));
+/** The names over the cost table's columns, left to right, without their sort marks or links. */
+export function tableHeads(html: string): string[] {
+  const head = /<table class="costs">\s*<thead><tr>(.*?)<\/tr><\/thead>/s.exec(html)?.[1] ?? '';
+  return [...head.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((m) => m[1]!.replace(/<[^>]*>/g, '').replace(/ ▾$/, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))));
 }
 
-/** The groupings as the band offers them, left to right: the name, where it goes, and whether it is the page's. */
-export function groupTabs(html: string): { label: string; href: string; current: boolean }[] {
-  const tabs = /<div class="band-tabs">(.*?)<\/div>/s.exec(html)?.[1] ?? '';
-  return [...tabs.matchAll(/<a href="([^"]*)"( aria-current="page")?>(.*?)<\/a>/g)].map(([, href, current, label]) => ({ label: label!, href: href!.replace(/&amp;/g, '&'), current: current !== undefined }));
+export interface SentenceChoice {
+  /** What the choice reads now. */
+  chosen: string;
+  /** Every choice it offers. */
+  offered: string[];
+  /** The choices it offers but will not take. */
+  disabled: string[];
+  /** Whether it holds a value, as a filter does. */
+  held: boolean;
+}
+
+/** The band's sentence and its filters as a visitor sees them: each choice by the address parameter it sets, and the sentence with its choices in brackets. */
+export function theSentence(html: string): { text: string; choices: Record<string, SentenceChoice>; pinned: boolean } {
+  const decode = (t: string) => t.replace(/<[^>]*>/g, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+  const band = /<div class="band band-controls">(.*?)<\/form><\/div>/s.exec(html)?.[1] ?? '';
+  const choices: Record<string, SentenceChoice> = {};
+  for (const [, name, attributes, options] of band.matchAll(/<select name="(\w+)" aria-label="[^"]*"([^>]*)>(.*?)<\/select>/gs)) {
+    const all = [...options!.matchAll(/<option value="[^"]*"([^>]*)>(.*?)<\/option>/g)].map(([, a, text]) => ({ text: decode(text!), selected: a!.includes(' selected'), disabled: a!.includes(' disabled') }));
+    choices[name!] = { chosen: all.find((o) => o.selected)!.text, offered: all.map((o) => o.text), disabled: all.filter((o) => o.disabled).map((o) => o.text), held: attributes!.includes(' data-set') };
+  }
+  const sentence = /<p class="sentence">(.*?)<\/p>/s.exec(band)?.[1] ?? '';
+  const text = decode(sentence.replace(/<select[^>]*>.*?<\/select>/gs, (m) => `[${/<option value="[^"]*" selected[^>]*>(.*?)<\/option>/.exec(m)![1]}]`)).replace(/\s+/g, ' ').trim();
+  return { text, choices, pinned: /\.band-controls\{position:sticky;top:0/.test(html) };
 }
 
 export interface SplitTotal {
