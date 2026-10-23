@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// `pnpm harness:run <linking [--full]|prices|rebuild>`: starts one of the Harness
+// `pnpm harness:run <linking [--full]|prices|rebuild|claude-calls>`: starts one of the Harness
 // Monitor's jobs on the live Worker now and prints what it did (Start the
 // Harness Monitor's jobs by hand, issue 1013); `prices` repeats until nothing
 // more is priced, then starts `rebuild` (issue 1021). `linking --full` re-reads

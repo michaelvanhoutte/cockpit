@@ -44,6 +44,10 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM link_state'),
     env.DB.prepare('DELETE FROM job_runs'),
     env.DB.prepare('DELETE FROM pull_request_stats'),
+    env.DB.prepare('DELETE FROM claude_calls'),
+    env.DB.prepare('DELETE FROM claude_call_daily_totals'),
+    env.DB.prepare('DELETE FROM claude_call_place'),
+    env.DB.prepare('DELETE FROM claude_call_job_runs'),
   ]);
 }
 
@@ -86,6 +90,21 @@ export function theFileAnswers(answer: unknown) {
     if (typeof answer === 'function') return (answer as () => Response)();
     return Response.json(answer);
   });
+}
+
+type WorkerSetting = 'GITHUB_TOKEN' | 'GITHUB_REPOSITORY' | 'USAGE_READ_TOKEN' | 'COCKPIT_URL';
+
+/** Gives the Worker these settings, and returns what puts each back as it was. */
+export function giveTheWorker(settings: Partial<Record<WorkerSetting, string>>) {
+  const given = Object.entries(settings) as [WorkerSetting, string][];
+  const before = given.map(([name]) => [name, env[name]] as const);
+  for (const [name, value] of given) env[name] = value;
+  return () => {
+    for (const [name, value] of before) {
+      if (value === undefined) delete env[name];
+      else env[name] = value;
+    }
+  };
 }
 
 /** The day's two schedules, prices then totals, run the way the platform runs them. */
