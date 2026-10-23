@@ -1200,3 +1200,80 @@ describe('MCP connections', () => {
     });
   });
 });
+
+describe('Item editing', () => {
+  describe('a recurring item written here shows on its copies until its list and its Workspace have both been read', () => {
+    const SERIES = '11111111-1111-7111-8111-0000000000aa';
+    const listScope = '["recurringItems","ws-work"]';
+    const written: CommandArgs = {
+      name: 'write_recurring_item',
+      payload: {
+        commandId: 'c-write',
+        issuedAt: AT,
+        workspaceId: 'ws-work',
+        seriesId: SERIES,
+        title: 'Friday review',
+        description: '',
+        priority: null,
+        panelIds: [],
+        repeat: { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 5, timeZone: 'Europe/Brussels' },
+      },
+    };
+    const held = (): WorkspaceSnapshot =>
+      ({
+        ...sent(),
+        workspace: { tenantId: 'tenant' },
+        series: [
+          { id: SERIES, tenantId: 'tenant', frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 5, timeZone: 'Europe/Brussels', stoppedAt: null, title: 'Weekly review', workspaceId: 'ws-work' },
+        ],
+      }) as unknown as WorkspaceSnapshot;
+    const titleShown = (queue: ReturnType<typeof createChangeQueue>) => queue.drawnOver(held()).series[0]!.title;
+
+    async function answeredAlsoDrawnOn(workspaces: readonly string[]) {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      queue.enqueue(written, undefined, listScope, undefined, workspaces).catch(() => {});
+      await settle();
+      server.arrived[0]!.answer();
+      await settle();
+      return queue;
+    }
+
+    it.each([
+      { situation: 'the list is read first', first: listScope, then: 'ws-work' },
+      { situation: 'the Workspace is read first', first: 'ws-work', then: listScope },
+    ])('draws the new title until both are read, when $situation', async ({ first, then }) => {
+      const queue = await answeredAlsoDrawnOn(['ws-work']);
+      expect(titleShown(queue)).toBe('Friday review');
+
+      queue.readLanded(first, queue.readStarted());
+      expect(titleShown(queue)).toBe('Friday review');
+
+      queue.readLanded(then, queue.readStarted());
+      expect(titleShown(queue)).toBe('Weekly review');
+    });
+
+    it('is ended by the list alone where it is drawn over nothing else', async () => {
+      const queue = await answeredAlsoDrawnOn([]);
+
+      queue.readLanded(listScope, queue.readStarted());
+
+      expect(titleShown(queue)).toBe('Weekly review');
+    });
+
+    it('keeps drawing it under a Workspace read that began before the answer', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      queue.enqueue(written, undefined, listScope, undefined, ['ws-work']).catch(() => {});
+      await settle();
+      const early = queue.readStarted();
+      server.arrived[0]!.answer();
+      await settle();
+
+      queue.readLanded(listScope, queue.readStarted());
+      queue.readLanded('ws-work', early);
+
+      expect(titleShown(queue)).toBe('Friday review');
+    });
+  });
+});

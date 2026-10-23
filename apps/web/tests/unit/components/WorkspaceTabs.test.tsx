@@ -278,6 +278,22 @@ describe('Workspace management', () => {
       expect(screen.getByText('Recurring items')).toBeVisible();
       expect(takeRecurringRequest()).toBeNull();
     });
+
+    it('does not send the focus back to the tab the modal was last opened from by its menu', async () => {
+      const { user } = showTabs(['Work', 'Personal'], { here: 'ws-personal' });
+      const button = await screen.findByRole('button', { name: 'Actions for Personal' });
+      await user.click(button);
+      await user.click(screen.getByRole('menuitem', { name: 'Recurring items' }));
+      await user.click(await screen.findByRole('button', { name: 'Close' }));
+      await waitFor(() => expect(button).toHaveFocus());
+
+      act(() => askForRecurringItem({ workspaceId: 'ws-personal', seriesId: '018f0000-0000-7000-8000-0000000000aa' }));
+      await screen.findByRole('dialog');
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(button).not.toHaveFocus();
+    });
   });
 
   describe('a workspace’s menu switches that workspace’s All items tab', () => {

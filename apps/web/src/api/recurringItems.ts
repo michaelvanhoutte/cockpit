@@ -79,7 +79,7 @@ export function useChangeRecurringItem(): (change: RecurringItemChange) => Promi
       const workspaceId = change.payload.workspaceId;
       const key = recurringItemsQuery(workspaceId).queryKey;
       try {
-        await changeList(client, key, change, [snapshotQuery(workspaceId).queryKey]);
+        await changeList(client, key, change, [snapshotQuery(workspaceId).queryKey], [workspaceId]);
       } catch (failure) {
         // Refused, or never reached: the list may not be what the server holds (a recurring
         // item deleted elsewhere, or a change that did land), and no answer came to read it by.

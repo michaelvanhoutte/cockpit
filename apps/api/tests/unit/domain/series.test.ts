@@ -97,10 +97,7 @@ describe('Item editing', () => {
       const decided = decideRepeat(
         aSeries(own),
         {
-          commandId: '018f0000-0000-7000-8000-000000000002',
           issuedAt,
-          workspaceId: 'ws',
-          itemId: '018f0000-0000-7000-8000-000000000003',
           seriesId: '018f0000-0000-7000-8000-000000000001',
           repeat: { ...sent, dueAfterDays: 3, timeZone: 'Europe/Brussels' },
         },

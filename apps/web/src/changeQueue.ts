@@ -70,6 +70,7 @@ export interface ChangeQueue {
     answered?: (result: CommandResult) => void,
     scope?: string,
     request?: (signal: AbortSignal) => Promise<CommandResult>,
+    alsoDrawnOn?: readonly string[],
   ): Promise<CommandResult>;
   /** The copy as the server sent it, with every change not yet covered by a read drawn over it. */
   drawnOver(snapshot: WorkspaceSnapshot): WorkspaceSnapshot;
@@ -139,6 +140,16 @@ interface Entry {
    * that scope ends it. Absent, the change is a Workspace's or the list of them.
    */
   scope?: string | undefined;
+  /**
+   * The Workspaces whose own read also ends this change, beside the `scope`'s: a
+   * change a window draws over its list that its Workspace's snapshot is drawn
+   * over with too ("Point a copy at its master, and retire the Repeats chip", issue
+   * 1450). **Every one of those reads must land**, so neither shows the change
+   * undone while the other still waits. Absent, the `scope`'s read ends it alone.
+   */
+  alsoDrawnOn?: readonly string[] | undefined;
+  /** The reads of `scope` and `alsoDrawnOn` still to land, once the first has. */
+  stillToRead?: Set<string | null> | undefined;
   /** How a change that is not a command is sent, in place of `send`. */
   request?: ((signal: AbortSignal) => Promise<CommandResult>) | undefined;
   state: 'waiting' | 'sending' | 'answered';
@@ -311,9 +322,9 @@ export function createChangeQueue(options: {
   }
 
   return {
-    enqueue(change, answered, scope, request) {
+    enqueue(change, answered, scope, request, alsoDrawnOn) {
       return new Promise<CommandResult>((resolve, reject) => {
-        entries.push({ change, scope, request, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
+        entries.push({ change, scope, alsoDrawnOn, request, state: 'waiting', answeredAt: 0, stamp: undefined, answered, settle: { resolve, reject } });
         changed();
         void pump();
       });
@@ -332,14 +343,22 @@ export function createChangeQueue(options: {
     afterAdding: (workspaceId) => until(() => !adding(workspaceId)),
     readStarted: () => ++tick,
     readLanded(scope, startedAt, upTo) {
+      const scopeOf = (entry: Entry) =>
+        entry.scope ?? (WORKSPACE_LIST_CHANGES.has(entry.change.name) ? null : (entry.change.payload as { workspaceId: string }).workspaceId);
       const covered = entries.filter(
         (entry) =>
           entry.state === 'answered' &&
-          (entry.scope ?? (WORKSPACE_LIST_CHANGES.has(entry.change.name) ? null : (entry.change.payload as { workspaceId: string }).workspaceId)) === scope &&
+          (scopeOf(entry) === scope || (scope !== null && entry.alsoDrawnOn?.includes(scope) === true)) &&
           (entry.answeredAt < startedAt || (entry.stamp !== undefined && upTo !== undefined && upTo >= entry.stamp)),
       );
-      if (covered.length === 0) return;
-      covered.forEach(drop);
+      const ended = covered.filter((entry) => {
+        if (!entry.alsoDrawnOn) return true;
+        entry.stillToRead ??= new Set([scopeOf(entry), ...entry.alsoDrawnOn]);
+        entry.stillToRead.delete(scope);
+        return entry.stillToRead.size === 0;
+      });
+      if (ended.length === 0) return;
+      ended.forEach(drop);
       changed();
     },
     captures(shown) {

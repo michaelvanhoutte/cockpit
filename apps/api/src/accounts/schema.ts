@@ -1638,7 +1638,7 @@ export const series = sqliteTable(
      * description and priority, beside the Panels in `series_panels`. **NULL
      * `title` is a series that holds nothing yet** - one from before
      * `0094-series-masters` that `0095-series-masters-from-latest-copy` left
-     * stopped - and the old Repeats chip fills it on a rule set again.
+     * stopped - and it stays so: no screen sets a repeat on an Item any more.
      */
     workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'restrict' }),
     title: text('title'),

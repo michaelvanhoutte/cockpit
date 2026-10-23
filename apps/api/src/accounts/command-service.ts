@@ -119,7 +119,7 @@ import {
 } from '../domain/workspaces.js';
 import { decideClaudeSend } from '../domain/claude-sends.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
-import { countedFrom, decideRepeat, occurrenceDueAt, occurrenceOf, type MasterRow } from '../domain/series.js';
+import { countedFrom, decideRepeat, decideStop, occurrenceDueAt, occurrenceOf, type MasterRow } from '../domain/series.js';
 import {
   applyProposedFields,
   type FieldsSet,
@@ -2481,7 +2481,7 @@ export function runCommand<N extends CommandName>(
       const own = getSeries(db, tenantId, cmd.seriesId);
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) throw new WorkspaceNotFoundError(cmd.workspaceId);
       if (own === null || own.title === null || own.workspaceId !== cmd.workspaceId) throw new RepeatRefusedError(RECURRING_REFUSALS.gone);
-      const decision = decideRepeat(own, { issuedAt: cmd.issuedAt, seriesId: cmd.seriesId, repeat: null }, tenantId);
+      const decision = decideStop(own, cmd.issuedAt);
       // Already deleted, or made against an older version than the one stored: logged, nothing changed.
       if (decision.kind !== 'write' || own.stoppedAt !== null) {
         db.insert(commands).values(commandRow).run();

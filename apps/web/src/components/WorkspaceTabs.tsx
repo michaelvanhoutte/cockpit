@@ -92,7 +92,10 @@ export function WorkspaceTabs({
   useEffect(() => {
     if (!asked) return;
     const request = takeRecurringRequest();
-    if (request) setRecurring(request);
+    if (!request) return;
+    // Asked from an Item's form, which has closed: not the menu or tab an earlier open came from.
+    askedFrom.current = null;
+    setRecurring(request);
   }, [asked]);
   /**
    * The tab the form or the question was opened from, so the focus can go back

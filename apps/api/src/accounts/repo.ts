@@ -757,6 +757,8 @@ export function getSeries(db: AccountDb, tenantId: string, seriesId: string): Ma
     db
       .select({
         ...seriesRowColumns(),
+        workspaceId: series.workspaceId,
+        title: series.title,
         description: series.description,
         priority: series.priority,
       })
@@ -799,7 +801,7 @@ export function listRecurringItems(db: AccountDb, tenantId: string, workspaceId:
     isNotNull(series.title),
   );
   const rows = db
-    .select({ ...seriesColumns, description: series.description, priority: series.priority })
+    .select({ ...seriesColumns, workspaceId: series.workspaceId, title: series.title, description: series.description, priority: series.priority })
     .from(series)
     .where(running)
     .orderBy(series.nextOn, series.title, series.id)
@@ -881,9 +883,6 @@ const seriesColumns = {
   dueAfterDays: series.dueAfterDays,
   timeZone: series.timeZone,
   stoppedAt: series.stoppedAt,
-  // What a copy's line and mark say of its recurring item (issue 1450); null on a series never made into one.
-  title: series.title,
-  workspaceId: series.workspaceId,
 };
 
 /**
@@ -894,7 +893,8 @@ const seriesColumns = {
  */
 export function listSeriesInWorkspace(db: AccountDb, tenantId: string, workspaceId: string): Series[] {
   return db
-    .selectDistinct(seriesColumns)
+    // With the recurring item's own title and Workspace, which a copy's line and mark say ("Point a copy at its master, and retire the Repeats chip", issue 1450); null on a series never made into one.
+    .selectDistinct({ ...seriesColumns, title: series.title, workspaceId: series.workspaceId })
     .from(series)
     .innerJoin(items, eq(items.seriesId, series.id))
     .where(

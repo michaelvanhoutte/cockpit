@@ -5,11 +5,11 @@ import {
   type Item,
   type Priority,
   type Series,
-  type SetRepeatCommand,
+  type WriteRecurringItemCommand,
 } from '@cockpit/shared';
 import { captureDay } from './capture-day.js';
 
-/** A repeat that is refused, in the words the person is told beside the field ("Set an Item to repeat from its form", issue 1406). */
+/** A recurring item's rule that is refused, in the words the person is told beside the field. */
 export const UNKNOWN_TIME_ZONE = 'Cockpit does not know the time zone this device is in, so it cannot say when a day starts.';
 export const NEXT_ON_PASSED = RECURRING_REFUSALS.nextOnPassed;
 
@@ -39,8 +39,6 @@ export type RepeatDecision =
   | { kind: 'refused'; why: string }
   /** Made against an older version of the rule: logged, nothing changed. */
   | { kind: 'stale' }
-  /** A `null` rule for a series that is not there: there is nothing to stop. */
-  | { kind: 'nothing' }
   | { kind: 'write'; row: SeriesRow; isNew: boolean };
 
 /**
@@ -60,18 +58,14 @@ export type RepeatDecision =
  * counts from the day kept**, the one the rule is read back from. A day kept that
  * has since passed stays while the series runs, so the account's alarm still
  * brings back the one it owes ("Bring a repeating Item back on its day", issue
- * 1407). A `null` rule is the series stopped: the stop deleting a recurring item is.
+ * 1407).
  */
 export function decideRepeat(
   own: SeriesRow | null,
-  cmd: Pick<SetRepeatCommand, 'issuedAt' | 'repeat' | 'seriesId'> & Partial<SetRepeatCommand>,
+  cmd: Pick<WriteRecurringItemCommand, 'issuedAt' | 'repeat' | 'seriesId'>,
   tenantId: string,
 ): RepeatDecision {
   if (own && cmd.issuedAt < own.updatedAt) return { kind: 'stale' };
-  if (cmd.repeat === null) {
-    if (!own) return { kind: 'nothing' };
-    return { kind: 'write', row: { ...own, stoppedAt: own.stoppedAt ?? cmd.issuedAt, updatedAt: cmd.issuedAt }, isNew: false };
-  }
   const { timeZone, ...rule } = cmd.repeat;
   const today = captureDay(cmd.issuedAt, timeZone);
   if (today === null) return { kind: 'refused', why: UNKNOWN_TIME_ZONE };
@@ -96,6 +90,12 @@ export function decideRepeat(
       updatedAt: cmd.issuedAt,
     },
   };
+}
+
+/** What deleting a recurring item comes to: its series stopped, or - made against an older version than the one stored - nothing. */
+export function decideStop(own: SeriesRow, issuedAt: string): RepeatDecision {
+  if (issuedAt < own.updatedAt) return { kind: 'stale' };
+  return { kind: 'write', row: { ...own, stoppedAt: own.stoppedAt ?? issuedAt, updatedAt: issuedAt }, isNew: false };
 }
 
 /**
