@@ -6,6 +6,14 @@
 // issue 975). Safe to re-run: the monitor ignores a request it already stores.
 // The I/O around scripts/lib/usage-upload.mjs; discovery is `pnpm cost:issue`'s.
 //
+// `pnpm harness:upload --re-place` sends, instead, a correction (request id
+// and category) for each request from 21 Sep on that the hook's rule places in
+// Scoping & planning, After push, Process review or Outside the process, and the
+// monitor applies it only to a row still Unphased (Re-place stored Unphased
+// requests since 21 Sep from the local session logs, issue 1487). Re-runnable;
+// its failure modes are answered in scripts/lib/usage-upload.mjs. Follow it
+// with `pnpm harness:run rebuild`.
+//
 // Needs HARNESS_WRITE_KEY and HARNESS_MONITOR_URL in the environment, as the
 // hook does (docs/deployment.md). Exits 1 when a batch was refused or the run
 // stopped early.
@@ -19,7 +27,14 @@ import { basename, join } from 'node:path';
 import { mainSessionFilesIn, subagentFilesUnder, thisRepoProjectDirs } from './lib/issue-cost.mjs';
 import { parseRecord, recordFileName } from './lib/session-record.mjs';
 import { readLog, subagentIdentity, whereItRan } from './lib/usage-report.mjs';
-import { postBatches, summarizeUpload, uploadRows } from './lib/usage-upload.mjs';
+import { corrections, postBatches, postCorrections, summarizeRePlace, summarizeUpload, uploadRows } from './lib/usage-upload.mjs';
+
+const args = process.argv.slice(2);
+const rePlace = args.includes('--re-place');
+if (args.some((arg) => arg !== '--re-place')) {
+  console.error('Usage: pnpm harness:upload [--re-place]');
+  process.exit(2);
+}
 
 const key = process.env.HARNESS_WRITE_KEY;
 const url = process.env.HARNESS_MONITOR_URL;
@@ -108,23 +123,64 @@ for (const dir of thisRepoProjectDirs(repoRoot, projectsDir)) {
   }
 }
 
-const endpoint = new URL('/v1/usage', url);
-const totals = await postBatches(rows, async (batch) => {
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-    body: JSON.stringify({ rows: batch }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (response.ok) {
-    const body = await response.json();
-    if (!Number.isSafeInteger(body.stored) || !Number.isSafeInteger(body.ignored)) throw new Error('the monitor answered without counts');
-    return { stored: body.stored, ignored: body.ignored };
-  }
-  // Refused as malformed (400, 413 when too large): retrying the same batch cannot help.
-  if (response.status === 400 || response.status === 413) return 'rejected';
-  throw new Error(`the monitor answered ${response.status}`);
-});
+const authorization = `Bearer ${key}`;
 
-for (const line of summarizeUpload({ ...totals, unreadable, unreadableFiles })) console.log(line);
-process.exitCode = totals.refused || totals.failed ? 1 : 0;
+/** Sends the corrections and prints the report; the exit code is 1 when the run stopped early. */
+async function placeAgain() {
+  const endpoint = new URL('/v1/usage/corrections', url);
+  console.log(`Re-placing Unphased requests on ${endpoint.origin}.`);
+  const totals = await postCorrections(corrections(rows), async (batch) => {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization },
+      body: JSON.stringify({ corrections: batch }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const body = await response.json().catch(() => null);
+    if (response.ok) {
+      if (!Number.isSafeInteger(body?.changed) || !Number.isSafeInteger(body?.left)) throw new Error('the monitor answered without counts');
+      return { changed: body.changed, left: body.left };
+    }
+    if (response.status === 400 || response.status === 413) return { refused: typeof body?.error === 'string' ? body.error : `the monitor answered ${response.status}` };
+    throw new Error(`the monitor answered ${response.status}`);
+  });
+  let unphased = null;
+  if (!totals.stopped) {
+    try {
+      const response = await fetch(endpoint, { headers: { authorization }, signal: AbortSignal.timeout(60_000) });
+      const body = await response.json();
+      if (response.ok && Number.isSafeInteger(body.unphased)) unphased = body.unphased;
+    } catch {
+      // The count is the report's; the corrections are already applied.
+    }
+  }
+  for (const line of summarizeRePlace({ ...totals, unphased, unreadable, unreadableFiles })) console.log(line);
+  // exitCode, not exit(): exiting while fetch's handles close aborts Node on Windows.
+  process.exitCode = totals.stopped ? 1 : 0;
+}
+
+/** Sends the rows and prints the report; the exit code is 1 when a batch was refused or the run stopped early. */
+async function upload() {
+  const endpoint = new URL('/v1/usage', url);
+  const totals = await postBatches(rows, async (batch) => {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization },
+      body: JSON.stringify({ rows: batch }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (response.ok) {
+      const body = await response.json();
+      if (!Number.isSafeInteger(body.stored) || !Number.isSafeInteger(body.ignored)) throw new Error('the monitor answered without counts');
+      return { stored: body.stored, ignored: body.ignored };
+    }
+    // Refused as malformed (400, 413 when too large): retrying the same batch cannot help.
+    if (response.status === 400 || response.status === 413) return 'rejected';
+    throw new Error(`the monitor answered ${response.status}`);
+  });
+
+  for (const line of summarizeUpload({ ...totals, unreadable, unreadableFiles })) console.log(line);
+  process.exitCode = totals.refused || totals.failed ? 1 : 0;
+}
+
+await (rePlace ? placeAgain() : upload());
