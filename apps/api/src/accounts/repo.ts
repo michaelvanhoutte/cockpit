@@ -790,7 +790,7 @@ export function masterPanelIdsOf(db: AccountDb, tenantId: string, seriesId: stri
  * with no page**: a person's handful. Each carries the Panels it files on that
  * are still live in the Workspace and take Items, top first, since a Panel
  * deleted since is skipped when a copy is made and so is not offered again.
- * Read in two statements however many there are: a list of ids to look the
+ * Read in three statements however many there are: a list of ids to look the
  * Panels up by would meet the store's limit on bound values.
  */
 export function listRecurringItems(db: AccountDb, tenantId: string, workspaceId: string): RecurringItem[] {

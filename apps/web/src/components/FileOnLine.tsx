@@ -45,7 +45,7 @@ export function FileOnLine({
   onRemove: (panelId: string) => void;
   /** Drawn as the Item form's *On panels* field, under its description, in place of Capture's line (issue 1106). */
   inTheItemForm?: boolean;
-  /** The label to draw in place of the default: the Recurring items form's *Files on* (issue 1449). */
+  /** The label to draw in place of the default: the Recurring items form's *Files on* ("Make, change and delete recurring items from the Recurring items modal", issue 1449). */
   labelled?: string;
 }) {
   const [armed, setArmed] = useState(false);

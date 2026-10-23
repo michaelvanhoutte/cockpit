@@ -12,6 +12,7 @@ import {
 import { useChangeRecurringItem, useRecurringItems } from '../api/recurringItems';
 import { whyNotDone } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
+import { takesFiles } from '../attachmentQueue';
 import { weekdayDayLabel } from '../dateFormat';
 import { deviceTimeZone } from '../deviceTimeZone';
 import { useIsOffline } from '../offline';
@@ -66,8 +67,22 @@ const aNewOne = (workspaceId: string): RecurringItem => ({
   dueAfterDays: null,
 });
 
-export default function RecurringModal({ workspaceId, onClose }: { workspaceId: string; onClose: () => void }) {
-  const snapshot = useSnapshot(workspaceId).data;
+/** The Panel search of the *Files on* line, whose Escape clears what was typed rather than closing the window. */
+const typedIntoPanelSearch = (target: EventTarget | null): boolean =>
+  target instanceof HTMLInputElement && target.getAttribute('aria-label') === 'Find a Panel to file on' && target.value !== '';
+
+export default function RecurringModal({
+  workspaceId,
+  onClose,
+  returnFocusTo,
+}: {
+  workspaceId: string;
+  onClose: () => void;
+  /** The menu control it was opened from, which gets the focus back. */
+  returnFocusTo?: HTMLElement | null | undefined;
+}) {
+  const snapshotRead = useSnapshot(workspaceId);
+  const snapshot = snapshotRead.data;
   const list = useRecurringItems(workspaceId);
   const change = useChangeRecurringItem();
   const offline = useIsOffline();
@@ -130,9 +145,28 @@ export default function RecurringModal({ workspaceId, onClose }: { workspaceId: 
   return (
     <Dialog.Root open onOpenChange={(stillOpen) => !stillOpen && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
+        {/* A file let go outside the window is kept from the browser, which would navigate away to open it. */}
+        <Dialog.Overlay
+          className="fixed inset-0 z-floating bg-scrim/30"
+          onDragOver={(event) => {
+            if (takesFiles(event)) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            if (takesFiles(event)) event.preventDefault();
+          }}
+        />
         <Dialog.Content
           aria-describedby={undefined}
+          // Radix listens for Escape on the document, above anything a field could stop: the Panel search
+          // clears what was typed first, and a second Escape closes.
+          onEscapeKeyDown={(event) => {
+            if (typedIntoPanelSearch(event.target)) event.preventDefault();
+          }}
+          onCloseAutoFocus={(event) => {
+            if (!returnFocusTo) return;
+            event.preventDefault();
+            returnFocusTo.focus();
+          }}
           data-recurring-modal
           className="fixed z-floating left-1/2 top-[max(1rem,6vh)] flex max-h-[min(46rem,calc(100dvh-2rem))] w-[min(46rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-lg border border-shade/10 bg-surface p-5 shadow-lg max-sm:left-0 max-sm:top-0 max-sm:h-full max-sm:max-h-none max-sm:w-full max-sm:translate-x-0 max-sm:rounded-none max-sm:border-0 max-sm:pt-[max(1.25rem,env(safe-area-inset-top))]"
         >
@@ -141,10 +175,14 @@ export default function RecurringModal({ workspaceId, onClose }: { workspaceId: 
               <Dialog.Title className="text-lg font-semibold text-ink">Recurring items</Dialog.Title>
               {offline || list.fetchStatus === 'paused' ? (
                 <p className="mt-3 text-sm text-ink-soft">Recurring items needs a connection. Go online to see and change them.</p>
-              ) : list.isError ? (
+              ) : list.isError || snapshotRead.isError ? (
                 <p role="alert" className="mt-3 text-sm text-over-ink">
                   Recurring items could not be read.{' '}
-                  <button type="button" onClick={() => void list.refetch()} className="underline">
+                  <button
+                    type="button"
+                    onClick={() => void Promise.all([list.isError && list.refetch(), snapshotRead.isError && snapshotRead.refetch()])}
+                    className="underline"
+                  >
                     Try again
                   </button>
                 </p>

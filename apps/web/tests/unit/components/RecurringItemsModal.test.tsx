@@ -113,10 +113,10 @@ const VAT = aRecurringItem({ id: '018f0000-0000-7000-8000-000000000003', title: 
 let client: QueryClient;
 const closed = vi.fn();
 
-function open() {
+function open(returnFocusTo?: HTMLElement) {
   return render(
     <QueryClientProvider client={client}>
-      <RecurringModal workspaceId={WORK} onClose={closed} />
+      <RecurringModal workspaceId={WORK} onClose={closed} returnFocusTo={returnFocusTo} />
     </QueryClientProvider>,
   );
 }
@@ -244,6 +244,46 @@ describe('Workspace management', () => {
       expect(closed).toHaveBeenCalled();
     });
 
+    it('clears what was typed in the Panel search with Escape before the next Escape closes it, keeping the form', async () => {
+      const user = await show([REVIEW]);
+      await user.click(screen.getByRole('button', { name: 'Weekly review' }));
+      await user.click(screen.getByRole('textbox', { name: 'Find a Panel to file on' }));
+      const search = await screen.findByRole('searchbox', { name: 'Find a Panel to file on' });
+      await user.type(search, 'Pan');
+
+      await user.keyboard('{Escape}');
+
+      expect(closed).not.toHaveBeenCalled();
+      expect(search).toHaveValue('');
+      expect(screen.getByLabelText('Title')).toHaveValue('Weekly review');
+      await user.keyboard('{Escape}');
+      expect(closed).toHaveBeenCalled();
+    });
+
+    it('gives the focus back to the control it was opened from when it closes', async () => {
+      const from = document.createElement('button');
+      document.body.append(from);
+      held.items = [REVIEW];
+      open(from);
+      const user = userEvent.setup();
+      await screen.findByRole('button', { name: '+ New recurring item' });
+
+      await user.keyboard('{Escape}');
+      cleanup();
+
+      await waitFor(() => expect(from).toHaveFocus());
+      from.remove();
+    });
+
+    it('keeps a file let go outside the window from the browser, which would navigate away to open it', async () => {
+      await show([REVIEW]);
+      const scrim = screen.getByRole('dialog').previousElementSibling!;
+
+      const notPrevented = fireEvent.drop(scrim, { dataTransfer: { types: ['Files'], files: [] } });
+
+      expect(notPrevented).toBe(false);
+    });
+
     it('says it needs a connection when opened offline, and reads nothing', async () => {
       stand({ found: true });
       open();
@@ -355,6 +395,34 @@ describe('Workspace management', () => {
       expect(screen.getByLabelText('Title')).toHaveValue('Monthly invoices');
       await user.click(screen.getByRole('button', { name: 'Recurring items' }));
       expect(screen.getByRole('alert')).toHaveTextContent('“Weekly review x” was not saved. That recurring item is no longer there.');
+    });
+  });
+
+  describe('a read that fails is said, and tried again from the modal', () => {
+    it('says the Workspace could not be read, and reads it again on Try again', async () => {
+      held.items = [REVIEW];
+      vi.mocked(fetchSnapshot).mockRejectedValueOnce(new Error('down'));
+      open();
+      expect(await screen.findByText(/could not be read/)).toBeInTheDocument();
+      expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }));
+
+      expect(await screen.findByRole('button', { name: '+ New recurring item' })).toBeInTheDocument();
+      expect(titles()).toEqual(['Weekly review']);
+    });
+
+    it('reads the list again when a change is refused, so a row gone elsewhere goes from it', async () => {
+      const user = await show([REVIEW, INVOICES]);
+      await user.click(screen.getByRole('button', { name: 'Weekly review' }));
+      await user.type(screen.getByLabelText('Title'), ' x');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      held.items = [INVOICES];
+
+      await refuseNext('That recurring item is no longer there.');
+
+      await user.click(screen.getByRole('button', { name: 'Recurring items' }));
+      await waitFor(() => expect(titles()).toEqual(['Monthly invoices']));
     });
   });
 

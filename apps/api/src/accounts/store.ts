@@ -1736,7 +1736,7 @@ const CHANGES_THE_ALARM: ReadonlySet<CommandName> = new Set<CommandName>([
   'disconnect_source_account',
   'delete_workspace',
   'set_repeat',
-  // A recurring item made, changed or deleted moves the day the alarm is set for (issue 1449).
+  // A recurring item made, changed or deleted moves the day the alarm is set for ("Make, change and delete recurring items from the Recurring items modal", issue 1449).
   'create_recurring_item',
   'write_recurring_item',
   'delete_recurring_item',

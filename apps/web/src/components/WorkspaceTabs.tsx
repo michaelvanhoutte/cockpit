@@ -279,6 +279,10 @@ export function WorkspaceTabs({
     askedFrom.current = openedFrom;
     setEditing({ id: ws.id, name: ws.name, theme: null });
   };
+  const openRecurring = (workspaceId: string, openedFrom: HTMLElement | null) => {
+    askedFrom.current = openedFrom;
+    setRecurring(workspaceId);
+  };
   const startDeleting = (ws: Workspace, openedFrom: HTMLElement | null) => {
     setEditing(null);
     askedFrom.current = openedFrom;
@@ -321,8 +325,9 @@ export function WorkspaceTabs({
       keepsFocus: true,
       onSelect: () => switchAllItemsTab(ws.id, !allItemsTabOn(ws.id)),
     },
-    // The one way to make a recurring item, and the list of this Workspace's (issue 1449).
-    { label: 'Recurring items', onSelect: () => setRecurring(ws.id) },
+    // The one way to make a recurring item, and the list of this Workspace's ("Make, change
+    // and delete recurring items from the Recurring items modal", issue 1449).
+    { label: 'Recurring items', onSelect: (from) => openRecurring(ws.id, from) },
     // Apart from the way in, since it is the one that cannot be put back.
     { label: 'Delete', destructive: true, separatorBefore: true, onSelect: (from) => startDeleting(ws, from) },
   ];
@@ -331,7 +336,7 @@ export function WorkspaceTabs({
     <>
       {recurring && (
         <Suspense>
-          <RecurringModal workspaceId={recurring} onClose={() => setRecurring(null)} />
+          <RecurringModal workspaceId={recurring} returnFocusTo={askedFrom.current} onClose={() => setRecurring(null)} />
         </Suspense>
       )}
       {/* The strip and its own trailing button share this row's width, at the

@@ -252,6 +252,17 @@ describe('Workspace management', () => {
 
       await waitFor(() => expect(button).toHaveFocus());
     });
+
+    it('returns the focus to it once the Recurring items modal is closed', async () => {
+      const { user } = showTabs(['Work', 'Personal'], { here: 'ws-personal' });
+      const button = await screen.findByRole('button', { name: 'Actions for Personal' });
+
+      await user.click(button);
+      await user.click(screen.getByRole('menuitem', { name: 'Recurring items' }));
+      await user.click(await screen.findByRole('button', { name: 'Close' }));
+
+      await waitFor(() => expect(button).toHaveFocus());
+    });
   });
 
   describe('a workspace’s menu switches that workspace’s All items tab', () => {

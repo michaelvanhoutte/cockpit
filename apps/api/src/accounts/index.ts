@@ -295,7 +295,7 @@ export interface Account {
    * account", issue 485).
    */
   sourceAccounts(workspaceId: string): Promise<SourceAccount[]>;
-  /** One Workspace's recurring items, soonest first (issue 1449). */
+  /** One Workspace's recurring items, soonest first ("Make, change and delete recurring items from the Recurring items modal", issue 1449). */
   recurringItems(workspaceId: string): Promise<RecurringItem[]>;
   /**
    * The connection one Workspace holds to an account at a source, by the key

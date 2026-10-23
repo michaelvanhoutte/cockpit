@@ -940,8 +940,9 @@ function masterPanelsFrom(db: AccountDb, tenantId: string, item: Item, seriesId:
 function recurringPanelsOf(db: AccountDb, tenantId: string, workspaceId: string, panelIds: readonly string[]): string[] | null {
   const once = [...new Set(panelIds)];
   for (const panelId of once) {
-    const panel = panelNamedFor(db, tenantId, workspaceId, panelId);
-    if (!panel || !panelTakesItems(panel)) return null;
+    // Only its kind and its Dashboard's Workspace matter: not the filings `panelNamedFor` loads.
+    const panel = getPanel(db, tenantId, panelId);
+    if (!panel || !getDashboard(db, tenantId, workspaceId, panel.dashboardId) || !panelTakesItems(panel)) return null;
   }
   return once;
 }
