@@ -68,6 +68,28 @@ describe('listRuns', () => {
     expect(reachedWindowEdge).toBe(true);
   });
 
+  it('reads an older window by asking for its range, and leaves out the runs from its end on', async () => {
+    const { fetchImpl, calls } = stubFetch({
+      pages: [
+        [
+          rawRun({ id: 101, created_at: '2026-09-01T00:00:00Z' }),
+          rawRun({ id: 102, created_at: '2026-08-31T23:59:59Z' }),
+          rawRun({ id: 103, created_at: '2026-08-08T00:00:00Z' }),
+          rawRun({ id: 104, created_at: '2026-08-07T23:59:59Z' }),
+        ],
+      ],
+    });
+    const { runs } = await listRuns({
+      repo: 'o/r',
+      since: SINCE,
+      until: new Date('2026-09-01T00:00:00Z'),
+      maxRuns: 100,
+      fetchImpl,
+    });
+    expect(runs.map((run) => run.id)).toEqual([102, 103]);
+    expect(decodeURIComponent(calls[0])).toContain('&created=2026-08-08T00:00:00Z..2026-09-01T00:00:00Z&');
+  });
+
   it('says it never reached the edge when the branch simply has no more history', async () => {
     const { fetchImpl } = stubFetch({ pages: [[rawRun()]] });
     const { reachedWindowEdge } = await listRuns({
@@ -112,6 +134,15 @@ describe('listRuns', () => {
     const { runs } = await listRuns({ repo: 'o/r', since: SINCE, maxRuns: 500, fetchImpl });
     expect(runs).toHaveLength(101);
     expect(calls.filter((url) => url.includes('page=2'))).toHaveLength(1);
+  });
+
+  it('says it stopped short at the 1,000 runs a filtered list ends at, which arrives as an empty page', async () => {
+    const pages = Array.from({ length: 10 }, () => Array.from({ length: 100 }, () => rawRun()));
+    const { fetchImpl, calls } = stubFetch({ pages });
+    const { runs, truncated } = await listRuns({ repo: 'o/r', since: SINCE, maxRuns: 5_000, fetchImpl });
+    expect(runs).toHaveLength(1_000);
+    expect(truncated).toBe(true);
+    expect(calls).toHaveLength(10);
   });
 });
 

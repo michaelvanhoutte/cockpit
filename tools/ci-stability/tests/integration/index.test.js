@@ -161,6 +161,132 @@ describe('the generator, end to end against a stubbed API', () => {
     }
   });
 
+  describe('with --send, the runs reach the Harness Monitor after the page is written', () => {
+    const NOW = new Date('2026-10-23T12:00:00Z');
+
+    /** GitHub with `runs` (by default two, days apart), and a Monitor that holds `newestRun` and answers each send with `answer`. */
+    function stubBoth({
+      newestRun = null,
+      answer = { status: 200, body: { stored: 1 } },
+      runs = [rawRun({ id: 2, created_at: '2026-10-23T08:00:00Z' }), rawRun({ id: 1, created_at: '2026-10-19T08:00:00Z' })],
+    } = {}) {
+      const posted = [];
+      const asked = [];
+      vi.stubGlobal('fetch', async (url, init) => {
+        if (url.startsWith('https://monitor.test')) {
+          if (init?.method === 'POST') {
+            posted.push(JSON.parse(init.body).runs.map((run) => run.id));
+            return { ok: answer.status === 200, status: answer.status, json: async () => answer.body };
+          }
+          return ok({ newestRun });
+        }
+        asked.push(url);
+        if (url.includes('/jobs')) return ok({ jobs: [rawJob({ run_id: Number(url.match(/runs\/(\d+)\/jobs/)[1]) })] });
+        const page = Number(url.match(/[?&]page=(\d+)/)?.[1] ?? 1);
+        return ok({ workflow_runs: page === 1 ? runs : [] });
+      });
+      vi.stubEnv('HARNESS_MONITOR_URL', 'https://monitor.test');
+      vi.stubEnv('HARNESS_WRITE_KEY', 'k');
+      return { posted, asked };
+    }
+
+    const quietly = async (run, said = []) => {
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((text) => said.push(String(text)));
+      try {
+        return await run();
+      } finally {
+        stderr.mockRestore();
+      }
+    };
+
+    it('a run budget that stops the read inside the send window fails, naming the backfill, and the page over its own window is whole', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      // The Monitor is weeks behind, so the send reads past the page's 30 days and the budget stops it on 21 Sep.
+      const { posted } = stubBoth({
+        newestRun: '2026-09-01T08:00:00.000Z',
+        runs: ['2026-10-23', '2026-09-22', '2026-09-21', '2026-09-20'].map((date, i) => rawRun({ id: 10 - i, created_at: `${date}T08:00:00Z` })),
+      });
+      const dir = tmp();
+      const said = [];
+      try {
+        const args = ['--repo', 'o/r', '--out', path.join(dir, 'index.html'), '--model', path.join(dir, 'model.json'), '--send', '--max-runs', '3'];
+        expect(await quietly(() => main(args), said)).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[8, 9, 10]]);
+      expect(said.join('')).toContain('Send them with the Stability backfill, --from 2026-08-30 --to 2026-09-21.');
+      expect(JSON.parse(readFileSync(path.join(dir, 'model.json'), 'utf8')).coverage).toMatchObject({ partial: false, truncated: false });
+    });
+
+    it('a run budget that stops the read past the send window\'s start sends it all and fails nothing', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted } = stubBoth({
+        newestRun: '2026-10-23T08:00:00.000Z',
+        runs: ['2026-10-23', '2026-10-22', '2026-10-19', '2026-10-18'].map((date, i) => rawRun({ id: 10 - i, created_at: `${date}T08:00:00Z` })),
+      });
+      const said = [];
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', path.join(tmp(), 'index.html'), '--send', '--max-runs', '3']), said)).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[9, 10]]);
+      expect(said.join('')).not.toContain('stopped the read');
+    });
+
+    it('sends from the newest stored run less two days, and writes the page over its own window', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted } = stubBoth({ newestRun: '2026-10-22T08:00:00.000Z' });
+      const out = path.join(tmp(), 'index.html');
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', out, '--send']))).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[2]]);
+      expect(existsSync(out)).toBe(true);
+    });
+
+    it('sends the oldest runs first, so a send stopped partway leaves the newest stored run before what it missed', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted } = stubBoth();
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', path.join(tmp(), 'index.html'), '--send']))).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[1, 2]]);
+    });
+
+    it('a refused send fails the run and keeps the page', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted } = stubBoth({ answer: { status: 400, body: { error: 'Run 0 (2): has no conclusion.' } } });
+      const out = path.join(tmp(), 'index.html');
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', out, '--send']))).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(posted).toEqual([[1, 2]]);
+      expect(existsSync(out)).toBe(true);
+    });
+
+    it('a window given by hand is read as a range, sent whatever is stored, and writes nothing', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+      const { posted, asked } = stubBoth({ newestRun: '2026-10-22T08:00:00.000Z' });
+      const out = path.join(tmp(), 'index.html');
+      try {
+        expect(await quietly(() => main(['--repo', 'o/r', '--out', out, '--send', '--from', '2026-10-01', '--to', '2026-10-20']))).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(decodeURIComponent(asked[0])).toContain('created=2026-10-01T00:00:00Z..2026-10-21T00:00:00Z');
+      expect(posted).toEqual([[1]]);
+      expect(existsSync(out)).toBe(false);
+    });
+  });
+
   it('refuses when --model and --out resolve to the same path', async () => {
     const fetched = [];
     vi.stubGlobal('fetch', async (url) => {

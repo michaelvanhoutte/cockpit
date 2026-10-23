@@ -171,6 +171,7 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .trend+.trend{border-top:1px solid color-mix(in srgb,var(--shade) 10%,transparent);padding-top:16px}
 .trend h3{font-size:14px;font-weight:600;color:var(--ink-strong)}
 .trend .note{border:0;padding:0 0 8px}
+.chart-note{border:0;padding:0 4px 8px}
 .trend .legend{padding:8px 4px 0}
 .gridline{stroke:color-mix(in srgb,var(--shade) 10%,transparent)}
 .axis{font-size:12px;fill:var(--ink-faint);font-family:inherit}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildModel, classify, quantiles, redWindows, tally } from '../../src/model.js';
+import { buildModel, classify, monitorRows, quantiles, redWindows, tally } from '../../src/model.js';
 
 const NOW = new Date('2026-09-07T12:00:00Z');
 
@@ -636,5 +636,39 @@ describe('A job that runs as shards is measured as one job', () => {
     const jobs = family(failed.id, [[0, 8, 'success'], [1, 9, 'failure'], [1, 11, 'success'], [2, 10, 'success']], [11, 11, 'skipped']);
     const [e2e] = jobsOf([failed], jobs);
     expect(e2e.tally).toMatchObject({ fail: 1, skipped: 0 });
+  });
+});
+
+describe('CI stability', () => {
+  describe('a run sent to the Harness Monitor carries its jobs and steps as the report counts them', () => {
+    it('a shard family is one job over its whole span, each step keyed by its occurrence, and each verdict decided', () => {
+      const only = run({ conclusion: 'failure' });
+      const at = (minute) => new Date(Date.UTC(2026, 8, 6, 12, minute)).toISOString();
+      const jobs = [
+        job({ runId: only.id, name: 'E2E (F3) (1)', startedAt: at(0), completedAt: at(8) }),
+        job({ runId: only.id, name: 'E2E (F3) (2)', startedAt: at(1), completedAt: at(9) }),
+        job({ runId: only.id, name: 'E2E (F3)', startedAt: at(9), completedAt: at(10) }),
+        job({
+          runId: only.id,
+          name: 'Test',
+          conclusion: 'failure',
+          failedStep: 'Run the tests',
+          steps: [step(1, 'Upload', 5), step(2, 'Run the tests', 50, { conclusion: 'failure' }), step(3, 'Upload', 7, { conclusion: 'skipped' })],
+        }),
+      ];
+
+      const [sent] = monitorRows({ runs: [only], jobs });
+
+      expect(sent).toMatchObject({ id: only.id, conclusion: 'failure', outcome: 'fail' });
+      expect(sent.jobs.map(({ name, outcome, durationMs }) => ({ name, outcome, durationMs }))).toEqual([
+        { name: 'Test', outcome: 'fail', durationMs: 60_000 },
+        { name: 'E2E (F3)', outcome: 'pass', durationMs: 9 * 60_000 },
+      ]);
+      expect(sent.jobs[0].steps.map(({ name, occurrence, durationMs }) => ({ name, occurrence, durationMs }))).toEqual([
+        { name: 'Upload', occurrence: 1, durationMs: 5_000 },
+        { name: 'Run the tests', occurrence: 1, durationMs: 50_000 },
+        { name: 'Upload', occurrence: 2, durationMs: null },
+      ]);
+    });
   });
 });

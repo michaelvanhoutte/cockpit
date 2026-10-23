@@ -44,11 +44,76 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM link_state'),
     env.DB.prepare('DELETE FROM job_runs'),
     env.DB.prepare('DELETE FROM pull_request_stats'),
+    env.DB.prepare('DELETE FROM stability_runs'),
+    env.DB.prepare('DELETE FROM stability_jobs'),
+    env.DB.prepare('DELETE FROM stability_steps'),
     env.DB.prepare('DELETE FROM claude_calls'),
     env.DB.prepare('DELETE FROM claude_call_daily_totals'),
     env.DB.prepare('DELETE FROM claude_call_place'),
     env.DB.prepare('DELETE FROM claude_call_job_runs'),
   ]);
+}
+
+/** A step as the Stability job sends it, `ms` long. */
+export const stabilityStep = (name: string, ms: number | null, over: Record<string, unknown> = {}) => ({
+  number: 1,
+  name,
+  occurrence: 1,
+  conclusion: 'success',
+  startedAt: '2026-10-01T10:00:00Z',
+  completedAt: '2026-10-01T10:01:00Z',
+  durationMs: ms,
+  ...over,
+});
+
+/** A job as the Stability job sends it, `ms` long, that passed unless told otherwise. */
+export const stabilityJob = (name: string, ms: number | null, over: Record<string, unknown> = {}) => ({
+  name,
+  status: 'completed',
+  conclusion: 'success',
+  outcome: 'pass',
+  startedAt: '2026-10-01T10:00:00Z',
+  completedAt: '2026-10-01T10:05:00Z',
+  durationMs: ms,
+  failedStep: null,
+  url: 'https://github.com/o/r/actions/runs/1/job/1',
+  steps: [],
+  ...over,
+});
+
+/** A run of CI on `main` as the Stability job sends it, started at `createdAt`, that passed unless told otherwise. */
+export const stabilityRun = (id: number, over: Record<string, unknown> = {}) => ({
+  id,
+  workflow: 'CI',
+  path: '.github/workflows/ci.yml',
+  status: 'completed',
+  conclusion: 'success',
+  outcome: 'pass',
+  headSha: 'a'.repeat(40),
+  createdAt: '2026-10-01T10:00:00Z',
+  url: `https://github.com/o/r/actions/runs/${id}`,
+  jobs: [stabilityJob('Test', 300_000, { steps: [stabilityStep('Run the tests', 240_000)] })],
+  ...over,
+});
+
+/** A send of runs as the Stability job makes it, with the right key unless told otherwise. */
+export function sendRuns(runs: unknown[], headers: Record<string, string> = { authorization: `Bearer ${WRITE_KEY}` }) {
+  return SELF.fetch('https://monitor.test/v1/stability', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ runs }),
+  });
+}
+
+/** What is stored: each run with its conclusion, and how many jobs and steps sit under it. */
+export async function storedRuns(): Promise<{ run_id: number; conclusion: string | null; jobs: number; steps: number }[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT r.run_id, r.conclusion,
+            (SELECT COUNT(*) FROM stability_jobs j WHERE j.run_id = r.run_id) AS jobs,
+            (SELECT COUNT(*) FROM stability_steps s WHERE s.run_id = r.run_id) AS steps
+     FROM stability_runs r ORDER BY r.run_id`,
+  ).all<{ run_id: number; conclusion: string | null; jobs: number; steps: number }>();
+  return results;
 }
 
 export interface Total {
@@ -162,27 +227,32 @@ export interface CostRow {
   widths: number[];
   total: string;
   unpriced: string | null;
+  /** The cells after Total: a day's Input, Output, Cache write and Cache read; none for any other grouping. */
+  tokens: string[];
 }
 
 /** The rows of the page's cost table, in the order shown. */
 export function costRows(html: string): CostRow[] {
   const decode = (s: string) => s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
   return [...html.matchAll(/<tr>(<td class="first">.*?)<\/tr>/gs)].map(([, row]) => {
-    const cells = [...row!.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((m) => m[1]!);
+    const all = [...row!.matchAll(/<td([^>]*)>(.*?)<\/td>/gs)];
+    const cells = all.map((m) => m[2]!);
     const [first, ...rest] = cells;
     const split = rest.findIndex((c) => c.startsWith('<div class="split'));
+    const totalAt = all.slice(1).findIndex((m) => m[1]!.includes('class="num mono total"'));
     const [, label, sub] = /^(.*?)(?:<div class="muted small">(.*?)<\/div>)?$/s.exec(first!)!;
-    const [, total, unpriced] = /^([^<]*?)(?: <span class="unpriced">(.*?)<\/span>)?$/.exec(rest.at(-1)!)!;
+    const [, total, unpriced] = /^([^<]*?)(?: <span class="unpriced">(.*?)<\/span>)?$/.exec(rest[totalAt]!)!;
     const widths = [...rest[split]!.matchAll(/<div style="width:([\d.]+)%/g)].map((m) => Number(m[1]));
     return {
       label: decode(label!.replace(/<\/?a[^>]*>/g, '')),
       sub: sub === undefined ? null : decode(sub.replace(/<\/?a[^>]*>/g, '').replace(/ · Sessions$/, '')),
       details: rest.slice(0, split).map(decode),
-      categories: rest.slice(split + 1, -1),
+      categories: rest.slice(split + 1, totalAt),
       segments: widths.length,
       widths,
       total: total!,
       unpriced: unpriced ?? null,
+      tokens: rest.slice(totalAt + 1),
     };
   });
 }
@@ -297,6 +367,15 @@ export async function splitTotals(): Promise<SplitTotal[]> {
      FROM daily_split_totals ORDER BY day, branch, category, model, ran_where, subagent`,
   ).all<SplitTotal>();
   return results;
+}
+
+/** The tokens the split totals hold, one row per key: branch, model, then input, output, cache write and cache read. */
+export async function splitTokens(): Promise<[string, string, number, number, number, number][]> {
+  const { results } = await env.DB.prepare(
+    `SELECT branch, model, input_tokens AS i, output_tokens AS o, cache_creation_tokens AS w, cache_read_tokens AS r
+     FROM daily_split_totals ORDER BY day, branch, category, model, ran_where, subagent`,
+  ).all<{ branch: string; model: string; i: number; o: number; w: number; r: number }>();
+  return results.map((t) => [t.branch, t.model, t.i, t.o, t.w, t.r]);
 }
 
 /** A pull request merged on `mergedAt` that changed `lines` lines, on branch b/<number>. */

@@ -543,11 +543,27 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      # Also sends the runs to the Harness Monitor, from the newest it holds less
+      # two days, after the page is written. The write key reaches this job
+      # because it runs on `main` only, never a pull request's code. Until both
+      # the secret and the variable are set it says so and only writes the page
+      # (docs/deployment.md, "The Harness Monitor").
       - name: Measure how reliable each job on main has been
-        run: node tools/ci-stability/src/cli.js --out tools/ci-stability/out/index.html --model tools/ci-stability/out/model.json
+        run: |
+          send=--send
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            echo "::notice title=CI stability not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, so the runs did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
+            send=
+          fi
+          node tools/ci-stability/src/cli.js --out tools/ci-stability/out/index.html --model tools/ci-stability/out/model.json $send
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+      # A send the Monitor refused, or the run budget cut short, fails the step
+      # above with the page already written, so the page is still uploaded.
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: ci-stability-report
           path: tools/ci-stability/out/

@@ -8,6 +8,10 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
   series: 'building',
   costMicros: 1_000_000,
   unpricedRequests: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationTokens: 0,
+  cacheReadTokens: 0,
   lastAt: 0,
   prNumber: 1,
   title: 'T',
@@ -188,7 +192,7 @@ describe('Harness Monitor', () => {
     it('split by phase there is a line per phase with cost, and the total', () => {
       const chart = chartOf([day('2026-10-01', 'building', 2), day('2026-10-01', 'after-push', 1)], 'phase', null, '2026-10-01T12:00:00Z');
 
-      expect(chart.lines.map((l) => [l.key, l.micros])).toEqual([
+      expect(chart.lines.map((l) => [l.key, l.values])).toEqual([
         ['building', [2]],
         ['after-push', [1]],
       ]);
@@ -205,7 +209,7 @@ describe('Harness Monitor', () => {
       const chart = chartOf([day('2026-10-01', 'building', 2), day('2026-10-03', 'building', 4)], 'phase', null, '2026-10-03T12:00:00Z');
 
       expect(chart.days).toEqual(['2026-10-01', '2026-10-02', '2026-10-03']);
-      expect(chart.lines[0]!.micros).toEqual([2, 0, 4]);
+      expect(chart.lines[0]!.values).toEqual([2, 0, 4]);
       expect(chart.total).toEqual([2, 0, 4]);
     });
 
@@ -220,11 +224,35 @@ describe('Harness Monitor', () => {
       const chart = chartOf([day('2026-10-01', 'building', 2)], 'phase', null, '2026-10-01T12:00:00Z');
 
       expect(chart.days).toEqual(['2026-10-01']);
-      expect(chart.lines[0]!.micros).toEqual([2]);
+      expect(chart.lines[0]!.values).toEqual([2]);
     });
 
     it('with no cost there is nothing to chart', () => {
       expect(chartOf([], 'phase', null, '2026-10-01T12:00:00Z')).toEqual({ days: [], lines: [], total: [] });
+    });
+  });
+
+  describe("Tokens per day draws each series' tokens summed per day, and a day without requests is zero", () => {
+    /** A day's requests in one series: the four kinds of token, priced or not. */
+    const tokens = (d: string, series: string, [input, output, cacheWrite, cacheRead]: number[]) =>
+      row({ day: d, series, costMicros: 0, prNumber: null, title: null, branch: '', inputTokens: input!, outputTokens: output!, cacheCreationTokens: cacheWrite!, cacheReadTokens: cacheRead! });
+    const groups = groupRows(
+      [tokens('2026-10-01', 'building', [1, 2, 3, 4]), tokens('2026-10-01', 'after-push', [10, 0, 0, 20]), tokens('2026-10-03', 'building', [100, 0, 0, 0])],
+      'day',
+      null,
+    );
+    const chart = dayChart(groups, seriesOf('phase', {}), null, Date.parse('2026-10-03T12:00:00Z'), 'tokens');
+
+    it.each([
+      { situation: 'each series', line: 'building', expected: [10, 0, 100] },
+      { situation: 'a series on one day of the two', line: 'after-push', expected: [30, 0, 0] },
+    ])("$situation reads its four kinds summed on each day, the empty day a zero point", ({ line, expected }) => {
+      expect(chart.days).toEqual(['2026-10-01', '2026-10-02', '2026-10-03']);
+      expect(chart.lines.find((l) => l.key === line)!.values).toEqual(expected);
+    });
+
+    it('the total line is each day\'s four kinds summed over every series', () => {
+      expect(chart.total).toEqual([40, 0, 100]);
     });
   });
 
