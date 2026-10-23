@@ -7,6 +7,7 @@ import type {
   Item,
   Panel,
   ServerEvent,
+  RecurringItem,
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
@@ -141,6 +142,7 @@ import {
   meaningsOfItems,
   listOpenItems,
   listPanelsInWorkspace,
+  listRecurringItems,
   listWorkspaces,
   meaningsToCompareWith,
   queueRewriteAttempt,
@@ -725,6 +727,21 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       // 404 rather than an empty list that reads as "nothing connected".
       if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
       return sourceAccountsIn(db, accountName, workspaceId);
+    });
+  }
+
+  /**
+   * One Workspace's recurring items, soonest first ("Make, change and delete
+   * recurring items from the Recurring items modal", issue 1449): its own read
+   * rather than a slice of the Workspace's snapshot, since the modal that shows
+   * them is opened now and then and every read of the Workspace would carry them.
+   * A Workspace that is not there is `missing`, not an empty list that reads as
+   * "nothing recurs".
+   */
+  recurringItems(accountName: string, workspaceId: string): Answer<RecurringItem[]> {
+    return this.#answer(accountName, (db) => {
+      if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+      return listRecurringItems(db, accountName, workspaceId);
     });
   }
 
@@ -1719,6 +1736,10 @@ const CHANGES_THE_ALARM: ReadonlySet<CommandName> = new Set<CommandName>([
   'disconnect_source_account',
   'delete_workspace',
   'set_repeat',
+  // A recurring item made, changed or deleted moves the day the alarm is set for (issue 1449).
+  'create_recurring_item',
+  'write_recurring_item',
+  'delete_recurring_item',
 ]);
 
 /**

@@ -35,3 +35,12 @@ export * from './api/connected-apps.js';
 export * from './api/claude-links.js';
 export * from './api/usage.js';
 export * from './api/usage-export.js';
+
+// Only the types: the values are `@cockpit/shared/recurring-items`, which the initial bundle leaves out.
+export type {
+  CreateRecurringItemCommand,
+  DeleteRecurringItemCommand,
+  RecurringItem,
+  RecurringItemList,
+  WriteRecurringItemCommand,
+} from './recurring-items.js';

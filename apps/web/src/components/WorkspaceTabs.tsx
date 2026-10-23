@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, themeOf, uuidv7 } from '@cockpit/shared';
@@ -15,6 +15,9 @@ import { useUndo } from '../undo';
 import { DeleteQuestion } from './DeleteQuestion';
 import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { RowForm } from './RowForm';
+
+// The Recurring items modal, fetched only once it has been asked for.
+const RecurringModal = lazy(() => import('./RecurringModal'));
 
 /**
  * The workspaces across the top, and everything that can be done to one
@@ -81,6 +84,8 @@ export function WorkspaceTabs({
   } | null>(null);
   /** The workspace whose delete is waiting to be confirmed. */
   const [deleting, setDeleting] = useState<string | null>(null);
+  // The Workspace whose Recurring items modal is open, if any.
+  const [recurring, setRecurring] = useState<string | null>(null);
   /**
    * The tab the form or the question was opened from, so the focus can go back
    * to it. A ref rather than state: nothing on screen depends on it, and it is
@@ -316,12 +321,19 @@ export function WorkspaceTabs({
       keepsFocus: true,
       onSelect: () => switchAllItemsTab(ws.id, !allItemsTabOn(ws.id)),
     },
+    // The one way to make a recurring item, and the list of this Workspace's (issue 1449).
+    { label: 'Recurring items', onSelect: () => setRecurring(ws.id) },
     // Apart from the way in, since it is the one that cannot be put back.
     { label: 'Delete', destructive: true, separatorBefore: true, onSelect: (from) => startDeleting(ws, from) },
   ];
 
   return (
     <>
+      {recurring && (
+        <Suspense>
+          <RecurringModal workspaceId={recurring} onClose={() => setRecurring(null)} />
+        </Suspense>
+      )}
       {/* The strip and its own trailing button share this row's width, at the
           tighter of the two gaps the header uses: the wide `gap-4` between
           the header's own sections left too little of a 480px screen for the

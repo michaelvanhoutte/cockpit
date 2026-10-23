@@ -12,6 +12,7 @@ import {
   workspaceListSchema,
   workspaceSnapshotSchema,
   type ClientCommandName,
+  type WindowCommandName,
   type CommandPayload,
   type CommandResult,
   type Usage,
@@ -376,7 +377,7 @@ export function attachmentUrl(attachmentId: string): string {
  * endpoint and so no sender above ("Clean up a captured note into a clear title
  * and a fuller message", issue 296).
  */
-export async function sendCommand<N extends ClientCommandName>(
+export async function sendCommand<N extends Exclude<ClientCommandName, WindowCommandName>>(
   name: N,
   payload: CommandPayload<N>,
   /** Aborts the request, for a sender that has given up waiting on it (`captureOutboxSender.tsx`). */

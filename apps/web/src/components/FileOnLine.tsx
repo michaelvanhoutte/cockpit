@@ -32,6 +32,7 @@ export function FileOnLine({
   onAdd,
   onRemove,
   inTheItemForm = false,
+  labelled,
 }: {
   /** The Workspace chosen, or null for *Any workspace*. */
   where: string | null;
@@ -44,9 +45,11 @@ export function FileOnLine({
   onRemove: (panelId: string) => void;
   /** Drawn as the Item form's *On panels* field, under its description, in place of Capture's line (issue 1106). */
   inTheItemForm?: boolean;
+  /** The label to draw in place of the default: the Recurring items form's *Files on* (issue 1449). */
+  labelled?: string;
 }) {
   const [armed, setArmed] = useState(false);
-  const label = inTheItemForm ? 'On panels' : 'File on';
+  const label = labelled ?? (inTheItemForm ? 'On panels' : 'File on');
   return (
     <div
       className={

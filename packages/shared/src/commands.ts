@@ -16,6 +16,7 @@ import {
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
+import type { windowCommandSchemas } from './recurring-items.js';
 import { repeatRuleSchema } from './domain/series.js';
 import {
   REMEMBERED_ACTION_LIMIT,
@@ -1022,8 +1023,18 @@ export const commandSchemas = {
   delete_remembered_sentence: deleteRememberedSentenceSchema,
 } as const;
 
-export type CommandName = keyof typeof commandSchemas;
-export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchemas)[N]>;
+/**
+ * The commands only a window sends from its own chunk, kept in their own
+ * registry (`windowCommandSchemas`, `@cockpit/shared/recurring-items`) so the
+ * schemas are not in what every tab loads: the Recurring items modal's, issue 1449.
+ */
+export type WindowCommandName = keyof typeof windowCommandSchemas;
+export type CommandName = keyof typeof commandSchemas | WindowCommandName;
+export type CommandPayload<N extends CommandName> = N extends WindowCommandName
+  ? z.infer<(typeof windowCommandSchemas)[N]>
+  : N extends keyof typeof commandSchemas
+    ? z.infer<(typeof commandSchemas)[N]>
+    : never;
 
 /**
  * The commands Cockpit sends itself rather than taking from a client, and so
