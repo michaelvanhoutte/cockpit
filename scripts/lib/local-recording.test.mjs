@@ -45,5 +45,36 @@ describe('AI usage', () => {
         ['USAGE_RECORDING_URL:http://localhost:8787'],
       );
     });
+
+    for (const [situation, branch] of [
+      ['an ampersand', 'fix&powershell,-enc,AAAA'],
+      ['a percent sign', 'fix%PATH%'],
+      ['a pipe', 'a|b'],
+      ['a parenthesis', 'a(b)'],
+      ['a space', 'a b'],
+      ['a semicolon', 'a;b'],
+    ]) {
+      it(`leaves a branch with ${situation} out, since it reaches a shell command line`, () => {
+        const origin = 'https://cockpit.example.workers.dev';
+        assert.deepEqual(recordingVars({ branch, origin, environment: {} }), [`USAGE_RECORDING_URL:${origin}`]);
+      });
+    }
+
+    for (const [situation, url] of [
+      ['an ampersand', 'http://localhost:8787&calc'],
+      ['a percent sign', 'http://localhost:8787/%PATH%'],
+      ['a space', 'http://localhost:8787 x'],
+    ]) {
+      it(`ignores a shell-given address with ${situation}, and records to production`, () => {
+        const origin = 'https://cockpit.example.workers.dev';
+        assert.deepEqual(recordingVars({ branch: null, origin, environment: { USAGE_RECORDING_URL: url } }), [
+          `USAGE_RECORDING_URL:${origin}`,
+        ]);
+      });
+    }
+
+    it('refuses a production address that is not a plain URL', () => {
+      assert.throws(() => recordingVars({ branch: null, origin: 'https://x.test/&calc', environment: {} }), /plain/);
+    });
   });
 });
