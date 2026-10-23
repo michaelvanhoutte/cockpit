@@ -666,6 +666,11 @@
         "apps/harness-monitor/src/pull-request-page.ts",
         "apps/harness-monitor/src/github.ts"
       ]
+    },
+    {
+      "key": "Home-screen widget",
+      "label": "Home-screen widget",
+      "sourcePatterns": []
     }
   ]
 }

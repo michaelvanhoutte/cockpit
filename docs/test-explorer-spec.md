@@ -554,7 +554,10 @@ Rounds 11–12 and the later feedback and review rounds are summarised in "How t
   Worth building next; not blocking this.
 - **Mutation testing**, explicitly postponed in the settled design.
 - **The Android-versus-web split of the frontend levels**, flagged as an open gap in
-  ideas.md. Deferred until an Android target exists.
+  ideas.md. The home-screen widget is the first Android target, and it is not split
+  here: the explorer reads TypeScript only, so the area *Home-screen widget* is
+  registered with no source patterns and its Kotlin tests (testing-strategy.md, "The
+  Android widget") are run by Gradle and counted nowhere on the page.
 
 ## 11. Housekeeping once this lands
 
