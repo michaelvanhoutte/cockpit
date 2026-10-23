@@ -25,6 +25,18 @@ import type { Day } from './filters.js';
  * is checked against.
  */
 
+/**
+ * **What titles sort by in a read: English, whatever this Worker's runtime
+ * would default to.** The browser sorts by the person's own locale; a Worker has
+ * none to ask, and its default is whatever the environment it runs in says -
+ * Dutch (Belgium) on a developer's machine, English (US) deployed - so left
+ * alone, the same Panel would order its titles differently from one
+ * environment to the next. English for the Latin alphabet, accents and case
+ * orders as Dutch and French do; a phone that sorts by another locale's
+ * alphabet is the case an added field could serve later.
+ */
+export const PANEL_READ_LOCALE = 'en';
+
 /** The kinds of Panel a read can be made of: Panels of text hold no Items. */
 export const readablePanelKindSchema = z.enum(['items', 'filter']);
 export type ReadablePanelKind = z.infer<typeof readablePanelKindSchema>;
@@ -164,6 +176,7 @@ export function panelRead(snapshot: ReadableSnapshot, panelId: string, today: Da
     withAttachments: new Set(),
     withRun,
     today,
+    locale: PANEL_READ_LOCALE,
   });
 
   const inBoardOrder = panelsInBoardOrder(snapshot);

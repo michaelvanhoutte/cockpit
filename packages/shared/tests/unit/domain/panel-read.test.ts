@@ -197,6 +197,29 @@ describe('Panels', () => {
       expect(placeLine(filings, panelId, [aLayout('work', [['hasselt'], ['finance']])])).toEqual(places);
     });
 
+    it('sorts titles in English, whatever the runtime it is worked out in would sort them by', () => {
+      const items = [anItem('z', { title: 'Zebra' }), anItem('a-umlaut', { title: 'Ärlig' }), anItem('a', { title: 'Apa' })];
+      const sortedByTitle = panels.map((panel) =>
+        panel.id === 'finance' ? { ...panel, sort: [{ field: 'title' as const, direction: 'asc' as const }] } : panel,
+      );
+
+      const read = panelRead(
+        {
+          workspace: aWorkspace('ws-work'),
+          dashboards,
+          panels: sortedByTitle,
+          layouts: [],
+          items,
+          filings: items.map((item) => filed('finance', item.id)),
+          agentRuns: [],
+        },
+        'finance',
+        '2026-10-23',
+      )!;
+
+      expect(read.groups[0]!.rows.map((row) => row.label)).toEqual(['Apa', 'Ärlig', 'Zebra']);
+    });
+
     it('says a row’s label, priority and due date as they are on the Item', () => {
       const items = [anItem('a', { priority: 'high', dueDate: '2026-10-21', title: 'Send the forecast' })];
 

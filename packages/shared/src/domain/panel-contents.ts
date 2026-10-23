@@ -20,6 +20,8 @@ export type PanelContents = {
   withAttachments: ReadonlySet<string>;
   withRun: ReadonlySet<string>;
   today: Day;
+  /** What titles sort by where a sort names Title: the browser's own where none is given, and the one the Worker pins (`PANEL_READ_LOCALE`). */
+  locale?: string | undefined;
 };
 
 /**
@@ -39,8 +41,9 @@ export function itemsShownOn(panel: Panel, c: PanelContents): Item[] {
         c.withRun,
         c.today,
         sortOf(panel) ?? DEFAULT_FILTER_SORT,
+        c.locale,
       )
-    : inSortOrder(itemsOnPanel(c.items, c.filings, panel.id), sortOf(panel));
+    : inSortOrder(itemsOnPanel(c.items, c.filings, panel.id), sortOf(panel), c.locale);
   return isFiltering(c.filter)
     ? list.filter((item) => matchesDashboardFilter(c.filter, item, c.withAttachments, c.today, c.withRun))
     : list;
