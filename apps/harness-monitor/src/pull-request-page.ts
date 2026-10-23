@@ -107,5 +107,5 @@ export function renderPullRequest(page: PullRequestPage, now = Date.now()): stri
 
 /** A number no pull request is known by. */
 export function renderNothingFound(now = Date.now()): string {
-  return framed(`<section class="panel">${band('Pull request')}<p class="well empty">Nothing found. No pull request with that number has been linked to any Claude Code request.</p></section>`, now);
+  return framed(`<h1 class="sr-only">Pull request</h1><section class="panel">${band('Pull request')}<p class="well empty">Nothing found. No pull request with that number has been linked to any Claude Code request.</p></section>`, now);
 }
