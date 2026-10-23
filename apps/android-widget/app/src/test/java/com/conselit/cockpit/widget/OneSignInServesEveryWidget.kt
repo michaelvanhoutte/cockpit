@@ -89,7 +89,7 @@ class OneSignInServesEveryWidget {
     @Test
     fun `a way back that is not the answer to this sign-in signs nobody in`() {
         val signingIn = SigningIn(phone).fromTheApp()
-        signingIn.comesHome(state = "somebody else's")
+        signingIn.comesHome(state = "another-sign-in")
         assertEquals(false, phone.graph.session.isSignedIn())
         assertNull(cockpit.lastTokenForm["code"])
     }
