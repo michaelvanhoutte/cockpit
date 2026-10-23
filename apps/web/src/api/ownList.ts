@@ -97,7 +97,11 @@ function readWhatIsOwed(): void {
 function read(client: QueryClient, key: QueryKey): void {
   const filters = { queryKey: key, exact: true };
   const query = client.getQueryCache().find(filters);
-  if (!query) return;
+  if (!query) {
+    // A list nothing holds (its window closed before the answer) has no read to wait for: its changes are not drawn over anything.
+    changes.readLanded(scopeOf(key), changes.readStarted());
+    return;
+  }
   const alongside = { cancelRefetch: false };
   const start = () => void (query.isActive() ? client.refetchQueries(filters, alongside) : client.invalidateQueries(filters, alongside));
   const flying = query.state.fetchStatus === 'fetching';
@@ -111,6 +115,7 @@ function join(
   change: CommandArgs | Requested,
   request?: (signal: AbortSignal) => Promise<CommandResult>,
   alsoRead: readonly QueryKey[] = [],
+  alsoDrawnOn: readonly string[] = [],
 ): Promise<CommandResult> {
   return changes.enqueue(
     change,
@@ -120,6 +125,7 @@ function join(
     },
     scopeOf(key),
     request,
+    alsoDrawnOn,
   );
 }
 
@@ -127,16 +133,18 @@ function join(
  * Sends a command that changes the list under `key`. It joins the tab's queue and
  * is drawn at once; it settles with the server's answer, or its refusal, which the
  * caller says. `alsoRead` are lists the change also moved, read with the list once the
- * queue has emptied.
+ * queue has emptied. `alsoDrawnOn` are the Workspaces whose snapshot the change is drawn
+ * over as well (`drawnAhead.ts`): it is drawn until their reads have landed too.
  */
 export async function changeList(
   client: QueryClient,
   key: QueryKey,
   change: CommandArgs,
   alsoRead: readonly QueryKey[] = [],
+  alsoDrawnOn: readonly string[] = [],
 ): Promise<CommandResult> {
   refuseWhileOffline();
-  return join(client, key, change, undefined, alsoRead);
+  return join(client, key, change, undefined, alsoRead, alsoDrawnOn);
 }
 
 /**

@@ -602,16 +602,12 @@ export const setDueDateSchema = commandEnvelopeSchema.extend({
 export type SetDueDateCommand = z.infer<typeof setDueDateSchema>;
 
 /**
- * set_repeat - an Item's Repeats ("Set an Item to repeat from its form, and see
- * the rule on its row", issue 1406). `repeat` is the whole rule, and `null` is
- * *Never*: the Item's series stops and the Item still names it.
- *
- * **`seriesId` is the series the Item joins if it has none**, made up by the
- * tab so the series is drawn before the server answers; an Item that already
- * names one keeps its own, so two tabs setting a rule on the same Item write
- * one series and the later command wins. **The browser's time zone is stored
- * with the rule** (`timeZone`), and *Next on* is checked against today on that
- * calendar.
+ * set_repeat - the Item form's old Repeats chip ("Set an Item to repeat from its
+ * form, and see the rule on its row", issue 1406), which no screen sends any more
+ * ("Point a copy at its master, and retire the Repeats chip", issue 1450). **Kept
+ * so a tab still on the previous app is answered**: the server refuses it, with
+ * `RECURRING_REFUSALS.useTheMenu`, and writes nothing. A recurring item is made
+ * and written by the commands below.
  */
 export const setRepeatSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { ownsProject } from './issue-cost.mjs';
 import { allRequests, parseLog, readLog, toRow } from './usage-report.mjs';
-import { postBatches, summarizeUpload, uploadRows } from './usage-upload.mjs';
+import { corrections, postBatches, postCorrections, summarizeRePlace, summarizeUpload, uploadRows } from './usage-upload.mjs';
 
 const usage = { input_tokens: 3, output_tokens: 5, cache_creation_input_tokens: 7, cache_read_input_tokens: 11 };
 
@@ -101,6 +101,86 @@ describe('Harness Monitor', () => {
       assert.equal(totals.stored, 0);
       assert.equal(totals.failed, 'the monitor answered 503');
       assert.ok(summarizeUpload({ ...totals, unreadable: 0 }).some((line) => line.startsWith('Stopped early: the monitor answered 503.')));
+    });
+  });
+
+  describe('Placing stored Unphased requests again sends id and phase for each local request from 21 Sep on that the rule puts in Scoping & planning, After push, Process review or Outside the process, and nothing else', () => {
+    /** A `scoping` session on a branch with no marks: the skill invoked at 09:00, a request at 10:00 on `day`. */
+    const scopingSession = (requestId, day) => ({
+      lines: parseLog(
+        [
+          JSON.stringify({ type: 'assistant', timestamp: `${day}T09:00:00Z`, message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: 'scoping' } }] } }),
+          reply(requestId, `${day}T10:00:00Z`, 'claude/scoping-1'),
+        ].join('\n'),
+      ),
+      sessionId: `s-${requestId}`,
+      subagent: false,
+    });
+    const sent = (logs) => corrections(uploadRows(logs, { ranWhere: 'local', marksOf }));
+
+    for (const { situation, logs, expected } of [
+      { situation: 'a request in a scoping session', logs: () => [scopingSession('req_s', '2026-10-01')], expected: [{ requestId: 'req_s', category: 'scoping-planning' }] },
+      { situation: 'a request the marks place in Building, beside one outside the process', logs: () => [session()[0]], expected: [{ requestId: 'req_2', category: 'outside-process' }] },
+      { situation: 'a request in a scoping session before 21 Sep', logs: () => [scopingSession('req_old', '2026-09-20')], expected: [] },
+    ]) {
+      it(situation, () => {
+        assert.deepEqual(sent(logs()), expected);
+      });
+    }
+
+    it('a correction carries the request id and the phase, nothing more', () => {
+      const list = sent(session());
+      assert.ok(list.length > 0);
+      for (const correction of list) assert.deepEqual(Object.keys(correction).sort(), ['category', 'requestId']);
+    });
+
+    it('more than 200 corrections go in batches of 200', async () => {
+      const list = Array.from({ length: 450 }, (_, i) => ({ requestId: `r${i}`, category: 'outside-process' }));
+      const sizes = [];
+      await postCorrections(list, async (batch) => {
+        sizes.push(batch.length);
+        return { changed: batch.length, left: 0 };
+      });
+      assert.deepEqual(sizes, [200, 200, 50]);
+    });
+  });
+
+  describe('Placing stored Unphased requests again says what it did', () => {
+    const list = Array.from({ length: 450 }, (_, i) => ({ requestId: `r${i}`, category: 'outside-process' }));
+
+    it('a run prints how many changed and were left across every batch, and how many requests from 21 Sep on had no log here', async () => {
+      const totals = await postCorrections(list, async (batch) => ({ changed: batch.length - 10, left: 10 }));
+      const lines = summarizeRePlace({ ...totals, unphased: 7, unreadable: 0 });
+
+      assert.equal(lines[0], 'Sent 450 corrections: 420 placed again, 30 left as they were (already in a phase, dated before 21 Sep, from a cloud session, or not stored).');
+      assert.ok(lines.includes('7 local requests from 21 Sep on are still Unphased: no log on this machine places them in one of the four phases.'));
+    });
+
+    it('a run whose count of requests still Unphased could not be read says so', async () => {
+      const totals = await postCorrections(list, async (batch) => ({ changed: batch.length, left: 0 }));
+      const lines = summarizeRePlace({ ...totals, unphased: null, unphasedUnread: 'the monitor answered 503', unreadable: 0 });
+
+      assert.ok(lines.includes('Could not read how many local requests from 21 Sep on are still Unphased: the monitor answered 503.'));
+    });
+
+    it('a batch the monitor refuses stops the run, is named, and is not counted as sent', async () => {
+      const totals = await postCorrections(list, async (batch) => (batch[0].requestId === 'r200' ? { refused: 'Correction 3 (r203): has category "building"' } : { changed: batch.length, left: 0 }));
+      const lines = summarizeRePlace({ ...totals, unphased: null, unreadable: 0 });
+
+      assert.equal(lines[0], 'Sent 200 corrections: 200 placed again, 0 left as they were (already in a phase, dated before 21 Sep, from a cloud session, or not stored).');
+      assert.ok(lines.includes('Stopped: the monitor refused batch 2 of 3 (corrections 201-400): Correction 3 (r203): has category "building". Nothing from it was applied, and nothing after it was sent.'));
+      assert.ok(!lines.some((line) => line.includes('still Unphased')));
+    });
+
+    it('a batch that fails to reach the monitor stops the run, is named, is not counted as sent, and says to re-run', async () => {
+      const totals = await postCorrections(list, async (batch) => {
+        if (batch[0].requestId === 'r200') throw new Error('the monitor answered 502');
+        return { changed: batch.length, left: 0 };
+      });
+      const lines = summarizeRePlace({ ...totals, unphased: null, unreadable: 0 });
+
+      assert.equal(lines[0], 'Sent 200 corrections: 200 placed again, 0 left as they were (already in a phase, dated before 21 Sep, from a cloud session, or not stored).');
+      assert.ok(lines.includes('Stopped at batch 2 of 3 (corrections 201-400): the monitor answered 502. Re-run to finish; rows already placed are left.'));
     });
   });
 });

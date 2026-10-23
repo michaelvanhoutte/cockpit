@@ -5,8 +5,8 @@ import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
-import { storeBatch, unpricedLines } from './store';
-import { validateBatch } from './validate';
+import { correctBatch, stillUnphased, storeBatch, unpricedLines } from './store';
+import { validateBatch, validateCorrections } from './validate';
 
 export interface Env {
   DB: D1Database;
@@ -38,21 +38,55 @@ async function refusal(request: Request, env: Env): Promise<Response | null> {
   return null;
 }
 
-async function write(request: Request, env: Env): Promise<Response> {
-  const refused = await refusal(request, env);
-  if (refused) return refused;
-
+/** The request's JSON body, or the refusal for one too large or not JSON. */
+async function readBody(request: Request): Promise<{ body: unknown } | Response> {
   const text = await request.text();
   if (text.length > MAX_BODY) return json({ error: `The body is over ${MAX_BODY} characters.` }, 413);
-  let body: unknown;
   try {
-    body = JSON.parse(text);
+    return { body: JSON.parse(text) };
   } catch {
     return json({ error: 'The body is not JSON.' }, 400);
   }
-  const checked = validateBatch(body);
+}
+
+async function write(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = validateBatch(read.body);
   if (!checked.ok) return json({ error: checked.error }, 400);
   return json(await storeBatch(env.DB, checked.rows));
+}
+
+/**
+ * Places stored Unphased requests again (Re-place stored Unphased requests
+ * since 21 Sep from the local session logs, issue 1487), behind the write key.
+ * POST takes `{"corrections": [{requestId, category}]}`, at most 200, and
+ * answers `{changed, left}`; GET answers `{unphased}`, how many local requests
+ * from 21 Sep on are still Unphased, for the run's report.
+ *
+ * Built to these failure modes:
+ * - **Halfway**: a batch is one statement, so one D1 transaction; a stop leaves
+ *   whole batches placed and the rest Unphased, and the daily totals stale
+ *   until `rebuild` runs, which only the rows feed.
+ * - **Twice**: only a row still Unphased changes, so a re-run changes only what
+ *   earlier runs did not reach, and is safe.
+ * - **Rows that break the rule**: a category outside the four refuses the whole
+ *   batch, naming it; a row already phased, dated before 21 Sep, from a cloud
+ *   session or not stored is left and counted in `left`, never dropped silently.
+ * - **Interruption**: inside a batch D1 rolls it back whole; a hook inserting
+ *   rows meanwhile only inserts, which this never touches.
+ */
+async function correct(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  if (request.method === 'GET') return json({ unphased: await stillUnphased(env.DB) });
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = validateCorrections(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await correctBatch(env.DB, checked.corrections));
 }
 
 /**
@@ -141,6 +175,9 @@ export default {
     if (pathname === '/export.csv' && request.method === 'GET') return exportRows(request, env);
     if (pathname === '/v1/usage') {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
+    }
+    if (pathname === '/v1/usage/corrections') {
+      return request.method === 'POST' || request.method === 'GET' ? correct(request, env) : json({ error: 'Use POST or GET.' }, 405);
     }
     const jobPath = /^\/v1\/jobs\/([^/]*)$/.exec(pathname);
     if (jobPath) return request.method === 'POST' ? startJob(request, env, jobPath[1]!) : json({ error: 'Use POST.' }, 405);

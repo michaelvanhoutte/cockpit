@@ -37,14 +37,14 @@ export const dollars = (micros: number) => `$${(micros / 1e6).toLocaleString('en
 /** Cockpit's category colours, by name, so the dark appearance can swap them (src/look.ts). */
 export const COLOURS: Record<Category, string> = {
   unphased: 'var(--cat-grey)',
-  'outside-process': 'var(--due-ink)',
+  'outside-process': 'var(--cat-amber)',
   'scoping-planning': 'var(--cat-slate)',
   building: 'var(--cat-violet)',
   'local-code-review': 'var(--cat-amber)',
-  'local-security-review': 'var(--over)',
+  'local-security-review': 'var(--cat-slate)',
   'after-push': 'var(--cat-teal)',
   'ci-reviews': 'var(--cat-green)',
-  'process-review': 'var(--accent-soft)',
+  'process-review': 'var(--cat-violet)',
 };
 const SERIES_COLOURS: Record<string, string> = {
   local: 'var(--cat-violet)',
@@ -56,8 +56,8 @@ const SERIES_COLOURS: Record<string, string> = {
   'no-pr': 'var(--cat-grey)',
   'on-main': 'var(--cat-amber)',
 };
-/** A model takes these by its place among every model on record, so it keeps its colour whatever the filters; they wrap past eight. */
-const MODEL_COLOURS = ['var(--cat-violet)', 'var(--cat-amber)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-slate)', 'var(--cat-grey)', 'var(--over)', 'var(--due-ink)'];
+/** A model takes these by its place among every model on record, so it keeps its colour whatever the filters; they wrap past five, the ramp's steps. */
+const MODEL_COLOURS = ['var(--cat-violet)', 'var(--cat-amber)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-slate)'];
 const colourOf = (split: Split, key: string, models: string[]) =>
   split === 'phase'
     ? COLOURS[key as Category]

@@ -2,14 +2,13 @@ import { z } from 'zod';
 import { captureTimeZoneSchema } from './item.js';
 
 /**
- * A repeating Item's rule ("Repeat an Item on a schedule, so it comes back
- * every Monday or every quarter", issue 1405): a series row in the account's
- * store, which each Item that is one of its occurrences names by `seriesId`.
- * The rule is the series', never copied onto an Item, so *Next on* and *Never*
- * have one owner however many occurrences exist.
+ * A recurring item's rule: a series row in the account's store, which each Item
+ * that is one of its copies names by `seriesId`. The rule is the series', never
+ * copied onto an Item, so *Next on* and a deletion have one owner however many
+ * copies exist.
  */
 
-/** How often, in the order the Repeats popover offers them. *Never* is no series running, not a frequency. */
+/** How often, in the order the Recurring items form offers them. */
 export const REPEAT_FREQUENCIES = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly'] as const;
 export const repeatFrequencySchema = z.enum(REPEAT_FREQUENCIES);
 export type RepeatFrequency = z.infer<typeof repeatFrequencySchema>;
@@ -31,26 +30,52 @@ export type RepeatRule = z.infer<typeof repeatRuleSchema>;
 
 /**
  * The series as the Workspace snapshot carries it. `stoppedAt` is set by
- * *Never*, and a stopped series is still named by the Items that belong to it.
- * `timeZone` is the browser's when the rule was set: a day starts at midnight
- * there.
+ * deleting the recurring item, and a stopped series is still named by the Items
+ * that belong to it. `timeZone` is the browser's when the rule was set: a day
+ * starts at midnight there. `title` and `workspaceId` are the recurring item's
+ * own, enough for a copy's *From recurring item* line and its mark ("Point a copy
+ * at its master, and retire the Repeats chip", issue 1450): both null on a
+ * series that was never made into a recurring item.
  */
 export const seriesSchema = repeatRuleSchema.extend({
   id: z.uuid(),
   tenantId: z.string(),
   timeZone: captureTimeZoneSchema,
   stoppedAt: z.iso.datetime().nullable(),
+  title: z.string().nullable().default(null),
+  workspaceId: z.string().nullable().default(null),
 });
 export type Series = z.infer<typeof seriesSchema>;
 
-/** The rule an Item repeats by, or null where it has none or its series is stopped. */
-export function repeatOf(
+/** The recurring item a copy came from, as the copy's line and mark say it. */
+export interface RecurringOrigin {
+  id: string;
+  title: string;
+  /** The Workspace the recurring item is listed in, which is where its form opens. */
+  workspaceId: string | null;
+  /** False once the recurring item is deleted: the copies stay and name it. */
+  running: boolean;
+  rule: RepeatRule;
+}
+
+/**
+ * The recurring item an Item is a copy of, or null for an Item that is no copy -
+ * or one of a series that was never made into a recurring item, which has no
+ * title to say. A deleted recurring item is still named (`running` false).
+ */
+export function recurringOriginOf(
   item: { seriesId: string | null },
   series: readonly Series[] | undefined,
-): RepeatRule | null {
+): RecurringOrigin | null {
   const own = item.seriesId === null ? undefined : series?.find((one) => one.id === item.seriesId);
-  if (!own || own.stoppedAt !== null) return null;
-  return { frequency: own.frequency, nextOn: own.nextOn, dueAfterDays: own.dueAfterDays };
+  if (!own || own.title === null) return null;
+  return {
+    id: own.id,
+    title: own.title,
+    workspaceId: own.workspaceId,
+    running: own.stoppedAt === null,
+    rule: { frequency: own.frequency, nextOn: own.nextOn, dueAfterDays: own.dueAfterDays },
+  };
 }
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
@@ -164,7 +189,7 @@ function ordinal(n: number): string {
   return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'}`;
 }
 
-/** *Weekly on Monday* - the rule alone, which is also what the row's ↻ says on hover after "Repeats". */
+/** *Weekly on Monday* - the rule alone, which is also what the row's ↻ says on hover after "Recurring". */
 export function ruleLabel(rule: Pick<RepeatRule, 'frequency' | 'nextOn'>): string {
   const { year, month, date } = partsOf(rule.nextOn);
   switch (rule.frequency) {
@@ -183,9 +208,9 @@ export function ruleLabel(rule: Pick<RepeatRule, 'frequency' | 'nextOn'>): strin
   }
 }
 
-/** The row's hover: *Repeats weekly on Monday*. */
-export function repeatsTitle(rule: Pick<RepeatRule, 'frequency' | 'nextOn'>): string {
-  return `Repeats ${ruleLabel(rule).replace(/^./u, (first) => first.toLowerCase())}`;
+/** The row's hover: *Recurring weekly on Monday*. */
+export function recurringTitle(rule: Pick<RepeatRule, 'frequency' | 'nextOn'>): string {
+  return `Recurring ${ruleLabel(rule).replace(/^./u, (first) => first.toLowerCase())}`;
 }
 
 /**
@@ -198,10 +223,4 @@ export function readBack(rule: RepeatRule, say: (day: string) => string = shortD
   const parts = [ruleLabel(rule), `next ${say(rule.nextOn)}`];
   if (rule.dueAfterDays !== null) parts.push(`due ${say(daysOnFrom(rule.nextOn, rule.dueAfterDays))}`);
   return parts.join(' · ');
-}
-
-/** Whether two rules say the same thing; a rule is compared whole, never field by field by a caller. */
-export function sameRule(a: RepeatRule | null, b: RepeatRule | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.frequency === b.frequency && a.nextOn === b.nextOn && a.dueAfterDays === b.dueAfterDays;
 }

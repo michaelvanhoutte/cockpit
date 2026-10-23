@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORIES, MAX_BATCH, validateBatch } from '../../src/validate';
+import { CATEGORIES, CORRECTABLE, MAX_BATCH, validateBatch, validateCorrections } from '../../src/validate';
 
 const row = (over: Record<string, unknown> = {}) => ({
   requestId: 'req_1',
@@ -126,6 +126,35 @@ describe('Harness Monitor', () => {
         ],
       });
       expect(result.ok && result.rows.map((r) => r.day)).toEqual(['2026-10-21', '2026-10-22', '2026-10-22']);
+    });
+  });
+
+  describe('a request is placed again only from Unphased, into Scoping & planning, After push, Process review or Outside the process', () => {
+    const correctionRefusal = (corrections: unknown[]) => {
+      const result = validateCorrections({ corrections });
+      if (result.ok) throw new Error('expected a refusal');
+      return result.error;
+    };
+
+    it.each([{ category: 'building' }, { category: 'unphased' }, { category: 'lunch' }])(
+      'a batch placing a request in $category is refused whole, naming the value',
+      ({ category }) => {
+        const error = correctionRefusal([{ requestId: 'ok', category: 'outside-process' }, { requestId: 'r2', category }]);
+        expect(error).toContain('Correction 1 (r2)');
+        expect(error).toContain(`"${category}"`);
+      },
+    );
+
+    it.each(CORRECTABLE.map((category) => ({ category })))('a batch placing a request in $category is taken', ({ category }) => {
+      expect(validateCorrections({ corrections: [{ requestId: 'r1', category }] })).toEqual({ ok: true, corrections: [{ requestId: 'r1', category }] });
+    });
+
+    it('a batch with no corrections, one without a request id, or one over the size limit is refused', () => {
+      expect(correctionRefusal([])).toContain('no corrections');
+      expect(correctionRefusal([{ category: 'outside-process' }])).toContain('no requestId');
+      const many = Array.from({ length: MAX_BATCH + 1 }, (_, i) => ({ requestId: `r${i}`, category: 'outside-process' }));
+      expect(correctionRefusal(many)).toContain(String(MAX_BATCH));
+      expect(validateCorrections({ corrections: many.slice(0, MAX_BATCH) }).ok).toBe(true);
     });
   });
 });
