@@ -16,6 +16,8 @@ describe('MCP connections', () => {
       { situation: 'signed in for MCP, as Claude is', resource: 'https://cockpit.test/mcp', kind: 'captures' },
       { situation: 'a grant made before resources existed, which holds none', resource: undefined, kind: 'captures' },
       { situation: 'signed in for the reads of another Cockpit', resource: 'https://elsewhere.test/apps', kind: 'captures' },
+      { situation: 'held as a list naming only the reads of Panels', resource: ['https://cockpit.test/apps'], kind: 'reads-panels' },
+      { situation: 'held as a list that also names MCP, which it then reaches', resource: ['https://cockpit.test/apps', 'https://cockpit.test/mcp'], kind: 'captures' },
     ])('$situation', ({ resource, kind }) => {
       expect(kindOfResource(ENV, resource)).toBe(kind);
     });

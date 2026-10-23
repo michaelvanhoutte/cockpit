@@ -169,7 +169,7 @@ async function capture(
   ctx.waitUntil(enqueueCleanUp(env, accountName, itemId, 'mcp'));
   ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, itemId, 'mcp'));
   ctx.waitUntil(enqueueProposalForClaude(env, accountName, itemId, 'mcp'));
-  // What the MCP connections list says this app last did (issue 600).
+  // What the Connected apps list says this app last did (issue 600).
   ctx.waitUntil(noteCapture(env, app.grantId, new Date().toISOString()));
 
   // **The Item is written by now**, so nothing after this may answer as if it

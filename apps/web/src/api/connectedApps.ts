@@ -9,7 +9,7 @@ import { readBegins, requestToChangeList, useDrawnOver } from './ownList';
  * The apps a person allowed into their Cockpit, and disconnecting one ("See the
  * apps connected to your Cockpit, and disconnect one", issue 600; "Show a
  * connected app or user change the moment you make it", issue 1371). Kept apart
- * from `queries.ts` because only the MCP connections window and the one that
+ * from `queries.ts` because only the Connected apps window and the one that
  * sends an Item to Claude use any of it, which makes it theirs to carry rather than
  * the initial bundle's (`bundle:budget`). Drawn and read as `ownList.ts` does for
  * every window's list.

@@ -327,7 +327,11 @@ describe('MCP connections', () => {
         situation: 'reading your Panels',
         asks: APPS_RESOURCE,
         redirect: WIDGET_CALLBACK,
-        says: ['Allow Cockpit widget to read your Panels in your Cockpit?', 'It may read your Panels, and nothing else'],
+        says: [
+          'Allow Cockpit widget to read your Panels in your Cockpit?',
+          'It may read your Panels, and nothing else',
+          'the names of your Workspaces, Dashboards and Panels and, for every Item on them, its label, priority, due date and the other Panels it is filed on',
+        ],
         doesNotSay: ['create items', 'capture notes'],
       },
       {

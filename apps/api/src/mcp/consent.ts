@@ -72,7 +72,7 @@ consent.get(AUTHORIZE_PATH, async (c) => {
     kindOfResource(c.env, request.resource) === 'reads-panels'
       ? {
           heading: `Allow ${name} to read your Panels in your Cockpit?`,
-          what: `${name} will be able to read the Panels of <strong>${escape(visitor.name)}</strong>'s Cockpit: the names of your Workspaces and Dashboards and of their Panels, and the label, priority, due date and the Panels they are filed on of every Item on them. It may read your Panels, and nothing else: it cannot capture, change or delete anything.`,
+          what: `${name} will be able to read the Panels of <strong>${escape(visitor.name)}</strong>'s Cockpit: the names of your Workspaces, Dashboards and Panels and, for every Item on them, its label, priority, due date and the other Panels it is filed on. It may read your Panels, and nothing else: it cannot capture, change or delete anything.`,
         }
       : {
           heading: `Allow ${name} to create items in your Cockpit?`,

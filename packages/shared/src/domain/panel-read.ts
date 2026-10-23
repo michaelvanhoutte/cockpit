@@ -21,7 +21,12 @@ import type { Day } from './filters.js';
  * not know.** The types below say what an installed app depends on; a field
  * added to an answer still satisfies them, and one taken away or changed in
  * kind does not - which is what the samples in `packages/shared/samples/` hold
- * the real answers to (`apps/api/tests/samples.ts`).
+ * the real answers to (`apps/api/tests/samples.ts`) - the samples are the
+ * contract, since nothing parses these types.
+ *
+ * **What a read returns is also what the consent page says it returns**
+ * (`apps/api/src/mcp/consent.ts`): a field that tells an app more than that
+ * page names is added there in the same change.
  */
 
 /**
