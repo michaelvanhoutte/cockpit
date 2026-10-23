@@ -42,6 +42,12 @@ export const usageRecordSchema = z.object({
   environment: z.string(),
   /** What it cost in US dollars; `null` where there is no price or no token count, never 0 for that. */
   costUsd: z.number().nullable(),
+  /** The pull request a CI contract run made the call for; `null` on every other record, and on a scheduled or by-hand CI run. */
+  pullRequest: z.number().int().nullable(),
+  /** The GitHub Actions run a CI contract run made the call in. */
+  runId: z.number().int().nullable(),
+  /** The branch checked out where a local call was made. */
+  branch: z.string().nullable(),
 });
 export type UsageRecord = z.infer<typeof usageRecordSchema>;
 

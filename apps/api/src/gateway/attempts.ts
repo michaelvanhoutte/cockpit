@@ -42,6 +42,8 @@ export type Trigger =
   | 'backfill'
   | 'agent-started'
   | 'connection-test'
+  /** A call the contract tier made to check the model, not a call made for anyone (issue 1459). */
+  | 'contract-run'
   | `connector:${string}`;
 
 /**
