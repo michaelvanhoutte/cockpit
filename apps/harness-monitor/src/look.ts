@@ -22,7 +22,11 @@ export const FONT_URL = '/fonts/inter-5.3.0-latin-wght.woff2';
 const LOGO = `<svg aria-hidden="true" viewBox="0 0 32 32" class="logo"><rect x="3" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="3" y="17" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="17" width="12" height="12" rx="2.5" fill="var(--logo-dot)"/></svg>`;
 
 /** The pages the top bar lists, in order. */
-export type PageName = 'costs';
+export type PageName = 'costs' | 'claude-calls';
+const PAGES: { name: PageName; href: string; label: string }[] = [
+  { name: 'costs', href: '/', label: 'Claude Code costs' },
+  { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls' },
+];
 
 /** A section heading: the strip Cockpit draws over a panel, with an optional note at its right. */
 export const band = (title: string, aside = '', id = '') =>
@@ -40,7 +44,7 @@ export function selectField(id: string, label: string, options: [value: string, 
 function chrome(current: PageName, now: number): string {
   return `<header class="topbar">
 <a class="brand" href="/">${LOGO}<span>Harness Monitor</span></a>
-<nav class="pages" aria-label="Pages"><a href="/"${current === 'costs' ? ' aria-current="page"' : ''}>Claude Code costs</a></nav>
+<nav class="pages" aria-label="Pages">${PAGES.map((p) => `<a href="${p.href}"${p.name === current ? ' aria-current="page"' : ''}>${p.label}</a>`).join('')}</nav>
 <span class="status">Updated ${formatDateTime(now)} · public, read-only</span>
 </header>`;
 }
@@ -196,6 +200,23 @@ tbody tr:last-child td{border-bottom:0}
 .jobs .failed{color:var(--due-ink)}
 .empty{padding:28px 16px;color:var(--ink-faint)}
 
+/* Cockpit's Claude calls: the tiles, the changes beside where the dollars went, and a share beside each amount */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.tile{display:flex;flex-direction:column;gap:2px;padding:14px 16px;background:var(--well);box-shadow:var(--well-edge);border:1px solid color-mix(in srgb,var(--shade) 7%,transparent);outline:1px dotted color-mix(in srgb,var(--shade) 28%,transparent);outline-offset:4px;margin:5px;border-radius:0}
+.tile-label{font-size:12px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--accent-deep)}
+.tile-value{font-size:30px;font-weight:600;letter-spacing:-.02em;color:var(--ink-strong);font-variant-numeric:tabular-nums}
+.tile.up .tile-value{color:var(--over-ink)}.tile.down .tile-value{color:var(--good)}
+.tile-note{font-size:13px;color:var(--ink-faint)}
+.row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}.row.alone{grid-template-columns:minmax(0,1fr)}
+@media (max-width:900px){.row{grid-template-columns:minmax(0,1fr)}}
+.shares .share{width:36px;text-align:right;color:var(--ink-faint);font-size:13px;font-variant-numeric:tabular-nums}
+.changes{list-style:none;margin:0;padding:6px 0}
+.changes li{display:grid;grid-template-columns:1fr auto;gap:0 12px;padding:9px 16px;border-bottom:1px solid color-mix(in srgb,var(--shade) 10%,transparent)}
+.changes li:last-child{border-bottom:0}
+.changes .name{color:var(--ink-strong);font-weight:500}.changes .delta{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}.changes .from{grid-column:1/-1;font-size:13px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
+.pr-no{color:var(--accent-deep);font-weight:600}
+.calls{min-width:860px}
+
 /* A pull request */
 .back{display:inline-flex;align-items:center;min-height:44px;align-self:flex-start}
 .head{display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px 40px}.head .title{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:6px}
@@ -217,5 +238,6 @@ footer{padding:0 20px 28px;text-align:center;font-size:12px;color:var(--ink-fain
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px}.filters select{width:100%}
   .filters .field:has(.toggles),.button{grid-column:1/-1}.toggles button{flex:1;padding:0 6px}.button{margin-left:0;justify-content:center}
   .big{font-size:26px}
+  .tiles{grid-template-columns:1fr 1fr;gap:8px}.tile:nth-child(3){grid-column:1/-1}.tile-value{font-size:26px}
 }
 `;

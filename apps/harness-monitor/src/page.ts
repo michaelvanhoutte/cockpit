@@ -93,7 +93,7 @@ const NEVER_RAN: Record<JobName, string> = {
 };
 
 /** What each job's last run did, scheduled or by hand: when, how it was started, and its outcome or error. */
-function jobLines(statuses: JobStatus[]): string {
+export function jobLines(statuses: JobStatus[]): string {
   const items = statuses.map(({ job, run, lastSucceededAt }) => {
     // A deployment from before runs were recorded knows only when the job last succeeded.
     const text = run
@@ -232,14 +232,18 @@ const CHART = { width: 1000, height: 280, left: 72, right: 16, top: 16, bottom: 
  */
 function overTime(page: CostsPage, now: number): string {
   const { query, models } = page;
-  const chart: DayChart = dayChart(page.groups, page.series, firstDay(query.period, now), now);
+  return costPerDay(dayChart(page.groups, page.series, firstDay(query.period, now), now), (key) => colourOf(query.split, key, models));
+}
+
+/** The Cost per day panel for a chart, each line in the colour `colour` gives its series; empty where the chart has no day. */
+export function costPerDay(chart: DayChart, colour: (key: string) => string): string {
   if (chart.days.length === 0) return '';
   const { width, height, left, right, top, bottom } = CHART;
   const peak = Math.max(...chart.total, 1);
   const x = (i: number) => (chart.days.length === 1 ? (left + width - right) / 2 : left + (i / (chart.days.length - 1)) * (width - left - right));
   const y = (micros: number) => top + (1 - micros / peak) * (height - top - bottom);
   const lines = [
-    ...chart.lines.map((l) => ({ ...l, colour: colourOf(query.split, l.key, models), dash: false })),
+    ...chart.lines.map((l) => ({ ...l, colour: colour(l.key), dash: false })),
     { key: 'total', label: 'Total', micros: chart.total, colour: 'var(--ink-strong)', dash: true },
   ];
   const grid = [0, 0.5, 1]

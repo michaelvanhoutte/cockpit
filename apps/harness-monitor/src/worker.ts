@@ -1,4 +1,7 @@
 import { checkWriteKey } from './auth';
+import { exportClaudeCalls } from './claude-calls-export';
+import { callsPage, callsQueryString, parseCallsQuery } from './claude-calls-page';
+import { renderClaudeCalls } from './claude-calls-view';
 import { costsPage, DEFAULT_GROUP, parseQuery, queryString } from './costs';
 import { exportCsv } from './export';
 import { isJob, JOBS, runJob, type JobName } from './jobs';
@@ -22,7 +25,7 @@ export interface Env {
   USAGE_READ_TOKEN?: string;
   /** Cockpit's production address, set in wrangler.jsonc; `pnpm dev:harness` points it at the local API. */
   COCKPIT_URL?: string;
-  /** How long the edge keeps the costs page, in seconds; 0 turns the cache off (local runs and tests). */
+  /** How long the edge keeps the costs page and the Claude calls page, in seconds; 0 turns the cache off (local runs and tests). */
   PAGE_CACHE_SECONDS?: string;
 }
 
@@ -141,6 +144,26 @@ async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise
   return response;
 }
 
+/** Cockpit's Claude calls page, cached at the edge like the costs page; the totals it reads are the import's own. */
+async function claudeCalls(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const query = parseCallsQuery(url.searchParams);
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/claude-calls${callsQueryString(query)}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const response = new Response(renderClaudeCalls(await callsPage(env.DB, query), { repository: env.GITHUB_REPOSITORY }), {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': cache ? `public, max-age=${seconds}` : 'no-store',
+    },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
 /** A pull request number as written in an address: no sign, no leading zero, ten digits at most. */
 const prNumber = (raw: string): number | null => (/^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null);
 
@@ -182,6 +205,9 @@ export default {
     const prPath = /^\/pr\/([^/]*)\/?$/.exec(pathname);
     if (prPath && request.method === 'GET') return pullRequest(request, env, ctx, prPath[1]!);
     if (pathname === '/export.csv' && request.method === 'GET') return exportRows(request, env);
+    if (pathname === '/claude-calls' && request.method === 'GET') return claudeCalls(request, env, ctx);
+    // Never cached: it can be a year of calls.
+    if (pathname === '/claude-calls/export.csv' && request.method === 'GET') return exportClaudeCalls(env.DB, parseCallsQuery(new URL(request.url).searchParams));
     if (pathname === '/v1/usage') {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
     }

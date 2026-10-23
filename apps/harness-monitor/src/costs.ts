@@ -364,7 +364,7 @@ export interface DayChart {
  * total. The range runs from the period's first day (the earliest day with
  * cost for all time) to today, so a day with no cost is a zero, not a gap.
  */
-export function dayChart(groups: CostGroup[], series: Series[], first: string | null, now: number): DayChart {
+export function dayChart(groups: Pick<CostGroup, 'key' | 'bySeries' | 'totalMicros'>[], series: Series[], first: string | null, now: number): DayChart {
   if (groups.length === 0) return { days: [], lines: [], total: [] };
   const byDay = new Map(groups.map((g) => [g.key, g]));
   const keys = groups.map((g) => g.key).sort();
