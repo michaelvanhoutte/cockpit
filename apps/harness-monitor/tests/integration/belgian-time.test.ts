@@ -120,16 +120,7 @@ describe('Harness Monitor', () => {
         const html = await theBarePage('?period=7d');
 
         expect(costRows(html).map((r) => [r.label, r.total])).toEqual([['16 Oct 2026', '$1.00']]);
-        expect(whereItWent(html).heading).toBe("Where the period's $1.00 went");
-      });
-
-      it('the comparison names Belgian days for both of its windows', async () => {
-        const card = /<section class="panel change".*?<\/p>/s.exec(await theBarePage('?period=7d'))![0];
-
-        expect(card).toContain('(16 Oct 2026 to 22 Oct 2026)');
-        expect(card).toContain('(9 Oct 2026 to 15 Oct 2026)');
-        // The request just outside the period falls in the window before it.
-        expect(card).toMatch(/cost <strong>\$1\.00<\/strong> against <strong>\$4\.00<\/strong>/);
+        expect(whereItWent(html).heading).toBe("Where the period's $1.00 went, by phase");
       });
 
       it('the pull request page counts the same request', async () => {

@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { linked, pullRequest } from './github-support';
-import { costRows, emptyTheDatabase, pullRequestFigures, send, spend, splitColumns, theExport, thePage, thePullRequest, whereItWent, withPrices } from './support';
+import { costRows, emptyTheDatabase, pullRequestFigures, send, spend, theExport, thePage, thePullRequest, whereItWent, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -36,16 +36,15 @@ describe('Harness Monitor', () => {
   });
 
   describe('each new phase is named the same wherever cost is shown, in pipeline order', () => {
-    it('the split names them in its legend and columns, Outside the process first and Process review last', async () => {
+    it('the bar names them in its legend and on hover, Outside the process first and Process review last', async () => {
       await seed();
 
       const html = await thePage('?period=all&group=pr');
 
-      expect(splitColumns(html)).toEqual(['Outside', 'Scoping', 'Building', 'Code rev.', 'Security rev.', 'After push', 'CI rev.', 'Process rev.']);
       expect(whereItWent(html).bar).toBe(
         'Outside the process $4.00, Scoping & planning $0.00, Building $1.00, Local code review $0.00, Local security review $0.00, After push $0.00, CI reviews $8.00, Process review $2.00',
       );
-      expect(costRows(html).map((r) => r.categories)).toEqual([['$4.00', '—', '$1.00', '—', '—', '—', '$8.00', '$2.00']]);
+      expect(costRows(html).map((r) => r.colours)).toEqual(['Outside the process $4.00 · Building $1.00 · CI reviews $8.00 · Process review $2.00']);
     });
 
     it('grouping by category lists them in pipeline order', async () => {
@@ -61,12 +60,12 @@ describe('Harness Monitor', () => {
       ]);
     });
 
-    it('the Category filter offers them, by name and in pipeline order, Process review last', async () => {
+    it('the Phase filter offers them, by name and in pipeline order, Process review last', async () => {
       const html = await thePage('?period=all');
 
-      const select = /<select id="category"[^>]*>(.*?)<\/select>/s.exec(html)![1]!;
+      const select = /<select name="category"[^>]*>(.*?)<\/select>/s.exec(html)![1]!;
       expect([...select.matchAll(/<option value="([^"]*)"[^>]*>(.*?)<\/option>/g)].map((m) => [m[1], m[2]!.replace('&#38;', '&')])).toEqual([
-        ['', 'All categories'],
+        ['', 'All phases'],
         ['unphased', 'Unphased'],
         ['outside-process', 'Outside the process'],
         ['scoping-planning', 'Scoping & planning'],
@@ -120,9 +119,9 @@ describe('Harness Monitor', () => {
       await send([spend('old', 3, { branch: 'b/10', category: 'unphased', sessionId: 's-old' })]);
       const html = await thePage('?period=all&group=pr');
 
-      expect(splitColumns(without)).not.toContain('Unphased');
+      expect(costRows(without)[0]!.colours).not.toContain('Unphased');
       expect(whereItWent(without).bar).not.toContain('Unphased');
-      expect(splitColumns(html)[0]).toBe('Unphased');
+      expect(costRows(html)[0]!.colours.startsWith('Unphased $3.00 · Outside the process $4.00')).toBe(true);
       expect(whereItWent(html).bar.startsWith('Unphased $3.00, Outside the process $4.00')).toBe(true);
       const prPage = pullRequestFigures(await (await thePullRequest(10, '?period=all')).text());
       expect(prPage.categories[0]).toMatchObject({ name: 'Unphased', amount: '$3.00' });
