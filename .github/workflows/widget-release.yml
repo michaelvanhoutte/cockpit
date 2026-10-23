@@ -27,6 +27,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The key signs whatever the tag points at, and every phone accepts it as an update:
+      # a tag on a branch that was never merged is refused before any secret is read.
+      - name: Check the tagged commit is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::The tag $GITHUB_REF_NAME points at a commit that is not on main. Merge it first, then tag the merge."
+            exit 1
+          fi
 
       # The tag, read through the environment and never into a script's text. A
       # version is three numbers, and the code Android compares versions by grows with
@@ -38,8 +50,10 @@ jobs:
         run: |
           set -euo pipefail
           version="${TAG#widget-v}"
-          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "::error::The tag $TAG is not widget-v<major>.<minor>.<patch>, such as widget-v1.0.0."
+          # No leading zeros (bash reads 08 as a bad octal number) and no more than two digits for
+          # the minor and patch, so the codes stay in order: 1.100.0 would be 2.0.0.
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)$ ]]; then
+            echo "::error::The tag $TAG is not widget-v<major>.<minor>.<patch>, such as widget-v1.0.0 (minor and patch below 100, no leading zeros)."
             exit 1
           fi
           echo "name=$version" >> "$GITHUB_OUTPUT"

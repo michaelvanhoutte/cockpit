@@ -115,7 +115,12 @@ class PickerActivity : Activity() {
                     }
                 }
             }
-            Read.SignedOut -> load()
+            // The sign-in ended under the picker: nothing of the person's Panels stays, and every widget says so.
+            Read.SignedOut -> {
+                graph.widgets.wipeKept()
+                graph.renderer.drawAll(refreshing = false)
+                load()
+            }
             else -> say("Could not load your Panels.", "Try again") { load() }
         }
     }

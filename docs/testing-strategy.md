@@ -62,7 +62,7 @@ The six levels describe *roles* and need not all be populated. With only one ser
 
 ### The Android widget
 
-The home-screen widget (`apps/android-widget`, Kotlin, built by Gradle) is the one part of Cockpit that is not TypeScript, and has two levels of its own, both run by `./gradlew test` in the `Widget` job of CI (only when a file it reads changes):
+The home-screen widget (`apps/android-widget`, Kotlin, built by Gradle) is the one part of Cockpit that is not TypeScript, and has two levels of its own, both run by `./gradlew testStagingDebugUnitTest` in the `Widget` job of CI (only when a file it reads changes):
 
 | Level | What runs | Proves |
 |---|---|---|

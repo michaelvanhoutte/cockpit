@@ -55,6 +55,34 @@ class SigningOutLeavesNothing {
     }
 
     @Test
+    fun `a sign-in lost where no refresh met it still leaves no kept list behind`() {
+        val id = phone.placeWidget(PanelEntry(falcon, "Falcon", "items"), workspace)
+        phone.refresh()
+        assertNotNull(phone.graph.widgets.kept(id)?.read)
+
+        phone.graph.session.clear()
+        phone.refresh()
+
+        assertNull(phone.graph.widgets.kept(id))
+        assertEquals(emptyMap<String, Any?>(), phone.context.getSharedPreferences("kept", android.content.Context.MODE_PRIVATE).all)
+    }
+
+    @Test
+    fun `a refusal met by the picker leaves no kept list and every widget saying signed out`() {
+        val id = phone.placeWidget(PanelEntry(falcon, "Falcon", "items"), workspace)
+        phone.refresh()
+        cockpit.disconnect()
+
+        Robolectric.buildActivity(
+            PickerActivity::class.java,
+            android.content.Intent(phone.context, PickerActivity::class.java).putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id),
+        ).setup()
+
+        assertNull(phone.graph.widgets.kept(id))
+        assertEquals("Signed out, tap to sign in", phone.text(phone.widget(id), R.id.message))
+    }
+
+    @Test
     fun `signing in again brings every widget back to its own Panel`() {
         val first = phone.placeWidget(PanelEntry(falcon, "Falcon", "items"), workspace)
         phone.refresh()

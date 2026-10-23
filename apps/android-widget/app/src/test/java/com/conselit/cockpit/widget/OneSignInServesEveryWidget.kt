@@ -94,6 +94,14 @@ class OneSignInServesEveryWidget {
         assertNull(cockpit.lastTokenForm["code"])
     }
 
+    @Test
+    fun `another app sending the private address cannot cancel the sign-in under way`() {
+        val signingIn = SigningIn(phone).fromTheApp()
+        signingIn.comesHome(state = "another-sign-in")
+        signingIn.comesHome()
+        assertTrue(phone.graph.session.isSignedIn())
+    }
+
     /** A phone whose key store refuses everything. */
     private val unable = object : SecretBox {
         override fun seal(plain: String): String = throw java.security.ProviderException("Keystore operation failed")

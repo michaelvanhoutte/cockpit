@@ -114,16 +114,20 @@ class SessionStore(context: Context, private val box: SecretBox) {
         false
     }
 
-    /** The sign-in in flight, once: a way back is answered a single time. */
-    fun takePending(): Pending? {
+    /** The sign-in in flight. Looking does not spend it: an address that is not its way back, from any app, must not cancel it. */
+    fun pending(): Pending? {
         val sealed = prefs.getString(PENDING, null) ?: return null
-        prefs.edit().remove(PENDING).apply()
         val plain = box.open(sealed) ?: return null
         return try {
             Wire.json.decodeFromString<Pending>(plain)
         } catch (e: Exception) {
             null
         }
+    }
+
+    /** The way back has come: a way back is answered a single time. */
+    fun finishPending() {
+        prefs.edit().remove(PENDING).apply()
     }
 
     /** Whether the one-off battery step has been put to the person, whatever they answered. */

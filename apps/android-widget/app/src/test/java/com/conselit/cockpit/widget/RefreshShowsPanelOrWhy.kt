@@ -79,6 +79,21 @@ class RefreshShowsPanelOrWhy {
     }
 
     @Test
+    fun `a renewal of the sign-in that is throttled or fails keeps the sign-in and the last list, as offline does`() {
+        phone.refresh()
+        for (refused in listOf(Answer(429, "{}", mapOf("retry-after" to "60")), Answer(400, """{"error":"invalid_request"}"""), Answer(503, ""))) {
+            cockpit.renewal = refused
+            keepsTheLastListAndSaysOffline()
+            assertTrue("still signed in after ${refused.status}", phone.graph.session.isSignedIn())
+        }
+        // The throttling over, the next refresh renews and reads as before.
+        cockpit.renewal = null
+        phone.clock.advance(Duration.ofMinutes(30))
+        phone.refresh()
+        assertEquals("Updated 16:05", phone.text(phone.widget(id), R.id.updated))
+    }
+
+    @Test
     fun `a Panel not found says it was deleted, and a tap opens the picker for that widget`() {
         phone.refresh()
         cockpit.panelReads.remove(falcon)

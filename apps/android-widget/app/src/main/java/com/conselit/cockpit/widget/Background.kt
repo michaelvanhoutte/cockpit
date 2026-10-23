@@ -82,6 +82,8 @@ class RefreshWorker(context: Context, params: WorkerParameters) : Worker(context
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val graph = context.graph
+        // An alarm that outlived the last widget does not set itself again.
+        if (graph.renderer.liveWidgetIds().isEmpty()) return
         graph.background.armAlarm()
         val pending = goAsync()
         graph.io.execute {

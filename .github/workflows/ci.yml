@@ -480,12 +480,13 @@ jobs:
       # Caches Gradle's downloads, and refuses a wrapper jar that is not Gradle's own.
       - uses: gradle/actions/setup-gradle@v4
         if: ${{ steps.classify.outputs.widget_changed != 'false' }}
-      # Both builds, so a flavour that stops compiling is seen, and the same tests the
-      # owner's pull request ran: the JVM unit tests and Robolectric against a fake Cockpit.
+      # Both builds, so a flavour that stops compiling is seen, but the tests once: the
+      # flavours differ only in constants, and a bare `test` would run every Robolectric
+      # suite four times. The JVM unit tests and Robolectric against a fake Cockpit.
       - name: Test and build the widget
         if: ${{ steps.classify.outputs.widget_changed != 'false' }}
         working-directory: apps/android-widget
-        run: bash ./gradlew --no-daemon test lintStagingDebug assembleStagingDebug assembleProductionDebug
+        run: bash ./gradlew --no-daemon testStagingDebugUnitTest lintStagingDebug assembleStagingDebug assembleProductionDebug
       - name: Upload the test and lint reports
         if: failure()
         uses: actions/upload-artifact@v4

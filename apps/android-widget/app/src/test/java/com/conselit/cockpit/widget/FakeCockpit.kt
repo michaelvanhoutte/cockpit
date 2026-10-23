@@ -45,6 +45,9 @@ class FakeCockpit : AutoCloseable {
     /** The most reads of Panels that were being answered at once. */
     @Volatile var mostReadsAtOnce = 0
 
+    /** Overrides what a renewal of the sign-in answers, such as throttling or a server error; null renews as a real grant does. */
+    @Volatile var renewal: Answer? = null
+
     /** Whether the server is reachable at all. */
     @Volatile var reachable = true
 
@@ -143,7 +146,10 @@ class FakeCockpit : AutoCloseable {
             }
             "refresh_token" -> {
                 val presented = form["refresh_token"]
-                if (grantEnded || presented !in acceptedRefresh) {
+                val refused = renewal
+                if (refused != null) {
+                    refused
+                } else if (grantEnded || presented !in acceptedRefresh) {
                     Answer(400, """{"error":"invalid_grant"}""")
                 } else {
                     // Rotated: the one presented is spent.

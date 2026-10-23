@@ -216,11 +216,18 @@ class CockpitClient(
                             Token.SignedOut
                         }
                     }
-                    response.code >= 500 -> Token.Offline
                     else -> {
-                        // `invalid_grant`: Disconnect was pressed, or the person lost access.
-                        session.clear()
-                        Token.SignedOut
+                        val reason = errorOf(response)
+                        if (reason in ENDS_THE_SIGN_IN) {
+                            // Disconnect was pressed, or the person lost access. A registration the server no
+                            // longer holds is made again at the next sign-in.
+                            if (reason == "invalid_client") session.forgetClientId()
+                            session.clear()
+                            Token.SignedOut
+                        } else {
+                            // Busy, throttled or broken: the sign-in is still good, and the list stays.
+                            Token.Offline
+                        }
                     }
                 }
             }
@@ -266,6 +273,9 @@ class CockpitClient(
     companion object {
         private val JSON = "application/json".toMediaType()
         private const val EXPIRY_MARGIN_MS = 60_000L
+
+        /** The only answers to a renewal that mean the sign-in is over; any other refusal is the server's trouble, not the person's. */
+        private val ENDS_THE_SIGN_IN = setOf("invalid_grant", "invalid_client")
 
         /** Never follows a redirect: the token belongs to one origin, and nothing here is meant to be redirected. */
         fun defaultHttp(): OkHttpClient = OkHttpClient.Builder()

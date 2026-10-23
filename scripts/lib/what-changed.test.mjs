@@ -705,7 +705,7 @@ describe('the mechanical checks', () => {
       if (step.includes('Upload the test and lint reports')) continue;
       assert.match(step, /if: .*steps\.classify\.outputs\.widget_changed != 'false'/, `ci.yml's widget job has a step that runs on a diff the widget does not read:\n${step}`);
     }
-    assert.match(widget, /gradlew --no-daemon test /, 'the widget job runs no tests');
+    assert.match(widget, /gradlew --no-daemon testStagingDebugUnitTest /, 'the widget job runs no tests');
   });
 
   it('cut the widget release on a tag, from the four secrets, and from nothing else', () => {
@@ -718,6 +718,8 @@ describe('the mechanical checks', () => {
     }
     assert.match(release, /permissions:\n {2}contents: read/, 'the workflow should be read-only by default');
     assert.match(job(release, 'release'), /permissions:\n {6}contents: write/, 'only the release job may write the release');
+    assert.match(release, /merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/, 'a tag on a commit that is not on main would be signed and released');
+    assert.match(release, /\(0\|\[1-9\]\[0-9\]\*\)\\\.\(0\|\[1-9\]\[0-9\]\?\)\\\.\(0\|\[1-9\]\[0-9\]\?\)/, 'a leading zero or a three-digit part would make a wrong version code');
   });
 
   it('start Test and the shards with the run, not when Checks ends', () => {

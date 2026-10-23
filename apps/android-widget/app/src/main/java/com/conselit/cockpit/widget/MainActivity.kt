@@ -113,12 +113,15 @@ class MainActivity : Activity() {
     }
 
     private fun finishSignIn(back: Uri) {
-        val pending = graph.session.takePending()
+        val pending = graph.session.pending()
         if (pending == null) {
             show()
             return
         }
-        when (val result = SignInAddress.parseBack(back.toString(), pending.state, graph.origin)) {
+        val result = SignInAddress.parseBack(back.toString(), pending.state, graph.origin)
+        // Only the answer to this sign-in spends it; anything else leaves it for the real one.
+        if (result != SignInAddress.Back.Unexpected) graph.session.finishPending()
+        when (result) {
             is SignInAddress.Back.Code -> graph.io.execute {
                 val outcome = graph.client.signIn(result.code, pending.verifier)
                 runOnUiThread { signedIn(outcome, pending) }
@@ -162,6 +165,8 @@ class MainActivity : Activity() {
             then()
             return
         }
+        // Left, or turned, while the sign-in was being traded: nothing to put a dialog on.
+        if (isFinishing || isDestroyed) return
         graph.session.markBatteryStepAsked()
         AlertDialog.Builder(this)
             .setTitle("Keep your Panels fresh")

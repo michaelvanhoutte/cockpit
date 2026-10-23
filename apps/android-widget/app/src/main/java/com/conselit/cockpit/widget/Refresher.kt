@@ -23,21 +23,29 @@ class Refresher(private val context: Context, private val graph: Graph) {
 
     fun run() {
         val ticket = asked.incrementAndGet()
-        lock.withLock {
-            if (answered < ticket) {
-                val covers = asked.get()
-                try {
-                    readEveryPanel()
-                } finally {
-                    answered = covers
+        try {
+            lock.withLock {
+                if (answered < ticket) {
+                    val covers = asked.get()
+                    try {
+                        readEveryPanel()
+                    } finally {
+                        answered = covers
+                    }
                 }
             }
+        } finally {
+            // Even a read that threw: the *Refreshing…* ↻ put up is never left showing.
+            graph.renderer.drawAll(refreshing = false)
         }
-        graph.renderer.drawAll(refreshing = false)
     }
 
     private fun readEveryPanel() {
-        if (!graph.session.isSignedIn()) return
+        if (!graph.session.isSignedIn()) {
+            // A sign-in lost anywhere else (an unreadable one, a refusal met by the picker) takes the lists with it.
+            graph.widgets.wipeKept()
+            return
+        }
         val widgets = graph.renderer.liveWidgetIds()
         val today = LocalDate.now(graph.clock)
         // One read per Panel, however many widgets show it.
