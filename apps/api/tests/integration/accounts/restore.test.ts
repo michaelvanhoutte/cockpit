@@ -488,9 +488,8 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0093-series-days` adds the two days a series counts by; the guest's
-    // demonstration adds rows only, and only to the guest.
-    series: ['anchor_on', 'last_on'],
+    // `0095-series-masters-from-latest-copy` fills columns the change before it
+    // added, and the guest's demonstration adds rows only, and only to the guest.
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

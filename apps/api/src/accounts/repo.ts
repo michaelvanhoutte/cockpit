@@ -33,7 +33,7 @@ import {
 import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
-import type { SeriesRow } from '../domain/series.js';
+import type { MasterRow, SeriesRow } from '../domain/series.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import { REMEMBERED_SENTENCES_KEPT, type RememberedSentenceView } from '@cockpit/shared';
 import { sentencesThatFit, ITEMS_PROPOSED_AGAIN, type RememberedSentence } from '../domain/remembered-sentences.js';
@@ -66,6 +66,7 @@ import {
   pulledLinks,
   rewriteHistory,
   series,
+  seriesPanels,
   textCorrections,
   workspaces,
 } from './schema.js';
@@ -897,15 +898,36 @@ export function getItem(db: AccountDb, tenantId: string, itemId: string): Item |
   );
 }
 
-/** One series as its row holds it, or null where the account has none by that id. */
-export function getSeries(db: AccountDb, tenantId: string, seriesId: string): SeriesRow | null {
+/** One series as its row holds it, with what each copy is made from, or null where the account has none by that id. */
+export function getSeries(db: AccountDb, tenantId: string, seriesId: string): MasterRow | null {
   return (
     db
-      .select(seriesRowColumns())
+      .select({
+        ...seriesRowColumns(),
+        workspaceId: series.workspaceId,
+        title: series.title,
+        description: series.description,
+        priority: series.priority,
+      })
       .from(series)
       .where(and(eq(series.tenantId, tenantId), eq(series.id, seriesId)))
       .get() ?? null
   );
+}
+
+/**
+ * The Panels a series files each copy on, top first, live or not - the caller
+ * asks which still are ("Make each copy of a recurring item from its own
+ * series", issue 1448).
+ */
+export function masterPanelIdsOf(db: AccountDb, tenantId: string, seriesId: string): string[] {
+  return db
+    .select({ panelId: seriesPanels.panelId })
+    .from(seriesPanels)
+    .where(and(eq(seriesPanels.tenantId, tenantId), eq(seriesPanels.seriesId, seriesId)))
+    .orderBy(asc(seriesPanels.position), asc(seriesPanels.panelId))
+    .all()
+    .map((row) => row.panelId);
 }
 
 function seriesRowColumns() {
@@ -934,11 +956,11 @@ export function listRunningSeries(db: AccountDb, tenantId: string): SeriesRow[] 
 }
 
 /**
- * The latest Item of a series, dismissed or not - what its next occurrence is
- * copied from ("Bring a repeating Item back on its day", issue 1407). Latest by
- * when it was made, which each occurrence is after the one it copies
- * (`occurrenceOf`). Null only where no Item names it, which nothing but a row
- * written by hand leaves.
+ * The latest Item of a series, dismissed or not - what says whether the
+ * previous one is still open when the next is due ("Make each copy of a
+ * recurring item from its own series", issue 1448). Latest by when it was
+ * made, which each occurrence is after the one before it (`occurrenceOf`).
+ * Null where no Item names it yet.
  */
 export function latestOccurrence(db: AccountDb, tenantId: string, seriesId: string): Item | null {
   return (
@@ -1132,16 +1154,6 @@ const attachmentRowColumns = {
   contentType: attachments.contentType,
   createdAt: attachments.createdAt,
 };
-
-/** Every file on one Item, whole and oldest first - what its next occurrence carries over ("Bring a repeating Item back on its day", issue 1407). */
-export function attachmentRowsOf(db: AccountDb, tenantId: string, itemId: string): AttachmentRow[] {
-  return db
-    .select(attachmentRowColumns)
-    .from(attachments)
-    .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, itemId)))
-    .orderBy(asc(attachments.createdAt), asc(attachments.id))
-    .all();
-}
 
 /**
  * One attachment by its id, whole - what `add_attachment` reads to tell a

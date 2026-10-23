@@ -564,6 +564,13 @@ const rowsFor: {
     params: (name) => [name, AT, AT],
   },
   {
+    // The table `0094-series-masters` creates (issue 1448): a Panel a recurring item files on, for the next update to meet.
+    table: 'series_panels',
+    sql: `INSERT INTO series_panels (tenant_id, series_id, panel_id, position, created_at)
+          VALUES (?, 'se-before', 'pn-before', 0, ?)`,
+    params: (name) => [name, AT],
+  },
+  {
     table: 'pulled_links',
     sql: `INSERT INTO pulled_links (tenant_id, workspace_id, connector_id, external_account_key, source_id, item_id, linked_at)
           VALUES (?, 'ws-before', 'teams', 'a-tenant:somebody', 'source-before', 'it-done-before', ?)`,
@@ -3653,14 +3660,10 @@ describe('Item editing', () => {
       const before = await seriesIn(name);
       expect(before.length).toBeGreaterThan(0);
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      // This change alone: a later one stops this fixture's series, which no Item names.
+      await applyChange(name, SERIES_DAYS);
 
-      const after = await seriesIn(name);
-      expect(after).toEqual(before.map((row) => ({ ...row, anchor_on: null, last_on: null })));
-
-      await abortAllDurableObjects();
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
-      expect(await seriesIn(name)).toEqual(after);
+      expect(await seriesIn(name)).toEqual(before.map((row) => ({ ...row, anchor_on: null, last_on: null })));
     });
   });
 });

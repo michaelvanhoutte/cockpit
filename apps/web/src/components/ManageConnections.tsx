@@ -22,6 +22,7 @@ import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
+import { SettingsPanel } from './SettingsPanel';
 import { SourceMark } from './SourceMark';
 
 /** The connectors the registry holds, which the Add-a-connection cards are drawn from (issue 894). */
@@ -465,10 +466,23 @@ export default function ManageConnections({
         />
       ) : (
         <>
-          <p className="mt-2 text-sm text-ink-faint">
-            The accounts this workspace is connected to. No other workspace sees them.
-          </p>
-          {picker}
+          <p className="mt-1 text-sm text-ink-soft">Everything that brings items into Cockpit.</p>
+          <SettingsPanel
+            name="Workspace"
+            flush
+            header={
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-ink-strong">Workspace</p>
+                  {picker}
+                </div>
+                <p className="text-xs text-ink-faint">
+                  The accounts this workspace is connected to. No other workspace sees them.
+                </p>
+              </>
+            }
+          >
+          <div className="px-4 pb-4">
 
           {outcome === 'connected' && (
             <p role="status" className="pt-3 text-sm text-ink-soft">
@@ -682,20 +696,15 @@ export default function ManageConnections({
               it to a Workspace that has connections. */}
           {(answered ? connected.length === 0 : listFailed) && (
             <>
-              <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                Add a connection
-              </h3>
-              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <h3 className="mt-4 text-sm font-semibold text-ink-strong">Add a connection</h3>
+              <div className="mt-2 divide-y divide-shade/10 rounded-lg border border-shade/10">
                 {cards.map((card) => (
-                  <div
-                    key={card.id}
-                    className="flex flex-col gap-3 rounded-xl border border-shade/10 bg-surface p-4 shadow-sm transition-shadow hover:shadow-md"
-                  >
-                    <div className="flex items-center gap-3">
-                      <SourceMark connectorId={card.id} />
-                      <p className="text-[15px] font-semibold text-ink-strong">{card.name}</p>
+                  <div key={card.id} className="flex items-center gap-3 px-3 py-2.5">
+                    <SourceMark connectorId={card.id} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-ink-strong">{card.name}</p>
+                      <p className="text-xs text-ink-faint">{card.text}</p>
                     </div>
-                    <p className="flex-1 text-sm text-ink-faint">{card.text}</p>
                     {guest ? (
                       <span className="shrink-0 text-sm text-ink-faint">{GUEST_SENTENCE}</span>
                     ) : (
@@ -710,7 +719,7 @@ export default function ManageConnections({
                           if (card.textedCode || card.choice || card.names || card.pulled) connectCard(card, event.currentTarget);
                           else connectRegistered(card.id);
                         }}
-                        className="self-start rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+                        className="shrink-0 rounded-md bg-accent px-3 py-1 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
                       >
                         Connect
                       </button>
@@ -720,6 +729,8 @@ export default function ManageConnections({
               </div>
             </>
           )}
+          </div>
+          </SettingsPanel>
         </>
       )}
 

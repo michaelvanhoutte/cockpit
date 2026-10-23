@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SettingsPanel } from './SettingsPanel';
 
 /** What a person picks: one of the two, or neither - the device decides. */
 type Choice = 'match' | 'light' | 'dark';
@@ -52,24 +53,26 @@ export default function ManageAppearance() {
   return (
     <section>
       <h3 className="text-base font-semibold">Appearance</h3>
-      <p className="mt-1 text-sm text-ink-faint">Remembered on this device.</p>
-      <div role="radiogroup" aria-label="Appearance" className="mt-4 flex flex-col gap-3">
-        {OPTIONS.map(({ value, label, hint }) => (
-          <label key={value} className="flex cursor-pointer items-start gap-2 text-sm">
-            <input
-              type="radio"
-              name="appearance"
-              className="mt-1"
-              checked={choice === value}
-              onChange={() => choose(value)}
-            />
-            <span>
-              <span className="text-ink">{label}</span>
-              {hint && <span className="block text-xs text-ink-faint">{hint}</span>}
-            </span>
-          </label>
-        ))}
-      </div>
+      <p className="mt-1 text-sm text-ink-soft">How Cockpit looks.</p>
+      <SettingsPanel name="Theme" hint="Remembered on this device.">
+        <div role="radiogroup" aria-label="Appearance" className="flex flex-col gap-3">
+          {OPTIONS.map(({ value, label, hint }) => (
+            <label key={value} className="flex cursor-pointer items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="appearance"
+                className="mt-1"
+                checked={choice === value}
+                onChange={() => choose(value)}
+              />
+              <span>
+                <span className="text-ink">{label}</span>
+                {hint && <span className="block text-xs text-ink-faint">{hint}</span>}
+              </span>
+            </label>
+          ))}
+        </div>
+      </SettingsPanel>
     </section>
   );
 }

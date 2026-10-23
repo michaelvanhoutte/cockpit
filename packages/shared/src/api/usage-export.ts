@@ -38,6 +38,10 @@ export const usageRecordSchema = z.object({
   cacheWrite: z.number().int().nullable(),
   tokensOut: z.number().int().nullable(),
   itemId: z.string().nullable(),
+  /** Which system made the call: `production`, `staging`, `ci` or `local`. */
+  environment: z.string(),
+  /** What it cost in US dollars; `null` where there is no price or no token count, never 0 for that. */
+  costUsd: z.number().nullable(),
 });
 export type UsageRecord = z.infer<typeof usageRecordSchema>;
 

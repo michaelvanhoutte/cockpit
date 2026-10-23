@@ -119,6 +119,11 @@ interface Row {
   cache_read: number | null;
   cache_write: number | null;
   tokens_out: number | null;
+  environment: string;
+  cost_usd: number | null;
+  pull_request: number | null;
+  run_id: number | null;
+  branch: string | null;
 }
 
 /** Every record but a proposal for Claude's, which the case below about those reads alone. */
@@ -325,6 +330,28 @@ describe('AI usage', () => {
 
       expect(calls).toBe(0);
       expect(await records()).toEqual([]);
+    });
+  });
+
+  describe('a recorded call carries what it cost, from its model’s prices and its four token counts', () => {
+    it('records what cleaning up a note captured in the app cost', async () => {
+      await captureANote();
+
+      const [record] = await untilThereAre(1);
+
+      // 1200 × $2 + 3400 × $0.20 + 560 × $2.50 + 78 × $10 per million, on Sonnet 5.5;
+      // the arithmetic itself is tests/unit/gateway/prices.test.ts's.
+      expect(record).toMatchObject({ model: 'claude-sonnet-5-5', cost_usd: 0.00526 });
+    });
+  });
+
+  describe('every call production makes itself records production as its environment', () => {
+    it('records a note’s clean-up as production’s, with no pull request, run or branch', async () => {
+      await captureANote();
+
+      const [record] = await untilThereAre(1);
+
+      expect(record).toMatchObject({ environment: 'production', pull_request: null, run_id: null, branch: null });
     });
   });
 

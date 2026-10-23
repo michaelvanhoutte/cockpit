@@ -1169,9 +1169,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /**
    * Brings back every series whose day has come, each as its own self-sent
    * change under ids derived from the series and the day ("Bring a repeating
-   * Item back on its day, as a fresh copy", issue 1407): the Item, its filings,
-   * its attachments and the Next on moved on are one transaction, so a run that
-   * stops leaves the series due and the next one writes it once.
+   * Item back on its day, as a fresh copy", issue 1407): the Item made from its
+   * series, its filings and the Next on moved on are one transaction, so a run
+   * that stops leaves the series due and the next one writes it once. The
+   * store is brought up to date first, so no copy is made from a series an
+   * unapplied change has still to fill.
    *
    * **A day whose Item is already written is passed over**: that change is in
    * the log, so it writes nothing again, and it is sent once more under an id
@@ -1537,9 +1539,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       };
     }
 
-    // Each stored file once, however many rows name it: a repeating Item's
-    // occurrences each carry a row naming the same file ("Bring a repeating
-    // Item back on its day", issue 1407).
+    // Each stored file once, however many rows name it: occurrences brought
+    // back before a copy was made from its series each carry a row naming the
+    // same file ("Bring a repeating Item back on its day", issue 1407).
     const orphanedKeys = accountTables(sql).includes('attachments')
       ? sql
           .exec<{ r2_key: string }>('SELECT DISTINCT r2_key FROM attachments')

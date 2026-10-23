@@ -5,7 +5,8 @@
   "description": "The contract: domain types, Zod schemas, command definitions, API shapes, and the item-matching rules.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./usage-export": "./src/api/usage-export.ts"
   },
   "scripts": {
     "typecheck": "tsc",

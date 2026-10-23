@@ -180,7 +180,7 @@ describe('Capture', () => {
                              'items', 'item_types',
                              'associations', 'commands', 'decision_history',
                              'text_corrections',
-                             'duplicate_settlements')
+                             'duplicate_settlements', 'series_panels')
               ORDER BY name`,
           )
           .toArray(),
@@ -199,6 +199,7 @@ describe('Capture', () => {
         'panel_items',
         'panel_placements',
         'panels',
+        'series_panels',
         'text_corrections',
         'workspaces',
       ]);
@@ -227,6 +228,7 @@ describe('Capture', () => {
           'decision_history',
           'text_corrections',
           'duplicate_settlements',
+          'series_panels',
         ]) {
           for (const row of sql
             .exec<{ target: string }>(`SELECT "table" AS target FROM pragma_foreign_key_list(?)`, table)
