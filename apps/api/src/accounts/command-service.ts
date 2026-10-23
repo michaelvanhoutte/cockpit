@@ -2419,8 +2419,8 @@ export function runCommand<N extends CommandName>(
       // duplicate (domain/duplicates.ts): a dismissed Item is not one work can
       // be said to have started on, the same reach `add_attachment` above
       // already refuses on one - and neither is a finished one, which
-      // `set_started` alone among the sibling commands here has reason to
-      // check: left unrefused, starting an Item already done would sit
+      // `set_started` and `wait_for_reply` alone among the sibling commands
+      // here have reason to check: left unrefused, starting an Item already done would sit
       // invisibly behind `itemStatus`'s completedAt-first reading until the
       // Item was undone, and then read as In progress from a moment nothing
       // about undoing Done ever meant to record ("Mark an item In progress,
@@ -2440,11 +2440,9 @@ export function runCommand<N extends CommandName>(
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
-          // To do ends the run; In progress leaves it open. So does To do that
-          // only ends a wait on an Item never started - what undoing that wait
-          // sends - since the wait left the run open and To do held it open before.
-          const onlyEndsAWait = existing.startedAt === null && existing.waitingSince !== null;
-          if (!cmd.started && !onlyEndsAWait) endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
+          // To do ends the run; In progress leaves it open, and so does an undo
+          // of a wait, which says so - the wait left the run open.
+          if (!cmd.started && !cmd.keepsRun) endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
           tx.insert(commands).values(commandRow).run();
         });
       }

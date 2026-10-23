@@ -142,6 +142,15 @@ const landedAs = (field: Field, drafted: Draft[Field], held: StatusState | null)
   return field === 'status' ? { ...landed, wait: null } : landed;
 };
 
+/**
+ * A wait refused: no longer chosen, and the due date it `gave` put `back` -
+ * only while the box still holds that date, since one chosen after it stands.
+ */
+const waitTakenBack = (now: Draft, gave: string | null | undefined, back: string | null): Partial<Draft> => ({
+  wait: null,
+  ...(now.dueDate === gave && { dueDate: back }),
+});
+
 /** Two waits chosen alike: the same days, on the same day. */
 const sameWait = (a: Wait | null, b: Wait | null) => a?.days === b?.days && a?.dueDate === b?.dueDate;
 
@@ -219,7 +228,8 @@ export function whatChanged(
   const waits = now.wait !== null && !sameWait(now.wait, was.wait);
   if (waits) changed.wait = now.wait!.days;
   // A calendar date or null - nothing to trim either.
-  if (now.dueDate !== was.dueDate && !(waits && now.dueDate === now.wait!.dueDate)) changed.dueDate = now.dueDate;
+  // Beside a wait, a date is typed only where it differs from the one the wait gives - even back to the stored one.
+  if (waits ? now.dueDate !== now.wait!.dueDate : now.dueDate !== was.dueDate) changed.dueDate = now.dueDate;
   // Compared as the status chosen, never the start time it may keep.
   if (now.status !== was.status && !waits) changed.status = now.status;
   // The whole rule, compared whole: its three boxes are one thing the server checks together.
@@ -1188,11 +1198,8 @@ function TheForm({
     const landed = async (what: Field, value: ReturnType<typeof asStored>): Promise<boolean> => {
       const { failure, held } = await writeField(what, value, editingRef.current!.was);
       const settled = failure === null ? landedAs(what, editing.now[what], held) : (held ?? {});
-      /** A wait refused is no longer chosen, and takes back the due date it gave - not one typed over it. */
       const waitRefused = ({ was, now }: { was: Draft; now: Draft }): Partial<Draft> =>
-        what === 'wait' && now.wait
-          ? { wait: null, ...(now.dueDate === now.wait.dueDate && { dueDate: was.dueDate }) }
-          : {};
+        what === 'wait' && now.wait ? waitTakenBack(now, now.wait.dueDate, was.dueDate) : {};
       changeEditing((now) =>
         now
           ? {
@@ -1326,10 +1333,17 @@ function TheForm({
           continue;
         }
         stopped ??= failure;
-        if (reached) {
-          // A status that did not all land shows what the item holds; a wait
-          // refused takes its due date back with it.
-          settleOn(write.field === 'wait' ? { ...reached, wait: null, dueDate: (write.before as WaitPutBack).dueDate } : reached);
+        if (reached && write.field === 'wait') {
+          // A wait refused shows the status the item holds, and takes its due date back with it.
+          const back = (write.before as WaitPutBack).dueDate;
+          changeEditing((now) => {
+            if (!now) return now;
+            const settled = { ...reached, ...waitTakenBack(now.now, write.after.dueDate, back) };
+            return { was: { ...now.was, ...settled }, now: { ...now.now, ...settled } };
+          });
+        } else if (reached) {
+          // A status that did not all land shows what the item holds.
+          settleOn(reached);
         } else {
           // A refused repeat goes back whole - the chip and its read-back with the row's mark - and says why
           // beside the choices: what was set is a rule the server refused, not text left to correct in place.

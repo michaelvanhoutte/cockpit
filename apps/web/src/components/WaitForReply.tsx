@@ -36,12 +36,7 @@ export function WaitChoices({ waitingSince, onWait }: WaitChoice) {
   const days = daysTyped(typed);
   const due = days === null ? null : daysOnFrom(dayOf(new Date()), days);
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (days !== null) onWait(days);
-      }}
-    >
+    <div>
       <div className="mb-1 text-xs font-semibold tracking-[0.11em] text-ink-faint uppercase">
         {waitingSince ? 'Wait again' : 'Wait for reply'}
       </div>
@@ -56,7 +51,7 @@ export function WaitChoices({ waitingSince, onWait }: WaitChoice) {
           autoFocus
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
-          // Accepted here rather than left to the form's own submission, which a lone number box need not make.
+          // Enter accepts what is typed; the buttons beside it each accept their own.
           onKeyDown={(event) => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
@@ -92,7 +87,7 @@ export function WaitChoices({ waitingSince, onWait }: WaitChoice) {
           ? `Its due date moves; it has been waiting since ${momentWeekdayDayLabel(waitingSince)}.`
           : 'It stays where it is, and its due date is replaced.'}
       </p>
-    </form>
+    </div>
   );
 }
 

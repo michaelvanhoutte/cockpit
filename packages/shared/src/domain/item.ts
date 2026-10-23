@@ -258,7 +258,8 @@ export function itemStatus(item: Pick<Item, 'startedAt' | 'completedAt' | 'waiti
 /**
  * How many days *Wait for reply…* offers to wait before the Item is due
  * ("Set an Item Waiting for reply, and wait again after chasing", issue 1463):
- * 3, until Settings › Follow-ups makes it the person's own (issue 1465).
+ * 3, until Settings › Follow-ups makes it the person's own ("Choose in
+ * Settings how many days to wait for a reply", issue 1465).
  */
 export const FOLLOW_UP_DAYS = 3;
 /** The waits the popover offers in one press. */

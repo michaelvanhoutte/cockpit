@@ -110,7 +110,7 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
     case 'set_started':
       return withItem(snapshot, change.payload.itemId, {
         startedAt: change.payload.started ? change.payload.issuedAt : null,
-        // To do and In progress both end a wait for a reply (issue 1463).
+        // To do and In progress both end a wait for a reply ("Set an Item Waiting for reply", issue 1463).
         waitingSince: null,
       });
     case 'wait_for_reply':

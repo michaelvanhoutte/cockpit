@@ -70,12 +70,15 @@ describe('Triage', () => {
     });
   });
 
-  describe('undoing a wait puts back the due date, then the status it replaced', () => {
+  describe('undoing a wait puts back the due date, then the status it replaced, keeping any run the wait left open', () => {
     const envelope = () => ({ commandId: 'c', issuedAt: '2026-10-23T10:00:00.000Z', workspaceId: 'ws', itemId: 'i' });
     const sent = (back: Parameters<typeof fieldWrites>[2], from: StatusState) =>
       fieldWrites('wait', envelope, back, from).map(({ command }) => {
         if (command.name === 'set_due_date') return `due ${command.payload.dueDate ?? 'none'}`;
-        if (command.name === 'set_started') return command.payload.started ? 'start' : 'back to To do';
+        if (command.name === 'set_started') {
+          if (!command.payload.keepsRun) return 'a status chosen';
+          return command.payload.started ? 'start' : 'back to To do';
+        }
         if (command.name === 'set_done') return command.payload.done ? 'finish' : 'reopen';
         return command.name;
       });

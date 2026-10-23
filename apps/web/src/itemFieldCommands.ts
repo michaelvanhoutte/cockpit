@@ -81,7 +81,7 @@ export function asStored(draft: Draft, field: Field): string | Priority | ItemSt
 /** The commands a row sends, as the steps a status change is made of. */
 export type StatusStep =
   | { name: 'set_done'; done: boolean }
-  | { name: 'set_started'; started: boolean }
+  | { name: 'set_started'; started: boolean; keepsRun?: true }
   | { name: 'wait_for_reply'; days: number };
 
 /**
@@ -133,11 +133,12 @@ export function waitSteps(from: StatusState, days: number): StatusStep[] {
 /**
  * A wait undone, from where it left the Item (`from`) to what it replaced
  * (`back`): the wait ended where there was none before - with the start the
- * Item had - then finished with again where it was Done. The due date goes
- * back separately.
+ * Item had, and any Claude run the wait left open kept open - then finished
+ * with again where it was Done. The due date goes back separately.
  */
 export function waitUndoneSteps(from: StatusState, back: WaitPutBack): StatusStep[] {
-  const ended: StatusStep[] = back.waiting || !from.waiting ? [] : [{ name: 'set_started', started: back.started }];
+  const ended: StatusStep[] =
+    back.waiting || !from.waiting ? [] : [{ name: 'set_started', started: back.started, keepsRun: true }];
   return back.status === 'done' ? [...ended, { name: 'set_done', done: true }] : ended;
 }
 
@@ -183,7 +184,7 @@ export function fieldWrites(
         step.name === 'set_done'
           ? { name: 'set_done', payload: { ...e, done: step.done } }
           : step.name === 'set_started'
-            ? { name: 'set_started', payload: { ...e, started: step.started } }
+            ? { name: 'set_started', payload: { ...e, started: step.started, ...(step.keepsRun && { keepsRun: true }) } }
             : { name: 'wait_for_reply', payload: { ...e, days: step.days, timeZone } };
       return { command, held: state };
     });

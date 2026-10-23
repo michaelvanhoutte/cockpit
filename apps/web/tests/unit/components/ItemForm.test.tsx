@@ -558,6 +558,11 @@ describe('Item editing', () => {
         asks: { wait: 3, dueDate: '2026-10-30' },
       },
       {
+        situation: 'a wait for a reply chosen, then the due date cleared back to none',
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'waiting' as const, started: false, repeat: null, wait: { days: 3, dueDate: '2026-10-26' } },
+        asks: { wait: 3, dueDate: null },
+      },
+      {
         situation: 'a wait for a reply already written, chosen alike again',
         stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-26', status: 'waiting' as const, started: false, repeat: null, waiting: true, wait: { days: 3, dueDate: '2026-10-26' } },
         draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-26', status: 'waiting' as const, started: false, repeat: null, waiting: true, wait: { days: 3, dueDate: '2026-10-26' } },
@@ -1123,6 +1128,26 @@ describe('Item editing', () => {
         await user.click(await screen.findByRole('button', { name: '3 days' }));
 
         await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['wait_for_reply']));
+      });
+
+      it('a wait refused when docked leaves standing a due date chosen while it was on its way', async () => {
+        held.itemFormPresentation = 'docked';
+        const user = await theForm(anItem({ dueDate: '2099-01-01' }), [], true);
+        let refuse: (error: Error) => void = () => {};
+        held.send.mockImplementation(((change: { name: string }) =>
+          change.name === 'wait_for_reply'
+            ? new Promise((_, reject) => (refuse = reject))
+            : Promise.resolve({ ok: true as const, applied: true })) as never);
+
+        await pickStatus(user, 'Waiting for reply');
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+        await user.click(within(theLine()).getByRole('button', { name: 'Tmrw' }));
+        await waitFor(() => expect(sent().map((change) => change.name)).toContain('wait_for_reply'));
+        await act(async () => refuse(new Error('Refused.')));
+
+        await waitFor(() => expect(statusChip()).toHaveTextContent('To do'));
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['wait_for_reply', 'set_due_date']));
+        expect(within(theLine()).getByRole('button', { name: 'Tmrw' })).toHaveAttribute('aria-pressed', 'true');
       });
 
       it('a wait refused on Save goes back to the status and due date the Item has, and is not sent again', async () => {

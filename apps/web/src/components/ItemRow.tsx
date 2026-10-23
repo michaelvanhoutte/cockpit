@@ -48,7 +48,7 @@ import {
   menuItemSplitClass,
 } from './Menu';
 
-/** The *Wait for reply…* question, fetched the first time a row asks it (WaitForReply.tsx, issue 1463). */
+/** The *Wait for reply…* question, fetched the first time a row asks it (WaitForReply.tsx; "Set an Item Waiting for reply", issue 1463). */
 const WaitPopover = lazy(() => import('./WaitForReply').then((loaded) => ({ default: loaded.WaitPopover })));
 
 /** What the item menu is drawn with: Radix's dropdown menu and context menu share these parts. */
@@ -349,8 +349,10 @@ export function ItemRow({
    * bar says why.
    */
   const waitForReply = (days: number) => {
+    // Refused, *Wait again…* leaves it waiting on its old due date.
+    const notDone = status === 'waiting' ? 'still waits on its old due date' : 'is not waiting for a reply';
     send({ name: 'wait_for_reply', payload: { ...envelope(), days, timeZone: deviceTimeZone() ?? 'UTC' } }).catch(
-      (failure: unknown) => offerToUndo({ what: `“${itemLabel(item)}” is not waiting for a reply. ${whyNotDone(failure)}` }),
+      (failure: unknown) => offerToUndo({ what: `“${itemLabel(item)}” ${notDone}. ${whyNotDone(failure)}` }),
     );
   };
   const askToWait = () => {

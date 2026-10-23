@@ -505,6 +505,8 @@ export type SetDismissedCommand = z.infer<typeof setDismissedSchema>;
 export const setStartedSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   started: z.boolean(),
+  /** An undo of a wait's way of saying it only takes the wait back, so the run the wait left open stays open ("Set an Item Waiting for reply", issue 1463). */
+  keepsRun: z.boolean().optional(),
 });
 export type SetStartedCommand = z.infer<typeof setStartedSchema>;
 
