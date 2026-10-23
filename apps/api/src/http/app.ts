@@ -21,6 +21,7 @@ import {
   MAX_RECORDING_BYTES,
   TRANSCRIPTION_PATH,
   registeredUserListSchema,
+  usageRequestSchema,
   usageSchema,
   rewriteHistoryResponseSchema,
   setAccessSchema,
@@ -437,14 +438,13 @@ const adminUsersRoute = createRoute({
  * bounded window of days ("Add an admin Usage window for sign-ins and guest
  * sessions", issue 654). Behind the same role gate as the list of users.
  *
- * `days` is text so that a value that is not a number reads as the default
- * rather than as a refusal: a window is a convenience, not a request to get
- * right.
+ * The window and its days are counted on the calendar of the zone the request
+ * carries ("Count Settings › Usage's days on your own calendar", issue 1428).
  */
 const adminUsageRoute = createRoute({
   method: 'get',
   path: '/v1/admin/usage',
-  request: { query: z.object({ days: z.string().optional() }) },
+  request: { query: usageRequestSchema },
   responses: {
     200: {
       description: 'Named users’ sign-ins and guest sessions over the window',
@@ -1219,9 +1219,10 @@ const routes = app
     return c.json({ user: { id: userId, name, role } }, 200);
   })
   .openapi(adminUsersRoute, async (c) => c.json({ users: await registeredUsers(c.env) }, 200))
-  .openapi(adminUsageRoute, async (c) =>
-    c.json(await readUsage(c.env, c.req.valid('query').days, new Date()), 200),
-  )
+  .openapi(adminUsageRoute, async (c) => {
+    const { days, timeZone } = c.req.valid('query');
+    return c.json(await readUsage(c.env, days, new Date(), timeZone), 200);
+  })
   .openapi(addUserRoute, async (c) => {
     const { name, email } = c.req.valid('json');
     const added = await addUser(c.env, { name, address: email }, new Date());

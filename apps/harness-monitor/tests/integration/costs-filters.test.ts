@@ -60,7 +60,7 @@ describe('Harness Monitor', () => {
       expect(whereItWent(html).bar).toContain('Building $0.00');
       expect(await rows('?period=all&engineer=~unattributed')).toEqual([['b/nobody', '$1.00']]);
       expect(await rows('?period=all&engineer=alice&group=engineer')).toEqual([['alice', '$5.00']]);
-      expect(await rows('?period=all&engineer=bob&group=day')).toEqual([['2026-10-01', '$2.00']]);
+      expect(await rows('?period=all&engineer=bob&group=day')).toEqual([['1 Oct 2026', '$2.00']]);
     });
 
     it('a category keeps only its requests, and the bar shows it alone', async () => {
@@ -85,7 +85,7 @@ describe('Harness Monitor', () => {
 
       expect(await rows('?period=all&engineer=alice&category=building')).toEqual([['#1 Mine', '$5.00']]);
       expect(await rows('?period=all&engineer=bob&category=building')).toEqual([]);
-      expect(await rows('?period=all&group=nonsense&category=nonsense')).toEqual([['2026-10-01', '$7.00']]);
+      expect(await rows('?period=all&group=nonsense&category=nonsense')).toEqual([['1 Oct 2026', '$7.00']]);
     });
   });
 });

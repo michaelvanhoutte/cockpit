@@ -10,24 +10,10 @@ import {
   type PriorityChoice,
 } from '@cockpit/shared';
 
-export {
-  NO_DASHBOARD_FILTER,
-  containsText,
-  isFiltering,
-  itemIdsWithAttachments,
-  itemIdsWithRun,
-  matchesDashboardFilter,
-  type AttachmentsChoice,
-  type DashboardFilter,
-  type PriorityChoice,
-} from '@cockpit/shared';
-
 /**
  * A Dashboard filter: six conditions, all of which must hold, narrowing what
- * the Panels of items and Filter panels already on one Dashboard show ("Filter a
- * dashboard by priority, due date, text and attachments", issue 633). **Whether
- * an Item meets one is shared** (`@cockpit/shared`, `domain/dashboard-filter.ts`)
- * and re-exported above.
+ * the Panels of items and Filter panels already on one Dashboard show
+ * ("Filter a dashboard by priority, due date, text and attachments", issue 633).
  *
  * **Remembered in the browser, per Dashboard, not in the database** - the
  * reason the last view of a workspace is (lastVisited.ts): it is a way of
@@ -38,6 +24,9 @@ export {
  * The storage is handed in rather than reached for, so the deciding is provable
  * without a browser and so a private window, or a browser that refuses or
  * garbles storage, is a Dashboard drawn unfiltered rather than one that throws.
+ *
+ * The conditions, and what decides whether an Item meets them, are
+ * `@cockpit/shared`'s (`dashboard-filter.ts`).
  */
 
 /** What an arrangement control says while a Dashboard filter is on: the filter fits the rows to what is left, so none can be rearranged. */
@@ -45,7 +34,6 @@ export const CLEAR_THE_FILTER_FIRST = 'Clear the dashboard filter first';
 
 const PRIORITY_CHOICES: readonly PriorityChoice[] = ['high', 'normal', 'low', 'none'];
 const ATTACHMENT_CHOICES: readonly AttachmentsChoice[] = ['any', 'with', 'without'];
-
 
 const KEY = 'cockpit.dashboard-filter.';
 

@@ -33,6 +33,15 @@ describe('renderHtml', () => {
   });
 });
 
+describe('renderHtml dates', () => {
+  it('reads when it was generated in Belgian time and format', () => {
+    const model = { tree: [], availableLevels: [], coverageAvailable: true, commit: 'abc1234', commitUrl: null, generatedAt: '2026-10-22T13:05:09.000Z', warnings: [] };
+    const html = renderHtml(model, { repoRelPrefix: '../../..' });
+    expect(html).toContain('generated <b>22 Oct 2026, 15:05</b>');
+    expect(html).not.toContain('13:05');
+  });
+});
+
 describe('esc', () => {
   it('leaves plain text untouched', () => {
     expect(esc('a thought captured in the app')).toBe('a thought captured in the app');

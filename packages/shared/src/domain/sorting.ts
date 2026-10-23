@@ -1,26 +1,11 @@
 import type { Item, Priority } from './item.js';
-import { panelGathers, panelTakesItems } from './panel.js';
-import type { Panel, PanelSort, SortField } from './panel.js';
+import type { PanelSort, SortField } from './panel.js';
 
 /**
- * How a sorted Panel of items draws its rows ("Sort a panel of items by the
- * fields you choose", issue 526): the order a sort puts Items in, shared so
- * the browser and an app reading Items over MCP order them alike. What each
- * field and direction is called is the browser's (`sorting.ts`).
+ * How a sorted Panel of items orders its rows ("Sort a panel of items by the
+ * fields you choose", issue 526): a decision over the Items and the sort, so
+ * the browser draws and the Worker answers in the same order.
  */
-
-/**
- * How a Panel draws its rows by a sort of its own, or null where it has none -
- * the one reading the board, the mark and the drag all ask, so they cannot
- * disagree about a Panel.
- *
- * For a Panel of items none is Manual; for a Filter none is the order nobody
- * has changed (`DEFAULT_FILTER_SORT`), which is why the mark stays off it. A
- * Panel of text is not sorted at all.
- */
-export function sortOf(panel: Panel): PanelSort | null {
-  return panelTakesItems(panel) || panelGathers(panel) ? panel.sort : null;
-}
 
 /**
  * What a Filter nobody has sorted goes by - Due date ascending, then Priority
@@ -81,22 +66,3 @@ export function inSortOrder(items: readonly Item[], sort: PanelSort | null): Ite
   });
 }
 
-
-/**
- * A Filter's rows, in the order they are drawn: by its sort, then oldest first
- * wherever that leaves two tied ("Choose how a Filter's rows are sorted", issue
- * 527).
- *
- * Its own function because a Filter's last tie-break is its own rule: a sorted
- * Panel ends on the order you set, and a Filter has none. Adding Created
- * ascending where the sort does not name it is that rule, and changes nothing
- * where it does. An Item with no value for a criterion goes last in either
- * direction, which is what lets a Filter with only a Priority
- * condition mix dated and undated Items freely.
- */
-export function inFilterOrder(items: readonly Item[], sort: PanelSort): Item[] {
-  const withTheTie = sort.some((criterion) => criterion.field === 'createdAt')
-    ? sort
-    : [...sort, { field: 'createdAt' as const, direction: 'asc' as const }];
-  return inSortOrder(items, withTheTie);
-}

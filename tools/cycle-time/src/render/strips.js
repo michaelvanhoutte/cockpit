@@ -16,6 +16,7 @@
  * wider by the page, over what follows it, and what follows still starts at its own time.
  */
 
+import { nextRoundTime } from '../../../../scripts/lib/belgian-time.mjs';
 import { AWAY_MS, LOCAL_REVIEW_KINDS, LOCAL_RUN_KINDS } from '../model.js';
 
 /** Top to bottom in a stack of parallel lanes: each review, then the test run, then the browser pass. */
@@ -208,7 +209,7 @@ const AXIS_CROWD = 0.07;
 
 /**
  * The clock-time axis of a strip drawn on its own scale: a tick at the start, at the end, at each edge of a
- * break, and at round clock times between. Time away has no ticks inside it, so the axis reads the real
+ * break, and at round Belgian clock times between (scripts/lib/belgian-time.mjs). Time away has no ticks inside it, so the axis reads the real
  * clock either side of a break. `align` says which side of its tick a label hangs on.
  *
  * @param {number} startedAt the strip's start, in epoch milliseconds
@@ -234,7 +235,7 @@ export function axisFor(startedAt, fitted) {
   clock = startedAt;
   for (const part of fitted.parts) {
     if (part.type !== 'away') {
-      for (let at = Math.ceil(clock / step) * step; at < clock + part.ms; at += step) {
+      for (let at = nextRoundTime(clock, step); at < clock + part.ms; at = nextRoundTime(at + 1, step)) {
         const offsetMs = part.startMs + (at - clock);
         if (!crowded(offsetMs, part.breaksBefore)) ticks.push({ atMs: at, startMs: offsetMs, breaksBefore: part.breaksBefore, align: 'mid' });
       }

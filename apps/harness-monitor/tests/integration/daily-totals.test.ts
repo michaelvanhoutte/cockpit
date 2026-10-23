@@ -29,16 +29,16 @@ describe('Harness Monitor', () => {
       ]);
     });
 
-    it('a request just after midnight UTC is in the new day, not the old', async () => {
+    it('a request just after midnight in Brussels is in the new day, not the old', async () => {
       await send([
-        usage('before', { time: '2026-10-01T23:59:59Z' }),
-        usage('after', { time: '2026-10-02T00:00:01Z' }),
+        usage('before', { time: '2026-10-01T21:59:59Z' }),
+        usage('after', { time: '2026-10-01T22:00:01Z' }),
         usage('elsewhere', { time: '2026-10-02T01:30:00+02:00' }),
       ]);
 
       expect((await totals()).map((t) => [t.day, t.requests])).toEqual([
-        ['2026-10-01', 2],
-        ['2026-10-02', 1],
+        ['2026-10-01', 1],
+        ['2026-10-02', 2],
       ]);
     });
 

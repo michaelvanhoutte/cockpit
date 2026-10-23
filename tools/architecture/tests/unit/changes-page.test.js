@@ -26,6 +26,11 @@ describe('What changed', () => {
       expect(text).toContain('<span class="pill p-hand">new source mark</span>');
     });
 
+    it('dates each commit compared by the Belgian day, whatever offset its committer wrote it in', () => {
+      const early = { ...from, date: '2026-10-22T00:30:00+05:30' };
+      expect(section(compared([], { from: early }))).toContain('(21 Oct 2026)');
+    });
+
     it('says when the earlier commit was drawn with this one’s description file', () => {
       expect(section(compared([], { descriptionFromElsewhere: true }))).toContain('has no description file');
     });

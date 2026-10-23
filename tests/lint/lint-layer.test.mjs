@@ -118,6 +118,30 @@ describe('the lint layer', () => {
     assert.deepEqual(await rulesFiredOn(code, 'apps/api/tests/unit/ordinary.test.ts'), []);
   });
 
+  it('objects to a screen formatting a date itself, in whichever shape it is written', async () => {
+    const formatsItself = [
+      'export const a = (createdAt: string) => new Date(createdAt).toLocaleString();',
+      'export const b = (date: Date) => date.toLocaleDateString();',
+      "export const c = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit' });",
+      "export const d = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });",
+      "export const e = (item: { updatedAt: string }) => item.updatedAt.toLocaleString('en-US', { hour: 'numeric' });",
+    ];
+    for (const code of formatsItself) {
+      // More than once where the receiver and its options both say it is a date.
+      const fired = await rulesFiredOn(code, 'apps/web/src/components/Row.tsx');
+      assert.ok(fired.length > 0 && fired.every((rule) => rule === 'no-restricted-syntax'), code);
+    }
+  });
+
+  it('lets a number be formatted for display, and the formatter be the one place that formats a date', async () => {
+    const number = 'export const limit = (DESCRIPTION_LIMIT: number) => DESCRIPTION_LIMIT.toLocaleString();';
+    assert.deepEqual(await rulesFiredOn(number, 'apps/web/src/components/ItemForm.tsx'), []);
+    const date = "export const when = (at: Date) => new Intl.DateTimeFormat('en').format(at);";
+    assert.deepEqual(await rulesFiredOn(date, 'apps/web/src/dateFormat.ts'), []);
+    // Tests state their expectations in whatever oracle they like.
+    assert.deepEqual(await rulesFiredOn(date, 'apps/web/tests/unit/dateFormat.test.ts'), []);
+  });
+
   it('objects to a database import under a unit folder', async () => {
     const reachesTheDatabase = [
       ["import { env } from 'cloudflare:test';", 'apps/api/tests/unit/db.test.ts'],

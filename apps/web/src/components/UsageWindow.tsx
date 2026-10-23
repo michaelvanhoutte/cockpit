@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { USAGE_DEFAULT_DAYS, USAGE_MAX_DAYS, type Usage } from '@cockpit/shared';
 import { statusOf } from '../api/loadFailure';
 import { usageQuery } from '../api/queries';
+import { dateTimeLabel, dayLabel } from '../dateFormat';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 
 /**
@@ -21,13 +22,8 @@ import { CloseWindow, ManageWindow } from './ManageWindow';
 /** The windows offered, in days; the longest is as far back as the history is kept. */
 const WINDOWS = [7, USAGE_DEFAULT_DAYS, 90, USAGE_MAX_DAYS] as const;
 
-/** Fixed to UTC, like the days the server counts in, so the screen and the figures agree. */
-const WHEN = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
-
-function when(instant: string): string {
-  const date = new Date(instant);
-  return Number.isNaN(date.getTime()) ? instant : `${WHEN.format(date)} UTC`;
-}
+/** A sign-in moment, in the device's zone like every moment the app shows. */
+const when = dateTimeLabel;
 
 export default function UsageWindow({
   open,
@@ -109,7 +105,7 @@ function Figures({ usage }: { usage: Usage }) {
               <caption className="sr-only">Guest sessions per day</caption>
               <thead className="text-xs text-ink-faint">
                 <tr>
-                  <th className="py-1 font-normal">Day (UTC)</th>
+                  <th className="py-1 font-normal">Day</th>
                   <th className="py-1 font-normal">Sessions</th>
                   <th className="py-1 font-normal">Items captured</th>
                   <th className="py-1 font-normal">Dashboards opened</th>
@@ -118,7 +114,7 @@ function Figures({ usage }: { usage: Usage }) {
               <tbody>
                 {guests.perDay.map((day) => (
                   <tr key={day.day} className="border-t border-shade/5">
-                    <td className="py-1">{day.day}</td>
+                    <td className="py-1">{dayLabel(day.day) ?? day.day}</td>
                     <td className="py-1">{day.sessions}</td>
                     <td className="py-1">{day.itemsCaptured}</td>
                     <td className="py-1">{day.dashboardsOpened}</td>

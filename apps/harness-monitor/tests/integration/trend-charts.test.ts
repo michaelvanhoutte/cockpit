@@ -1,7 +1,7 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import worker from '../../src/worker';
-import { emptyTheDatabase, send, spend, theBarePage, usage, withPrices } from './support';
+import { emptyTheDatabase, merged, send, spend, theBarePage, usage, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -31,22 +31,6 @@ async function sessionStarts(): Promise<Start[]> {
   return results;
 }
 
-/** A pull request merged on `mergedAt` that changed `lines` lines, on branch b/<number>. */
-async function merged(number: number, mergedAt: string, lines: number, engineer = 'alice') {
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO branch_links (branch, pr_number, title, state, merged_at, issue_number, engineer, pr_updated_at, linked_at)
-       VALUES (?1, ?2, 'T', 'MERGED', ?3, NULL, ?4, ?3, 0)`,
-    ).bind(`b/${number}`, number, mergedAt, engineer),
-    env.DB.prepare(`INSERT INTO pull_request_stats (pr_number, lines_added, lines_removed, pr_updated_at, read_at) VALUES (?1, ?2, ?3, ?4, 0)`).bind(
-      number,
-      lines - 100,
-      100,
-      mergedAt,
-    ),
-  ]);
-}
-
 /** Each line of a chart as its points read ("2026-10-05 · $2.00"), keyed by the line; 'empty' where the chart has nothing to draw. */
 function chart(html: string, id: string): Record<string, string[]> | 'empty' {
   const section = new RegExp(`<section class="card chart" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)?.[1];
@@ -60,7 +44,7 @@ function chart(html: string, id: string): Record<string, string[]> | 'empty' {
   );
 }
 
-const WEEK = '2026-10-05';
+const WEEK = '5 Oct 2026';
 
 describe('Harness Monitor', () => {
   describe("a session's starting context is its first main-agent request, whatever order its requests arrive in", () => {
@@ -145,15 +129,14 @@ describe('Harness Monitor', () => {
       // Wednesday 2026-10-14, so the pull request is on Tuesday 2026-10-13 and its week starts on Monday 2026-10-12.
       vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-14T12:00:00Z') });
       const day = '2026-10-13';
-      const monday = '2026-10-12';
       await send([spend('p1', 1, { time: `${day}T10:00:00Z`, branch: 'b/1' })]);
       await merged(1, `${day}T12:00:00Z`, 500);
 
       const thirty = chart(await theBarePage('?period=30d'), 'pull-request-size');
       const ninety = chart(await theBarePage('?period=90d'), 'pull-request-size');
 
-      expect(thirty).toEqual({ 'pull-request-size': [`${day} · 500 lines`] });
-      expect(ninety).toEqual({ 'pull-request-size': [`${monday} · 500 lines`] });
+      expect(thirty).toEqual({ 'pull-request-size': ['13 Oct 2026 · 500 lines'] });
+      expect(ninety).toEqual({ 'pull-request-size': ['12 Oct 2026 · 500 lines'] });
     });
 
     it('with nothing merged in the period the charts say so rather than drawing zero', async () => {

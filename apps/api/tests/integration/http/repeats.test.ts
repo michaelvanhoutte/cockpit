@@ -12,10 +12,15 @@ import { WORKSPACE_ID, alsoWorkspaces, asUser, inTheStore, seedRegister, startFr
  */
 
 const OTHER_WORKSPACE = 'ws-atlas';
-/** A Thursday, on the Brussels calendar as on UTC. */
-const ISSUED = '2026-10-22T10:00:00.000Z';
-const LATER = '2026-10-22T10:05:00.000Z';
-const WEEKLY = { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 5, timeZone: 'Europe/Brussels' } as const;
+/**
+ * A Thursday, on the Brussels calendar as on UTC. **Years ahead, on a calendar
+ * that falls as 2026's does**, since a rule set arms the account's alarm for its
+ * Next on, and one set for a day already come would fire while a case runs and
+ * move the series on ("Bring a repeating Item back on its day", issue 1407).
+ */
+const ISSUED = '2082-10-22T10:00:00.000Z';
+const LATER = '2082-10-22T10:05:00.000Z';
+const WEEKLY = { frequency: 'weekly', nextOn: '2082-11-02', dueAfterDays: 5, timeZone: 'Europe/Brussels' } as const;
 
 let seq = 0;
 function nextId(): string {
@@ -35,7 +40,7 @@ async function anItem(workspaceId = WORKSPACE_ID, extra: Partial<CommandPayload<
   const itemId = nextId();
   const made = await post('capture_item', {
     commandId: nextId(),
-    issuedAt: '2026-10-20T10:00:00.000Z',
+    issuedAt: '2082-10-20T10:00:00.000Z',
     workspaceId,
     itemId,
     message: 'Weekly review',
@@ -100,12 +105,12 @@ describe('Item editing', () => {
     it('reads each change to the frequency, Next on and the due gap', async () => {
       const itemId = await anItem();
       await setRepeat(itemId, WEEKLY);
-      await setRepeat(itemId, { ...WEEKLY, frequency: 'monthly' }, { issuedAt: '2026-10-22T10:01:00.000Z' });
-      await setRepeat(itemId, { ...WEEKLY, frequency: 'monthly', nextOn: '2026-11-15' }, { issuedAt: '2026-10-22T10:02:00.000Z' });
-      await setRepeat(itemId, { ...WEEKLY, frequency: 'monthly', nextOn: '2026-11-15', dueAfterDays: 9 }, { issuedAt: '2026-10-22T10:03:00.000Z' });
+      await setRepeat(itemId, { ...WEEKLY, frequency: 'monthly' }, { issuedAt: '2082-10-22T10:01:00.000Z' });
+      await setRepeat(itemId, { ...WEEKLY, frequency: 'monthly', nextOn: '2082-11-15' }, { issuedAt: '2082-10-22T10:02:00.000Z' });
+      await setRepeat(itemId, { ...WEEKLY, frequency: 'monthly', nextOn: '2082-11-15', dueAfterDays: 9 }, { issuedAt: '2082-10-22T10:03:00.000Z' });
 
       expect((await snapshotOf()).series).toEqual([
-        expect.objectContaining({ frequency: 'monthly', nextOn: '2026-11-15', dueAfterDays: 9 }),
+        expect.objectContaining({ frequency: 'monthly', nextOn: '2082-11-15', dueAfterDays: 9 }),
       ]);
       expect(await seriesRows()).toHaveLength(1);
     });
@@ -141,7 +146,7 @@ describe('Item editing', () => {
       const itemId = await anItem();
       await setRepeat(itemId, WEEKLY);
       await setRepeat(itemId, null, { issuedAt: LATER });
-      await setRepeat(itemId, WEEKLY, { issuedAt: '2026-10-22T10:10:00.000Z' });
+      await setRepeat(itemId, WEEKLY, { issuedAt: '2082-10-22T10:10:00.000Z' });
 
       const { series } = await snapshotOf();
       expect(series).toHaveLength(1);
@@ -169,7 +174,7 @@ describe('Item editing', () => {
 
   describe('setting a repeat leaves the Item\'s own due date as it was', () => {
     it.each([
-      { situation: 'due on a Friday, with Weekly set from a Monday', dueDate: '2026-10-30' },
+      { situation: 'due on a Friday, with Weekly set from a Monday', dueDate: '2082-10-30' },
       { situation: 'with no due date, and Weekly set', dueDate: undefined },
     ])('$situation', async ({ dueDate }) => {
       const itemId = await anItem(WORKSPACE_ID, dueDate ? { dueDate } : {});
@@ -177,14 +182,14 @@ describe('Item editing', () => {
 
       const item = await theItem(itemId);
       expect(item.dueDate).toBe(dueDate ?? null);
-      expect(item.updatedAt).toBe('2026-10-20T10:00:00.000Z');
+      expect(item.updatedAt).toBe('2082-10-20T10:00:00.000Z');
     });
   });
 
   describe('Next on is never before today', () => {
     it('refuses a Next on that is yesterday on the calendar of the zone sent, and writes nothing', async () => {
       const itemId = await anItem();
-      const response = await setRepeat(itemId, { ...WEEKLY, nextOn: '2026-10-21' });
+      const response = await setRepeat(itemId, { ...WEEKLY, nextOn: '2082-10-21' });
 
       expect(response.status).toBe(400);
       expect(((await response.json()) as { error: string }).error).toBe('Next on cannot be before today.');
@@ -193,10 +198,10 @@ describe('Item editing', () => {
     });
 
     it.each([
-      { situation: 'today', nextOn: '2026-10-22', timeZone: 'Europe/Brussels', status: 200 },
+      { situation: 'today', nextOn: '2082-10-22', timeZone: 'Europe/Brussels', status: 200 },
       // 23:30 UTC on the 22nd is already the 23rd in Brussels.
-      { situation: 'the 22nd, once it is the 23rd where the device is', nextOn: '2026-10-22', timeZone: 'Europe/Brussels', status: 400, issuedAt: '2026-10-22T23:30:00.000Z' },
-      { situation: 'the 22nd, while it is still the 22nd where the device is', nextOn: '2026-10-22', timeZone: 'America/New_York', status: 200, issuedAt: '2026-10-22T23:30:00.000Z' },
+      { situation: 'the 22nd, once it is the 23rd where the device is', nextOn: '2082-10-22', timeZone: 'Europe/Brussels', status: 400, issuedAt: '2082-10-22T23:30:00.000Z' },
+      { situation: 'the 22nd, while it is still the 22nd where the device is', nextOn: '2082-10-22', timeZone: 'America/New_York', status: 200, issuedAt: '2082-10-22T23:30:00.000Z' },
     ])('answers $status for a Next on of $situation', async ({ nextOn, timeZone, status, issuedAt }) => {
       const itemId = await anItem();
       const response = await setRepeat(itemId, { ...WEEKLY, nextOn, timeZone }, issuedAt ? { issuedAt } : {});
@@ -208,28 +213,28 @@ describe('Item editing', () => {
       const itemId = await anItem();
       await setRepeat(itemId, WEEKLY, { issuedAt: ISSUED });
 
-      const response = await setRepeat(itemId, { ...WEEKLY, dueAfterDays: 6 }, { issuedAt: '2026-11-03T09:00:00.000Z' });
+      const response = await setRepeat(itemId, { ...WEEKLY, dueAfterDays: 6 }, { issuedAt: '2082-11-03T09:00:00.000Z' });
 
       expect(response.status).toBe(200);
       expect((await snapshotOf()).series[0]).toMatchObject({ nextOn: WEEKLY.nextOn, dueAfterDays: 6 });
     });
 
-    it('puts back a rule stopped by Never after its Next on has passed, as an Undo does', async () => {
+    it('puts back a rule stopped by Never after its Next on has passed, as an Undo does, on the next day it comes round', async () => {
       const itemId = await anItem();
       await setRepeat(itemId, WEEKLY, { issuedAt: ISSUED });
-      await setRepeat(itemId, null, { issuedAt: '2026-11-03T09:00:00.000Z' });
+      await setRepeat(itemId, null, { issuedAt: '2082-11-03T09:00:00.000Z' });
 
-      const response = await setRepeat(itemId, WEEKLY, { issuedAt: '2026-11-03T09:01:00.000Z' });
+      const response = await setRepeat(itemId, WEEKLY, { issuedAt: '2082-11-03T09:01:00.000Z' });
 
       expect(response.status).toBe(200);
-      expect((await snapshotOf()).series[0]).toMatchObject({ nextOn: WEEKLY.nextOn, stoppedAt: null });
+      expect((await snapshotOf()).series[0]).toMatchObject({ nextOn: '2082-11-09', stoppedAt: null });
     });
 
     it('still refuses a Next on moved to a day that has passed', async () => {
       const itemId = await anItem();
       await setRepeat(itemId, WEEKLY, { issuedAt: ISSUED });
 
-      const response = await setRepeat(itemId, { ...WEEKLY, nextOn: '2026-11-01' }, { issuedAt: '2026-11-03T09:00:00.000Z' });
+      const response = await setRepeat(itemId, { ...WEEKLY, nextOn: '2082-11-01' }, { issuedAt: '2082-11-03T09:00:00.000Z' });
 
       expect(response.status).toBe(400);
     });

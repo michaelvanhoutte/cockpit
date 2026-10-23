@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { planTestRun } from './test-selection.mjs';
-import { buildRecord, renderSummary, selectionChain, testLevel } from './test-record.mjs';
+import { buildRecord, renderSlowTests, renderSummary, selectionChain, slowTests, slowTestsWarning, testLevel } from './test-record.mjs';
 
 const PACKAGES = [
   { name: '@cockpit/shared', dir: 'packages/shared' },
@@ -107,5 +107,49 @@ describe('renderSummary', () => {
     const text = renderSummary(recordOf(pr(changedFiles), {}, changedFiles));
     assert.match(text, /`docs\/x\.md` \(ignored\)/);
     assert.match(text, /no report/);
+  });
+});
+
+describe('slowTests', () => {
+  const timed = (duration, timeout = 5000) => ({ '@cockpit/api': { timings: [{ file: 'a.test.ts', name: 'does it', duration, timeout }] } });
+  const slowOf = (reports) => slowTests(['@cockpit/api'], reports);
+
+  it('lists a test at 2.6 s of the 5 s default with package, file, name, duration and timeout', () => {
+    assert.deepEqual(slowOf(timed(2600)).slow, [{ pkg: '@cockpit/api', file: 'a.test.ts', name: 'does it', duration: 2600, timeout: 5000 }]);
+  });
+
+  it('does not list a test at 2.4 s of the 5 s default', () => {
+    assert.deepEqual(slowOf(timed(2400)).slow, []);
+  });
+
+  it('lists a test with its own 20 s timeout at 11 s, against 20 s', () => {
+    assert.equal(slowOf(timed(11000, 20000)).slow[0].timeout, 20000);
+  });
+
+  it('does not list a test with its own 20 s timeout at 6 s, never judged against the default', () => {
+    assert.deepEqual(slowOf(timed(6000, 20000)).slow, []);
+  });
+
+  it('says none took more than half its timeout, with none slow', () => {
+    assert.match(renderSlowTests(slowOf(timed(100))), /No test took more than half its timeout/);
+    assert.equal(slowTestsWarning(slowOf(timed(100))), null);
+  });
+
+  it('lists all twelve slow tests, with one warning giving the count', () => {
+    const timings = Array.from({ length: 12 }, (_, i) => ({ file: 'a.test.ts', name: `t${i}`, duration: 4000, timeout: 5000 }));
+    const result = slowOf({ '@cockpit/api': { timings } });
+    assert.equal(renderSlowTests(result).split('\n').filter((line) => line.startsWith('| @cockpit/api')).length, 12);
+    assert.match(slowTestsWarning(result), /^::warning::12 tests /);
+  });
+
+  it('keeps a slow test whose name holds a pipe in its own table row', () => {
+    const result = slowOf({ '@cockpit/api': { timings: [{ file: 'a.test.ts', name: 'parses a|b', duration: 4000, timeout: 5000 }] } });
+    assert.match(renderSlowTests(result), /\| parses a\\\|b \|/);
+  });
+
+  it('names a package whose report is missing rather than reporting none slow', () => {
+    const result = slowOf({});
+    assert.deepEqual(result.unread, ['@cockpit/api']);
+    assert.match(renderSlowTests(result), /Could not read the report of @cockpit\/api/);
   });
 });

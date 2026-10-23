@@ -50,7 +50,9 @@ The reason for escalating must name what stops a lower level proving it:
 
 It cuts the other way too: where a constraint *is* reachable, only a test through the interface can hold the caller-visible behaviour — a capture naming a workspace that does not exist must come back 404, not the 500 a raw foreign-key error produces.
 
-**L1/F1 may not touch:** filesystem, network, database, the clock (inject time), environment variables, global state, or another process. If a test needs one, move it up a level or refactor.
+**L1/F1 may not touch:** filesystem, network, database, environment variables, global state, or another process. If a test needs one, move it up a level or refactor.
+
+**Every tier injects time.** No `Date.now()` or argument-less `new Date()` on a line you add to a test: `pnpm test:scripts` refuses it, naming file and line. Mark a deliberate read in place with `// clock-ok: <reason>`. Fake time (`vi.useFakeTimers`, `vi.setSystemTime`, `page.clock`) and `performance.now()` pass. A test that takes over half its timeout is listed in the Test job's summary.
 
 **Mocking discipline (L1/F1).** "No real dependencies" is not "mock everything":
 

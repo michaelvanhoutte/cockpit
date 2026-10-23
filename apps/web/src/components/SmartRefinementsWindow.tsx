@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery } from '@tanstack/react-query';
 import { rewriteHistoryForWorkspaceQuery } from '../api/queries';
 import { changedFields } from '../cockpitChanges';
+import { dateTimeLabel } from '../dateFormat';
 import { LoadFailure } from './LoadFailure';
 import { FieldLines, WHY, whatHappened } from './WhatCockpitChangedList';
 
@@ -113,7 +114,7 @@ export function SmartRefinementsWindow({
                             )}
                           </td>
                           <td className="whitespace-nowrap py-2 pr-3 tabular-nums text-ink-faint">
-                            {new Date(entry.attemptedAt).toLocaleString()}
+                            {dateTimeLabel(entry.attemptedAt)}
                           </td>
                           <td className="py-2 pr-3">
                             <span className="whitespace-nowrap font-mono text-xs text-ink-soft">{entry.itemId}</span>

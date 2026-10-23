@@ -1,22 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import type { Item, Priority } from '../../../src/domain/item.js';
 import type {
   DueCondition,
   Filing,
   FilterCondition,
   FilterRow,
-  Item,
   Panel,
-  Priority,
-} from '../../../src/index.js';
+} from '../../../src/domain/panel.js';
+import { filingsThatFile, itemsInTheInbox } from '../../../src/domain/filing.js';
 import {
-  DEFAULT_FILTER_SORT,
   dayOf,
-  filingsThatFile,
   inFilterOrder,
-  itemsInTheInbox,
   itemsMatchingFilter,
   panelAndFilterIdsByItem,
-} from '../../../src/index.js';
+} from '../../../src/domain/filters.js';
+import { DEFAULT_FILTER_SORT } from '../../../src/domain/sorting.js';
 
 /** The two shapes the older tests are written in: *all* is a row per condition, *any* one row holding them all. */
 type FilterMatch = 'all' | 'any';
@@ -26,12 +24,12 @@ function rowsOf(conditions: readonly FilterCondition[], match: FilterMatch): Fil
 }
 
 /**
- * L1: what a Filter gathers is a view over the snapshot, exactly as the Inbox
- * is (`filing.ts`), and the same rule answers for the browser and for the MCP
- * `find_items` tool - so this is pure logic with no query to prove against a
+ * L1: what a Filter gathers is a view over the snapshot, exactly as the Inbox is
+ * (`filing.ts`) - so this is pure logic and there is no query to prove against a
  * database. That a Filter reads back as one at all is
- * apps/api/tests/integration/http/panels.test.ts, and what the Panel draws
- * with what it is given is apps/web/tests/unit/components/PanelBoard.test.tsx.
+ * apps/api/tests/integration/http/panels.test.ts, what the Panel draws with what
+ * it is given is apps/web/tests/unit/components/PanelBoard.test.tsx, and the
+ * sentence a Filter reads back as is apps/web/tests/unit/filters.test.ts.
  *
  * **The day is passed in rather than read off the clock**, which is what makes
  * every window below a fixed question: a unit test may not touch the clock, and

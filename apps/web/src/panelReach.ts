@@ -1,13 +1,19 @@
 import { useCallback } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useRouter } from '@tanstack/react-router';
-import { panelHoldsText, rowIsSection } from '@cockpit/shared';
+import {
+  panelHoldsText,
+  rowIsSection,
+  isFiltering,
+  itemIdsWithAttachments,
+  itemIdsWithRun,
+  dayOf,
+} from '@cockpit/shared';
 import type { Panel, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { snapshotQuery } from './api/queries';
 import { useWorkspaces } from './api/useWorkspaces';
 import { useDrawnSelect } from './api/useSnapshot';
-import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, readDashboardFilter } from './dashboardFilter';
-import { dayOf } from './filters';
+import { readDashboardFilter } from './dashboardFilter';
 import { browserStore } from './lastVisited';
 import { itemsShownOn } from './panelContents';
 import type { PanelListEntry, PanelListSection } from './panelList';

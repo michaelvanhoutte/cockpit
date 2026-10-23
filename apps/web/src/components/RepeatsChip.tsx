@@ -1,13 +1,14 @@
 import * as Popover from '@radix-ui/react-popover';
 import {
   MOST_DUE_AFTER_DAYS,
+  dayOf,
   firstNextOn,
   readBack,
   ruleLabel,
   type RepeatFrequency,
   type RepeatRule,
 } from '@cockpit/shared';
-import { dayOf } from '../filters';
+import { weekdayDayLabel } from '../dateFormat';
 import { LIT_BUTTON, QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
 
 /**
@@ -117,7 +118,7 @@ export function RepeatsChoices({ repeat, onRepeat, onSettled, refusal }: Repeats
               <span className="text-ink-soft">days after it appears</span>
             </span>
           </label>
-          <p className="mt-3 rounded-md bg-accent-tint px-2 py-1.5 text-accent-deep">{readBack(repeat)}</p>
+          <p className="mt-3 rounded-md bg-accent-tint px-2 py-1.5 text-accent-deep">{readBack(repeat, weekdayDayLabel)}</p>
           <p className="mt-2 text-xs text-ink-faint">
             A new one appears on its day, on the panels this one is on. This one keeps its own due date.
           </p>

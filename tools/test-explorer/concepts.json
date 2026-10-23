@@ -210,8 +210,8 @@
         "apps/web/src/changeQueue.ts",
         "apps/web/src/pages/DashboardPage.tsx",
         "apps/web/src/allItems.ts",
-        "packages/shared/src/domain/where-it-is.ts",
-        "packages/shared/src/domain/find.ts",
+        "packages/shared/src/domain/dashboard-filter.ts",
+        "packages/shared/src/domain/find-item.ts",
         "apps/web/src/allItemsTab.ts",
         "apps/web/src/components/AllItemsBoard.tsx",
         "apps/web/src/pages/AllItemsPage.tsx",
@@ -250,13 +250,12 @@
         "apps/web/src/components/DashboardBar.tsx",
         "apps/api/src/domain/filings.ts",
         "apps/web/src/filing.ts",
-        "packages/shared/src/domain/filing.ts",
         "apps/web/src/recentPanels.ts",
         "apps/web/src/panels/PanelText.tsx",
         "apps/web/src/filters.ts",
+        "packages/shared/src/domain/filing.ts",
         "packages/shared/src/domain/filters.ts",
         "packages/shared/src/domain/sorting.ts",
-        "packages/shared/src/domain/dashboard-filter.ts",
         "apps/web/src/components/FilterQuestion.tsx",
         "apps/web/src/components/ItemList.tsx",
         "apps/web/src/components/MoveToPicker.tsx",
@@ -300,7 +299,7 @@
     {
       "key": "Item editing",
       "label": "Item editing",
-      "browserWalks": 16,
+      "browserWalks": 18,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",
@@ -558,6 +557,12 @@
       "browserWalks": 1,
       "parent": "Across the app",
       "sourcePatterns": ["apps/web/src/appearance.ts", "packages/shared/src/domain/workspace-shell.ts"]
+    },
+    {
+      "key": "Dates",
+      "label": "Dates",
+      "parent": "Across the app",
+      "sourcePatterns": ["apps/web/src/dateFormat.ts"]
     },
     {
       "key": "Updating",

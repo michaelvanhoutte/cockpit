@@ -1,17 +1,17 @@
-import type { AgentRun } from './agent-run.js';
-import type { Attachment } from './attachment.js';
-import { dueHolds, type Day } from './filters.js';
 import { itemStatus } from './item.js';
 import type { Item, ItemStatus, Priority } from './item.js';
+import type { AgentRun } from './agent-run.js';
+import type { Attachment } from './attachment.js';
 import type { DueWindow } from './panel.js';
+import { dueHolds } from './filters.js';
+import type { Day } from './filters.js';
 
 /**
- * A Dashboard filter's conditions: the six that must all hold, narrowing what
- * the Panels of items and Filter panels on one Dashboard show ("Filter a
- * dashboard by priority, due date, text and attachments", issue 633). Where
- * one is kept and how it is drawn is the browser's (`dashboardFilter.ts`);
- * whether an Item meets it is shared, so an app finding Items over MCP
- * (`find_items`) narrows by the same rules.
+ * A Dashboard filter: six conditions, all of which must hold, narrowing what
+ * the Panels of items and Filter panels already on one Dashboard show
+ * ("Filter a dashboard by priority, due date, text and attachments", issue 633).
+ * What decides whether an Item meets one is here; where the browser keeps a
+ * person's filter is not (`apps/web/src/dashboardFilter.ts`).
  */
 
 /** A Priority, or the absence of one - which a Dashboard filter, unlike a Filter panel, can ask for. */

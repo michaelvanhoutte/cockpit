@@ -1,24 +1,20 @@
-import type { DueWindow, Dashboard, FilterCondition, FilterGrouping, Panel, PanelFilter } from '@cockpit/shared';
+import type {
+  DueWindow,
+  Dashboard,
+  FilterCondition,
+  FilterGrouping,
+  PanelFilter,
+  Panel,
+} from '@cockpit/shared';
 import { NO_CONDITIONS, isAPeriod, panelGathers, panelTakesItems, statusValuesOf } from '@cockpit/shared';
 import { PRIORITY_LABELS } from './priority';
 
 /**
- * How a Filter reads back, and what deleting a Panel does to one. **What a
- * Filter gathers, and the calendar its windows are measured on, are shared**
- * (`@cockpit/shared`, `domain/filters.ts`) - an app finding Items over MCP
- * answers with the same rules - and are re-exported here for the callers that
- * read them from this file.
+ * What a Filter says about itself, drawn in the browser: its sentence, its
+ * labels, the Panels it names and the warning before one is deleted. What a
+ * Filter gathers, and the calendar its windows are measured on, are
+ * `@cockpit/shared`'s (`filters.ts`), which the Worker reads as well.
  */
-export {
-  dayOf,
-  daysAfter,
-  dueHolds,
-  isAPeriod,
-  itemsMatchingFilter,
-  panelAndFilterIdsByItem,
-  weekdayOf,
-  type Day,
-} from '@cockpit/shared';
 
 /** Nothing filed or matched - handed back for an Item `panelAndFilterIdsByItem` holds nothing for. */
 const EMPTY_IDS: ReadonlySet<string> = new Set();

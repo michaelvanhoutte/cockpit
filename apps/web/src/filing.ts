@@ -1,17 +1,42 @@
-import type { Filing, Panel } from '@cockpit/shared';
+import { stillOpen, type Filing, type Item, type Panel } from '@cockpit/shared';
 
 /**
  * What a panel holds and what the Inbox holds, derived from the one snapshot
  * the workspace already reads ("Panels hold the items filed into them, and the
  * Inbox holds the rest", issue 36).
  *
- * **The rules that decide which Items are open, filed and in the Inbox live in
- * `@cockpit/shared`** (`domain/filing.ts`), because the MCP `find_items` tool
- * answers with them as the screen does; they are re-exported here for the
- * callers that already read them from this file. What stays is the arithmetic
- * of moving items between panels, which only the browser does.
+ * **Both are views evaluated in the client** (architecture, "The read model:
+ * persisted snapshot, revalidate, push"): the wire carries the workspace's open
+ * items and its filings, and nothing about how they are grouped. That is why
+ * these are here and pure rather than inside the components that draw them.
+ *
+ * **The Inbox is the absence of a filing**, not a panel with rows of its own,
+ * which is what makes filing an item the thing that takes it out of the Inbox.
+ * The Inbox itself, and which filings file, are `@cockpit/shared`'s (`filing.ts`).
  */
-export { filingsThatFile, itemsInTheInbox, itemsOnPanel, itemsThatAreFiled, stillOpen } from '@cockpit/shared';
+
+/**
+ * The items filed on one panel, in the order they were filed into.
+ *
+ * Driven from the filings rather than from the items, because the filings are
+ * what carry the order. An id with no item behind it is skipped rather than
+ * drawn as a gap: an item dismissed in another tab leaves the snapshot while
+ * its filing is still on the panel, and a hole in a list is worse than one row
+ * fewer.
+ */
+export function itemsOnPanel(
+  items: readonly Item[],
+  filings: readonly Filing[],
+  panelId: string,
+): Item[] {
+  const byId = new Map(items.filter(stillOpen).map((item) => [item.id, item]));
+  return filings
+    .filter((filing) => filing.panelId === panelId)
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((filing) => byId.get(filing.itemId))
+    .filter((item): item is Item => item !== undefined);
+}
 
 /**
  * Every item filed on one panel, in order - **including the ones the panel does

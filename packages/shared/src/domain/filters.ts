@@ -1,21 +1,28 @@
-import { filingsThatFile, itemsThatAreFiled } from './filing.js';
+import { NO_CONDITIONS, panelGathers, panelTakesItems, statusValuesOf } from './panel.js';
+import type {
+  DueWindow,
+  Filing,
+  FilterCondition,
+  Panel,
+  PanelFilter,
+  PanelSort,
+} from './panel.js';
 import { itemStatus } from './item.js';
 import type { Dashboard, Item } from './item.js';
-import { NO_CONDITIONS, panelGathers, panelTakesItems, statusValuesOf } from './panel.js';
-import type { DueWindow, Filing, FilterCondition, Panel, PanelFilter, PanelSort } from './panel.js';
-import { DEFAULT_FILTER_SORT, inFilterOrder } from './sorting.js';
+import { filingsThatFile, itemsThatAreFiled } from './filing.js';
+import { DEFAULT_FILTER_SORT, inSortOrder } from './sorting.js';
 
 /**
  * What a Filter shows, worked out here rather than asked for ("Add a Filter
  * panel that shows every filed item due in a window", issue 463).
  *
- * **A view over the snapshot, exactly as the Inbox is** (`filing.ts`): the wire
- * carries the Workspace's open Items, its filings and each Panel's conditions,
- * and nothing about which Items any Panel gathers. That is what makes a Filter
- * cost no round trip. **Every window is measured from a day the caller says**:
- * the browser reads it off the viewer's clock (`dayOf`), and an app finding
- * Items over MCP passes the user's date (`find_items`'s `today`), so *this week*
- * is the week of whoever is looking. The same rules answer for both.
+ * **A view over the snapshot, exactly as the Inbox is** (`filing.ts`, in this
+ * folder: both are evaluated from the snapshot, not asked of the server): the
+ * wire carries the Workspace's open Items, its filings and each Panel's
+ * conditions, and nothing about which Items any Panel gathers. That is what
+ * makes a Filter cost no round trip, and *this week* is the week of whoever is
+ * looking, so every window is measured from the day the caller hands in
+ * (`Day`), never from a clock read here.
  */
 
 /** A calendar day, as an Item's due date is stored: `2026-09-17`. */
@@ -230,6 +237,24 @@ export function dueHolds(
   return due >= span.from && due <= span.to;
 }
 
+/**
+ * A Filter's rows, in the order they are drawn: by its sort, then oldest first
+ * wherever that leaves two tied ("Choose how a Filter's rows are sorted", issue
+ * 527).
+ *
+ * Its own function because a Filter's last tie-break is its own rule: a sorted
+ * Panel ends on the order you set, and a Filter has none. Adding Created
+ * ascending where the sort does not name it is that rule, and changes nothing
+ * where it does. An Item with no value for a criterion goes last in either
+ * direction, which is what lets a Filter with only a Priority
+ * condition mix dated and undated Items freely.
+ */
+export function inFilterOrder(items: readonly Item[], sort: PanelSort): Item[] {
+  const withTheTie = sort.some((criterion) => criterion.field === 'createdAt')
+    ? sort
+    : [...sort, { field: 'createdAt' as const, direction: 'asc' as const }];
+  return inSortOrder(items, withTheTie);
+}
 
 /**
  * Every open Item filed on a Panel of this Workspace that meets every one of
@@ -360,4 +385,3 @@ export function panelAndFilterIdsByItem(
   }
   return byItem;
 }
-

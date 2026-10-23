@@ -1,7 +1,6 @@
 import {
   UNTITLED,
   itemStatus,
-  placesFiledOn,
   whereItIs,
   type Dashboard,
   type Filing,
@@ -15,7 +14,7 @@ import {
  * The table on *All items* ("Put each setting where a person looks for it",
  * issue 688): every item of the workspace in one table, and how it is ordered.
  *
- * **A view over the snapshot**, like the Inbox (`filing.ts`): finished items
+ * **A view over the snapshot**, like the Inbox (`packages/shared/src/domain/filing.ts`): finished items
  * travel in it and dismissed ones do not, so the table is the snapshot's items
  * as they stand and asks the server for nothing. It is sorted and filtered over
  * every row, then drawn `ALL_ITEMS_PAGE` at a time.
@@ -102,14 +101,13 @@ export function allItemsRows(
   sort: AllItemsSort = DEFAULT_SORT,
 ): AllItemsRow[] {
   const rows = snapshot.items.map((item): AllItemsRow => {
-    const places = placesFiledOn(item, snapshot.filings, snapshot.panels, snapshot.dashboards);
     return {
       item,
       title: item.title.trim() || UNTITLED,
       status: itemStatus(item),
       priority: item.priority ?? null,
       due: item.dueDate ?? null,
-      where: whereItIs(places),
+      where: whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards),
       changedAt: item.completedAt ?? item.updatedAt,
     };
   });

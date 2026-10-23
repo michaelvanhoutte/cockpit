@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import type { Item, PanelSort, Priority } from '../../../src/index.js';
-import { inSortOrder } from '../../../src/index.js';
+import type { Item, Priority } from '../../../src/domain/item.js';
+import type { PanelSort } from '../../../src/domain/panel.js';
+import { inSortOrder } from '../../../src/domain/sorting.js';
 
 /**
  * L1: the order a sorted Panel draws its rows in is worked out from what it
- * already holds, with nothing to prove against a store, and shared by the
- * browser and the MCP find_items tool. That a sort is kept on the Panel is
- * apps/api/tests/integration/http/panels.test.ts; that the board draws its
- * rows through this is apps/web/tests/unit/components/PanelBoard.test.tsx.
+ * already holds, so it is pure logic with nothing to prove against a store. That
+ * a sort is kept on the Panel is apps/api/tests/integration/http/panels.test.ts;
+ * that the board draws its rows through this is
+ * apps/web/tests/unit/components/PanelBoard.test.tsx.
  *
  * Every list below is handed over in the order you set, which is what a full
  * tie falls back to.
  */
-
 
 function anItem(
   id: string,

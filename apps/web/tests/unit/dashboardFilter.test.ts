@@ -1,48 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import type { Item } from '@cockpit/shared';
+import { NO_DASHBOARD_FILTER, type DashboardFilter } from '@cockpit/shared';
 import { allItemsFilterId } from '../../src/allItemsTab';
 import {
-  NO_DASHBOARD_FILTER,
   forgetEveryDashboardFilter,
-  isFiltering,
   readDashboardFilter,
   writeDashboardFilter,
-  type DashboardFilter,
 } from '../../src/dashboardFilter';
 
 /**
- * F1, and pure: what is remembered of a Dashboard filter is a decision over
- * values handed in. Which Items a filter lets through is the shared package's
- * (packages/shared/tests/unit/domain/dashboard-filter.test.ts), and that the
- * board and the tabs obey it is tests/unit/components/PanelBoard.test.tsx and
+ * F1, and pure: what the browser remembers of a Dashboard filter, and for which
+ * Dashboard, are decisions over values handed in. Which Items a filter lets
+ * through is packages/shared/tests/unit/domain/dashboard-filter.test.ts, and that
+ * the board and the tabs obey it is tests/unit/components/PanelBoard.test.tsx and
  * DashboardBar.test.tsx.
  */
-
-// A Wednesday, so "this week" has a Monday before it and a Sunday after.
-const ON = '2026-09-09';
-
-function anItem(fields: Partial<Item> = {}): Item {
-  return {
-    id: 'item',
-    title: 'Pay the invoice',
-    description: null,
-    nextAction: null,
-    sender: null,
-    priority: null,
-    dueDate: null,
-    startedAt: null,
-    completedAt: null,
-    ...fields,
-  } as Item;
-}
 
 function filterOf(fields: Partial<DashboardFilter>): DashboardFilter {
   return { ...NO_DASHBOARD_FILTER, ...fields };
 }
-
-const NONE = new Set<string>();
-const STARTED = '2026-09-08T09:00:00.000Z';
-const DONE = '2026-09-08T17:00:00.000Z';
 
 function aStore(): Storage {
   const held = new Map<string, string>();
@@ -71,6 +46,7 @@ function aStoreThatRefuses(): Storage {
     clear: refuse,
   };
 }
+
 describe('Dashboards', () => {
   describe('a Dashboard filter belongs to its Dashboard alone, and is kept in this browser', () => {
     it('is read back for the Dashboard it was set on and for no other', () => {

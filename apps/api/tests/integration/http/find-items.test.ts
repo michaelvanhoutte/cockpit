@@ -206,7 +206,7 @@ describe('MCP connections', () => {
       const { token } = await connected();
       await anItem({ message: 'Due on the 20th', dueDate: '2026-10-20' });
       await anItem({ message: 'Due next month', dueDate: '2026-11-25' });
-      const utcToday = new Date().toISOString().slice(0, 10);
+      const utcToday = new Date().toISOString().slice(0, 10); // clock-ok: with no today given, the Worker counts from its own UTC day, which the call cannot inject
       await anItem({ message: 'Due today in UTC', dueDate: utcToday });
 
       expect(titlesIn(await found(token, { due: 'Today', today: '2026-10-20', or_overdue: false }))).toEqual(['Due on the 20th']);

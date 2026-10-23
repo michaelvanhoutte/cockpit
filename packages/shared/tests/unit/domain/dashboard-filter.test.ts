@@ -1,20 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentRun, Item } from '../../../src/index.js';
+import type { AgentRun } from '../../../src/domain/agent-run.js';
+import type { Item } from '../../../src/domain/item.js';
 import {
   NO_DASHBOARD_FILTER,
   isFiltering,
   itemIdsWithRun,
   matchesDashboardFilter,
   type DashboardFilter,
-} from '../../../src/index.js';
+} from '../../../src/domain/dashboard-filter.js';
 
 /**
  * L1: which Items a Dashboard filter lets through is a decision over values
- * handed in, shared by the browser's Dashboard filter bar and the MCP
- * `find_items` tool. That the board and the tabs obey it is
- * apps/web/tests/unit/components/PanelBoard.test.tsx and DashboardBar.test.tsx;
- * what is remembered of a filter is apps/web/tests/unit/dashboardFilter.test.ts.
- * The due windows' own boundaries are filters.test.ts's, which the matcher reuses.
+ * handed in. That the board and the tabs obey it is
+ * apps/web/tests/unit/components/PanelBoard.test.tsx and DashboardBar.test.tsx,
+ * and what the browser remembers of a filter is
+ * apps/web/tests/unit/dashboardFilter.test.ts. The due windows' own boundaries
+ * are filters.test.ts's, which the matcher reuses.
  */
 
 // A Wednesday, so "this week" has a Monday before it and a Sunday after.

@@ -901,11 +901,66 @@ export function getItem(db: AccountDb, tenantId: string, itemId: string): Item |
 export function getSeries(db: AccountDb, tenantId: string, seriesId: string): SeriesRow | null {
   return (
     db
-      .select({ ...seriesColumns, createdAt: series.createdAt, updatedAt: series.updatedAt })
+      .select(seriesRowColumns())
       .from(series)
       .where(and(eq(series.tenantId, tenantId), eq(series.id, seriesId)))
       .get() ?? null
   );
+}
+
+function seriesRowColumns() {
+  return {
+    ...seriesColumns,
+    anchorOn: series.anchorOn,
+    lastOn: series.lastOn,
+    createdAt: series.createdAt,
+    updatedAt: series.updatedAt,
+  };
+}
+
+/**
+ * Every series *Never* has not stopped ("Bring a repeating Item back on its day",
+ * issue 1407) - what the account's alarm is set by and brings back. A handful
+ * per account, so the day each is due on is worked out by the caller rather than
+ * stored beside it.
+ */
+export function listRunningSeries(db: AccountDb, tenantId: string): SeriesRow[] {
+  return db
+    .select(seriesRowColumns())
+    .from(series)
+    .where(and(eq(series.tenantId, tenantId), isNull(series.stoppedAt)))
+    .orderBy(series.createdAt, series.id)
+    .all();
+}
+
+/**
+ * The latest Item of a series, dismissed or not - what its next occurrence is
+ * copied from ("Bring a repeating Item back on its day", issue 1407). Latest by
+ * when it was made, which each occurrence is after the one it copies
+ * (`occurrenceOf`). Null only where no Item names it, which nothing but a row
+ * written by hand leaves.
+ */
+export function latestOccurrence(db: AccountDb, tenantId: string, seriesId: string): Item | null {
+  return (
+    db
+      .select(itemColumns)
+      .from(items)
+      .where(and(eq(items.tenantId, tenantId), eq(items.seriesId, seriesId)))
+      .orderBy(desc(items.createdAt), desc(items.id))
+      .limit(1)
+      .get() ?? null
+  );
+}
+
+/** The Panels an Item is filed on, live or not - the caller asks which still are. */
+export function panelIdsOf(db: AccountDb, tenantId: string, itemId: string): string[] {
+  return db
+    .select({ panelId: panelItems.panelId })
+    .from(panelItems)
+    .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, itemId)))
+    .orderBy(asc(panelItems.createdAt), asc(panelItems.panelId))
+    .all()
+    .map((row) => row.panelId);
 }
 
 const seriesColumns = {
@@ -1066,6 +1121,28 @@ export function listAttachmentsOfItem(
     .all();
 }
 
+/** An attachment's row whole, as `AttachmentRow` holds it. */
+const attachmentRowColumns = {
+  id: attachments.id,
+  tenantId: attachments.tenantId,
+  itemId: attachments.itemId,
+  r2Key: attachments.r2Key,
+  filename: attachments.filename,
+  size: attachments.size,
+  contentType: attachments.contentType,
+  createdAt: attachments.createdAt,
+};
+
+/** Every file on one Item, whole and oldest first - what its next occurrence carries over ("Bring a repeating Item back on its day", issue 1407). */
+export function attachmentRowsOf(db: AccountDb, tenantId: string, itemId: string): AttachmentRow[] {
+  return db
+    .select(attachmentRowColumns)
+    .from(attachments)
+    .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, itemId)))
+    .orderBy(asc(attachments.createdAt), asc(attachments.id))
+    .all();
+}
+
 /**
  * One attachment by its id, whole - what `add_attachment` reads to tell a
  * genuine retry (the same file, replayed) from a different upload that
@@ -1074,16 +1151,7 @@ export function listAttachmentsOfItem(
 export function getAttachment(db: AccountDb, tenantId: string, attachmentId: string): AttachmentRow | null {
   return (
     db
-      .select({
-        id: attachments.id,
-        tenantId: attachments.tenantId,
-        itemId: attachments.itemId,
-        r2Key: attachments.r2Key,
-        filename: attachments.filename,
-        size: attachments.size,
-        contentType: attachments.contentType,
-        createdAt: attachments.createdAt,
-      })
+      .select(attachmentRowColumns)
       .from(attachments)
       .where(and(eq(attachments.tenantId, tenantId), eq(attachments.id, attachmentId)))
       .get() ?? null

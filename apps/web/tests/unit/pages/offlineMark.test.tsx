@@ -14,7 +14,7 @@ import { CHOSEN_KEY, currentStanding, resetStanding, stand } from '../../../src/
  */
 const params: { workspaceId?: string } = { workspaceId: 'ws-a' };
 const SAVED_AT = new Date(2026, 9, 17, 14, 32).getTime();
-const savedTime = new Date(SAVED_AT).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const savedTime = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' }).format(new Date(SAVED_AT));
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children?: React.ReactNode }) => <a>{children}</a>,

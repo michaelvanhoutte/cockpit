@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
 import { ACCOUNT_WIDE, MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
-import { arrange, giveAWorkspace, giveToTheInbox } from './support/arrange';
+import { arrange, giveADashboard, giveAWorkspace, giveToAPanel, giveToTheInbox } from './support/arrange';
 import {
   STARTING_WORKSPACE,
   captureBox,
@@ -11,6 +12,7 @@ import {
   expect,
   inbox,
   itemRow,
+  itemsOn,
   openDashboard,
   openFirstWorkspace,
   press,
@@ -422,7 +424,9 @@ test.describe('Item editing', () => {
       const choices = page.getByRole('group', { name: 'Repeats' });
       await press(choices.getByRole('button', { name: 'Weekly', exact: true }), isMobile);
       await page.getByRole('spinbutton').fill('5');
-      await expect(choices.locator('xpath=..')).toContainText(/Weekly on \w+ · next \w{3} \d+ \w{3} · due \w{3} \d+ \w{3}/);
+      // The days in the order of the browser's region: Mon, Nov 2 here, Mon, 2 Nov under nl-BE.
+      const day = /\w{3}, (?:\w{3} \d+|\d+ \w{3})/.source;
+      await expect(choices.locator('xpath=..')).toContainText(new RegExp(`Weekly on \\w+ · next ${day} · due ${day}`));
       await page.keyboard.press('Escape');
       await expect(repeatsChip).toContainText(/Weekly on \w+/);
       await saveTheItem(page, isMobile);
@@ -440,6 +444,72 @@ test.describe('Item editing', () => {
 
       await expect(form(page)).toHaveCount(0);
       await expect(itemRow(page, weekly).getByRole('img', { name: /^Repeats/ })).toHaveCount(0);
+    });
+  });
+
+  /**
+   * F3, because this is the capability ("Bring a repeating Item back on its day,
+   * as a fresh copy", issue 1407): on its day a repeating Item comes back by
+   * itself, in a tab nobody reloads. What comes back, where and when is proved
+   * against the account's real store and alarm in
+   * apps/api/tests/integration/accounts/repeating-items.test.ts; only a browser
+   * can say the copy reaches a tab already open. Arranged through the API: setting
+   * the rule from the form is the walk above.
+   */
+  test.describe('a repeating Item comes back on its day', () => {
+    test('a fresh copy appears at the top of its Panel in a tab already open', async ({ page, isMobile }) => {
+      const weekly = uniqueTitle('Weekly review');
+      const other = uniqueTitle('Already there');
+      await openFirstWorkspace(page, isMobile);
+      const dashboard = await giveADashboard(page, uniqueTitle('Routines'), ['Every week']);
+      const panel = dashboard.panels[0]!;
+      await giveToAPanel(page, panel, [other, weekly]);
+      const itemId = panel.itemIds[1]!;
+      await arrange(page, 'set_done', { itemId, done: true });
+      await page.reload();
+      await openDashboard(page, dashboard.name, isMobile);
+      await expect.poll(() => itemsOn(page, panel.name)).toEqual([other]);
+
+      const today = new Date().toISOString().slice(0, 10);
+      await arrange(page, 'set_repeat', {
+        itemId,
+        seriesId: randomUUID(),
+        repeat: { frequency: 'weekly', nextOn: today, dueAfterDays: null, timeZone: 'UTC' },
+      });
+
+      await expect.poll(() => itemsOn(page, panel.name)).toEqual([weekly, other]);
+      await expect(itemRow(page, weekly).getByRole('img', { name: /^Repeats weekly on \w+$/ })).toBeVisible();
+    });
+  });
+
+  /**
+   * F3, because only a real browser sets the time zone and the languages
+   * together ("Show every date the app shows in your own time zone and region",
+   * issue 1427). The formatter's choices over both, and every screen's wiring to
+   * it, are apps/web/tests/unit/dateFormat.test.ts and the screens' own; this
+   * walk says a browser in Brussels with nl-BE reads an Item's times that way.
+   */
+  test.describe('an Item’s times read in the device’s time zone and the browser’s region', () => {
+    test.use({ timezoneId: 'Europe/Brussels', locale: 'nl-BE' });
+
+    test('its form’s Created reads in Brussels time, in the en-BE format', async ({ page, isMobile }) => {
+      const dated = uniqueTitle('Dated');
+      // The moment is the server's own, so it is bracketed by the clock either side of making it.
+      const before = Date.now(); // clock-ok: the server stamps Created from its own clock, which the walk cannot inject
+      await openInboxHolding(page, isMobile, [dated]);
+      const after = Date.now(); // clock-ok: the other side of the same bracket
+      await openItem(page, dated, isMobile);
+
+      await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
+
+      const inBrussels = new Intl.DateTimeFormat('en-BE', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        timeZone: 'Europe/Brussels',
+      });
+      const readings = [...new Set([before, after].map((at) => inBrussels.format(at)))];
+      const created = form(page).getByRole('tabpanel').locator('div', { hasText: /^Created/ }).locator('dd');
+      await expect(created).toHaveText(new RegExp(`^(?:${readings.map((one) => one.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})$`));
     });
   });
 

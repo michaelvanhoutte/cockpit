@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { Filing, Item } from '../../../src/index.js';
-import { itemsInTheInbox, itemsOnPanel, itemsThatAreFiled } from '../../../src/index.js';
+import type { Dashboard, Item } from '../../../src/domain/item.js';
+import type { Filing, Panel } from '../../../src/domain/panel.js';
+import { itemsInTheInbox, itemsThatAreFiled, whereItIs } from '../../../src/domain/filing.js';
 
 /**
- * L1: what a panel holds and what the Inbox holds are views over the snapshot,
- * shared by the browser and the MCP find_items tool, so this is pure logic with
- * no query to prove against a database. Which filings the server puts in the
- * snapshot at all - deleted panels' are left out - is proved against a real one
- * in apps/api/tests/integration/http/panel-items.test.ts.
+ * L1: what the Inbox holds is a view over the snapshot, so this is pure logic
+ * with no query to prove against a database. Which filings the server puts in
+ * the snapshot at all - deleted panels' are left out - is proved against a real
+ * one in apps/api/tests/integration/http/panel-items.test.ts.
  */
 
 function anItem(id: string, completedAt: string | null = null): Item {
@@ -62,46 +62,6 @@ function filed(panelId: string, itemId: string, position: number): Filing {
 }
 
 describe('Panels', () => {
-  describe('a panel draws exactly the items filed on it, in the order they were filed into', () => {
-    it('draws them by position, not by the order the filings arrived in', () => {
-      const items = [anItem('a'), anItem('b'), anItem('c')];
-      const filings = [filed('falcon', 'c', 2), filed('falcon', 'a', 0), filed('falcon', 'b', 1)];
-
-      expect(itemsOnPanel(items, filings, 'falcon').map((item) => item.id)).toEqual(['a', 'b', 'c']);
-    });
-
-    it('draws an item filed on two panels on both of them', () => {
-      const items = [anItem('a')];
-      const filings = [filed('falcon', 'a', 0), filed('anna', 'a', 0)];
-
-      expect(itemsOnPanel(items, filings, 'falcon').map((i) => i.id)).toEqual(['a']);
-      expect(itemsOnPanel(items, filings, 'anna').map((i) => i.id)).toEqual(['a']);
-    });
-
-    it('leaves an item that has been finished with off the panel it was filed on', () => {
-      const filings = [filed('falcon', 'a', 0), filed('falcon', 'b', 1)];
-
-      expect(
-        itemsOnPanel([anItem('a', FINISHED), anItem('b')], filings, 'falcon').map((i) => i.id),
-      ).toEqual(['b']);
-    });
-
-    it('closes the gap rather than drawing a hole when a filing names an item that has gone', () => {
-      // An item dismissed in another tab leaves the snapshot while its filing
-      // is still on the panel.
-      const filings = [filed('falcon', 'a', 0), filed('falcon', 'gone', 1), filed('falcon', 'b', 2)];
-
-      expect(itemsOnPanel([anItem('a'), anItem('b')], filings, 'falcon').map((i) => i.id)).toEqual([
-        'a',
-        'b',
-      ]);
-    });
-
-    it('draws an empty panel as empty', () => {
-      expect(itemsOnPanel([anItem('a')], [filed('anna', 'a', 0)], 'falcon')).toEqual([]);
-    });
-  });
-
   describe('the Inbox holds every item you still have to deal with that is filed nowhere', () => {
     it.each([
       { situation: 'filed on a panel', filings: [filed('falcon', 'a', 0)], inTheInbox: false },
@@ -151,6 +111,54 @@ describe('Panels', () => {
       expect(
         itemsThatAreFiled([anItem('a', FINISHED), anItem('b')], filings).map((i) => i.id),
       ).toEqual(['b']);
+    });
+  });
+});
+
+/**
+ * What *All items* says in its *Where it is* column ("Put each setting where a
+ * person looks for it", issue 688): the Panels an item is filed on, or *Inbox*.
+ * That the page draws it is apps/web/tests/unit/allItems.test.ts.
+ */
+const DASHBOARDS = [
+  { id: 'd-day', name: 'Day to day' },
+  { id: 'd-work', name: 'Work' },
+] as Dashboard[];
+const PANELS = [
+  { id: 'p-admin', dashboardId: 'd-day', name: 'Admin & money', kind: 'items' },
+  { id: 'p-calls', dashboardId: 'd-work', name: 'Calls', kind: 'items' },
+] as Panel[];
+
+describe('Inbox', () => {
+  describe('All items says where each item is: the panels it is filed on, or the Inbox', () => {
+    it.each([
+      {
+        situation: 'filed on one panel',
+        completedAt: null,
+        filings: [filed('p-calls', 'x', 0)],
+        where: 'Work ▸ Calls',
+      },
+      {
+        situation: 'filed on two panels',
+        completedAt: null,
+        filings: [filed('p-admin', 'x', 0), filed('p-calls', 'x', 0)],
+        where: 'Day to day ▸ Admin & money, Work ▸ Calls',
+      },
+      { situation: 'never filed', completedAt: null, filings: [], where: 'Inbox' },
+      {
+        situation: 'finished, and was filed',
+        completedAt: '2026-09-11T09:00:00.000Z',
+        filings: [filed('p-calls', 'x', 0)],
+        where: 'Work ▸ Calls',
+      },
+      {
+        situation: 'finished, and never filed',
+        completedAt: '2026-09-11T09:00:00.000Z',
+        filings: [],
+        where: 'Inbox',
+      },
+    ])('$situation', ({ completedAt, filings, where }) => {
+      expect(whereItIs(anItem('x', completedAt), filings, PANELS, DASHBOARDS)).toBe(where);
     });
   });
 });

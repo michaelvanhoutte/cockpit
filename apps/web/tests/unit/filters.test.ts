@@ -3,17 +3,15 @@ import type {
   DueCondition,
   Filing,
   FilterCondition,
-  FilterRow,
   Item,
   Panel,
   Priority,
 } from '@cockpit/shared';
+import { panelAndFilterIdsByItem } from '@cockpit/shared';
 import {
   alsoShownOn,
   filtersUsingDashboard,
   filtersUsingPanel,
-  itemsMatchingFilter,
-  panelAndFilterIdsByItem,
   saysWhatItShows,
 } from '../../src/filters';
 
@@ -24,17 +22,14 @@ function rowsOf(conditions: readonly FilterCondition[], match: FilterMatch): Fil
   return match === 'any' ? [[...conditions]] : conditions.map((condition) => [condition]);
 }
 
+
 /**
- * F1: what a Filter gathers is a view over the snapshot evaluated in the
- * client, exactly as the Inbox is (`filing.ts`) - so this is the client's own
- * logic and there is no query to prove against a database. That a Filter reads
- * back as one at all is apps/api/tests/integration/http/panels.test.ts, and
- * what the Panel draws with what it is given is
+ * F1: what a Filter says about itself - its sentence, the Panels it names and
+ * the warning before one is deleted - is the client's own wording over the
+ * snapshot, so there is no query to prove against a database. What a Filter
+ * gathers is packages/shared/tests/unit/domain/filters.test.ts, and what the
+ * Panel draws with what it is given is
  * apps/web/tests/unit/components/PanelBoard.test.tsx.
- *
- * **The day is passed in rather than read off the clock**, which is what makes
- * every window below a fixed question: a unit test may not touch the clock, and
- * `dayOf` is the one function that does.
  */
 
 /** A Thursday, in the middle of its week, its month and its quarter. */
@@ -117,108 +112,64 @@ function due(window: DueCondition['window'], orOverdue = true): DueCondition {
   return { field: 'dueDate', window, orOverdue };
 }
 
-/** What a Filter with these conditions draws, out of these items and filings. */
-function shown(
-  items: readonly Item[],
-  filings: readonly Filing[],
-  conditions: FilterCondition[],
-  {
-    panels = [FALCON, GATHERS],
-    dashboards = [...new Set(panels.map((panel) => panel.dashboardId))].map((id) => ({ id })),
-    on = TODAY,
-    match = 'all',
-    withRun = [],
-  }: {
-    panels?: readonly Panel[];
-    /** The Workspace's live Dashboards; the ones the Panels sit on unless a case says a Dashboard has gone. */
-    dashboards?: readonly { id: string }[];
-    on?: string;
-    match?: FilterMatch;
-    /** The ids of the Items with an open run. */
-    withRun?: readonly string[];
-  } = {},
-): string[] {
-  return shownByRows(items, filings, rowsOf(conditions, match), { panels, dashboards, on, withRun });
-}
-
 /** A Filter of these conditions, saved as the question's All / Any choice saves it. */
 function asFilter(conditions: FilterCondition[], match: FilterMatch = 'all') {
   return { rows: rowsOf(conditions, match), groupBy: 'none' as const };
 }
 
-/** What a Filter of these rows draws, out of these items and filings. */
-function shownByRows(
-  items: readonly Item[],
-  filings: readonly Filing[],
-  rows: FilterRow[],
-  {
-    panels = [FALCON, GATHERS],
-    dashboards = [...new Set(panels.map((panel) => panel.dashboardId))].map((id) => ({ id })),
-    on = TODAY,
-    withRun = [],
-  }: {
-    panels?: readonly Panel[];
-    dashboards?: readonly { id: string }[];
-    on?: string;
-    withRun?: readonly string[];
-  } = {},
-): string[] {
-  return itemsMatchingFilter(items, filings, panels, dashboards, { rows, groupBy: 'none' }, new Set(withRun), on).map(
-    (item) => item.id,
-  );
-}
 
 describe('Panels', () => {
-  describe('a Dashboard condition is asked about when its Dashboard is deleted', () => {
+  describe('deleting a Dashboard is asked about wherever a live Filter looks at it', () => {
     const live = (...ids: string[]) => ids.map((id) => ({ id }));
     const dashboard = (values: string[], exclude?: boolean): FilterCondition =>
       exclude ? { field: 'dashboard', values, exclude } : { field: 'dashboard', values };
-      const aFilterOn = (id: string, condition: FilterCondition, ...others: FilterCondition[]): Panel => ({
-        ...aPanel(id, 'filter'),
-        filter: asFilter([condition, ...others]),
-      });
+    const aFilterOn = (id: string, condition: FilterCondition, ...others: FilterCondition[]): Panel => ({
+      ...aPanel(id, 'filter'),
+      filter: asFilter([condition, ...others]),
+    });
 
-      it.each([
-        { situation: 'no Filter names it', filters: [] as Panel[], named: [] as { leftEmpty: boolean }[] },
-        {
-          situation: 'an is card names it and another live Dashboard',
-          filters: [aFilterOn('due', dashboard(['volleyball', 'work']))],
-          named: [{ leftEmpty: false }],
-        },
-        {
-          situation: 'an is card whose last live value it is',
-          filters: [aFilterOn('due', dashboard(['volleyball']))],
-          named: [{ leftEmpty: true }],
-        },
-        {
-          situation: 'an is not card whose last live value it is, which then filters nothing',
-          filters: [aFilterOn('due', dashboard(['volleyball'], true))],
-          named: [{ leftEmpty: false }],
-        },
-        {
-          situation: 'an is card whose other value is already deleted',
-          filters: [aFilterOn('due', dashboard(['volleyball', 'gone']))],
-          named: [{ leftEmpty: true }],
-        },
-      ])('$situation', ({ filters, named }) => {
-        const found = filtersUsingDashboard('volleyball', [FALCON, ...filters], live('volleyball', 'work'));
-        expect(found.map((one) => ({ leftEmpty: one.leftEmpty }))).toEqual(named);
-        expect(found.map((one) => one.filter)).toEqual(filters);
-      });
+    it.each([
+      { situation: 'no Filter names it', filters: [] as Panel[], named: [] as { leftEmpty: boolean }[] },
+      {
+        situation: 'an is card names it and another live Dashboard',
+        filters: [aFilterOn('due', dashboard(['volleyball', 'work']))],
+        named: [{ leftEmpty: false }],
+      },
+      {
+        situation: 'an is card whose last live value it is',
+        filters: [aFilterOn('due', dashboard(['volleyball']))],
+        named: [{ leftEmpty: true }],
+      },
+      {
+        situation: 'an is not card whose last live value it is, which then filters nothing',
+        filters: [aFilterOn('due', dashboard(['volleyball'], true))],
+        named: [{ leftEmpty: false }],
+      },
+      {
+        situation: 'an is card whose other value is already deleted',
+        filters: [aFilterOn('due', dashboard(['volleyball', 'gone']))],
+        named: [{ leftEmpty: true }],
+      },
+    ])('$situation', ({ filters, named }) => {
+      const found = filtersUsingDashboard('volleyball', [FALCON, ...filters], live('volleyball', 'work'));
+      expect(found.map((one) => ({ leftEmpty: one.leftEmpty }))).toEqual(named);
+      expect(found.map((one) => one.filter)).toEqual(filters);
+    });
 
-      it('never names a Filter whose conditions are about something else', () => {
-        const other = aFilterOn('over', due('today'));
-        expect(filtersUsingDashboard('volleyball', [FALCON, other], live('volleyball'))).toEqual([]);
-      });
+    it('never names a Filter whose conditions are about something else', () => {
+      const other = aFilterOn('over', due('today'));
+      expect(filtersUsingDashboard('volleyball', [FALCON, other], live('volleyball'))).toEqual([]);
+    });
 
-      it('never names a Filter on the Dashboard being deleted, which goes with it', () => {
-        const onIt = { ...aFilterOn('own', dashboard(['volleyball'])), dashboardId: 'volleyball' };
-        expect(filtersUsingDashboard('volleyball', [FALCON, onIt], live('volleyball', 'work'))).toEqual([]);
-      });
+    it('never names a Filter on the Dashboard being deleted, which goes with it', () => {
+      const onIt = { ...aFilterOn('own', dashboard(['volleyball'])), dashboardId: 'volleyball' };
+      expect(filtersUsingDashboard('volleyball', [FALCON, onIt], live('volleyball', 'work'))).toEqual([]);
+    });
   });
 
-  describe('an Agent running condition is read back in words', () => {
+  describe('an Agent running condition is read back as a sentence', () => {
     const agent: FilterCondition = { field: 'agent' };
+
     it('is read back as Agent running, alone and beside another condition', () => {
       expect(saysWhatItShows([[agent]])).toBe('Agent running');
       expect(saysWhatItShows([[due('today', false), agent], [{ field: 'status' }]])).toBe(
@@ -279,7 +230,7 @@ describe('Panels', () => {
       },
       {
         // Left out rather than named: there is no live Panel to read its name
-        // off, the same reason matching ignores it (`filters.ts`).
+        // off, the same reason matching ignores it (`@cockpit/shared`'s `filters.ts`).
         situation: 'a Panel among the values has since been deleted',
         conditions: [panel(wiki.id, 'panel-deleted')],
         panels: [wiki],

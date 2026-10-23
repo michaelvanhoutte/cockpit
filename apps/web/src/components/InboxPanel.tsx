@@ -1,6 +1,5 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useSnapshot } from '../api/useSnapshot';
-import { filingsThatFile, itemsInTheInbox } from '../filing';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -11,6 +10,7 @@ import { useDockedItem } from '../itemForm';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { rowOf, useLanding, useLandingStep } from '../landOnItem';
 import { restedLongEnough } from '../switchWhileDragging';
+import { filingsThatFile, itemsInTheInbox } from '@cockpit/shared';
 
 // Out of the initial bundle, and mounted only once asked for - the same way
 // a row mounts its own - since nothing on first paint needs it.

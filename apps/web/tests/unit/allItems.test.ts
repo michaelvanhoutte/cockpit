@@ -71,37 +71,7 @@ describe('Inbox', () => {
     });
   });
 
-  describe('each row says what the item is, where it is and when it last changed', () => {
-    it.each([
-      {
-        situation: 'filed on one panel',
-        item: {},
-        filings: [filed('x', 'p-calls')],
-        where: 'Work ▸ Calls',
-      },
-      {
-        situation: 'filed on two panels',
-        item: {},
-        filings: [filed('x', 'p-admin'), filed('x', 'p-calls')],
-        where: 'Day to day ▸ Admin & money, Work ▸ Calls',
-      },
-      { situation: 'never filed', item: {}, filings: [], where: 'Inbox' },
-      {
-        situation: 'finished, and was filed',
-        item: { completedAt: '2026-09-11T09:00:00.000Z' },
-        filings: [filed('x', 'p-calls')],
-        where: 'Work ▸ Calls',
-      },
-      {
-        situation: 'finished, and never filed',
-        item: { completedAt: '2026-09-11T09:00:00.000Z' },
-        filings: [],
-        where: 'Inbox',
-      },
-    ])('$situation', ({ item, filings, where }) => {
-      expect(rowsOf([anItem({ id: 'x', ...item })], filings)[0]?.where).toBe(where);
-    });
-
+  describe('each row says what the item is and when it last changed', () => {
     it.each([
       {
         situation: 'finished',

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { panelPlace, type RefinementScope, type RewriteHistoryEntry, type SuggestedPanel } from '@cockpit/shared';
 import { changedFields, fieldChanged, fieldsLookedAt, type ChangedField } from '../cockpitChanges';
+import { dateTimeLabel } from '../dateFormat';
 import { LoadFailure } from './LoadFailure';
 import { PRIORITY_LABELS } from '../priority';
 import { dueDateLabel } from '../dueDate';
@@ -205,7 +206,7 @@ export function WhatCockpitChangedOnAnItem({
                 {whatHappened(entry, changedFields(entry))}
                 <span className="block text-xs text-ink-faint">
                   {entry.looksAt ? `${WHY[entry.looksAt]} · ` : ''}
-                  {new Date(entry.attemptedAt).toLocaleString()}
+                  {dateTimeLabel(entry.attemptedAt)}
                 </span>
               </span>
             </button>

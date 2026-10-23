@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { saysHowItIsSorted } from '../../src/sorting';
 
 /**
- * F1: what the sort mark says. The order a sort puts rows in is the shared
- * package's (packages/shared/tests/unit/domain/sorting.test.ts).
+ * F1: how the sort mark reads a Panel's sort back is the client's own wording,
+ * with nothing to prove against a store. The order the sort puts rows in is
+ * packages/shared/tests/unit/domain/sorting.test.ts.
  */
 
 describe('Panels', () => {

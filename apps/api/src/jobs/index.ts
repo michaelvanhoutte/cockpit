@@ -1,6 +1,6 @@
 import type { Message, MessageBatch, ScheduledController } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
-import { keepEveryAccountChecking, pruneEveryAccountsHistory, resetGuestAccount } from '../accounts/index.js';
+import { keepEveryAccountsAlarmArmed, pruneEveryAccountsHistory, resetGuestAccount } from '../accounts/index.js';
 import { purgeOldSignIns } from '../auth/sign-in-history.js';
 import { purgeOldProviderCalls } from '../gateway/record.js';
 import {
@@ -55,8 +55,8 @@ export type { BatchRead } from './backfill-meanings.js';
  * **It queues nothing.** The nightly filing summary that once did is gone
  * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392);
  * what runs is the guest reset, the sign-in history, provider call and
- * connection history purges, and re-arming any pulled-connection check that
- * was lost - each
+ * connection history purges, and re-arming any account's alarm that was lost
+ * while it has a pulled connection to check or a series to bring back - each
  * idempotent, so a tick run twice changes nothing the first did not.
  */
 export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
@@ -65,7 +65,7 @@ export async function handleScheduled(controller: ScheduledController, env: Env)
   await purgeTheOldSignIns(env);
   await purgeTheOldProviderCalls(env);
   await pruneConnectionHistories(env);
-  await keepCheckingPulledConnections(env);
+  await keepEveryAlarmArmed(env);
 }
 
 /**
@@ -111,19 +111,20 @@ async function purgeTheOldProviderCalls(env: Env): Promise<void> {
 }
 
 /**
- * Every account holding a pulled connection has its alarm armed again where it
- * was lost ("Check a pulled connector on its cadence through the generic
- * host", issue 891) - one account failing is logged inside, and the rest go
+ * Every account holding a pulled connection or a running series has its alarm
+ * armed again where it was lost ("Check a pulled connector on its cadence
+ * through the generic host", issue 891; "Bring a repeating Item back on its
+ * day", issue 1407) - one account failing is logged inside, and the rest go
  * on.
  */
-async function keepCheckingPulledConnections(env: Env): Promise<void> {
+async function keepEveryAlarmArmed(env: Env): Promise<void> {
   try {
-    await keepEveryAccountChecking(env);
+    await keepEveryAccountsAlarmArmed(env);
   } catch (error) {
     console.error(
       JSON.stringify({
         level: 'error',
-        message: `pulled connections' checks were not looked at tonight: ${
+        message: `accounts' alarms were not looked at tonight: ${
           error instanceof Error ? error.message : String(error)
         }`,
       }),

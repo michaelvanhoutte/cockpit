@@ -1224,7 +1224,7 @@ describe('Panels', () => {
   });
 
   /**
-   * Which order a sort draws is tests/unit/sorting.test.ts; what is asked here
+   * Which order a sort draws is packages/shared/tests/unit/domain/sorting.test.ts; what is asked here
    * is what a sorted Panel's list does with a drop ("Sort a panel of items by
    * the fields you choose", issue 526). That a real drag gets there is the walk
    * in tests/e2e/filing.test.ts.

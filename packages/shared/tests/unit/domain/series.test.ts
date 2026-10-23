@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  firstDayAfter,
   firstNextOn,
   readBack,
   repeatOf,
@@ -12,7 +13,9 @@ import {
 /**
  * L1: how a repeat is said ("Set an Item to repeat from its form, and see the
  * rule on its row", issue 1406) - the line under the Repeats popover, the day
- * Next on starts from, and the row's hover. Pure: the days are given, never read.
+ * Next on starts from, and the row's hover - and the day it comes back on next
+ * ("Bring a repeating Item back on its day", issue 1407). Pure: the days are
+ * given, never read.
  */
 
 const weekly: RepeatRule = { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 5 };
@@ -85,6 +88,26 @@ describe('Item editing', () => {
       { situation: 'yearly picked on a leap day', frequency: 'yearly', today: '2028-02-29', next: '2029-02-28' },
     ])('$situation', ({ frequency, today, next }) => {
       expect(firstNextOn(today, frequency)).toBe(next);
+    });
+  });
+
+  describe('a repeating Item comes back on the next day its rule counts from Next on, never on one already passed', () => {
+    it.each<{ situation: string; frequency: RepeatRule['frequency']; from: string; after: string; next: string }>([
+      { situation: 'weekly, the day after it came back', frequency: 'weekly', from: '2026-11-02', after: '2026-11-02', next: '2026-11-09' },
+      { situation: 'daily', frequency: 'daily', from: '2026-11-02', after: '2026-11-02', next: '2026-11-03' },
+      { situation: 'quarterly', frequency: 'quarterly', from: '2027-01-01', after: '2027-01-01', next: '2027-04-01' },
+      { situation: 'yearly', frequency: 'yearly', from: '2026-11-02', after: '2026-11-02', next: '2027-11-02' },
+      { situation: 'monthly on the 31st, in a month of 30 days', frequency: 'monthly', from: '2027-03-31', after: '2027-03-31', next: '2027-04-30' },
+      { situation: 'monthly on the 31st, back on the 31st the month after', frequency: 'monthly', from: '2027-03-31', after: '2027-04-30', next: '2027-05-31' },
+      { situation: 'quarterly on the 31st, through a short quarter', frequency: 'quarterly', from: '2027-01-31', after: '2027-04-30', next: '2027-07-31' },
+      { situation: 'yearly on 29 February, in a year without one', frequency: 'yearly', from: '2028-02-29', after: '2028-02-29', next: '2029-02-28' },
+      { situation: 'yearly on 29 February, back on it in the next leap year', frequency: 'yearly', from: '2028-02-29', after: '2031-02-28', next: '2032-02-29' },
+      { situation: 'weekly, three weeks after a day missed', frequency: 'weekly', from: '2026-11-02', after: '2026-11-25', next: '2026-11-30' },
+      { situation: 'weekly, on a day it comes round on', frequency: 'weekly', from: '2026-11-02', after: '2026-11-16', next: '2026-11-23' },
+      { situation: 'monthly, years after the day it counts from', frequency: 'monthly', from: '2026-01-31', after: '2030-02-27', next: '2030-02-28' },
+      { situation: 'daily, from a Next on still to come', frequency: 'daily', from: '2026-12-01', after: '2026-11-02', next: '2026-12-01' },
+    ])('$situation', ({ frequency, from, after, next }) => {
+      expect(firstDayAfter(from, frequency, after)).toBe(next);
     });
   });
 

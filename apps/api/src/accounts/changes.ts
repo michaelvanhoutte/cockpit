@@ -177,6 +177,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     DROP_WORKSPACE_COLOURS,
     DUE_IN_DAYS,
     SERIES,
+    SERIES_DAYS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1171,6 +1172,45 @@ const SERIES: Change = {
     },
     {
       sql: 'ALTER TABLE `items` ADD COLUMN `series_id` text REFERENCES `series`(`id`) ON UPDATE no action ON DELETE restrict',
+    },
+  ],
+};
+
+/**
+ * The two days a series counts by once it brings its Items back ("Bring a
+ * repeating Item back on its day, as a fresh copy", issue 1407): `anchor_on`,
+ * the *Next on* a person last set, which a monthly 31st is counted from, and
+ * `last_on`, the day it last came round; `schema.ts` says what each carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `ADD COLUMN`s, and no statement that reads or writes a
+ *   row. It is the whole of the expand; there is no contract step.
+ * - **If it stops halfway:** one change is one transaction, so a failure on
+ *   either statement takes the other back, and the next open applies both.
+ * - **The second time it runs:** it does not re-run once recorded, and SQLite
+ *   refuses a column that already exists, which the transaction makes safe.
+ * - **Rows that predate it:** a series set before it reads NULL for both: it
+ *   has never come round, and counts from its own *Next on*, which coming round
+ *   then keeps as its anchor. Nothing is backfilled.
+ * - **What is in each environment:** a series exists only where a person set
+ *   one since `0092-series`; each gains two NULLs, and nothing is written on deploy.
+ * - **Rolled back after it has run:** an older release names neither column and
+ *   brings nothing back, but its *Next on* moves leave `anchor_on` behind. On
+ *   rolling forward an anchor `next_on` is no longer counted from is read as
+ *   `next_on` (`countedFrom`), so the series comes round on the day it shows.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const SERIES_DAYS: Change = {
+  name: '0093-series-days',
+  statements: [
+    {
+      sql: 'ALTER TABLE `series` ADD COLUMN `anchor_on` text CONSTRAINT "series_anchor_on_is_date" CHECK(anchor_on IS NULL OR (date(anchor_on) IS NOT NULL AND date(anchor_on) = anchor_on))',
+    },
+    {
+      sql: 'ALTER TABLE `series` ADD COLUMN `last_on` text CONSTRAINT "series_last_on_is_date" CHECK(last_on IS NULL OR (date(last_on) IS NOT NULL AND date(last_on) = last_on))',
     },
   ],
 };
@@ -3094,7 +3134,7 @@ const REWRITE_HISTORY: Change = {
  * - **Rolled back after it has run:** an older release reads a Filter as an
  *   empty Panel of items and will accept a filing onto it. That filing is why
  *   the client counts a filing onto a Filter as no filing at all
- *   (`filingsThatFile`, apps/web/src/filing.ts): the Item stays in the Inbox
+ *   (`filingsThatFile`, packages/shared/src/domain/filing.ts): the Item stays in the Inbox
  *   rather than leaving it for a Panel that draws it nowhere.
  * - **A backup restored from before it:** the restore replays the recorded
  *   changes, so this one applies the next time the account is opened.

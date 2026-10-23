@@ -619,6 +619,21 @@ export const setRepeatSchema = commandEnvelopeSchema.extend({
 });
 export type SetRepeatCommand = z.infer<typeof setRepeatSchema>;
 
+/**
+ * bring_back_occurrence - a repeating Item's next occurrence, which the account's
+ * store sends itself when its series' day comes ("Bring a repeating Item back on
+ * its day, as a fresh copy", issue 1407). **Its id and the new Item's are derived
+ * from the series and `day`**, the Next on it is due on, so the alarm firing twice
+ * writes one Item. The envelope's `workspaceId` is `ACCOUNT_WIDE`; the change is
+ * logged against the Workspace the previous occurrence is in.
+ */
+export const bringBackOccurrenceSchema = commandEnvelopeSchema.extend({
+  seriesId: z.uuid(),
+  day: z.iso.date(),
+  itemId: z.uuid(),
+});
+export type BringBackOccurrenceCommand = z.infer<typeof bringBackOccurrenceSchema>;
+
 /** set_title / set_description — two commands rather than one save ("Edit an item's title and description on a form of its own", issue 159; architecture.md §4.4). */
 export const setTitleSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -986,6 +1001,7 @@ export const commandSchemas = {
   set_priority: setPrioritySchema,
   set_due_date: setDueDateSchema,
   set_repeat: setRepeatSchema,
+  bring_back_occurrence: bringBackOccurrenceSchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
   add_attachment: addAttachmentSchema,
@@ -1024,7 +1040,9 @@ export type SelfSentCommandName =
   // browser may ever hand over (see `connectSourceAccountSchema` above).
   | 'connect_source_account'
   // Sent by the `report_run` MCP tool (see `reportClaudeRunSchema` above).
-  | 'report_claude_run';
+  | 'report_claude_run'
+  // Sent by the account's store when a series' day comes (see `bringBackOccurrenceSchema` above).
+  | 'bring_back_occurrence';
 
 /**
  * The commands a client sends, which is every command with a generic JSON

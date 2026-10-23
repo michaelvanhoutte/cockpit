@@ -49,7 +49,7 @@ describe('Harness Monitor', () => {
         usage('r2', { sessionId: 'after', branch: 'claude/y', time: '2026-10-02T12:30:00Z' }),
       ]);
 
-      expect(await linkingLine()).toBe('Branch linking: last run 2026-10-02 12:00 UTC (scheduled) — Linked 1 pull request; caught up with GitHub.');
+      expect(await linkingLine()).toBe('Branch linking: last run 2 Oct 2026, 14:00 (scheduled) — Linked 1 pull request; caught up with GitHub.');
       expect(await subs()).toEqual({ 'claude/x': 'unattributed', 'claude/y': 'linking…' });
     });
 

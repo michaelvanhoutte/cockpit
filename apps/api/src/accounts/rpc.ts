@@ -405,14 +405,13 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   destroy(): Awaitable<void>;
   /**
-   * Arms the check of the account's pulled connections where it holds one and
-   * nothing has the alarm armed ("Check a pulled connector on its cadence
-   * through the generic host", issue 891) - what the nightly run asks of every
+   * Arms the account's alarm where it holds a pulled connection to check or a
+   * series to bring back and nothing has it armed ("Check a pulled connector
+   * on its cadence through the generic host", issue 891; "Bring a repeating
+   * Item back on its day", issue 1407) - what the nightly run asks of every
    * account.
    */
-  keepCheckingPulledConnections(
-    accountName: string,
-  ): Awaitable<Answer<'armed' | 'already armed' | 'nothing to check'>>;
+  keepTheAlarmArmed(accountName: string): Awaitable<Answer<'armed' | 'already armed' | 'nothing to arm'>>;
   /**
    * *Check now* on one pulled connection of this Workspace (issue 1143): its
    * check made due at once and the alarm armed, or relabelled where already

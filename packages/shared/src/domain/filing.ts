@@ -1,17 +1,11 @@
-import { panelGathers, type Panel, type Filing } from './panel.js';
-import type { Item } from './item.js';
+import { panelPlace, panelGathers, panelTakesItems } from './panel.js';
+import type { Filing, Panel } from './panel.js';
+import type { Dashboard, Item } from './item.js';
 
 /**
- * What a panel holds and what the Inbox holds, derived from the one snapshot
- * the workspace already reads ("Panels hold the items filed into them, and the
- * Inbox holds the rest", issue 36).
- *
- * **Both are views evaluated over the snapshot** (architecture, "The read
- * model: persisted snapshot, revalidate, push"): the wire carries the
- * workspace's open items and its filings, and nothing about how they are
- * grouped. They are here, pure, and shared rather than inside the components
- * that draw them, so the browser and an app finding items over MCP
- * (`find_items`) answer from one rule.
+ * What a panel holds and what the Inbox holds, derived from one Workspace's
+ * snapshot ("Panels hold the items filed into them, and the Inbox holds the
+ * rest", issue 36): pure rules the browser and the Worker answer by alike.
  *
  * **The Inbox is the absence of a filing**, not a panel with rows of its own,
  * which is what makes filing an item the thing that takes it out of the Inbox.
@@ -34,29 +28,6 @@ import type { Item } from './item.js';
  */
 export function stillOpen(item: Item): boolean {
   return item.completedAt === null;
-}
-
-/**
- * The items filed on one panel, in the order they were filed into.
- *
- * Driven from the filings rather than from the items, because the filings are
- * what carry the order. An id with no item behind it is skipped rather than
- * drawn as a gap: an item dismissed in another tab leaves the snapshot while
- * its filing is still on the panel, and a hole in a list is worse than one row
- * fewer.
- */
-export function itemsOnPanel(
-  items: readonly Item[],
-  filings: readonly Filing[],
-  panelId: string,
-): Item[] {
-  const byId = new Map(items.filter(stillOpen).map((item) => [item.id, item]));
-  return filings
-    .filter((filing) => filing.panelId === panelId)
-    .slice()
-    .sort((a, b) => a.position - b.position)
-    .map((filing) => byId.get(filing.itemId))
-    .filter((item): item is Item => item !== undefined);
 }
 
 /**
@@ -118,4 +89,42 @@ export function filingsThatFile(
   const gathering = new Set(panelsInWorkspace.filter(panelGathers).map((panel) => panel.id));
   if (gathering.size === 0) return filings;
   return filings.filter((filing) => !gathering.has(filing.panelId));
+}
+
+/**
+ * Where an item is filed, as "Dashboard ▸ Panel" for each Panel that takes
+ * items, or none to name.
+ *
+ * A filing onto a Filter is no filing (`filingsThatFile`), and one whose Panel
+ * the snapshot no longer carries is a deleted Panel's: both leave the item in
+ * the Inbox, which is what reopening it will do.
+ */
+export function placesFiledOn(
+  item: Item,
+  filings: readonly Filing[],
+  panels: readonly Panel[],
+  dashboards: readonly Dashboard[],
+): string[] {
+  const held = new Set(filings.filter((filing) => filing.itemId === item.id).map((f) => f.panelId));
+  return panels
+    .filter((panel) => held.has(panel.id) && panelTakesItems(panel))
+    .map((panel) => {
+      const dashboard = dashboards.find((candidate) => candidate.id === panel.dashboardId);
+      return dashboard ? panelPlace(dashboard.name, panel.name) : panel.name;
+    });
+}
+
+/**
+ * What *All items* says in its *Where it is* column: each Panel the item is
+ * filed on (`placesFiledOn`), joined with a comma, or *Inbox* for an item never
+ * filed.
+ */
+export function whereItIs(
+  item: Item,
+  filings: readonly Filing[],
+  panels: readonly Panel[],
+  dashboards: readonly Dashboard[],
+): string {
+  const places = placesFiledOn(item, filings, panels, dashboards);
+  return places.length > 0 ? places.join(', ') : 'Inbox';
 }

@@ -4,8 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RegisteredUser } from '@cockpit/shared';
 import { changes as theTabsChanges } from '../../../src/api/changes';
-import ManageUsers, { isInactive } from '../../../src/components/ManageUsers';
+import ManageUsers, { isInactive, lastSignedInLabel } from '../../../src/components/ManageUsers';
 import { UndoWhatJustHappened } from '../../../src/undo';
+import { deviceIsIn, deviceSpeaks } from '../support/timeZone';
 
 /**
  * F1: what the page draws from what it is given. That only an admin may read it
@@ -101,6 +102,7 @@ afterEach(() => {
   deletes.mockReset();
   holds.mockReset();
   iAm.mockReset();
+  vi.restoreAllMocks();
   // What the tab drew over a list for a case is not for the next one.
   theTabsChanges.forgetAnswered();
 });
@@ -216,6 +218,8 @@ describe('User management', () => {
         signedIn: 'not yet',
       },
     ])('draws $situation', async ({ person, role, signedIn }) => {
+      deviceIsIn('UTC');
+      deviceSpeaks('en-US');
       reads.mockResolvedValue({ users: PEOPLE });
       drawn();
 
@@ -264,6 +268,23 @@ describe('User management', () => {
     });
   });
 
+  describe('Last signed in is the day on the device’s own calendar, in the region’s order', () => {
+    it.each([
+      { situation: 'Brussels and nl-BE', zone: 'Europe/Brussels', languages: ['nl-BE'], reads: '23 Oct 2026' },
+      { situation: 'Brussels and en-US', zone: 'Europe/Brussels', languages: ['en-US'], reads: 'Oct 23, 2026' },
+      { situation: 'New York and en-US', zone: 'America/New_York', languages: ['en-US'], reads: 'Oct 22, 2026' },
+    ])('reads a sign-in at 23:30 UTC on 22 Oct as $reads on a device in $situation', async ({ zone, languages, reads: said }) => {
+      deviceIsIn(zone);
+      deviceSpeaks(...languages);
+      reads.mockResolvedValue({ users: [{ ...PEOPLE[0]!, lastSignedInAt: '2026-10-22T23:30:00.000Z' }] });
+      drawn();
+
+      const row = (await screen.findByText(PEOPLE[0]!.name)).closest('li')!;
+
+      expect(row).toHaveTextContent(`· ${said}`);
+    });
+  });
+
   describe('a user inactive three months or more stands out from one who isn’t', () => {
     /** Relative to now, so the cases hold whenever they run. */
     const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
@@ -289,7 +310,37 @@ describe('User management', () => {
       { situation: 'on the day three months back', at: '2026-02-28T00:00:00.000Z', inactive: true },
       { situation: 'a day after it, though May 31 has no "Feb 31"', at: '2026-03-01T00:00:00.000Z', inactive: false },
     ])('May 31: $situation', ({ at, inactive }) => {
+      deviceIsIn('UTC');
+
       expect(isInactive(at, new Date('2026-05-31T12:00:00.000Z'))).toBe(inactive);
+    });
+  });
+
+  describe('the three months are counted on the device’s calendar, not on UTC’s', () => {
+    it.each([
+      {
+        situation: 'it is already 1 Dec in Brussels, so three months back is 1 Sep',
+        now: '2026-11-30T23:30:00.000Z',
+        inactive: true,
+      },
+      {
+        situation: 'it is still 30 Nov in Brussels, so three months back is 30 Aug',
+        now: '2026-11-30T22:30:00.000Z',
+        inactive: false,
+      },
+    ])('a sign-in on 31 Aug at 12:00 UTC: $situation', ({ now, inactive }) => {
+      deviceIsIn('Europe/Brussels');
+
+      expect(isInactive('2026-08-31T12:00:00.000Z', new Date(now))).toBe(inactive);
+    });
+
+    it.each([
+      { situation: 'never signed in', at: null },
+      { situation: 'a value that is not a moment', at: 'last tuesday' },
+    ])('is inactive, and reads “not yet”, for $situation', ({ at }) => {
+      deviceIsIn('Europe/Brussels');
+
+      expect([isInactive(at), lastSignedInLabel(at)]).toEqual([true, 'not yet']);
     });
   });
 

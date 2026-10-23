@@ -3,6 +3,8 @@
  * commits compared, or a sentence saying why there is nothing to compare.
  */
 
+import { formatDate } from '../../../../scripts/lib/belgian-time.mjs';
+
 const esc = (value) =>
   String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -14,7 +16,7 @@ const TONES = { call: 'p-hand', plain: 'p-mech' };
 
 const commitLink = ({ commit, repo }) =>
   repo ? `<a href="${esc(`https://github.com/${repo}/commit/${commit}`)}" target="_blank" rel="noopener"><b>${esc(commit.slice(0, 7))}</b></a>` : `<b>${esc(commit.slice(0, 7))}</b>`;
-const commitDay = ({ date }) => (date ? ` (${esc(date.slice(0, 10))})` : '');
+const commitDay = ({ date }) => (date ? ` (${esc(formatDate(date))})` : '');
 
 /** The sentence that says nothing was compared, and why. */
 export function nothingToCompare(comparison) {

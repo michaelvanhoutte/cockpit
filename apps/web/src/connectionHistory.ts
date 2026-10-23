@@ -1,4 +1,5 @@
 import { HISTORY_KEPT_DAYS, type ConnectionHistoryLine, type NameOutcomeShown } from '@cockpit/shared';
+import { dateInFullLabel, timeOfDayLabel, weekdayDateLabel } from './dateFormat';
 
 /**
  * What a connection's history says, day by day ("See when a pulled connection
@@ -93,7 +94,7 @@ const REASONS: Record<string, string> = {
   delivery: 'Delivered',
 };
 
-const time = (at: string) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const time = timeOfDayLabel;
 
 /** A local calendar day, as a key two moments on the same day share. */
 const dayOf = (at: Date) => `${at.getFullYear()}-${at.getMonth()}-${at.getDate()}`;
@@ -103,12 +104,7 @@ function headingFor(at: Date, now: Date): string {
   yesterday.setDate(now.getDate() - 1);
   if (dayOf(at) === dayOf(now)) return 'Today';
   if (dayOf(at) === dayOf(yesterday)) return 'Yesterday';
-  return at.toLocaleDateString(undefined, {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    ...(at.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-  });
+  return weekdayDateLabel(at, at.getFullYear() !== now.getFullYear());
 }
 
 /**
@@ -248,10 +244,6 @@ export function olderDaysNote(olderRemain: boolean, now: Date): string | null {
   if (!olderRemain) return null;
   const keptFrom = new Date(now);
   keptFrom.setDate(now.getDate() - HISTORY_KEPT_DAYS);
-  const date = keptFrom.toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'long',
-    ...(keptFrom.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-  });
+  const date = dateInFullLabel(keptFrom, keptFrom.getFullYear() !== now.getFullYear());
   return `Older days follow, back to ${date}`;
 }

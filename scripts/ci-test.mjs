@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 import { placeMergeBase } from './lib/merge-base.mjs';
-import { buildRecord, renderSummary } from './lib/test-record.mjs';
+import { buildRecord, renderSlowTests, renderSummary, slowTests, slowTestsWarning } from './lib/test-record.mjs';
 import { planTestRun } from './lib/test-selection.mjs';
 import { testablePackages } from './lib/workspace.mjs';
 import { paint, pnpmWorkspaceList, start } from './lib/processes.mjs';
@@ -170,6 +170,11 @@ function writeRecord() {
     mkdirSync(recordDir, { recursive: true });
     writeFileSync(join(recordDir, 'record.json'), `${JSON.stringify(record, null, 2)}\n`);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${renderSummary(record)}\n`);
+    // Beside the record, never into the job's result: a slow test is listed and warned about, not failed.
+    const slow = slowTests(plan.packages.map((pkg) => pkg.name), reports);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${renderSlowTests(slow)}\n`);
+    const warning = slowTestsWarning(slow);
+    if (warning) console.log(warning);
   } catch (error) {
     console.error(paint('33', `\nThe test selection record could not be written (${error.message}); this run's result is unchanged.`));
     if (process.env.GITHUB_ACTIONS) console.log(`::warning::The test selection record is missing from this run: ${error.message}`);

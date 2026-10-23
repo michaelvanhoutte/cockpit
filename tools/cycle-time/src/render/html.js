@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { dayStartsBetween, formatClock, formatClockMinutes, formatDate, formatDateTime, formatDayMonth, belgianDay } from '../../../../scripts/lib/belgian-time.mjs';
 import { AWAY_MS, LOCAL_REVIEW_KINDS, LOCAL_RUN_KINDS } from '../model.js';
 import { layoutScatter, PLOT_SIZE } from './scatter.js';
 import { axisFor, fitTo, partsOf, scaleFor } from './strips.js';
@@ -68,11 +69,11 @@ function humanMs(ms) {
   return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
-/** Every timestamp on the page is UTC, and says so — the reader is not. */
-const stamp = (iso) => `${iso.slice(0, 16).replace('T', ' ')}Z`;
+/** Every moment on the page is Belgian time in Belgian format, whoever reads it (scripts/lib/belgian-time.mjs); the model file keeps ISO UTC. */
+const stamp = formatDateTime;
 /** A job's own start and stop are to the second, which the minute a push is stamped to cannot tell apart. */
-const clock = (iso) => `${iso.slice(11, 19)}Z`;
-const day = (iso) => iso.slice(0, 10);
+const clock = formatClock;
+const day = formatDate;
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 const days = (value) => (Number.isInteger(value) ? String(value) : (Math.round(value * 10) / 10).toString());
 
@@ -165,7 +166,7 @@ const roundContext = (round, index) => `CI Round ${index} · pushed ${stamp(roun
 
 const OUTCOME_WORD = { pass: 'passed', fail: 'failed', cancelled: 'cancelled', running: 'still running', other: 'neither passed nor failed', unknown: 'ended in a conclusion not recognised' };
 
-/** What a job lane says of itself: when it started and stopped (UTC, to the second), the wait for a runner before it, and how it ended. */
+/** What a job lane says of itself: when it started and stopped (Belgian time, to the second), the wait for a runner before it, and how it ended. */
 function laneText(lane) {
   const own = lane.shard !== undefined ? `${lane.name} · shard ${lane.shard} of ${lane.family}` : lane.fanIn ? `${lane.name} · fan-in of the ${lane.family} shards` : lane.name;
   return [
@@ -370,10 +371,9 @@ function track(pull, fitted, scaleMs, pick = null) {
 /** The track's width less its breaks: what the time on the scale is drawn across. */
 const spanOf = (fitted) => (fitted.breaks ? `calc(100% - var(--break) * ${fitted.breaks})` : '100%');
 
-/** A clock time on the axis: the hour and minute, with the day too where it is not the strip's first. */
+/** A clock time on the axis in Belgian time: the hour and minute, with the day too where it is not the strip's first. */
 function clockLabel(atMs, startedAt) {
-  const iso = new Date(atMs).toISOString();
-  return day(iso) === day(new Date(startedAt).toISOString()) ? iso.slice(11, 16) : `${iso.slice(5, 10)} ${iso.slice(11, 16)}`;
+  return belgianDay(atMs) === belgianDay(startedAt) ? formatClockMinutes(atMs) : `${formatDayMonth(atMs)} ${formatClockMinutes(atMs)}`;
 }
 
 /** The zoomed strip's axis, in the clock time of the pull request, from its start to its merge. Time away has none of its own. */
@@ -384,7 +384,7 @@ function axis(pull, zoomed) {
     .map((tick) => `<span class="clocktick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + var(--break) * ${tick.breaksBefore})">${clockLabel(tick.atMs, startedAt)}</span>`)
     .join('');
   // A span, as the label it sits in holds phrasing content only; the styles make it a block.
-  return `<span class="clockaxis" style="--span:${spanOf(zoomed)}" title="Clock time, UTC. Click to close">${ticks}</span>`;
+  return `<span class="clockaxis" style="--span:${spanOf(zoomed)}" title="Clock time in Belgian time. Click to close">${ticks}</span>`;
 }
 
 /** Under a round's line in its detail, one line per job with when it started and stopped, so the times can be read without hovering. */
@@ -485,7 +485,7 @@ function strips(model, pickers) {
   if (model.pulls.length === 0) return '<div class="card"><p class="empty">No merged pull requests in this period.</p></div>';
   const allParts = model.pulls.map(partsOf);
   const scaleMs = scaleFor(allParts);
-  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}, and every part sits at its own time and length on it; one too short to see is drawn a little wider, over what follows it. Time away is not on it. A CI Round is drawn as the jobs that ran in it, each a lane from its own start to its own stop with its wait for a runner as a dotted lead before it, so jobs that ran at the same time are in rows one above another and a job that waited on another starts where that one ended; hover a lane for when it started and stopped (UTC, to the second). A round whose jobs were not read is one block, split into the checks that held it, and says so on hover. A CI Round is named on the strip as far as its width allows. Click a strip to open that pull request on its own scale, uncut, with a clock-time axis (UTC); there, hover an element to outline it and click it to read it under the axis, and click the axis, or the empty rows above and below the line, to close it. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where several run in parallel, the longest stays on the line and the others stack above it, then below, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
+  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}, and every part sits at its own time and length on it; one too short to see is drawn a little wider, over what follows it. Time away is not on it. A CI Round is drawn as the jobs that ran in it, each a lane from its own start to its own stop with its wait for a runner as a dotted lead before it, so jobs that ran at the same time are in rows one above another and a job that waited on another starts where that one ended; hover a lane for when it started and stopped (Belgian time, to the second). A round whose jobs were not read is one block, split into the checks that held it, and says so on hover. A CI Round is named on the strip as far as its width allows. Click a strip to open that pull request on its own scale, uncut, with a clock-time axis (Belgian time); there, hover an element to outline it and click it to read it under the axis, and click the axis, or the empty rows above and below the line, to close it. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where several run in parallel, the longest stays on the line and the others stack above it, then below, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
   return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs, model.branch, pickers)).join('')}</div>`;
 }
 
@@ -656,16 +656,13 @@ function evoRadius(lines, maxLines) {
 }
 
 /**
- * Midnight UTC of every day the read pull requests span, for the shared x-axis —
+ * Belgian midnight of every day the read pull requests span, for the shared x-axis —
  * never before `t0` itself: the first midnight at or after it can still be days
  * away where every pull request merged inside one day, and a tick from before the
  * scale's own start would sit far off it, not merely near its edge.
  */
 function evoDayTicks(t0, t1) {
-  const start = new Date(t0);
-  start.setUTCHours(0, 0, 0, 0);
-  const ticks = [];
-  for (let t = start.getTime(); t <= t1; t += 86_400_000) if (t >= t0) ticks.push(t);
+  const ticks = dayStartsBetween(t0, t1);
   return ticks.length ? ticks : [t0];
 }
 
@@ -692,7 +689,7 @@ function evoValueAxis(t0, t1, maxY, plotH, yFormat) {
 function evoDayAxis(t0, t1, y) {
   const { px } = evoPx(t0, t1);
   return evoDayTicks(t0, t1)
-    .map((t) => `<text class="etick" x="${px(t).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${esc(day(new Date(t).toISOString()).slice(5))}</text>`)
+    .map((t) => `<text class="etick" x="${px(t).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${esc(formatDayMonth(t))}</text>`)
     .join('');
 }
 

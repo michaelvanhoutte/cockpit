@@ -1,4 +1,4 @@
-import { dayOf, daysAfter, type Day } from './filters';
+import { dayOf, daysAfter, type Day } from '@cockpit/shared';
 
 /**
  * The three one-click ways to set a due date, beside typing one directly
