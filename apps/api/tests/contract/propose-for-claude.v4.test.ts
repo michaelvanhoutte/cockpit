@@ -1,11 +1,9 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import type { ClaudeProposal } from '@cockpit/shared';
-import { ClaudeAiService, type CallFor, type ItemToPropose } from '../../src/ai/index.js';
+import type { ItemToPropose } from '../../src/ai/index.js';
 import { buildProposeForClaude } from '../../src/ai/prompts/propose-for-claude.v4.js';
 import type { PastSend } from '../../src/domain/claude-send-records.js';
-
-/** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
-const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
+import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.js';
 
 /**
  * The contract tier for proposing what to do with an Item ("Propose what to do
@@ -22,9 +20,8 @@ const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, t
  * and the gist of the prompt.
  */
 
-const key = process.env.ANTHROPIC_API_KEY ?? '';
 const spent = { calls: 0, input: 0, output: 0 };
-const proposing = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+const proposing = claude((_model, usage) => {
   spent.calls += 1;
   spent.input += usage.input_tokens;
   spent.output += usage.output_tokens;
@@ -234,8 +231,8 @@ function isRight(proposals: ClaudeProposal[], expected: Expected): boolean {
 }
 
 describe('Agents', () => {
-  it('has a key to ask with', () => {
-    expect(key, 'set ANTHROPIC_API_KEY, or put it in apps/api/.dev.vars').not.toBe('');
+  it('has a key to ask with and a token to record its calls under', () => {
+    expectAKeyAndARecord();
     expect(buildProposeForClaude(item('x'), [])).toMatchObject({ version: 'v4' });
   });
 

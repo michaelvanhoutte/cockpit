@@ -262,6 +262,7 @@ This lives in repository settings, so a fresh fork gets none of it. The reasonin
 | Secret | `CLAUDE_CODE_OAUTH_TOKEN` | all three Claude workflows |
 | Secret | `ANTHROPIC_API_KEY` | the contract run |
 | Secret | `ANTHROPIC_WORKSPACE_ID` | the same, where the key is scoped to an organisation rather than a workspace |
+| Secret | `USAGE_TOKEN_CI` | the contract run, which records each Claude call in production under it |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | the deploy URLs and the health checks |
 
 - **Branch protection on `main`**, whose payload *is* checked in — [.github/branch-protection.json](.github/branch-protection.json) — but which the owner still has to apply, because configuration nobody can review or restore is not really configuration:

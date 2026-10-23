@@ -62,6 +62,8 @@ function send(record: unknown, authorization: string | null): Promise<Response> 
 interface Row {
   environment: string;
   branch: string | null;
+  pull_request: number | null;
+  run_id: number | null;
   user_id: string | null;
   account_name: string | null;
   cost_usd: number | null;
@@ -74,7 +76,7 @@ interface Row {
 async function rows(): Promise<Row[]> {
   return (
     await env.DB.prepare(
-      'SELECT environment, branch, user_id, account_name, cost_usd, operation, model, tokens_in, at FROM provider_calls ORDER BY id',
+      'SELECT environment, branch, pull_request, run_id, user_id, account_name, cost_usd, operation, model, tokens_in, at FROM provider_calls ORDER BY id',
     ).all<Row>()
   ).results;
 }
@@ -121,7 +123,19 @@ describe('AI usage', () => {
         record: { branch: 'claude/1458-send-usage' },
         recorded: { environment: 'local', branch: 'claude/1458-send-usage' },
       },
-      { situation: 'CI’s token', token: TOKENS.ci, record: {}, recorded: { environment: 'ci', branch: null } },
+      { situation: 'CI’s token', token: TOKENS.ci, record: {}, recorded: { environment: 'ci', branch: null, pull_request: null, run_id: null } },
+      {
+        situation: 'CI’s token, with the pull request and run it carried',
+        token: TOKENS.ci,
+        record: { triggeredBy: 'contract-run', userId: null, pullRequest: 1459, runId: 18273645501 },
+        recorded: { environment: 'ci', pull_request: 1459, run_id: 18273645501, user_id: null },
+      },
+      {
+        situation: 'CI’s token, with a run and no pull request, as a scheduled run has',
+        token: TOKENS.ci,
+        record: { pullRequest: null, runId: 18273645502 },
+        recorded: { environment: 'ci', pull_request: null, run_id: 18273645502 },
+      },
       { situation: 'a time on a leap day', token: TOKENS.staging, record: { at: '2024-02-29T12:00:00Z' }, recorded: { at: '2024-02-29T12:00:00Z' } },
       { situation: 'a time on the last second of a year, to the nanosecond', token: TOKENS.staging, record: { at: '2026-12-31T23:59:59.123456789Z' }, recorded: { at: '2026-12-31T23:59:59.123456789Z' } },
     ])('records a call sent with $situation', async ({ token, record, recorded }) => {
@@ -139,6 +153,8 @@ describe('AI usage', () => {
       { situation: 'the local token claiming production', authorization: () => `Bearer ${TOKENS.local}`, record: { environment: 'production' }, status: 403 },
       { situation: 'CI’s token claiming production', authorization: () => `Bearer ${TOKENS.ci}`, record: { environment: 'production' }, status: 403 },
       { situation: 'staging’s token claiming to be local', authorization: () => `Bearer ${TOKENS.staging}`, record: { environment: 'local' }, status: 400 },
+      { situation: 'a pull request that is not a whole number', authorization: () => `Bearer ${TOKENS.ci}`, record: { pullRequest: '1459' }, status: 400 },
+      { situation: 'a run that is not a whole number', authorization: () => `Bearer ${TOKENS.ci}`, record: { runId: 1.5 }, status: 400 },
       { situation: 'a record missing its feature', authorization: () => `Bearer ${TOKENS.staging}`, record: { operation: undefined }, status: 400 },
       { situation: 'a record missing its model', authorization: () => `Bearer ${TOKENS.staging}`, record: { model: undefined }, status: 400 },
       { situation: 'a record missing its time', authorization: () => `Bearer ${TOKENS.staging}`, record: { at: undefined }, status: 400 },

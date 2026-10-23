@@ -1,10 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { ClaudeAiService, type CallFor } from '../../src/ai/index.js';
 import { buildResolveAPlace } from '../../src/ai/prompts/resolve-a-place.v1.js';
 import type { PlaceTreeWorkspace } from '../../src/domain/spoken-path.js';
-
-/** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
-const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
+import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.js';
 
 /**
  * The contract tier for reading which places a note's words mean ("File a
@@ -15,9 +12,8 @@ const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, t
  * matches nothing left out rather than guessed.
  */
 
-const key = process.env.ANTHROPIC_API_KEY ?? '';
 const spent = { calls: 0, input: 0, output: 0 };
-const resolving = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+const resolving = claude((_model, usage) => {
   spent.calls += 1;
   spent.input += usage.input_tokens;
   spent.output += usage.output_tokens;
@@ -53,8 +49,8 @@ async function resolve(words: string) {
 }
 
 describe('Capture', () => {
-  it('has a key to ask with', () => {
-    expect(key, 'set ANTHROPIC_API_KEY, or put it in apps/api/.dev.vars').not.toBe('');
+  it('has a key to ask with and a token to record its calls under', () => {
+    expectAKeyAndARecord();
     expect(buildResolveAPlace('for home', [])).toMatchObject({ version: 'v1', model: 'claude-haiku-4-5' });
   });
 
