@@ -1,9 +1,8 @@
-import { z } from 'zod';
 import { itemIdsWithRun, NO_DASHBOARD_FILTER } from './dashboard-filter.js';
 import { orderedAsDrawn, groupFilterRows } from './filter-groups.js';
 import { placesFiledOn } from './filing.js';
-import { itemLabel, prioritySchema } from './item.js';
-import type { Dashboard, Item, Workspace } from './item.js';
+import { itemLabel } from './item.js';
+import type { Dashboard, Item, Priority, Workspace } from './item.js';
 import { itemsShownOn } from './panel-contents.js';
 import { NO_CONDITIONS, panelGathers, panelHoldsText } from './panel.js';
 import type { Filing, Layout, Panel } from './panel.js';
@@ -19,10 +18,10 @@ import type { Day } from './filters.js';
  * Panel shows.
  *
  * **The answers only ever gain fields, and a reader ignores the ones it does
- * not know.** The schemas below say what an installed app depends on; a field
+ * not know.** The types below say what an installed app depends on; a field
  * added to an answer still satisfies them, and one taken away or changed in
- * kind does not - which is what `apps/api/tests/fixtures/panel-read.sample.json`
- * is checked against.
+ * kind does not - which is what the samples in `packages/shared/samples/` hold
+ * the real answers to (`apps/api/tests/samples.ts`).
  */
 
 /**
@@ -38,62 +37,53 @@ import type { Day } from './filters.js';
 export const PANEL_READ_LOCALE = 'en';
 
 /** The kinds of Panel a read can be made of: Panels of text hold no Items. */
-export const readablePanelKindSchema = z.enum(['items', 'filter']);
-export type ReadablePanelKind = z.infer<typeof readablePanelKindSchema>;
+export type ReadablePanelKind = 'items' | 'filter';
 
 /** The Workspace's colour dot, as the widget draws it. */
-const workspaceDotSchema = z.object({ id: z.string(), name: z.string(), color: z.string() });
+interface WorkspaceDot {
+  id: string;
+  name: string;
+  color: string;
+}
 
 /** Every Workspace with its Dashboards in tab order and their Panels in board order - no Panels of text, and no Items. */
-export const panelListSchema = z.object({
-  workspaces: z.array(
-    workspaceDotSchema.extend({
-      dashboards: z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          panels: z.array(z.object({ id: z.string(), name: z.string(), kind: readablePanelKindSchema })),
-        }),
-      ),
-    }),
-  ),
-});
-export type PanelList = z.infer<typeof panelListSchema>;
+export interface PanelList {
+  workspaces: (WorkspaceDot & {
+    dashboards: { id: string; name: string; panels: { id: string; name: string; kind: ReadablePanelKind }[] }[];
+  })[];
+}
 
 /**
  * One row of a Panel as it is drawn: its label, priority and due date, and
  * *Dashboard ▸ Panel* for every other Panel it is filed on, or *Inbox*.
  */
-export const panelReadRowSchema = z.object({
-  itemId: z.string(),
-  label: z.string(),
-  priority: prioritySchema.nullable(),
+export interface PanelReadRow {
+  itemId: string;
+  label: string;
+  priority: Priority | null;
   /** The day it is due, `2026-10-23`, or null. How near that is is the reader's to say, on its own calendar. */
-  dueDate: z.string().nullable(),
+  dueDate: string | null;
   /** In board order; empty where there is nothing to add, which is an Item filed on this Panel alone. */
-  places: z.array(z.string()),
-});
-export type PanelReadRow = z.infer<typeof panelReadRowSchema>;
+  places: string[];
+}
 
 /**
  * One Panel's rows under their headings. A Panel of items, and a Filter grouped
  * by nothing, is one group with no heading; a Filter grouped by Dashboard or by
  * Panel is a group per heading, an Item on two Panels under both.
  */
-export const panelReadGroupSchema = z.object({
-  heading: z.object({ name: z.string(), dashboard: z.string().nullable() }).nullable(),
-  rows: z.array(panelReadRowSchema),
-});
-export type PanelReadGroup = z.infer<typeof panelReadGroupSchema>;
+export interface PanelReadGroup {
+  heading: { name: string; dashboard: string | null } | null;
+  rows: PanelReadRow[];
+}
 
-export const panelReadSchema = z.object({
-  panel: z.object({ id: z.string(), name: z.string(), kind: readablePanelKindSchema, dashboardId: z.string() }),
-  workspace: workspaceDotSchema,
+export interface PanelRead {
+  panel: { id: string; name: string; kind: ReadablePanelKind; dashboardId: string };
+  workspace: WorkspaceDot;
   /** How many Items the Panel shows: the one a heading's rows repeat, counted once. */
-  count: z.number().int().min(0),
-  groups: z.array(panelReadGroupSchema),
-});
-export type PanelRead = z.infer<typeof panelReadSchema>;
+  count: number;
+  groups: PanelReadGroup[];
+}
 
 /** One Workspace's rows as the store hands them over for a read. */
 export interface ReadableWorkspace {

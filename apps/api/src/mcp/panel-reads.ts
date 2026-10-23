@@ -5,7 +5,7 @@ import type { Env } from '../env.js';
 import { APPS_PATH, PANEL_READS_PATH, isAnAddressOfTheReadsOfPanels } from '../auth/mcp-paths.js';
 import { noteRead } from './connected-apps.js';
 import { grantHolder } from './grant.js';
-import { grantIdOf, tokenRefused, type ProtectedContext } from './server.js';
+import { SOMETHING_BROKE, grantIdOf, logged, tokenRefused, type ProtectedContext } from './server.js';
 
 /**
  * The two reads of Panels a connected app is given ("Read a Panel
@@ -34,8 +34,6 @@ import { grantIdOf, tokenRefused, type ProtectedContext } from './server.js';
  * deleted, never held, another person's (whose store this one cannot see) and
  * one of text all answer the same, so the answer says nothing about which.
  */
-
-const SOMETHING_BROKE = 'Something went wrong in Cockpit. Try again in a moment.';
 
 /** `2026-10-23`, and a real day in the calendar: `2026-02-30` is not one. */
 const dateSchema = z.iso.date();
@@ -74,8 +72,7 @@ export async function answerPanelRead(request: Request, env: Env, ctx: Protected
     if (answer.ok) ctx.waitUntil(noteRead(env, grantId, now));
     return answer;
   } catch (error) {
-    const { message, stack } = error instanceof Error ? error : { message: String(error), stack: undefined };
-    console.error(JSON.stringify({ level: 'error', message, stack }));
+    logged(error);
     return said(500, { error: SOMETHING_BROKE });
   }
 }

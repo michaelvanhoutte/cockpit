@@ -235,9 +235,9 @@ async function reportRun(
  * outside should read - the same rule the application's `onError` keeps
  * (`http/app.ts`). The detail goes to the log instead.
  */
-const SOMETHING_BROKE = 'Something went wrong in Cockpit. Try again in a moment.';
+export const SOMETHING_BROKE = 'Something went wrong in Cockpit. Try again in a moment.';
 
-function logged(error: unknown): void {
+export function logged(error: unknown): void {
   const { message, stack } = error instanceof Error ? error : { message: String(error), stack: undefined };
   console.error(JSON.stringify({ level: 'error', message, stack }));
 }

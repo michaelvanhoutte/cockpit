@@ -27,5 +27,5 @@ export function resourcesOf(env: Pick<Env, 'APP_ORIGIN'>): { readonly mcp: strin
  * before resources existed, which the library holds no resource for at all.
  */
 export function kindOfResource(env: Pick<Env, 'APP_ORIGIN'>, resource: string | readonly string[] | undefined): ConnectedAppKind {
-  return resource === resourcesOf(env).apps ? 'reads-panels' : 'captures';
+  return [resource ?? []].flat().includes(resourcesOf(env).apps) ? 'reads-panels' : 'captures';
 }
