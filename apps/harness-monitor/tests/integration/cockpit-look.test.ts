@@ -46,7 +46,8 @@ describe('Harness Monitor', () => {
     });
 
     it("Cockpit's Claude calls is not a tab until its page exists", async () => {
-      expect(await theBarePage()).not.toContain('Claude calls');
+      // The job list below names the import of those calls; only a tab would be the page.
+      expect(topBar(await theBarePage()).tabs.map((t) => t.label)).not.toContainEqual(expect.stringContaining('Claude calls'));
     });
   });
 

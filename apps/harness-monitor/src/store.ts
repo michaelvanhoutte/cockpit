@@ -1,4 +1,5 @@
 import { belgianDaySql } from './belgium';
+import { rebuildCallStatements } from './claude-calls';
 import { currentPrices } from './price-list';
 import { costMicros, priceOf } from './prices';
 import { requestPhaseSql, type UsageRow } from './validate';
@@ -129,10 +130,14 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
  * on its row: rows stored before the Monitor counted in Belgian days carry a UTC
  * day, and rows stored since carry a Belgian one. Running it again, after a
  * failed run or a finished one, gives the same totals.
+ *
+ * The same batch drops Cockpit's Claude calls copied more than 12 months
+ * before `now` and rebuilds their totals from the copies left; it never deletes
+ * a Claude Code request. Returns the days covered and the copies dropped.
  */
-export async function rebuildTotals(db: D1Database): Promise<number> {
+export async function rebuildTotals(db: D1Database, now = Date.now()): Promise<{ days: number; dropped: number }> {
   const day = belgianDaySql('occurred_at');
-  await db.batch([
+  const results = await db.batch([
     db.prepare('DELETE FROM daily_totals'),
     db.prepare('DELETE FROM daily_split_totals'),
     db.prepare('DELETE FROM session_starts'),
@@ -148,9 +153,11 @@ export async function rebuildTotals(db: D1Database): Promise<number> {
       ${SPLIT_TOTALS_SELECT(day)} GROUP BY ${SPLIT_TOTALS_KEYS(day)}`),
     db.prepare(`INSERT INTO session_starts (${SESSION_START_COLUMNS})
       ${SESSION_STARTS_SELECT(day, '')}`),
+    ...rebuildCallStatements(db, now),
   ]);
+  const dropped = results.at(-3)!.meta.changes ?? 0;
   const covered = await db.prepare('SELECT COUNT(DISTINCT day) AS days FROM daily_totals').first<{ days: number }>();
-  return covered?.days ?? 0;
+  return { days: covered?.days ?? 0, dropped };
 }
 
 export interface UnpricedLine {

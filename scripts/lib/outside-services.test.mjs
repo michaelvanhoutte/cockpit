@@ -105,9 +105,9 @@ describe("today's repository", () => {
     assert.deepEqual(checkTree(repo), []);
   });
 
-  it('has Twilio Verify and the GitHub API as its gaps, and no other', () => {
+  it("has Twilio Verify, the GitHub API and Cockpit's production Worker as its gaps, and no other", () => {
     const { services } = JSON.parse(readFileSync(join(repo, LIST_PATH), 'utf8'));
     const gaps = services.filter((service) => service.gap !== undefined).map((service) => service.name);
-    assert.deepEqual(gaps, ['Twilio Verify', 'GitHub API']);
+    assert.deepEqual(gaps, ['Twilio Verify', 'GitHub API', 'Cockpit production Worker']);
   });
 });

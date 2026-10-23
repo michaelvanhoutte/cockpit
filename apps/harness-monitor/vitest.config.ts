@@ -20,7 +20,8 @@ export default defineConfig(async () => {
         wrangler: { configPath: './wrangler.jsonc' },
         miniflare: {
           compatibilityFlags: ['nodejs_compat'],
-          bindings: { HARNESS_WRITE_KEY: 'test-write-key', PAGE_CACHE_SECONDS: '0' },
+          // A read token on disk (.dev.vars) must not arm the import against production in a test: pinned empty, and the address a fake's.
+          bindings: { HARNESS_WRITE_KEY: 'test-write-key', PAGE_CACHE_SECONDS: '0', USAGE_READ_TOKEN: '', COCKPIT_URL: 'https://cockpit.test' },
         },
       }),
     ],

@@ -45,6 +45,11 @@
       "name": "GitHub API",
       "hosts": ["api.github.com", "raw.githubusercontent.com"],
       "gap": "No contract suite yet. One would read the Harness Monitor's GraphQL query for a repository's pull requests and check runs against the live API, and the LiteLLM price file against what readLiteLlm expects."
+    },
+    {
+      "name": "Cockpit production Worker",
+      "hosts": ["cockpit.vanhoutte-michael.workers.dev"],
+      "gap": "No contract suite yet. The Harness Monitor's import reads GET /v1/usage-records, whose shape packages/shared/src/api/claude-calls-feed.ts writes down and apps/api's own tests hold; the Monitor's fixture was recorded from that route run locally. One would read a page from production under USAGE_READ_TOKEN and check it against apps/harness-monitor/src/claude-call-shape.ts."
     }
   ],
   "notServices": [

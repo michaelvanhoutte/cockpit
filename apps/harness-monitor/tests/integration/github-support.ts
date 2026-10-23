@@ -198,9 +198,9 @@ export async function theParents() {
 }
 
 /** What the page says about a job's last run, as a sentence. */
-export async function jobLine(job: 'linking' | 'prices' | 'rebuild') {
+export async function jobLine(job: 'linking' | 'prices' | 'rebuild' | 'claude-calls') {
   const line = new RegExp(`<li data-job="${job}"[^>]*>(.*?)</li>`, 's').exec(await thePage())?.[1];
-  return line?.replace(/&mdash;/g, '—').replace(/&rsquo;/g, "'");
+  return line?.replace(/&mdash;/g, '—').replace(/&rsquo;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
 }
 
 export const linkingLine = () => jobLine('linking');
