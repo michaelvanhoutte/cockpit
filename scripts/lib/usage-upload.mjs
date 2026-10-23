@@ -50,18 +50,15 @@ export async function postBatches(rows, post) {
  * local session logs, issue 1487): the monitor places a stored Unphased request
  * again from the same rows the upload builds, by the hook's own rule.
  *
- * Built to these failure modes:
- * - **Halfway**: each batch is one transaction on the monitor, so a stop leaves
- *   whole batches placed and the rest Unphased; the costs page's totals stay
- *   stale until `pnpm harness:run rebuild`.
- * - **Twice**: the monitor changes only a row still Unphased, so a re-run
- *   changes only what earlier runs did not reach; it is safe, and meant, to re-run.
+ * The monitor's side of its failure modes (halfway, twice, interruption) is
+ * answered at its route, `correct` in apps/harness-monitor/src/worker.ts. This side:
  * - **Rows that break the rule**: only the four phases below are sent, from the
- *   moment phase marks began; what the monitor leaves is counted, a refused
- *   batch stops the run and is named, and a request with no log here stays
- *   Unphased and is counted in the report.
+ *   moment phase marks began; what the monitor leaves is counted, a refused or
+ *   failed batch stops the run, is named and is not counted, and a request with
+ *   no log here stays Unphased and is counted in the report.
  * - **Each environment**: run it against the local monitor first; dump the
- *   deployed database (`wrangler d1 export`) before it is touched.
+ *   deployed database (`wrangler d1 export`) before it is touched, and run
+ *   `pnpm harness:run rebuild` once done.
  */
 
 /** The instant phase marks began (`PHASES_BEGIN` in the monitor's validator): nothing earlier is re-placed. */
@@ -106,9 +103,13 @@ export async function postCorrections(list, post) {
   return totals;
 }
 
-/** The lines the re-place step prints at the end of a run. `unphased` is the monitor's count once every batch went, else null. */
-export function summarizeRePlace({ sent, changed, left, batches, stopped, unphased, unreadable, unreadableFiles = 0 }) {
-  const lines = [`Sent ${sent} corrections: ${changed} placed again, ${left} left as they were (already in a phase, dated before 21 Sep, or not stored).`];
+/**
+ * The lines the re-place step prints at the end of a run. `unphased` is the
+ * monitor's count once every batch went, else null; `unphasedUnread` is why it
+ * could not be read, when it was asked for and not answered.
+ */
+export function summarizeRePlace({ sent, changed, left, batches, stopped, unphased, unphasedUnread = null, unreadable, unreadableFiles = 0 }) {
+  const lines = [`Sent ${sent} corrections: ${changed} placed again, ${left} left as they were (already in a phase, dated before 21 Sep, from a cloud session, or not stored).`];
   if (stopped) {
     const what = `batch ${stopped.batch} of ${batches} (corrections ${stopped.first}-${stopped.last})`;
     lines.push(
@@ -118,7 +119,9 @@ export function summarizeRePlace({ sent, changed, left, batches, stopped, unphas
     );
   }
   if (unphased !== null && unphased !== undefined) {
-    lines.push(`${unphased} requests from 21 Sep on are still Unphased: no log on this machine places them in a phase.`);
+    lines.push(`${unphased} local requests from 21 Sep on are still Unphased: no log on this machine places them in one of the four phases.`);
+  } else if (unphasedUnread) {
+    lines.push(`Could not read how many local requests from 21 Sep on are still Unphased: ${unphasedUnread}.`);
   }
   lines.push(`Could not read ${unreadable} log lines${unreadableFiles ? ` and ${unreadableFiles} whole log files` : ''}.`);
   lines.push('Run `pnpm harness:run rebuild` once done, so the costs page shows the new split.');

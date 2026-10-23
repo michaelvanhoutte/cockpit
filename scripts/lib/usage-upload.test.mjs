@@ -152,15 +152,22 @@ describe('Harness Monitor', () => {
       const totals = await postCorrections(list, async (batch) => ({ changed: batch.length - 10, left: 10 }));
       const lines = summarizeRePlace({ ...totals, unphased: 7, unreadable: 0 });
 
-      assert.equal(lines[0], 'Sent 450 corrections: 420 placed again, 30 left as they were (already in a phase, dated before 21 Sep, or not stored).');
-      assert.ok(lines.includes('7 requests from 21 Sep on are still Unphased: no log on this machine places them in a phase.'));
+      assert.equal(lines[0], 'Sent 450 corrections: 420 placed again, 30 left as they were (already in a phase, dated before 21 Sep, from a cloud session, or not stored).');
+      assert.ok(lines.includes('7 local requests from 21 Sep on are still Unphased: no log on this machine places them in one of the four phases.'));
+    });
+
+    it('a run whose count of requests still Unphased could not be read says so', async () => {
+      const totals = await postCorrections(list, async (batch) => ({ changed: batch.length, left: 0 }));
+      const lines = summarizeRePlace({ ...totals, unphased: null, unphasedUnread: 'the monitor answered 503', unreadable: 0 });
+
+      assert.ok(lines.includes('Could not read how many local requests from 21 Sep on are still Unphased: the monitor answered 503.'));
     });
 
     it('a batch the monitor refuses stops the run, is named, and is not counted as sent', async () => {
       const totals = await postCorrections(list, async (batch) => (batch[0].requestId === 'r200' ? { refused: 'Correction 3 (r203): has category "building"' } : { changed: batch.length, left: 0 }));
       const lines = summarizeRePlace({ ...totals, unphased: null, unreadable: 0 });
 
-      assert.equal(lines[0], 'Sent 200 corrections: 200 placed again, 0 left as they were (already in a phase, dated before 21 Sep, or not stored).');
+      assert.equal(lines[0], 'Sent 200 corrections: 200 placed again, 0 left as they were (already in a phase, dated before 21 Sep, from a cloud session, or not stored).');
       assert.ok(lines.includes('Stopped: the monitor refused batch 2 of 3 (corrections 201-400): Correction 3 (r203): has category "building". Nothing from it or after it was sent.'));
       assert.ok(!lines.some((line) => line.includes('still Unphased')));
     });

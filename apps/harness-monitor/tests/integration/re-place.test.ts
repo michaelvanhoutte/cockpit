@@ -33,6 +33,7 @@ describe('Harness Monitor', () => {
       { situation: 'an Unphased request, to Process review', stored: { category: 'unphased' }, to: 'process-review', now: 'process-review', changed: 1 },
       { situation: 'a request already in Building', stored: { category: 'building' }, to: 'outside-process', now: 'building', changed: 0 },
       { situation: 'an Unphased request the second before 21 Sep', stored: { category: 'unphased', time: BEFORE }, to: 'outside-process', now: 'unphased', changed: 0 },
+      { situation: 'an Unphased request from a cloud session', stored: { category: 'unphased', ranWhere: 'cloud' }, to: 'outside-process', now: 'unphased', changed: 0 },
       { situation: 'a request the monitor does not hold', stored: null, to: 'outside-process', now: undefined, changed: 0 },
     ])('$situation', async ({ stored, to, now, changed }) => {
       if (stored) await send([usage('r1', stored)]);
@@ -65,11 +66,12 @@ describe('Harness Monitor', () => {
       expect([await phaseOf('r1'), await phaseOf('r2')]).toEqual(['unphased', 'unphased']);
     });
 
-    it('the count of requests from 21 Sep on still Unphased needs the write key', async () => {
+    it('the count of local requests from 21 Sep on still Unphased needs the write key', async () => {
       await send([
         usage('kept', { category: 'unphased' }),
         usage('placed', { category: 'unphased' }),
         usage('older', { category: 'unphased', time: BEFORE }),
+        usage('cloud', { category: 'unphased', ranWhere: 'cloud' }),
         usage('building', { category: 'building' }),
       ]);
       await correct([{ requestId: 'placed', category: 'outside-process' }]);

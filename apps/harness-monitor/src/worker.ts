@@ -63,8 +63,8 @@ async function write(request: Request, env: Env): Promise<Response> {
  * Places stored Unphased requests again (Re-place stored Unphased requests
  * since 21 Sep from the local session logs, issue 1487), behind the write key.
  * POST takes `{"corrections": [{requestId, category}]}`, at most 200, and
- * answers `{changed, left}`; GET answers `{unphased}`, how many requests from
- * 21 Sep on are still Unphased, for the run's report.
+ * answers `{changed, left}`; GET answers `{unphased}`, how many local requests
+ * from 21 Sep on are still Unphased, for the run's report.
  *
  * Built to these failure modes:
  * - **Halfway**: a batch is one statement, so one D1 transaction; a stop leaves
@@ -73,8 +73,8 @@ async function write(request: Request, env: Env): Promise<Response> {
  * - **Twice**: only a row still Unphased changes, so a re-run changes only what
  *   earlier runs did not reach, and is safe.
  * - **Rows that break the rule**: a category outside the four refuses the whole
- *   batch, naming it; a row already phased, dated before 21 Sep or not stored
- *   is left and counted in `left`, never dropped silently.
+ *   batch, naming it; a row already phased, dated before 21 Sep, from a cloud
+ *   session or not stored is left and counted in `left`, never dropped silently.
  * - **Interruption**: inside a batch D1 rolls it back whole; a hook inserting
  *   rows meanwhile only inserts, which this never touches.
  */

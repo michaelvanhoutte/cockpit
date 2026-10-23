@@ -11,8 +11,8 @@
 // Scoping & planning, After push, Process review or Outside the process, and the
 // monitor applies it only to a row still Unphased (Re-place stored Unphased
 // requests since 21 Sep from the local session logs, issue 1487). Re-runnable;
-// its failure modes are answered in scripts/lib/usage-upload.mjs. Follow it
-// with `pnpm harness:run rebuild`.
+// its failure modes are answered in scripts/lib/usage-upload.mjs and at the
+// monitor's route. Follow it with `pnpm harness:run rebuild`.
 //
 // Needs HARNESS_WRITE_KEY and HARNESS_MONITOR_URL in the environment, as the
 // hook does (docs/deployment.md). Exits 1 when a batch was refused or the run
@@ -144,17 +144,20 @@ async function placeAgain() {
     if (response.status === 400 || response.status === 413) return { refused: typeof body?.error === 'string' ? body.error : `the monitor answered ${response.status}` };
     throw new Error(`the monitor answered ${response.status}`);
   });
+  // The count is the report's alone: the corrections are already applied, so failing to read it fails nothing.
   let unphased = null;
+  let unphasedUnread = null;
   if (!totals.stopped) {
     try {
       const response = await fetch(endpoint, { headers: { authorization }, signal: AbortSignal.timeout(60_000) });
-      const body = await response.json();
-      if (response.ok && Number.isSafeInteger(body.unphased)) unphased = body.unphased;
-    } catch {
-      // The count is the report's; the corrections are already applied.
+      const body = await response.json().catch(() => null);
+      if (response.ok && Number.isSafeInteger(body?.unphased)) unphased = body.unphased;
+      else unphasedUnread = response.ok ? 'the monitor answered without a count' : `the monitor answered ${response.status}`;
+    } catch (error) {
+      unphasedUnread = error instanceof Error ? error.message : String(error);
     }
   }
-  for (const line of summarizeRePlace({ ...totals, unphased, unreadable, unreadableFiles })) console.log(line);
+  for (const line of summarizeRePlace({ ...totals, unphased, unphasedUnread, unreadable, unreadableFiles })) console.log(line);
   // exitCode, not exit(): exiting while fetch's handles close aborts Node on Windows.
   process.exitCode = totals.stopped ? 1 : 0;
 }
