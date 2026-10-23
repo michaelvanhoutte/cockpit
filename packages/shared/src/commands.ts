@@ -9,6 +9,7 @@ import {
   capturedFromSchema,
   captureTimeZoneSchema,
   dashboardNameSchema,
+  followUpDaysSchema,
   itemDescriptionSchema,
   itemReadingSchema,
   itemTitleSchema,
@@ -504,8 +505,25 @@ export type SetDismissedCommand = z.infer<typeof setDismissedSchema>;
 export const setStartedSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   started: z.boolean(),
+  /** An undo of a wait's way of saying it only takes the wait back, so the run the wait left open stays open ("Set an Item Waiting for reply", issue 1463). */
+  keepsRun: z.boolean().optional(),
 });
 export type SetStartedCommand = z.infer<typeof setStartedSchema>;
+
+/**
+ * wait_for_reply - *Wait for reply…* and *Wait again…* ("Set an Item Waiting for
+ * reply, and wait again after chasing", issue 1463): the Item waits from now, or
+ * from the day it first started waiting, and is due `days` after today, its due
+ * date replaced. **One change for both**, so a failure between them cannot leave
+ * an Item waiting on its old date. Today is the day the change was issued on, on
+ * the calendar of `timeZone`, the device's.
+ */
+export const waitForReplySchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  days: followUpDaysSchema,
+  timeZone: captureTimeZoneSchema,
+});
+export type WaitForReplyCommand = z.infer<typeof waitForReplySchema>;
 
 /**
  * send_item_to_claude — an Item sent to Cowork or Claude Code from its row,
@@ -602,16 +620,12 @@ export const setDueDateSchema = commandEnvelopeSchema.extend({
 export type SetDueDateCommand = z.infer<typeof setDueDateSchema>;
 
 /**
- * set_repeat - an Item's Repeats ("Set an Item to repeat from its form, and see
- * the rule on its row", issue 1406). `repeat` is the whole rule, and `null` is
- * *Never*: the Item's series stops and the Item still names it.
- *
- * **`seriesId` is the series the Item joins if it has none**, made up by the
- * tab so the series is drawn before the server answers; an Item that already
- * names one keeps its own, so two tabs setting a rule on the same Item write
- * one series and the later command wins. **The browser's time zone is stored
- * with the rule** (`timeZone`), and *Next on* is checked against today on that
- * calendar.
+ * set_repeat - the Item form's old Repeats chip ("Set an Item to repeat from its
+ * form, and see the rule on its row", issue 1406), which no screen sends any more
+ * ("Point a copy at its master, and retire the Repeats chip", issue 1450). **Kept
+ * so a tab still on the previous app is answered**: the server refuses it, with
+ * `RECURRING_REFUSALS.useTheMenu`, and writes nothing. A recurring item is made
+ * and written by the commands below.
  */
 export const setRepeatSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -1020,6 +1034,7 @@ export const commandSchemas = {
   remove_item_from_panel: removeItemFromPanelSchema,
   set_done: setDoneSchema,
   set_started: setStartedSchema,
+  wait_for_reply: waitForReplySchema,
   send_item_to_claude: sendItemToClaudeSchema,
   report_claude_run: reportClaudeRunSchema,
   finish_agent_run: finishAgentRunSchema,

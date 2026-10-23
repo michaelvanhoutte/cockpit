@@ -42,6 +42,7 @@ export function anItem(n: number, over: Partial<Item> = {}): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     nextAction: null,
     completedAt: null,
     startedAt: null,

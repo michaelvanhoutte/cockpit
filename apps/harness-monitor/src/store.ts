@@ -2,7 +2,7 @@ import { belgianDaySql } from './belgium';
 import { rebuildCallStatements } from './claude-calls';
 import { currentPrices } from './price-list';
 import { costMicros, priceOf } from './prices';
-import { requestPhaseSql, type UsageRow } from './validate';
+import { PHASES_BEGIN_MS, requestPhaseSql, type Correction, type UsageRow } from './validate';
 
 /** The phase a stored row counts as; a Building row before phase marks existed is Unphased. */
 const PHASE = requestPhaseSql();
@@ -121,6 +121,37 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
   ]);
   const stored = inserted!.meta.changes ?? 0;
   return { stored, ignored: rows.length - stored };
+}
+
+/**
+ * Places stored Unphased requests again, one batch in one statement (the JSON
+ * array bound as a single parameter, as `storeBatch` does). Only a local row
+ * still Unphased and dated on or after the moment phase marks began changes, so
+ * a cloud session's rows stay Unphased even where its log was resumed here; the
+ * category is one `validateCorrections` allowed. The totals are left alone: the
+ * rebuild job derives them from the rows once the run is over.
+ */
+const CORRECT_ROWS = `UPDATE usage_requests SET category = c.value ->> '$.category'
+FROM json_each(?1) AS c
+WHERE usage_requests.request_id = c.value ->> '$.requestId'
+  AND usage_requests.category = 'unphased'
+  AND usage_requests.ran_where = 'local'
+  AND usage_requests.occurred_at >= ?2`;
+
+/** How many rows a batch of corrections changed, and how many it left as they were. */
+export async function correctBatch(db: D1Database, corrections: Correction[]) {
+  const result = await db.prepare(CORRECT_ROWS).bind(JSON.stringify(corrections), PHASES_BEGIN_MS).run();
+  const changed = result.meta.changes ?? 0;
+  return { changed, left: corrections.length - changed };
+}
+
+/** How many stored local requests dated on or after the moment phase marks began are still Unphased. */
+export async function stillUnphased(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM usage_requests WHERE occurred_at >= ?1 AND category = 'unphased' AND ran_where = 'local'`)
+    .bind(PHASES_BEGIN_MS)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 /**

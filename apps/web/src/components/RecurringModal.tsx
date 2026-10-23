@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   RECURRING_REFUSALS,
@@ -74,10 +74,13 @@ const typedIntoPanelSearch = (target: EventTarget | null): boolean =>
 
 export default function RecurringModal({
   workspaceId,
+  openOn,
   onClose,
   returnFocusTo,
 }: {
   workspaceId: string;
+  /** A recurring item whose form it opens on, once the list has been read (a copy's link to it). */
+  openOn?: string | undefined;
   onClose: () => void;
   /** The menu control it was opened from, which gets the focus back. */
   returnFocusTo?: HTMLElement | null | undefined;
@@ -147,6 +150,18 @@ export default function RecurringModal({
   };
 
   const ready = snapshot !== undefined && list.data !== undefined;
+
+  // Opened from a copy's link: straight on that recurring item's form once the list is read, or on the list
+  // saying it is gone, never on the list first. Once: what is done after that is the person's.
+  const arrivedAt = useRef(openOn === undefined);
+  const held = list.data;
+  useLayoutEffect(() => {
+    if (arrivedAt.current || !held) return;
+    arrivedAt.current = true;
+    const one = held.recurringItems.find((candidate) => candidate.id === openOn);
+    if (one) setView({ kind: 'form', isNew: false, item: one, refusal: null });
+    else setNotice(RECURRING_REFUSALS.gone);
+  }, [held, openOn]);
 
   return (
     <Dialog.Root open onOpenChange={(stillOpen) => !stillOpen && onClose()}>

@@ -12,8 +12,10 @@ import type {
   PossibleDuplicate,
   Priority,
   RewriteHistoryEntry,
+  Series,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
+import { dayOf, daysOnFrom } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
@@ -21,6 +23,7 @@ import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
 import { DEADLINE_PILLS, dueDateLabel } from '../../../src/dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../../../src/dueDateShortcuts';
 import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
+import { takeRecurringRequest } from '../../../src/recurringModal';
 import { forgetEverySavedRead, restoreSavedReads, saveRead } from '../../../src/persistence';
 import { resetStanding, stand } from '../../../src/offline';
 import { aHistoryEntrySavedBeforePanelsFiledOn } from '../support/savedReads';
@@ -46,6 +49,7 @@ const held = vi.hoisted(() => ({
   dashboards: [] as { id: string; name: string }[],
   duplicates: [] as PossibleDuplicate[],
   attachments: [] as Attachment[],
+  series: [] as Series[],
   agentRuns: [] as { id: string; itemId: string }[],
   itemFormPresentation: 'centered' as 'centered' | 'docked',
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
@@ -205,6 +209,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
       held.dashboards,
       held.duplicates,
       held.attachments,
+      held.series,
       held.itemFormPresentation,
     ],
     queryFn: async (): Promise<WorkspaceSnapshot> => {
@@ -217,6 +222,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         dashboards: held.dashboards,
         duplicates: held.duplicates,
         attachments: held.attachments,
+        series: held.series,
         agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
         // What the Workspace calls each source (issue 927).
@@ -246,6 +252,7 @@ function anItem(over: Partial<Item> = {}): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     title: 'Part 11',
     description: null,
@@ -410,6 +417,7 @@ beforeEach(() => {
   held.dashboards = [];
   held.duplicates = [];
   held.attachments = [];
+  held.series = [];
   held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
   held.history = [];
@@ -433,121 +441,123 @@ describe('Item editing', () => {
     it.each([
       {
         situation: 'the title edited and nothing else',
-        draft: { title: 'Part 12', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 12', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { title: 'Part 12' },
       },
       {
         situation: 'the description written and nothing else',
-        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { description: 'Tolerances' },
       },
       {
         situation: 'both',
-        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { title: 'Part 12', description: 'Tolerances' },
       },
       {
         situation: 'neither',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       // Adding a space to the end of a title is not a change to the title: the
       // space would not be stored either.
       {
         situation: 'a title with a space added to the end',
-        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       // Emptied is cleared, and there is no third state to send.
       {
         situation: 'a description emptied',
-        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { description: null },
       },
       {
         situation: 'a description that was never there and is still empty',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       {
         situation: 'the priority changed and nothing else',
-        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null, status: 'to_do' as const, started: false },
         asks: { priority: 'high' },
       },
       {
         situation: 'the priority cleared to none',
-        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { priority: null },
       },
       {
         situation: 'a priority left as it was',
-        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       {
         situation: 'a due date set on an item that had none',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
         asks: { dueDate: '2026-09-30' },
       },
       {
         situation: 'a due date changed to another date',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15', status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15', status: 'to_do' as const, started: false },
         asks: { dueDate: '2026-10-15' },
       },
       {
         situation: 'a due date cleared',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false },
         asks: { dueDate: null },
       },
       {
         situation: 'the status set to done',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'done' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'done' as const, started: false },
         asks: { status: 'done' },
       },
       {
         situation: 'the status set to in progress',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'in_progress' as const, started: false, repeat: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'in_progress' as const, started: false },
         asks: { status: 'in_progress' },
       },
       {
-        situation: 'a repeat set',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null } },
-        asks: { repeat: { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: null } },
-      },
-      {
-        situation: 'a repeat stopped with Never',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null } },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
-        asks: { repeat: null },
-      },
-      {
-        situation: 'a repeat given the same rule again, which is no change',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5 } },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5 } },
+        situation: 'a due date left as it was',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false },
         asks: {},
       },
       {
-        situation: 'a repeat whose due gap moved',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 5 } },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: 6 } },
-        asks: { repeat: { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 6 } },
+        // One change for the status and the due date it gives (issue 1463).
+        situation: 'a wait for a reply chosen',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-12-01', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-26', status: 'waiting' as const, started: false, wait: { days: 3, dueDate: '2026-10-26' } },
+        asks: { wait: 3 },
       },
       {
-        situation: 'a due date left as it was',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', status: 'to_do' as const, started: false, repeat: null },
+        situation: 'a wait for a reply chosen, then another due date typed',
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-30', status: 'waiting' as const, started: false, wait: { days: 3, dueDate: '2026-10-26' } },
+        asks: { wait: 3, dueDate: '2026-10-30' },
+      },
+      {
+        situation: 'a wait for a reply chosen, then the due date cleared back to none',
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'waiting' as const, started: false, wait: { days: 3, dueDate: '2026-10-26' } },
+        asks: { wait: 3, dueDate: null },
+      },
+      {
+        situation: 'a wait for a reply already written, chosen alike again',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-26', status: 'waiting' as const, started: false, waiting: true, wait: { days: 3, dueDate: '2026-10-26' } },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-26', status: 'waiting' as const, started: false, waiting: true, wait: { days: 3, dueDate: '2026-10-26' } },
         asks: {},
       },
     ])('$situation', ({ stored, draft, asks }) => {
+      // Nothing waits unless the case says so.
+      const nothingWaits = { waiting: false, wait: null };
       expect(
         whatChanged(
-          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false, repeat: null },
-          draft,
+          { ...nothingWaits, ...(stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false }) },
+          { ...nothingWaits, ...draft },
         ),
       ).toEqual(asks);
     });
@@ -966,7 +976,8 @@ describe('Item editing', () => {
         { situation: 'a to do item', over: {}, shown: 'To do' },
         { situation: 'an item in progress', over: { startedAt: '2026-09-01T08:00:00.000Z' }, shown: 'In progress' },
         { situation: 'a finished item', over: { completedAt: '2026-09-01T08:00:00.000Z' }, shown: 'Done' },
-      ])('shows the one $situation is, among To do, In progress and Done in that order', async ({ over, shown }) => {
+        { situation: 'an item waiting for a reply', over: { waitingSince: '2026-09-01T08:00:00.000Z' }, shown: 'Waiting for reply' },
+      ])('shows the one $situation is, among To do, In progress, Waiting for reply and Done in that order', async ({ over, shown }) => {
         await theForm(anItem(over));
 
         expect(statusChip()).toHaveTextContent(shown);
@@ -974,6 +985,7 @@ describe('Item editing', () => {
         expect((await screen.findAllByRole('menuitemradio')).map((option) => option.textContent?.replace('✓', ''))).toEqual([
           'To do',
           'In progress',
+          'Waiting for reply',
           'Done',
         ]);
       });
@@ -1022,6 +1034,120 @@ describe('Item editing', () => {
         await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
         expect(sent().map((change) => change.name)).toEqual(['set_done']);
         expect(sent()[0]).toMatchObject({ payload: { done: false } });
+      });
+    });
+
+    /**
+     * "Set an Item Waiting for reply, and wait again after chasing" (issue
+     * 1463): the form asks how long from its chip and its Status, shows the
+     * status and the due date the wait gives, and writes them as one change by
+     * its usual rule. The day arithmetic is the server's (`waiting-for-reply.test.ts`).
+     */
+    describe('waiting for a reply', () => {
+      const theLine = () => screen.getByRole('group', { name: 'Fields' });
+      const dueIn = (days: number) => daysOnFrom(dayOf(new Date()), days);
+
+      it('Waiting for reply on Status asks how long, and Save sends that one wait alone', async () => {
+        const user = await theForm(anItem({ dueDate: '2099-01-01' }));
+
+        await pickStatus(user, 'Waiting for reply');
+        await screen.findByLabelText('Days to wait');
+        await user.click(screen.getByRole('button', { name: '7 days' }));
+        expect(statusChip()).toHaveTextContent('Waiting for reply');
+        expect(held.send).not.toHaveBeenCalled();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent()).toEqual([
+          { name: 'wait_for_reply', payload: expect.objectContaining({ itemId: anItem().id, days: 7 }) },
+        ]);
+      });
+
+      it('reopens a finished Item, then waits, from Wait for reply… on the line', async () => {
+        const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
+
+        await user.click(within(theLine()).getByRole('button', { name: 'Wait for reply…' }));
+        await screen.findByLabelText('Days to wait');
+        await user.keyboard('{Enter}');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_done', 'wait_for_reply']);
+        expect(sent()[1]).toMatchObject({ payload: { days: 3 } });
+      });
+
+      it('a waiting Item offers Wait again…, and a date typed after the wait is sent after it', async () => {
+        const user = await theForm(anItem({ waitingSince: '2026-09-01T08:00:00.000Z', dueDate: '2026-09-04' }));
+
+        expect(statusChip()).toHaveTextContent('Waiting for reply');
+        await user.click(within(theLine()).getByRole('button', { name: 'Wait again…' }));
+        await user.click(await screen.findByRole('button', { name: '14 days' }));
+        await user.click(within(theLine()).getByRole('button', { name: 'Tmrw' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['wait_for_reply', 'set_due_date']);
+        expect(sent()[0]).toMatchObject({ payload: { days: 14 } });
+        expect(sent()[1]).toMatchObject({ payload: { dueDate: dueIn(1) } });
+      });
+
+      it('a status chosen after a wait is the status, and the wait is not sent', async () => {
+        const user = await theForm();
+
+        await user.click(within(theLine()).getByRole('button', { name: 'Wait for reply…' }));
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+        await pickStatus(user, 'In progress');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_due_date', 'set_started']);
+      });
+
+      it('is written at once when docked', async () => {
+        held.itemFormPresentation = 'docked';
+        const user = await theForm();
+
+        await pickStatus(user, 'Waiting for reply');
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['wait_for_reply']));
+      });
+
+      it('a wait refused when docked leaves standing a due date chosen while it was on its way', async () => {
+        held.itemFormPresentation = 'docked';
+        const user = await theForm(anItem({ dueDate: '2099-01-01' }), [], true);
+        let refuse: (error: Error) => void = () => {};
+        held.send.mockImplementation(((change: { name: string }) =>
+          change.name === 'wait_for_reply'
+            ? new Promise((_, reject) => (refuse = reject))
+            : Promise.resolve({ ok: true as const, applied: true })) as never);
+
+        await pickStatus(user, 'Waiting for reply');
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+        await user.click(within(theLine()).getByRole('button', { name: 'Tmrw' }));
+        await waitFor(() => expect(sent().map((change) => change.name)).toContain('wait_for_reply'));
+        await act(async () => refuse(new Error('Refused.')));
+
+        await waitFor(() => expect(statusChip()).toHaveTextContent('To do'));
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['wait_for_reply', 'set_due_date']));
+        expect(within(theLine()).getByRole('button', { name: 'Tmrw' })).toHaveAttribute('aria-pressed', 'true');
+      });
+
+      it('a wait refused on Save goes back to the status and due date the Item has, and is not sent again', async () => {
+        const user = await theForm(anItem({ dueDate: '2099-01-01' }));
+        held.send.mockRejectedValueOnce(new Error('Cockpit does not know the time zone this device is in.'));
+
+        await pickStatus(user, 'Waiting for reply');
+        await user.click(await screen.findByRole('button', { name: '3 days' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/wait for a reply was not set/));
+        expect(statusChip()).toHaveTextContent('To do');
+        held.send.mockClear();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent()).toEqual([]);
       });
     });
 
@@ -4306,6 +4432,94 @@ describe('Item editing', () => {
       expect(await screen.findByText("Couldn't copy the link")).toBeInTheDocument();
       expect(held.send).not.toHaveBeenCalled();
       expect(held.close).not.toHaveBeenCalled();
+    });
+  });
+});
+
+/**
+ * "Point a copy at its master, and retire the Repeats chip" (issue 1450): a copy's
+ * form says which recurring item it came from and opens it; no form sets a repeat.
+ */
+describe('Item editing', () => {
+  const SERIES = '018f0000-0000-7000-8000-0000000000aa';
+  const aSeries = (over: Partial<Series> = {}): Series => ({
+    id: SERIES,
+    tenantId: 'tenant',
+    frequency: 'weekly',
+    nextOn: '2026-11-02',
+    dueAfterDays: null,
+    timeZone: 'Europe/Brussels',
+    stoppedAt: null,
+    title: 'Weekly review',
+    workspaceId: 'ws-work',
+    ...over,
+  });
+  const theLine = () => document.querySelector('[data-recurring-origin]');
+
+  describe('a copy’s form names the recurring item it came from, and opens it', () => {
+    it('reads From recurring item with its name as a link, and pressing it closes the form and asks for the recurring item’s form', async () => {
+      held.series = [aSeries()];
+      const user = await theForm(anItem({ seriesId: SERIES }));
+
+      expect(theLine()?.textContent).toBe('↻ From recurring item Weekly review ›');
+      await user.click(screen.getByRole('button', { name: 'Weekly review ›' }));
+
+      expect(held.close).toHaveBeenCalledTimes(1);
+      expect(takeRecurringRequest()).toEqual({ workspaceId: 'ws-work', seriesId: SERIES });
+    });
+
+    it('asks for the Workspace the recurring item is listed in, where the copy was moved to another', async () => {
+      held.series = [aSeries({ workspaceId: 'ws-home' })];
+      const user = await theForm(anItem({ seriesId: SERIES }));
+
+      await user.click(screen.getByRole('button', { name: 'Weekly review ›' }));
+
+      expect(takeRecurringRequest()).toEqual({ workspaceId: 'ws-home', seriesId: SERIES });
+    });
+
+    it('reads (since deleted), with no link, once the recurring item is deleted', async () => {
+      held.series = [aSeries({ stoppedAt: '2026-10-22T10:00:00.000Z' })];
+      await theForm(anItem({ seriesId: SERIES }));
+
+      expect(theLine()?.textContent).toBe('↻ From recurring item Weekly review (since deleted)');
+      expect(screen.queryByRole('button', { name: /Weekly review/ })).toBeNull();
+    });
+
+    it.each([
+      { situation: 'an Item that is no copy', item: anItem(), series: [aSeries()] },
+      { situation: 'a copy of a series that was never made into a recurring item', item: anItem({ seriesId: SERIES }), series: [aSeries({ title: null, workspaceId: null })] },
+      { situation: 'a copy whose series the Workspace does not carry', item: anItem({ seriesId: SERIES }), series: [] },
+    ])('has no such line for $situation', async ({ item, series }) => {
+      held.series = series;
+      await theForm(item);
+
+      expect(theLine()).toBeNull();
+    });
+  });
+
+  describe('the Repeats chip is gone from the form, at a desk and on a phone', () => {
+    it('is not on the desk’s line of fields, and its Item stays as the other chips leave it', async () => {
+      held.series = [aSeries()];
+      await theForm(anItem({ seriesId: SERIES }));
+
+      expect(screen.getByRole('group', { name: 'Fields' })).toBeInTheDocument();
+      expect(screen.queryByTitle('Repeats')).toBeNull();
+      expect(screen.queryByRole('button', { name: /Repeats/ })).toBeNull();
+    });
+
+    it('is not among a phone’s chips', async () => {
+      const original = window.innerWidth;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+      try {
+        held.series = [aSeries()];
+        await theEditingPhonePage(anItem({ seriesId: SERIES }));
+
+        expect(await screen.findByRole('button', { name: '+ Attach' })).toBeInTheDocument();
+        expect(screen.queryByTitle('Repeats')).toBeNull();
+        expect(screen.queryByRole('button', { name: /Repeats/ })).toBeNull();
+      } finally {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
+      }
     });
   });
 });

@@ -111,6 +111,49 @@ export function validateBatch(body: unknown): Validated {
   return { ok: true, rows };
 }
 
+/**
+ * The phases a stored Unphased request may be placed into again: where the
+ * process step a session was in puts it when no mark decides. Every other phase
+ * comes from marks, Actions or the security review, which the hook already sent.
+ */
+export const CORRECTABLE = ['scoping-planning', 'after-push', 'process-review', 'outside-process'] as const satisfies readonly Category[];
+export type Correctable = (typeof CORRECTABLE)[number];
+
+export interface Correction {
+  requestId: string;
+  category: Correctable;
+}
+
+export type ValidatedCorrections = { ok: true; corrections: Correction[] } | { ok: false; error: string };
+
+/**
+ * Checks a whole batch of corrections, `{"corrections": [{requestId, category}]}`.
+ * One bad correction refuses the batch, naming its position and the value.
+ */
+export function validateCorrections(body: unknown): ValidatedCorrections {
+  const list = (body as { corrections?: unknown } | null)?.corrections;
+  if (!Array.isArray(list)) return { ok: false, error: 'The body must be {"corrections": [...]}.' };
+  if (list.length === 0) return { ok: false, error: 'The batch has no corrections.' };
+  if (list.length > MAX_BATCH) {
+    return { ok: false, error: `The batch has ${list.length} corrections; the most one write takes is ${MAX_BATCH}.` };
+  }
+  const corrections: Correction[] = [];
+  for (const [index, raw] of list.entries()) {
+    const r = (typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+    const requestId = text(r.requestId, 200);
+    if (!requestId) return { ok: false, error: `Correction ${index}: has no requestId.` };
+    const category = oneOf(r.category, CORRECTABLE);
+    if (!category) {
+      return {
+        ok: false,
+        error: `Correction ${index} (${requestId}): has category "${String(r.category)}", which is not one of ${CORRECTABLE.join(', ')}.`,
+      };
+    }
+    corrections.push({ requestId, category });
+  }
+  return { ok: true, corrections };
+}
+
 /** The row, or what is wrong with it. */
 function validateRow(raw: unknown): UsageRow | string {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'is not an object.';

@@ -3,6 +3,8 @@ import {
   FIRST_DASHBOARD_NAME,
   FIRST_PANEL_NAME,
   NO_CONDITIONS,
+  dayOf,
+  daysOnFrom,
   firstDashboardId,
   itemSchema,
   textsFromCapture,
@@ -108,13 +110,18 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
     case 'set_started':
       return withItem(snapshot, change.payload.itemId, {
         startedAt: change.payload.started ? change.payload.issuedAt : null,
+        // To do and In progress both end a wait for a reply ("Set an Item Waiting for reply", issue 1463).
+        waitingSince: null,
       });
+    case 'wait_for_reply':
+      return waitDrawn(snapshot, change.payload);
     case 'set_priority':
       return withItem(snapshot, change.payload.itemId, { priority: change.payload.priority });
     case 'set_due_date':
       return withItem(snapshot, change.payload.itemId, { dueDate: change.payload.dueDate });
-    case 'set_repeat':
-      return repeatDrawn(snapshot, change.payload);
+    case 'write_recurring_item':
+    case 'delete_recurring_item':
+      return recurringItemDrawn(snapshot, change);
     case 'set_title':
       return withItem(snapshot, change.payload.itemId, { title: change.payload.title });
     case 'set_description':
@@ -260,29 +267,42 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
 }
 
 /**
- * An Item's Repeats ("Set an Item to repeat from its form, and see the rule on
- * its row", issue 1406): the Item's series as the server will hold it - the one
- * it already names, or a new one under the id the change carries - with the rule
- * written over it, and *Never* as the same series stopped. **What the server
- * decides is not predicted**: a *Next on* it refuses goes back with the refusal.
+ * A recurring item written or deleted ("Point a copy at its master, and retire the
+ * Repeats chip", issue 1450): the series its copies name, as the server will hold
+ * it, so each copy's ↻ and *From recurring item* line say it at once - the title
+ * and rule written over it, and a deletion as the same series stopped. In whichever
+ * Workspace the snapshot is, since a copy can be filed outside its recurring item's.
+ * **What the server decides is not predicted**: a *Next on* it refuses goes back with
+ * the refusal. A recurring item just made has no copy to draw.
  */
-function repeatDrawn(snapshot: WorkspaceSnapshot, change: CommandPayload<'set_repeat'>): WorkspaceSnapshot {
+function recurringItemDrawn(
+  snapshot: WorkspaceSnapshot,
+  change: { name: 'write_recurring_item' | 'delete_recurring_item'; payload: CommandPayload<'write_recurring_item'> | CommandPayload<'delete_recurring_item'> },
+): WorkspaceSnapshot {
+  const seriesId = change.payload.seriesId;
+  if (!snapshot.series.some((one) => one.id === seriesId)) return snapshot;
+  const series = snapshot.series.map((one) => {
+    if (one.id !== seriesId) return one;
+    if (change.name === 'delete_recurring_item') return { ...one, stoppedAt: one.stoppedAt ?? change.payload.issuedAt };
+    const { title, repeat, workspaceId } = change.payload as CommandPayload<'write_recurring_item'>;
+    return { ...one, ...repeat, title, workspaceId, stoppedAt: null };
+  });
+  return { ...snapshot, series };
+}
+
+/**
+ * A wait for a reply as the server will hold it ("Set an Item Waiting for reply,
+ * and wait again after chasing", issue 1463): waiting since the change, or since
+ * the day it first started waiting, and due `days` after the day the change was
+ * made on, on this device's calendar.
+ */
+function waitDrawn(snapshot: WorkspaceSnapshot, change: CommandPayload<'wait_for_reply'>): WorkspaceSnapshot {
   const item = snapshot.items.find((one) => one.id === change.itemId);
   if (!item) return snapshot;
-  const own = item.seriesId === null ? undefined : snapshot.series.find((one) => one.id === item.seriesId);
-  if (change.repeat === null) {
-    return own
-      ? { ...snapshot, series: snapshot.series.map((one) => (one === own ? { ...one, stoppedAt: one.stoppedAt ?? change.issuedAt } : one)) }
-      : snapshot;
-  }
-  const drawn = {
-    id: own?.id ?? change.seriesId,
-    tenantId: snapshot.workspace.tenantId,
-    ...change.repeat,
-    stoppedAt: null,
-  };
-  const series = own ? snapshot.series.map((one) => (one === own ? drawn : one)) : [...snapshot.series, drawn];
-  return withItem({ ...snapshot, series }, item.id, { seriesId: drawn.id });
+  return withItem(snapshot, item.id, {
+    waitingSince: item.waitingSince ?? change.issuedAt,
+    dueDate: daysOnFrom(dayOf(new Date(change.issuedAt)), change.days),
+  });
 }
 
 /**
@@ -516,9 +536,11 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'remove_attachment',
   'set_done',
   'set_started',
+  'wait_for_reply',
   'set_priority',
   'set_due_date',
-  'set_repeat',
+  'write_recurring_item',
+  'delete_recurring_item',
   'set_title',
   'set_description',
   'set_next_action',

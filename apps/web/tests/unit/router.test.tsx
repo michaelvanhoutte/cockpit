@@ -1065,6 +1065,7 @@ describe('Item editing', () => {
       proposedPanelFit: null,
       claudeProposals: null,
       seriesId: null,
+      waitingSince: null,
       sourceResolvedAt: null,
       title: 'Part 11',
       description: null,

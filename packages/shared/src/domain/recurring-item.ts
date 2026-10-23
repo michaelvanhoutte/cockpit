@@ -41,4 +41,6 @@ export const RECURRING_REFUSALS = {
   panelGone: 'A Panel it files on is no longer in this Workspace.',
   gone: 'That recurring item is no longer there.',
   alreadyMade: 'That recurring item is already made.',
+  /** What `set_repeat` is refused with: the Item form no longer sets a repeat. */
+  useTheMenu: 'Make recurring items from the Workspace menu',
 } as const;
