@@ -105,6 +105,7 @@ import {
 import { offerToRemember } from '../jobs/offer-to-remember.js';
 import { onOneLine } from '../domain/remembered-sentences.js';
 import { readUsage } from '../accounts/usage.js';
+import { USAGE_RECORDS_PATH, receiveRecord } from '../gateway/receive.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -2377,6 +2378,15 @@ const routes = app
       return c.json({ error: 'after has to be a record number, or left out' }, 400);
     }
     return c.json(await readUsageRecords(c.env, new Date(since).toISOString(), after), 200);
+  })
+  // Where staging and a laptop send the records of their Claude calls ("Record
+  // staging's and local Claude calls in production, under a token per
+  // environment", issue 1458). Outside the sign-in gate and not behind the
+  // operator's secret: each sending environment's own recording token is what
+  // admits it, checked in `gateway/receive.ts`, and opens this and nothing else.
+  .post(USAGE_RECORDS_PATH, async (c) => {
+    const received = await receiveRecord(c.env, c.req.header('authorization'), () => c.req.json());
+    return received.status === 201 ? c.body(null, 201) : c.json({ error: received.error }, received.status);
   })
   // Restoring, which is the half that destroys something. Accounts go in first
   // and the register after, so a user never exists pointing at a store that has

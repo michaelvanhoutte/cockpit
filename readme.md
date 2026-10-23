@@ -58,7 +58,7 @@ The first screen is the logon page, and the way in is *Continue with Google*. Lo
 
 **It stays one command deliberately.** The testing strategy requires the application to be started and the change actually exercised before anything is claimed to work, and four commands across two terminals is the friction that quietly turns "start the app" into "the tests passed".
 
-**One optional thing, if you want a captured note cleaned up locally.** Copy `apps/api/.dev.vars.example` to `.dev.vars` — gitignored — and put an `ANTHROPIC_API_KEY` in it (and `ANTHROPIC_WORKSPACE_ID` beside it where the key is scoped to an organisation). Without one everything works and each note simply keeps the title you typed; `/health` says which of the two you are in, as `ai`. Wrangler reads that file at startup, so a change to it needs `pnpm dev` restarting.
+**One optional thing, if you want a captured note cleaned up locally.** Copy `apps/api/.dev.vars.example` to `.dev.vars` — gitignored — and put an `ANTHROPIC_API_KEY` in it (and `ANTHROPIC_WORKSPACE_ID` beside it where the key is scoped to an organisation) and the `USAGE_RECORDING_TOKEN` the owner gives you: a key without it counts as no key, because each call's record is sent to production. Without them everything works and each note simply keeps the title you typed; `/health` says which of the two you are in, as `ai`. Wrangler reads that file at startup, so a change to it needs `pnpm dev` restarting.
 
 `pnpm typecheck` and `pnpm test` run across all packages. Both assume the install matches `pnpm-lock.yaml`, which two ordinary things break: a fresh worktree has no `node_modules`, and a pull that adds a workspace package leaves yours incomplete. Run `pnpm install` after either.
 

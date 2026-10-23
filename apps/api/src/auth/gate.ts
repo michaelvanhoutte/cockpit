@@ -2,6 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { dueInDaysSchema } from '@cockpit/shared';
 import type { Env } from '../env.js';
+import { USAGE_RECORDS_PATH } from '../gateway/receive.js';
 import { ATTACHMENT_LINK_PREFIX } from './attachment-link.js';
 import type { Attempt } from './oidc.js';
 import { MOVED_OPERATOR_PREFIXES, isOperatorPath } from './operator.js';
@@ -132,6 +133,12 @@ export const RETIRED_PATHS: readonly string[] = [
  *   354). Whether it does is the route's own question and not this gate's: a
  *   request that never gets past here could not be refused for the right
  *   reason.
+ * - `/v1/usage-records` is where staging and a laptop send the records of
+ *   their Claude calls to production ("Record staging's and local Claude calls
+ *   in production, under a token per environment", issue 1458). Whoever calls
+ *   it holds no session, and the route is not open: it answers only to one of
+ *   three recording tokens, checked in `gateway/receive.ts`, none of which
+ *   opens anything else.
  *
  * **The list of people to choose from is gone from here**, along with the
  * endpoint behind it: once it is no longer the way in, publishing who has an
@@ -146,6 +153,7 @@ export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
   '/v1/sign-in/google',
   '/v1/sign-in/google/callback',
   '/v1/sign-in/guest',
+  USAGE_RECORDS_PATH,
   ...RETIRED_PATHS,
 ];
 

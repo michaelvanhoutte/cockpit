@@ -88,6 +88,9 @@
         "apps/api/src/gateway/attempts.ts",
         "apps/api/src/gateway/record.ts",
         "apps/api/src/gateway/export.ts",
+        "apps/api/src/gateway/environment.ts",
+        "apps/api/src/gateway/receive.ts",
+        "apps/api/src/gateway/send.ts",
         "apps/api/src/ai/index.ts"
       ]
     },

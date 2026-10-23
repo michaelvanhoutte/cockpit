@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
 import { callThrough, inRealTime, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
-import { providerCallsIn } from '../gateway/record.js';
+import { hasClaudeKey } from '../gateway/environment.js';
+import { recorderFor } from '../gateway/send.js';
 import { buildCleanUpANote } from './prompts/clean-up-a-note.v17.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v3.js';
 import { buildResolveAPlace } from './prompts/resolve-a-place.v1.js';
@@ -181,10 +182,13 @@ export interface AiService {
  * no key here" in the logs, and `/health` reports the same fact so an
  * environment that will never enrich anything says so out loud rather than
  * being discovered months later (docs/deployment.md, "Secrets and access").
+ *
+ * **Outside production a key with no recording token counts as no key**
+ * (`gateway/environment.ts`): the call would spend the key and leave no row.
  */
 export function aiFor(env: Env): AiService | null {
-  if (!env.ANTHROPIC_API_KEY) return null;
-  return new ClaudeAiService(env.ANTHROPIC_API_KEY, env.ANTHROPIC_WORKSPACE_ID, undefined, providerCallsIn(env));
+  if (!env.ANTHROPIC_API_KEY || !hasClaudeKey(env)) return null;
+  return new ClaudeAiService(env.ANTHROPIC_API_KEY, env.ANTHROPIC_WORKSPACE_ID, undefined, recorderFor(env));
 }
 
 /**

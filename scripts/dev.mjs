@@ -54,11 +54,12 @@
 // Node is already a hard requirement (the version package.json's `engines`
 // asks for) and needs no dependency to do this.
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { halvesToRun, paint, run, start, supervise } from './lib/processes.mjs';
+import { checkoutBranch, productionOrigin, recordingVars } from './lib/local-recording.mjs';
 import { howToFreeThePort, isLinkedWorktree, portsFor } from './lib/ports.mjs';
 import { assertPortFree } from './lib/stack.mjs';
 import { startStubIssuer } from './lib/stub-issuer.mjs';
@@ -254,6 +255,17 @@ if (running.api) {
         // the contract tier's question.
         '--var',
         'TRANSCRIPTION_STAND_IN:true',
+        // Where this Worker's Claude calls are recorded ("Record staging's and
+        // local Claude calls in production, under a token per environment",
+        // issue 1458): sent to production, with this checkout's branch on each.
+        // A key does nothing here until `USAGE_RECORDING_TOKEN` is in
+        // `.dev.vars` (apps/api/.dev.vars.example), since a call that leaves no
+        // row is not made.
+        ...recordingVars({
+          branch: checkoutBranch(root),
+          origin: productionOrigin(readFileSync(join(root, 'apps/api/wrangler.jsonc'), 'utf8')),
+          environment: process.env,
+        }).flatMap((pair) => ['--var', pair]),
       ],
       'api',
       '36',
