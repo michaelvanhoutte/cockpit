@@ -137,7 +137,10 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
  */
 export async function rebuildTotals(db: D1Database, now = Date.now()): Promise<{ days: number; dropped: number }> {
   const day = belgianDaySql('occurred_at');
-  const results = await db.batch([
+  const calls = rebuildCallStatements(db, now);
+  const [dropped] = await db.batch([
+    calls.drop,
+    ...calls.rebuild,
     db.prepare('DELETE FROM daily_totals'),
     db.prepare('DELETE FROM daily_split_totals'),
     db.prepare('DELETE FROM session_starts'),
@@ -153,11 +156,9 @@ export async function rebuildTotals(db: D1Database, now = Date.now()): Promise<{
       ${SPLIT_TOTALS_SELECT(day)} GROUP BY ${SPLIT_TOTALS_KEYS(day)}`),
     db.prepare(`INSERT INTO session_starts (${SESSION_START_COLUMNS})
       ${SESSION_STARTS_SELECT(day, '')}`),
-    ...rebuildCallStatements(db, now),
   ]);
-  const dropped = results.at(-3)!.meta.changes ?? 0;
   const covered = await db.prepare('SELECT COUNT(DISTINCT day) AS days FROM daily_totals').first<{ days: number }>();
-  return { days: covered?.days ?? 0, dropped };
+  return { days: covered?.days ?? 0, dropped: dropped!.meta.changes ?? 0 };
 }
 
 export interface UnpricedLine {

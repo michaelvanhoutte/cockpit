@@ -7,6 +7,8 @@
  * whole and nothing from it is stored.
  */
 
+import { ISO_TIME } from './validate';
+
 /** One call as the Monitor stores it: the route's fields, the time in epoch milliseconds and the cost in millionths of a dollar. */
 export interface ClaudeCall {
   id: number;
@@ -37,14 +39,15 @@ const FIELDS = [
 const OUTCOMES = ['ok', 'error', 'timed-out'] as const;
 const TOKEN_FIELDS = ['tokensIn', 'cacheRead', 'cacheWrite', 'tokensOut'] as const;
 
-/** A four-digit year and an explicit zone, so the day is never guessed. */
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+/**
+ * A string of 1 to `max` characters, or null. As loose as what production
+ * accepts from a sender, since a call refused here stops the import at it for good.
+ */
+const text = (value: unknown, max: number) => (typeof value === 'string' && value !== '' && value.length <= max ? value : null);
 
-const text = (value: unknown, max: number) => (typeof value === 'string' && value.trim() !== '' && value.length <= max ? value : null);
-
-/** A string of at most `max`, or null; undefined when it is neither. */
+/** A string of at most `max`, or null, an empty one stored as null; undefined when it is neither. */
 function optionalText(value: unknown, max: number): string | null | undefined {
-  if (value === null) return null;
+  if (value === null || value === '') return null;
   return text(value, max) ?? undefined;
 }
 
@@ -93,7 +96,8 @@ function checkCall(raw: unknown): ClaudeCall | string {
   if (!feature) return 'has no feature.';
   const model = text(r.model, 200);
   if (!model) return 'has no model.';
-  if (!(OUTCOMES as readonly unknown[]).includes(r.outcome)) return `has outcome ${JSON.stringify(r.outcome)}, which is not one of ${OUTCOMES.join(', ')}.`;
+  // A refusal names the field, never its value: it is stored and shown on the public page.
+  if (!(OUTCOMES as readonly unknown[]).includes(r.outcome)) return `has an outcome that is not one of ${OUTCOMES.join(', ')}.`;
 
   const promptVersion = optionalText(r.promptVersion, 100);
   if (promptVersion === undefined) return 'has a prompt version that is not a short string or null.';
@@ -106,15 +110,15 @@ function checkCall(raw: unknown): ClaudeCall | string {
   for (const field of TOKEN_FIELDS) {
     const value = r[field];
     if (value !== null && !(typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) {
-      return `has ${field} ${JSON.stringify(value)}, which is not a whole number of tokens, zero or more, or null.`;
+      return `has a ${field} that is not a whole number of tokens, zero or more, or null.`;
     }
     tokens[field] = value;
   }
   if (r.costUsd !== null && !(typeof r.costUsd === 'number' && Number.isFinite(r.costUsd) && r.costUsd >= 0)) {
-    return `has costUsd ${JSON.stringify(r.costUsd)}, which is not a number of dollars, zero or more, or null.`;
+    return 'has a costUsd that is not a number of dollars, zero or more, or null.';
   }
   for (const field of ['pullRequest', 'runId'] as const) {
-    if (r[field] !== null && !positive(r[field])) return `has ${field} ${JSON.stringify(r[field])}, which is not a positive whole number or null.`;
+    if (r[field] !== null && !positive(r[field])) return `has a ${field} that is not a positive whole number or null.`;
   }
 
   return {

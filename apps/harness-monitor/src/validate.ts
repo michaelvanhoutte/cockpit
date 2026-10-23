@@ -75,7 +75,7 @@ export interface UsageRow {
 export type Validated = { ok: true; rows: UsageRow[] } | { ok: false; error: string };
 
 /** A four-digit year and an explicit zone, so the UTC day is never guessed or malformed. */
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+export const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
 const TOKEN_FIELDS =['inputTokens', 'outputTokens', 'cacheCreationTokens', 'cacheReadTokens'] as const;
 

@@ -6,6 +6,10 @@
   "name": "harness-monitor",
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-01",
+  // Without it Cloudflare refuses a fetch from this Worker to Cockpit's, another
+  // Worker on the same account's workers.dev, with error 1042. Every other fetch
+  // here is to the public internet already, so nothing else changes.
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "preview_urls": false,
   "observability": { "logs": { "enabled": true } },
 

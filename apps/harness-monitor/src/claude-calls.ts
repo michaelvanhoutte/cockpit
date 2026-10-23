@@ -151,12 +151,15 @@ export function keptFrom(now: number): number {
 }
 
 /**
- * The rebuild's statements for the calls, to ride in its one batch: the copies
- * older than 12 months go, then the totals are rebuilt from what is left. The
- * delete names only the copies; Claude Code's requests are never touched.
+ * The rebuild's statements for the calls, to ride in its one batch, in this
+ * order: `drop`, the copies older than 12 months, then `rebuild`, the totals
+ * from what is left. The delete names only the copies; Claude Code's requests
+ * are never touched.
  */
-export const rebuildCallStatements = (db: D1Database, now: number) => [
-  db.prepare('DELETE FROM claude_calls WHERE occurred_at < ?').bind(keptFrom(now)),
-  db.prepare('DELETE FROM claude_call_daily_totals'),
-  db.prepare(`INSERT INTO claude_call_daily_totals (${TOTALS_COLUMNS}) ${TOTALS_SELECT} GROUP BY ${TOTALS_KEYS}`),
-];
+export const rebuildCallStatements = (db: D1Database, now: number) => ({
+  drop: db.prepare('DELETE FROM claude_calls WHERE occurred_at < ?').bind(keptFrom(now)),
+  rebuild: [
+    db.prepare('DELETE FROM claude_call_daily_totals'),
+    db.prepare(`INSERT INTO claude_call_daily_totals (${TOTALS_COLUMNS}) ${TOTALS_SELECT} GROUP BY ${TOTALS_KEYS}`),
+  ],
+});

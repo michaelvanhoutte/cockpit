@@ -43,6 +43,24 @@ describe('Harness Monitor', () => {
     });
 
     it.each([
+      { situation: 'an empty prompt version', over: { promptVersion: '' } },
+      { situation: 'an empty started-by', over: { startedBy: '' } },
+      { situation: 'an empty branch', over: { branch: '' } },
+      { situation: 'a feature of only a space', over: { feature: ' ' } },
+    ])('a call with $situation, which production accepts from a sender, is accepted, so the import never stops at it', ({ over }) => {
+      expect(checkCallsPage({ calls: [call(over)], more: false }, 0).ok).toBe(true);
+    });
+
+    it.each([
+      { situation: 'an outcome', over: { outcome: 'anna@example.com' } },
+      { situation: 'a token count', over: { tokensIn: 'anna@example.com' } },
+      { situation: 'a cost', over: { costUsd: 'anna@example.com' } },
+      { situation: 'a pull request', over: { pullRequest: 'anna@example.com' } },
+    ])('a refusal of $situation names what is wrong, never what production sent in it', ({ over }) => {
+      expect(refusal([call(over)])).not.toContain('anna');
+    });
+
+    it.each([
       { situation: 'a call carrying a user', calls: [call({ userId: 'user-anna' })], named: '"userId"' },
       { situation: 'a call carrying an account', calls: [call({ accountName: 'anna' })], named: '"accountName"' },
       { situation: 'a page carrying more than its calls', page: { calls: [call()], more: false, users: [] }, named: '"users"' },
