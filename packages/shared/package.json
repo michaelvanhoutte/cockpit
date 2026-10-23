@@ -2,6 +2,7 @@
   "name": "@cockpit/shared",
   "version": "0.0.0",
   "private": true,
+  "sideEffects": false,
   "description": "The contract: domain types, Zod schemas, command definitions, API shapes, and the item-matching rules.",
   "type": "module",
   "exports": {
