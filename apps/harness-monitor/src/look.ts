@@ -21,12 +21,13 @@ export const FONT_URL = '/fonts/inter-5.3.0-latin-wght.woff2';
 /** The mark: four rounded squares, the fourth in the default theme's violet lifted for the chrome. */
 const LOGO = `<svg aria-hidden="true" viewBox="0 0 32 32" class="logo"><rect x="3" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="3" y="17" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="17" width="12" height="12" rx="2.5" fill="var(--logo-dot)"/></svg>`;
 
-/** The pages the top bar lists, in order. */
-export type PageName = 'costs' | 'claude-calls';
-const PAGES: { name: PageName; href: string; label: string }[] = [
+/** Every page the top bar lists, in tab order. A new page is a line here and its own route. */
+export const PAGES = [
   { name: 'costs', href: '/', label: 'Claude Code costs' },
   { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls' },
-];
+  { name: 'stability', href: '/stability', label: 'CI stability' },
+] as const;
+export type PageName = (typeof PAGES)[number]['name'];
 
 /** A section heading: the strip Cockpit draws over a panel, with an optional note at its right. */
 export const band = (title: string, aside = '', id = '') =>
@@ -50,12 +51,12 @@ function chrome(current: PageName, now: number): string {
 }
 
 /**
- * What a page is drawn with: which tab is current, what its band carries, and
- * the page itself. The band carries `controls`, pinned to the top as the page
+ * What a page is drawn with: which tab is current, what its band carries, the
+ * page itself, and any stylesheet it adds to the shared one. The band carries `controls`, pinned to the top as the page
  * scrolls, or grouping `tabs`, or nothing: a bare strip, so the page's tab
  * still runs into it.
  */
-export function shell(page: { current: PageName; tabs?: string; controls?: string; body: string }, now: number): string {
+export function shell(page: { current: PageName; tabs?: string; controls?: string; body: string; style?: string }, now: number): string {
   const strip =
     page.controls !== undefined
       ? `<div class="band band-controls">${page.controls}</div>`
@@ -66,7 +67,7 @@ export function shell(page: { current: PageName; tabs?: string; controls?: strin
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
 <link rel="preload" href="${FONT_URL}" as="font" type="font/woff2" crossorigin>
-<style>${STYLE}</style>
+<style>${STYLE}${page.style ?? ''}</style>
 </head><body>
 ${chrome(page.current, now)}
 ${strip}

@@ -9,6 +9,8 @@ import { renderPage } from './page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
 import { checkRuns } from './stability';
+import { renderStability } from './stability-page';
+import { loadStability, parseStabilityQuery, stabilityAddress } from './stability-report';
 import { newestRun, parsePeriod, stabilityAnswer, storeRuns } from './stability-store';
 import { correctBatch, stillUnphased, storeBatch, unpricedLines } from './store';
 import { validateBatch, validateCorrections } from './validate';
@@ -84,19 +86,32 @@ async function writeStability(request: Request, env: Env): Promise<Response> {
   return json(await storeRuns(env.DB, checked.runs));
 }
 
-/** CI stability's stored runs for the period the address asks, as JSON, cached like the costs page. */
+/** Whether the request asks for the JSON answer rather than the page: `?format=json`, or an `Accept` header naming `application/json`. */
+const wantsJson = (request: Request, url: URL) => url.searchParams.get('format') === 'json' || (request.headers.get('accept') ?? '').includes('application/json');
+
+/**
+ * CI stability: the page, or its stored runs as JSON when the request asks
+ * (`wantsJson`), for the period the address asks. Cached like the costs page
+ * under one key per view, so a page and its JSON never share an entry.
+ */
 async function stability(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+  const asJson = wantsJson(request, url);
+  const query = parseStabilityQuery(url.searchParams);
   const period = parsePeriod(url.searchParams.get('period'));
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(`${url.origin}/stability${period === '30d' ? '' : `?period=${period}`}`);
+  const key = new Request(asJson ? `${url.origin}/stability?format=json${period === '30d' ? '' : `&period=${period}`}` : `${url.origin}${stabilityAddress(query)}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 
-  const response = Response.json(await stabilityAnswer(env.DB, period, Date.now()), {
-    headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' },
-  });
+  const now = Date.now();
+  const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
+  const response = asJson
+    ? Response.json(await stabilityAnswer(env.DB, period, now), { headers })
+    : new Response(renderStability(query, await loadStability(env.DB, query.period, now), env.GITHUB_REPOSITORY, now), {
+        headers: { ...headers, 'content-type': 'text/html; charset=utf-8' },
+      });
   if (cache) ctx.waitUntil(cache.put(key, response.clone()));
   return response;
 }

@@ -32,13 +32,14 @@ describe('Harness Monitor', () => {
       { situation: "a pull request's page", page: async () => (await thePullRequest(7)).text(), current: 'Claude Code costs' },
       { situation: 'the page for a pull request nothing knows', page: async () => (await thePullRequest(999)).text(), current: 'Claude Code costs' },
       { situation: "Cockpit's Claude calls", page: () => theCallsPage(), current: "Cockpit's Claude calls" },
-    ])('$situation shows the mark, the name and both tabs, its own selected', async ({ page, current }) => {
+    ])('$situation shows the mark, the name and every tab, its own selected', async ({ page, current }) => {
       expect(topBar(await page())).toEqual({
         mark: true,
         name: true,
         tabs: [
           { label: 'Claude Code costs', current: current === 'Claude Code costs' },
           { label: "Cockpit's Claude calls", current: current === "Cockpit's Claude calls" },
+          { label: 'CI stability', current: false },
         ],
       });
     });
@@ -52,10 +53,10 @@ describe('Harness Monitor', () => {
       expect((await page()).match(/<h1\b/g)).toHaveLength(1);
     });
 
-    it("the tabs lead to the costs page and to Cockpit's Claude calls", async () => {
+    it("the tabs lead to the costs page, Cockpit's Claude calls and CI stability", async () => {
       const bar = /<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(await theBarePage())![1]!;
 
-      expect([...bar.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/', '/claude-calls']);
+      expect([...bar.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/', '/claude-calls', '/stability']);
     });
   });
 

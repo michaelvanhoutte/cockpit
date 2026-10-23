@@ -6,7 +6,7 @@ beforeEach(emptyTheDatabase);
 afterEach(() => vi.useRealTimers());
 
 const theAnswer = async (query = '') => {
-  const response = await SELF.fetch(`https://monitor.test/stability${query}`);
+  const response = await SELF.fetch(`https://monitor.test/stability?format=json${query.replace('?', '&')}`);
   expect(response.status).toBe(200);
   return response.json();
 };
