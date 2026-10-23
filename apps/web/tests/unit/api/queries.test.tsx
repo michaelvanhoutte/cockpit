@@ -64,6 +64,14 @@ vi.mock('../../../src/itemForm', () => ({
   useOpenItem: () => (itemId: string) => {
     opened.item = itemId;
   },
+  // And this to move to the other note when it is the one kept ("Choose which
+  // of two possible duplicates to keep, from the warning", issue 1451).
+  useDockedItem: () => ({
+    openId: null,
+    show: (itemId: string) => {
+      opened.item = itemId;
+    },
+  }),
 }));
 
 vi.mock('../../../src/description/RichDescription', () => ({

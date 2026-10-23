@@ -51,6 +51,7 @@ const held = vi.hoisted(() => ({
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
   open: vi.fn(),
+  show: vi.fn(),
   reportDocked: vi.fn(),
   quietly: false,
   /** Holds every read of the snapshot until it settles, where a test needs one still in flight. */
@@ -70,6 +71,7 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('../../../src/itemForm', () => ({
   useItemForm: () => ({ openItemId: held.openItemId, close: held.close }),
   useOpenItem: () => held.open,
+  useDockedItem: () => ({ openId: null, show: held.show }),
   useReportDocked: () => held.reportDocked,
   useQuietOpening: () => () => held.quietly,
   useSettleQuietOpening: () => held.settleQuiet,
@@ -398,6 +400,7 @@ beforeEach(() => {
   held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
   held.close.mockClear();
   held.open.mockClear();
+  held.show.mockClear();
   held.reportDocked.mockClear();
   held.quietly = false;
   held.gate = undefined;
@@ -2284,12 +2287,15 @@ describe('Item editing', () => {
       { situation: 'opens with a heading', description: '# Call Novy\nThen the rest', shown: 'Call Novy' },
       { situation: 'opens with an image', description: '![](https://example.com/photo.png)\n\nCall Novy', shown: 'Call Novy' },
       { situation: 'opens with emphasis', description: '**Call** _Novy_ today', shown: 'Call Novy today' },
+      { situation: 'opens with a rule', description: '---\nCall Novy', shown: 'Call Novy' },
+      { situation: 'opens with a code fence', description: '```\nCall Novy\n```', shown: 'Call Novy' },
+      { situation: 'opens with a quote', description: '> Call Novy', shown: 'Call Novy' },
     ])('says the first line of a description that $situation without the Markdown around it', async ({ description, shown }) => {
       await theForm(thisNote(), [theOther({ description })]);
 
       const text = screen.getByRole('group', { name: 'The other note' }).textContent;
       expect(text).toContain(shown);
-      expect(text).not.toMatch(/[#*_\[\]]/);
+      expect(text).not.toMatch(/[#*_\[\]`>]|---/);
     });
   });
 
@@ -2358,7 +2364,7 @@ describe('Item editing', () => {
       await user.click(keepOn('The other note'));
 
       expect(dismissals()).toEqual([['item-1', true]]);
-      expect(held.open).toHaveBeenCalledWith(ANOTHER_NOTE.id, { replace: true });
+      expect(held.show).toHaveBeenCalledWith(ANOTHER_NOTE.id);
       expect(await screen.findByText('“Part 11” dismissed')).toBeVisible();
     });
 
@@ -2411,7 +2417,7 @@ describe('Item editing', () => {
 
       await user.click(keepOn('The other note'));
 
-      expect(held.open).toHaveBeenCalledWith(ANOTHER_NOTE.id, { replace: true });
+      expect(held.show).toHaveBeenCalledWith(ANOTHER_NOTE.id);
       expect(await screen.findByText('“Part 11” was not dismissed. That note is locked.')).toBeVisible();
     });
   });

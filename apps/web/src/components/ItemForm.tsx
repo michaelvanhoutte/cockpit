@@ -63,6 +63,7 @@ import {
   type StatusState,
 } from '../itemFieldCommands';
 import {
+  useDockedItem,
   useItemForm,
   useOpenItem,
   useQuietOpening,
@@ -281,6 +282,7 @@ function TheForm({
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const openItem = useOpenItem();
+  const { show: moveTo } = useDockedItem();
   const isQuietOpening = useQuietOpening();
   const [openedQuietly] = useState(() => isQuietOpening(itemId));
   /**
@@ -503,12 +505,12 @@ function TheForm({
   /**
    * *Keep this one* on the other note's card: this note goes, and the form
    * moves to the other. Replacing this note's address rather than stacking on
-   * it, so Back from the other note leaves the form instead of landing on a
-   * note that has been dismissed.
+   * it (`show`, the one open form changing its Item), so Back from the other
+   * note leaves the form instead of landing on a note that has been dismissed.
    */
   const keepTheOther = (current: Item, other: Item) => {
     dismissAsDuplicate(current);
-    openItem(other.id, { replace: true });
+    moveTo(other.id);
   };
 
   /**

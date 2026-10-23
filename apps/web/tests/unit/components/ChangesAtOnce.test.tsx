@@ -49,6 +49,12 @@ vi.mock('../../../src/itemForm', async (importOriginal) => ({
   useOpenItem: () => (itemId: string) => {
     opened.item = itemId;
   },
+  useDockedItem: () => ({
+    openId: null,
+    show: (itemId: string) => {
+      opened.item = itemId;
+    },
+  }),
 }));
 
 /** The description's editor, as a box that takes text and says what is in it. */
