@@ -6,9 +6,7 @@ import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../dueDateShortcuts';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 import { MenuContent, menuItemSplitClass } from './Menu';
-import { REPEATS_POPOVER, RepeatsChoices, type RepeatsChoice } from './RepeatsChip';
 import { WaitChip, type WaitChoice } from './WaitForReply';
-import { ruleLabel } from '@cockpit/shared';
 
 /**
  * The Item's fields on a phone's page, as a wrapping row of chips ("Edit an
@@ -49,8 +47,6 @@ export interface ItemFormChipsProps {
   onAttach: () => void;
   /** *Wait for reply…* or *Wait again…*, one more chip, and what Waiting for reply on Status asks ("Set an Item Waiting for reply", issue 1463); absent where the Item cannot wait. */
   wait?: WaitChoice | undefined;
-  /** The Repeats chip, one more in the row ("Set an Item to repeat from its form", issue 1406); absent where the Item cannot repeat. */
-  repeats?: RepeatsChoice | undefined;
 }
 
 function Ticked({ on }: { on: boolean }) {
@@ -213,24 +209,6 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
           className={`${CHIP} ${UNSET} hover:border-accent hover:text-ink`}
           {...props.wait}
         />
-      )}
-
-      {props.repeats && (
-        <Popover.Root onOpenChange={(open) => !open && props.repeats?.onSettled()}>
-          <Popover.Trigger
-            disabled={disabled}
-            title="Repeats"
-            className={`${CHIP} ${props.repeats.repeat ? `${SET} bg-shade/5 text-ink` : UNSET}`}
-          >
-            <span aria-hidden="true">↻</span>
-            {props.repeats.repeat ? ruleLabel(props.repeats.repeat) : 'Repeats'}
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content align="start" sideOffset={4} className={REPEATS_POPOVER}>
-              <RepeatsChoices {...props.repeats} />
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
       )}
 
       <button

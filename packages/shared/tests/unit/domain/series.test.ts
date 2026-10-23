@@ -3,19 +3,20 @@ import {
   firstDayAfter,
   firstNextOn,
   readBack,
-  repeatOf,
-  repeatsTitle,
+  recurringOriginOf,
+  recurringTitle,
+  repeatRuleSchema,
   ruleLabel,
   type RepeatRule,
   type Series,
 } from '../../../src/domain/series.js';
 
 /**
- * L1: how a repeat is said ("Set an Item to repeat from its form, and see the
- * rule on its row", issue 1406) - the line under the Repeats popover, the day
- * Next on starts from, and the row's hover - and the day it comes back on next
- * ("Bring a repeating Item back on its day", issue 1407). Pure: the days are
- * given, never read.
+ * L1: how a recurring rule is said - the line under the Recurring items form's
+ * controls, the day Next on starts from, and a copy's row hover ("Point a copy at
+ * its master, and retire the Repeats chip", issue 1450) - which recurring item
+ * a copy came from, and the day it comes back on next. Pure: the days are given,
+ * never read.
  */
 
 const weekly: RepeatRule = { frequency: 'weekly', nextOn: '2026-11-02', dueAfterDays: 5 };
@@ -111,31 +112,62 @@ describe('Item editing', () => {
     });
   });
 
-  describe("a repeating row's hover names the rule, and a row that does not repeat has none", () => {
+  describe("a copy's row hover names how often it recurs, and a row that is no copy has none", () => {
     it.each<{ situation: string; rule: RepeatRule; says: string }>([
-      { situation: 'weekly from a Monday', rule: weekly, says: 'Repeats weekly on Monday' },
-      { situation: 'daily', rule: { ...weekly, frequency: 'daily' }, says: 'Repeats daily' },
-      { situation: 'yearly', rule: { ...weekly, frequency: 'yearly' }, says: 'Repeats yearly on 2 November' },
+      { situation: 'weekly from a Monday', rule: weekly, says: 'Recurring weekly on Monday' },
+      { situation: 'daily', rule: { ...weekly, frequency: 'daily' }, says: 'Recurring daily' },
+      { situation: 'yearly', rule: { ...weekly, frequency: 'yearly' }, says: 'Recurring yearly on 2 November' },
     ])('$situation', ({ rule, says }) => {
-      expect(repeatsTitle(rule)).toBe(says);
-      expect(ruleLabel(rule)).toBe(says.replace(/^Repeats (.)/u, (_all, first: string) => first.toUpperCase()));
+      expect(recurringTitle(rule)).toBe(says);
+      expect(ruleLabel(rule)).toBe(says.replace(/^Recurring (.)/u, (_all, first: string) => first.toUpperCase()));
     });
+  });
 
+  describe('a copy names the recurring item it came from, and an Item that is no copy names none', () => {
     const series: Series = {
       id: '018f0000-0000-7000-8000-000000000001',
       tenantId: 'tenant',
       ...weekly,
       timeZone: 'Europe/Brussels',
       stoppedAt: null,
+      title: 'Weekly review',
+      workspaceId: 'ws-main',
     };
+    const origin = { id: series.id, title: 'Weekly review', workspaceId: 'ws-main', rule: weekly };
 
     it.each([
-      { situation: 'an Item whose series is running', item: { seriesId: series.id }, series: [series], rule: weekly },
-      { situation: 'an Item whose series is stopped', item: { seriesId: series.id }, series: [{ ...series, stoppedAt: '2026-10-22T10:00:00.000Z' }], rule: null },
-      { situation: 'an Item that has never repeated', item: { seriesId: null }, series: [series], rule: null },
-      { situation: 'an Item naming a series the Workspace does not carry', item: { seriesId: series.id }, series: [], rule: null },
-    ])('reads $situation as its rule or none', ({ item, series: held, rule }) => {
-      expect(repeatOf(item, held)).toEqual(rule);
+      { situation: 'a copy of a recurring item that runs', item: { seriesId: series.id }, series: [series], origin: { ...origin, running: true } },
+      {
+        situation: 'a copy of a recurring item since deleted',
+        item: { seriesId: series.id },
+        series: [{ ...series, stoppedAt: '2026-10-22T10:00:00.000Z' }],
+        origin: { ...origin, running: false },
+      },
+      { situation: 'an Item that is no copy', item: { seriesId: null }, series: [series], origin: null },
+      { situation: 'an Item naming a series the Workspace does not carry', item: { seriesId: series.id }, series: [], origin: null },
+      {
+        situation: 'a copy of a series that was never made into a recurring item',
+        item: { seriesId: series.id },
+        series: [{ ...series, title: null, workspaceId: null }],
+        origin: null,
+      },
+    ])('reads $situation as its origin or none', ({ item, series: held, origin: expected }) => {
+      expect(recurringOriginOf(item, held)).toEqual(expected);
+    });
+  });
+
+  describe('a rule that cannot be set is turned away', () => {
+    it.each<{ situation: string; rule: unknown; takes: boolean }>([
+      { situation: 'a frequency outside the list', rule: { ...weekly, frequency: 'fortnightly' }, takes: false },
+      { situation: 'a negative due gap', rule: { ...weekly, dueAfterDays: -1 }, takes: false },
+      { situation: 'a due gap over 366 days', rule: { ...weekly, dueAfterDays: 367 }, takes: false },
+      { situation: 'a due gap that is not whole days', rule: { ...weekly, dueAfterDays: 1.5 }, takes: false },
+      { situation: 'a Next on that is not a calendar day', rule: { ...weekly, nextOn: 'next monday' }, takes: false },
+      { situation: 'a due gap of 0 days', rule: { ...weekly, dueAfterDays: 0 }, takes: true },
+      { situation: 'a due gap of 366 days', rule: { ...weekly, dueAfterDays: 366 }, takes: true },
+      { situation: 'no due gap', rule: { ...weekly, dueAfterDays: null }, takes: true },
+    ])('$situation', ({ rule, takes }) => {
+      expect(repeatRuleSchema.safeParse(rule).success).toBe(takes);
     });
   });
 });

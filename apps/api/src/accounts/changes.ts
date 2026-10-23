@@ -1299,7 +1299,7 @@ const BLANKS = `' ' || char(9) || char(10) || char(13)`;
  * it", issue 1444): its Workspace, title, description and priority from its
  * latest Item, dismissed or not, and its Panels from that Item's live filings,
  * in the order the Item was filed on them. A stopped series is left stopped and
- * empty; the Repeats chip fills it if its rule is set again (`set_repeat`).
+ * empty.
  *
  * **A latest Item with no title gives the Item's label**, as its row shows it
  * (`itemLabel`): its next action on one line, or *Untitled*. A run of spaces

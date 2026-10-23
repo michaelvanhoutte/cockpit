@@ -813,18 +813,18 @@ describe('Item editing', () => {
     });
 
     /**
-     * "Set an Item to repeat from its form, and see the rule on its row" (issue
-     * 1406): the list hands the row the rule its Item repeats by, none for an Item
-     * that does not repeat or whose series is stopped.
+     * "Point a copy at its master, and retire the Repeats chip" (issue 1450): the
+     * list hands the row the rule of the recurring item its Item is a copy of,
+     * none for an Item that is no copy.
      */
     it.each([
-      { situation: 'a weekly rule from a Monday', repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null }, hover: 'Repeats weekly on Monday' },
-      { situation: 'a daily rule', repeat: { frequency: 'daily' as const, nextOn: '2026-11-02', dueAfterDays: 3 }, hover: 'Repeats daily' },
-      { situation: 'no rule, as for an Item that does not repeat or whose series is stopped', repeat: null, hover: null },
-    ])('wears a ↻ naming the rule for $situation', ({ repeat, hover }) => {
-      aRow({ extra: { repeat } });
+      { situation: 'a copy of a weekly recurring item from a Monday', recurring: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null }, hover: 'Recurring weekly on Monday' },
+      { situation: 'a copy of a daily recurring item', recurring: { frequency: 'daily' as const, nextOn: '2026-11-02', dueAfterDays: 3 }, hover: 'Recurring daily' },
+      { situation: 'an Item that is no copy', recurring: null, hover: null },
+    ])('wears a ↻ naming how often it recurs for $situation', ({ recurring, hover }) => {
+      aRow({ extra: { recurring } });
 
-      const mark = screen.queryByRole('img', { name: /^Repeats/ });
+      const mark = screen.queryByRole('img', { name: /^Recurring/ });
       expect(mark?.getAttribute('title') ?? null).toBe(hover);
       expect(mark === null ? null : mark.textContent).toBe(hover === null ? null : '↻');
     });

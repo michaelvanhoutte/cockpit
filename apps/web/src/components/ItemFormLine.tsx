@@ -2,15 +2,11 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { ItemStatus, Priority } from '@cockpit/shared';
 import { MenuContent, menuItemSplitClass } from './Menu';
 import { Suspense, lazy, useRef, useState } from 'react';
-import type { RepeatsChoice } from './RepeatsChip';
 import type { WaitChoice } from './WaitForReply';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { DueChips, PriorityFlags, QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
 
-/** The Repeats chip and its popover, fetched behind the line so the entry does not carry them ("Set an Item to repeat from its form", issue 1406). */
-const RepeatsChip = lazy(() => import('./RepeatsChip').then((loaded) => ({ default: loaded.RepeatsChip })));
-
-/** The *Wait for reply…* chip and its popover, fetched behind the line for the same reason ("Set an Item Waiting for reply", issue 1463). */
+/** The *Wait for reply…* chip and its popover, fetched behind the line so the entry does not carry them ("Set an Item Waiting for reply", issue 1463). */
 const WaitChip = lazy(() => import('./WaitForReply').then((loaded) => ({ default: loaded.WaitChip })));
 
 const STATUSES: readonly [ItemStatus, string][] = [
@@ -26,8 +22,8 @@ const STATUSES: readonly [ItemStatus, string][] = [
  * form at a desk", issue 1102): a Status chip, then the flags and Due chips as
  * Capture's strip draws them. What a choice does is the form's - written at
  * once when docked, held until Save in the modal - so this only reports it.
- * *Wait for reply…* follows the Due chips, and the Repeats chip comes before
- * + Attach. **Waiting for reply on Status asks how long**, in the same popover.
+ * *Wait for reply…* follows the Due chips, before + Attach. **Waiting for reply on
+ * Status asks how long**, in the same popover.
  */
 export function ItemFormLine({
   status,
@@ -38,7 +34,6 @@ export function ItemFormLine({
   onPriority,
   onDueDate,
   wait,
-  repeats,
   onAttach,
 }: {
   status: ItemStatus;
@@ -50,12 +45,9 @@ export function ItemFormLine({
   onDueDate: (dueDate: string | null) => void;
   /** *Wait for reply…* or *Wait again…*; absent where the Item cannot wait. */
   wait?: WaitChoice | undefined;
-  /** The Repeats chip, before + Attach on the line ("Set an Item to repeat from its form", issue 1406); absent where the Item cannot repeat. */
-  repeats?: RepeatsChoice | undefined;
   /** Opens the file picker: attaching is on the line whichever tab is open ("Give an Item's attachments a tab of their own", issue 1410). */
   onAttach: () => void;
 }) {
-  const [repeatsFailed, setRepeatsFailed] = useState(false);
   const [waitFailed, setWaitFailed] = useState(false);
   const [waitOpen, setWaitOpen] = useState(false);
   /** That the Status menu is closing to open the wait's question, which takes the focus itself. */
@@ -103,6 +95,7 @@ export function ItemFormLine({
       <DueChips due={dueDate} onDue={onDueDate} disabled={disabled} />
       {wait &&
         (waitFailed ? (
+          // A chunk that never arrives leaves the rest of the form as it was, and says so where the chip would be.
           <span role="alert" className="text-sm text-over-ink">
             Wait for reply could not load. Reload Cockpit to try again.
           </span>
@@ -110,19 +103,6 @@ export function ItemFormLine({
           <WhateverTheQuestionDoes onFailure={() => setWaitFailed(true)}>
             <Suspense fallback={null}>
               <WaitChip open={waitOpen} onOpenChange={setWaitOpen} disabled={disabled} {...wait} />
-            </Suspense>
-          </WhateverTheQuestionDoes>
-        ))}
-      {repeats &&
-        (repeatsFailed ? (
-          // A chunk that never arrives leaves the rest of the form as it was, and says so where the chip would be.
-          <span role="alert" className="text-sm text-over-ink">
-            Repeats could not load. Reload Cockpit to try again.
-          </span>
-        ) : (
-          <WhateverTheQuestionDoes onFailure={() => setRepeatsFailed(true)}>
-            <Suspense fallback={null}>
-              <RepeatsChip disabled={disabled} {...repeats} />
             </Suspense>
           </WhateverTheQuestionDoes>
         ))}

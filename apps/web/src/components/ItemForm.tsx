@@ -21,9 +21,7 @@ import {
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
-  repeatOf,
-  ruleLabel,
-  sameRule,
+  recurringOriginOf,
   uuidv7,
   type Attachment,
   type AttachmentContentType,
@@ -31,21 +29,19 @@ import {
   type ItemFormPresentation,
   type ItemStatus,
   type Priority,
-  type RepeatRule,
-  type Series,
   filingsThatFile,
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
-import { deviceTimeZone } from '../deviceTimeZone';
 import { dateTimeLabel } from '../dateFormat';
 import { useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshot } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
+import { RecurringOriginLine } from './RecurringMark';
 import { useItemPanels } from '../useItemPanels';
 import { STATUS_LABELS } from '../allItems';
 import { dueDateLabel } from '../dueDate';
@@ -58,7 +54,6 @@ import {
   FIELD_NAMES,
   asStored,
   fieldWrites,
-  repeatWrites,
   type Draft,
   type Field,
   type StatusState,
@@ -118,7 +113,7 @@ const FILES_ON_THE_LINE = 4;
 const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want to keep and reopen it.';
 
 /** The boxes as the Item fills them. */
-const draftOf = (from: Item, series: readonly Series[] | undefined): Draft => ({
+const draftOf = (from: Item): Draft => ({
   title: from.title,
   description: from.description ?? '',
   priority: from.priority,
@@ -126,7 +121,6 @@ const draftOf = (from: Item, series: readonly Series[] | undefined): Draft => ({
   status: itemStatus(from),
   started: !!from.startedAt,
   waiting: !!from.waitingSince,
-  repeat: repeatOf(from, series),
   wait: null,
 });
 
@@ -204,7 +198,6 @@ export function whatChanged(
   priority?: Priority | null;
   dueDate?: string | null;
   status?: ItemStatus;
-  repeat?: RepeatRule | null;
   wait?: number;
 } {
   const changed: {
@@ -213,7 +206,6 @@ export function whatChanged(
     priority?: Priority | null;
     dueDate?: string | null;
     status?: ItemStatus;
-    repeat?: RepeatRule | null;
     wait?: number;
   } = {};
   const title = now.title.trim();
@@ -232,8 +224,6 @@ export function whatChanged(
   if (waits ? now.dueDate !== now.wait!.dueDate : now.dueDate !== was.dueDate) changed.dueDate = now.dueDate;
   // Compared as the status chosen, never the start time it may keep.
   if (now.status !== was.status && !waits) changed.status = now.status;
-  // The whole rule, compared whole: its three boxes are one thing the server checks together.
-  if (!sameRule(now.repeat, was.repeat)) changed.repeat = now.repeat;
   return changed;
 }
 
@@ -983,10 +973,6 @@ function TheForm({
   const setDraft =(now: Draft) => changeEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  /** Why the last write of Repeats was refused, said in its popover as well as with the rest ("Set an Item to repeat from its form", issue 1406). */
-  const [repeatRefusal, setRepeatRefusal] = useState<string | null>(null);
-  /** The series this Item joins if it has none: made once, so a Repeats written twice before the first is read back is one series. */
-  const newSeriesId = useRef(uuidv7());
   const { data: workspaceList } = useWorkspaces();
   /** The *On panels* field: written at once docked, held for Save otherwise (issue 1106). */
   const onPanels = useItemPanels({ item, workspaceId, data, docked });
@@ -1025,10 +1011,10 @@ function TheForm({
    */
   useEffect(() => {
     if (item && editing === null) {
-      const from = draftOf(item, data?.series);
+      const from = draftOf(item);
       changeEditing(() => ({ was: from, now: { ...from } }));
     }
-  }, [item, editing, data?.series]);
+  }, [item, editing]);
 
   /**
    * On a phone the page opens to be read, and editing is a step behind Edit or
@@ -1049,10 +1035,10 @@ function TheForm({
    * - and a Save does not wait on the read-back to be seen, `was` being moved
    * to what landed.
    */
-  const stored = item ? JSON.stringify(draftOf(item, data?.series)) : '';
+  const stored = item ? JSON.stringify(draftOf(item)) : '';
   useEffect(() => {
     if (!readView || !item) return;
-    const from = draftOf(item, data?.series);
+    const from = draftOf(item);
     changeEditing(() => ({ was: from, now: { ...from } }));
     // Only when the stored values move, not when reading begins: a Save has
     // just put `was` on what landed, which the cached Item may not yet say.
@@ -1071,7 +1057,7 @@ function TheForm({
   const stopEditing = () => {
     onPanels.discard();
     // Back to what the Item holds now, which a change made elsewhere while editing may have moved.
-    const from = item ? draftOf(item, data?.series) : null;
+    const from = item ? draftOf(item) : null;
     changeEditing((held) => (held ? { was: from ?? held.was, now: { ...(from ?? held.was) } } : held));
     setRefusal(null);
     setReading(true);
@@ -1123,13 +1109,7 @@ function TheForm({
     /** An undo of a Done names the run that Done ended, so the server reopens exactly that one. */
     reopensRunId?: string,
   ): { reaches: StatusState | null; settled: Promise<{ failure: string | null; held: StatusState | null }> } => {
-    const written =
-      field === 'repeat'
-        ? repeatWrites(envelope, value as RepeatRule | null, {
-            seriesId: item?.seriesId ?? newSeriesId.current,
-            timeZone: deviceTimeZone() ?? 'UTC',
-          })
-        : fieldWrites(field, envelope, value as string | WaitPutBack | null, from, deviceTimeZone() ?? 'UTC');
+    const written = fieldWrites(field, envelope, value as string | WaitPutBack | null, from, deviceTimeZone() ?? 'UTC');
     const writes = written.map((write) => ({
       ...write,
       command:
@@ -1210,7 +1190,6 @@ function TheForm({
           : now,
       );
       if (failure !== null) setRefusal(failure);
-      if (what === 'repeat') setRepeatRefusal(failure);
       return failure === null;
     };
 
@@ -1321,7 +1300,6 @@ function TheForm({
       let stopped: string | null = null;
       for (const write of started) {
         const { failure, held: reached } = await write.settled;
-        if (write.field === 'repeat') setRepeatRefusal(failure);
         if (failure === null) {
           committed.push({
             field: write.field,
@@ -1345,20 +1323,7 @@ function TheForm({
           // A status that did not all land shows what the item holds.
           settleOn(reached);
         } else {
-          // A refused repeat goes back whole - the chip and its read-back with the row's mark - and says why
-          // beside the choices: what was set is a rule the server refused, not text left to correct in place.
-          // Only while the box still holds the refused rule: one chosen since, already on its way, is not undone with it.
-          changeEditing((now) =>
-            now
-              ? {
-                  now:
-                    write.field === 'repeat' && sameRule(now.now.repeat, write.after.repeat ?? null)
-                      ? { ...now.now, repeat: write.before as RepeatRule | null }
-                      : now.now,
-                  was: { ...now.was, [write.field]: write.before },
-                }
-              : now,
-          );
+          changeEditing((now) => (now ? { now: now.now, was: { ...now.was, [write.field]: write.before } } : now));
         }
       }
       if (stopped !== null) {
@@ -1474,26 +1439,6 @@ function TheForm({
   );
 
   /**
-   * The Repeats chip's choices ("Set an Item to repeat from its form", issue 1406): the
-   * draft, written by the form's usual rule - at once docked, on Save otherwise. A
-   * frequency is written as it is picked; a date or a number, when the box is left.
-   */
-  const repeatsChoice = draft
-    ? {
-        repeat: draft.repeat,
-        refusal: repeatRefusal,
-        onRepeat: (repeat: RepeatRule | null, now: boolean) => {
-          setDraft({ ...draft, repeat });
-          setRepeatRefusal(null);
-          if (docked && now) void commitFields(['repeat']);
-        },
-        onSettled: () => {
-          if (docked) void commitFields(['repeat']);
-        },
-      }
-    : undefined;
-
-  /**
    * *Wait for reply…* and *Wait again…* ("Set an Item Waiting for reply, and
    * wait again after chasing", issue 1463): the status and the due date the wait
    * gives drawn in the boxes, and written by the form's usual rule - at once
@@ -1511,7 +1456,6 @@ function TheForm({
     : undefined;
   /** A status chosen in the boxes is the status: a wait chosen before it is not sent. */
   const chooseStatus = (status: ItemStatus) => setDraft({ ...draft!, status, wait: null });
-
   /** The attachments as chips, on the Attachments tab, above its + Add. */
   const attachmentChips =
     anyFiles ? (
@@ -1888,6 +1832,9 @@ function TheForm({
                 </label>
                 )}
 
+                {/* Which recurring item this is a copy of, and the way to it ("Point a copy at its master, and retire the Repeats chip", issue 1450). */}
+                <RecurringOriginLine origin={recurringOriginOf(item, data?.series)} workspaceId={workspaceId} onClose={onClose} />
+
                 {/* Where this came from, and - where the source gave a link -
                     the way back to it ("Open an Item at its source", issue
                     487): the same test the row and its menu apply. Above the
@@ -2132,7 +2079,6 @@ function TheForm({
                             if (docked) void commitFields(['dueDate']);
                           }}
                           wait={waitChoice}
-                          repeats={repeatsChoice}
                           onAttach={() => attachmentInputRef.current?.click()}
                         />
                       )}
@@ -2143,7 +2089,6 @@ function TheForm({
                             STATUS_LABELS[editing!.was.status],
                             editing!.was.priority ? `${PRIORITY_LABELS[editing!.was.priority]} priority` : null,
                             dueDateLabel(editing!.was.dueDate) ? `Due ${dueDateLabel(editing!.was.dueDate)}` : null,
-                            editing!.was.repeat ? ruleLabel(editing!.was.repeat) : null,
                           ]
                             .filter((part) => part !== null)
                             .join(' · ')}
@@ -2167,7 +2112,6 @@ function TheForm({
                             onPriority={(priority) => setDraft({ ...draft, priority })}
                             onDueDate={(dueDate) => setDraft({ ...draft, dueDate })}
                             wait={waitChoice}
-                            repeats={repeatsChoice}
                             onAttach={() => attachmentInputRef.current?.click()}
                           />
                         </Suspense>

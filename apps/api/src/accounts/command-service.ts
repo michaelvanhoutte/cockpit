@@ -46,7 +46,6 @@ import {
   lastWorkspacePosition,
   latestOccurrence,
   masterPanelIdsOf,
-  panelIdsOf,
   listDashboards,
   openAgentRunOn,
   recordClaudeSend,
@@ -120,7 +119,7 @@ import {
 } from '../domain/workspaces.js';
 import { decideClaudeSend } from '../domain/claude-sends.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
-import { UNKNOWN_TIME_ZONE, countedFrom, decideRepeat, masterContentOf, occurrenceDueAt, occurrenceOf, type MasterRow } from '../domain/series.js';
+import { UNKNOWN_TIME_ZONE, countedFrom, decideRepeat, decideStop, occurrenceDueAt, occurrenceOf, type MasterRow } from '../domain/series.js';
 import {
   applyProposedFields,
   type FieldsSet,
@@ -187,7 +186,7 @@ export class AttachmentIdTakenError extends Error {
   }
 }
 
-/** A Repeats change that is refused, in the words the person is told beside the field ("Set an Item to repeat from its form", issue 1406). */
+/** A change to a recurring item that is refused, in the words the person is told beside the field. */
 export class RepeatRefusedError extends Error {
   constructor(message: string) {
     super(message);
@@ -922,21 +921,6 @@ function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'
     return [{ panelId: panel.id, rows: filingRows(tenantId, { itemId: copied.id, panelId: panel.id, order, issuedAt: cmd.issuedAt }) }];
   });
   return { kind: 'writes', nextOn, anchorOn, workspaceId: toldIn, item: copied, panels };
-}
-
-/**
- * The Panels the Repeats chip gives a series from the Item it is set on: the
- * Item's own, still live in its Workspace and taking Items, in the order it was
- * filed on them ("Make each copy of a recurring item from its own series",
- * issue 1448).
- */
-function masterPanelsFrom(db: AccountDb, tenantId: string, item: Item, seriesId: string, at: string) {
-  return panelIdsOf(db, tenantId, item.id)
-    .filter((panelId) => {
-      const panel = panelNamedFor(db, tenantId, item.workspaceId, panelId);
-      return panel !== null && panelTakesItems(panel);
-    })
-    .map((panelId, position) => ({ tenantId, seriesId, panelId, position, createdAt: at }));
 }
 
 /**
@@ -2478,54 +2462,10 @@ export function runCommand<N extends CommandName>(
       break;
     }
     case 'set_repeat': {
-      const cmd = payload as CommandPayload<'set_repeat'>;
-      const item = getItem(db, tenantId, cmd.itemId);
-      if (!item) throw new ItemNotFoundError(cmd.itemId);
-      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
-      const own = item.seriesId === null ? null : getSeries(db, tenantId, item.seriesId);
-      // The id the tab made up is a series of another Item's, not a retry of this one.
-      if (own === null && cmd.repeat !== null && getSeries(db, tenantId, cmd.seriesId)) {
-        throw new RepeatRefusedError('That repeat could not be set. Try again.');
-      }
-      const decision = decideRepeat(own, cmd, tenantId);
-      if (decision.kind === 'refused') throw new RepeatRefusedError(decision.why);
-      if (decision.kind !== 'write') {
-        // Stale by last-write-wins, or nothing to stop: log the command, change nothing.
-        db.insert(commands).values(commandRow).run();
-        applied = decision.kind === 'nothing';
-        break;
-      }
-      const { row } = decision;
-      // Until the Recurring items modal replaces it, a series the chip sets that
-      // holds nothing yet - a new one, or one stopped empty - takes the Item's
-      // content and Panels once; a rule changed later leaves them as taken
-      // ("Make each copy of a recurring item from its own series", issue 1448).
-      const fills = cmd.repeat !== null && (own === null || own.title === null);
-      const content = fills ? masterContentOf(item) : null;
-      const filedOn = fills ? masterPanelsFrom(db, tenantId, item, row.id, cmd.issuedAt) : [];
-      db.transaction((tx) => {
-        if (decision.isNew) {
-          tx.insert(series).values({ ...row, ...content }).run();
-          // The Item's own `updated_at` is left alone: a repeat is the series', and a title edit in flight must not go stale for it.
-          tx.update(items)
-            .set({ seriesId: row.id })
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
-        } else {
-          tx.update(series)
-            .set({ ...row, ...content })
-            .where(and(eq(series.tenantId, tenantId), eq(series.id, row.id)))
-            .run();
-        }
-        if (fills) {
-          tx.delete(seriesPanels)
-            .where(and(eq(seriesPanels.tenantId, tenantId), eq(seriesPanels.seriesId, row.id)))
-            .run();
-          for (const filing of filedOn) tx.insert(seriesPanels).values(filing).run();
-        }
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
+      // The Repeats chip is gone from the Item form ("Point a copy at its master, and retire the Repeats chip",
+      // issue 1450): a tab still on the previous app sends this until it reloads, and is told where to go.
+      // The route stays so it can answer. Nothing is read or written, not even the command's record.
+      throw new RepeatRefusedError(RECURRING_REFUSALS.useTheMenu);
     }
     case 'create_recurring_item':
     case 'write_recurring_item': {
@@ -2580,7 +2520,7 @@ export function runCommand<N extends CommandName>(
       const own = getSeries(db, tenantId, cmd.seriesId);
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) throw new WorkspaceNotFoundError(cmd.workspaceId);
       if (own === null || own.title === null || own.workspaceId !== cmd.workspaceId) throw new RepeatRefusedError(RECURRING_REFUSALS.gone);
-      const decision = decideRepeat(own, { issuedAt: cmd.issuedAt, seriesId: cmd.seriesId, repeat: null }, tenantId);
+      const decision = decideStop(own, cmd.issuedAt);
       // Already deleted, or made against an older version than the one stored: logged, nothing changed.
       if (decision.kind !== 'write' || own.stoppedAt !== null) {
         db.insert(commands).values(commandRow).run();
