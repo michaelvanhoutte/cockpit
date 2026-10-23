@@ -186,22 +186,26 @@ const OUTCOME_SERIES: Series[] = [
 
 const NAMES: Record<Category, string> = {
   unphased: 'Unphased',
+  'outside-process': 'Outside the process',
   'scoping-planning': 'Scoping & planning',
   building: 'Building',
   'local-code-review': 'Local code review',
   'local-security-review': 'Local security review',
   'after-push': 'After push',
   'ci-reviews': 'CI reviews',
+  'process-review': 'Process review',
 };
 export const categoryName = (c: Category) => NAMES[c];
 const PHASE_SHORT: Record<Category, string> = {
   unphased: 'Unphased',
+  'outside-process': 'Outside',
   'scoping-planning': 'Scoping',
   building: 'Building',
   'local-code-review': 'Code rev.',
   'local-security-review': 'Security rev.',
   'after-push': 'After push',
   'ci-reviews': 'CI rev.',
+  'process-review': 'Process rev.',
 };
 
 /**
@@ -211,7 +215,7 @@ const PHASE_SHORT: Record<Category, string> = {
 export function seriesOf(split: Split, totals: Record<string, number>): Series[] {
   switch (split) {
     case 'phase':
-      return CATEGORIES.map((c) => ({ key: c, label: categoryName(c), short: PHASE_SHORT[c] }));
+      return CATEGORIES.filter((c) => c !== 'unphased' || (totals.unphased ?? 0) > 0).map((c) => ({ key: c, label: categoryName(c), short: PHASE_SHORT[c] }));
     case 'where':
       return WHERE_SERIES;
     case 'outcome':
@@ -421,8 +425,9 @@ export interface Trends {
  * Monday) otherwise. A bucket with nothing to show holds null, not zero.
  * Cost per line divides the merged pull requests' cost by their thousands of
  * lines, leaving out a pull request with no counted lines from both. A phase
- * is not drawn before it was recorded: Unphased only before the day phase marks
- * began, every other phase only from then on.
+ * is not drawn before it was recorded: every phase but Unphased only from the
+ * day phase marks began. Unphased is drawn before then, and after it only in a
+ * bucket that holds some, since a hook on an older checkout still sends it.
  */
 export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest[], period: Period, now: number): Trends {
   const weekly = period !== '7d' && period !== '30d';
@@ -447,14 +452,18 @@ export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest
     const cost = prs.reduce((sum, p) => sum + (phase === null ? Object.values(p.costByPhase).reduce((a, b) => a + b, 0) : (p.costByPhase[phase] ?? 0)), 0);
     return (cost / lines) * 1000;
   };
-  const drawn = (phase: string, bucket: string) => {
+  const drawn = (phase: string, bucket: string, cost: number) => {
     const last = addDays(bucket, span - 1);
-    return phase === 'unphased' ? bucket < PHASES_BEGIN : last >= PHASES_BEGIN;
+    return phase === 'unphased' ? bucket < PHASES_BEGIN || cost > 0 : last >= PHASES_BEGIN;
   };
   const phaseLines = CATEGORIES.map((c) => ({
     key: c as string,
     label: categoryName(c),
-    values: buckets.map((b, i) => (counted[i]!.length === 0 || !drawn(c, b) ? null : perThousand(counted[i]!, c))),
+    values: buckets.map((b, i) => {
+      if (counted[i]!.length === 0) return null;
+      const value = perThousand(counted[i]!, c);
+      return drawn(c, b, value) ? value : null;
+    }),
   })).filter((l) => l.values.some((v) => v !== null && v > 0));
   return {
     buckets,

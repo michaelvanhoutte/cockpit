@@ -9,6 +9,7 @@ import {
 } from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
 import type { Trigger } from '../gateway/attempts.js';
+import { hasClaudeKey, noClaudeKeyBecause } from '../gateway/environment.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import type { NoteTexts, PanelRead, RoutingCandidate } from '../ai/index.js';
 import { aStatedFieldIsOpen, type FieldsSet } from '../domain/items.js';
@@ -321,7 +322,7 @@ export async function enqueueCleanUp(
    * existed. What says an environment is in that state is `/health`, not a log
    * line on every capture.
    */
-  const hasKey = Boolean(env.ANTHROPIC_API_KEY);
+  const hasKey = hasClaudeKey(env);
 
   // Opened regardless of whether a key is configured - unlike the rest of
   // this function before this line existed. What a captured note's cleanup
@@ -384,7 +385,7 @@ export async function enqueueCleanUp(
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
-        message: 'nothing was enriched: this environment has no ANTHROPIC_API_KEY',
+        message: `nothing was enriched: ${noClaudeKeyBecause(env)}`,
       }),
     );
     return;
@@ -478,10 +479,10 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
-        message: 'nothing was enriched: this environment has no ANTHROPIC_API_KEY',
+        message: `nothing was enriched: ${noClaudeKeyBecause(env)}`,
       }),
     );
-    return say(job.itemId, 'nothing was enriched: this environment has no ANTHROPIC_API_KEY');
+    return say(job.itemId, `nothing was enriched: ${noClaudeKeyBecause(env)}`);
   }
 
   const item = await account.item(job.itemId);
@@ -1048,7 +1049,7 @@ async function askForRefresh(
   jobFor: (ask: RefreshAsk) => EnrichmentJob,
   whatWasAsked: string,
 ): Promise<void> {
-  if (!env.ANTHROPIC_API_KEY) return;
+  if (!hasClaudeKey(env)) return;
   // The guest never calls the model (see `enqueueCleanUp`).
   if (accountName === GUEST_ACCOUNT_NAME) return;
 
@@ -1130,7 +1131,7 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
     return sayForWorkspace(job.workspaceId, 'nothing was refreshed: the guest account never calls the model');
   }
   const ai = aiFor(env);
-  if (!ai) return sayForWorkspace(job.workspaceId, 'nothing was refreshed: this environment has no ANTHROPIC_API_KEY');
+  if (!ai) return sayForWorkspace(job.workspaceId, `nothing was refreshed: ${noClaudeKeyBecause(env)}`);
 
   let account;
   try {
@@ -1318,7 +1319,7 @@ export async function enqueueProposalsForSentence(
   sourceKind: string,
   workspaceId: string | null,
 ): Promise<void> {
-  if (!env.ANTHROPIC_API_KEY || accountName === GUEST_ACCOUNT_NAME) return;
+  if (!hasClaudeKey(env) || accountName === GUEST_ACCOUNT_NAME) return;
   const account = await openAccount(env, accountName);
   for (const itemId of await account.openItemsASentenceMayFit(sourceKind, workspaceId)) {
     await enqueueProposalForClaude(env, accountName, itemId, 'sentence-remembered');
@@ -1342,7 +1343,7 @@ function claudeProposalRefresh(itemId: string): string {
 export async function proposeForClaude(env: Env, job: ProposeForClaudeJob): Promise<void> {
   if (job.accountName === GUEST_ACCOUNT_NAME) return say(job.itemId, `nothing was proposed: ${GUEST_NEVER_CALLS_THE_MODEL}`);
   const ai = aiFor(env);
-  if (!ai) return say(job.itemId, 'nothing was proposed: this environment has no ANTHROPIC_API_KEY');
+  if (!ai) return say(job.itemId, `nothing was proposed: ${noClaudeKeyBecause(env)}`);
 
   let account;
   try {

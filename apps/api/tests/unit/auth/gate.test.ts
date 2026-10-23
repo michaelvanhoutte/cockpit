@@ -35,6 +35,12 @@ describe('Sign-in', () => {
       { situation: 'the address the name picker signed you in at', path: '/v1/sign-in' },
       { situation: 'a delivery from a source', path: '/ingress/slack/events' },
       {
+        // Staging and a laptop hold no session; one of three recording tokens
+        // admits them to this address alone (`gateway/receive.ts`).
+        situation: 'another environment sending the record of a Claude call',
+        path: '/v1/usage-records',
+      },
+      {
         // The prefix is what the connector's id and whatever the source appends
         // to it need, so it has to keep working however deep the path goes.
         situation: 'a delivery filed under a path of its own',

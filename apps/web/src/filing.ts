@@ -16,29 +16,6 @@ import { stillOpen, type Filing, type Item, type Panel } from '@cockpit/shared';
  */
 
 /**
- * The items filed on one panel, in the order they were filed into.
- *
- * Driven from the filings rather than from the items, because the filings are
- * what carry the order. An id with no item behind it is skipped rather than
- * drawn as a gap: an item dismissed in another tab leaves the snapshot while
- * its filing is still on the panel, and a hole in a list is worse than one row
- * fewer.
- */
-export function itemsOnPanel(
-  items: readonly Item[],
-  filings: readonly Filing[],
-  panelId: string,
-): Item[] {
-  const byId = new Map(items.filter(stillOpen).map((item) => [item.id, item]));
-  return filings
-    .filter((filing) => filing.panelId === panelId)
-    .slice()
-    .sort((a, b) => a.position - b.position)
-    .map((filing) => byId.get(filing.itemId))
-    .filter((item): item is Item => item !== undefined);
-}
-
-/**
  * Every item filed on one panel, in order - **including the ones the panel does
  * not draw**.
  *

@@ -23,7 +23,7 @@ async function merged(number: number, daysAgo: number, lines: number, engineer =
 
 /** The card as a person reads it: its sentence, the drivers by key, and each dimension's lines. */
 function card(html: string) {
-  const section = /<section class="card change"[^>]*>(.*?)<\/section>/s.exec(html)?.[1];
+  const section = /<section class="panel change"[^>]*>(.*?)<\/section>/s.exec(html)?.[1];
   if (section === undefined) return null;
   const text = (s: string) => s.replace(/<[^>]*>/g, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
   return {
@@ -82,6 +82,20 @@ describe('Harness Monitor', () => {
 
       expect(found!.sentence).toContain('cost $4.00 against $0.00');
       expect(found!.drivers.merged).toEqual(['1', '0']);
+    });
+  });
+
+  describe('the comparison names Outside the process and Process review by their change', () => {
+    it('over two periods, each phase appears with the dollars it moved', async () => {
+      await send([
+        spend('now1', 7, { time: ago(2), branch: 'b/1', category: 'outside-process' }),
+        spend('now2', 3, { time: ago(3), branch: 'b/1', category: 'process-review' }),
+        spend('before1', 2, { time: ago(33), branch: 'b/1', category: 'outside-process' }),
+      ]);
+
+      const found = card(await theBarePage('?period=30d'));
+
+      expect(found!.dimensions.phase).toEqual(['▲ Outside the process +$5.00 $2.00 → $7.00', '▲ Process review +$3.00 $0.00 → $3.00']);
     });
   });
 });

@@ -31,6 +31,7 @@ import {
   phoneCodeSentSchema,
   confirmPhoneCodeSchema,
   phoneConnectedSchema,
+  recurringItemListSchema,
   sourceAccountListSchema,
   DUE_IN_DAYS_MAX,
   DUE_IN_DAYS_MIN,
@@ -105,6 +106,7 @@ import {
 import { offerToRemember } from '../jobs/offer-to-remember.js';
 import { onOneLine } from '../domain/remembered-sentences.js';
 import { readUsage } from '../accounts/usage.js';
+import { USAGE_RECORDS_PATH, receiveRecord } from '../gateway/receive.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -730,6 +732,28 @@ const sourceAccountsRoute = createRoute({
 });
 
 /**
+ * The recurring items one Workspace holds, soonest first ("Make, change and
+ * delete recurring items from the Recurring items modal", issue 1449) - read
+ * when the modal opens, never part of the Workspace snapshot, which every
+ * navigation reads.
+ */
+const recurringItemsRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/recurring-items',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: "The Workspace's running recurring items, soonest first",
+      content: { 'application/json': { schema: recurringItemListSchema } },
+    },
+    404: {
+      description: 'Unknown workspace',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * One connection's history, newest line first ("See when a pulled connection
  * was checked, and why it failed, from its row's History…", issue 1140) - read
  * when *History…* opens it, never part of the Workspace snapshot, which would
@@ -1341,6 +1365,11 @@ const routes = app
       200,
     );
   })
+  .openapi(recurringItemsRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ recurringItems: await account.recurringItems(workspaceId) }, 200);
+  })
   .openapi(connectionHistoryRoute, async (c) => {
     const { workspaceId, sourceAccountId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -1693,6 +1722,15 @@ const routes = app
   .openapi(commandRoute('set_priority'), async (c) => c.json(await change(c, 'set_priority', c.req.valid('json')), 200))
   .openapi(commandRoute('set_due_date'), async (c) => c.json(await change(c, 'set_due_date', c.req.valid('json')), 200))
   .openapi(commandRoute('set_repeat'), async (c) => c.json(await change(c, 'set_repeat', c.req.valid('json')), 200))
+  .openapi(commandRoute('create_recurring_item'), async (c) =>
+    c.json(await change(c, 'create_recurring_item', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('write_recurring_item'), async (c) =>
+    c.json(await change(c, 'write_recurring_item', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('delete_recurring_item'), async (c) =>
+    c.json(await change(c, 'delete_recurring_item', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_title'), async (c) =>
     c.json(await changeThatRewritesTheTexts(c, 'set_title', c.req.valid('json')), 200),
   )
@@ -2374,6 +2412,15 @@ const routes = app
       return c.json({ error: 'after has to be a record number, or left out' }, 400);
     }
     return c.json(await readUsageRecords(c.env, new Date(since).toISOString(), after), 200);
+  })
+  // Where staging and a laptop send the records of their Claude calls ("Record
+  // staging's and local Claude calls in production, under a token per
+  // environment", issue 1458). Outside the sign-in gate and not behind the
+  // operator's secret: each sending environment's own recording token is what
+  // admits it, checked in `gateway/receive.ts`, and opens this and nothing else.
+  .post(USAGE_RECORDS_PATH, async (c) => {
+    const received = await receiveRecord(c.env, c.req.header('authorization'), () => c.req.json());
+    return received.status === 201 ? c.body(null, 201) : c.json({ error: received.error }, received.status);
   })
   // Restoring, which is the half that destroys something. Accounts go in first
   // and the register after, so a user never exists pointing at a store that has

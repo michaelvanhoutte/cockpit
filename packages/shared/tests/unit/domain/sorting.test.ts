@@ -128,6 +128,19 @@ describe('Panels', () => {
     });
   });
 
+  describe('titles sort by the locale they are asked to, and by the runtime’s own where none is asked', () => {
+    const titles = [anItem('z', { title: 'Zebra' }), anItem('a-umlaut', { title: 'Ärlig' }), anItem('a', { title: 'Apa' })];
+    const byTitle = [{ field: 'title' as const, direction: 'asc' as const }];
+
+    it.each([
+      { language: 'English', locale: 'en', ordered: ['a', 'a-umlaut', 'z'] },
+      // Swedish keeps Ä after Z, which English files with A.
+      { language: 'Swedish', locale: 'sv', ordered: ['a', 'z', 'a-umlaut'] },
+    ])('puts them in $language order', ({ locale, ordered }) => {
+      expect(ids(inSortOrder(titles, byTitle, locale))).toEqual(ordered);
+    });
+  });
+
   describe('an item with no value for a criterion goes after every item that has one, in either direction', () => {
     it.each([
       {

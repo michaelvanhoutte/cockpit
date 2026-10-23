@@ -19,7 +19,7 @@ import { grantHolder } from './grant.js';
 import { MCP_PATH } from '../auth/mcp-paths.js';
 
 /**
- * `/mcp`, once the OAuth library has accepted the access token
+ * `/mcp`, once the OAuth library has accepted an access token made for it
  * ("Connect Claude to Cockpit, and capture an item from it", issue 599).
  *
  * **Built for every request and holding nothing between them.** The
@@ -34,7 +34,7 @@ import { MCP_PATH } from '../auth/mcp-paths.js';
  */
 
 /** What the library hands a protected handler, narrowed to what is read here. */
-interface ProtectedContext {
+export interface ProtectedContext {
   readonly props: unknown;
   readonly auth?: { readonly token: string; readonly clientId?: string };
   waitUntil(work: Promise<unknown>): void;
@@ -175,7 +175,7 @@ async function capture(
   ctx.waitUntil(enqueueCleanUp(env, accountName, itemId, 'mcp'));
   ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, itemId, 'mcp'));
   ctx.waitUntil(enqueueProposalForClaude(env, accountName, itemId, 'mcp'));
-  // What the MCP connections list says this app last did (issue 600).
+  // What the Connected apps list says this app last did (issue 600).
   ctx.waitUntil(noteCapture(env, app.grantId, new Date().toISOString()));
 
   // **The Item is written by now**, so nothing after this may answer as if it
@@ -298,9 +298,9 @@ async function fileLinks(env: Env, accountName: string, attachmentIds: readonly 
  * outside should read - the same rule the application's `onError` keeps
  * (`http/app.ts`). The detail goes to the log instead.
  */
-const SOMETHING_BROKE = 'Something went wrong in Cockpit. Try again in a moment.';
+export const SOMETHING_BROKE = 'Something went wrong in Cockpit. Try again in a moment.';
 
-function logged(error: unknown): void {
+export function logged(error: unknown): void {
   const { message, stack } = error instanceof Error ? error : { message: String(error), stack: undefined };
   console.error(JSON.stringify({ level: 'error', message, stack }));
 }
@@ -314,14 +314,14 @@ function toolError(text: string) {
  * library writes every token as (`userId:grantId:secret`). What the capture
  * limit counts by, so two apps one person connected each get their own minute.
  */
-function grantIdOf(token: string | undefined): string {
+export function grantIdOf(token: string | undefined): string {
   return token?.split(':')[1] ?? 'unknown';
 }
 
 /** The library's own answer to a token that is no good, for a person who no longer is. */
-function tokenRefused(env: Env): Response {
+export function tokenRefused(env: Env, resourcePath: string = MCP_PATH): Response {
   const origin = new URL(env.APP_ORIGIN).origin;
-  const metadata = `${origin}/.well-known/oauth-protected-resource${MCP_PATH}`;
+  const metadata = `${origin}/.well-known/oauth-protected-resource${resourcePath}`;
   return new Response(JSON.stringify({ error: 'invalid_token', error_description: 'This grant no longer acts for anybody' }), {
     status: 401,
     headers: {

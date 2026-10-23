@@ -1,17 +1,24 @@
-import { SELF } from 'cloudflare:test';
 import { expect } from 'vitest';
-import { USER_ID, signInAs } from './seed.js';
+import { SELF } from 'cloudflare:test';
+import { USER_ID, signInAs } from '../seed.js';
 
 /**
- * An app connecting to Cockpit the way Claude does - registering, the consent
- * page, the code exchange - and calling `/mcp` as it does, for the cases whose
- * subject is what a connected app can do ("Connect Claude to Cockpit, and
- * capture an item from it", issue 599). Shared by
- * tests/integration/http/connected-apps.test.ts and find-items.test.ts.
+ * An app connecting to Cockpit the way a real one does - registering, the
+ * consent page, the code exchange - for the files that prove what a grant may
+ * then do (`connected-apps.test.ts`, `panel-reads.test.ts`). Everything enters
+ * through `SELF.fetch`, because who is admitted and as whom is decided by the
+ * routing in front of the application and the library behind it.
  */
 
 export const ORIGIN = 'https://cockpit.test';
 export const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
+
+/** Where the widget app is sent back to: an address of its own on the phone (RFC 8252). */
+export const WIDGET_CALLBACK = 'cockpit-widget://oauth';
+
+/** The two protected resources an app signs in for: MCP, to capture, and the reads of Panels. */
+export const MCP_RESOURCE = `${ORIGIN}/mcp`;
+export const APPS_RESOURCE = `${ORIGIN}/apps`;
 
 export interface App {
   clientId: string;
@@ -34,8 +41,17 @@ export async function registerApp(name = 'Claude', redirect = CALLBACK): Promise
   return { clientId: ((await answer.json()) as { client_id: string }).client_id };
 }
 
-/** One authorization attempt: the address the app opens, and the secret it keeps back. */
-export async function attempt(app: App, redirect = CALLBACK, state = 'the-apps-state') {
+/**
+ * One authorization attempt: the address the app opens, and the secret it keeps
+ * back. `resource` is the one it asks to be signed in for, `null` for an app
+ * that names none.
+ */
+export async function attempt(
+  app: App,
+  redirect = CALLBACK,
+  state = 'the-apps-state',
+  resource: string | null = MCP_RESOURCE,
+) {
   const verifier = 'v'.repeat(43) + crypto.randomUUID().replaceAll('-', '');
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   const challenge = btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -46,7 +62,7 @@ export async function attempt(app: App, redirect = CALLBACK, state = 'the-apps-s
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',
-    resource: `${ORIGIN}/mcp`,
+    ...(resource ? { resource } : {}),
   });
   return { path: `/oauth/authorize?${query}`, verifier };
 }
@@ -86,32 +102,61 @@ export async function decide(
   });
 }
 
-/** An app connected by `userId`: registered, allowed, and its code traded for access. */
-export async function connected(
-  userId: string = USER_ID,
-  name = 'Claude',
-): Promise<{ app: App; token: string; refreshToken: string }> {
-  const app = await registerApp(name);
-  const asked = await attempt(app);
-  const allowed = await decide(asked.path, await signInAs(userId), 'allow');
-  expect(allowed.status).toBe(302);
-  const code = new URL(allowed.headers.get('location')!).searchParams.get('code')!;
-  const traded = await SELF.fetch(`${ORIGIN}/oauth/token`, {
+/** The code an app's authorization attempt came back with, traded for access. */
+export async function tradeCode(
+  app: App,
+  code: string,
+  verifier: string,
+  redirect = CALLBACK,
+): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/oauth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code,
-      redirect_uri: CALLBACK,
+      redirect_uri: redirect,
       client_id: app.clientId,
-      code_verifier: asked.verifier,
+      code_verifier: verifier,
     }),
   });
-  expect(traded.status).toBe(200);
-  const tokens = (await traded.json()) as { access_token: string; refresh_token: string };
-  return { app, token: tokens.access_token, refreshToken: tokens.refresh_token };
 }
 
+/**
+ * An app connected by `userId`: registered, allowed, and its code traded for
+ * access. `reading` is an app that asks to be signed in for `/apps` and returns to
+ * the address of its own, as the widget does; left out, an app as Claude is.
+ */
+export async function connected(
+  userId: string = USER_ID,
+  name = 'Claude',
+  { reading = false }: { reading?: boolean } = {},
+): Promise<{ app: App; token: string; refreshToken: string; resource: string }> {
+  const redirect = reading ? WIDGET_CALLBACK : CALLBACK;
+  const app = await registerApp(name, redirect);
+  const asked = await attempt(app, redirect, 'the-apps-state', reading ? APPS_RESOURCE : MCP_RESOURCE);
+  const allowed = await decide(asked.path, await signInAs(userId), 'allow');
+  expect(allowed.status).toBe(302);
+  const code = new URL(allowed.headers.get('location')!).searchParams.get('code')!;
+  const traded = await tradeCode(app, code, asked.verifier, redirect);
+  expect(traded.status).toBe(200);
+  const tokens = (await traded.json()) as { access_token: string; refresh_token: string; resource: string };
+  return { app, token: tokens.access_token, refreshToken: tokens.refresh_token, resource: tokens.resource };
+}
+
+/** An app trading its refresh token for new access, as it does once the hour is up; `resource` for one that names the resource again. */
+export function refresh(app: App, refreshToken: string, resource?: string): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/oauth/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: app.clientId,
+      ...(resource ? { resource } : {}),
+    }),
+  });
+}
 
 /** One MCP request, as an app's Streamable HTTP client sends it. */
 export function mcp(token: string | null, method: string, params: unknown = {}, cookie?: string): Promise<Response> {
@@ -126,9 +171,3 @@ export function mcp(token: string | null, method: string, params: unknown = {}, 
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   });
 }
-
-export interface ToolAnswer {
-  isError?: boolean;
-  content: { type: string; text: string }[];
-}
-

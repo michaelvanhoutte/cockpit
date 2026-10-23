@@ -6,7 +6,10 @@ import type {
   ConnectionHistory,
   Item,
   Panel,
+  ReadableSnapshot,
+  ReadableWorkspace,
   ServerEvent,
+  RecurringItem,
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
@@ -111,6 +114,7 @@ import {
   runCommand,
 } from './command-service.js';
 import {
+  workspaceOfPanel,
   connectionUnder,
   decisionHistoryForWorkspace,
   everyMeaning,
@@ -143,6 +147,7 @@ import {
   meaningsOfItems,
   listOpenItems,
   listPanelsInWorkspace,
+  listRecurringItems,
   listWorkspaces,
   meaningsToCompareWith,
   queueRewriteAttempt,
@@ -264,6 +269,46 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
+        agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
+      };
+    });
+  }
+
+  /**
+   * Every live Workspace with its Dashboards, Panels and Layouts and nothing
+   * of the Items - what the list of Panels an app allowed to read is made from
+   * ("Read a Panel from an app allowed only to read", issue 1445).
+   */
+  panelCatalogue(accountName: string): Answer<ReadableWorkspace[]> {
+    return this.#answer(accountName, (db) =>
+      listWorkspaces(db, accountName).map((workspace) => ({
+        workspace,
+        dashboards: listDashboards(db, accountName, workspace.id),
+        panels: listPanelsInWorkspace(db, accountName, workspace.id),
+        layouts: listLayoutsInWorkspace(db, accountName, workspace.id),
+      })),
+    );
+  }
+
+  /**
+   * What one Panel is read from: its Workspace's rows without the ones a Panel
+   * never draws (associations, attachments, series, duplicates and the Item
+   * form's presentation), so a widget's refresh every half hour does not pay
+   * for the whole snapshot. `missing` for a Panel that is deleted, one never
+   * held, and one in a deleted Workspace, which are the same answer.
+   */
+  panelReadInputs(accountName: string, panelId: string): Answer<ReadableSnapshot> {
+    return this.#answer(accountName, (db) => {
+      const workspaceId = workspaceOfPanel(db, accountName, panelId);
+      const workspace = workspaceId && getWorkspace(db, accountName, workspaceId);
+      if (!workspaceId || !workspace) throw new PanelNotFoundError(panelId);
+      return {
+        workspace,
+        items: listOpenItems(db, accountName, workspaceId),
+        dashboards: listDashboards(db, accountName, workspaceId),
+        panels: listPanelsInWorkspace(db, accountName, workspaceId),
+        layouts: listLayoutsInWorkspace(db, accountName, workspaceId),
+        filings: listFilingsInWorkspace(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
       };
     });
@@ -729,6 +774,21 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       // 404 rather than an empty list that reads as "nothing connected".
       if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
       return sourceAccountsIn(db, accountName, workspaceId);
+    });
+  }
+
+  /**
+   * One Workspace's recurring items, soonest first ("Make, change and delete
+   * recurring items from the Recurring items modal", issue 1449): its own read
+   * rather than a slice of the Workspace's snapshot, since the modal that shows
+   * them is opened now and then and every read of the Workspace would carry them.
+   * A Workspace that is not there is `missing`, not an empty list that reads as
+   * "nothing recurs".
+   */
+  recurringItems(accountName: string, workspaceId: string): Answer<RecurringItem[]> {
+    return this.#answer(accountName, (db) => {
+      if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+      return listRecurringItems(db, accountName, workspaceId);
     });
   }
 
@@ -1751,6 +1811,10 @@ const CHANGES_THE_ALARM: ReadonlySet<CommandName> = new Set<CommandName>([
   'disconnect_source_account',
   'delete_workspace',
   'set_repeat',
+  // A recurring item made, changed or deleted moves the day the alarm is set for ("Make, change and delete recurring items from the Recurring items modal", issue 1449).
+  'create_recurring_item',
+  'write_recurring_item',
+  'delete_recurring_item',
 ]);
 
 /**

@@ -2,7 +2,7 @@ import type { ConnectedAppList } from '@cockpit/shared';
 import type { Drawn } from './drawnAhead';
 
 /**
- * What the MCP connections window shows of a change the server has not answered
+ * What the Connected apps window shows of a change the server has not answered
  * yet, or has answered and no read of the list has landed since ("Show a
  * connected app or user change the moment you make it", issue 1371).
  *

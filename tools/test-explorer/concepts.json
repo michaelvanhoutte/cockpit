@@ -55,6 +55,8 @@
         "apps/api/src/mcp/consent.ts",
         "apps/api/src/mcp/grant.ts",
         "apps/api/src/mcp/server.ts",
+        "apps/api/src/mcp/resources.ts",
+        "apps/api/src/mcp/panel-reads.ts",
         "apps/api/src/mcp/create-item.ts",
         "apps/api/src/mcp/find-items.ts",
         "apps/api/src/accounts/find-items.ts",
@@ -90,6 +92,9 @@
         "apps/api/src/gateway/attempts.ts",
         "apps/api/src/gateway/record.ts",
         "apps/api/src/gateway/export.ts",
+        "apps/api/src/gateway/environment.ts",
+        "apps/api/src/gateway/receive.ts",
+        "apps/api/src/gateway/send.ts",
         "apps/api/src/ai/index.ts"
       ]
     },
@@ -118,7 +123,7 @@
     {
       "key": "Capture",
       "label": "Capture",
-      "browserWalks": 17,
+      "browserWalks": 18,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -143,6 +148,10 @@
         "apps/web/src/components/CarCapture.tsx",
         "apps/web/src/captureShortcut.ts",
         "apps/web/src/pages/CapturePage.tsx",
+        "apps/web/src/captureAddress.ts",
+        "apps/web/src/captureAddressWords.ts",
+        "apps/web/src/captureOpening.ts",
+        "apps/web/src/captureState.ts",
         "apps/web/src/shares.ts",
         "apps/web/src/shareClaim.ts",
         "apps/web/src/components/CaptureForms.tsx",
@@ -256,6 +265,9 @@
         "packages/shared/src/domain/filing.ts",
         "packages/shared/src/domain/filters.ts",
         "packages/shared/src/domain/sorting.ts",
+        "packages/shared/src/domain/filter-groups.ts",
+        "packages/shared/src/domain/panel-contents.ts",
+        "packages/shared/src/domain/panel-read.ts",
         "apps/web/src/components/FilterQuestion.tsx",
         "apps/web/src/components/ItemList.tsx",
         "apps/web/src/components/MoveToPicker.tsx",
@@ -276,6 +288,7 @@
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/web/src/panels/arrangement.ts",
+        "packages/shared/src/domain/arrangement.ts",
         "apps/web/src/panels/boardRows.ts",
         "apps/web/src/components/SectionBand.tsx",
         "apps/web/src/components/PanelBoard.tsx",
@@ -339,7 +352,7 @@
     {
       "key": "Workspace management",
       "label": "Workspace management",
-      "browserWalks": 8,
+      "browserWalks": 9,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/domain/workspaces.ts",
@@ -360,7 +373,12 @@
         "apps/web/src/reorder.ts",
         "apps/web/src/tabDrag.ts",
         "apps/web/src/components/Menu.tsx",
-        "apps/web/src/components/DeleteQuestion.tsx"
+        "apps/web/src/components/DeleteQuestion.tsx",
+        "apps/web/src/components/RecurringModal.tsx",
+        "apps/web/src/components/RecurringForm.tsx",
+        "apps/web/src/api/recurringItems.ts",
+        "apps/web/src/recurringItemsDrawnAhead.ts",
+        "packages/shared/src/domain/recurring-item.ts"
       ]
     },
     {
@@ -633,13 +651,14 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 1,
+      "browserWalks": 3,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",
         "apps/harness-monitor/src/auth.ts",
         "apps/harness-monitor/src/store.ts",
         "apps/harness-monitor/src/page.ts",
+        "apps/harness-monitor/src/look.ts",
         "apps/harness-monitor/src/prices.ts",
         "apps/harness-monitor/src/price-list.ts",
         "apps/harness-monitor/src/linking.ts",
