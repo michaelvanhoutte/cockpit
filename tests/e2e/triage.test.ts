@@ -1,8 +1,12 @@
+import { giveToTheInbox } from './support/arrange';
 import {
   capture,
+  dashboardBar,
   expect,
   fileOnto,
+  inbox,
   itemRow,
+  openFirstWorkspace,
   openDashboard,
   openInbox,
   press,
@@ -222,5 +226,55 @@ test.describe('Triage', () => {
         });
       });
     }
+  });
+});
+
+/**
+ * F3, on both projects, because the question opens from a menu a finger and a
+ * mouse each reach their own way, beside a row a phone lays out differently
+ * ("Set an Item Waiting for reply, and wait again after chasing", issue 1463).
+ * What a wait writes is apps/api/tests/integration/http/waiting-for-reply.test.ts,
+ * which entry asks for what is apps/web/tests/unit/components/ItemRow.test.tsx,
+ * and which line the pill is on is the same file's. What is only true here is
+ * that a person can ask it from the row and see the row answer.
+ *
+ * In UTC and en-GB, so the days the row writes can be written here the same way.
+ */
+test.describe('Triage', () => {
+  test.describe('waiting for a reply puts Waiting since and a due date on the row', () => {
+    test.use({ timezoneId: 'UTC', locale: 'en-GB' });
+
+    const dayOn = (days: number) => {
+      const day = new Date(); // clock-ok: the row counts from the browser's own today, which the walk cannot inject
+      day.setUTCDate(day.getUTCDate() + days);
+      return day;
+    };
+    const since = () => `Waiting since ${new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(dayOn(0))}`;
+    const dueOn = (days: number) => `Due ${new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'UTC' }).format(dayOn(days))}`;
+
+    test('waits three days from the row’s menu, then fourteen from Wait again…', async ({ page, isMobile }) => {
+      const thought = uniqueTitle('Reply from Jan about the audit trail');
+      await openFirstWorkspace(page, isMobile);
+      await giveToTheInbox(page, [thought]);
+      await page.reload();
+      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      await expect(inbox(page)).toBeVisible();
+
+      await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Wait for reply…' }), isMobile);
+      await expect(page.getByLabel('Days to wait')).toBeFocused();
+      await page.keyboard.press('Enter');
+
+      await expect(itemRow(page, thought).getByText(since(), { exact: true })).toBeVisible();
+      await expect(itemRow(page, thought).getByText('Due in 3d', { exact: true })).toBeVisible();
+
+      await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Wait again…' }), isMobile);
+      await press(page.getByRole('button', { name: '14 days' }), isMobile);
+
+      await expect(itemRow(page, thought).getByText(dueOn(14), { exact: true })).toBeVisible();
+      await expect(itemRow(page, thought).getByText(since(), { exact: true })).toBeVisible();
+      await expect(itemRow(page, thought).getByText('Due in 3d', { exact: true })).toHaveCount(0);
+    });
   });
 });

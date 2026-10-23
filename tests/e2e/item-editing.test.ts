@@ -391,6 +391,31 @@ test.describe('Item editing', () => {
   });
 
   /**
+   * F3, because this is the capability ("Set an Item Waiting for reply, and wait
+   * again after chasing", issue 1463): a person opens an Item, chooses Waiting
+   * for reply from its Status, says how long, saves, and finds the wait on its
+   * row. What the form sends on Save is apps/web/tests/unit/components/ItemForm.test.tsx
+   * and what the server keeps apps/api/tests/integration/http/waiting-for-reply.test.ts;
+   * neither can say the question opens over a real form on either device.
+   */
+  test.describe('waiting for a reply is asked from the form’s Status, and saved with the form', () => {
+    test('Waiting for reply, 7 days, then Save: the row waits and is due in 7 days', async ({ page, isMobile }) => {
+      const thought = uniqueTitle('Reply from Jan about the audit trail');
+      await openInboxHolding(page, isMobile, [thought]);
+      await openItem(page, thought, isMobile);
+
+      await setFormStatus(page, 'waiting', isMobile);
+      await press(page.getByRole('button', { name: '7 days' }), isMobile);
+      await expect(form(page).getByTitle('Status').or(chips(page).nth(0))).toContainText('Waiting for reply');
+      await saveTheItem(page, isMobile);
+
+      await expect(form(page)).toHaveCount(0);
+      await expect(itemRow(page, thought).getByText(/^Waiting since/)).toBeVisible();
+      await expect(itemRow(page, thought).getByText('Due in 7d', { exact: true })).toBeVisible();
+    });
+  });
+
+  /**
    * F3, because this is the capability ("Make each copy of a recurring item from its
    * own series", issue 1448): on its day a copy of a recurring item appears by itself,
    * in a tab nobody reloads, and says where it came from ("Point a copy at its master,

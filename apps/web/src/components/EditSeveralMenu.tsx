@@ -14,6 +14,7 @@ const SUBMENU_WIDTH_PX = 176;
 export const STATUS_NAMES: Record<ItemStatus, string> = {
   to_do: 'To do',
   in_progress: 'In progress',
+  waiting: 'Waiting for reply',
   done: 'Done',
 };
 
@@ -106,6 +107,8 @@ export function EditSeveralMenu({
     if (shared.mixed) return 'Mixed';
     const named = choices.find((choice) => choice.value === shared.value)?.name;
     if (named) return named;
+    // A status shared but not offered here - Waiting for reply, which needs its days.
+    if (field === 'status') return STATUS_NAMES[shared.value as ItemStatus];
     if (shared.value === null) return 'None';
     // A due date that is not one of the shortcuts' days.
     return dueDateLabel(shared.value) ?? 'None';

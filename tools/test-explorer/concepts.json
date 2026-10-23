@@ -172,7 +172,7 @@
     {
       "key": "Triage",
       "label": "Triage",
-      "browserWalks": 14,
+      "browserWalks": 15,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -310,7 +310,7 @@
     {
       "key": "Item editing",
       "label": "Item editing",
-      "browserWalks": 18,
+      "browserWalks": 19,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",
@@ -664,7 +664,9 @@
         "apps/harness-monitor/src/export.ts",
         "apps/harness-monitor/src/pull-request.ts",
         "apps/harness-monitor/src/pull-request-page.ts",
-        "apps/harness-monitor/src/github.ts"
+        "apps/harness-monitor/src/github.ts",
+        "apps/harness-monitor/src/claude-calls.ts",
+        "apps/harness-monitor/src/claude-call-shape.ts"
       ]
     }
   ]

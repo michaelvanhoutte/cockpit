@@ -76,7 +76,7 @@ describe('Harness Monitor', () => {
       expect(written.some((t) => t.category === 'unphased')).toBe(true);
       await env.DB.prepare('DROP TABLE daily_split_totals').run();
       // The table as 0009 built it, then the columns later migrations added to it.
-      const migrations = inject('migrations').filter((m) => m.name.startsWith('0009_split_totals') || m.name.startsWith('0015_split_token_totals'));
+      const migrations = inject('migrations').filter((m) => m.name.startsWith('0009_split_totals') || m.name.startsWith('0016_split_token_totals'));
 
       for (const migration of migrations) for (const query of migration.queries) await env.DB.prepare(query).run();
 
@@ -131,7 +131,7 @@ describe('Harness Monitor', () => {
     it('rows stored before the migration read zero tokens until the rebuild, then their requests\' tokens', async () => {
       await send(mixed());
       for (const column of ['input_tokens', 'output_tokens', 'cache_creation_tokens', 'cache_read_tokens']) await env.DB.prepare(`ALTER TABLE daily_split_totals DROP COLUMN ${column}`).run();
-      const migration = inject('migrations').find((m) => m.name.startsWith('0015_split_token_totals'))!;
+      const migration = inject('migrations').find((m) => m.name.startsWith('0016_split_token_totals'))!;
 
       for (const query of migration.queries) await env.DB.prepare(query).run();
 

@@ -80,11 +80,17 @@ const UNITS: Record<Group, [string, string]> = {
   day: ['day', 'days'],
 };
 
-const JOB_LABELS: Record<JobName, string> = { linking: 'Branch linking', prices: 'Price list', rebuild: 'Daily totals' };
+const JOB_LABELS: Record<JobName, string> = {
+  linking: 'Branch linking',
+  prices: 'Price list',
+  rebuild: 'Daily totals',
+  'claude-calls': 'Cockpit&rsquo;s Claude calls',
+};
 const NEVER_RAN: Record<JobName, string> = {
   linking: 'has not run yet.',
   prices: 'has not run yet; only the repository&rsquo;s own prices apply.',
   rebuild: 'has not run yet.',
+  'claude-calls': 'has not run yet.',
 };
 
 /** What each job's last run did, scheduled or by hand: when, how it was started, and its outcome or error. */

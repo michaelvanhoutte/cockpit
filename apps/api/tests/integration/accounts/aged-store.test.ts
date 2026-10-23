@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { abortAllDurableObjects, applyD1Migrations, env } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
 import { GMAIL_RECONNECT_REASON, accountChanges, filterRowsStatements } from '../../../src/accounts/changes.js';
-import { themeOf } from '@cockpit/shared';
+import { itemStatus, themeOf } from '@cockpit/shared';
 import { inStoreAsItIs, storeNamed } from '../seed.js';
 
 /**
@@ -77,6 +77,7 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
     proposed_panel_fit: _proposedPanelFit,
     claude_proposals: _claudeProposals,
     series_id: _seriesId,
+    waiting_since: _waitingSince,
     ...rest
   } = row;
   return rest;
@@ -3664,6 +3665,42 @@ describe('Item editing', () => {
       await applyChange(name, SERIES_DAYS);
 
       expect(await seriesIn(name)).toEqual(before.map((row) => ({ ...row, anchor_on: null, last_on: null })));
+    });
+  });
+});
+
+/**
+ * "Set an Item Waiting for reply, and wait again after chasing" (issue 1463): an
+ * account from before it gains a column on its Items, and every Item it already
+ * had reads as not waiting, its status what it was.
+ */
+describe('Triage', () => {
+  describe('every Item an account already had is not waiting for a reply once an Item can wait', () => {
+    const WAITING_SINCE = '0096-item-waiting-since';
+    const itemsIn = (name: string) => inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM items ORDER BY id').toArray());
+
+    it('adds the column, leaves every Item as it was, and reads each with the status it had', async () => {
+      const name = 'aged-store-before-waiting-since';
+      await agedTo(name, justBefore(WAITING_SINCE));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await itemsIn(name);
+      expect(before.length).toBeGreaterThan(0);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await itemsIn(name);
+      expect(after.map((row) => row.waiting_since)).toEqual(before.map(() => null));
+      expect(after.map(withoutLaterColumns)).toEqual(before.map(withoutLaterColumns));
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      const read = snapshot.status === 'ok' ? snapshot.value.items : [];
+      expect(read.length).toBeGreaterThan(0);
+      expect(read.map((item) => item.waitingSince)).toEqual(read.map(() => null));
+      expect(read.map(itemStatus)).not.toContain('waiting');
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await itemsIn(name)).toEqual(after);
     });
   });
 });
