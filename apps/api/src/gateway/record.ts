@@ -1,5 +1,6 @@
 import type { Env } from '../env.js';
 import type { AttemptRecord, Recorder } from './attempts.js';
+import { costOf } from './prices.js';
 
 /** How long a record is kept, the same as the sign-in history. */
 const KEPT_MONTHS = 12;
@@ -14,6 +15,11 @@ export const PURGE_BATCH = 500;
  * per account, so naming them costs no second round trip; a call for an
  * account nobody owns any more records no user. Nothing is copied from them
  * but the id, so a user deleted later leaves their rows naming an id alone.
+ *
+ * **Every row is priced as it is written**, from the price list deployed here
+ * (`prices.ts`), and the cost is never worked out again. **Every row this
+ * Worker writes is its own, so it is recorded as production's**, with no pull
+ * request, run or branch.
  */
 export function providerCallsIn(env: Env): Recorder {
   return async (row: AttemptRecord) => {
@@ -21,9 +27,9 @@ export function providerCallsIn(env: Env): Recorder {
       `INSERT INTO provider_calls
          (at, operation, prompt_version, triggered_by, account_name, user_id, item_id, provider, model,
           paid_by, paid_by_account, paid_by_key_ending, outcome, status, duration_ms,
-          tokens_in, cache_read, cache_write, tokens_out)
+          tokens_in, cache_read, cache_write, tokens_out, environment, cost_usd)
        VALUES (?, ?, ?, ?, ?, (SELECT id FROM users WHERE account_id = ? ORDER BY created_at LIMIT 1), ?, ?, ?,
-               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'production', ?)`,
     )
       .bind(
         row.at,
@@ -45,6 +51,7 @@ export function providerCallsIn(env: Env): Recorder {
         row.cacheRead,
         row.cacheWrite,
         row.tokensOut,
+        costOf(row),
       )
       .run();
   };

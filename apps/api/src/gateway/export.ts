@@ -22,6 +22,8 @@ interface Joined {
   cache_write: number | null;
   tokens_out: number | null;
   item_id: string | null;
+  environment: string;
+  cost_usd: number | null;
 }
 
 /**
@@ -37,7 +39,7 @@ export async function readUsageRecords(env: Env, since: string, after: number): 
   const { results } = await env.DB.prepare(
     `SELECT c.id, c.at, c.operation, c.prompt_version, c.triggered_by, c.user_id, u.name AS user_name,
             c.provider, c.model, c.paid_by, c.paid_by_account, c.paid_by_key_ending, c.outcome, c.status,
-            c.duration_ms, c.tokens_in, c.cache_read, c.cache_write, c.tokens_out, c.item_id
+            c.duration_ms, c.tokens_in, c.cache_read, c.cache_write, c.tokens_out, c.item_id, c.environment, c.cost_usd
        FROM provider_calls c
        LEFT JOIN users u ON u.id = c.user_id
       WHERE c.at >= ? AND c.id > ?
@@ -70,6 +72,8 @@ export async function readUsageRecords(env: Env, since: string, after: number): 
       cacheWrite: row.cache_write,
       tokensOut: row.tokens_out,
       itemId: row.item_id,
+      environment: row.environment,
+      costUsd: row.cost_usd,
     }),
   );
   return { records, next: more ? records[records.length - 1]!.id : null };

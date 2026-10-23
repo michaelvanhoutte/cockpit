@@ -129,6 +129,20 @@ describe('AI usage', () => {
     });
   });
 
+  describe('the export carries each record’s environment and cost', () => {
+    it.each([
+      { situation: 'a priced production record', cost: 0.00526, expected: { environment: 'production', costUsd: 0.00526 } },
+      { situation: 'a record with no cost', cost: null, expected: { environment: 'production', costUsd: null } },
+    ])('gives $situation its environment and cost', async ({ cost, expected }) => {
+      await recordsMadeAt(daysAgo(1), 1, USER_ID, 'priced');
+      await env.DB.prepare("UPDATE provider_calls SET cost_usd = ? WHERE item_id = 'priced'").bind(cost).run();
+
+      const [record] = await everyRecord(daysAgo(7));
+
+      expect(record).toMatchObject(expected);
+    });
+  });
+
   describe('a deleted user’s records export with their id and an empty name', () => {
     it('names a user who is there, and keeps the id of one who is not', async () => {
       await recordsMadeAt(daysAgo(1), 1, USER_ID, 'mine');

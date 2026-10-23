@@ -483,7 +483,7 @@ And `pnpm usage:export` writes one environment's usage records — every paid pr
 pnpm usage:export --env production --days 30 --out ./usage/2026-10.csv
 ```
 
-`--days` is 1 to 365, the records being kept for twelve months. `--out` has to be a file that does not exist, and is refused rather than written over. It reads that environment's own `BACKUP_TOKEN` from `backup-tokens.json` like `pnpm backup:export`, and only reads: nothing is written to the environment. A token count the provider does not report is an empty cell, and a user who has since been deleted is their id with an empty name. The file names users: `usage/` is gitignored, and anywhere else in the checkout is not.
+`--days` is 1 to 365, the records being kept for twelve months. `--out` has to be a file that does not exist, and is refused rather than written over. It reads that environment's own `BACKUP_TOKEN` from `backup-tokens.json` like `pnpm backup:export`, and only reads: nothing is written to the environment. A token count the provider does not report, and a cost with no price, are empty cells rather than 0, and a user who has since been deleted is their id with an empty name. The file names users: `usage/` is gitignored, and anywhere else in the checkout is not.
 
 And `pnpm duplicates:backfill` reads the notes that were already in the Inbox when duplicate flagging shipped, so that a duplicate can be caught among them rather than only among notes captured since ("Give every item already there a vector", issue 409):
 
