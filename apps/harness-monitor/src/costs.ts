@@ -24,7 +24,7 @@ export type Split = (typeof SPLITS)[number];
 export const WHOS = ['all', 'main', 'subagents'] as const;
 export type Who = (typeof WHOS)[number];
 /** A model id as the usage hook sends it: letters, digits and a few separators, never free text. */
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,99}$/;
+export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,99}$/;
 
 /** The engineer filter's value for requests no pull request claims. */
 export const UNATTRIBUTED = '~unattributed';
@@ -99,6 +99,21 @@ export function firstDay(period: Period, now: number): string | null {
   return days === null ? null : addDays(belgianDay(now), -(days - 1));
 }
 
+/** A run of Belgian days, both ends included. */
+export interface DayWindow {
+  from: string;
+  to: string;
+}
+
+/** The period's window and the one before it, of the same length; null for all time, which has no before. The Claude calls page compares them. */
+export function windowsOf(period: Period, now: number): { current: DayWindow; previous: DayWindow } | null {
+  const days = PERIODS[period];
+  if (days === null) return null;
+  const today = belgianDay(now);
+  const from = addDays(today, -(days - 1));
+  return { current: { from, to: today }, previous: { from: addDays(from, -days), to: addDays(from, -1) } };
+}
+
 /** One series' dollars and tokens in one place, as the totals table holds them. */
 export interface TotalRow {
   /** The Belgian day, for a by-day query; '' otherwise. */
@@ -169,20 +184,21 @@ export const UNKNOWN_ENGINEER = '~unknown';
 /** A model id is free text, so series dollars live in an object with no prototype: no id can be `__proto__`. */
 const bag = (): Record<string, number> => Object.create(null) as Record<string, number>;
 
-/** One colour of the split: its key and name. */
+/** One colour of the split: its key, its name, and the short name over a column where a page draws one (the Claude calls page does). */
 export interface Series {
   key: string;
   label: string;
+  short: string;
 }
 
 const WHERE_NAMES: Record<(typeof WHERE)[number], string> = { local: "Engineers' machines", cloud: 'Cloud sessions', actions: 'CI (GitHub Actions)' };
-const WHERE_SERIES: Series[] = WHERE.map((key) => ({ key, label: WHERE_NAMES[key] }));
+const WHERE_SERIES: Series[] = WHERE.map((key) => ({ key, label: WHERE_NAMES[key], short: WHERE_NAMES[key] }));
 const OUTCOME_SERIES: Series[] = [
-  { key: 'merged', label: 'Merged' },
-  { key: 'open', label: 'Still open' },
-  { key: 'closed', label: 'Closed unmerged' },
-  { key: 'no-pr', label: 'No pull request' },
-  { key: 'on-main', label: 'On main' },
+  { key: 'merged', label: 'Merged', short: 'Merged' },
+  { key: 'open', label: 'Still open', short: 'Still open' },
+  { key: 'closed', label: 'Closed unmerged', short: 'Closed unmerged' },
+  { key: 'no-pr', label: 'No pull request', short: 'No pull request' },
+  { key: 'on-main', label: 'On main', short: 'On main' },
 ];
 
 const NAMES: Record<Category, string> = {
@@ -205,7 +221,7 @@ export const categoryName = (c: Category) => NAMES[c];
 export function seriesOf(split: Split, totals: Record<string, number>): Series[] {
   switch (split) {
     case 'phase':
-      return CATEGORIES.filter((c) => c !== 'unphased' || (totals.unphased ?? 0) > 0).map((c) => ({ key: c, label: categoryName(c) }));
+      return CATEGORIES.filter((c) => c !== 'unphased' || (totals.unphased ?? 0) > 0).map((c) => ({ key: c, label: categoryName(c), short: categoryName(c) }));
     case 'where':
       return WHERE_SERIES;
     case 'outcome':
@@ -214,7 +230,7 @@ export function seriesOf(split: Split, totals: Record<string, number>): Series[]
       return Object.keys(totals)
         .filter((m) => totals[m]! > 0)
         .sort((a, b) => totals[b]! - totals[a]! || a.localeCompare(b))
-        .map((m) => ({ key: m, label: m }));
+        .map((m) => ({ key: m, label: m, short: m }));
     case 'engineer':
       // Engineers dearest first; requests no pull request claims last.
       return Object.keys(totals)
@@ -222,7 +238,7 @@ export function seriesOf(split: Split, totals: Record<string, number>): Series[]
         .sort((a, b) => Number(a === UNATTRIBUTED) - Number(b === UNATTRIBUTED) || totals[b]! - totals[a]! || a.localeCompare(b))
         .map((e) => {
           const label = e === UNATTRIBUTED ? 'Unattributed' : e === UNKNOWN_ENGINEER ? 'unknown' : e;
-          return { key: e, label };
+          return { key: e, label, short: label };
         });
   }
 }
@@ -360,16 +376,19 @@ export interface DayChart {
   total: number[];
 }
 
+/** A day's group as a per-day chart reads it; the calls page has dollars only, so tokens are optional. */
+export type DayGroup = Pick<CostGroup, 'key' | 'bySeries' | 'totalMicros'> & Partial<Pick<CostGroup, 'tokensBySeries' | 'totalTokens'>>;
+
 /**
  * Cost or tokens per day as lines: one per series of the split that has any,
  * and the total. The range runs from the period's first day (the earliest day
  * with any request, priced or not, for all time) to today, so a day with none
  * is a zero, not a gap.
  */
-export function dayChart(groups: CostGroup[], series: Series[], first: string | null, now: number, measure: Measure = 'cost'): DayChart {
+export function dayChart(groups: DayGroup[], series: Series[], first: string | null, now: number, measure: Measure = 'cost'): DayChart {
   if (groups.length === 0) return { days: [], lines: [], total: [] };
-  const of = (g: CostGroup | undefined, key: string) => (measure === 'cost' ? g?.bySeries[key] : g?.tokensBySeries[key]) ?? 0;
-  const totalOf = (g: CostGroup | undefined) => (measure === 'cost' ? g?.totalMicros : g?.totalTokens) ?? 0;
+  const of = (g: DayGroup | undefined, key: string) => (measure === 'cost' ? g?.bySeries[key] : g?.tokensBySeries?.[key]) ?? 0;
+  const totalOf = (g: DayGroup | undefined) => (measure === 'cost' ? g?.totalMicros : g?.totalTokens) ?? 0;
   const byDay = new Map(groups.map((g) => [g.key, g]));
   const keys = groups.map((g) => g.key).sort();
   const start = first ?? keys[0]!;

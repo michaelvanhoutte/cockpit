@@ -13,6 +13,8 @@ import { expect, test } from './support/app';
  * figures sit on is reachable, laid out, pinned and switchable, on a phone
  * too, and drawn in Cockpit's look
  * (apps/harness-monitor/tests/integration/cockpit-look.test.ts holds its markup).
+ * Cockpit's Claude calls page is cockpit-claude-calls-page.test.ts; this finds it from
+ * the costs page and reads it on both devices.
  *
  * The Harness Monitor is its own Worker with its own database, on its own port
  * (scripts/e2e-stack.mjs), seeded through the suite-only route of
@@ -47,7 +49,36 @@ const request = (id: string, branch: string, category: string, dollars: number, 
   source: 'hook',
 });
 
+/** A Claude call as Cockpit's production sends it, row-numbered so the import copies each once. */
+const call = (id: number, over: Record<string, unknown>) => ({
+  id,
+  at,
+  environment: 'production',
+  feature: 'clean-up-a-note',
+  promptVersion: 'v1',
+  startedBy: 'captured-in-app',
+  model: 'claude-sonnet-5',
+  outcome: 'ok',
+  tokensIn: 100,
+  cacheRead: 0,
+  cacheWrite: 0,
+  tokensOut: 20,
+  costUsd: 1,
+  pullRequest: null,
+  runId: null,
+  branch: null,
+  ...over,
+});
+
 const SEED = {
+  calls: [
+    call(9_001, {}),
+    // Two contract runs on one pull request, one on another, and a nightly run on main.
+    call(9_002, { environment: 'ci', startedBy: 'contract-run', pullRequest: 9001, runId: 7_001, costUsd: 0.5 }),
+    call(9_003, { environment: 'ci', startedBy: 'contract-run', pullRequest: 9001, runId: 7_002, costUsd: 0.25 }),
+    call(9_004, { environment: 'ci', startedBy: 'contract-run', pullRequest: 9002, runId: 7_003, costUsd: 0.75 }),
+    call(9_005, { environment: 'ci', startedBy: 'contract-run', runId: 7_004, costUsd: 0.1 }),
+  ],
   rows: [
     request('1', 'claude/e2e-filter-panel', 'building', 4),
     request('2', 'claude/e2e-filter-panel', 'after-push', 2),
@@ -66,6 +97,8 @@ const SEED = {
 };
 
 test.describe('Harness Monitor', () => {
+  /** A grouping's tab on the band of a page that has them, such as Cockpit's Claude calls. */
+  const tabOn = (page: Page) => (name: string) => page.getByRole('navigation', { name: 'Group by' }).getByRole('link', { name, exact: true });
   /** A word of the band's sentence, or one of the filters under "Only", by what a screen reader calls it. */
   const choice = (page: Page, name: string) => page.getByRole('combobox', { name, exact: true });
   /** Chooses an option and waits for the page it submits to. */
@@ -237,5 +270,41 @@ test.describe('Harness Monitor', () => {
 
     await expect.poll(() => page.evaluate(() => document.fonts.check("15px 'Inter Variable'") && [...document.fonts].some((f) => f.family.includes('Inter') && f.status === 'loaded'))).toBe(true);
     expect(fonts).toEqual([new URL(monitor!).origin]);
+  });
+
+  test("from the costs page, Cockpit's Claude calls opens, groups by pull request and narrows to CI: the pull requests with their links, the filters in a row on a desk and two to a row on a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+
+    await page.goto(`${monitor}/`);
+    await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: /Cockpit.s Claude calls/ }).click();
+    await expect(page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: /Cockpit.s Claude calls/ })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('img', { name: /^Cost per day/ })).toBeVisible();
+
+    await tabOn(page)('Pull request').click();
+    await page.getByLabel('Environment', { exact: true }).selectOption('ci');
+    await expect(page).toHaveURL(/environment=ci/);
+
+    const table = page.getByRole('region', { name: 'Calls by pull request' });
+    const filed = table.getByRole('row', { name: /#9001 Add a filter panel/ });
+    await expect(filed).toContainText('2 contract runs');
+    await expect(filed).toContainText('$0.75');
+    await expect(filed.getByRole('link', { name: /#9001 Add a filter panel/ })).toHaveAttribute('href', /github\.com\/.+\/pull\/9001$/);
+    await expect(filed.getByRole('link', { name: 'Sessions' })).toHaveAttribute('href', '/pr/9001');
+    await expect(table.getByRole('row', { name: /#9002 Save a Teams message/ })).toContainText('1 contract run');
+    await expect(table.getByRole('row', { name: /Nightly and by-hand runs on main/ })).toContainText('$0.10');
+    await expect(table.getByRole('row', { name: /No pull request/ })).toHaveCount(0);
+
+    // The four filters: one row on a desk, two to a row on a phone, and the page never scrolls sideways.
+    const fields = await page.locator('.filters .field:has(select)').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
+    const perRow = [...new Set(fields)].map((top) => fields.filter((t) => t === top).length);
+    expect(fields).toHaveLength(4);
+    expect(perRow).toEqual(onAPhone ? [2, 2] : [4]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Sessions leads to the Monitor's own page for the pull request.
+    await filed.getByRole('link', { name: 'Sessions' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: /#9001 Add a filter panel/ })).toBeVisible();
   });
 });

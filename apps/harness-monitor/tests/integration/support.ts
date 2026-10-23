@@ -354,6 +354,12 @@ export interface SentenceChoice {
   held: boolean;
 }
 
+/** The groupings as a page's band offers them as tabs (the Claude calls page; the costs page has the sentence instead), left to right: the name, where it goes, and whether it is the page's. */
+export function groupTabs(html: string): { label: string; href: string; current: boolean }[] {
+  const tabs = /<div class="band-tabs">(.*?)<\/div>/s.exec(html)?.[1] ?? '';
+  return [...tabs.matchAll(/<a href="([^"]*)"( aria-current="page")?>(.*?)<\/a>/g)].map(([, href, current, label]) => ({ label: label!, href: href!.replace(/&amp;/g, '&'), current: current !== undefined }));
+}
+
 /** The band's sentence and its filters as a visitor sees them: each choice by the address parameter it sets, and the sentence with its choices in brackets. */
 export function theSentence(html: string): { text: string; choices: Record<string, SentenceChoice>; pinned: boolean } {
   const decode = (t: string) => t.replace(/<[^>]*>/g, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));

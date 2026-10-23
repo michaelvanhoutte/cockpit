@@ -1,7 +1,8 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
-import { emptyTheDatabase, send, spend, theBarePage, theSentence, thePullRequest, withPrices } from './support';
+import { theCallsPage } from './cockpit-support';
+import { emptyTheDatabase, groupTabs, send, spend, theBarePage, theSentence, thePullRequest, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -17,7 +18,7 @@ function topBar(html: string) {
   return {
     mark: bar.includes('<svg') && bar.includes('class="logo"'),
     name: /<span>Harness Monitor<\/span>/.test(bar),
-    tabs: [...(/<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(bar)?.[1] ?? '').matchAll(/<a href="[^"]*"( aria-current="page")?>([^<]*)<\/a>/g)].map((m) => ({ label: m[2]!, current: m[1] !== undefined })),
+    tabs: [...(/<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(bar)?.[1] ?? '').matchAll(/<a href="[^"]*"( aria-current="page")?>([^<]*)<\/a>/g)].map((m) => ({ label: m[2]!.replace(/&rsquo;/g, "'"), current: m[1] !== undefined })),
   };
 }
 
@@ -27,24 +28,34 @@ const held = (html: string) => [...html.matchAll(/<select id="(\w+)"[^>]*? data-
 describe('Harness Monitor', () => {
   describe('every page opens under the same top bar, its own tab selected', () => {
     it.each([
-      { situation: 'the costs page', page: () => theBarePage('?period=all') },
-      { situation: "a pull request's page", page: async () => (await thePullRequest(7)).text() },
-      { situation: 'the page for a pull request nothing knows', page: async () => (await thePullRequest(999)).text() },
-    ])('$situation shows the mark, the name and the costs tab selected', async ({ page }) => {
-      expect(topBar(await page())).toEqual({ mark: true, name: true, tabs: [{ label: 'Claude Code costs', current: true }] });
+      { situation: 'the costs page', page: () => theBarePage('?period=all'), current: 'Claude Code costs' },
+      { situation: "a pull request's page", page: async () => (await thePullRequest(7)).text(), current: 'Claude Code costs' },
+      { situation: 'the page for a pull request nothing knows', page: async () => (await thePullRequest(999)).text(), current: 'Claude Code costs' },
+      { situation: "Cockpit's Claude calls", page: () => theCallsPage(), current: "Cockpit's Claude calls" },
+    ])('$situation shows the mark, the name and both tabs, its own selected', async ({ page, current }) => {
+      expect(topBar(await page())).toEqual({
+        mark: true,
+        name: true,
+        tabs: [
+          { label: 'Claude Code costs', current: current === 'Claude Code costs' },
+          { label: "Cockpit's Claude calls", current: current === "Cockpit's Claude calls" },
+        ],
+      });
     });
 
     it.each([
       { situation: 'the costs page', page: () => theBarePage() },
       { situation: "a pull request's page", page: async () => (await thePullRequest(7)).text() },
       { situation: 'the page for a pull request nothing knows', page: async () => (await thePullRequest(999)).text() },
+      { situation: "Cockpit's Claude calls", page: () => theCallsPage() },
     ])('$situation has exactly one top-level heading', async ({ page }) => {
       expect((await page()).match(/<h1\b/g)).toHaveLength(1);
     });
 
-    it("Cockpit's Claude calls is not a tab until its page exists", async () => {
-      // The job list below names the import of those calls; only a tab would be the page.
-      expect(topBar(await theBarePage()).tabs.map((t) => t.label)).not.toContainEqual(expect.stringContaining('Claude calls'));
+    it("the tabs lead to the costs page and to Cockpit's Claude calls", async () => {
+      const bar = /<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(await theBarePage())![1]!;
+
+      expect([...bar.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/', '/claude-calls']);
     });
   });
 
@@ -92,6 +103,7 @@ describe('Harness Monitor', () => {
     it.each([
       { situation: 'the costs page', page: () => theBarePage() },
       { situation: "a pull request's page", page: async () => (await thePullRequest(7)).text() },
+      { situation: "Cockpit's Claude calls", page: () => theCallsPage() },
     ])('the font $situation names is served by the Monitor as a font, cached for good', async ({ page }) => {
       // The platform answers a font's address from the Monitor's own files before the Worker runs, so the test asks that store.
       const font = await env.ASSETS.fetch(`https://monitor.test${fontOf(await page())}`);
@@ -105,6 +117,7 @@ describe('Harness Monitor', () => {
     it.each([
       { situation: 'the costs page', page: () => theBarePage() },
       { situation: "a pull request's page", page: async () => (await thePullRequest(7)).text() },
+      { situation: "Cockpit's Claude calls", page: () => theCallsPage() },
     ])('$situation loads nothing from an outside host', async ({ page }) => {
       const html = await page();
       const loaded = [...html.matchAll(/(?:<link [^>]*href|<script [^>]*src|<img [^>]*src)="([^"]*)"|url\(([^)]*)\)|@import\s+([^;]*)/g)].map((m) => (m[1] ?? m[2] ?? m[3]!).replace(/^["']/, ''));

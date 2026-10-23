@@ -1,4 +1,4 @@
-import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
+import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { vi } from 'vitest';
 import worker from '../../src/worker';
 import recorded from './fixtures/cockpit-claude-calls.json';
@@ -123,3 +123,117 @@ export async function theCallTotals(): Promise<CallTotal[]> {
 export async function thePlace(): Promise<number | null> {
   return (await env.DB.prepare('SELECT after_id AS after FROM claude_call_place WHERE id = 1').first<{ after: number }>())?.after ?? null;
 }
+
+/** Cockpit serves these calls and the import copies them, the way a run does, then the fake goes away. */
+export async function importTheCalls(calls: Call[]) {
+  fakeCockpit(theRoute(calls));
+  await runTheImport();
+  vi.restoreAllMocks();
+}
+
+/** The Cockpit's Claude calls page exactly as the address asks for it; the bare address is Over time. */
+export const theCallsPage = async (query = ''): Promise<string> => (await SELF.fetch(`https://monitor.test/claude-calls${query}`)).text();
+
+/** The calls export as a visitor downloads it: the response, and its lines split into cells. */
+export async function theCallsExport(query = '') {
+  const response = await SELF.fetch(`https://monitor.test/claude-calls/export.csv${query}`);
+  const text = await response.text();
+  const lines = text === '' ? [] : text.replace(/\r\n$/, '').split('\r\n');
+  return { response, text, header: lines[0]!.split(','), rows: lines.slice(1).map((l) => l.split(',')) };
+}
+
+const plain = (s: string) =>
+  s
+    .replace(/<[^>]*>/g, '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&rsquo;/g, "'")
+    .trim();
+
+export interface CallsRow {
+  /** The first cell: what the row is. */
+  label: string;
+  /** The line under it, if any. */
+  sub: string | null;
+  /** Where the first cell leads: the pull request on GitHub, and the Monitor's own page for it. */
+  links: string[];
+  calls: string;
+  /** How many coloured segments the row's split bar is drawn with. */
+  segments: number;
+  /** Dollars per column of the split, left to right; '—' for none. */
+  cells: string[];
+  total: string;
+}
+
+/** The rows of the page's table, in the order shown. */
+export function callsRows(html: string): CallsRow[] {
+  const table = /<table class="calls">(.*?)<\/table>/s.exec(html)?.[1] ?? '';
+  return [...table.matchAll(/<tr><td class="first">(.*?)<\/td><td class="num muted">(.*?)<\/td><td class="split-cell"><div class="split[^"]*">(.*?)<\/div><\/td>(.*?)<td class="num total">(.*?)<\/td><\/tr>/gs)].map(
+    ([, first, calls, split, cells, total]) => {
+      const [, label, sub] = /^(.*?)(?:<div class="muted small">(.*?)<\/div>)?$/s.exec(first!)!;
+      return {
+        label: plain(label!),
+        sub: sub === undefined ? null : plain(sub),
+        links: [...first!.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1]!),
+        calls: plain(calls!),
+        segments: [...split!.matchAll(/<div style="width/g)].length,
+        cells: [...cells!.matchAll(/<td class="num">(.*?)<\/td>/gs)].map((m) => plain(m[1]!)),
+        total: plain(total!),
+      };
+    },
+  );
+}
+
+/** The names over the split's columns, left to right. */
+export function callsColumns(html: string): string[] {
+  const found = /<th scope="col" class="split-head">Split<\/th>(.*?)<th scope="col" class="num">Total<\/th>/s.exec(html);
+  return found ? [...found[1]!.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((m) => plain(m[1]!)) : [];
+}
+
+/** The tiles: Spent, Calls and, but for all time, the comparison. */
+export const callsTiles = (html: string) =>
+  [...html.matchAll(/<div class="tile[^"]*"><span class="tile-label">(.*?)<\/span><span class="tile-value">(.*?)<\/span><span class="tile-note">(.*?)<\/span><\/div>/g)].map(
+    ([, label, value, note]) => ({ label: plain(label!), value: plain(value!), note: plain(note!) }),
+  );
+
+/** The panel that says where the dollars went: its heading, each series with its dollars and share, and the sentence under them. */
+export function callsWhereItWent(html: string) {
+  return {
+    heading: plain(/<h2 id="where">(.*?)<\/h2>/s.exec(html)![1]!),
+    shares: [...html.matchAll(/<li><i [^>]*><\/i><span class="name">(.*?)<\/span><span class="amount">(.*?)<\/span><span class="share">(.*?)<\/span><\/li>/g)].map(
+      ([, name, amount, share]) => ({ name: plain(name!), amount: plain(amount!), share: plain(share!) }),
+    ),
+    note: plain(/<p class="note">(.*?)<\/p>/s.exec(html)![1]!),
+  };
+}
+
+/** The largest changes: the panel's heading and each change; null where the page draws no such panel. */
+export function callsChanges(html: string) {
+  const panel = /<h2 id="changes">(.*?)<\/h2>.*?<ul class="well changes">(.*?)<\/ul>/s.exec(html);
+  if (!panel) return null;
+  return {
+    heading: plain(panel[1]!),
+    items: [...panel[2]!.matchAll(/<li><span class="name">(.*?)<\/span><span class="delta (up|down)"><span aria-hidden="true">.<\/span> (.*?)<\/span><span class="from">(.*?)<\/span><\/li>/g)].map(
+      ([, name, direction, delta, from]) => ({ name: plain(name!), direction: direction!, delta: plain(delta!), from: plain(from!) }),
+    ),
+    none: panel[2]!.includes('No change'),
+  };
+}
+
+/** The Cost per day chart's description, or null where the page draws none. */
+export const callsChart = (html: string) => /<svg [^>]*aria-label="(Cost per day[^"]*)"/.exec(html)?.[1] ?? null;
+
+/** The filters that hold a value (wear the accent border), and the toggles that are pressed. */
+export const callsControls = (html: string) => ({
+  held: [...html.matchAll(/<select id="(\w+)"[^>]*? data-set>/g)].map((m) => m[1]!),
+  pressed: [...html.matchAll(/<button type="submit" name="split" value="\w+" aria-pressed="true">(.*?)<\/button>/g)].map((m) => m[1]!),
+});
+
+/** The warning about calls with no price: its sentence, or null where there is none. */
+export const callsWarning = (html: string) => {
+  const found = /<section class="panel warning" role="status"[^>]*>.*?<p>(.*?)<\/p>/s.exec(html);
+  return found ? plain(found[1]!) : null;
+};
+
+/** What the page says of the import's last run. */
+export const callsJobLine = (html: string) =>
+  /<li data-job="claude-calls"[^>]*>(.*?)<\/li>/s.exec(html)?.[1]?.replace(/&mdash;/g, '—').replace(/&rsquo;/g, "'");
