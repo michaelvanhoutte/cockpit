@@ -116,7 +116,8 @@ export const STRIP_SCRIPT = `${STRIP_LAYOUT_SOURCE}
     th.appendChild(el('span','sr-only','Open a row'));
     head.insertBefore(th,head.firstChild);
   }
-  [].forEach.call(body.querySelectorAll('tr[data-figures]'),function(row){
+  [].forEach.call(body.rows,function(row){
+    if(!row.hasAttribute('data-figures')){row.insertBefore(el('td','open-cell'),row.firstChild);return}
     var named=row.cells[0].cloneNode(true);
     var sub=named.querySelector('.sub');
     if(sub)sub.remove();

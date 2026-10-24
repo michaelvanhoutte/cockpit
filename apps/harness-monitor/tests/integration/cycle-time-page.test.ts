@@ -371,6 +371,16 @@ describe('Harness Monitor', () => {
       expect(strip).toEqual({ Writing: 10, 'Local checks': 5, 'Code review': 3, 'Security review': 2, 'CI rounds': 5, Test: 5, 'Waiting to merge': 1 });
     });
 
+    it('a row with no minutes in it carries no figures, so it is not offered to open to an empty strip', async () => {
+      const sent = await sendPulls([writing(1, 10), recorded(2, '2026-10-29T10:00:00Z', { rounds: [cycleRound([cycleCheck('Test', 0, { last: true })])], ciMs: 0, totalMs: 0, codingMs: 0, localMs: 0, waitingToMergeMs: 0, awayMs: 0, localReviews: { count: 0, ms: 0, byKind: { 'code-review': { count: 0, ms: 0 }, 'security-review': { count: 0, ms: 0 } } } })]);
+      expect(sent.status).toBe(200);
+
+      const html = await thePage('?group=pr');
+
+      expect(html.match(/<tr data-figures="/g)).toHaveLength(1);
+      expect(rowsOf(html, 'cycle-table')).toHaveLength(2);
+    });
+
     it("an issue's row adds its two pull requests up, not averages them", async () => {
       await sendPulls([writing(1, 4, '2026-10-29T10:00:00Z'), writing(2, 8)]);
       await costing(1, null, 7);
