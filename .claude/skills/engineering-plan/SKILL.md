@@ -97,6 +97,8 @@ Settle the placement questions explicitly: which store owns each piece of data, 
 
 **Offer each option as an arrangement of parts and what it does under the scenario**: the states it passes through, what it costs, what it leaves unguarded.
 
+**Where a trigger exists only because of a rule in What to build, ask first, in the ticket's own words, whether that rule is worth what it costs**, before offering any arrangement: a narrower rule can remove the trigger outright, and only the person can trade it. Rewrite What to build with the answer, since that section is `scoping`'s. In "Show every date and time in your own time zone and region" (issue 1423), options about sub-day totals went unanswered until the person fixed the harness pages to Belgian time, which made them unnecessary.
+
 **Challenge the result rather than presenting it**: name what you chose and what you rejected, and ask the engineer about each. A question whose two answers would produce different diffs is closed here, not carried into the issue.
 
 ### 4. Record the decisions
