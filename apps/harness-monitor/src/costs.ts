@@ -193,12 +193,13 @@ export interface Series {
 
 const WHERE_NAMES: Record<(typeof WHERE)[number], string> = { local: "Engineers' machines", cloud: 'Cloud sessions', actions: 'CI (GitHub Actions)' };
 const WHERE_SERIES: Series[] = WHERE.map((key) => ({ key, label: WHERE_NAMES[key], short: WHERE_NAMES[key] }));
+/** In stacking order: the grey one, No pull request, stacks last (src/palette.ts). */
 const OUTCOME_SERIES: Series[] = [
   { key: 'merged', label: 'Merged', short: 'Merged' },
   { key: 'open', label: 'Still open', short: 'Still open' },
   { key: 'closed', label: 'Closed unmerged', short: 'Closed unmerged' },
-  { key: 'no-pr', label: 'No pull request', short: 'No pull request' },
   { key: 'on-main', label: 'On main', short: 'On main' },
+  { key: 'no-pr', label: 'No pull request', short: 'No pull request' },
 ];
 
 const NAMES: Record<Category, string> = {

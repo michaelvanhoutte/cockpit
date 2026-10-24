@@ -1,6 +1,7 @@
 import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './belgium';
-import { esc, selectField } from './look';
+import { esc, lineKey, selectField } from './look';
 import { number, REPOSITORY } from './page';
+import { BLUE, colourByPlace, GREY, isFolded, ORANGE, OTHER, OTHER_LABEL, RED, VIOLET } from './palette';
 import { bandTabs, humanMs, outLink, pct, reportPage, section, tile } from './report';
 import {
   clipSpans,
@@ -30,16 +31,15 @@ const BRANCH = 'main';
 /** The most failures the Recent failures list draws; the counts above it use every one. */
 const FAILURE_LIMIT = 100;
 
+/** How a run ended, in stacking order: failed is red, being bad; cancelled and skipped ran no verdict, so they are grey and stack last, and the series beside them takes blue, a slot grey clears. */
 const OUTCOMES = [
-  { key: 'pass', label: 'Passed', colour: 'var(--cat-teal)' },
-  { key: 'fail', label: 'Failed', colour: 'var(--over)' },
-  { key: 'cancelled', label: 'Cancelled', colour: 'var(--cat-grey)' },
-  { key: 'skipped', label: 'Skipped', colour: 'color-mix(in srgb,var(--cat-grey) 40%,transparent)' },
-  { key: 'running', label: 'Still running', colour: 'var(--cat-slate)' },
-  { key: 'other', label: 'Other or unrecognised', colour: 'var(--cat-amber)' },
+  { key: 'pass', label: 'Passed', colour: VIOLET },
+  { key: 'fail', label: 'Failed', colour: RED },
+  { key: 'running', label: 'Still running', colour: ORANGE },
+  { key: 'other', label: 'Other or unrecognised', colour: BLUE },
+  { key: 'cancelled', label: 'Cancelled', colour: GREY },
+  { key: 'skipped', label: 'Skipped', colour: GREY },
 ] as const;
-/** The report pages' violet ramp, dark to light: a workflow is a step on it, never red or green. */
-const RAMP = ['var(--cat-violet)', 'var(--cat-slate)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-amber)'];
 
 const bandOf = (rate: number) => (rate >= 0.99 ? 'ok' : rate >= 0.9 ? 'mid' : 'poor');
 
@@ -85,9 +85,9 @@ export function renderStability(q: StabilityQuery, data: StabilityData, reposito
   const periodWords = q.period === 'all' || data.partial ? `the ${data.heldDays} days held` : `the last ${data.periodDays} days`;
 
   const names = data.finishedWorkflows;
-  // Only workflows that were ever red are drawn as series, so only they take a ramp step, in a fixed order.
+  // Only workflows that were ever red are drawn as series, so only they take a slot, by their place among them in a fixed order; the ninth onward are drawn together as Other.
   const everRed = [...new Set(data.spells.map((s) => s.workflow))].sort((a, b) => names.indexOf(a) - names.indexOf(b));
-  const colour = (name: string) => (everRed.includes(name) ? RAMP[everRed.indexOf(name) % RAMP.length]! : 'var(--cat-grey)');
+  const colour = (name: string) => colourByPlace(everRed, name);
   const workflows = data.workflows.filter((w) => keep(w.name));
   const lastOf = (wf: string) => data.lastRuns.find((l) => l.workflow === wf);
   const jobs: JobRow[] = workflows.flatMap((w) => w.jobs.map((job) => ({ workflow: w.name, job, last: lastOf(w.name)?.jobs.find((j) => j.name === job.name)?.last ?? null })));
@@ -306,8 +306,11 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
     const days: string[] = [];
     for (let d = belgianDay(from); d <= belgianDay(until); d = addDays(d, 1)) days.push(d);
     const redWorkflows = [...new Set(spells.map((s) => s.workflow))].sort((a, b) => names.indexOf(a) - names.indexOf(b));
+    const folded = redWorkflows.filter((w) => isFolded(everRed, w));
     const dayRed = (d: string, list: Spell[]) => unionMs(clipSpans(list.map((s) => spellSpan(s, until)), Math.max(from, startOfDay(d)), Math.min(until, startOfDay(addDays(d, 1)))));
-    const lines = redWorkflows.map((w) => ({ key: w, label: w, colour: colour(w), dash: false, values: days.map((d) => dayRed(d, spells.filter((s) => s.workflow === w))) }));
+    const own = redWorkflows.filter((w) => !folded.includes(w)).map((w) => ({ key: w, label: w, colour: colour(w), dash: false, values: days.map((d) => dayRed(d, spells.filter((s) => s.workflow === w))) }));
+    // Other is the time any of the folded workflows was red, overlaps counted once, so it can never run above the total.
+    const lines = folded.length ? [...own, { key: OTHER, label: OTHER_LABEL, colour: GREY, dash: false, values: days.map((d) => dayRed(d, spells.filter((s) => folded.includes(s.workflow)))) }] : own;
     const total = days.map((d) => dayRed(d, spells));
     const { width, height, left, right, top, bottom } = { width: 1000, height: 260, left: 64, right: 12, top: 12, bottom: 30 };
     const peak = Math.max(...total, 1);
@@ -320,13 +323,13 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
     const drawn = [...lines, { key: 'total', label: 'Any workflow', values: total, colour: 'var(--ink-strong)', dash: true }]
       .map(
         (l) =>
-          `<g><polyline points="${l.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${l.colour}" stroke-width="${l.dash ? 1.5 : 2}" stroke-linejoin="round"${l.dash ? ' stroke-dasharray="5 4"' : ''}/>${l.values
+          `<g${l.dash ? ' data-line="total"' : ''}><polyline points="${l.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${l.colour}" stroke-width="${l.dash ? 1.5 : 2}" stroke-linejoin="round"${l.dash ? ' stroke-dasharray="5 4"' : ''}/>${l.values
             .map((v, i) => (v > 0 ? `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${l.dash ? 0 : 2.5}" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(days[i]!)} · ${humanMs(v)} red</title></circle>` : ''))
             .join('')}</g>`,
       )
       .join('');
-    const legend = [...lines.map((l) => `<span class="key"><i style="background:${l.colour}"></i>${esc(l.label)}</span>`), '<span class="key"><i class="dash"></i>Any workflow</span>'].join('');
-    let out = section('red-per-day', `Time ${esc(BRANCH)} was red, per day`, `<span class="legend">${legend}</span>`, `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Time red per day">${area}${grid}${dates}${drawn}</svg></div>`);
+    const legend = [...lines.map((l) => lineKey(esc(l.label), l.colour)), lineKey('Any workflow', null)].join('');
+    let out = section('red-per-day', `Time ${esc(BRANCH)} was red, per day`, `<span class="legend">${legend}</span>`, `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Time red per day">${area}${grid}${dates}<g class="lines">${drawn}</g></svg></div>`);
 
     const dayPeak = Math.max(...total, 1);
     const heads = lines.map((l) => `<th scope="col" class="num"><i style="background:${l.colour}"></i>${esc(l.label)}</th>`).join('');
@@ -410,7 +413,7 @@ tr.open td{background:color-mix(in srgb,var(--over) 8%,transparent)}
 .steps .step-name{color:var(--ink-strong)}
 .steps .track{position:relative;height:10px;border-radius:2px;background:color-mix(in srgb,var(--shade) 6%,transparent)}
 .steps .track span{position:absolute;left:0;top:0;bottom:0;border-radius:2px}
-.steps .median,.steps li.head i.median{background:var(--cat-violet)}.steps .p90,.steps li.head i.p90{background:color-mix(in srgb,var(--cat-violet) 30%,transparent)}
+.steps .median,.steps li.head i.median{background:${VIOLET}}.steps .p90,.steps li.head i.p90{background:color-mix(in srgb,${VIOLET} 30%,transparent)}
 @media (max-width:640px){
   .steps li{grid-template-columns:1fr 64px 64px;gap:4px 10px}.steps .track{grid-column:1/-1;order:5}.steps li>span:last-child{display:none}.steps li.head>span:nth-child(2){display:none}
 }

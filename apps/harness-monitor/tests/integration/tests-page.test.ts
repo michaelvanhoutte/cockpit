@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import worker from '../../src/worker';
 import { area, kase, model, rule, rules } from '../fixtures/tests-model';
 import { emptyTheDatabase, merged, sendTestsModel } from './support';
+import { coloursOf, GREY, segments, slot, swatches } from './series-colours';
 
 beforeEach(emptyTheDatabase);
 
@@ -457,4 +458,39 @@ describe('Harness Monitor', () => {
       expect(html).not.toContain('class="filters"');
     });
   });
+
+  describe('a level has its own colour wherever the page counts by level, and a package has none', () => {
+    it('the Concept area tab keys L1 to F3 in the first six slots and Contract in grey, and an area’s bar uses the same ones', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = await thePage();
+      const inbox = rowOf(html, 'areas', 'Inbox');
+
+      expect(swatches(sectionOf(html, 'areas')).slice(0, 7)).toEqual([
+        ['L1', slot(1)],
+        ['L2', slot(2)],
+        ['L3', slot(3)],
+        ['F1', slot(4)],
+        ['F2', slot(5)],
+        ['F3', slot(6)],
+        ['Contract', GREY],
+      ]);
+      // Inbox holds L1, L2 and F3 rules of its own: its bar has a segment for each, in their colours.
+      expect(segments(cellsOf(inbox).join('')).map(([title, colour]) => [title.replace(/ \d+$/, ''), colour])).toEqual([
+        ['L1', slot(1)],
+        ['L2', slot(2)],
+        ['F3', slot(6)],
+      ]);
+    });
+
+    it('counted by package, every bar is violet', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const bars = segments(sectionOf(await thePage('?split=package'), 'areas'));
+
+      expect(bars.length).toBeGreaterThan(0);
+      expect(new Set(coloursOf(bars))).toEqual(new Set([slot(1)]));
+    });
+  });
+
 });

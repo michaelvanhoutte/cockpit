@@ -1,6 +1,7 @@
 import { createExecutionContext, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../../src/worker';
+import { GREY, RED, slot, swatches } from './series-colours';
 import { docsOnly, emptyTheDatabase, fullPackage, ranEverything, selectionBars, selectionFile, selectionJob, selectionPackage, selectionPull, sendSelection } from './support';
 
 beforeEach(async () => {
@@ -457,4 +458,41 @@ describe('Harness Monitor', () => {
       expect(eight).toContain('Pull request 8');
     });
   });
+
+  describe('a job has its own colour, and what a job did with a pull request has its own', () => {
+    it('Test is violet and E2E orange on the per-day chart, the outcomes keyed selected, ran everything, and the greys for a job that never started', async () => {
+      const pulls = [
+        selectionPull(1, { mergedAt: MERGED, jobs: [selectionJob('test'), selectionJob('e2e')] }),
+        selectionPull(2, { mergedAt: MERGED, jobs: [ranEverything('test', 'any tsconfig', 'tsconfig.json'), ranEverything('e2e', 'owned by no concept', 'apps/api/src/b.ts')] }),
+        selectionPull(3, { mergedAt: MERGED, jobs: [docsOnly('test'), docsOnly('e2e')] }),
+        // A pull request the Selection job left no record of for E2E.
+        selectionPull(4, { mergedAt: MERGED, jobs: [selectionJob('test'), { ...docsOnly('e2e'), status: 'no-record' }] }),
+      ];
+      expect((await sendSelection(pulls)).status).toBe(200);
+
+      const html = await thePage();
+
+      expect(swatches(sectionOf(html, 'ran-everything-per-day'))).toEqual([['Test job', slot(1)], ['E2E job', slot(2)]]);
+      expect(swatches(sectionOf(html, 'what-each-job-did'))).toEqual([
+        ['Test job', slot(1)],
+        ['Selected a subset', slot(1)],
+        ['Ran everything', slot(2)],
+        ['Skipped: documentation only', GREY],
+        ['E2E job', slot(2)],
+        ['Selected a subset', slot(1)],
+        ['Ran everything', slot(2)],
+        ['Skipped: documentation only', GREY],
+        ['No record', GREY],
+      ]);
+    });
+
+    it('a job over the bar draws Ran everything in red, which is bad, instead of orange', async () => {
+      await sendSelection(thirtyWithNineFull());
+
+      const legend = swatches(sectionOf(await thePage(), 'what-each-job-did'));
+
+      expect(legend.slice(legend.findIndex(([name]) => name === 'E2E job'))).toContainEqual(['Ran everything · over the bar', RED]);
+    });
+  });
+
 });

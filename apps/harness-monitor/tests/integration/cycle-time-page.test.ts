@@ -1,5 +1,6 @@
 import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GREY, panelOf, RED, slot, swatches } from './series-colours';
 import { cycleCheck, cyclePull, cycleRound, emptyTheDatabase, send, sendPulls, spend, withPrices } from './support';
 
 beforeEach(async () => {
@@ -396,6 +397,66 @@ describe('Harness Monitor', () => {
       expect(rows.map((r) => [r[0], r[1], r[2], r[7]])).toEqual([
         ['E2E (F3) red on #2', '3', '2', '1'],
         ['Test', '3', '1', '—'],
+      ]);
+    });
+  });
+
+  describe('each part of a pull request’s time has its own colour, and what is neither is grey and stacks last', () => {
+    it('by phase, writing, local checks and CI rounds take the first three slots, waiting to merge blue and away grey', async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { awayMs: 3 * MIN, totalMs: 24 * MIN })]);
+
+      const html = await thePage();
+      const phases = [['Writing', slot(1)], ['Local checks', slot(2)], ['CI rounds', slot(3)], ['Waiting to merge', slot(6)], ['Away', GREY]];
+
+      expect(swatches(panelOf(html, 'per-pull-request'))).toEqual(phases);
+      expect(swatches(panelOf(html, 'cycle-table'))).toEqual(phases);
+    });
+
+    it('a dot of the scatter is violet, and red from three rounds', async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z'), recorded(2, '2026-10-29T10:00:00Z', { rounds: [red(), red(), green()] })]);
+
+      const scatter = panelOf(await thePage(), 'writing-against-harness');
+
+      expect([...scatter.matchAll(/<circle [^>]*stroke="([^"]*)" class="dot"><title>#(\d+)/g)].map((m) => [m[2], m[1]])).toEqual(expect.arrayContaining([['1', slot(1)], ['2', RED]]));
+      expect(swatches(scatter).slice(0, 2)).toEqual([['a pull request', slot(1)], ['3 rounds or more', RED]]);
+    });
+
+    it('in the outline, each phase is in its slot and a part is in its phase’s colour, grey where it is not a named part', async () => {
+      const kinds = { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 };
+      const checks = ['Test', 'Mystery check'].map((name, i) => cycleCheck(name, 3 * MIN, { last: i === 1 }));
+      await sendPulls([
+        recorded(1, '2026-10-30T10:00:00Z', { localParts: kinds, awayMs: MIN, totalMs: 22 * MIN, rounds: [cycleRound(checks, { ms: 6 * MIN })], ciMs: 6 * MIN }),
+        recorded(2, '2026-10-29T10:00:00Z'),
+      ]);
+
+      const rows = [...(/<ul class="outline".*?<\/ul>/s.exec(await thePage())?.[0] ?? '').matchAll(/<span class="nm">(.*?)<\/span>.*?class="b" style="[^"]*background:([^";]*)"/gs)].map((m) => [m[1], m[2]]);
+
+      expect(rows).toEqual([
+        ['Writing', slot(1)],
+        ['Local checks', slot(2)],
+        ['Code review', slot(2)],
+        ['Security review', slot(2)],
+        ['Not split by kind', GREY],
+        ['CI rounds', slot(3)],
+        ['Test', slot(3)],
+        ['Other checks', GREY],
+        ['Waiting to merge', slot(6)],
+        ['Away', GREY],
+      ]);
+    });
+    it('on the Check tab, a check CI does not run today is grey, and each of the others is in its slot, Contract tests in blue', async () => {
+      const checks = ['E2E (F3)', 'Test', 'Checks', 'Test Explorer', 'Contract tests', 'Mystery check'].map((name, i) => cycleCheck(name, (6 - i) * MIN, { last: i === 5 }));
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { rounds: [cycleRound(checks, { ms: 21 * MIN })] })]);
+
+      const byCheck = swatches(panelOf(await thePage('?group=check'), 'by-check'));
+
+      expect(byCheck).toEqual([
+        ['E2E (F3)', slot(1)],
+        ['Test', slot(2)],
+        ['Checks', slot(3)],
+        ['Test Explorer', slot(4)],
+        ['Contract tests', slot(6)],
+        ['Mystery check', GREY],
       ]);
     });
   });

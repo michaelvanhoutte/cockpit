@@ -4,7 +4,7 @@ import { esc, shell, band, type PageName } from './look';
  * The frame the harness report pages share: a page's own tabs on the band, a
  * section over a well, tiles, the outcome bar, and the readings of a duration
  * and a rate. A report page is a tabs list, a filters form and panels, drawn
- * with `reportPage`; the calmer palette itself is in look.ts, which every
+ * with `reportPage`; the series palette itself is in look.ts, which every
  * page takes.
  */
 

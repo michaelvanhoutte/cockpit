@@ -25,7 +25,9 @@ async function oneDay() {
 }
 
 const html = (query: string) => theBarePage(`?period=all&split=engineer${query}`);
-const GREY = 'var(--cat-grey)';
+const GREY = 'var(--series-grey)';
+const VIOLET = 'var(--series-1)';
+const ORANGE = 'var(--series-2)';
 
 /** The legend under the bar: each colour's name, its swatch and its dollars. */
 const legend = (page: string) => [...page.matchAll(/<li><i style="background:([^"]*)" aria-hidden="true"><\/i><span class="name">(.*?)<\/span><span class="amount">(.*?)<\/span><\/li>/g)].map((m) => [m[2]!, m[1]!, m[3]!]);
@@ -41,8 +43,8 @@ describe('Harness Monitor', () => {
 
       expect(whereItWent(page)).toEqual({ heading: "Where the period's $15.00 went, by engineer", bar: 'alice $5.00, bob $3.00, unknown $1.00, Unattributed $6.00' });
       expect(legend(page)).toEqual([
-        ['alice', 'var(--cat-violet)', '$5.00'],
-        ['bob', 'var(--cat-amber)', '$3.00'],
+        ['alice', VIOLET, '$5.00'],
+        ['bob', ORANGE, '$3.00'],
         ['unknown', GREY, '$1.00'],
         ['Unattributed', GREY, '$6.00'],
       ]);
@@ -59,9 +61,9 @@ describe('Harness Monitor', () => {
       const rows = costRows(await html('&group=pr&sort=total'));
 
       expect(rows.map((r) => [r.label, r.fills, r.colours])).toEqual([
-        ['#1 Alice’s', ['var(--cat-violet)'], 'alice $5.00'],
+        ['#1 Alice’s', [VIOLET], 'alice $5.00'],
         ['No branch', [], ''],
-        ['#2 Bob’s', ['var(--cat-amber)'], 'bob $3.00'],
+        ['#2 Bob’s', [ORANGE], 'bob $3.00'],
         ['claude/stray', [GREY], 'Unattributed $2.00'],
         ['#3 Nobody’s', [GREY], 'unknown $1.00'],
       ]);
@@ -70,15 +72,15 @@ describe('Harness Monitor', () => {
     it('a day with all of them is one bar of every colour', async () => {
       const [day] = costRows(await html(''));
 
-      expect(day!.fills).toEqual(['var(--cat-violet)', 'var(--cat-amber)', GREY, GREY]);
+      expect(day!.fills).toEqual([VIOLET, ORANGE, GREY, GREY]);
       expect(day!.colours).toBe('alice $5.00 · bob $3.00 · unknown $1.00 · Unattributed $6.00');
     });
 
     it('an engineer filter leaves that engineer’s colour as it was without it', async () => {
       const filtered = await html('&engineer=bob');
 
-      expect(legend(filtered)).toEqual([['bob', 'var(--cat-amber)', '$3.00']]);
-      expect(legend(await html('')).find((l) => l[0] === 'bob')![1]).toBe('var(--cat-amber)');
+      expect(legend(filtered)).toEqual([['bob', ORANGE, '$3.00']]);
+      expect(legend(await html('')).find((l) => l[0] === 'bob')![1]).toBe(ORANGE);
     });
 
     it('the tokens follow the same colours', async () => {

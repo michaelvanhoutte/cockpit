@@ -1,6 +1,7 @@
 import { formatDateTime } from './belgium';
 import { esc, selectField } from './look';
 import { number } from './page';
+import { VIOLET } from './palette';
 import { bandTabs, reportPage, section, tile } from './report';
 import {
   branchGaps,
@@ -36,7 +37,7 @@ import {
 import type { PullRequestTests } from './tests-store';
 
 /** The one colour a bar takes when its parts are packages, which are not told apart by colour. */
-const PLAIN = 'var(--cat-slate)';
+const PLAIN = VIOLET;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`;
 

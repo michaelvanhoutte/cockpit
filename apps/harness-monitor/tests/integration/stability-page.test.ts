@@ -1,5 +1,6 @@
 import { SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GREY, panelOf, RED, slot, swatches } from './series-colours';
 import { emptyTheDatabase, sendRuns, stabilityJob, stabilityRun, stabilityStep } from './support';
 
 beforeEach(async () => {
@@ -249,4 +250,43 @@ describe('Harness Monitor', () => {
       expect(text(await thePage('?period=90d'))).not.toContain('Nothing in this period');
     });
   });
+
+  describe('each way a run ended has its own colour, and each workflow ever red the colour of its place among them', () => {
+    it('failed is red, cancelled and skipped are grey and stack last, and the series beside them is blue', async () => {
+      const job = (outcome: string, name = 'Test') => stabilityJob(name, 60_000, { outcome, conclusion: outcome === 'pass' ? 'success' : outcome });
+      await sendRuns([
+        ran(1, '2026-10-30T10:00:00Z', 'pass'),
+        ran(2, '2026-10-30T11:00:00Z', 'fail'),
+        ran(3, '2026-10-30T12:00:00Z', 'cancelled'),
+        ran(4, '2026-10-30T13:00:00Z', 'skipped'),
+        stabilityRun(5, { createdAt: '2026-10-30T14:00:00Z', jobs: [job('running', 'Test'), job('other', 'Odd')] }),
+      ]);
+
+      const html = await thePage();
+
+      expect(swatches(panelOf(html, 'ended'))).toEqual([
+        ['Passed', slot(1)],
+        ['Failed', RED],
+        ['Still running', slot(2)],
+        ['Other or unrecognised', slot(6)],
+        ['Cancelled', GREY],
+        ['Skipped', GREY],
+      ]);
+    });
+
+    it('the first eight workflows ever red take the slots of their place, and the ninth is Other, in the key and in the per-day line', async () => {
+      const workflows = Array.from({ length: 9 }, (_, i) => 'W' + (i + 1));
+      await sendRuns(workflows.flatMap((workflow, i) => [ran(10 + i * 2, '2026-10-30T0' + i + ':00:00Z', 'fail', { workflow }), ran(11 + i * 2, '2026-10-30T0' + i + ':30:00Z', 'pass', { workflow })]));
+
+      const html = await thePage('?group=day');
+
+      expect(swatches(panelOf(html, 'red-per-day'))).toEqual([
+        ...workflows.slice(0, 8).map((name, i) => [name, slot(i + 1)]),
+        ['Other', GREY],
+      ]);
+      const lines = [...panelOf(html, 'red-per-day').matchAll(/<g[^>]*><polyline points="[^"]*" fill="none" stroke="([^"]*)"/g)].map((m) => m[1]);
+      expect(lines).toEqual([...workflows.slice(0, 8).map((_, i) => slot(i + 1)), GREY, 'var(--ink-strong)']);
+    });
+  });
+
 });

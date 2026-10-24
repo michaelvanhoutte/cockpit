@@ -1,6 +1,7 @@
 import { formatDay } from './belgium';
 import { firstDay, MODEL_ID, PERIODS, windowsOf, type Period, type Series } from './costs';
 import type { JobStatus } from './jobs';
+import { OTHER, OTHER_LABEL } from './palette';
 
 /**
  * What the Cockpit's Claude calls page can be asked, and the figures it answers
@@ -92,6 +93,7 @@ export const startedByName = (value: string) =>
 
 /** A series of a split as a name. */
 export function seriesName(key: string, split: CallSplit): string {
+  if (key === OTHER) return OTHER_LABEL;
   switch (split) {
     case 'environment':
       return environmentName(key);

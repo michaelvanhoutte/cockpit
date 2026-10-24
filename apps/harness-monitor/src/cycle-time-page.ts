@@ -2,6 +2,7 @@ import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './be
 import type { CycleTimeView } from './cycle-time-store';
 import { esc, selectField } from './look';
 import { dollars, number, REPOSITORY } from './page';
+import { BLUE, GREY, RED, slot, VIOLET } from './palette';
 import { bandTabs, outLink, reportPage, section, tile } from './report';
 import {
   buckets,
@@ -32,21 +33,22 @@ import {
   values,
   type CycleTimeQuery,
   type OutlineRow,
+  type PhaseKey,
   type Pull,
 } from './cycle-time-report';
 
-/** The report pages' one violet ramp, darkest first (look.ts defines the --cat-* names as its steps); grey is for other or none. */
-const RAMP = ['var(--cat-violet)', 'var(--cat-slate)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-amber)'];
-const GREY = 'var(--cat-grey)';
+/**
+ * The colour of each phase (src/palette.ts), in stacking order: the slots in
+ * turn, blue beside the grey Away, which stacks last. A part of a phase is
+ * drawn in its phase's colour, and grey where it is not one of the named ones.
+ */
+const COLOUR_OF_PHASE: Record<PhaseKey, string> = { writing: slot(1), local: slot(2), ci: slot(3), waiting: BLUE, away: GREY };
+const COLOURED = PHASES.map((s) => ({ ...s, colour: COLOUR_OF_PHASE[s.key] }));
+const colourOfPhase = (key: PhaseKey) => COLOUR_OF_PHASE[key];
 
-/** The phases with the colour each is drawn in: the ramp in stacking order, grey for the one marked other. */
-const COLOURED = (() => {
-  let step = 0;
-  return PHASES.map((s) => ({ ...s, colour: s.other ? GREY : RAMP[step++ % RAMP.length]! }));
-})();
-const colourOfPhase = (key: string) => COLOURED.find((s) => s.key === key)!.colour;
-/** The Check tab's colour for a check: the ramp in the order CI runs them, grey for any other. */
-const colourOfCheck = (name: string) => (CHECKS.includes(name) ? RAMP[CHECKS.indexOf(name) % RAMP.length]! : GREY);
+/** The Check tab's colour for each check, in the order CI runs them (the slots in turn, blue beside the grey), and grey for any other. */
+const CHECK_COLOURS = [slot(1), slot(2), slot(3), slot(4), BLUE];
+const colourOfCheck = (name: string) => CHECK_COLOURS[CHECKS.indexOf(name)] ?? GREY;
 
 const unrecordedNote = (n: number) =>
   n === 0 ? '' : ` ${plural(n, 'pull request')} here ${n === 1 ? 'carries' : 'carry'} no session record: ${n === 1 ? 'its' : 'their'} writing starts at the first commit and ${n === 1 ? 'its' : 'their'} local checks are not recorded, which is not zero.`;
@@ -120,7 +122,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const y = (ms: number) => S.top + plotH - (Math.min(ms, scale) / scale) * plotH;
     const ratio = harnessShare(list).ratio;
     const maxLines = Math.max(1, ...dots.map(lines));
-    const colour = (rounds: number) => (rounds >= 3 ? 'var(--over)' : 'var(--cat-slate)');
+    const colour = (rounds: number) => (rounds >= 3 ? RED : VIOLET);
     const grid = [0, 0.5, 1]
       .map(
         (f) =>
@@ -142,8 +144,8 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
       })
       .join('');
     const keys = [
-      ['var(--cat-slate)', 'a pull request'],
-      ['var(--over)', '3 rounds or more'],
+      [VIOLET, 'a pull request'],
+      [RED, '3 rounds or more'],
     ]
       .map(([c, t]) => `<span class="key"><i style="background:${c}"></i>${t}</span>`)
       .join('');
