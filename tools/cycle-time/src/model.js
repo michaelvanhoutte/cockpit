@@ -607,11 +607,12 @@ function readRecord(body, firstCommit) {
 
   // A review is its start paired with the next end of the same kind; a second
   // start with no end between leaves the earlier one unpaired, and unpaired marks
-  // say nothing about how long a review took.
+  // say nothing about how long a review took. A review of a kind the session record does not
+  // know, written by hand, is left out, since the local time is split by the kinds it knows.
   const open = new Map();
   const reviews = [];
   for (const mark of marks) {
-    if (mark.phase === 'review-start') open.set(mark.kind, mark);
+    if (mark.phase === 'review-start' && REVIEW_KINDS.includes(mark.kind)) open.set(mark.kind, mark);
     else if (mark.phase === 'review-end' && open.has(mark.kind)) {
       const begun = open.get(mark.kind);
       open.delete(mark.kind);
@@ -715,12 +716,11 @@ function unionMs(slices) {
 }
 
 /** The local kinds in the order a part of Local checks is named: each review kind, then test runs and the browser pass. */
-export const LOCAL_KINDS = [...LOCAL_REVIEW_KINDS, ...LOCAL_RUN_KINDS];
+const LOCAL_KINDS = [...LOCAL_REVIEW_KINDS, ...LOCAL_RUN_KINDS];
 
 /**
  * Each local kind's minutes with every minute counted once, so the four add up to the local time
- * `unionMs` gives exactly. A minute two slices share goes to the one that ends last, the rule a CI
- * round's minutes follow; of two ending together, to the one that started later, then to the kind
+ * `unionMs` gives exactly. A minute two slices share goes to the one that ends last; of two ending together, to the one that started later, then to the kind
  * later in `LOCAL_KINDS`, so the same slices always give the same parts. A kind with no slice is 0.
  *
  * @param {{ kind: string, at: string, ms: number }[]} slices the review and run slices, already cut to the gaps

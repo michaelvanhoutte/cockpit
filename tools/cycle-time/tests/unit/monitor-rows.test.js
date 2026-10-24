@@ -236,6 +236,20 @@ describe('Cycle time', () => {
       expect(other.localParts).toEqual(one.localParts);
     });
 
+    it('leaves a review of a kind the session record does not know out of the local time, so the parts still add up to it', () => {
+      const body = renderBlock([
+        { at: at(0), phase: 'start' },
+        { at: at(5), phase: 'review-start', kind: 'design-review', level: 'high' },
+        { at: at(15), phase: 'review-end', kind: 'design-review', level: 'high' },
+        { at: at(20), phase: 'review-start', kind: 'code-review', level: 'high' },
+        { at: at(25), phase: 'review-end', kind: 'code-review', level: 'high' },
+      ]);
+      const [row] = monitorRows({ pulls: [pull({ body, commits: [{ sha: 'a'.repeat(40), authoredAt: at(0), parents: 1, checks: [check('Test', 40, 50)] }] })] });
+
+      expect(inMinutes(row.localParts)).toEqual({ 'code-review': 5, 'security-review': 0, test: 0, browser: 0 });
+      expect(row.localMs).toBe(5 * MIN);
+    });
+
     it('sends no parts, not zeroes, for a pull request with no session record', () => {
       const [row] = monitorRows({ pulls: [pull({ body: '', commits: [flukyCommit] })] });
 
