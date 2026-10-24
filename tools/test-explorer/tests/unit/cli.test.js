@@ -39,6 +39,14 @@ describe('parseArgs', () => {
     expect(parseArgs([flag, '--json'])).toEqual({ invalid: `${flag} needs a path to a model file` });
   });
 
+  it.each([
+    { argv: ['--json', '--model', 'm.json'], invalid: '--model writes the model beside the page, so it does not combine with --json or --check-concepts' },
+    { argv: ['--model', 'm.json', '--check-concepts'], invalid: '--model writes the model beside the page, so it does not combine with --json or --check-concepts' },
+    { argv: ['--send', 'm.json', '--json'], invalid: '--send reads a model and writes nothing, so it takes no other option' },
+  ])('refuses $argv, which would silently skip one of them', ({ argv, invalid }) => {
+    expect(parseArgs(argv)).toEqual({ invalid });
+  });
+
   it('returns { unknown } for an unrecognized argument instead of exiting the process', () => {
     expect(parseArgs(['--nope'])).toEqual({ unknown: '--nope' });
   });

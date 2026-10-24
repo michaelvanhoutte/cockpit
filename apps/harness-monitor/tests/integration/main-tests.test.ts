@@ -1,5 +1,6 @@
 import { SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { MAX_PART_BYTES } from '../../src/tests';
 import {
   emptyTheDatabase,
   sendEveryTestsPart,
@@ -10,6 +11,7 @@ import {
   testsAreas,
   testsTree,
   theTests,
+  WRITE_KEY,
 } from './support';
 
 beforeEach(emptyTheDatabase);
@@ -82,6 +84,23 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe("sending main's next tests deletes any left unfinished, and keeps the ones shown", () => {
+    it("A shown and C left unfinished, then B's tree sent, leaves A shown and C deleted", async () => {
+      await shown(A);
+      await unfinished(C, 5);
+
+      expect((await sendTestsTree(B, testsTree(B, AREAS))).status).toBe(200);
+
+      expect(await storedTests()).toEqual({
+        commits: [
+          { commit: A, areas: 37 },
+          { commit: B, areas: 0 },
+        ],
+        current: A,
+      });
+    });
+  });
+
   describe("sending main's tests again stores them once", () => {
     it('every part of B sent twice, then shown, holds one copy of B', async () => {
       await sendEveryTestsPart(B, AREAS);
@@ -104,6 +123,27 @@ describe('Harness Monitor', () => {
 
       expect(response.status).toBe(status);
       expect(((await response.json()) as { error: string }).error).toMatch(error);
+      expect(await storedTests()).toEqual({ commits: [{ commit: B, areas: 0 }], current: null });
+    });
+
+    it('an area over the size one part may hold, sent without its length, is refused naming the limit, and nothing of it is stored', async () => {
+      await sendTestsTree(B, testsTree(B, AREAS));
+      // A stream of its own, not a Blob's, so the request declares no length.
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(MAX_PART_BYTES + 1));
+          controller.close();
+        },
+      });
+
+      const response = await SELF.fetch(`https://monitor.test/v1/tests/main/${B}/areas/Area%201`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/gzip', authorization: `Bearer ${WRITE_KEY}` },
+        body,
+      });
+
+      expect(response.status).toBe(413);
+      expect(((await response.json()) as { error: string }).error).toMatch(/^Area "Area 1" is .* over the 1,900,000 a part may hold/);
       expect(await storedTests()).toEqual({ commits: [{ commit: B, areas: 0 }], current: null });
     });
 

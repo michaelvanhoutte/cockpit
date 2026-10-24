@@ -8,7 +8,7 @@ import type { Snapshot, TreeFacts } from './tests';
  * Built to these failure modes:
  * - **Halfway**: each part is one statement. Parts sent before a stop are kept
  *   under their commit and never shown; the previous snapshot stays current,
- *   and the next switch that succeeds deletes them.
+ *   and the next tree stored, or switch that succeeds, deletes them.
  * - **Twice**: a part replaces the one stored under its commit and area, so a
  *   re-send stores the snapshot once.
  * - **Rows that break the rule**: a part is checked whole before it is stored
@@ -23,15 +23,24 @@ export type Stored = { ok: true } | { ok: false; status: number; error: string }
 /** D1 hands a BLOB back as an array of bytes; the runtime may hand back an ArrayBuffer instead. */
 const bytesOf = (value: unknown): Uint8Array => (value instanceof ArrayBuffer ? new Uint8Array(value) : Uint8Array.from(value as number[]));
 
-/** Stores a tree under its commit, replacing one sent before, with the areas whose parts it waits for. */
+/**
+ * Stores a tree under its commit, replacing one sent before, with the areas
+ * whose parts it waits for, and deletes the parts of every commit neither shown
+ * nor this one, so a send refused every time leaves one unfinished snapshot
+ * stored, not one a push.
+ */
 export async function storeTree(db: D1Database, snapshot: Snapshot, tree: TreeFacts, document: Uint8Array, now = Date.now()): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO tests_trees (snapshot, commit_sha, document, areas, received_at) VALUES (?1, ?2, ?3, ?4, ?5)
-       ON CONFLICT (snapshot, commit_sha) DO UPDATE SET document = excluded.document, areas = excluded.areas, received_at = excluded.received_at`,
-    )
-    .bind(snapshot, tree.commit, document, JSON.stringify(tree.areas), now)
-    .run();
+  const neither = 'snapshot = ?1 AND commit_sha <> ?2 AND commit_sha NOT IN (SELECT commit_sha FROM tests_current WHERE snapshot = ?1)';
+  await db.batch([
+    db.prepare(`DELETE FROM tests_area_lines WHERE ${neither}`).bind(snapshot, tree.commit),
+    db.prepare(`DELETE FROM tests_trees WHERE ${neither}`).bind(snapshot, tree.commit),
+    db
+      .prepare(
+        `INSERT INTO tests_trees (snapshot, commit_sha, document, areas, received_at) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT (snapshot, commit_sha) DO UPDATE SET document = excluded.document, areas = excluded.areas, received_at = excluded.received_at`,
+      )
+      .bind(snapshot, tree.commit, document, JSON.stringify(tree.areas), now),
+  ]);
 }
 
 /**

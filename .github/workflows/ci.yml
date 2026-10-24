@@ -545,10 +545,18 @@ jobs:
             echo "::notice title=Tests not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, so main's tests did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
             exit 0
           fi
+          # A re-run of an older commit would otherwise show its tests over newer
+          # ones. Either read failing sends anyway, as a send before this did.
+          shown=$(curl -fsS "${HARNESS_MONITOR_URL%/}/tests?format=json" | jq -r '.commit // empty') || shown=
+          if [ -n "$shown" ] && [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$shown...$GITHUB_SHA" --jq .status)" = behind ]; then
+            echo "::notice title=Tests not sent::The Harness Monitor shows main's tests at $shown, newer than $GITHUB_SHA, so this run sent nothing."
+            exit 0
+          fi
           node tools/test-explorer/src/cli.js --send tools/test-explorer/model/model.json
         env:
           HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
           HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+          GH_TOKEN: ${{ github.token }}
 
   # How reliable each job on `main` has been: pass rates over 7 and 30 days with
   # cancellations counted apart from failures, durations, how long `main` stayed

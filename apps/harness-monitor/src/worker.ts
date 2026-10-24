@@ -120,6 +120,37 @@ async function writeSelection(request: Request, env: Env): Promise<Response> {
 }
 
 /**
+ * A snapshot part's body, or the bytes it reached once over MAX_PART_BYTES: a
+ * declared length is refused before reading, and an undeclared one is read only
+ * until it passes the limit, so a part far over it is never held in memory.
+ */
+async function readPart(request: Request): Promise<Uint8Array | number> {
+  const declared = Number(request.headers.get('content-length'));
+  if (declared > MAX_PART_BYTES) return declared;
+  if (!request.body) return new Uint8Array(0);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = request.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_PART_BYTES) {
+      await reader.cancel();
+      return size;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return bytes;
+}
+
+/**
  * One part of a test explorer snapshot, or the switch that makes it current
  * (src/tests.ts, src/tests-store.ts): `PUT .../tree` and `PUT .../areas/<key>`
  * take the part's gzip as the body, `POST .../current` makes the commit's
@@ -147,18 +178,16 @@ async function writeTests(request: Request, env: Env, snapshot: string, commit: 
     }
   }
   const name = area === null ? 'The tree' : `Area ${JSON.stringify(area)}`;
-  // Before reading the body, so a part far over the limit is never held in memory.
-  const declared = Number(request.headers.get('content-length'));
-  if (declared > MAX_PART_BYTES) return json({ error: tooLarge(name, declared) }, 413);
-  const bytes = new Uint8Array(await request.arrayBuffer());
+  const bytes = await readPart(request);
+  if (typeof bytes === 'number') return json({ error: tooLarge(name, bytes) }, 413);
   if (area === null) {
     const checked = await readTree(commit, bytes);
-    if (!checked.ok) return json({ error: checked.error }, bytes.byteLength > MAX_PART_BYTES ? 413 : 400);
+    if (!checked.ok) return json({ error: checked.error }, 400);
     await storeTree(env.DB, which, checked.value, bytes);
     return json({ snapshot: which, commit, part: 'tree', areas: checked.value.areas.length });
   }
   const checked = await readArea(area, bytes);
-  if (!checked.ok) return json({ error: checked.error }, bytes.byteLength > MAX_PART_BYTES ? 413 : 400);
+  if (!checked.ok) return json({ error: checked.error }, 400);
   const stored = await storeArea(env.DB, which, commit, area, bytes);
   return stored.ok ? json({ snapshot: which, commit, part: 'area', area }) : json({ error: stored.error }, stored.status);
 }

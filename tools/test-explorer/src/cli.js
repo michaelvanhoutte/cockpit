@@ -132,7 +132,8 @@ function write(file, contents) {
 
 /**
  * Pure: no process.exit, no I/O — an unrecognized flag comes back as
- * `{ unknown: a }`, and a flag missing its value as `{ invalid: reason }`, for
+ * `{ unknown: a }`, and a flag missing its value or flags that do not combine
+ * as `{ invalid: reason }`, for
  * main() to act on, rather than parseArgs deciding how the process ends.
  * That's what makes this testable as plain logic.
  *
@@ -154,6 +155,8 @@ export function parseArgs(argv) {
       args[a.slice(2)] = value;
     } else return { unknown: a };
   }
+  if (args.model && (args.json || args.checkConcepts)) return { invalid: '--model writes the model beside the page, so it does not combine with --json or --check-concepts' };
+  if (args.send && Object.keys(args).length > 1) return { invalid: '--send reads a model and writes nothing, so it takes no other option' };
   return args;
 }
 

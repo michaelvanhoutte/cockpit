@@ -6,7 +6,7 @@
  * A send is the tree, then each area's source lines, then the switch that
  * shows them, each its own request. A send cut short leaves the parts already
  * sent stored under the commit and never shown: the Monitor keeps showing the
- * snapshot before until a switch lands, and that switch deletes them.
+ * snapshot before until a switch lands, and the next send deletes them.
  */
 
 import { gzipSync } from 'node:zlib';

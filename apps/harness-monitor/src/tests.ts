@@ -13,8 +13,8 @@ export type Snapshot = (typeof SNAPSHOTS)[number];
 
 /** D1 stores at most 2,000,000 bytes a row; a part keeps clear of it, leaving room for the row's keys. */
 export const MAX_PART_BYTES = 1_900_000;
-/** Most a part may unpack to: far above the 1.8 MB tree, so only a malformed part reaches it. */
-export const MAX_UNPACKED_BYTES = 32_000_000;
+/** Most a part may unpack to: above the 12 MB a part at MAX_PART_BYTES unpacks to at the tree's 6.5 to 1, so only a malformed part reaches it. */
+export const MAX_UNPACKED_BYTES = 16_000_000;
 /** Most areas one tree may name, and so most parts a snapshot waits for: far above the product's 38. */
 export const MAX_AREAS = 500;
 /** Most lines one reference's source may carry: the tool keeps four either side. */
@@ -41,11 +41,14 @@ export const tooLarge = (part: string, bytes: number) =>
 /**
  * The part's JSON, unpacked from gzip, or why it cannot be read. The size is
  * checked before anything is unpacked, and the unpacking stops at
- * MAX_UNPACKED_BYTES, so a small part that unpacks to gigabytes costs nothing.
+ * MAX_UNPACKED_BYTES, so a small part that unpacks to gigabytes is refused
+ * having held at most that much text.
  */
 export async function unpack(part: string, bytes: Uint8Array): Promise<Checked<unknown>> {
   if (bytes.byteLength > MAX_PART_BYTES) return refused(tooLarge(part, bytes.byteLength));
-  const chunks: Uint8Array[] = [];
+  // Decoded chunk by chunk, so only the text is held, never the unpacked bytes beside it.
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+  const texts: string[] = [];
   let size = 0;
   try {
     const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
@@ -57,19 +60,19 @@ export async function unpack(part: string, bytes: Uint8Array): Promise<Checked<u
         await reader.cancel();
         return refused(`${part} unpacks to more than ${MAX_UNPACKED_BYTES.toLocaleString('en')} bytes.`);
       }
-      chunks.push(value);
+      try {
+        texts.push(decoder.decode(value, { stream: true }));
+      } catch {
+        await reader.cancel();
+        return refused(`${part} is not JSON once unpacked.`);
+      }
     }
   } catch {
     return refused(`${part} is not gzip.`);
   }
-  const joined = new Uint8Array(size);
-  let at = 0;
-  for (const chunk of chunks) {
-    joined.set(chunk, at);
-    at += chunk.byteLength;
-  }
   try {
-    return { ok: true, value: JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(joined)) };
+    texts.push(decoder.decode());
+    return { ok: true, value: JSON.parse(texts.join('')) };
   } catch {
     return refused(`${part} is not JSON once unpacked.`);
   }
