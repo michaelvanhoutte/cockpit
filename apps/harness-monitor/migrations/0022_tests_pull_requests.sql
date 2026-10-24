@@ -4,8 +4,8 @@
 -- CLOSED_SNAPSHOTS), since its run is held to 50 queries; this trigger takes
 -- the tree's source lines and switch with it. Every other deletion of a tree
 -- already deletes those first, so it finds nothing more there.
--- The Tests page looks each shown pull request's links up by number
--- (PULL_REQUESTS_SHOWN), which the index serves.
+-- The Tests page and that deletion look each stored pull request's links up
+-- by number (PULL_REQUESTS_SHOWN, CLOSED_SNAPSHOTS), which the index serves.
 -- Expand-only: adds a trigger and an index and changes no existing row.
 CREATE TRIGGER tests_trees_deleted AFTER DELETE ON tests_trees
 BEGIN

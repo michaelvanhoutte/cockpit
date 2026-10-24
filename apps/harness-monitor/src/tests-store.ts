@@ -168,9 +168,9 @@ export async function shownTests(db: D1Database, snapshot: Snapshot): Promise<{ 
  * Linking's deletion of a merged or closed pull request's snapshot: every
  * pull request the run read (`?1`, the JSON array it stores the links from,
  * oldest update first) as no longer open at its newest read, so one closed and
- * reopened while the run read it is kept, and every one the stored links
- * already say is, so a snapshot that landed after its pull request closed goes
- * at the next run.
+ * reopened while the run read it is kept, and every stored snapshot whose
+ * links, looked up by number, already say it is, so a snapshot that landed
+ * after its pull request closed goes at the next run.
  * One statement, so linking stays inside its query budget: the trigger of
  * migrations/0022_tests_pull_requests.sql takes each tree's source lines and
  * switch with it. Runs after the links are stored, in the same batch, so a
@@ -178,8 +178,8 @@ export async function shownTests(db: D1Database, snapshot: Snapshot): Promise<{ 
  */
 export const CLOSED_SNAPSHOTS = `DELETE FROM tests_trees WHERE snapshot IN (
   SELECT 'pr-' || number FROM (SELECT value ->> '$.number' AS number, value ->> '$.state' AS state, max(key) FROM json_each(?1) GROUP BY number)
-  WHERE state <> 'OPEN'
-  UNION SELECT 'pr-' || pr_number FROM branch_links WHERE state <> 'OPEN')`;
+  WHERE state <> 'OPEN')
+  OR (snapshot LIKE 'pr-%' AND EXISTS (SELECT 1 FROM branch_links b WHERE b.pr_number = CAST(substr(tests_trees.snapshot, 4) AS INTEGER) AND b.state <> 'OPEN'))`;
 
 /**
  * One area's gzipped source lines at the commit of the tree read, or null when

@@ -119,17 +119,20 @@ function wrongReference(named: string, node: Record<string, unknown>): string | 
       if (!cases.every((c) => isRef(c) && typeof c.text === 'string')) return `${at} has a case that is not {file, line, text}.`;
     }
   }
+  // A gap's line can be missing: coverage gives an untaken implicit `else` none.
+  const isGap = (value: unknown) => isRecord(value) && typeof value.file === 'string' && (value.line === undefined || value.line === null || Number.isInteger(value.line));
   for (const list of ['filesNothingRuns', 'branchesNothingTakes'] as const) {
     const refs = node[list];
     if (refs === undefined || refs === null) continue;
-    if (!Array.isArray(refs) || !refs.every(isRef)) return `${named}'s ${list} is not a list of {file, line}.`;
+    if (!Array.isArray(refs) || !refs.every(isGap)) return `${named}'s ${list} is not a list of {file, line}.`;
   }
   return null;
 }
 
 /**
  * The tree's commit and the areas it names, or the first thing wrong with it.
- * Each node needs a key (unique: an area's part is filed under it), a label,
+ * Its warnings, where it has any, are text, and so is its commit link. Each
+ * node needs a key (unique: an area's part is filed under it), a label,
  * its counts, rules and children; every rule, case and gap a file and line,
  * a rule its statement and level, a case its text; no reference may carry its
  * source lines, which belong in the area's own part.
@@ -140,6 +143,8 @@ export function checkTree(value: unknown): Checked<TreeFacts> {
   if (!COMMIT.test(value.commit)) return refused(`The tree's commit ${JSON.stringify(value.commit)} is not one.`);
   if (typeof value.coverageAvailable !== 'boolean') return refused('The tree does not say whether coverage was available.');
   if (!Array.isArray(value.tree)) return refused('The tree has no areas.');
+  if (value.warnings !== undefined && !(Array.isArray(value.warnings) && value.warnings.every((w) => typeof w === 'string'))) return refused('The tree has warnings that are not a list of text.');
+  if (value.commitUrl !== undefined && value.commitUrl !== null && typeof value.commitUrl !== 'string') return refused("The tree's commit link is not text.");
 
   const areas: string[] = [];
   const seen = new Set<string>();

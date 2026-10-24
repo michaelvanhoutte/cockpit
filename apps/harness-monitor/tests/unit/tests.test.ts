@@ -57,9 +57,19 @@ describe('Harness Monitor', () => {
         error: 'Area "Capture": the rule at "a.test.ts:3" has a case that is not {file, line, text}.',
       },
       {
-        situation: 'a tree with a gap that has no line',
-        sent: tree({ tree: [area('Capture', { filesNothingRuns: [{ file: 'a.ts' }] })] }),
+        situation: 'a tree with a gap that has no file',
+        sent: tree({ tree: [area('Capture', { filesNothingRuns: [{ line: 1 }] })] }),
         error: 'Area "Capture"\'s filesNothingRuns is not a list of {file, line}.',
+      },
+      {
+        situation: 'a tree whose warnings are not text',
+        sent: tree({ warnings: [1] }),
+        error: 'The tree has warnings that are not a list of text.',
+      },
+      {
+        situation: 'a tree whose commit link is not text',
+        sent: tree({ commitUrl: ['https://github.com/o/r/commit/abc1234'] }),
+        error: "The tree's commit link is not text.",
       },
     ])('$situation is refused', async ({ sent, error }) => {
       expect(await readTree(COMMIT, await gzip(sent))).toEqual({ ok: false, error });
@@ -74,6 +84,12 @@ describe('Harness Monitor', () => {
 
     it('a part that is not gzip is refused', async () => {
       expect(await readArea('Capture', new TextEncoder().encode('{"a.ts:3": []}'))).toEqual({ ok: false, error: 'Area "Capture" is not gzip.' });
+    });
+
+    it('a branch nothing takes with no line, as coverage gives an untaken implicit else, is read', async () => {
+      const checked = await readTree(COMMIT, await gzip(tree({ tree: [area('Capture', { branchesNothingTakes: [{ file: 'a.ts' }, { file: 'a.ts', line: 9 }] })] })));
+
+      expect(checked).toEqual({ ok: true, value: { commit: COMMIT, areas: ['Capture'] } });
     });
 
     it('a well-formed tree is read with every area it names, nested ones included', async () => {

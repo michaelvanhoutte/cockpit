@@ -104,7 +104,8 @@ jobs:
 
           # The model, where CI built one: a run whose tests failed, or that
           # changed no product file, has none.
-          artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+          # Asked by name: an unfiltered list is one page of 30, which a run's artifacts can outgrow.
+          artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?name=test-explorer-model" \
             --jq '[.artifacts[] | select(.name == "test-explorer-model" and .expired == false)] | .[0].id // empty')
           if [ -z "$artifact" ]; then
             notice "CI's run $RUN_ID built no test explorer model for pull request $number, so nothing was sent."
