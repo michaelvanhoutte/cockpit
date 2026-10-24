@@ -57,7 +57,7 @@ const pull = (number: number, over: Partial<Pull> = {}): Pull => ({
   size: { additions: 30, deletions: 10, files: 3, commits: 2, mainMerges: 0 },
   start: { at: '2026-10-20T11:39:00.000Z', from: 'session-record' },
   recorded: true,
-  time: { codingMs: 10 * MIN, localMs: 5 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 21 * MIN },
+  time: { localParts: null, codingMs:10 * MIN, localMs: 5 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 21 * MIN },
   balance: { codingMs: 10 * MIN, harnessMs: 10 * MIN, rounds: 1, ratio: 1 },
   localReviews: { count: 1, ms: 5 * MIN, byKind: { 'code-review': { count: 1, ms: 5 * MIN }, 'security-review': { count: 0, ms: 0 } } },
   localRuns: { test: null, browser: null },
@@ -72,7 +72,7 @@ const pull = (number: number, over: Partial<Pull> = {}): Pull => ({
 const unrecorded = (number: number, over: Partial<Pull> = {}) =>
   pull(number, {
     recorded: false,
-    time: { codingMs: null, localMs: null, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 21 * MIN },
+    time: { localParts: null, codingMs:null, localMs: null, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 21 * MIN },
     balance: null,
     localReviews: null,
     ...over,
@@ -85,9 +85,9 @@ describe('Harness Monitor', () => {
   describe("Split by Phase adds up exactly to a pull request's start to merge", () => {
     it.each([
       { situation: 'a recorded pull request', p: pull(1) },
-      { situation: 'one away for a night between two rounds', p: pull(2, { time: { codingMs: 10 * MIN, localMs: 5 * MIN, ciMs: 5 * MIN, waitingToMergeMs: 0, awayMs: 600 * MIN, totalMs: 620 * MIN } }) },
+      { situation: 'one away for a night between two rounds', p: pull(2, { time: { localParts: null, codingMs:10 * MIN, localMs: 5 * MIN, ciMs: 5 * MIN, waitingToMergeMs: 0, awayMs: 600 * MIN, totalMs: 620 * MIN } }) },
       { situation: 'one with no session record, whose writing is the time left', p: unrecorded(3) },
-      { situation: 'one no check ran on', p: pull(4, { balance: null, rounds: [], time: { codingMs: null, localMs: null, ciMs: 0, waitingToMergeMs: null, awayMs: 0, totalMs: 40 * MIN } }) },
+      { situation: 'one no check ran on', p: pull(4, { balance: null, rounds: [], time: { localParts: null, codingMs:null, localMs: null, ciMs: 0, waitingToMergeMs: null, awayMs: 0, totalMs: 40 * MIN } }) },
     ])('$situation', ({ p }) => {
       expect(added(phases(p))).toBe(p.time.totalMs);
     });
@@ -113,7 +113,7 @@ describe('Harness Monitor', () => {
     // A 15 minute review and a 15 minute test run that overlapped by 10 minutes: 20 minutes of local time, and 5 of CI.
     const overlapping = pull(1, {
       balance: { codingMs: 10 * MIN, harnessMs: 25 * MIN, rounds: 1, ratio: 2.5 },
-      time: { codingMs: 10 * MIN, localMs: 20 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 36 * MIN },
+      time: { localParts: null, codingMs:10 * MIN, localMs: 20 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 36 * MIN },
       localReviews: { count: 1, ms: 15 * MIN, byKind: { 'code-review': { count: 1, ms: 15 * MIN }, 'security-review': { count: 0, ms: 0 } } },
       localRuns: { test: { count: 1, ms: 15 * MIN }, browser: null },
     });
@@ -131,7 +131,7 @@ describe('Harness Monitor', () => {
       // A 10 minute code review and a 4 minute security review inside it: 10 minutes of local time.
       const together = pull(1, {
         balance: { codingMs: 10 * MIN, harnessMs: 15 * MIN, rounds: 1, ratio: 1.5 },
-        time: { codingMs: 10 * MIN, localMs: 10 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 26 * MIN },
+        time: { localParts: null, codingMs:10 * MIN, localMs: 10 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 26 * MIN },
         localReviews: { count: 2, ms: 10 * MIN, byKind: { 'code-review': { count: 1, ms: 10 * MIN }, 'security-review': { count: 1, ms: 4 * MIN } } },
       });
 
@@ -149,7 +149,7 @@ describe('Harness Monitor', () => {
   });
 
   describe('a pull request stored with its reviews combined only has them drawn as one figure, named as such', () => {
-    const combined = pull(1, { localReviews: { count: 2, ms: 8 * MIN, byKind: null }, time: { codingMs: 10 * MIN, localMs: 8 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 24 * MIN }, balance: { codingMs: 10 * MIN, harnessMs: 13 * MIN, rounds: 1, ratio: 1.3 } });
+    const combined = pull(1, { localReviews: { count: 2, ms: 8 * MIN, byKind: null }, time: { localParts: null, codingMs:10 * MIN, localMs: 8 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 24 * MIN }, balance: { codingMs: 10 * MIN, harnessMs: 13 * MIN, rounds: 1, ratio: 1.3 } });
 
     it('puts the one figure under the combined series and none under either kind', () => {
       expect(values(combined, 'harness')).toMatchObject({ 'code-review': 0, 'security-review': 0, reviews: 8 * MIN });

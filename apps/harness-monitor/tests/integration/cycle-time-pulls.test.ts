@@ -1,8 +1,15 @@
-import { SELF } from 'cloudflare:test';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { env, SELF } from 'cloudflare:test';
+import { beforeEach, describe, expect, inject, it } from 'vitest';
+import { cycleTimeView } from '../../src/cycle-time-store';
 import { cycleCheck, cyclePull, cycleRound, emptyTheDatabase, sendPulls, storedPulls } from './support';
 
 beforeEach(emptyTheDatabase);
+
+/** A pull request's local check kinds as the JSON answer gives them. */
+const answeredLocalParts = async (number: number) => {
+  const response = await SELF.fetch('https://monitor.test/cycle-time?format=json&period=all');
+  return ((await response.json()) as { pulls: { number: number; time: { localParts: unknown } }[] }).pulls.find((p) => p.number === number)!.time.localParts;
+};
 
 /** Two rounds of four checks, the second one's last check a fluke on its first attempt. */
 const twoRoundsOfFour = (number: number, over: Record<string, unknown> = {}) =>
@@ -101,6 +108,79 @@ describe('Harness Monitor', () => {
       await sendPulls([cyclePull(5)]);
 
       expect(await answered(5)).toMatchObject({ byKind: { 'code-review': { ms: 180_000 }, 'security-review': { ms: 120_000 } } });
+    });
+  });
+
+  describe("a pull request's local check kinds, each minute counted once, are stored and answered as sent, and as not split by kind where it was stored without them", () => {
+    const parts = { 'code-review': 120_000, 'security-review': 0, test: 150_000, browser: 30_000 };
+    // The page draws none of them yet, so its view is the only place they reach it.
+    const inThePagesView = async (number: number) => (await cycleTimeView(env.DB, 0)).pulls.find((p) => p.number === number)!.time.localParts;
+
+    it.each([
+      { situation: 'a send carrying the four', sent: { localParts: parts }, answer: parts },
+      { situation: 'a send from a job that does not send them yet', sent: {}, answer: null },
+      { situation: 'a pull request with no session record', sent: { recorded: false, codingMs: null, localMs: null, localReviews: null }, answer: null },
+    ])('$situation', async ({ sent, answer }) => {
+      await sendPulls([cyclePull(5, sent)]);
+
+      expect(await answeredLocalParts(5)).toEqual(answer);
+      expect(await inThePagesView(5)).toEqual(answer);
+    });
+
+    it('the same pull request sent again with them is stored once, now carrying them', async () => {
+      await sendPulls([cyclePull(5)]);
+      await sendPulls([cyclePull(5, { localParts: parts })]);
+
+      expect(await storedPulls()).toHaveLength(1);
+      expect(await answeredLocalParts(5)).toEqual(parts);
+    });
+  });
+
+  describe('a send whose local check kinds do not add up to the local time is refused whole, and nothing in it is stored', () => {
+    it.each([
+      {
+        situation: 'kinds adding up to a minute more than the local time',
+        localParts: { 'code-review': 120_000, 'security-review': 60_000, test: 120_000, browser: 60_000 },
+        over: {},
+        error: 'Pull request 1 (#9): has localParts adding up to 360000 ms, not its localMs of 300000.',
+      },
+      {
+        situation: 'a kind that is negative',
+        localParts: { 'code-review': 360_000, 'security-review': -60_000, test: 0, browser: 0 },
+        over: {},
+        error: 'Pull request 1 (#9): has localParts.security-review -60000, which is not a whole number of milliseconds, zero or more.',
+      },
+      {
+        situation: 'kinds on a pull request with no session record',
+        localParts: { 'code-review': 0, 'security-review': 0, test: 0, browser: 0 },
+        over: { recorded: false, codingMs: null, localMs: null },
+        error: 'Pull request 1 (#9): has localParts but no session record.',
+      },
+    ])('$situation', async ({ localParts, over, error }) => {
+      const response = await sendPulls([cyclePull(1, { localParts: { 'code-review': 300_000, 'security-review': 0, test: 0, browser: 0 } }), cyclePull(9, { ...over, localParts })]);
+
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { error: string }).error).toBe(error);
+      expect(await storedPulls()).toEqual([]);
+    });
+  });
+
+  describe('keeping the local check kinds leaves every pull request already stored as it was', () => {
+    it('a pull request stored before, with its rounds, checks and review kinds, keeps every figure, its kinds not split', async () => {
+      await sendPulls([cyclePull(5, { rounds: [cycleRound([cycleCheck('Test', 200_000, { failure: 'fluke', flukeMs: 100_000, failedFiles: ['a.test.ts'] }), cycleCheck('Test', 100_000, { attempt: 2, last: true })])] })]);
+      const LOCAL_PARTS = ['local_code_review_ms', 'local_security_review_ms', 'local_test_ms', 'local_browser_ms'];
+      for (const column of LOCAL_PARTS) await env.DB.prepare(`ALTER TABLE cycle_time_pulls DROP COLUMN ${column}`).run();
+      const tables = async () =>
+        Promise.all(['cycle_time_pulls', 'cycle_time_rounds', 'cycle_time_checks', 'cycle_time_failures'].map(async (table) => (await env.DB.prepare(`SELECT * FROM ${table}`).all()).results));
+      const before = await tables();
+      const migration = inject('migrations').find((m) => m.name.startsWith('0023_cycle_time_local_parts'))!;
+
+      for (const query of migration.queries) await env.DB.prepare(query).run();
+
+      const [pulls, ...beneath] = await tables();
+      expect(pulls).toEqual(before[0]!.map((row) => ({ ...row, ...Object.fromEntries(LOCAL_PARTS.map((column) => [column, null])) })));
+      expect(beneath).toEqual(before.slice(1));
+      expect(await answeredLocalParts(5)).toBeNull();
     });
   });
 

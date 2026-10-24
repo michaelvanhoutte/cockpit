@@ -50,8 +50,11 @@ node src/cli.js --send --from 2026-07-25 --to 2026-08-05   # sends that window i
 `--send` needs `HARNESS_MONITOR_URL` and `HARNESS_WRITE_KEY`. It sends each pull request merged since
 the newest merge the Monitor holds less two days (the last `--days` days when it holds none) as one
 row with its time split, its rounds and each round's checks, from `monitorRows` in `src/model.js`.
-A pull request with no session record is sent with its writing and local time `null`, which the
-Monitor stores and answers as not recorded, never as zero. A pull request is replaced by its number, so
+Its local time also goes as `localParts`, split into code review, security review, test runs and the
+browser pass with each minute counted once: a minute two of them shared goes to the one that ended
+last, so the four add up to `localMs` exactly, and the Monitor refuses a batch where they do not.
+A pull request with no session record is sent with its writing and local time `null`, and its
+`localParts` `null`, which the Monitor stores and answers as not recorded, never as zero. A pull request is replaced by its number, so
 the overlap and a re-send store each once, and a batch with a row of the wrong shape is refused whole.
 A read the pull budget (`--max-pulls`) stopped inside the send's window fails the step and names the
 `--from` and `--to` that send the rest. So does a pull request GitHub would not let it read, named in
