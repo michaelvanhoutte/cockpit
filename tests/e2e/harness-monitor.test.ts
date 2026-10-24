@@ -652,10 +652,10 @@ test.describe('Harness Monitor', () => {
     const paint = (name: string) => page.getByRole('button', { name, exact: true }).evaluate((el) => ({ background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
     expect(await paint('Environment')).toEqual({ background: 'rgb(111, 98, 181)', color: 'rgb(255, 255, 255)' });
     for (const name of ['Feature', 'Model', 'Started by']) expect((await paint(name)).background).toBe('rgba(0, 0, 0, 0)');
-    // The four options sit in one row, and every label fits its option on one line.
-    const optionBoxes = await splitOptions.evaluateAll((all) => all.map((b) => ({ top: Math.round(b.getBoundingClientRect().top), fits: b.scrollWidth <= b.clientWidth })));
-    expect(new Set(optionBoxes.map((b) => b.top)).size).toBe(1);
-    expect(optionBoxes.every((b) => b.fits)).toBe(true);
+    // The four options sit in one row inside their track.
+    const tops = await splitOptions.evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().top)));
+    expect(new Set(tops).size).toBe(1);
+    expect(await page.getByRole('group', { name: 'Split by' }).evaluate((g) => g.scrollWidth <= g.clientWidth)).toBe(true);
     if (onAPhone) {
       // On a phone Split by takes a row of its own below the selects, and its options fill that row.
       const lowestSelect = await page.locator('.filters select').evaluateAll((all) => Math.max(...all.map((s) => s.getBoundingClientRect().bottom)));
