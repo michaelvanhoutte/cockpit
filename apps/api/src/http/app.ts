@@ -1751,6 +1751,9 @@ const routes = app
   .openapi(commandRoute('set_item_form_presentation'), async (c) =>
     c.json(await change(c, 'set_item_form_presentation', c.req.valid('json')), 200),
   )
+  .openapi(commandRoute('set_follow_up_days'), async (c) =>
+    c.json(await change(c, 'set_follow_up_days', c.req.valid('json')), 200),
+  )
   // --- dictation ("Dictate in Write with Whisper", issue 1041): outside the
   // OpenAPI/JSON contract for the reason attachments are - the body is the
   // recording's own bytes. Behind the sign-in gate like everything not named

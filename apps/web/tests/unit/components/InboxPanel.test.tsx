@@ -58,6 +58,7 @@ vi.mock('../../../src/api/queries', () => ({
         attachments: [],
         series: [],
     itemFormPresentation: held.presentation,
+    followUpDays: 3,
     duplicates: [],
         filings: held.filings,
         agentRuns: [],

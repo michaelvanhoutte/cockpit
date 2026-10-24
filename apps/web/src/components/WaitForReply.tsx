@@ -1,6 +1,8 @@
 import { useState, type RefObject } from 'react';
 import * as Popover from '@radix-ui/react-popover';
+import { useQuery } from '@tanstack/react-query';
 import { FOLLOW_UP_CHOICES, FOLLOW_UP_DAYS, MOST_FOLLOW_UP_DAYS, dayOf, daysOnFrom } from '@cockpit/shared';
+import { snapshotQuery } from '../api/queries';
 import { momentWeekdayDayLabel, weekdayDayLabel } from '../dateFormat';
 import { QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
 
@@ -18,6 +20,8 @@ const WAIT_POPOVER =
   'z-floating w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-shade/10 bg-surface p-3 text-sm text-ink shadow-lg';
 
 export interface WaitChoice {
+  /** The Workspace the Item is drawn in, whose held copy carries the account's Follow-ups number. */
+  workspaceId: string;
   /** The Item already waits, so this waits again from the day it first did. */
   waitingSince: string | null;
   /** A wait chosen: the whole number of days, 1 to 365. */
@@ -30,9 +34,21 @@ export function daysTyped(typed: string): number | null {
   return typed.trim() !== '' && Number.isInteger(days) && days >= 1 && days <= MOST_FOLLOW_UP_DAYS ? days : null;
 }
 
+/**
+ * The number Settings › Follow-ups chose ("Choose in Settings how many days to
+ * wait for a reply", issue 1465), off the Workspace's held copy and never read
+ * for: the copy the tab already holds, or the one saved on the device when
+ * offline. 3 where neither says.
+ */
+function useFollowUpDays(workspaceId: string): number {
+  const { data } = useQuery({ ...snapshotQuery(workspaceId), enabled: false, select: (held) => held.followUpDays });
+  return data ?? FOLLOW_UP_DAYS;
+}
+
 /** The question itself: a number Enter accepts, and the usual waits in one press each. */
-export function WaitChoices({ waitingSince, onWait }: WaitChoice) {
-  const [typed, setTyped] = useState(String(FOLLOW_UP_DAYS));
+export function WaitChoices({ workspaceId, waitingSince, onWait }: WaitChoice) {
+  const startsOn = useFollowUpDays(workspaceId);
+  const [typed, setTyped] = useState(String(startsOn));
   const days = daysTyped(typed);
   const due = days === null ? null : daysOnFrom(dayOf(new Date()), days);
   return (

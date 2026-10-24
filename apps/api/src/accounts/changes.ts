@@ -182,6 +182,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     SERIES_MASTERS,
     seriesMastersFromLatestCopy(accountId),
     ITEM_WAITING_SINCE,
+    ACCOUNT_FOLLOW_UPS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1421,6 +1422,46 @@ function seriesMastersFromLatestCopy(accountId: string): Change {
 const ITEM_WAITING_SINCE: Change = {
   name: '0096-item-waiting-since',
   statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `waiting_since` text' }],
+};
+
+/**
+ * How many days *Wait for reply…* starts on ("Choose in Settings how many days
+ * to wait for a reply", issue 1465): one row per account, the shape
+ * `ITEM_FORM_PRESENTATION` is; `schema.ts` says what it carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `CREATE TABLE`, and no statement that reads or writes a
+ *   row. It is the whole of the expand; there is no contract step.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts), so an account has
+ *   the table or does not, and the next open applies it.
+ * - **The second time it runs:** it does not, having been recorded; a change
+ *   that failed is not recorded, so it runs again on the next open.
+ * - **Rows that break the new rule:** none can; the table starts empty, and an
+ *   account with no row reads as 3 (`getFollowUpDays`).
+ * - **What is in each environment:** real data in staging and production, none
+ *   of it touched; nothing is written on deploy.
+ * - **Interruptible at:** an account opening mid-change, where the transaction
+ *   rolls back and the account answers as before.
+ * - **Rolled back after it has run:** an older release never names the table,
+ *   so its popover starts on 3, and a number chosen is unread until the
+ *   release goes forward again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ACCOUNT_FOLLOW_UPS: Change = {
+  name: '0097-account-follow-ups',
+  statements: [
+    {
+      sql: `CREATE TABLE \`account_follow_ups\` (
+	\`tenant_id\` text PRIMARY KEY NOT NULL,
+	\`days\` integer NOT NULL,
+	CONSTRAINT "account_follow_ups_days_is_in_range" CHECK(days BETWEEN 1 AND 365)
+) STRICT`,
+    },
+  ],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

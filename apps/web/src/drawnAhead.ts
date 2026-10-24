@@ -1,6 +1,7 @@
 import {
   DEFAULT_ITEM_FORM_PRESENTATION,
   FIRST_DASHBOARD_NAME,
+  FOLLOW_UP_DAYS,
   FIRST_PANEL_NAME,
   NO_CONDITIONS,
   dayOf,
@@ -229,6 +230,7 @@ function heldBlank(workspaceId: string): WorkspaceSnapshot {
     attachments: [],
     series: [],
     itemFormPresentation: DEFAULT_ITEM_FORM_PRESENTATION,
+    followUpDays: FOLLOW_UP_DAYS,
     duplicates: [],
     agentRuns: [],
     generatedAt: new Date().toISOString(),

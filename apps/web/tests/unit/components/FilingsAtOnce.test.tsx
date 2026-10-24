@@ -182,6 +182,7 @@ function theWorkspace(): WorkspaceSnapshot {
     associations: [],
     attachments: [],
     itemFormPresentation: presentation,
+    followUpDays: 3,
     duplicates: [],
     filings: stored.filings,
     agentRuns: [],

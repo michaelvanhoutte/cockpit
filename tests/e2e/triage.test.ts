@@ -1,4 +1,6 @@
-import { giveToTheInbox } from './support/arrange';
+import type { Page, Response } from '@playwright/test';
+import { ACCOUNT_WIDE } from '@cockpit/shared';
+import { arrange, giveToTheInbox } from './support/arrange';
 import {
   capture,
   dashboardBar,
@@ -278,3 +280,50 @@ test.describe('Triage', () => {
     });
   });
 });
+
+/**
+ * F3, because it joins two screens through the account ("Choose in Settings
+ * how many days to wait for a reply", issue 1465): the number typed into
+ * Settings › Follow-ups, kept past a reload, is the one the row's question
+ * starts on. At a desk only, since a phone's Settings holds Appearance alone.
+ * What the section draws and refuses is ManageFollowUps.test.tsx, that the
+ * question starts on what the tab holds is ItemRow.test.tsx, and what the
+ * account keeps, and that it moves no due date given, is follow-ups.test.ts.
+ */
+test.describe('Triage', () => {
+  test.describe('Wait for reply… starts on the days chosen in Settings › Follow-ups', () => {
+    test('starts on 7 once Follow-ups is set to 7, after a reload', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'a phone holds Appearance alone');
+      const thought = uniqueTitle('Reply from Jan about the invoice');
+      await openFirstWorkspace(page, isMobile);
+      await giveToTheInbox(page, [thought]);
+      try {
+        await page.reload();
+        await press(page.getByRole('button', { name: 'Profile' }), isMobile);
+        await press(page.getByRole('menuitem', { name: 'Settings…', exact: true }), isMobile);
+        await press(page.getByRole('button', { name: 'Follow-ups', exact: true }), isMobile);
+        const days = page.getByRole('spinbutton', { name: 'Days after you set it' });
+        await days.fill('7');
+        const saved = answerTo(page, 'set_follow_up_days');
+        await days.press('Tab');
+        expect((await saved).ok()).toBe(true);
+
+        await page.reload();
+        await expect(inbox(page)).toBeVisible();
+        await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
+        await press(page.getByRole('menuitem', { name: 'Wait for reply…' }), isMobile);
+        await expect(page.getByLabel('Days to wait')).toHaveValue('7');
+      } finally {
+        // The account is shared by every walk in the run: put it back on 3.
+        await arrange(page, 'set_follow_up_days', { workspaceId: ACCOUNT_WIDE, days: 3 }).catch(() => {});
+      }
+    });
+  });
+});
+
+/** The server's answer to a change, which is what a walk waits on rather than on what is drawn. */
+function answerTo(page: Page, change: string): Promise<Response> {
+  return page.waitForResponse(
+    (response) => response.request().method() === 'POST' && new URL(response.url()).pathname === `/v1/commands/${change}`,
+  );
+}

@@ -1,0 +1,160 @@
+import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ACCOUNT_WIDE, FOLLOW_UP_DAYS, MOST_FOLLOW_UP_DAYS, dayOf, daysOnFrom, uuidv7 } from '@cockpit/shared';
+import { snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
+import { weekdayDayLabel } from '../dateFormat';
+import { DEADLINE_PILLS } from '../dueDate';
+import { useUndo } from '../undo';
+import { SettingsPanel } from './SettingsPanel';
+import { daysTyped } from './WaitForReply';
+
+/**
+ * Settings › Follow-ups ("Choose in Settings how many days to wait for a reply",
+ * issue 1465): the number *Wait for reply…* starts on, kept on the account.
+ * Read off the given Workspace's held copy, which every Workspace's carries, and
+ * saved on Enter, on leaving the box or on closing Settings; a change that has
+ * not been read back yet is drawn at once. A refusal that comes back once
+ * Settings has closed is said by the undo bar.
+ */
+export default function ManageFollowUps({
+  workspaceId,
+  pageHoldsIt,
+}: {
+  workspaceId: string | undefined;
+  /** The open Workspace's page reads that Workspace itself, so the section never re-reads a copy the page holds. */
+  pageHoldsIt: boolean;
+}) {
+  const { data: saved = FOLLOW_UP_DAYS } = useQuery({
+    ...snapshotQuery(workspaceId ?? ''),
+    enabled: workspaceId !== undefined,
+    // Read only where the tab holds no copy, or one marked out of date.
+    ...(pageHoldsIt ? { staleTime: Infinity } : {}),
+    select: (held) => held.followUpDays,
+  });
+  const kept = useRef(saved);
+  kept.current = saved;
+  const offerToUndo = useUndo();
+  // Whether Settings is still open, since it may close before a refusal comes back.
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+    };
+  }, []);
+  /** A number sent and not yet read back. */
+  const [chosen, setChosen] = useState<number | null>(null);
+  const shown = chosen ?? saved;
+  const [typed, setTyped] = useState(String(shown));
+  const [failed, setFailed] = useState<string | null>(null);
+  /** The box holds something typed since it last showed what is kept, so only that is ever sent. */
+  const edited = useRef(false);
+  const send = useSendCommand();
+
+  // What the account holds wins once it is read, here or from another device; the box follows unless typed in.
+  useEffect(() => {
+    setChosen(null);
+    if (!edited.current) setTyped(String(saved));
+  }, [saved]);
+
+  const days = daysTyped(typed);
+  const refused = days === null;
+
+  const commit = () => {
+    if (!edited.current || days === null) return;
+    edited.current = false;
+    if (days === shown) return;
+    setChosen(days);
+    setFailed(null);
+    send({
+      name: 'set_follow_up_days',
+      payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: ACCOUNT_WIDE, days },
+    }).catch((failure: unknown) => {
+      if (!open.current) return offerToUndo({ what: `Waiting ${days} days for a reply was not saved. ${whyNotDone(failure)}` });
+      // The box goes back to what is kept, unless typed in since, and follows it again.
+      setChosen(null);
+      if (!edited.current) setTyped(String(kept.current));
+      setFailed(`Not saved. ${whyNotDone(failure)}`);
+    });
+  };
+
+  // Closing Settings with Escape removes the box without a blur, so what it holds is saved as it goes.
+  const commitOnClose = useRef(commit);
+  useEffect(() => {
+    commitOnClose.current = commit;
+  });
+  useEffect(() => () => commitOnClose.current(), []);
+
+  const today = dayOf(new Date());
+
+  return (
+    <section>
+      <h3 className="text-base font-semibold">Follow-ups</h3>
+      <p className="mt-1 text-sm text-ink-soft">
+        When you have answered someone and are waiting for them, set the Item's status to{' '}
+        <span className="font-medium text-ink-strong">Waiting for reply</span>. It stays where it is, and gets a due date
+        so it comes back to you if they never answer.
+      </p>
+
+      <SettingsPanel name="How long to wait" hint="Yours, the same on every device you sign in on.">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span>Give it a due date</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={MOST_FOLLOW_UP_DAYS}
+            step={1}
+            value={typed}
+            onChange={(event) => {
+              edited.current = true;
+              setTyped(event.target.value);
+            }}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              commit();
+            }}
+            aria-label="Days after you set it"
+            aria-invalid={refused}
+            className="w-16 rounded-md border border-shade/20 bg-field px-2 py-1 text-right text-sm text-ink-strong focus:border-accent focus:outline-none"
+          />
+          <span>days after you set it</span>
+          {refused && (
+            <span role="alert" className="text-over-ink">
+              Use a whole number from 1 to {MOST_FOLLOW_UP_DAYS}.
+            </span>
+          )}
+        </div>
+        {failed && (
+          <p role="alert" className="mt-2 text-sm text-over-ink">
+            {failed}
+          </p>
+        )}
+
+        <p className="mt-4 text-xs font-medium text-ink-soft">Set today, it looks like this:</p>
+        <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-shade/10 bg-field px-3 py-2">
+          <span className="min-w-0 flex-1 truncate text-sm text-ink-strong">Reply from Jan about the audit trail</span>
+          <span className="shrink-0 rounded-full bg-shade/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-ink-soft">
+            Waiting since {weekdayDayLabel(today)}
+          </span>
+          <span
+            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none ${shown <= 2 ? DEADLINE_PILLS.near : DEADLINE_PILLS.week}`}
+          >
+            Due {weekdayDayLabel(daysOnFrom(today, shown))}
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-ink-faint">
+          If nobody has replied by then, the date turns red like any overdue Item. Changing the number here leaves Items
+          already waiting as they are.
+        </p>
+      </SettingsPanel>
+
+      <p className="mt-4 text-xs text-ink-faint">
+        It counts for every Item you set to Waiting for reply, and for mail you Cc or Bcc to your Email to Cockpit
+        address. To wait a different time for one Item, change its due date on the Item.
+      </p>
+    </section>
+  );
+}

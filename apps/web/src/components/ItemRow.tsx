@@ -1509,6 +1509,7 @@ export function ItemRow({
             <Suspense fallback={null}>
               <WaitPopover
                 anchor={trigger}
+                workspaceId={workspaceId}
                 waitingSince={status === 'waiting' ? item.waitingSince : null}
                 onClose={() => setWaitAsked(false)}
                 onWait={waitForReply}

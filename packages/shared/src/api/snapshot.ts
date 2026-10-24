@@ -3,8 +3,10 @@ import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
 import {
+  FOLLOW_UP_DAYS,
   associationSchema,
   dashboardSchema,
+  followUpDaysSchema,
   itemSchema,
   workspaceSchema,
 } from '../domain/item.js';
@@ -59,6 +61,14 @@ export const workspaceSnapshotSchema = z.object({
    * was.
    */
   itemFormPresentation: itemFormPresentationSchema.default(DEFAULT_ITEM_FORM_PRESENTATION),
+  /**
+   * How many days *Wait for reply…* starts on, from Settings › Follow-ups
+   * ("Choose in Settings how many days to wait for a reply", issue 1465).
+   * Account-wide, carried here as `itemFormPresentation` is so the question has
+   * it offline and on a cold open; defaulted for the reason `attachments` above
+   * is: a stored copy taken before this field existed starts on 3.
+   */
+  followUpDays: followUpDaysSchema.default(FOLLOW_UP_DAYS),
   /**
    * Which of the Items above say the same thing as which ("Flag a captured
    * note that says what another one already said", issue 407) - the pairs
