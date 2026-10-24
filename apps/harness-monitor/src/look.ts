@@ -152,7 +152,7 @@ select[data-set]{border:2px solid var(--accent);padding-left:11px}
 .button:hover{background:var(--field)}
 noscript button{height:38px;padding:0 16px;font:inherit}
 .toggles{display:flex;gap:2px;padding:3px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--shade) 7%,transparent)}
-.toggles button{height:32px;padding:0 14px;border:0;border-radius:7px;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--ink-soft);cursor:pointer}
+.toggles button{height:32px;padding:0 14px;white-space:nowrap;border:0;border-radius:7px;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--ink-soft);cursor:pointer}
 .toggles button:hover{color:var(--ink-strong);background:color-mix(in srgb,var(--shade) 6%,transparent)}
 .toggles button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);box-shadow:inset 0 1px 0 rgb(255 255 255 / .15),0 1px 2px rgb(22 24 29 / .2)}
 
@@ -251,7 +251,7 @@ footer{padding:0 20px 28px;text-align:center;font-size:12px;color:var(--ink-fain
   .pages{width:100%;overflow-x:auto;scrollbar-width:none}.pages a{white-space:nowrap;font-size:14px;padding:8px 12px 9px}.band-tabs a{font-size:14px;padding:7px 12px 9px}
   main{padding:16px 16px 32px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px}.filters select{width:100%}
-  .filters .split-field{grid-column:1/-1}.toggles button{flex:1;padding:0 8px}
+  .filters .field:has(.toggles){grid-column:1/-1}.toggles button{flex:1;padding:0 8px}
   .button{grid-column:1/-1;margin-left:0;justify-content:center}
   .band-controls{padding:8px 12px 10px}.sentence-form{gap:6px}.sentence{font-size:15px;gap:6px 8px}.sentence select{height:34px;font-size:15px}
   .only{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px}.only>span{grid-column:1/-1;margin:0}.only select,.only .button{height:32px}.only select{width:100%;min-width:0}

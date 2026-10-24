@@ -69,7 +69,7 @@ ${selectField('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [s
 ${selectField('environment', 'Environment', [['', 'Every environment'], ...ENVIRONMENTS.map((e): [string, string] => [e, ENVIRONMENT_NAMES[e]])], query.environment ?? '')}
 ${selectField('feature', 'Feature', featureOptions, query.feature ?? '')}
 ${selectField('model', 'Model', modelOptions, query.model ?? '')}
-<div class="field split-field"><span id="splitby">Split by</span><div class="toggles" role="group" aria-labelledby="splitby">${splitButtons}</div></div>
+<div class="field"><span id="splitby">Split by</span><div class="toggles" role="group" aria-labelledby="splitby">${splitButtons}</div></div>
 <input type="hidden" name="split" value="${query.split}">
 <input type="hidden" name="group" value="${query.group}">
 <noscript><button type="submit">Apply</button></noscript>
