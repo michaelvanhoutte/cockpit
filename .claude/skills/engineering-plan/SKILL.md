@@ -97,6 +97,8 @@ Settle the placement questions explicitly: which store owns each piece of data, 
 
 **Offer each option as an arrangement of parts and what it does under the scenario**: the states it passes through, what it costs, what it leaves unguarded.
 
+**Give a storage cost as its arithmetic**, rows per write times writes a month, counting each deleted or replaced row and each index as rows written, since D1 bills them, and sizing data compact rather than from a pretty-printed file. **Store as a document, not rows, what is replaced whole and never queried across.** "Replace the static harness reports with interactive Harness Monitor pages" (issue 1492) first proposed its test snapshot as 10,000 rows a write, an estimate that left out the deletes, before it became 40 documents.
+
 **Challenge the result rather than presenting it**: name what you chose and what you rejected, and ask the engineer about each. A question whose two answers would produce different diffs is closed here, not carried into the issue.
 
 ### 4. Record the decisions
