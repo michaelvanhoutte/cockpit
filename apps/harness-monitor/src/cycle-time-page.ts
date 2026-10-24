@@ -103,7 +103,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
       plural(list.length, 'pull request'),
       `<div class="well where">
 <ul class="outline" aria-label="Phases of start to merge, with local checks and CI rounds opened into their parts">${o.rows.map(outlineRow).join('')}</ul>
-<p class="note">Every bar is on one scale, start to merge, and sits where its part falls in it: a local check or a check inside its phase&rsquo;s stretch. A phase&rsquo;s share is of start to merge; a part&rsquo;s is of its phase. Each minute counts once: time two local checks shared goes to the one that finished last.${noRecord}</p>
+<p class="note">Every bar is on one scale, start to merge, and sits where it falls in it: a part inside the stretch of its phase. A phase&rsquo;s share is of start to merge; a part&rsquo;s is of its phase. Each minute counts once: time two local checks shared goes to the one that finished last.${noRecord}</p>
 </div>`,
       'panel wide',
     );
@@ -342,7 +342,6 @@ const EXTRA = `
   .filters .field:nth-of-type(n+3){grid-column:1/-1}
 }
 .up{color:var(--over-ink)}.down{color:var(--good)}
-.where{display:flex;flex-direction:column;gap:12px}
 .outline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
 .o-row{display:grid;grid-template-columns:210px minmax(0,1fr) 80px 44px;align-items:center;gap:12px;height:28px}
 .o-row .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

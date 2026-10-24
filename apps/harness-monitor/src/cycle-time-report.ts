@@ -242,7 +242,7 @@ export function outline(list: Pull[]): Outline {
     }
     at += ms;
   }
-  return { total, rows, unsplit: list.filter((p) => p.time.localParts === null && p.time.localMs !== null).length };
+  return { total, rows, unsplit: list.filter((p) => p.time.localParts === null && (p.time.localMs ?? 0) > 0).length };
 }
 
 /** Median and p95 of start to merge, against the median of the period before. */

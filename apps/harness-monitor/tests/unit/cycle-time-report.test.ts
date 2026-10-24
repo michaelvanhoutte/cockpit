@@ -152,6 +152,13 @@ describe('Harness Monitor', () => {
       expect(outline([a, unrecorded(3)]).unsplit).toBe(0);
     });
 
+    it('counts none unsplit for a pull request with no local minutes, since no Not split by kind row is drawn for it', () => {
+      const none = pull(3, { time: { ...notSplit(3).time, localMs: 0, totalMs: 16 * MIN } });
+
+      expect(outline([none]).unsplit).toBe(0);
+      expect(outline([none]).rows.map((r) => r.key)).not.toContain('not-split');
+    });
+
     it("reads a phase's share as of start to merge and a part's as of its phase", () => {
       const o = outline([a]);
 
