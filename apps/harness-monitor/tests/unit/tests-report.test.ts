@@ -149,5 +149,9 @@ describe('Harness Monitor', () => {
 
       expect(q).toEqual(query());
     });
+
+    it.each([['an unknown level', 'Inbox~L9~'], ['an unknown package', 'Inbox~~zzz'], ['an area name too long to be one', `${'a'.repeat(401)}~L1~`]])('a list with %s is dropped, since leaving that part empty would mean every one', (_, tests) => {
+      expect(parseTestsQuery(new URLSearchParams({ tests })).list).toBeNull();
+    });
   });
 });

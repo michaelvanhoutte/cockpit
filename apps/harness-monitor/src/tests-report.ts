@@ -122,7 +122,11 @@ const text = (value: string | null) => (value !== null && value !== '' && value.
 /** The view the address asks for, as written: an area or rule it does not know is only found out once the snapshot is read (`resolveQuery`). */
 export function parseTestsQuery(params: URLSearchParams): TestsQuery {
   const [node, level, pkg, ...extra] = (params.get('tests') ?? '').split('~');
-  const list = params.has('tests') && extra.length === 0 ? { node: text(node ?? null), level: oneOf<LevelId>(level ?? null, LEVEL_IDS), package: oneOf<PackageKey>(pkg ?? null, PACKAGE_KEYS) } : null;
+  const part = <T>(value: string | undefined, read: (v: string | null) => T | null) => (value ? read(value) : null);
+  const listed = { node: part(node, text), level: part(level, (v) => oneOf<LevelId>(v, LEVEL_IDS)), package: part(pkg, (v) => oneOf<PackageKey>(v, PACKAGE_KEYS)) };
+  // A part that is written but not understood drops the list: leaving it empty would mean every area, level or package.
+  const readable = (value: string | undefined, got: unknown) => !value || got !== null;
+  const list = params.has('tests') && extra.length === 0 && readable(node, listed.node) && readable(level, listed.level) && readable(pkg, listed.package) ? listed : null;
   return {
     group: pick(params.get('group'), GROUPS, 'area'),
     node: text(params.get('node')),
