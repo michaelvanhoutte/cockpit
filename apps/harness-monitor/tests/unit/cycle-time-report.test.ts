@@ -244,8 +244,8 @@ describe('Harness Monitor', () => {
   describe('a pull request with no Claude Code request recorded has no cost, never $0.00', () => {
     it.each([
       { situation: 'one the Monitor holds nothing for', costs: new Map(), expected: null },
-      { situation: 'one linked with no request', costs: new Map([[1, { micros: 0, requests: 0, unpricedRequests: 0, issue: 5 }]]), expected: null },
-      { situation: 'one with $4.20 of requests', costs: new Map([[1, { micros: 4_200_000, requests: 9, unpricedRequests: 0, issue: 5 }]]), expected: 4_200_000 },
+      { situation: 'one linked with no request', costs: new Map([[1, { micros: 0, requests: 0, unpricedRequests: 0, issue: 5, issueTitle: null }]]), expected: null },
+      { situation: 'one with $4.20 of requests', costs: new Map([[1, { micros: 4_200_000, requests: 9, unpricedRequests: 0, issue: 5, issueTitle: null }]]), expected: 4_200_000 },
     ])('$situation', ({ costs, expected }) => {
       expect(costOf(costs, pull(1))?.micros ?? null).toBe(expected);
     });

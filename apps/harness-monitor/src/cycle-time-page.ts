@@ -66,6 +66,10 @@ export function renderCycleTime(q: CycleTimeQuery, view: CycleTimeView, reposito
   const issueOf = (p: Pull) => view.costs.get(p.number)?.issue ?? null;
   /** A split's series in colour, as far as this list draws them. */
   const drawn = (split: Split) => COLOURED[split].filter((c) => seriesOf(list, split).some((s) => s.key === c.key));
+  /** A pull request's Sessions page exists only for one the Monitor has a branch link for; any other would be nothing found. */
+  const sessions = (number: number) => view.costs.has(number);
+  const sessionsLink = (number: number, text: string) => (sessions(number) ? `<a href="/pr/${number}">${text}</a>` : '');
+  const opening = (number: number, inner: string) => (sessions(number) ? `<a href="/pr/${number}">${inner}</a>` : inner);
   const link = (over: Partial<CycleTimeQuery>) => esc(cycleTimeAddress(q, over));
 
   /** The tiles: a pull request's start to merge, how much of it was the harness, CI rounds, and what the Claude Code sessions cost. */
@@ -85,7 +89,7 @@ export function renderCycleTime(q: CycleTimeQuery, view: CycleTimeView, reposito
 ${tile('Start to merge', median === null ? '—' : hm(median), median === null ? 'no pull request merged' : `median of ${plural(list.length, 'pull request')} · p95 ${hm(p95!)}${compare}`)}
 ${tile('In the harness', share === null ? '—' : `${Math.round(share * 100)}%`, ratio === null ? 'no pull request with a session record' : `of writing plus harness · median ${ratio.toFixed(1)}× the writing`)}
 ${tile('CI rounds', number(rounds), list.length ? `${(rounds / list.length).toFixed(1)} a pull request · ${plural(red, 'red round')} · ${plural(flukes, 'fluke')}` : 'none')}
-${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / priced.length)} a pull request · ${number(priced.length)} of ${number(list.length)} priced` : 'none priced')}
+${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length ? `${dollars(spent / priced.length)} a pull request · ${number(priced.length)} of ${number(list.length)} priced` : 'none priced')}
 </div>`;
   }
 
@@ -101,7 +105,7 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
     const noRecord = unrecordedNote(list.filter((p) => !p.balance).length, q.split);
     const notes: Record<Split, string> = {
       phase: `Start to merge, cut into its parts. Writing is the time before the first push and the fixing between rounds, less local checks; local checks are the session&rsquo;s own reviews, test runs and browser pass; a CI round runs from a push to its last check finishing. Time before the session started is not measured.${noRecord}`,
-      harness: `Each kind&rsquo;s own minutes. Kinds that ran at the same time count in each, so they add up to ${hm(Math.max(0, all - union))} more than the ${hm(union)} the harness took.${series.some((s) => s.key === 'reviews') ? ' Pull requests stored before the review kinds were kept have one figure for both reviews, drawn as Reviews, not split by kind.' : ''}${noRecord}`,
+      harness: `Each kind&rsquo;s own minutes as the session record marked them. Kinds that ran at the same time count in each, and so does time the harness leaves out, such as a review that ran during a CI round, so they add up to ${hm(Math.max(0, all - union))} more than the ${hm(union)} the harness took.${series.some((s) => s.key === 'reviews') ? ' Pull requests stored before the review kinds were kept have one figure for both reviews, drawn as Reviews, not split by kind.' : ''}${noRecord}`,
       check: 'Each CI round&rsquo;s time charged to the check that held it: every check is charged the time since the one before it finished, so checks in flight together count once, and the last to finish is the one the round waited on.',
     };
     return section(
@@ -146,7 +150,7 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
         if (out) off++;
         const r = 3 + 6 * Math.sqrt(lines(p) / maxLines);
         const c = colour(p.rounds.length);
-        return `<a href="/pr/${p.number}"><circle cx="${x(b.codingMs).toFixed(1)}" cy="${y(b.harnessMs).toFixed(1)}" r="${r.toFixed(1)}" fill="${out ? 'none' : c}" stroke="${c}" class="dot"><title>#${p.number} ${esc(p.title)} · writing ${hm(b.codingMs)} · harness ${hm(b.harnessMs)} · ${plural(p.rounds.length, 'round')} · ${plural(lines(p), 'line')}</title></circle></a>`;
+        return opening(p.number, `<circle cx="${x(b.codingMs).toFixed(1)}" cy="${y(b.harnessMs).toFixed(1)}" r="${r.toFixed(1)}" fill="${out ? 'none' : c}" stroke="${c}" class="dot"><title>#${p.number} ${esc(p.title)} · writing ${hm(b.codingMs)} · harness ${hm(b.harnessMs)} · ${plural(p.rounds.length, 'round')} · ${plural(lines(p), 'line')}</title></circle>`);
       })
       .join('');
     const keys = [
@@ -210,7 +214,7 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
           })
           .join('');
         const cut = total > cap ? `<path d="M${(cx - barW / 2 - 1).toFixed(1)} ${top + 6} l${(barW / 2 + 1).toFixed(1)} -6 l${(barW / 2 + 1).toFixed(1)} 6z" class="cut"><title>#${p.number} runs past the scale: ${hm(total)}</title></path>` : '';
-        return `<a href="/pr/${p.number}">${rects}${cut}</a>`;
+        return opening(p.number, `${rects}${cut}`);
       })
       .join('');
     const legend = series.map((s) => `<span class="key"><i style="background:${s.colour}"></i>${esc(s.label)}</span>`).join('');
@@ -234,7 +238,7 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
       plural(lines(p), 'line'),
       p.base !== 'main' ? `into ${esc(p.base)}` : '',
       p.recorded ? '' : '<span class="tag">no session record</span>',
-      `<a href="/pr/${p.number}">Sessions</a>`,
+      sessionsLink(p.number, 'Sessions'),
     ];
     return { label: prLink(p, `<span class="pr-no">#${p.number}</span> ${esc(p.title)}`), sub: bits.filter(Boolean).join(' · ') };
   }
@@ -262,9 +266,10 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
         else if (group === 'size') label = esc(SIZES.find((s) => s.key === b.key)!.label);
         else if (b.issue === null) label = 'No issue named';
         else {
-          const text = `<span class="pr-no">#${b.issue}</span> ${esc(one.title.replace(/\s*\(#\d+\)\s*$/, ''))}`;
+          const named = b.pulls.map((p) => view.costs.get(p.number)?.issueTitle).find((t) => t);
+          const text = `<span class="pr-no">#${b.issue}</span> ${esc(named ?? one.title.replace(/\s*\(#\d+\)\s*$/, ''))}`;
           label = repo ? outLink(`https://github.com/${repo}/issues/${b.issue}`, text) : text;
-          sub = b.pulls.map((p) => `${prLink(p, `#${p.number}`)} <a href="/pr/${p.number}">Sessions</a>`).join(' · ');
+          sub = b.pulls.map((p) => [prLink(p, `#${p.number}`), sessionsLink(p.number, 'Sessions')].filter(Boolean).join(' ')).join(' · ');
         }
         const bar = cells.map((ms, i) => (ms > 0 ? `<div style="flex:0 0 ${((ms / max) * 100).toFixed(1)}%;background:${series[i]!.colour}"></div>` : '')).join('');
         const cellHtml = cells
@@ -309,7 +314,7 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
     const body = rows
       .map(
         (r) =>
-          `<tr><td class="first"><i class="swatch" style="background:${colourOf(r.name)}"></i>${esc(r.name)}${r.redPulls.length ? `<div class="sub">red on ${r.redPulls.slice(0, 6).map((n) => `<a href="/pr/${n}">#${n}</a>`).join(', ')}${r.redPulls.length > 6 ? ` and ${r.redPulls.length - 6} more` : ''}</div>` : ''}</td><td class="num">${number(r.held)}</td><td class="num">${number(r.last)}</td><td class="split-cell"><div class="split"><div style="width:${((r.ms / max) * 100).toFixed(1)}%;background:${colourOf(r.name)}"></div></div></td><td class="num total">${hm(r.ms)}</td><td class="num faint-num">${all ? Math.round((r.ms / all) * 100) : 0}%</td><td class="num">${r.median === null ? '—' : hm(r.median)}</td><td class="num">${r.red ? `<span class="up">${r.red}</span>` : '<span class="faint">—</span>'}</td><td class="num">${r.flukes || '<span class="faint">—</span>'}</td><td class="num">${r.queue === null ? '<span class="faint">not recorded</span>' : hm(r.queue)}</td></tr>`,
+          `<tr><td class="first"><i class="swatch" style="background:${colourOf(r.name)}"></i>${esc(r.name)}${r.redPulls.length ? `<div class="sub">red on ${r.redPulls.slice(0, 6).map((n) => (sessions(n) ? `<a href="/pr/${n}">#${n}</a>` : `#${n}`)).join(', ')}${r.redPulls.length > 6 ? ` and ${r.redPulls.length - 6} more` : ''}</div>` : ''}</td><td class="num">${number(r.held)}</td><td class="num">${number(r.last)}</td><td class="split-cell"><div class="split"><div style="width:${((r.ms / max) * 100).toFixed(1)}%;background:${colourOf(r.name)}"></div></div></td><td class="num total">${hm(r.ms)}</td><td class="num faint-num">${all ? Math.round((r.ms / all) * 100) : 0}%</td><td class="num">${r.median === null ? '—' : hm(r.median)}</td><td class="num">${r.red ? `<span class="up">${r.red}</span>` : '<span class="faint">—</span>'}</td><td class="num">${r.flukes || '<span class="faint">—</span>'}</td><td class="num">${r.queue === null ? '<span class="faint">not recorded</span>' : hm(r.queue)}</td></tr>`,
       )
       .join('\n');
     return section(

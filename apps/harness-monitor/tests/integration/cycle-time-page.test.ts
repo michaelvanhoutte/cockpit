@@ -121,6 +121,40 @@ describe('Harness Monitor', () => {
       expect(html).not.toContain('$0.00');
     });
 
+    it('the cost tile reads — and not $0.00 where no pull request in the list has a recorded request', async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z')]);
+      await costing(1, null);
+
+      const html = await thePage();
+
+      expect(html).toMatch(/Claude Code cost<\/span><span class="tile-value">—</);
+      expect(html).not.toContain('$0.00');
+    });
+
+    it("an issue row is named by the issue's own title, not by the title of a pull request", async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { title: 'Fix the review findings (#7)' })]);
+      await costing(1, 2, 7);
+      await env.DB.prepare(
+        `INSERT INTO pull_request_stats (pr_number, lines_added, lines_removed, opened_at, ci_rounds, issue_title, pr_updated_at, read_at)
+         VALUES (1, 1, 1, '2026-10-30T09:00:00Z', 1, 'Show cycle time as a page', '2026-10-30T10:00:00Z', 0)`,
+      ).run();
+
+      const [row] = rowsOf(await thePage('?group=issue'), 'cycle-table');
+
+      expect(row![0]).toContain('Show cycle time as a page');
+      expect(row![0]).not.toContain('Fix the review findings');
+    });
+
+    it('a pull request the Monitor has no branch link for has no Sessions link, which would be nothing found', async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z'), recorded(2, '2026-10-29T10:00:00Z')]);
+      await costing(1, 4.2);
+
+      const html = await thePage('?group=pr');
+
+      expect(html).toContain('<a href="/pr/1">Sessions</a>');
+      expect(html).not.toContain('/pr/2');
+    });
+
     it('the Over time tiles name how many pull requests are priced and what each cost', async () => {
       await sendPulls([recorded(1, '2026-10-30T10:00:00Z'), recorded(2, '2026-10-29T10:00:00Z'), recorded(3, '2026-10-28T10:00:00Z')]);
       await costing(1, 4);

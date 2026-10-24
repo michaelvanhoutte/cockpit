@@ -515,6 +515,8 @@ export interface PullCost {
   unpricedRequests: number;
   /** The issue its link names. */
   issue: number | null;
+  /** That issue's title as the linking job read it, null when none was. */
+  issueTitle: string | null;
 }
 
 /** What the cycle time page draws: the pull requests merged from a time on with their rounds and checks, what each cost, and the oldest merge stored. */
@@ -541,9 +543,10 @@ export async function cycleTimeView(db: D1Database, from: number): Promise<Cycle
        WHERE p.merged_at >= ?1 ORDER BY c.pull_number, c.round_index, c.position`,
     ).bind(from),
     db.prepare(
-      `SELECT l.pr_number AS pr, MAX(l.issue_number) AS issue, COALESCE(SUM(t.cost_micros), 0) AS micros,
+      `SELECT l.pr_number AS pr, MAX(l.issue_number) AS issue, MAX(s.issue_title) AS issueTitle, COALESCE(SUM(t.cost_micros), 0) AS micros,
               COALESCE(SUM(t.requests), 0) AS requests, COALESCE(SUM(t.unpriced_requests), 0) AS unpriced
        FROM cycle_time_pulls p JOIN branch_links l ON l.pr_number = p.pull_number
+       LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
        LEFT JOIN daily_split_totals t ON t.branch = l.branch
        WHERE p.merged_at >= ?1 GROUP BY l.pr_number`,
     ).bind(from),
@@ -553,9 +556,9 @@ export async function cycleTimeView(db: D1Database, from: number): Promise<Cycle
   return {
     pulls: stored.map(pullAnswer),
     costs: new Map(
-      (costs!.results as unknown as { pr: number; issue: number | null; micros: number; requests: number; unpriced: number }[]).map((r) => [
+      (costs!.results as unknown as { pr: number; issue: number | null; issueTitle: string | null; micros: number; requests: number; unpriced: number }[]).map((r) => [
         r.pr,
-        { micros: r.micros, requests: r.requests, unpricedRequests: r.unpriced, issue: r.issue },
+        { micros: r.micros, requests: r.requests, unpricedRequests: r.unpriced, issue: r.issue, issueTitle: r.issueTitle },
       ]),
     ),
     oldest: (oldest!.results[0] as { oldest: number | null } | undefined)?.oldest ?? null,

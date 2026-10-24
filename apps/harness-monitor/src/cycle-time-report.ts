@@ -146,6 +146,9 @@ function localKinds(p: Pull) {
   };
 }
 
+/** Each pull request's minutes per split, worked out once: a page asks for them once per series. */
+const VALUES = new WeakMap<Pull, Partial<Record<Split, Record<string, number | null>>>>();
+
 /**
  * A pull request's minutes per series of a split; null where its session
  * record holds none, which is not zero. The five phases add up to start to
@@ -153,6 +156,14 @@ function localKinds(p: Pull) {
  * as one figure, the time that is left.
  */
 export function values(p: Pull, split: Split): Record<string, number | null> {
+  const kept = VALUES.get(p)?.[split];
+  if (kept) return kept;
+  const made = valuesOf(p, split);
+  VALUES.set(p, { ...VALUES.get(p), [split]: made });
+  return made;
+}
+
+function valuesOf(p: Pull, split: Split): Record<string, number | null> {
   const ci = p.time.ciMs;
   if (split === 'phase') {
     const waiting = p.time.waitingToMergeMs ?? 0;
