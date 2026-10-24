@@ -22,6 +22,8 @@ import { renderStability } from './stability-page';
 import { loadStability, parseStabilityQuery, stabilityAddress } from './stability-report';
 import { newestRun, parsePeriod, stabilityAnswer, storeRuns } from './stability-store';
 import { correctBatch, stillUnphased, storeBatch, unpricedLines } from './store';
+import { COMMIT, MAX_PART_BYTES, readArea, readTree, SNAPSHOTS, tooLarge, type Snapshot } from './tests';
+import { currentCommit, currentTree, makeCurrent, storeArea, storeTree } from './tests-store';
 import { validateBatch, validateCorrections } from './validate';
 
 export interface Env {
@@ -117,7 +119,111 @@ async function writeSelection(request: Request, env: Env): Promise<Response> {
   return json(await storeSelection(env.DB, checked.pulls, checked.bars));
 }
 
-/** Whether the request asks for the JSON answer rather than the page: `?format=json`, or an `Accept` header naming `application/json`. */
+/**
+ * A snapshot part's body, or the refusal for one over MAX_PART_BYTES: a declared
+ * length is refused before reading, and an undeclared one is read only until it
+ * passes the limit, so a part far over it is never held in memory.
+ */
+async function readPart(request: Request, name: string): Promise<Uint8Array | Response> {
+  const declared = Number(request.headers.get('content-length'));
+  if (declared > MAX_PART_BYTES) return json({ error: tooLarge(name, declared) }, 413);
+  if (!request.body) return new Uint8Array(0);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = request.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_PART_BYTES) {
+      await reader.cancel();
+      return json({ error: tooLarge(name, size, 'at least') }, 413);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return bytes;
+}
+
+/**
+ * One part of a test explorer snapshot, or the switch that makes it current
+ * (src/tests.ts, src/tests-store.ts): `PUT .../tree` and `PUT .../areas/<key>`
+ * take the part's gzip as the body, `POST .../current` makes the commit's
+ * snapshot the one shown once every part has arrived.
+ */
+async function writeTests(request: Request, env: Env, snapshot: string, commit: string, part: string): Promise<Response> {
+  const isSwitch = part === 'current';
+  if (request.method !== (isSwitch ? 'POST' : 'PUT')) return json({ error: `Use ${isSwitch ? 'POST' : 'PUT'}.` }, 405);
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  if (!(SNAPSHOTS as readonly string[]).includes(snapshot)) return json({ error: `Only ${SNAPSHOTS.join(', ')}'s snapshot is stored.` }, 404);
+  const which = snapshot as Snapshot;
+  if (!COMMIT.test(commit)) return json({ error: `${JSON.stringify(commit)} is not a commit.` }, 400);
+  if (isSwitch) {
+    const switched = await makeCurrent(env.DB, which, commit);
+    return switched.ok ? json({ snapshot: which, current: commit }) : json({ error: switched.error }, switched.status);
+  }
+
+  let area: string | null = null;
+  if (part !== 'tree') {
+    try {
+      area = decodeURIComponent(part.slice('areas/'.length));
+    } catch {
+      return json({ error: 'The area is not a key.' }, 400);
+    }
+  }
+  const name = area === null ? 'The tree' : `Area ${JSON.stringify(area)}`;
+  const bytes = await readPart(request, name);
+  if (bytes instanceof Response) return bytes;
+  if (area === null) {
+    const checked = await readTree(commit, bytes);
+    if (!checked.ok) return json({ error: checked.error }, 400);
+    await storeTree(env.DB, which, checked.value, bytes);
+    return json({ snapshot: which, commit, part: 'tree', areas: checked.value.areas.length });
+  }
+  const checked = await readArea(area, bytes);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  const stored = await storeArea(env.DB, which, commit, area, bytes);
+  return stored.ok ? json({ snapshot: which, commit, part: 'area', area }) : json({ error: stored.error }, stored.status);
+}
+
+/** Which commit's snapshot is shown, uncached, for a send to check it is not older: public, as every read here is. */
+async function currentTests(request: Request, env: Env, snapshot: string): Promise<Response> {
+  if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405);
+  if (!(SNAPSHOTS as readonly string[]).includes(snapshot)) return json({ error: `Only ${SNAPSHOTS.join(', ')}'s snapshot is stored.` }, 404);
+  return json({ snapshot, current: await currentCommit(env.DB, snapshot as Snapshot) });
+}
+
+/**
+ * The current snapshot of `main`'s tests as JSON: the tree document as it was
+ * sent (its commit, whether coverage was available, the areas, rules and cases
+ * without source lines), unpacked; or, before any has been made current, an
+ * empty answer saying so. Always JSON until the Tests page draws it. Cached
+ * like the other reports.
+ */
+async function tests(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/tests?format=json`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const headers = { 'content-type': 'application/json', vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
+  const current = await currentTree(env.DB, 'main');
+  const response = current
+    ? new Response(new Blob([current.document]).stream().pipeThrough(new DecompressionStream('gzip')), { headers })
+    : Response.json({ commit: null, coverageAvailable: null, tree: [], note: "No snapshot of main's tests has arrived yet." }, { headers });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/** Whether the request asks for the JSON answer rather than the page:`?format=json`, or an `Accept` header naming `application/json`. */
 const wantsJson = (request: Request, url: URL) => url.searchParams.get('format') === 'json' || (request.headers.get('accept') ?? '').includes('application/json');
 
 /**
@@ -367,6 +473,11 @@ export default {
       return json({ error: 'Use GET or POST.' }, 405);
     }
     if (pathname === '/selection' && request.method === 'GET') return selection(request, env, ctx);
+    const testsCurrent = /^\/v1\/tests\/([^/]+)$/.exec(pathname);
+    if (testsCurrent) return currentTests(request, env, testsCurrent[1]!);
+    const testsPath = /^\/v1\/tests\/([^/]+)\/([^/]+)\/(tree|current|areas\/[^/]+)$/.exec(pathname);
+    if (testsPath) return writeTests(request, env, testsPath[1]!, testsPath[2]!, testsPath[3]!);
+    if (pathname === '/tests' && request.method === 'GET') return tests(request, env, ctx);
     if (pathname === '/v1/usage/corrections') {
       return request.method === 'POST' || request.method === 'GET' ? correct(request, env) : json({ error: 'Use POST or GET.' }, 405);
     }

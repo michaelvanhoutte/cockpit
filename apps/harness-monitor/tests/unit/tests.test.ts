@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'vitest';
+import { MAX_PART_BYTES, readArea, readTree } from '../../src/tests';
+
+const COMMIT = 'abc1234';
+
+const gzip = async (value: unknown) =>
+  new Uint8Array(await new Response(new Blob([JSON.stringify(value)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+
+const area = (key: string, over: Record<string, unknown> = {}) => ({
+  key,
+  label: key,
+  counts: { L1: 1 },
+  rules: [{ concept: key, statement: 'a rule', level: 'L1', file: 'a.test.ts', line: 3, cases: [{ text: 'a case', file: 'a.test.ts', line: 4 }], todoCases: [] }],
+  filesNothingRuns: [],
+  branchesNothingTakes: null,
+  children: [],
+  ...over,
+});
+
+const tree = (over: Record<string, unknown> = {}) => ({ commit: COMMIT, coverageAvailable: false, tree: [area('Capture'), area('Triage')], ...over });
+
+/** Bytes that do not compress, so their gzipped size is their size. */
+const incompressible = (size: number) => {
+  const bytes = new Uint8Array(size);
+  let seed = 7;
+  for (let i = 0; i < size; i += 1) bytes[i] = (seed = (seed * 1103515245 + 12345) >>> 0) >>> 24;
+  return bytes;
+};
+
+describe('Harness Monitor', () => {
+  describe("a part of main's tests of the wrong shape, or larger than one part may hold, is refused, naming it", () => {
+    it('an area over the size one part may hold is refused before it is read, naming the area and the limit', async () => {
+      const checked = await readArea('Capture', incompressible(MAX_PART_BYTES + 1));
+
+      expect(checked).toEqual({ ok: false, error: expect.stringMatching(/^Area "Capture" is 1,900,001 bytes gzipped, over the 1,900,000 a part may hold/) });
+    });
+
+    it.each([
+      { situation: 'a tree with no commit', sent: tree({ commit: undefined }), error: 'The tree has no commit.' },
+      { situation: 'a tree whose commit could not be read', sent: tree({ commit: 'unknown' }), error: 'The tree\'s commit "unknown" is not one.' },
+      { situation: 'a tree of another commit than it was sent as', sent: tree({ commit: 'def5678' }), error: 'The tree is commit def5678, but was sent as abc1234.' },
+      { situation: 'a tree not saying whether coverage was available', sent: tree({ coverageAvailable: 'yes' }), error: 'The tree does not say whether coverage was available.' },
+      { situation: 'a tree naming one area twice', sent: tree({ tree: [area('Capture'), area('Triage', { children: [area('Capture')] })] }), error: 'Area "Capture" appears twice.' },
+      {
+        situation: 'a tree carrying its source lines',
+        sent: tree({ tree: [area('Capture', { filesNothingRuns: [{ file: 'a.ts', line: 1, context: [{ line: 1, text: 'x' }] }] })] }),
+        error: 'Area "Capture" carries source lines; they belong in its own part.',
+      },
+    ])('$situation is refused', async ({ sent, error }) => {
+      expect(await readTree(COMMIT, await gzip(sent))).toEqual({ ok: false, error });
+    });
+
+    it.each([
+      { situation: 'source lines that are not a list', sent: { 'a.ts:3': 'line three' }, error: 'Area "Capture": "a.ts:3" is not a list of at most 100 lines.' },
+      { situation: 'a line without its number', sent: { 'a.ts:3': [{ text: 'line three' }] }, error: 'Area "Capture": "a.ts:3" holds a line that is not {line, text}.' },
+    ])('an area with $situation is refused', async ({ sent, error }) => {
+      expect(await readArea('Capture', await gzip(sent))).toEqual({ ok: false, error });
+    });
+
+    it('a part that is not gzip is refused', async () => {
+      expect(await readArea('Capture', new TextEncoder().encode('{"a.ts:3": []}'))).toEqual({ ok: false, error: 'Area "Capture" is not gzip.' });
+    });
+
+    it('a well-formed tree is read with every area it names, nested ones included', async () => {
+      const checked = await readTree(COMMIT, await gzip(tree({ tree: [area('Workspaces', { children: [area('Capture')] }), area('Triage')] })));
+
+      expect(checked).toEqual({ ok: true, value: { commit: COMMIT, areas: ['Workspaces', 'Capture', 'Triage'] } });
+    });
+  });
+});

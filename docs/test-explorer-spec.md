@@ -471,7 +471,7 @@ independent of everything else — it needs no coverage, so it stays fast rather
 waiting on the suite. `Test Explorer` needs both `Checks` and `Test`: on a push to
 `main`, `Test` runs the suite instrumented (`test:coverage` in place of plain `test`) and
 uploads `coverage-final.json` from every package that has one as an artifact, which `Test
-Explorer` downloads before running `test:explorer` and the uploads named under "Where
+Explorer` downloads before running the generator with `--model` and the uploads named under "Where
 the report is published" below. A pull request runs plain `test`, uploads nothing, and its
 report renders unknown coverage columns ("Stop instrumenting coverage on a pull request's
 test run", issue 508). The job and step themselves carry the reasoning; it is not repeated
@@ -497,7 +497,8 @@ Two places, for two readers. Every run uploads `out/` as a downloadable artifact
 how a pull request's own report is read and the fallback when a deploy fails. Runs on
 `main` additionally publish to **GitHub Pages**, at
 <https://michaelvanhoutte.github.io/cockpit/> — the tip of `main`, at a fixed URL, without
-signing in.
+signing in. `main`'s model, not the report, also goes to the Harness Monitor
+([tools/test-explorer/README.md](../tools/test-explorer/README.md)).
 
 This settles what this section left open until "Publish the test explorer at a URL, instead
 of a zip you have to download" (issue 224). A zipped artifact expiring after
