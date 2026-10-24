@@ -1,4 +1,5 @@
 import { fetchChangedPullRequests, type PullRequest } from './github';
+import { CLOSED_SNAPSHOTS } from './tests-store';
 
 /**
  * Stores each head branch's newest-updated pull request in one statement, from a
@@ -126,7 +127,8 @@ export interface LinkOptions {
 
 /**
  * The hourly job. Reads the pull requests from the stored place in update
- * order and stores their links and the new place in one batch, so a run that
+ * order and stores their links and the new place in one batch, deleting the
+ * tests of each pull request now merged or closed in it, so a run that
  * fails anywhere before that batch leaves the links, the place and the last
  * catch-up time as they were. A run that hits its request budget, or that
  * GitHub times out on after a page was read, stores what it read and moves the
@@ -161,6 +163,7 @@ export async function linkBranches(env: LinkEnv, { now = Date.now(), full = fals
       env.DB.prepare(UPSERT_LINKS).bind(links(false), now, 0),
       env.DB.prepare(UPSERT_LINKS).bind(links(true), now, 1),
       env.DB.prepare(UPSERT_STATS).bind(JSON.stringify(ordered), now),
+      env.DB.prepare(CLOSED_SNAPSHOTS).bind(JSON.stringify(ordered)),
       env.DB.prepare(SAVE_STATE).bind(fetched.cursor, fetched.caughtUp ? now : null, started, rewind ? 1 : 0, rewind ? SIZING_VERSION : null),
     ]);
     const moved = results.at(-1)!.meta.changes === 0;

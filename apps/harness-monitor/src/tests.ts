@@ -1,15 +1,24 @@
 /**
- * The test explorer's snapshot as the Tests snapshot job sends it
- * (tools/test-explorer, `--send`): documents, not rows. A snapshot is one
+ * The test explorer's snapshot as the Tests snapshot job, or for a pull request
+ * the Pull request tests workflow, sends it (tools/test-explorer, `--send`):
+ * documents, not rows. A snapshot is one
  * gzipped tree (the model with every `context` taken out: areas, rules, cases,
  * counts and gaps) and one gzipped document per area holding that area's
  * source lines, keyed `file:line`. The Monitor checks each part's size and
  * shape and stores the bytes it was sent; it derives nothing from them.
  */
 
-/** The snapshots stored: `main`'s latest. Open pull requests' join it later. */
-export const SNAPSHOTS = ['main'] as const;
-export type Snapshot = (typeof SNAPSHOTS)[number];
+/** The snapshots stored: `main`'s latest, and each open pull request's latest push as `pr-<number>`. */
+export type Snapshot = 'main' | `pr-${number}`;
+
+/** A pull request number as written in an address: no sign, no leading zero, ten digits at most. */
+export const pullRequestNumber = (raw: string | null): number | null => (raw !== null && /^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null);
+
+/** The snapshot an address names, or null: `main`, or `pr-` and a pull request number. */
+export const snapshotOf = (raw: string): Snapshot | null => (raw === 'main' || (raw.startsWith('pr-') && pullRequestNumber(raw.slice(3)) !== null) ? (raw as Snapshot) : null);
+
+/** A pull request's snapshot. */
+export const pullRequestSnapshot = (number: number): Snapshot => `pr-${number}`;
 
 /** D1 stores at most 2,000,000 bytes a row; a part keeps clear of it, leaving room for the row's keys. */
 export const MAX_PART_BYTES = 1_900_000;
@@ -89,11 +98,44 @@ function* references(node: Record<string, unknown>): Generator<unknown> {
   for (const list of [node.filesNothingRuns, node.branchesNothingTakes]) if (Array.isArray(list)) yield* list;
 }
 
+/** A reference the page can draw and link: a file and a line from 1. */
+const isRef = (value: unknown): value is Record<string, unknown> => isRecord(value) && typeof value.file === 'string' && Number.isInteger(value.line) && (value.line as number) >= 1;
+
+/**
+ * The first rule, case or gap of `node` the page could not draw, named, or
+ * null. A pull request's author writes its tree, so a wrong-typed field is
+ * refused here rather than breaking that pull request's page.
+ */
+function wrongReference(named: string, node: Record<string, unknown>): string | null {
+  for (const rule of node.rules as unknown[]) {
+    if (!isRef(rule)) return `${named} has a rule with no file and line.`;
+    const at = `${named}: the rule at ${JSON.stringify(`${rule.file}:${rule.line}`)}`;
+    if (typeof rule.statement !== 'string') return `${at} has no statement.`;
+    if (typeof rule.level !== 'string') return `${at} has no level.`;
+    for (const list of ['cases', 'todoCases'] as const) {
+      const cases = rule[list];
+      if (cases === undefined) continue;
+      if (!Array.isArray(cases)) return `${at} has ${list} that are not a list.`;
+      if (!cases.every((c) => isRef(c) && typeof c.text === 'string')) return `${at} has a case that is not {file, line, text}.`;
+    }
+  }
+  // A gap's line can be missing: coverage gives an untaken implicit `else` none.
+  const isGap = (value: unknown) => isRecord(value) && typeof value.file === 'string' && (value.line === undefined || value.line === null || Number.isInteger(value.line));
+  for (const list of ['filesNothingRuns', 'branchesNothingTakes'] as const) {
+    const refs = node[list];
+    if (refs === undefined || refs === null) continue;
+    if (!Array.isArray(refs) || !refs.every(isGap)) return `${named}'s ${list} is not a list of {file, line}.`;
+  }
+  return null;
+}
+
 /**
  * The tree's commit and the areas it names, or the first thing wrong with it.
- * Each node needs a key (unique: an area's part is filed under it), a label,
- * its counts, rules and children; no reference may carry its source lines,
- * which belong in the area's own part.
+ * Its warnings, where it has any, are text, and so is its commit link. Each
+ * node needs a key (unique: an area's part is filed under it), a label,
+ * its counts, rules and children; every rule, case and gap a file and line,
+ * a rule its statement and level, a case its text; no reference may carry its
+ * source lines, which belong in the area's own part.
  */
 export function checkTree(value: unknown): Checked<TreeFacts> {
   if (!isRecord(value)) return refused('The tree is not an object.');
@@ -101,6 +143,8 @@ export function checkTree(value: unknown): Checked<TreeFacts> {
   if (!COMMIT.test(value.commit)) return refused(`The tree's commit ${JSON.stringify(value.commit)} is not one.`);
   if (typeof value.coverageAvailable !== 'boolean') return refused('The tree does not say whether coverage was available.');
   if (!Array.isArray(value.tree)) return refused('The tree has no areas.');
+  if (value.warnings !== undefined && !(Array.isArray(value.warnings) && value.warnings.every((w) => typeof w === 'string'))) return refused('The tree has warnings that are not a list of text.');
+  if (value.commitUrl !== undefined && value.commitUrl !== null && typeof value.commitUrl !== 'string') return refused("The tree's commit link is not text.");
 
   const areas: string[] = [];
   const seen = new Set<string>();
@@ -121,6 +165,8 @@ export function checkTree(value: unknown): Checked<TreeFacts> {
       for (const ref of references(node)) {
         if (isRecord(ref) && 'context' in ref) return `${named} carries source lines; they belong in its own part.`;
       }
+      const wrong = wrongReference(named, node);
+      if (wrong) return wrong;
       seen.add(key);
       areas.push(key);
       if (areas.length > MAX_AREAS) return `The tree names more than ${MAX_AREAS} areas.`;

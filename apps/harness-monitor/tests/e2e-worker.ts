@@ -7,7 +7,7 @@ import { storeSelection } from '../src/selection-store';
 import { checkRuns } from '../src/stability';
 import { storeRuns } from '../src/stability-store';
 import { storeBatch } from '../src/store';
-import { readTree } from '../src/tests';
+import { readTree, snapshotOf } from '../src/tests';
 import { makeCurrent, storeArea, storeTree } from '../src/tests-store';
 import { validateBatch } from '../src/validate';
 
@@ -29,8 +29,9 @@ import { validateBatch } from '../src/validate';
  * it too can be sent twice. A third, `/__e2e/seed-cycle-time`, does the same for
  * cycle time's pull requests, stored under their numbers, and a fourth,
  * `/__e2e/seed-selection`, for test selection's pull requests and bars, and a
- * fifth, `/__e2e/seed-tests`, for `main`'s tests: the tree and each area's source
- * lines, stored and shown under their commit, so a second seed replaces the first.
+ * fifth, `/__e2e/seed-tests`, for `main`'s tests or, given `snapshot`, a pull
+ * request's: the tree and each area's source lines, stored and shown under their
+ * commit, so a second seed replaces the first.
  */
 const RATES = {
   'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5 },
@@ -88,17 +89,20 @@ export default {
       return Response.json(await storeSelection(env.DB, checked.pulls, checked.bars));
     }
     if (pathname === '/__e2e/seed-tests' && request.method === 'POST') {
-      const { tree, areas = {} } = (await request.json()) as { tree: { commit: string; tree: { key: string; children: unknown[] }[] }; areas?: Record<string, unknown> };
+      const body = (await request.json()) as { tree: { commit: string; tree: { key: string; children: unknown[] }[] }; areas?: Record<string, unknown>; snapshot?: string };
+      const { tree, areas = {} } = body;
+      const snapshot = snapshotOf(body.snapshot ?? 'main');
+      if (!snapshot) return Response.json({ error: 'Not a snapshot.' }, { status: 400 });
       const gzip = async (value: unknown) => new Uint8Array(await new Response(new Blob([JSON.stringify(value)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
       const treeBytes = await gzip(tree);
       const checked = await readTree(tree.commit, treeBytes);
       if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
-      await storeTree(env.DB, 'main', checked.value, treeBytes);
+      await storeTree(env.DB, snapshot, checked.value, treeBytes);
       for (const key of checked.value.areas) {
-        const stored = await storeArea(env.DB, 'main', tree.commit, key, await gzip(areas[key] ?? {}));
+        const stored = await storeArea(env.DB, snapshot, tree.commit, key, await gzip(areas[key] ?? {}));
         if (!stored.ok) return Response.json({ error: stored.error }, { status: stored.status });
       }
-      const shown = await makeCurrent(env.DB, 'main', tree.commit);
+      const shown = await makeCurrent(env.DB, snapshot, tree.commit);
       return shown.ok ? Response.json({ current: tree.commit }) : Response.json({ error: shown.error }, { status: shown.status });
     }
     if (pathname !== '/__e2e/seed' || request.method !== 'POST') return worker.fetch(request, env, ctx);

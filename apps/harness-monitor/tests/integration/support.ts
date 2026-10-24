@@ -325,20 +325,20 @@ export const testsTree = (commit: string, areas: string[], over: Record<string, 
 const gzip = async (value: unknown) =>
   new Uint8Array(await new Response(new Blob([JSON.stringify(value)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
 
-/** One part of main's tests as the test explorer sends it, gzipped, with the write key. */
-async function sendTestsPart(commit: string, part: string, value: unknown) {
-  return SELF.fetch(`https://monitor.test/v1/tests/main/${commit}/${part}`, {
+/** One part of a snapshot's tests, `main`'s unless told, as the test explorer sends it, gzipped, with the write key. */
+async function sendTestsPart(commit: string, part: string, value: unknown, to = 'main') {
+  return SELF.fetch(`https://monitor.test/v1/tests/${to}/${commit}/${part}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/gzip', authorization: `Bearer ${WRITE_KEY}` },
     body: await gzip(value),
   });
 }
 
-export const sendTestsTree = (commit: string, tree: unknown) => sendTestsPart(commit, 'tree', tree);
-export const sendTestsArea = (commit: string, area: string, lines: unknown = { 'a.test.ts:3': [{ line: 3, text: `it('${area}')` }] }) =>
-  sendTestsPart(commit, `areas/${encodeURIComponent(area)}`, lines);
-export const showTests = (commit: string) =>
-  SELF.fetch(`https://monitor.test/v1/tests/main/${commit}/current`, { method: 'POST', headers: { authorization: `Bearer ${WRITE_KEY}` } });
+export const sendTestsTree = (commit: string, tree: unknown, to = 'main') => sendTestsPart(commit, 'tree', tree, to);
+export const sendTestsArea = (commit: string, area: string, lines: unknown = { 'a.test.ts:3': [{ line: 3, text: `it('${area}')` }] }, to = 'main') =>
+  sendTestsPart(commit, `areas/${encodeURIComponent(area)}`, lines, to);
+export const showTests = (commit: string, to = 'main') =>
+  SELF.fetch(`https://monitor.test/v1/tests/${to}/${commit}/current`, { method: 'POST', headers: { authorization: `Bearer ${WRITE_KEY}` } });
 
 /** Sends the tree and every one of `areas`' source lines, each answered 200, without making them current. */
 export async function sendEveryTestsPart(commit: string, areas: string[], over: Record<string, unknown> = {}) {
@@ -348,10 +348,10 @@ export async function sendEveryTestsPart(commit: string, areas: string[], over: 
 }
 
 /**
- * A whole snapshot sent and shown: the tree, then each area's source lines (those `lines` names, else none), then the switch.
- * Every part must be answered 200.
+ * A whole snapshot sent and shown, as `main`'s unless `to` names a pull request's (`pr-9001`): the tree, then each
+ * area's source lines (those `lines` names, else none), then the switch. Every part must be answered 200.
  */
-export async function sendTestsModel(snapshot: { commit: string; tree: { key: string; children: unknown[] }[] }, lines: Record<string, unknown> = {}) {
+export async function sendTestsModel(snapshot: { commit: string; tree: { key: string; children: unknown[] }[] }, lines: Record<string, unknown> = {}, to = 'main') {
   const keys: string[] = [];
   const collect = (nodes: { key: string; children: unknown[] }[]) => {
     for (const node of nodes) {
@@ -360,29 +360,31 @@ export async function sendTestsModel(snapshot: { commit: string; tree: { key: st
     }
   };
   collect(snapshot.tree);
-  const statuses = [(await sendTestsTree(snapshot.commit, snapshot)).status];
-  for (const key of keys) statuses.push((await sendTestsArea(snapshot.commit, key, lines[key] ?? {})).status);
-  statuses.push((await showTests(snapshot.commit)).status);
+  const statuses = [(await sendTestsTree(snapshot.commit, snapshot, to)).status];
+  for (const key of keys) statuses.push((await sendTestsArea(snapshot.commit, key, lines[key] ?? {}, to)).status);
+  statuses.push((await showTests(snapshot.commit, to)).status);
   if (statuses.some((s) => s !== 200)) throw new Error(`a part was refused: ${statuses.join(', ')}`);
 }
 
-/** The tests' JSON answer, as a reader asks for it. */
-export async function theTests(): Promise<Record<string, unknown>> {
-  const response = await SELF.fetch('https://monitor.test/tests?format=json');
+/** The tests' JSON answer, as a reader asks for it: `main`'s, or with `pr` that pull request's. */
+export async function theTests(pr?: number): Promise<Record<string, unknown>> {
+  const response = await SELF.fetch(`https://monitor.test/tests?format=json${pr === undefined ? '' : `&pr=${pr}`}`);
   if (response.status !== 200) throw new Error(`/tests answered ${response.status}`);
   return response.json();
 }
 
-/** Every commit with parts stored, how many area parts it holds, and which commit is shown. */
-export async function storedTests(): Promise<{ commits: { commit: string; areas: number }[]; current: string | null }> {
+/** Every commit of a snapshot (`main`'s unless told) with parts stored, how many area parts it holds, and which commit is shown. */
+export async function storedTests(snapshot = 'main'): Promise<{ commits: { commit: string; areas: number }[]; current: string | null }> {
   const { results } = await env.DB.prepare(
     `SELECT t.commit_sha, (SELECT COUNT(*) FROM tests_area_lines l WHERE l.snapshot = t.snapshot AND l.commit_sha = t.commit_sha) AS areas
-     FROM tests_trees t
+     FROM tests_trees t WHERE t.snapshot = ?1
      UNION SELECT l.commit_sha, COUNT(*) FROM tests_area_lines l
-     WHERE NOT EXISTS (SELECT 1 FROM tests_trees t WHERE t.snapshot = l.snapshot AND t.commit_sha = l.commit_sha) GROUP BY l.commit_sha
+     WHERE l.snapshot = ?1 AND NOT EXISTS (SELECT 1 FROM tests_trees t WHERE t.snapshot = l.snapshot AND t.commit_sha = l.commit_sha) GROUP BY l.commit_sha
      ORDER BY 1`,
-  ).all<{ commit_sha: string; areas: number }>();
-  const current = await env.DB.prepare("SELECT commit_sha FROM tests_current WHERE snapshot = 'main'").first<{ commit_sha: string }>();
+  )
+    .bind(snapshot)
+    .all<{ commit_sha: string; areas: number }>();
+  const current = await env.DB.prepare('SELECT commit_sha FROM tests_current WHERE snapshot = ?1').bind(snapshot).first<{ commit_sha: string }>();
   return { commits: results.map((r) => ({ commit: r.commit_sha, areas: r.areas })), current: current?.commit_sha ?? null };
 }
 

@@ -42,9 +42,16 @@ describe('parseArgs', () => {
   it.each([
     { argv: ['--json', '--model', 'm.json'], invalid: '--model writes the model beside the page, so it does not combine with --json or --check-concepts' },
     { argv: ['--model', 'm.json', '--check-concepts'], invalid: '--model writes the model beside the page, so it does not combine with --json or --check-concepts' },
-    { argv: ['--send', 'm.json', '--json'], invalid: '--send reads a model and writes nothing, so it takes no other option' },
+    { argv: ['--send', 'm.json', '--json'], invalid: '--send reads a model and writes nothing, so it takes no option but --pull-request' },
+    { argv: ['--pull-request', '9001'], invalid: '--pull-request names whose tests --send sends, so it needs --send' },
   ])('refuses $argv, which would silently skip one of them', ({ argv, invalid }) => {
     expect(parseArgs(argv)).toEqual({ invalid });
+  });
+
+  it('sends as a pull request with --pull-request, and refuses one that is not a number', () => {
+    expect(parseArgs(['--send', 'm.json', '--pull-request', '9001'])).toEqual({ send: 'm.json', pullRequest: 9001 });
+    for (const value of ['09001', 'pr-9001', '-1']) expect(parseArgs(['--send', 'm.json', '--pull-request', value])).toEqual({ invalid: '--pull-request needs a pull request number' });
+    expect(parseArgs(['--send', 'm.json', '--pull-request'])).toEqual({ invalid: '--pull-request needs a pull request number' });
   });
 
   it('returns { unknown } for an unrecognized argument instead of exiting the process', () => {

@@ -1,0 +1,132 @@
+name: Pull request tests
+
+# Sends an open pull request's tests to the Harness Monitor once CI finishes on
+# its latest push, for the Tests page's pull request picker.
+#
+# **The pull request's own code never runs where the write key is.** A
+# `workflow_run` workflow always runs as `main` defines it, whatever the pull
+# request changed, so this is the only job that holds the key for a pull
+# request's tests. It checks out `main`, never the pull request; it never
+# installs or runs anything the pull request wrote. It downloads the model CI's
+# `Test Explorer` job built as a zip, takes the one file out of it as data, and
+# hands it to `main`'s own sender, which parses it and sends it. A branch's
+# author can still put anything in their own model, so the Monitor checks each
+# part's shape and size and the page escapes what it says; the pull request it
+# is filed under is GitHub's, from this event, never the model's.
+#
+# **A fork's pull request is ignored.** Its CI run, workflow file included, is
+# the fork author's end to end, so its artifact is written by someone with no
+# access to this repository; sending it would let anyone with a GitHub account
+# store a snapshot here under the key. Every pull request here comes from a
+# branch of this repository.
+#
+# Sends nothing, with a notice, until both the secret HARNESS_WRITE_KEY and the
+# variable HARNESS_MONITOR_URL are set (docs/deployment.md, "The Harness
+# Monitor"), and nothing for a run that is not the pull request's latest push
+# or that built no model. Gates nothing: it reports on `main`, not on the pull
+# request, so a send that fails fails its job, never the run.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    # CI on `main` itself is never a pull request's, so it starts no run here.
+    branches-ignore: [main]
+
+# Every scope `none`; the one job grants itself only reads.
+permissions: {}
+
+# A pull request's sends one at a time, so two pushes' sends never interleave
+# their parts; the latest-push check below drops the older. Keyed by the
+# repository too, so a fork's branch of the same name never queues beside one here.
+concurrency:
+  group: pr-tests-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  send:
+    name: Send a pull request's tests
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      # main's own sender.
+      contents: read
+      # The CI run's artifacts.
+      actions: read
+      # Which pull request the run is of, whether it is open, and at which push.
+      pull-requests: read
+    # Advisory, as `Tests snapshot` is: a model the Monitor refuses is a missing snapshot, not a red `main`.
+    continue-on-error: true
+    # A Monitor that accepts and never answers would otherwise hold the job for six hours.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Send the pull request's tests to the Harness Monitor
+        # Everything the event says reaches the script as a variable, never
+        # written into it, so a branch name or title cannot become a command.
+        env:
+          HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PULLS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+        run: |
+          set -euo pipefail
+          notice() { echo "::notice title=Tests not sent::$1"; }
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            notice "The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, so this pull request's tests did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
+            exit 0
+          fi
+
+          # The pull request is the event's: the one whose head is this run's
+          # commit, or, where GitHub listed none, the open one found by that commit.
+          number=$(jq -r '[.[] | select(.head.sha == env.HEAD_SHA)] | .[0].number // empty' <<<"$PULLS")
+          if [ -z "$number" ]; then
+            number=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/pulls" \
+              --jq '[.[] | select(.state == "open" and .head.sha == env.HEAD_SHA and .head.repo.full_name == env.GITHUB_REPOSITORY)] | .[0].number // empty')
+          fi
+          if [ -z "$number" ]; then
+            notice "No open pull request has $HEAD_SHA as its head, so nothing was sent."
+            exit 0
+          fi
+
+          # Only the latest push of a pull request still open: a run finishing
+          # after a newer push never replaces that push's tests, and a closed
+          # pull request's would only be deleted by the next linking.
+          pull=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '.state + " " + .head.sha')
+          if [ "$pull" != "open $HEAD_SHA" ]; then
+            notice "Pull request $number is closed or has a newer push than $HEAD_SHA, so this run sent nothing."
+            exit 0
+          fi
+
+          # The model, where CI built one: a run whose tests failed, or that
+          # changed no product file, has none.
+          # Asked by name: an unfiltered list is one page of 30, which a run's artifacts can outgrow.
+          artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?name=test-explorer-model" \
+            --jq '[.artifacts[] | select(.name == "test-explorer-model" and .expired == false)] | .[0].id // empty')
+          if [ -z "$artifact" ]; then
+            notice "CI's run $RUN_ID built no test explorer model for pull request $number, so nothing was sent."
+            exit 0
+          fi
+          # Read as data: the zip is never unpacked onto disk, only its one
+          # file is copied out, up to 64 MB, far above the real model's size.
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact/zip" > "$RUNNER_TEMP/model.zip"
+          model="$RUNNER_TEMP/model.json"
+          limit=$((64 * 1024 * 1024))
+          { unzip -p "$RUNNER_TEMP/model.zip" model.json || true; } | head -c "$((limit + 1))" > "$model"
+          if [ "$(stat -c %s "$model")" -gt "$limit" ]; then
+            echo "::error title=Tests not sent::The model of pull request $number is over 64 MB, so nothing was sent."
+            exit 1
+          fi
+
+          # A re-run of the push shown would rewrite its tests part by part while shown.
+          commit=$(jq -r '.commit // empty | strings' "$model" 2>/dev/null) || commit=
+          shown=$(curl -fsS --max-time 30 "${HARNESS_MONITOR_URL%/}/v1/tests/pr-$number" | jq -r '.current // empty') || shown=
+          if [ -n "$commit" ] && [ "$commit" = "$shown" ]; then
+            notice "The Harness Monitor already shows pull request $number's tests at $commit, so this run sent nothing."
+            exit 0
+          fi
+          node tools/test-explorer/src/cli.js --send "$model" --pull-request "$number"

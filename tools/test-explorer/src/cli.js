@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { walkTree } from './model.js';
-import { MonitorError, sendSnapshot } from './monitor.js';
+import { MonitorError, sendSnapshot, whose } from './monitor.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO = path.resolve(here, '../../..');
@@ -35,7 +35,7 @@ async function main(argv) {
     return 0;
   }
 
-  if (args.send) return send(args.send);
+  if (args.send) return send(args.send, args.pullRequest ?? null);
 
   // Imported here rather than at the top, so `--send` runs without the packages analyze/ parses with.
   const { analyze } = await import('./analyze/index.js');
@@ -71,9 +71,10 @@ async function main(argv) {
 
 /**
  * Sends the model in `file` to the Harness Monitor at $HARNESS_MONITOR_URL
- * with $HARNESS_WRITE_KEY, and exits non-zero naming the part it refused.
+ * with $HARNESS_WRITE_KEY, as `main`'s tests or `pullRequest`'s, and exits
+ * non-zero naming the part it refused.
  */
-async function send(file) {
+async function send(file, pullRequest) {
   const url = process.env.HARNESS_MONITOR_URL;
   const key = process.env.HARNESS_WRITE_KEY;
   if (!url || !key) {
@@ -88,9 +89,9 @@ async function send(file) {
     return 2;
   }
   try {
-    const sent = await sendSnapshot({ url, key, model });
-    const largest = sent.largestArea ? `, the largest area ${sent.largestArea.key} at ${sent.largestArea.bytes} bytes` : '';
-    process.stderr.write(`sent main's tests at ${sent.commit} to the Harness Monitor and showed them: the tree at ${sent.treeBytes} bytes gzipped and ${sent.areas} areas${largest}\n`);
+    const sent = await sendSnapshot({ url, key, model, pullRequest });
+    const largest = sent.largestArea ? `, the largest area ${JSON.stringify(sent.largestArea.key)} at ${sent.largestArea.bytes} bytes` : '';
+    process.stderr.write(`sent ${whose(pullRequest)} at ${sent.commit} to the Harness Monitor and showed them: the tree at ${sent.treeBytes} bytes gzipped and ${sent.areas} areas${largest}\n`);
     return 0;
   } catch (error) {
     if (!(error instanceof MonitorError)) throw error;
@@ -138,7 +139,7 @@ function write(file, contents) {
  * That's what makes this testable as plain logic.
  *
  * @param {string[]} argv
- * @returns {{ help?: boolean, json?: boolean, checkConcepts?: boolean, out?: string, repo?: string, model?: string, send?: string, unknown?: string, invalid?: string }}
+ * @returns {{ help?: boolean, json?: boolean, checkConcepts?: boolean, out?: string, repo?: string, model?: string, send?: string, pullRequest?: number, unknown?: string, invalid?: string }}
  */
 export function parseArgs(argv) {
   const args = {};
@@ -153,10 +154,15 @@ export function parseArgs(argv) {
       const value = argv[++i];
       if (!value || value.startsWith('--')) return { invalid: `${a} needs a path to a model file` };
       args[a.slice(2)] = value;
+    } else if (a === '--pull-request') {
+      const value = argv[++i];
+      if (!value || !/^[1-9]\d{0,9}$/.test(value)) return { invalid: '--pull-request needs a pull request number' };
+      args.pullRequest = Number(value);
     } else return { unknown: a };
   }
   if (args.model && (args.json || args.checkConcepts)) return { invalid: '--model writes the model beside the page, so it does not combine with --json or --check-concepts' };
-  if (args.send && Object.keys(args).length > 1) return { invalid: '--send reads a model and writes nothing, so it takes no other option' };
+  if (args.pullRequest !== undefined && !args.send) return { invalid: '--pull-request names whose tests --send sends, so it needs --send' };
+  if (args.send && Object.keys(args).some((name) => name !== 'send' && name !== 'pullRequest')) return { invalid: '--send reads a model and writes nothing, so it takes no option but --pull-request' };
   return args;
 }
 
@@ -168,6 +174,7 @@ const USAGE = `Usage: node src/cli.js [options]
   --model <file>     Also write the model beside the page, for --send.
   --send <file>      Send the model a --json or --model run wrote to the Harness Monitor at
                        $HARNESS_MONITOR_URL with $HARNESS_WRITE_KEY, as main's tests, and write nothing.
+  --pull-request <n> With --send: send them as pull request n's tests instead.
   --check-concepts   Fail if any test declares a feature area missing from concepts.json.
   --help                This.
 `;

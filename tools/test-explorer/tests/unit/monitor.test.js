@@ -69,9 +69,33 @@ describe('Test explorer', () => {
       const sending = sendSnapshot({ url: 'https://monitor.test', key: 'k', model: model(37), fetchImpl });
 
       await expect(sending).rejects.toThrow(MonitorError);
-      await expect(sending).rejects.toThrow(/^The Harness Monitor refused area 12 of 37 \(Area 12\) \(400: not a list\)/);
+      await expect(sending).rejects.toThrow(/^The Harness Monitor refused area 12 of 37 \("Area 12"\) \(400: not a list\)/);
       expect(sent.at(-1).url).toBe('https://monitor.test/v1/tests/main/abc1234/areas/Area%2012');
       expect(sent.some((s) => s.url.endsWith('/current'))).toBe(false);
+    });
+  });
+
+  describe("a pull request's tests go to that pull request's, never where the model points", () => {
+    it("sent as pull request 9001's, every part goes to its tests and not main's, whatever the model says", async () => {
+      const { fetchImpl, sent } = stubMonitor();
+
+      await sendSnapshot({ url: 'https://monitor.test', key: 'k', model: { ...model(1), pullRequest: 9002 }, pullRequest: 9001, fetchImpl });
+
+      expect(sent.map((s) => s.url)).toEqual([
+        'https://monitor.test/v1/tests/pr-9001/abc1234/tree',
+        'https://monitor.test/v1/tests/pr-9001/abc1234/areas/Area%201',
+        'https://monitor.test/v1/tests/pr-9001/abc1234/current',
+      ]);
+    });
+
+    it.each([
+      { situation: 'a commit that is not one', over: { commit: '../main/abc1234' }, error: /^The model's commit "\.\.\/main\/abc1234" is not one; nothing was sent\.$/ },
+      { situation: 'an area an address would read as a step up', over: { tree: [{ ...model(1).tree[0], key: '..' }] }, error: /^The model names an area "\.\.", which no address can carry; nothing was sent\.$/ },
+    ])('a model with $situation is refused before anything is sent', async ({ over, error }) => {
+      const { fetchImpl, sent } = stubMonitor();
+
+      await expect(sendSnapshot({ url: 'https://monitor.test', key: 'k', model: { ...model(1), ...over }, pullRequest: 9001, fetchImpl })).rejects.toThrow(error);
+      expect(sent).toEqual([]);
     });
   });
 });

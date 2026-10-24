@@ -501,7 +501,9 @@ jobs:
           name: coverage-reports
           path: .
       # Writes the model beside the page, outside out/ so the site never
-      # publishes it, for `tests-snapshot` below to send.
+      # publishes it, for `tests-snapshot` below to send on `main`, and on a
+      # pull request for pr-tests.yml, which holds the write key this job never
+      # does and reads the artifact as data.
       - run: node tools/test-explorer/src/cli.js --model tools/test-explorer/model/model.json
       # Kept on every branch, and not replaced by the published page: it is how
       # a pull request's own report gets read, and the fallback when a deploy
@@ -511,11 +513,10 @@ jobs:
           name: test-explorer-report
           path: tools/test-explorer/out/
       - uses: actions/upload-artifact@v4
-        if: ${{ github.event_name == 'push' }}
         with:
           name: test-explorer-model
           path: tools/test-explorer/model/model.json
-          # Long enough to re-run `Tests snapshot` after the Monitor was down a weekend.
+          # Long enough to re-run `Tests snapshot`, or Pull request tests, after the Monitor was down a weekend.
           retention-days: 7
 
   # Sends `main`'s model to the Harness Monitor as its tests: the tree, each

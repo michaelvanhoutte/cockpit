@@ -1,8 +1,9 @@
-import { unpack } from './tests';
-import { currentAreaLines, currentTree } from './tests-store';
+import { pullRequestNumber, pullRequestSnapshot, unpack, type Snapshot } from './tests';
+import { currentAreaLines, shownTests, type PullRequestTests } from './tests-store';
 
 /**
- * What the Tests page reads of `main`'s shown snapshot, and the counting over
+ * What the Tests page reads of the shown snapshot, `main`'s or an open pull
+ * request's, and the counting over
  * it: which rules and files a row counts under the filters, what a count opens,
  * which areas Show keeps. The snapshot is the tree document the test explorer
  * sent (src/tests.ts); the Monitor derives nothing from it but these counts,
@@ -107,9 +108,11 @@ export interface TestsQuery {
   rule: string | null;
   /** The tests a clicked count opens above the tab; the page's own filters stay as they were. */
   list: ListSpec | null;
+  /** The open pull request whose tests are shown; null is `main`'s. */
+  pr: number | null;
 }
 
-export const DEFAULT_QUERY: TestsQuery = { group: 'area', node: null, level: null, package: null, show: 'all', split: 'level', rule: null, list: null };
+export const DEFAULT_QUERY: TestsQuery = { group: 'area', node: null, level: null, package: null, show: 'all', split: 'level', rule: null, list: null, pr: null };
 const DEFAULTS: Partial<Record<keyof TestsQuery, unknown>> = { group: 'area', show: 'all', split: 'level' };
 
 /** Longest value an address may carry for an area or a rule, so a junk address is never a long cache key. */
@@ -136,6 +139,7 @@ export function parseTestsQuery(params: URLSearchParams): TestsQuery {
     split: pick(params.get('split'), SPLITS, 'level'),
     rule: text(params.get('rule')),
     list,
+    pr: pullRequestNumber(params.get('pr')),
   };
 }
 
@@ -230,15 +234,25 @@ export interface TestsData {
   lines: AreaLines | null;
 }
 
+export interface TestsView {
+  /** The address's query as written: which snapshot it asks for, and the view to keep when another is picked. */
+  asked: TestsQuery;
+  /** The open pull requests with tests shown, for the picker, newest first. */
+  pulls: PullRequestTests[];
+  /** The asked snapshot read, or null when none of it is shown. */
+  data: TestsData | null;
+}
+
 /**
- * What the page reads: the shown tree and, for a rule, its area's source lines.
- * Null when no snapshot has been made current. The lines are read after the
- * tree because the rule's area is only known from it, still inside the one
- * request the page is answered by.
+ * What the page reads: the pull requests with tests shown and the asked
+ * snapshot's tree, in one round trip, and, for a rule, its area's source
+ * lines. The lines are read after the tree because the rule's area is only
+ * known from it, still inside the one request the page is answered by.
  */
-export async function loadTests(db: D1Database, asked: TestsQuery): Promise<TestsData | null> {
-  const current = await currentTree(db, 'main');
-  if (!current) return null;
+export async function loadTests(db: D1Database, asked: TestsQuery): Promise<TestsView> {
+  const snapshot: Snapshot = asked.pr === null ? 'main' : pullRequestSnapshot(asked.pr);
+  const { pulls, tree: current } = await shownTests(db, snapshot);
+  if (!current) return { asked, pulls, data: null };
   const unpacked = await unpack('The tree', current.document);
   if (!unpacked.ok) throw new Error(unpacked.error);
   const model = readModel(unpacked.value);
@@ -246,11 +260,11 @@ export async function loadTests(db: D1Database, asked: TestsQuery): Promise<Test
   const query = resolveQuery(asked, index);
   let lines: AreaLines | null = null;
   if (query.rule !== null) {
-    const stored = await currentAreaLines(db, 'main', index.rules.get(query.rule)!.area.key);
+    const stored = await currentAreaLines(db, snapshot, current.commit, index.rules.get(query.rule)!.area.key);
     const unpackedLines = stored ? await unpack('The source lines', stored) : null;
     if (unpackedLines?.ok) lines = unpackedLines.value as AreaLines;
   }
-  return { model, index, query, lines };
+  return { asked, pulls, data: { model, index, query, lines } };
 }
 
 // ---- Counting
