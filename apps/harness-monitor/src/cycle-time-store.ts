@@ -486,6 +486,62 @@ function windowAnswer(stored: Stored[], { days, firstDay }: { days: number | nul
   };
 }
 
+/** What the Monitor's own cost totals hold for one pull request, joined through its branch links. */
+export interface PullCost {
+  /** Priced requests only, in millionths of a dollar. */
+  micros: number;
+  /** Zero where no request was recorded for it, which is no figure, never $0.00. */
+  requests: number;
+  unpricedRequests: number;
+  /** The issue its link names. */
+  issue: number | null;
+}
+
+/** What the cycle time page draws: the pull requests merged from a time on with their rounds and checks, what each cost, and the oldest merge stored. */
+export interface CycleTimeView {
+  pulls: CycleTimePull[];
+  costs: Map<number, PullCost>;
+  oldest: number | null;
+}
+
+/**
+ * The pull requests merged from `from` on, newest first, with the cost of each:
+ * one batch, so a view is one round trip. The failing steps and files are left
+ * out, since the page draws none.
+ */
+export async function cycleTimeView(db: D1Database, from: number): Promise<CycleTimeView> {
+  const [pulls, rounds, checks, costs, oldest] = await db.batch([
+    db.prepare('SELECT * FROM cycle_time_pulls WHERE merged_at >= ?1 ORDER BY merged_at DESC, pull_number DESC').bind(from),
+    db.prepare(
+      `SELECT r.* FROM cycle_time_rounds r JOIN cycle_time_pulls p ON p.pull_number = r.pull_number
+       WHERE p.merged_at >= ?1 ORDER BY r.pull_number, r.round_index`,
+    ).bind(from),
+    db.prepare(
+      `SELECT c.* FROM cycle_time_checks c JOIN cycle_time_pulls p ON p.pull_number = c.pull_number
+       WHERE p.merged_at >= ?1 ORDER BY c.pull_number, c.round_index, c.position`,
+    ).bind(from),
+    db.prepare(
+      `SELECT l.pr_number AS pr, MAX(l.issue_number) AS issue, COALESCE(SUM(t.cost_micros), 0) AS micros,
+              COALESCE(SUM(t.requests), 0) AS requests, COALESCE(SUM(t.unpriced_requests), 0) AS unpriced
+       FROM cycle_time_pulls p JOIN branch_links l ON l.pr_number = p.pull_number
+       LEFT JOIN daily_split_totals t ON t.branch = l.branch
+       WHERE p.merged_at >= ?1 GROUP BY l.pr_number`,
+    ).bind(from),
+    db.prepare('SELECT MIN(merged_at) AS oldest FROM cycle_time_pulls'),
+  ]);
+  const stored = assemble(pulls!.results as unknown as PullRow[], rounds!.results as unknown as RoundRow[], checks!.results as unknown as CheckRow[], []);
+  return {
+    pulls: stored.map(pullAnswer),
+    costs: new Map(
+      (costs!.results as unknown as { pr: number; issue: number | null; micros: number; requests: number; unpriced: number }[]).map((r) => [
+        r.pr,
+        { micros: r.micros, requests: r.requests, unpricedRequests: r.unpriced, issue: r.issue },
+      ]),
+    ),
+    oldest: (oldest!.results[0] as { oldest: number | null } | undefined)?.oldest ?? null,
+  };
+}
+
 /**
  * The stored pull requests for a period: each window up to it, the shortest
  * first, and every pull request merged in it with its rounds and checks. A

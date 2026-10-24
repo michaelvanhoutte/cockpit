@@ -1,5 +1,7 @@
 import { importClaudeCalls, FEED_PATH } from '../src/claude-calls';
 import worker, { type Env } from '../src/worker';
+import { checkPulls } from '../src/cycle-time';
+import { storePulls } from '../src/cycle-time-store';
 import { checkRuns } from '../src/stability';
 import { storeRuns } from '../src/stability-store';
 import { storeBatch } from '../src/store';
@@ -20,7 +22,8 @@ import { validateBatch } from '../src/validate';
  *
  * A second route, `/__e2e/seed-stability`, stores CI stability's runs through the
  * same checks and writes a send goes through; a run is stored under its id, so
- * it too can be sent twice.
+ * it too can be sent twice. A third, `/__e2e/seed-cycle-time`, does the same for
+ * cycle time's pull requests, stored under their numbers.
  */
 const RATES = {
   'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5 },
@@ -66,6 +69,11 @@ export default {
       const checked = checkRuns(await request.json());
       if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
       return Response.json(await storeRuns(env.DB, checked.runs));
+    }
+    if (pathname === '/__e2e/seed-cycle-time' && request.method === 'POST') {
+      const checked = checkPulls(await request.json());
+      if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
+      return Response.json(await storePulls(env.DB, checked.pulls));
     }
     if (pathname !== '/__e2e/seed' || request.method !== 'POST') return worker.fetch(request, env, ctx);
 
