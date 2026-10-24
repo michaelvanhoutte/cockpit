@@ -286,7 +286,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
           ? `${perPull ? `<a href="/pr/${one.number}">${dollars(spent)}</a>` : dollars(spent)}${notes.length ? `<div class="sub">${notes.join(' · ')}</div>` : ''}`
           : '<span class="faint" title="The Monitor holds no Claude Code request for it">—</span>';
         // The figures of the row's own outline, on the table's measure, in milliseconds written in base 36 to keep the row short: opening it draws the strip from them, with no request.
-        const figures = outlineFigures(b.pulls, per(b.pulls)).map((n) => (n > 0 ? Math.round(n).toString(36) : ''));
+        const figures = outlineFigures(b.pulls, per(b.pulls)).map((n) => (Math.round(n) > 0 ? Math.round(n).toString(36) : ''));
         while (figures.at(-1) === '') figures.pop();
         // A row with no minutes at all has no outline to draw, so it is not offered to open.
         return `<tr${figures.length ? ` data-figures="${figures.join(',')}"` : ''}><td class="first">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</td>${perPull ? '' : `<td class="num faint-num">${number(b.pulls.length)}</td>`}<td class="split-cell"><div class="split">${bar}</div></td>${cellHtml}<td class="num total">${hm(total)}</td><td class="num">${number(rounds)}${red ? ` <span class="up">· ${red} red</span>` : ''}</td><td class="num total">${costCell}</td></tr>`;

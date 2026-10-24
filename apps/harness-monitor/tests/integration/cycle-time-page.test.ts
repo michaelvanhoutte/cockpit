@@ -377,8 +377,10 @@ describe('Harness Monitor', () => {
 
       const html = await thePage('?group=pr');
 
-      expect(html.match(/<tr data-figures="/g)).toHaveLength(1);
-      expect(rowsOf(html, 'cycle-table')).toHaveLength(2);
+      const row = (number: number) => html.match(new RegExp(`<tr[^>]*>(?:(?!</tr>).)*?#${number}\\b.*?</tr>`, 's'))?.[0];
+
+      expect(row(1)).toMatch(/^<tr data-figures="[^"]+">/);
+      expect(row(2)).toMatch(/^<tr>/);
     });
 
     it("an issue's row adds its two pull requests up, not averages them", async () => {
