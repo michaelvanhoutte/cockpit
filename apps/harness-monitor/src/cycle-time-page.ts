@@ -355,7 +355,6 @@ const EXTRA = `
 @media (max-width:640px){
   .filters{grid-template-columns:repeat(2,minmax(0,1fr))}
   .filters .field:nth-of-type(n+3){grid-column:1/-1}
-  .toggles button{flex:1}
 }
 .up{color:var(--over-ink)}.down{color:var(--good)}
 .scatter-well{display:flex;flex-direction:column;gap:10px;padding:14px 14px 16px}

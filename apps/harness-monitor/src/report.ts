@@ -62,10 +62,6 @@ export const REPORT_STYLE = `
 .changes .name{color:var(--ink-strong);font-weight:500}.changes .delta{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}.changes .from{grid-column:1/-1;font-size:13px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
 .table{overflow-x:auto}.table table{min-width:860px}
 .split-cell{width:200px}
-.toggles{display:flex;gap:2px;padding:3px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--shade) 7%,transparent)}
-.toggles button{height:32px;padding:0 14px;border:0;border-radius:7px;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--ink-soft);cursor:pointer}
-.toggles button:hover{color:var(--ink-strong);background:color-mix(in srgb,var(--shade) 6%,transparent)}
-.toggles button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);box-shadow:inset 0 1px 0 rgb(255 255 255 / .15),0 1px 2px rgb(22 24 29 / .2)}
 @media (max-width:640px){
   .tiles{grid-template-columns:1fr 1fr;gap:8px}.tile:last-child:nth-child(odd){grid-column:1/-1}
   .tile-value{font-size:26px}

@@ -548,7 +548,6 @@ details.more summary{display:inline;font-size:13px}
 @media (max-width:640px){
   .filters{grid-template-columns:repeat(2,minmax(0,1fr))}
   .filters .field:last-of-type{grid-column:1/-1}
-  .toggles button{flex:1}
   .tile-note{word-break:break-word}
 }
 `;

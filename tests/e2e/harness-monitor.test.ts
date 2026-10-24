@@ -615,7 +615,7 @@ test.describe('Harness Monitor', () => {
     expect(fonts).toEqual([new URL(monitor!).origin]);
   });
 
-  test("from the costs page, Cockpit's Claude calls opens, groups by pull request and narrows to CI: the pull requests with their links, the filters in a row on a desk and two to a row on a phone", async ({ page, request: api }) => {
+  test("from the costs page, Cockpit's Claude calls opens, groups by pull request and narrows to CI: the pull requests with their links, the filters in a row on a desk and two to a row on a phone, and Split by drawn as a toggle with the pressed option in the accent", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
@@ -645,6 +645,22 @@ test.describe('Harness Monitor', () => {
     expect(fields).toHaveLength(4);
     expect(perRow).toEqual(onAPhone ? [2, 2] : [4]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Split by is a toggle like the other pages': the pressed option is filled with the accent, the others are not.
+    const splitOptions = page.getByRole('group', { name: 'Split by' }).getByRole('button');
+    await expect(splitOptions).toHaveCount(4);
+    const paint = (name: string) => page.getByRole('button', { name, exact: true }).evaluate((el) => ({ background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
+    expect(await paint('Environment')).toEqual({ background: 'rgb(111, 98, 181)', color: 'rgb(255, 255, 255)' });
+    for (const name of ['Feature', 'Model', 'Started by']) expect((await paint(name)).background).toBe('rgba(0, 0, 0, 0)');
+    const optionBoxes = await splitOptions.evaluateAll((all) => all.map((b) => b.getBoundingClientRect()).map((r) => ({ top: Math.round(r.top), width: r.width })));
+    expect(new Set(optionBoxes.map((b) => b.top)).size).toBe(1);
+    if (onAPhone) {
+      // On a phone Split by takes a row of its own below the selects, and its four options share that row evenly.
+      const lowestSelect = await page.locator('.filters select').evaluateAll((all) => Math.max(...all.map((s) => s.getBoundingClientRect().bottom)));
+      expect(await page.locator('.filters .split-field').evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(lowestSelect);
+      const widths = optionBoxes.map((b) => b.width);
+      expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1);
+    }
 
     // Sessions leads to the Monitor's own page for the pull request.
     await filed.getByRole('link', { name: 'Sessions' }).click();
