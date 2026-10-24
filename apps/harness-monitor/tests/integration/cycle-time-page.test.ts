@@ -23,6 +23,15 @@ function rowsOf(html: string, id: string): string[][] {
     .slice(1);
 }
 
+/** The outline's rows as read: name, minutes and share, and whether the row is a part of a phase. */
+const outlineOf = (html: string) =>
+  [...(/<ul class="outline".*?<\/ul>/s.exec(html)?.[0] ?? '').matchAll(/<li class="o-row (o-pt|o-ph)"><span class="nm">(.*?)<\/span>.*?<span class="am">(.*?)<\/span><span class="sh">(.*?)<\/span><\/li>/gs)].map((m) => ({
+    part: m[1] === 'o-pt',
+    name: m[2]!,
+    amount: m[3]!,
+    share: m[4]!,
+  }));
+const columnHeads = (html: string, id: string) => [...(new RegExp(`<section[^>]*aria-labelledby="${id}".*?</section>`, 's').exec(html)?.[0] ?? '').matchAll(/<th scope="col"[^>]*>(?:<i[^>]*><\/i>)?([^<]+)<\/th>/g)].map((m) => m[1]);
 const hasSection = (html: string, id: string) => new RegExp(`<section[^>]*aria-labelledby="${id}"`).test(html);
 const text = (html: string) => html.replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
 const MIN = 60_000;
@@ -194,12 +203,12 @@ describe('Harness Monitor', () => {
     });
 
     it('every tab keeps the filters in the address of the others', async () => {
-      const html = await thePage('?period=7d&size=xs&outcome=green&split=harness');
+      const html = await thePage('?period=7d&size=xs&outcome=green');
 
       const links = [...html.matchAll(/<nav class="band".*?<\/nav>/gs)][0]![0].match(/href="([^"]+)"/g)!;
 
       expect(links).toHaveLength(5);
-      for (const link of links) expect(link).toMatch(/period=7d.*size=xs.*outcome=green.*split=harness|group=check/);
+      for (const link of links) expect(link).toMatch(/period=7d.*size=xs.*outcome=green/);
     });
   });
 
@@ -215,17 +224,9 @@ describe('Harness Monitor', () => {
       expect(row![0]).toContain('no session record');
       expect(text(await thePage())).toContain('1 pull request here carries no session record');
     });
-
-    it('is the same under Split by Harness, where each local kind reads not recorded', async () => {
-      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { recorded: false, codingMs: null, localMs: null, localReviews: null, totalMs: 21 * MIN })]);
-
-      const [row] = rowsOf(await thePage('?group=pr&split=harness'), 'cycle-table');
-
-      expect(row!.slice(2, 6)).toEqual(['5m', 'not recorded', 'not recorded', 'not recorded']);
-    });
   });
 
-  describe('Split by Phase reads a recorded pull request as the record has it', () => {
+  describe("a pull request's phases add up to its start to merge", () => {
     it('writing, local checks, CI rounds, waiting to merge and away add up to its start to merge', async () => {
       await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { totalMs: 21 * MIN })]);
 
@@ -233,41 +234,109 @@ describe('Harness Monitor', () => {
 
       expect(row!.slice(2, 8)).toEqual(['10m', '5m', '5m', '1m', '—', '21m']);
     });
+  });
 
-    it('Split by Harness says by how much the columns exceed the harness total', async () => {
-      // A 15 minute review and a 15 minute test run that overlapped by 10 minutes: 20 minutes of local time.
-      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { localMs: 20 * MIN, localReviews: { count: 1, ms: 15 * MIN, byKind: { 'code-review': { count: 1, ms: 15 * MIN }, 'security-review': { count: 0, ms: 0 } } }, localRuns: { test: { count: 1, ms: 15 * MIN }, browser: null } })]);
+  describe('the page has one view: every chart and table in phases, with no Split by', () => {
+    const phaseHeads = ['Day merged', 'Pull requests', 'Split', 'Writing', 'Local checks', 'CI rounds', 'Waiting to merge', 'Away', 'Start to merge', 'Rounds', 'Claude Code'];
+    beforeEach(async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z'), recorded(2, '2026-10-29T10:00:00Z', { size: { additions: 1900, deletions: 100, files: 20, commits: 3, mainMerges: 0 } })]);
+    });
 
-      expect(text(await thePage('?split=harness'))).toContain('they add up to 10m more than the 25m the harness took');
+    it('draws the By day table and the per-pull-request chart in phases on Over time', async () => {
+      const html = await thePage();
+
+      expect(columnHeads(html, 'cycle-table')).toEqual(phaseHeads);
+      expect(html).toContain('Start to merge, each pull request as it merged');
+      const chart = /<section[^>]*aria-labelledby="per-pull-request".*?<\/section>/s.exec(html)![0];
+      expect([...chart.matchAll(/<span class="key"><i[^>]*><\/i>([^<]+)<\/span>/g)].map((m) => m[1])).toEqual(['Writing', 'Local checks', 'CI rounds', 'Waiting to merge', 'Away']);
+    });
+
+    it.each([
+      { tab: 'pr', first: 'Pull request' },
+      { tab: 'issue', first: 'Issue' },
+      { tab: 'size', first: 'Size' },
+    ])('draws the $tab tab in phases', async ({ tab, first }) => {
+      const heads = columnHeads(await thePage(`?group=${tab}`), 'cycle-table');
+
+      expect(heads[0]).toBe(first);
+      expect(heads.slice(heads.indexOf('Writing'))).toEqual(['Writing', 'Local checks', 'CI rounds', 'Waiting to merge', 'Away', 'Start to merge', 'Rounds', 'Claude Code']);
+    });
+
+    it.each([[''], ['?group=pr'], ['?group=issue'], ['?group=size'], ['?group=check']])('has no Split by control at %s', async (query) => {
+      const html = await thePage(query);
+
+      expect(text(html)).not.toContain('Split by');
+      expect(html).not.toContain('name="split"');
+    });
+
+    it.each([['?split=harness'], ['?split=check'], ['?group=pr&split=harness'], ['?period=7d&group=size&split=check&outcome=green']])('opens the same page for an old link at %s as without its split', async (query) => {
+      const without = query.replace(/&?split=[a-z]+/, '').replace('?&', '?').replace(/\?$/, '');
+
+      expect(await thePage(query)).toBe(await thePage(without));
     });
   });
 
-  describe('Split by Harness draws Code review and Security review, and a pull request stored with its reviews combined only has them named as such', () => {
-    const reviewed = (number: number, mergedAt: string, localReviews: unknown) => recorded(number, mergedAt, { localMs: 10 * MIN, localReviews, totalMs: 31 * MIN });
+  describe("Where the time went is one outline: every phase, with Local checks and CI rounds opened into their parts", () => {
+    // Two pull requests merged within the day, 21 minutes each: 10 writing, 5 local checks (3 + 2 of reviews), 5 of Test, a minute waiting.
+    const split = (number: number, parts: Record<string, number>) => recorded(number, '2026-10-30T10:00:00Z', { localParts: parts });
+    const kinds = { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 };
 
-    it('reads each review kind in its own column of a pull request', async () => {
-      await sendPulls([reviewed(1, '2026-10-30T10:00:00Z', { count: 2, ms: 10 * MIN, byKind: { 'code-review': { count: 1, ms: 10 * MIN }, 'security-review': { count: 1, ms: 4 * MIN } } })]);
+    it('lists the phases in order, the local checks opened into their kinds and CI rounds into its checks, each with its minutes and share', async () => {
+      await sendPulls([split(1, kinds), split(2, kinds)]);
 
-      const html = await thePage('?group=pr&split=harness');
-      const [row] = rowsOf(html, 'cycle-table');
-
-      expect([...html.matchAll(/<th scope="col" class="num"><i[^>]*><\/i>([^<]+)<\/th>/g)].map((m) => m[1])).toEqual(['Tests and checks', 'Code review', 'Security review', 'Test runs', 'Browser pass']);
-      expect(row!.slice(2, 7)).toEqual(['5m', '10m', '4m', '—', '—']);
+      expect(outlineOf(await thePage())).toEqual([
+        { part: false, name: 'Writing', amount: '20m', share: '48%' },
+        { part: false, name: 'Local checks', amount: '10m', share: '24%' },
+        { part: true, name: 'Code review', amount: '6m', share: '60%' },
+        { part: true, name: 'Security review', amount: '4m', share: '40%' },
+        { part: false, name: 'CI rounds', amount: '10m', share: '24%' },
+        { part: true, name: 'Test', amount: '10m', share: '100%' },
+        { part: false, name: 'Waiting to merge', amount: '2m', share: '5%' },
+      ]);
     });
 
-    it('draws the combined figure as Reviews, not split by kind, beside the others, only where a pull request has no kinds', async () => {
-      await sendPulls([
-        reviewed(1, '2026-10-30T10:00:00Z', { count: 2, ms: 10 * MIN, byKind: { 'code-review': { count: 1, ms: 10 * MIN }, 'security-review': { count: 1, ms: 4 * MIN } } }),
-        reviewed(2, '2026-10-29T10:00:00Z', { count: 2, ms: 8 * MIN }),
+    it('draws a pull request stored without its kinds as Not split by kind under Local checks, so the parts still add up', async () => {
+      await sendPulls([split(1, kinds), recorded(2, '2026-10-30T10:00:00Z')]);
+
+      const rows = outlineOf(await thePage());
+
+      expect(rows.filter((r) => r.part).map((r) => [r.name, r.amount])).toEqual([
+        ['Code review', '3m'],
+        ['Security review', '2m'],
+        ['Not split by kind', '5m'],
+        ['Test', '10m'],
       ]);
+      expect(text(await thePage())).toContain('1 pull request here was stored without the kinds of local check');
+    });
 
-      const html = await thePage('?group=pr&split=harness');
-      const rows = rowsOf(html, 'cycle-table');
+    it('titles the panel with the time it covers, counts the pull requests, and states how each minute counts once', async () => {
+      await sendPulls([split(1, kinds), split(2, kinds)]);
 
-      expect(html).toContain('Reviews, not split by kind</th>');
-      // Newest first: the one with kinds has none combined, the other has its 8 minutes there and none under either kind.
-      expect(rows.map((r) => r.slice(2, 8))).toEqual([['5m', '10m', '4m', '—', '—', '—'], ['5m', '—', '—', '8m', '—', '—']]);
-      expect(text(await thePage('?split=harness'))).toContain('stored before the review kinds were kept');
+      const html = text(await thePage());
+
+      expect(html).toContain('Where the 42m went 2 pull requests');
+      expect(html).toContain('time two local checks shared goes to the one that finished last.');
+      expect(html).not.toContain('as a CI round');
+    });
+
+    it('sets each part inside its phase on the one scale', async () => {
+      await sendPulls([split(1, kinds)]);
+
+      const html = await thePage();
+      const left = (name: string) => Number(new RegExp(`<span class="nm">${name}</span>.*?<div class="b" style="left:([\\d.]+)%`, 's').exec(html)![1]);
+
+      // Writing 10m of 21m starts Local checks, whose first kind starts with it; CI rounds start after its 5m.
+      expect(left('Local checks')).toBeCloseTo(47.62, 1);
+      expect(left('Code review')).toBeCloseTo(47.62, 1);
+      expect(left('Security review')).toBeCloseTo(47.62 + (3 / 21) * 100, 1);
+      expect(left('CI rounds')).toBeCloseTo(((10 + 5) / 21) * 100, 1);
+      expect(html).toContain('class="band"');
+    });
+
+    it('is drawn on Over time only', async () => {
+      await sendPulls([split(1, kinds)]);
+
+      expect(outlineOf(await thePage('?group=pr'))).toEqual([]);
     });
   });
 

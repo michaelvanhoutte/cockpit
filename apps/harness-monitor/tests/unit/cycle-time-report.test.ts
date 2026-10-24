@@ -6,10 +6,10 @@ import {
   filtered,
   hm,
   parseCycleTimeQuery,
-  seriesOf,
-  splitTotals,
+  outline,
   values,
   type CycleTimeQuery,
+  type Outline,
   type Pull,
 } from '../../src/cycle-time-report';
 import type { CycleTimeCheck, CycleTimeRound } from '../../src/cycle-time-store';
@@ -78,16 +78,30 @@ const unrecorded = (number: number, over: Partial<Pull> = {}) =>
     ...over,
   });
 
-const phases = (p: Pull) => values(p, 'phase');
+const phases = (p: Pull) => values(p);
 const added = (v: Record<string, number | null>) => Object.values(v).reduce<number>((a, b) => a + (b ?? 0), 0);
 
+/** A recorded pull request whose local checks are split by kind: `parts` minutes of code review, security review, test runs and browser pass. */
+const split = (number: number, parts: [number, number, number, number], over: Partial<Pull> = {}): Pull => {
+  const [codeReview, securityReview, test, browser] = parts.map((m) => m * MIN) as [number, number, number, number];
+  const local = codeReview + securityReview + test + browser;
+  return pull(number, {
+    time: { localParts: { 'code-review': codeReview, 'security-review': securityReview, test, browser }, codingMs: 10 * MIN, localMs: local, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 16 * MIN + local },
+    ...over,
+  });
+};
+/** A recorded pull request with 7 minutes of local checks stored without their kinds. */
+const notSplit = (number: number) => pull(number, { time: { localParts: null, codingMs: 10 * MIN, localMs: 7 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 23 * MIN } });
+const row = (o: Outline, key: string) => o.rows.find((r) => r.key === key)!;
+const end = (r: { left: number; width: number }) => r.left + r.width;
+
 describe('Harness Monitor', () => {
-  describe("Split by Phase adds up exactly to a pull request's start to merge", () => {
+  describe("a pull request's phases add up exactly to its start to merge", () => {
     it.each([
       { situation: 'a recorded pull request', p: pull(1) },
-      { situation: 'one away for a night between two rounds', p: pull(2, { time: { localParts: null, codingMs:10 * MIN, localMs: 5 * MIN, ciMs: 5 * MIN, waitingToMergeMs: 0, awayMs: 600 * MIN, totalMs: 620 * MIN } }) },
+      { situation: 'one away for a night between two rounds', p: pull(2, { time: { localParts: null, codingMs: 10 * MIN, localMs: 5 * MIN, ciMs: 5 * MIN, waitingToMergeMs: 0, awayMs: 600 * MIN, totalMs: 620 * MIN } }) },
       { situation: 'one with no session record, whose writing is the time left', p: unrecorded(3) },
-      { situation: 'one no check ran on', p: pull(4, { balance: null, rounds: [], time: { localParts: null, codingMs:null, localMs: null, ciMs: 0, waitingToMergeMs: null, awayMs: 0, totalMs: 40 * MIN } }) },
+      { situation: 'one no check ran on', p: pull(4, { balance: null, rounds: [], time: { localParts: null, codingMs: null, localMs: null, ciMs: 0, waitingToMergeMs: null, awayMs: 0, totalMs: 40 * MIN } }) },
     ])('$situation', ({ p }) => {
       expect(added(phases(p))).toBe(p.time.totalMs);
     });
@@ -95,70 +109,102 @@ describe('Harness Monitor', () => {
     it('reads the five phases of a recorded pull request as the record has them', () => {
       expect(phases(pull(1))).toEqual({ writing: 10 * MIN, local: 5 * MIN, ci: 5 * MIN, waiting: MIN, away: 0 });
     });
+
+    it('says a pull request with no session record has no local checks recorded, never 0', () => {
+      expect(phases(unrecorded(1)).local).toBeNull();
+      expect(phases(unrecorded(1)).ci).toBe(5 * MIN);
+    });
   });
 
-  describe('a pull request with no session record says its local time is not recorded, never 0', () => {
+  describe("the outline's phases add up to start to merge, and each opened phase's parts add up to the phase", () => {
+    // 9 minutes of local checks split 4 / 1 / 3 / 1, and 12 of them split 2 / 2 / 6 / 2; each with a round of Test then E2E (F3).
+    const a = split(1, [4, 1, 3, 1], { rounds: [round([check('Test', 2), check('E2E (F3)', 3, { last: true })])] });
+    const b = split(2, [2, 2, 6, 2], { rounds: [round([check('Test', 1), check('E2E (F3)', 4, { last: true })])] });
+
     it.each([
-      { situation: 'by phase', split: 'phase' as const, notRecorded: ['local'] },
-      { situation: 'by harness', split: 'harness' as const, notRecorded: ['code-review', 'security-review', 'reviews', 'test', 'browser'] },
-    ])('$situation', ({ split, notRecorded }) => {
-      const v = values(unrecorded(1), split);
+      { situation: 'pull requests all split by kind', list: [a, b] },
+      { situation: 'one among them not split by kind', list: [a, b, notSplit(3)] },
+    ])('$situation', ({ list }) => {
+      const o = outline(list);
+      const sumOf = (rows: typeof o.rows) => rows.reduce((total, r) => total + r.ms, 0);
+      const phasesOf = o.rows.filter((r) => !r.part);
 
-      for (const key of notRecorded) expect(v[key]).toBeNull();
-      expect(v.ci).toBe(5 * MIN);
+      expect(sumOf(phasesOf)).toBe(o.total);
+      expect(o.total).toBe(list.reduce((total, p) => total + p.time.totalMs, 0));
+      for (const phase of phasesOf.filter((r) => r.key === 'local' || r.key === 'ci')) expect(sumOf(o.rows.filter((r) => r.part && r.phase === phase.key))).toBe(phase.ms);
+    });
+
+    it('puts the local minutes of a pull request not split by kind in Not split by kind, grey, after the four kinds', () => {
+      const o = outline([a, notSplit(3)]);
+
+      expect(o.rows.filter((r) => r.part && r.phase === 'local').map((r) => [r.label, r.ms / MIN, r.other])).toEqual([
+        ['Code review', 4, false],
+        ['Security review', 1, false],
+        ['Test runs', 3, false],
+        ['Browser pass', 1, false],
+        ['Not split by kind', 7, true],
+      ]);
+      expect(o.unsplit).toBe(1);
+    });
+
+    it('leaves Not split by kind out where every pull request is split, and counts none for one with no session record', () => {
+      expect(outline([a, b]).rows.map((r) => r.key)).not.toContain('not-split');
+      expect(outline([a, unrecorded(3)]).unsplit).toBe(0);
+    });
+
+    it("reads a phase's share as of start to merge and a part's as of its phase", () => {
+      const o = outline([a]);
+
+      // Start to merge is 25 minutes: local checks 9 of them, code review 4 of those.
+      expect(row(o, 'local').share).toBeCloseTo(9 / 25);
+      expect(row(o, 'code-review').share).toBeCloseTo(4 / 9);
+      expect(row(o, 'check:E2E (F3)').share).toBeCloseTo(3 / 5);
+    });
+
+    it('opens CI rounds into its checks, those CI does not run today drawn together as Other checks, grey', () => {
+      const o = outline([pull(1, { rounds: [round([check('E2E (F3)', 9), check('Brand new', 7), check('Another', 2, { last: true })])] })]);
+
+      expect(o.rows.filter((r) => r.part && r.phase === 'ci').map((r) => [r.label, r.ms / MIN, r.other])).toEqual([
+        ['E2E (F3)', 9, false],
+        ['Other checks', 9, true],
+      ]);
+    });
+
+    it('leaves out a row with no minutes', () => {
+      expect(outline([pull(1)]).rows.map((r) => r.label)).toEqual(['Writing', 'Local checks', 'Not split by kind', 'CI rounds', 'Test', 'Waiting to merge']);
     });
   });
 
-  describe('Split by Harness counts kinds that ran at once in each, and says by how much the columns exceed the harness total', () => {
-    // A 15 minute review and a 15 minute test run that overlapped by 10 minutes: 20 minutes of local time, and 5 of CI.
-    const overlapping = pull(1, {
-      balance: { codingMs: 10 * MIN, harnessMs: 25 * MIN, rounds: 1, ratio: 2.5 },
-      time: { localParts: null, codingMs:10 * MIN, localMs: 20 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 36 * MIN },
-      localReviews: { count: 1, ms: 15 * MIN, byKind: { 'code-review': { count: 1, ms: 15 * MIN }, 'security-review': { count: 0, ms: 0 } } },
-      localRuns: { test: { count: 1, ms: 15 * MIN }, browser: null },
+  describe("each part's bar sits inside its phase's stretch on the one scale", () => {
+    const o = outline([split(1, [4, 1, 3, 1], { rounds: [round([check('Test', 2), check('E2E (F3)', 3, { last: true })])] })]);
+
+    it('starts the first kind where Local checks starts, and each next one where the one before ends', () => {
+      expect(row(o, 'code-review').left).toBeCloseTo(row(o, 'local').left);
+      expect(row(o, 'security-review').left).toBeCloseTo(end(row(o, 'code-review')));
+      expect(row(o, 'browser').left).toBeCloseTo(end(row(o, 'test')));
     });
 
-    it('counts both in full and the overlap as the overshoot', () => {
-      const { byKey, all, union } = splitTotals([overlapping], 'harness');
-
-      expect(byKey.get('code-review')).toBe(15 * MIN);
-      expect(byKey.get('test')).toBe(15 * MIN);
-      expect(union).toBe(25 * MIN);
-      expect(all - union).toBe(10 * MIN);
+    it('ends the last kind and the last check where their phase ends, and carries the phase as the stretch behind it', () => {
+      expect(end(row(o, 'browser'))).toBeCloseTo(end(row(o, 'local')));
+      // Checks are drawn in the order CI runs them: E2E (F3) first, then Test.
+      expect(row(o, 'check:E2E (F3)').left).toBeCloseTo(row(o, 'ci').left);
+      expect(row(o, 'check:Test').left).toBeCloseTo(end(row(o, 'check:E2E (F3)')));
+      expect(end(row(o, 'check:Test'))).toBeCloseTo(end(row(o, 'ci')));
+      expect(row(o, 'code-review').stretch).toEqual({ left: row(o, 'local').left, width: row(o, 'local').width });
     });
 
-    it('draws code review and security review as their own series, each in full where two reviews ran at once', () => {
-      // A 10 minute code review and a 4 minute security review inside it: 10 minutes of local time.
-      const together = pull(1, {
-        balance: { codingMs: 10 * MIN, harnessMs: 15 * MIN, rounds: 1, ratio: 1.5 },
-        time: { localParts: null, codingMs:10 * MIN, localMs: 10 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 26 * MIN },
-        localReviews: { count: 2, ms: 10 * MIN, byKind: { 'code-review': { count: 1, ms: 10 * MIN }, 'security-review': { count: 1, ms: 4 * MIN } } },
-      });
+    it('lays the phases end to end from 0 to 1', () => {
+      const top = o.rows.filter((r) => !r.part);
 
-      const { byKey, all, union } = splitTotals([together], 'harness');
-
-      expect([byKey.get('code-review'), byKey.get('security-review'), byKey.has('reviews')]).toEqual([10 * MIN, 4 * MIN, false]);
-      expect(all - union).toBe(4 * MIN);
-    });
-
-    it('has no overshoot when nothing ran at once', () => {
-      const { all, union } = splitTotals([pull(1)], 'harness');
-
-      expect(all - union).toBe(0);
+      expect(top[0]!.left).toBe(0);
+      expect(end(top.at(-1)!)).toBeCloseTo(1);
+      for (let i = 1; i < top.length; i++) expect(top[i]!.left).toBeCloseTo(end(top[i - 1]!));
     });
   });
 
-  describe('a pull request stored with its reviews combined only has them drawn as one figure, named as such', () => {
-    const combined = pull(1, { localReviews: { count: 2, ms: 8 * MIN, byKind: null }, time: { localParts: null, codingMs:10 * MIN, localMs: 8 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 24 * MIN }, balance: { codingMs: 10 * MIN, harnessMs: 13 * MIN, rounds: 1, ratio: 1.3 } });
-
-    it('puts the one figure under the combined series and none under either kind', () => {
-      expect(values(combined, 'harness')).toMatchObject({ 'code-review': 0, 'security-review': 0, reviews: 8 * MIN });
-    });
-
-    it('draws the combined series only for a list that holds such a pull request', () => {
-      expect(seriesOf([combined], 'harness').map((s) => s.key)).toEqual(['ci', 'code-review', 'security-review', 'reviews', 'test', 'browser']);
-      expect(seriesOf([pull(2)], 'harness').map((s) => s.key)).toEqual(['ci', 'code-review', 'security-review', 'test', 'browser']);
-      expect(seriesOf([combined, pull(2)], 'phase').map((s) => s.key)).toEqual(['writing', 'local', 'ci', 'waiting', 'away']);
+  describe('a pull request with no session record has no local checks to open, and says so rather than drawing 0', () => {
+    it('draws the phases it has minutes for and none for local checks', () => {
+      expect(outline([unrecorded(1)]).rows.map((r) => r.key)).toEqual(['writing', 'ci', 'check:Test', 'waiting']);
     });
   });
 
@@ -196,23 +242,9 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('Split by Check keeps the time of a check CI does not run today, drawn together as Other checks', () => {
-    const withNew = pull(1, { rounds: [round([check('E2E (F3)', 9), check('Brand new', 7, { last: true }), check('Another', 2)])] });
-
-    it('adds the unknown checks up under one series beside the known ones', () => {
-      expect(values(withNew, 'check')).toEqual({ 'E2E (F3)': 9 * MIN, other: 9 * MIN });
-      expect(splitTotals([withNew], 'check').all).toBe(18 * MIN);
-    });
-
-    it('draws that series only for a list that holds such a pull request', () => {
-      expect(seriesOf([withNew], 'check').map((s) => s.key)).toContain('other');
-      expect(seriesOf([pull(2)], 'check').map((s) => s.key)).not.toContain('other');
-    });
-  });
-
   describe('Merged, Size and Rounds keep only matching pull requests', () => {
     const now = Date.parse('2026-10-22T12:00:00Z');
-    const q = (over: Partial<CycleTimeQuery>): CycleTimeQuery => ({ period: 'all', size: null, outcome: null, group: 'day', split: 'phase', ...over });
+    const q = (over: Partial<CycleTimeQuery>): CycleTimeQuery => ({ period: 'all', size: null, outcome: null, group: 'day', ...over });
     const at = (day: string) => `${day}T12:00:00.000Z`;
     const pulls = [
       pull(1, { mergedAt: at('2026-10-22') }),
@@ -253,16 +285,22 @@ describe('Harness Monitor', () => {
 
   describe('the address holds the view, and an unrecognised one falls back to the default', () => {
     it('leaves the defaults out, so one view has one address', () => {
-      const q = parseCycleTimeQuery(new URLSearchParams('period=all&size=&outcome=&group=day&split=phase'));
+      const q = parseCycleTimeQuery(new URLSearchParams('period=all&size=&outcome=&group=day'));
 
       expect(cycleTimeAddress(q)).toBe('/cycle-time');
       expect(cycleTimeAddress(q, { group: 'check', outcome: 'red' })).toBe('/cycle-time?outcome=red&group=check');
     });
 
-    it('falls back for a period, size, rounds, tab or split it does not know', () => {
-      const q = parseCycleTimeQuery(new URLSearchParams('period=1y&size=huge&outcome=never&group=nope&split=nothing'));
+    it('falls back for a period, size, rounds or tab it does not know, and leaves out a split an old link carries', () => {
+      const q = parseCycleTimeQuery(new URLSearchParams('period=1y&size=huge&outcome=never&group=nope'));
 
       expect(cycleTimeAddress(q)).toBe('/cycle-time');
+    });
+
+    it.each(['harness', 'check', 'phase', 'nothing'])('ignores split=%s, so an old link opens the one view', (value) => {
+      const q = parseCycleTimeQuery(new URLSearchParams(`period=7d&group=pr&split=${value}`));
+
+      expect(cycleTimeAddress(q)).toBe('/cycle-time?period=7d&group=pr');
     });
   });
 
