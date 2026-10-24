@@ -94,6 +94,33 @@ describe('Selection', () => {
       ]);
     });
 
+    it("sends each package's total test files, the ones it skipped counted, and how many changed files the browser tier placed on no walk", () => {
+      const counted = aPull({
+        test: [pkg({ files: [file('apps/api/tests/unit/a.test.ts', 'passed', { selectedBy: { kind: 'itself' } }), file('apps/api/tests/unit/b.test.ts', 'not run'), file('apps/api/tests/unit/c.test.ts', 'not run')] })],
+        e2e: [pkg({ name: 'e2e', dir: 'tests/e2e', files: [], unplaced: [{ path: 'scripts/a.mjs', rule: 'nothing imports it' }, { path: 'scripts/b.mjs', rule: 'nothing imports it' }] })],
+      });
+
+      expect(job(counted, 'test').packages[0]).toMatchObject({ filesTotal: 3, files: [{ path: 'apps/api/tests/unit/a.test.ts' }] });
+      expect(job(counted, 'test').unplacedFiles).toBeNull();
+      expect(job(counted, 'e2e').unplacedFiles).toBe(2);
+    });
+
+    it('sends no total for a package whose process wrote no report, rather than none held', () => {
+      const crashed = aPull({ test: [pkg({ report: 'none', files: [] })] });
+
+      expect(job(crashed, 'test').packages[0]).toMatchObject({ report: 'none', filesTotal: null });
+    });
+
+    it('sends no count of unplaced files, rather than none, where the browser tier did not run or its record carries no list', () => {
+      const olderRecord = aPull({ test: [pkg()], e2e: [pkg({ name: 'e2e', dir: 'tests/e2e' })] });
+      const docs = aPull({ files: ['docs/notes.md'] });
+      const noneUnplaced = aPull({ test: [pkg()], e2e: [pkg({ name: 'e2e', dir: 'tests/e2e', unplaced: [] })] });
+
+      expect(job(olderRecord, 'e2e').unplacedFiles).toBeNull();
+      expect(job(docs, 'e2e').unplacedFiles).toBeNull();
+      expect(job(noneUnplaced, 'e2e').unplacedFiles).toBe(0);
+    });
+
     it('sends a product pull request that left no record as no record, which the Monitor counts in neither direction', () => {
       const missing = aPull({ files: ['apps/api/src/a.ts'] });
 

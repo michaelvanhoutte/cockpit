@@ -40,6 +40,7 @@ describe('Harness Monitor', () => {
           { label: 'Claude Code costs', current: current === 'Claude Code costs' },
           { label: "Cockpit's Claude calls", current: current === "Cockpit's Claude calls" },
           { label: 'Cycle time', current: false },
+          { label: 'Test selection', current: false },
           { label: 'CI stability', current: false },
         ],
       });
@@ -54,10 +55,10 @@ describe('Harness Monitor', () => {
       expect((await page()).match(/<h1\b/g)).toHaveLength(1);
     });
 
-    it("the tabs lead to the costs page, Cockpit's Claude calls, cycle time and CI stability", async () => {
+    it("the tabs lead to the costs page, Cockpit's Claude calls, cycle time, test selection and CI stability", async () => {
       const bar = /<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(await theBarePage())![1]!;
 
-      expect([...bar.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/', '/claude-calls', '/cycle-time', '/stability']);
+      expect([...bar.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/', '/claude-calls', '/cycle-time', '/selection', '/stability']);
     });
   });
 

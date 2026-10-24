@@ -136,6 +136,29 @@ describe('Harness Monitor', () => {
       expect(refusal([pull(1)], over)).toBe(error);
     });
 
+    it('a send without a package total or a count of unplaced files is taken, and reads as not recorded', () => {
+      const checked = send([pull(1)]);
+
+      expect(checked.ok && checked.pulls[0]!.jobs.map((j) => [j.unplacedFiles, j.packages[0]!.filesTotal])).toEqual([[null, null], [null, null]]);
+    });
+
+    it('keeps a package total and a count of unplaced files as sent, a count of none as none and not as missing', () => {
+      const sent = pull(1, { jobs: [job('test', { packages: [pkg({ filesTotal: 40 })] }), job('e2e', { unplacedFiles: 0, packages: [pkg({ filesTotal: 1 })] })] });
+
+      const checked = send([sent]);
+
+      expect(checked.ok && checked.pulls[0]!.jobs.map((j) => [j.unplacedFiles, j.packages[0]!.filesTotal])).toEqual([[null, 40], [0, 1]]);
+    });
+
+    it.each([
+      { situation: 'a package total that is not a whole number', packages: [pkg({ filesTotal: 2.5 })], error: 'Pull request 0 (#9): job test package api has filesTotal 2.5, which is not a whole number, zero or more.' },
+      { situation: 'a package total below the files the package names', packages: [pkg({ filesTotal: 0 })], error: 'Pull request 0 (#9): job test package api has filesTotal 0, fewer than the 1 files it names.' },
+      { situation: 'a negative count of unplaced files', over: { unplacedFiles: -1 }, error: 'Pull request 0 (#9): job test has unplacedFiles -1, which is not a whole number, zero or more.' },
+      { situation: 'a count of unplaced files on a job that never ran', over: { status: 'docs-only', selecting: false, filesRun: null, filesTotal: null, packages: [], unplacedFiles: 3 }, error: 'Pull request 0 (#9): job test is docs-only but names packages, files run, or ran everything or selected.' },
+    ])('$situation is refused', ({ packages, over, error }) => {
+      expect(refusal([pull(9, { jobs: [job('test', { ...(packages ? { packages } : {}), ...over }), job('e2e')] })])).toBe(error);
+    });
+
     it('a send of no pull requests, or of more than one send takes, is refused', () => {
       expect(refusal([])).toBe('The send has no pull requests.');
       expect(refusal(Array.from({ length: MAX_PULLS + 1 }, (_, i) => pull(i + 1)))).toBe(`The send has ${MAX_PULLS + 1} pull requests; the most one send takes is ${MAX_PULLS}.`);

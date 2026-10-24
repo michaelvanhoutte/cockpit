@@ -48,7 +48,7 @@ requests will exhaust before it finishes.
 
 The same nightly `Selection` job also **sends each merged pull request to the Harness Monitor**
 (`--send`), which keeps them so a period can reach past the 14 days the page shows. What is sent, how
-it is stored and what `GET <monitor>/selection?period=14d&job=both` answers are in
+it is stored and what the page at `<monitor>/selection` and its JSON (`?format=json&period=14d&job=both`) answer are in
 [the architecture](../../docs/architecture.md), "The Harness Monitor". The bars' thresholds (`BAR_DEFS`
 in `src/model.js`) travel with the rows, so the Monitor's verdicts are judged against the numbers this
 tool owns. Its figures are counted from the stored rows over any period, so they can differ from

@@ -10,7 +10,7 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 const theAnswer = async (query = ''): Promise<SelectionAnswer> => {
-  const response = await SELF.fetch(`https://monitor.test/selection${query}`);
+  const response = await SELF.fetch(`https://monitor.test/selection?format=json${query.replace('?', '&')}`);
   expect(response.status).toBe(200);
   return response.json();
 };

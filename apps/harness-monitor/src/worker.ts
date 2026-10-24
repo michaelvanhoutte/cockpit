@@ -13,7 +13,10 @@ import { renderPage } from './page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
 import { checkSelection } from './selection';
+import { renderSelection } from './selection-page';
+import { parseSelectionQuery, periodStart, selectionAddress, wantsOf } from './selection-report';
 import { newestSelectionMerge, parseJobFilter, parseSelectionPeriod, selectionAnswer, storeSelection } from './selection-store';
+import { selectionView } from './selection-view';
 import { checkRuns } from './stability';
 import { renderStability } from './stability-page';
 import { loadStability, parseStabilityQuery, stabilityAddress } from './stability-report';
@@ -146,24 +149,32 @@ async function cycleTime(request: Request, env: Env, ctx: ExecutionContext): Pro
 }
 
 /**
- * Test selection, as JSON for the period and job the address asks: how many pull
- * requests ran, ran everything or were documentation only, each bar read against
- * the thresholds the last send carried, the rules that forced a full run, the
- * misses and the files selected most often. The page is a later child's; until
- * it lands the address answers JSON whatever the request asks for. Cached like
- * the other reports under one key per view.
+ * Test selection: the page, or its stored pull requests as JSON when the request
+ * asks (`wantsJson`). The JSON is for the period and job the address asks: how
+ * many pull requests ran, ran everything or were documentation only, each bar
+ * read against the thresholds the last send carried, the rules that forced a
+ * full run, the misses and the files selected most often. Cached like the other
+ * reports under one key per view, so a page and its JSON never share an entry.
  */
 async function selection(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+  const asJson = wantsJson(request, url);
+  const query = parseSelectionQuery(url.searchParams);
   const period = parseSelectionPeriod(url.searchParams.get('period'));
   const job = parseJobFilter(url.searchParams.get('job'));
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(`${url.origin}/selection?period=${period}&job=${job}`);
+  const key = new Request(asJson ? `${url.origin}/selection?format=json&period=${period}&job=${job}` : `${url.origin}${selectionAddress(query, query)}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 
-  const response = Response.json(await selectionAnswer(env.DB, period, job, Date.now()), { headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' } });
+  const now = Date.now();
+  const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
+  const response = asJson
+    ? Response.json(await selectionAnswer(env.DB, period, job, now), { headers })
+    : new Response(renderSelection(query, await selectionView(env.DB, wantsOf(query), periodStart(query.period, now), query.job), env.GITHUB_REPOSITORY, now), {
+        headers: { ...headers, 'content-type': 'text/html; charset=utf-8' },
+      });
   if (cache) ctx.waitUntil(cache.put(key, response.clone()));
   return response;
 }
