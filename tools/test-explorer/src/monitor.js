@@ -102,7 +102,7 @@ export async function sendSnapshot({ url, key, model, pullRequest = null, fetchI
   const treeBytes = await put('the tree', `${base}/tree`, tree);
   let largestArea = null;
   for (const [index, area] of areas.entries()) {
-    const bytes = await put(`area ${index + 1} of ${areas.length} (${area.key})`, `${base}/areas/${encodeURIComponent(area.key)}`, area.lines);
+    const bytes = await put(`area ${index + 1} of ${areas.length} (${JSON.stringify(area.key)})`, `${base}/areas/${encodeURIComponent(area.key)}`, area.lines);
     if (!largestArea || bytes > largestArea.bytes) largestArea = { key: area.key, bytes };
   }
   await request('the switch', `${base}/current`, { method: 'POST', headers: {} });

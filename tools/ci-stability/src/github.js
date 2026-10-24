@@ -188,7 +188,9 @@ function normalizeJob(raw) {
  * failed one therefore reads as a workflow with a 0% pass rate, which put three
  * of them above CI in the worst-first list on the first real run of this tool.
  * They are also not this repository's automation, which is the honest reason to
- * leave them out.
+ * leave them out. A `workflow_run` run is left out too, uncounted and without
+ * spending the budget: GitHub files it under `main` whatever it reports on, and
+ * pr-tests.yml's reports on a pull request.
  *
  * @returns {Promise<{ runs: Run[], truncated: boolean, ignored: number,
  *   reachedWindowEdge: boolean }>} `truncated` when the budget stopped it before the
@@ -224,6 +226,7 @@ export async function listRuns({ repo, branch = 'main', since, until = null, max
         reachedWindowEdge = true;
         break;
       }
+      if (raw.event === 'workflow_run') continue;
       if (!run.path?.startsWith('.github/workflows/')) {
         ignored += 1;
         continue;

@@ -24,19 +24,22 @@ name: Pull request tests
 # variable HARNESS_MONITOR_URL are set (docs/deployment.md, "The Harness
 # Monitor"), and nothing for a run that is not the pull request's latest push
 # or that built no model. Gates nothing: it reports on `main`, not on the pull
-# request.
+# request, so a send that fails fails its job, never the run.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
+    # CI on `main` itself is never a pull request's, so it starts no run here.
+    branches-ignore: [main]
 
 # Every scope `none`; the one job grants itself only reads.
 permissions: {}
 
 # A pull request's sends one at a time, so two pushes' sends never interleave
-# their parts; the latest-push check below drops the older.
+# their parts; the latest-push check below drops the older. Keyed by the
+# repository too, so a fork's branch of the same name never queues beside one here.
 concurrency:
-  group: pr-tests-${{ github.event.workflow_run.head_branch }}
+  group: pr-tests-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 jobs:
@@ -51,6 +54,8 @@ jobs:
       actions: read
       # Which pull request the run is of, whether it is open, and at which push.
       pull-requests: read
+    # Advisory, as `Tests snapshot` is: a model the Monitor refuses is a missing snapshot, not a red `main`.
+    continue-on-error: true
     # A Monitor that accepts and never answers would otherwise hold the job for six hours.
     timeout-minutes: 10
     steps:

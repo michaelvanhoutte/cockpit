@@ -90,7 +90,7 @@ async function send(file, pullRequest) {
   }
   try {
     const sent = await sendSnapshot({ url, key, model, pullRequest });
-    const largest = sent.largestArea ? `, the largest area ${sent.largestArea.key} at ${sent.largestArea.bytes} bytes` : '';
+    const largest = sent.largestArea ? `, the largest area ${JSON.stringify(sent.largestArea.key)} at ${sent.largestArea.bytes} bytes` : '';
     process.stderr.write(`sent ${whose(pullRequest)} at ${sent.commit} to the Harness Monitor and showed them: the tree at ${sent.treeBytes} bytes gzipped and ${sent.areas} areas${largest}\n`);
     return 0;
   } catch (error) {

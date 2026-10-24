@@ -22,7 +22,7 @@ import { renderStability } from './stability-page';
 import { loadStability, parseStabilityQuery, stabilityAddress } from './stability-report';
 import { newestRun, parsePeriod, stabilityAnswer, storeRuns } from './stability-store';
 import { correctBatch, stillUnphased, storeBatch, unpricedLines } from './store';
-import { COMMIT, MAX_PART_BYTES, pullRequestSnapshot, readArea, readTree, snapshotOf, tooLarge } from './tests';
+import { COMMIT, MAX_PART_BYTES, pullRequestNumber, pullRequestSnapshot, readArea, readTree, snapshotOf, tooLarge } from './tests';
 import { renderTests } from './tests-page';
 import { loadTests, parseTestsQuery, testsAddress } from './tests-report';
 import { currentCommit, currentTree, makeCurrent, shownTests, storeArea, storeTree } from './tests-store';
@@ -422,14 +422,11 @@ async function claudeCalls(request: Request, env: Env, ctx: ExecutionContext): P
   return response;
 }
 
-/** A pull request number as written in an address: no sign, no leading zero, ten digits at most. */
-const prNumber = (raw: string): number | null => (/^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null);
-
 /** One pull request's page, cached like the costs page; a number no link knows is "nothing found". */
 async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, raw: string): Promise<Response> {
   const url = new URL(request.url);
   const query = parseQuery(url.searchParams);
-  const number = prNumber(raw);
+  const number = pullRequestNumber(raw);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
   const key = new Request(`${url.origin}/pr/${raw}${queryString(query, { engineer: null, group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 })}`);
@@ -452,7 +449,7 @@ async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, ra
 function exportRows(request: Request, env: Env): Response {
   const params = new URL(request.url).searchParams;
   const pr = params.get('pr');
-  const number = pr === null ? null : prNumber(pr);
+  const number = pr === null ? null : pullRequestNumber(pr);
   if (pr !== null && number === null) return exportCsv(env.DB, parseQuery(params), -1, 'claude-code-requests.csv');
   return exportCsv(env.DB, parseQuery(params), number, number === null ? 'claude-code-requests.csv' : `claude-code-pull-request-${number}.csv`);
 }

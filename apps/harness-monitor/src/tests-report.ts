@@ -1,4 +1,4 @@
-import { pullRequestSnapshot, unpack, type Snapshot } from './tests';
+import { pullRequestNumber, pullRequestSnapshot, unpack, type Snapshot } from './tests';
 import { currentAreaLines, shownTests, type PullRequestTests } from './tests-store';
 
 /**
@@ -143,9 +143,6 @@ export function parseTestsQuery(params: URLSearchParams): TestsQuery {
   };
 }
 
-/** A pull request number as written in an address: no sign, no leading zero, ten digits at most. */
-const pullRequestNumber = (raw: string | null): number | null => (raw !== null && /^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null);
-
 /** The address for `q` with `over` applied; defaults are left out, so one view has one address (and one cache entry). A rule and a list are dropped unless asked for. */
 export function testsAddress(q: TestsQuery, over: Partial<TestsQuery> = {}): string {
   const all: TestsQuery = { ...q, rule: null, list: null, ...over };
@@ -263,7 +260,7 @@ export async function loadTests(db: D1Database, asked: TestsQuery): Promise<Test
   const query = resolveQuery(asked, index);
   let lines: AreaLines | null = null;
   if (query.rule !== null) {
-    const stored = await currentAreaLines(db, snapshot, index.rules.get(query.rule)!.area.key);
+    const stored = await currentAreaLines(db, snapshot, current.commit, index.rules.get(query.rule)!.area.key);
     const unpackedLines = stored ? await unpack('The source lines', stored) : null;
     if (unpackedLines?.ok) lines = unpackedLines.value as AreaLines;
   }

@@ -361,12 +361,15 @@ describe('Harness Monitor', () => {
   });
 
   describe('the picker lists the open pull requests with tests shown, and picking one shows its tests', () => {
-    /** The picker's options as offered, each `[value, text]`, and the one chosen; null where the page draws none. */
+    /** The picker's options that can be picked, each `[value, text]`, and the one chosen; null where the page draws none. */
     const picker = (html: string) => {
       const select = /<form class="stamp" method="get" action="\/tests">.*?<select id="pr" name="pr" onchange="this.form.submit\(\)">(.*?)<\/select>/s.exec(html)?.[1];
       if (select === undefined) return null;
-      const options = [...select.matchAll(/<option value="([^"]*)"( selected)?>(.*?)<\/option>/g)];
-      return { offered: options.map((o) => [o[1], o[3]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))]), chosen: options.find((o) => o[2])?.[1] ?? null };
+      const options = [...select.matchAll(/<option value="([^"]*)"((?: \w+)*)>(.*?)<\/option>/g)];
+      return {
+        offered: options.filter((o) => !/ disabled/.test(o[2]!)).map((o) => [o[1], o[3]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))]),
+        chosen: options.find((o) => / selected/.test(o[2]!))?.[1] ?? null,
+      };
     };
     const ofPullRequest = (commit: string, name: string) => model([area(name, rules(1, 'L1', API_UNIT))], { commit, commitUrl: `https://github.com/o/r/commit/${commit}` });
 
@@ -409,14 +412,14 @@ describe('Harness Monitor', () => {
         },
         number: 9001,
       },
-    ])('$situation, asked for in the address, says it has none and is not offered', async ({ arrange, number }) => {
+    ])('$situation, asked for in the address, says it has none, shows it chosen, and offers only main', async ({ arrange, number }) => {
       await sendTestsModel(SNAPSHOT);
       await arrange();
 
       const html = await thePage(`?pr=${number}`);
 
       expect(plain(sectionOf(html, 'nothing'))).toContain(`Pull request #${number} has no snapshot of its tests here.`);
-      expect(picker(html)?.offered).toEqual([['', 'main']]);
+      expect(picker(html)).toEqual({ offered: [['', 'main']], chosen: String(number) });
     });
 
     it("with only main's tests, there is no picker to draw", async () => {

@@ -61,9 +61,15 @@ describe('Harness Monitor', () => {
         gone: [9006],
         kept: [9007],
       },
+      {
+        situation: '9008 read closed, then reopened and read again in the same run',
+        pulls: [read(9008, 'CLOSED', { updatedAt: '2026-10-24T08:00:00Z' }), read(9008, 'OPEN', { updatedAt: '2026-10-24T09:00:00Z' })],
+        gone: [],
+        kept: [9008],
+      },
     ])("$situation: the merged or closed one's are gone, the open one's and main's kept", async ({ pulls, gone, kept }) => {
       await sendTestsModel(testsAt(MAIN, 'Main'));
-      for (const p of pulls) await sendTestsModel(testsAt(A, `Pull request ${p.number}`), {}, `pr-${p.number}`);
+      for (const n of new Set(pulls.map((p) => p.number))) await sendTestsModel(testsAt(A, `Pull request ${n}`), {}, `pr-${n}`);
 
       await linked(...pulls);
 

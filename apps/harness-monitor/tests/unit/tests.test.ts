@@ -46,6 +46,21 @@ describe('Harness Monitor', () => {
         sent: tree({ tree: [area('Capture', { filesNothingRuns: [{ file: 'a.ts', line: 1, context: [{ line: 1, text: 'x' }] }] })] }),
         error: 'Area "Capture" carries source lines; they belong in its own part.',
       },
+      {
+        situation: 'a tree with a rule whose statement is not text',
+        sent: tree({ tree: [area('Capture', { rules: [{ concept: 'Capture', statement: 7, level: 'L1', file: 'a.test.ts', line: 3, cases: [] }] })] }),
+        error: 'Area "Capture": the rule at "a.test.ts:3" has no statement.',
+      },
+      {
+        situation: 'a tree with a case whose text is not text',
+        sent: tree({ tree: [area('Capture', { rules: [{ concept: 'Capture', statement: 'a rule', level: 'L1', file: 'a.test.ts', line: 3, cases: [{ text: null, file: 'a.test.ts', line: 4 }] }] })] }),
+        error: 'Area "Capture": the rule at "a.test.ts:3" has a case that is not {file, line, text}.',
+      },
+      {
+        situation: 'a tree with a gap that has no line',
+        sent: tree({ tree: [area('Capture', { filesNothingRuns: [{ file: 'a.ts' }] })] }),
+        error: 'Area "Capture"\'s filesNothingRuns is not a list of {file, line}.',
+      },
     ])('$situation is refused', async ({ sent, error }) => {
       expect(await readTree(COMMIT, await gzip(sent))).toEqual({ ok: false, error });
     });

@@ -45,19 +45,22 @@ const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n =
  * request with tests shown, newest first, that submits when changed. It keeps
  * the view (the tab, the area and the filters) but not an open rule or list,
  * which belong to the tests picked away from. Drawn only where there is a
- * pull request to pick, or one asked for. A pull request's title is its
- * author's text, so it is escaped like everything else a snapshot says.
+ * pull request to pick, or one asked for. One asked for that it does not
+ * list shows chosen but cannot be picked, so picking `main` is a change. A
+ * pull request's title is its author's text, so it is escaped like everything
+ * else a snapshot says.
  */
 function picker(asked: TestsQuery, pulls: PullRequestTests[]): string {
-  const options: [string, string][] = [['', 'main'], ...pulls.map((p): [string, string] => [String(p.number), `#${p.number}${p.title ? ` · ${p.title}` : ''}`])];
   const current = asked.pr === null ? '' : String(asked.pr);
+  const options: [string, string][] = [['', 'main'], ...pulls.map((p): [string, string] => [String(p.number), `#${p.number}${p.title ? ` · ${p.title}` : ''}`])];
+  const unlisted = options.some(([value]) => value === current) ? '' : `<option value="${esc(current)}" selected disabled>#${esc(current)}</option>`;
   const hidden = (['group', 'node', 'level', 'package', 'show', 'split'] as const)
     .filter((name) => asked[name] !== null && asked[name] !== DEFAULT_QUERY[name])
     .map((name) => `<input type="hidden" name="${name}" value="${esc(String(asked[name]))}">`)
     .join('');
   return `<label for="pr">Tests of</label> <select id="pr" name="pr" onchange="this.form.submit()">${options
     .map(([value, text]) => `<option value="${esc(value)}"${value === current ? ' selected' : ''}>${esc(text)}</option>`)
-    .join('')}</select>${hidden}<noscript> <button type="submit">Show</button></noscript>`;
+    .join('')}${unlisted}</select>${hidden}<noscript> <button type="submit">Show</button></noscript>`;
 }
 
 /** The page when the snapshot asked for is not shown: `main`'s before CI has sent one, or a pull request with none. The frame, the picker where there is one, and the one thing to read. */

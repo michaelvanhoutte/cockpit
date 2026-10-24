@@ -11,8 +11,11 @@
 /** The snapshots stored: `main`'s latest, and each open pull request's latest push as `pr-<number>`. */
 export type Snapshot = 'main' | `pr-${number}`;
 
-/** The snapshot an address names, or null: `main`, or `pr-` and a pull request number with no sign or leading zero. */
-export const snapshotOf = (raw: string): Snapshot | null => (raw === 'main' || /^pr-[1-9]\d{0,9}$/.test(raw) ? (raw as Snapshot) : null);
+/** A pull request number as written in an address: no sign, no leading zero, ten digits at most. */
+export const pullRequestNumber = (raw: string | null): number | null => (raw !== null && /^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null);
+
+/** The snapshot an address names, or null: `main`, or `pr-` and a pull request number. */
+export const snapshotOf = (raw: string): Snapshot | null => (raw === 'main' || (raw.startsWith('pr-') && pullRequestNumber(raw.slice(3)) !== null) ? (raw as Snapshot) : null);
 
 /** A pull request's snapshot. */
 export const pullRequestSnapshot = (number: number): Snapshot => `pr-${number}`;
@@ -95,11 +98,41 @@ function* references(node: Record<string, unknown>): Generator<unknown> {
   for (const list of [node.filesNothingRuns, node.branchesNothingTakes]) if (Array.isArray(list)) yield* list;
 }
 
+/** A reference the page can draw and link: a file and a line from 1. */
+const isRef = (value: unknown): value is Record<string, unknown> => isRecord(value) && typeof value.file === 'string' && Number.isInteger(value.line) && (value.line as number) >= 1;
+
+/**
+ * The first rule, case or gap of `node` the page could not draw, named, or
+ * null. A pull request's author writes its tree, so a wrong-typed field is
+ * refused here rather than breaking that pull request's page.
+ */
+function wrongReference(named: string, node: Record<string, unknown>): string | null {
+  for (const rule of node.rules as unknown[]) {
+    if (!isRef(rule)) return `${named} has a rule with no file and line.`;
+    const at = `${named}: the rule at ${JSON.stringify(`${rule.file}:${rule.line}`)}`;
+    if (typeof rule.statement !== 'string') return `${at} has no statement.`;
+    if (typeof rule.level !== 'string') return `${at} has no level.`;
+    for (const list of ['cases', 'todoCases'] as const) {
+      const cases = rule[list];
+      if (cases === undefined) continue;
+      if (!Array.isArray(cases)) return `${at} has ${list} that are not a list.`;
+      if (!cases.every((c) => isRef(c) && typeof c.text === 'string')) return `${at} has a case that is not {file, line, text}.`;
+    }
+  }
+  for (const list of ['filesNothingRuns', 'branchesNothingTakes'] as const) {
+    const refs = node[list];
+    if (refs === undefined || refs === null) continue;
+    if (!Array.isArray(refs) || !refs.every(isRef)) return `${named}'s ${list} is not a list of {file, line}.`;
+  }
+  return null;
+}
+
 /**
  * The tree's commit and the areas it names, or the first thing wrong with it.
  * Each node needs a key (unique: an area's part is filed under it), a label,
- * its counts, rules and children; no reference may carry its source lines,
- * which belong in the area's own part.
+ * its counts, rules and children; every rule, case and gap a file and line,
+ * a rule its statement and level, a case its text; no reference may carry its
+ * source lines, which belong in the area's own part.
  */
 export function checkTree(value: unknown): Checked<TreeFacts> {
   if (!isRecord(value)) return refused('The tree is not an object.');
@@ -127,6 +160,8 @@ export function checkTree(value: unknown): Checked<TreeFacts> {
       for (const ref of references(node)) {
         if (isRecord(ref) && 'context' in ref) return `${named} carries source lines; they belong in its own part.`;
       }
+      const wrong = wrongReference(named, node);
+      if (wrong) return wrong;
       seen.add(key);
       areas.push(key);
       if (areas.length > MAX_AREAS) return `The tree names more than ${MAX_AREAS} areas.`;

@@ -128,6 +128,15 @@ describe('listRuns', () => {
     expect(ignored).toBe(1);
   });
 
+  it("leaves out a run another run's completion started, which reports on a pull request, without spending the budget on it", async () => {
+    const { fetchImpl } = stubFetch({
+      pages: [[rawRun(), rawRun({ name: 'Pull request tests', path: '.github/workflows/pr-tests.yml', event: 'workflow_run', conclusion: 'failure' })]],
+    });
+    const { runs, ignored, truncated } = await listRuns({ repo: 'o/r', since: SINCE, maxRuns: 1, fetchImpl });
+    expect(runs.map((run) => run.workflow)).toEqual(['CI']);
+    expect({ ignored, truncated }).toEqual({ ignored: 0, truncated: false });
+  });
+
   it('reads the next page while a full one keeps arriving', async () => {
     const full = Array.from({ length: 100 }, () => rawRun());
     const { fetchImpl, calls } = stubFetch({ pages: [full, [rawRun()]] });

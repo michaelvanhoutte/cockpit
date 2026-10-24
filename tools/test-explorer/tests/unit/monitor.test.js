@@ -69,7 +69,7 @@ describe('Test explorer', () => {
       const sending = sendSnapshot({ url: 'https://monitor.test', key: 'k', model: model(37), fetchImpl });
 
       await expect(sending).rejects.toThrow(MonitorError);
-      await expect(sending).rejects.toThrow(/^The Harness Monitor refused area 12 of 37 \(Area 12\) \(400: not a list\)/);
+      await expect(sending).rejects.toThrow(/^The Harness Monitor refused area 12 of 37 \("Area 12"\) \(400: not a list\)/);
       expect(sent.at(-1).url).toBe('https://monitor.test/v1/tests/main/abc1234/areas/Area%2012');
       expect(sent.some((s) => s.url.endsWith('/current'))).toBe(false);
     });
