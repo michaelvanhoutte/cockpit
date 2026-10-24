@@ -1,5 +1,6 @@
-import { SELF } from 'cloudflare:test';
+import { createExecutionContext, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
+import worker from '../../src/worker';
 import { area, kase, model, rule, rules } from '../fixtures/tests-model';
 import { emptyTheDatabase, sendTestsModel } from './support';
 
@@ -226,6 +227,18 @@ describe('Harness Monitor', () => {
       expect(gaps).toContain('/blob/abc1234/apps/web/src/offline.ts#L12"');
     });
 
+    it('a file two areas both list is counted once, by the most either holds', async () => {
+      const shared = [{ file: 'apps/web/src/offline.ts', line: 7 }, { file: 'apps/web/src/offline.ts', line: 12 }];
+      await sendTestsModel(
+        model([area('Offline', rules(1, 'L1', WEB), [], { branchesNothingTakes: shared }), area('Sync', rules(1, 'L1', WEB), [], { branchesNothingTakes: shared })], { coverageAvailable: true }),
+      );
+
+      const gaps = sectionOf(await thePage('?group=gaps'), 'gap-branches');
+
+      expect(plain(gaps)).toContain('2 branches in 1 file');
+      expect(plain(gaps)).toContain('apps/web/src/offline.ts 2 7 , 12 Offline , Sync');
+    });
+
     it('a warning that tests drive the Worker over HTTP is drawn on Gaps with each test named', async () => {
       await sendTestsModel(model(TREE, { warnings: ['No import edge from: apps/api/tests/integration/a.test.ts, apps/api/tests/integration/b.test.ts.'] }));
 
@@ -293,6 +306,46 @@ describe('Harness Monitor', () => {
 
       expect(plain(html.match(/<nav class="crumbs".*?<\/nav>/s)![0])).toBe('All areas');
       expect(hasSection(html, 'areas')).toBe(true);
+    });
+  });
+
+  describe('a link naming an area the snapshot no longer holds opens nothing rather than everything', () => {
+    it('a clicked count for a missing area shows no list of tests', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = await thePage('?tests=GoneArea~L1~');
+
+      expect(hasSection(html, 'tests')).toBe(false);
+      expect(hasSection(html, 'areas')).toBe(true);
+    });
+  });
+
+  describe('the filters keep the Count by choice', () => {
+    it('changing a filter on another tab sends split along', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = await thePage('?group=level&split=package');
+
+      expect(html.match(/<form class="filters".*?<\/form>/s)![0]).toContain('<input type="hidden" name="split" value="package">');
+    });
+  });
+
+  describe('a view kept at the edge is the one the address asks for', () => {
+    it('a rule opened and the bare page are two views, each its own', async () => {
+      await sendTestsModel(SNAPSHOT);
+      const cached = { ...env, PAGE_CACHE_SECONDS: '300' };
+      const open = async (query: string) => {
+        const ctx = createExecutionContext();
+        const response = await worker.fetch(new Request(`https://monitor.test/tests${query}`), cached, ctx);
+        await waitOnExecutionContext(ctx);
+        return plain(await response.text());
+      };
+
+      const rule = await open(`?rule=${encodeURIComponent(`${API_INT}:20`)}`);
+      const bare = await open('');
+
+      expect(rule).toContain('a voice memo');
+      expect(bare).not.toContain('a voice memo');
     });
   });
 

@@ -89,7 +89,7 @@ ${selectField('node', 'Area', areaOptions, q.node ?? '')}
 ${q.group === 'gaps' ? (q.level ? hidden('level', q.level) : '') : selectField('level', 'Level', [['', 'Every level'], ...LEVELS.map((l): [string, string] => [l.id, `${l.id} · ${l.name}`])], q.level ?? '')}
 ${selectField('package', 'Package', [['', 'Every package'], ...PACKAGES.filter((p) => p.key !== 'other').map((p): [string, string] => [p.key, p.label])], q.package ?? '')}
 ${onAreas ? selectField('show', 'Show', [['all', 'Every area'], ['files', 'Areas with files nothing runs'], ['empty', q.level ? `Areas with no ${q.level} rule` : 'Areas with no rule']], q.show, 'all') : q.show !== 'all' ? hidden('show', q.show) : ''}
-${onAreas && !q.rule ? `<div class="field"><span id="splitby">Count by</span><div class="toggles" role="group" aria-labelledby="splitby">${toggles}</div></div>${hidden('split', q.split)}` : ''}
+${onAreas && !q.rule ? `<div class="field"><span id="splitby">Count by</span><div class="toggles" role="group" aria-labelledby="splitby">${toggles}</div></div>${hidden('split', q.split)}` : q.split !== 'level' ? hidden('split', q.split) : ''}
 <noscript><button type="submit">Apply</button></noscript>
 </form>`;
 
@@ -433,22 +433,25 @@ ${code(r)}
     if (!model.coverageAvailable) {
       return section('gap-branches', 'Branches nothing takes', '', '<p class="well empty">Unknown, not zero: the branches no test takes come from CI&rsquo;s instrumented run on main, and this snapshot had none.</p>', 'panel wide');
     }
-    const byFile = new Map<string, { lines: number[]; areas: Area[] }>();
+    // A file owned by several areas is counted once, by the most any one holds (as `branchGaps` does).
+    const byFile = new Map<string, { lines: number[]; count: number; areas: Area[] }>();
     for (const a of inScope) {
-      for (const b of a.branchesNothingTakes ?? []) {
-        if (!keep.file(b)) continue;
-        const own = byFile.get(b.file) ?? { lines: [], areas: [] };
-        own.lines.push(b.line);
-        if (!own.areas.includes(a)) own.areas.push(a);
-        byFile.set(b.file, own);
+      const here = new Map<string, number[]>();
+      for (const b of a.branchesNothingTakes ?? []) if (keep.file(b)) here.set(b.file, [...(here.get(b.file) ?? []), b.line]);
+      for (const [file, lines] of here) {
+        const own = byFile.get(file) ?? { lines: [], count: 0, areas: [] };
+        own.lines.push(...lines);
+        own.count = Math.max(own.count, lines.length);
+        own.areas.push(a);
+        byFile.set(file, own);
       }
     }
     if (!byFile.size) return section('gap-branches', 'Branches nothing takes', '', `<p class="well empty">None: every branch ${scope ? `${esc(scope.label)} owns` : 'here'} is taken by at least one test.</p>`, 'panel wide');
     const body = [...byFile]
-      .sort(([fa, a], [fb, b]) => b.lines.length - a.lines.length || (fa < fb ? -1 : 1))
+      .sort(([fa, a], [fb, b]) => b.count - a.count || (fa < fb ? -1 : 1))
       .map(
         ([file, own]) =>
-          `<tr><td class="first path">${fileLink(file, null)}</td><td class="num">${number(own.lines.length)}</td><td class="path">${[...new Set(own.lines)].sort((x, y) => x - y).map((n) => fileLink(file, n, `${n}`)).join(', ')}</td><td>${own.areas.map((a) => `<a href="${link({ group: 'area', node: a.key })}">${esc(a.label)}</a>`).join(', ')}</td></tr>`,
+          `<tr><td class="first path">${fileLink(file, null)}</td><td class="num">${number(own.count)}</td><td class="path">${[...new Set(own.lines)].sort((x, y) => x - y).map((n) => fileLink(file, n, `${n}`)).join(', ')}</td><td>${own.areas.map((a) => `<a href="${link({ group: 'area', node: a.key })}">${esc(a.label)}</a>`).join(', ')}</td></tr>`,
       )
       .join('\n');
     return section(

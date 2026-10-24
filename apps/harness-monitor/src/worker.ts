@@ -219,7 +219,7 @@ async function tests(request: Request, env: Env, ctx: ExecutionContext): Promise
   const query = parseTestsQuery(url.searchParams);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(asJson ? `${url.origin}/tests?format=json` : `${url.origin}${testsAddress(query)}`);
+  const key = new Request(asJson ? `${url.origin}/tests?format=json` : `${url.origin}${testsAddress(query, { rule: query.rule, list: query.list })}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 

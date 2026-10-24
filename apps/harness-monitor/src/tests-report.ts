@@ -185,9 +185,9 @@ export function pathOf(ix: Index, area: Area): string[] {
   return path;
 }
 
-/** The query with an area, rule or list the snapshot does not hold dropped, so no link carries it. */
+/** The query with an area or rule the snapshot does not hold dropped, and a list naming such an area dropped whole (an empty area would mean every area), so no link carries it. */
 export function resolveQuery(q: TestsQuery, ix: Index): TestsQuery {
-  const list = q.list ? { ...q.list, node: q.list.node !== null && ix.byKey.has(q.list.node) ? q.list.node : null } : null;
+  const list = q.list && (q.list.node === null || ix.byKey.has(q.list.node)) ? q.list : null;
   return { ...q, node: q.node !== null && ix.byKey.has(q.node) ? q.node : null, rule: q.rule !== null && ix.rules.has(q.rule) ? q.rule : null, list };
 }
 
