@@ -54,6 +54,8 @@ export interface SelectionPackage {
   reason: { rule: string; path: string | null } | null;
   /** The files the package ran, never the ones it skipped. */
   files: SelectionFile[];
+  /** Every test file the package holds, ran or skipped; null where the send did not say. */
+  filesTotal: number | null;
 }
 
 export interface SelectionJobRow {
@@ -65,6 +67,8 @@ export interface SelectionJobRow {
   filesTotal: number | null;
   prDurationMs: number | null;
   mainDurationMs: number | null;
+  /** How many changed files the job's selection could not place on any walk; null where the send did not say. */
+  unplacedFiles: number | null;
   changedFiles: { path: string; ignored: boolean }[];
   packages: SelectionPackage[];
 }
@@ -212,7 +216,10 @@ function checkPackage(raw: unknown): SelectionPackage | string {
     seen.add(file.path);
     files.push(file);
   }
-  return { name, dir, mode, report, reason, files };
+  const filesTotal = whole(raw, 'filesTotal', { nullable: true });
+  if (typeof filesTotal === 'string') return `${label} ${filesTotal}`;
+  if (filesTotal !== null && filesTotal < files.length) return `${label} has filesTotal ${filesTotal}, fewer than the ${files.length} files it names.`;
+  return { name, dir, mode, report, reason, files, filesTotal };
 }
 
 function checkJob(raw: unknown): SelectionJobRow | string {
@@ -233,6 +240,8 @@ function checkJob(raw: unknown): SelectionJobRow | string {
   if (typeof prDurationMs === 'string') return prDurationMs;
   const mainDurationMs = whole(raw, 'mainDurationMs', { nullable: true });
   if (typeof mainDurationMs === 'string') return mainDurationMs;
+  const unplacedFiles = whole(raw, 'unplacedFiles', { nullable: true });
+  if (typeof unplacedFiles === 'string') return unplacedFiles;
 
   if (!Array.isArray(raw.changedFiles)) return 'has no list of changedFiles.';
   if (raw.changedFiles.length > MAX_FILES) return `has ${raw.changedFiles.length} changed files; the most one job takes is ${MAX_FILES}.`;
@@ -259,11 +268,11 @@ function checkJob(raw: unknown): SelectionJobRow | string {
   }
 
   // A job that did not run has nothing to say about what it ran.
-  if (status !== 'ran' && (ranEverything || selecting || packages.length > 0 || filesRun !== null || filesTotal !== null)) {
+  if (status !== 'ran' && (ranEverything || selecting || packages.length > 0 || filesRun !== null || filesTotal !== null || unplacedFiles !== null)) {
     return `is ${status} but names packages, files run, or ran everything or selected.`;
   }
   if (ranEverything && selecting) return 'both ran everything and selected.';
-  return { job, status: status as SelectionStatus, ranEverything, selecting, filesRun, filesTotal, prDurationMs, mainDurationMs, changedFiles, packages };
+  return { job, status: status as SelectionStatus, ranEverything, selecting, filesRun, filesTotal, prDurationMs, mainDurationMs, unplacedFiles, changedFiles, packages };
 }
 
 function checkMiss(raw: unknown): SelectionMiss | string {

@@ -149,7 +149,7 @@ export type Verdict = ReturnType<typeof verdictOf>;
 export const tileClass = (verdict: Verdict) => (verdict === 'crossed' ? 'up' : verdict === 'within' ? 'down' : '');
 
 /** A job that left no record of a pull request: counted in neither direction. */
-const NO_RECORD: ViewJob = { status: 'no-record', ranEverything: false, selecting: false, filesRun: null, filesTotal: null, prDurationMs: null, mainDurationMs: null, reasons: [], misses: [] };
+const NO_RECORD: ViewJob = { status: 'no-record', ranEverything: false, selecting: false, filesRun: null, filesTotal: null, prDurationMs: null, mainDurationMs: null, unplacedFiles: null, reasons: [], misses: [] };
 export const jobOf = (p: ViewPull, job: Job): ViewJob => p.jobs[job] ?? NO_RECORD;
 
 export const outcomeOf = (v: ViewJob): Outcome => (v.status === 'ran' ? (v.ranEverything ? 'full' : 'selected') : v.status === 'docs-only' ? 'docs' : 'none');
@@ -230,6 +230,8 @@ export function ruleRows(pulls: ViewPull[], jobs: Job[]): RuleRow[] {
 export interface PackageSummary {
   job: Job;
   name: string;
+  /** Most test files any pull request found in it; null where none sent a total. */
+  files: number | null;
   /** The pull requests it selected on, and those on which something of it ran. */
   changed: number;
   touched: number;
@@ -243,8 +245,9 @@ export function packageRows(runs: PackageRun[]): PackageSummary[] {
   const map = new Map<string, PackageSummary>();
   for (const run of runs) {
     const name = run.job === 'e2e' ? 'Every E2E spec' : run.name;
-    const row = map.get(`${run.job}:${name}`) ?? { job: run.job, name, changed: 0, touched: 0, runs: [], full: 0, reasons: new Map<string, number>() };
+    const row = map.get(`${run.job}:${name}`) ?? { job: run.job, name, files: null as number | null, changed: 0, touched: 0, runs: [], full: 0, reasons: new Map<string, number>() };
     map.set(`${run.job}:${name}`, row);
+    if (run.filesTotal !== null) row.files = Math.max(row.files ?? 0, run.filesTotal);
     if (run.mode === 'full') {
       row.full++;
       if (run.rule) row.reasons.set(run.rule, (row.reasons.get(run.rule) ?? 0) + 1);

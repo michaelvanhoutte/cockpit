@@ -29,9 +29,9 @@ const insertFrom = (table: string, columns: readonly string[], extra: Record<str
   `INSERT INTO ${table} (${columns.join(', ')}) SELECT ${columns.map((c) => extra[c] ?? `value ->> '$.${c}'`).join(', ')} FROM json_each(?1)`;
 
 const PULL_COLUMNS = [
-  'pull_number', 'job', 'title', 'url', 'merged_at', 'status', 'ran_everything', 'selecting', 'files_run', 'files_total', 'pr_duration_ms', 'main_duration_ms', 'received_at',
+  'pull_number', 'job', 'title', 'url', 'merged_at', 'status', 'ran_everything', 'selecting', 'files_run', 'files_total', 'pr_duration_ms', 'main_duration_ms', 'unplaced_files', 'received_at',
 ] as const;
-const PACKAGE_COLUMNS = ['pull_number', 'job', 'name', 'dir', 'mode', 'report', 'reason_rule', 'reason_path'] as const;
+const PACKAGE_COLUMNS = ['pull_number', 'job', 'name', 'dir', 'mode', 'report', 'reason_rule', 'reason_path', 'files_total'] as const;
 const FILE_COLUMNS = ['pull_number', 'job', 'package', 'path', 'level', 'status', 'chain_kind', 'chain', 'chain_text'] as const;
 const CHANGED_COLUMNS = ['pull_number', 'job', 'path', 'ignored'] as const;
 const MISS_COLUMNS = ['pull_number', 'job', 'position', 'path', 'level', 'reason'] as const;
@@ -69,10 +69,10 @@ export async function storeSelection(db: D1Database, pulls: SelectionPull[], bar
   const jobs = pulls.flatMap((p) => p.jobs.map((j) => ({ p, j })));
   const pullRows = jobs.map(({ p, j }) => ({
     pull_number: p.number, job: j.job, title: p.title, url: p.url, merged_at: p.mergedAt, status: j.status, ran_everything: bit(j.ranEverything), selecting: bit(j.selecting),
-    files_run: j.filesRun, files_total: j.filesTotal, pr_duration_ms: j.prDurationMs, main_duration_ms: j.mainDurationMs, received_at: now,
+    files_run: j.filesRun, files_total: j.filesTotal, pr_duration_ms: j.prDurationMs, main_duration_ms: j.mainDurationMs, unplaced_files: j.unplacedFiles, received_at: now,
   }));
   const packageRows = jobs.flatMap(({ p, j }) =>
-    j.packages.map((k) => ({ pull_number: p.number, job: j.job, name: k.name, dir: k.dir, mode: k.mode, report: k.report, reason_rule: k.reason?.rule ?? null, reason_path: k.reason?.path ?? null })),
+    j.packages.map((k) => ({ pull_number: p.number, job: j.job, name: k.name, dir: k.dir, mode: k.mode, report: k.report, reason_rule: k.reason?.rule ?? null, reason_path: k.reason?.path ?? null, files_total: k.filesTotal })),
   );
   const fileRows = jobs.flatMap(({ p, j }) =>
     j.packages.flatMap((k) =>
@@ -177,10 +177,12 @@ export interface SelectionAnswer {
   storedFrom: string | null;
   pulls: {
     total: number;
-    jobs: { job: SelectionJob; ran: number; docsOnly: number; noRecord: number; ranEverything: number; selecting: number }[];
+    jobs: { job: SelectionJob; ran: number; docsOnly: number; noRecord: number; ranEverything: number; selecting: number; unplacedFiles: number | null }[];
   };
   bars: { windowDays: number | null; minPulls: number | null; read: boolean; items: SelectionBar[] };
   forcedFullRules: ForcedFullRule[];
+  /** Each package of the jobs and the most test files any pull request of the period found in it; null where none sent a total. */
+  packages: { job: SelectionJob; name: string; filesTotal: number | null }[];
   misses: SelectionMissRow[];
   mostSelected: MostSelected[];
 }
@@ -195,6 +197,7 @@ interface PullRow {
   merged_at: number;
   status: SelectionStatus;
   ran_everything: number;
+  unplaced_files: number | null;
 }
 
 export const inPeriod = `p.merged_at >= ?1 AND (?2 = 'both' OR p.job = ?2)`;
@@ -288,8 +291,8 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
   const firstDay = length === null ? null : addDays(belgianDay(now), -(length - 1));
   const from = firstDay === null ? 0 : startOfDay(firstDay);
 
-  const [pulls, reasons, misses, bars, selected, oldest] = await db.batch([
-    db.prepare(`SELECT p.pull_number, p.job, p.title, p.url, p.merged_at, p.status, p.ran_everything FROM selection_pulls p WHERE ${inPeriod} ORDER BY p.merged_at DESC, p.pull_number DESC, p.job`).bind(from, job),
+  const [pulls, reasons, misses, bars, selected, oldest, packages] = await db.batch([
+    db.prepare(`SELECT p.pull_number, p.job, p.title, p.url, p.merged_at, p.status, p.ran_everything, p.unplaced_files FROM selection_pulls p WHERE ${inPeriod} ORDER BY p.merged_at DESC, p.pull_number DESC, p.job`).bind(from, job),
     db.prepare(
       `SELECT DISTINCT k.pull_number, k.job, k.reason_rule AS rule, k.reason_path AS path
        FROM selection_packages k JOIN selection_pulls p ON p.pull_number = k.pull_number AND p.job = k.job
@@ -303,6 +306,11 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
     db.prepare('SELECT id, name, threshold, min_over, window_days, min_pulls, alarm_issue FROM selection_bars'),
     db.prepare(MOST_SELECTED).bind(from, job, MOST_SELECTED_ROWS),
     db.prepare('SELECT MIN(merged_at) AS oldest FROM selection_pulls'),
+    db.prepare(
+      `SELECT k.job, k.name, MAX(k.files_total) AS files_total
+       FROM selection_packages k JOIN selection_pulls p ON p.pull_number = k.pull_number AND p.job = k.job
+       WHERE ${inPeriod} AND p.status = 'ran' GROUP BY k.job, k.name ORDER BY k.job, k.name`,
+    ).bind(from, job),
   ]);
   const pullRows = pulls!.results as unknown as PullRow[];
   const reasonRows = reasons!.results as unknown as { pull_number: number; job: SelectionJob; rule: string; path: string | null }[];
@@ -406,11 +414,14 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
           noRecord: own.filter((row) => row.status === 'no-record').length,
           ranEverything: own.filter((row) => row.ran_everything === 1).length,
           selecting: own.filter((row) => row.status === 'ran' && row.ran_everything === 0).length,
+          // Null where no pull request of the period sent a count, which is not zero.
+          unplacedFiles: own.some((row) => row.unplaced_files !== null) ? own.reduce((n, row) => n + (row.unplaced_files ?? 0), 0) : null,
         };
       }),
     },
     bars: { windowDays: barRows[0]?.window_days ?? null, minPulls, read, items },
     forcedFullRules,
+    packages: (packages!.results as unknown as { job: SelectionJob; name: string; files_total: number | null }[]).map((row) => ({ job: row.job, name: row.name, filesTotal: row.files_total })),
     misses: (misses!.results as unknown as { job: SelectionJob; path: string; level: string; reason: string | null; pull_number: number; title: string; url: string; merged_at: number }[]).map(
       (row) => ({ job: row.job, path: row.path, level: row.level, reason: row.reason, pull: refOf(row) }),
     ),

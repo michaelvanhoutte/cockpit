@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { barsOf, dayRange, matchesOutcome, outcomeOf, overBar, packageRows, parseSelectionQuery, ruleRows, selectionAddress, verdictOf, whyText } from '../../src/selection-report';
 import type { PackageRun, ViewJob, ViewPull } from '../../src/selection-view';
 
-const ran = (over: Partial<ViewJob> = {}): ViewJob => ({ status: 'ran', ranEverything: false, selecting: true, filesRun: 12, filesTotal: 300, prDurationMs: null, mainDurationMs: null, reasons: [], misses: [], ...over });
+const ran = (over: Partial<ViewJob> = {}): ViewJob => ({ status: 'ran', ranEverything: false, selecting: true, filesRun: 12, filesTotal: 300, prDurationMs: null, mainDurationMs: null, unplacedFiles: null, reasons: [], misses: [], ...over });
 const full = (rule: string, path: string | null): ViewJob => ran({ ranEverything: true, selecting: false, reasons: [{ rule, path }] });
 const pull = (number: number, jobs: Partial<ViewPull['jobs']> = {}): ViewPull => ({ number, title: `Pull request ${number}`, url: `https://github.com/o/r/pull/${number}`, mergedAt: Date.parse('2026-10-10T10:00:00Z'), jobs: { test: ran(), e2e: ran(), ...jobs } });
 const times = <T>(count: number, make: (index: number) => T) => Array.from({ length: count }, (_, index) => make(index));
@@ -94,10 +94,10 @@ describe('Harness Monitor', () => {
   describe('a package is read by how often a selecting pull request ran something of it', () => {
     it('counts the pull requests it selected on, those it ran something on, and its whole runs, apart', () => {
       const runs: PackageRun[] = [
-        { job: 'test', name: 'api', mode: 'changed', rule: null, ran: 4 },
-        { job: 'test', name: 'api', mode: 'changed', rule: null, ran: 0 },
-        { job: 'test', name: 'api', mode: 'full', rule: 'own migration', ran: 30 },
-        { job: 'test', name: 'web', mode: 'changed', rule: null, ran: 0 },
+        { job: 'test', name: 'api', mode: 'changed', rule: null, ran: 4, filesTotal: null },
+        { job: 'test', name: 'api', mode: 'changed', rule: null, ran: 0, filesTotal: null },
+        { job: 'test', name: 'api', mode: 'full', rule: 'own migration', ran: 30, filesTotal: null },
+        { job: 'test', name: 'web', mode: 'changed', rule: null, ran: 0, filesTotal: null },
       ];
 
       const [api, web] = packageRows(runs);
@@ -107,10 +107,22 @@ describe('Harness Monitor', () => {
       expect(web).toMatchObject({ name: 'web', changed: 1, touched: 0, full: 0 });
     });
 
+    it('reads its size as the most test files any pull request found in it, and as not recorded where none sent a total', () => {
+      const [api, web] = packageRows([
+        { job: 'test', name: 'api', mode: 'changed', rule: null, ran: 1, filesTotal: 40 },
+        { job: 'test', name: 'api', mode: 'full', rule: 'own migration', ran: 44, filesTotal: 44 },
+        { job: 'test', name: 'api', mode: 'changed', rule: null, ran: 1, filesTotal: null },
+        { job: 'test', name: 'web', mode: 'changed', rule: null, ran: 0, filesTotal: null },
+      ]);
+
+      expect(api!.files).toBe(44);
+      expect(web!.files).toBeNull();
+    });
+
     it('every E2E spec is one row, whatever its packages are called', () => {
       const rows = packageRows([
-        { job: 'e2e', name: 'desktop', mode: 'changed', rule: null, ran: 2 },
-        { job: 'e2e', name: 'phone', mode: 'changed', rule: null, ran: 0 },
+        { job: 'e2e', name: 'desktop', mode: 'changed', rule: null, ran: 2, filesTotal: null },
+        { job: 'e2e', name: 'phone', mode: 'changed', rule: null, ran: 0, filesTotal: null },
       ]);
 
       expect(rows.map((r) => [r.name, r.changed])).toEqual([['Every E2E spec', 2]]);

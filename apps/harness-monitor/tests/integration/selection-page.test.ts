@@ -227,6 +227,30 @@ describe('Harness Monitor', () => {
       expect(drill).toContain('Nothing selected: every package that ran, ran in full.');
     });
 
+    it("says how many of a package's test files each ran, and how many changed files the browser tier placed on no walk, where the send counted them", async () => {
+      await sendSelection([
+        selectionPull(9, {
+          mergedAt: MERGED,
+          jobs: [selectionJob('test', { packages: [selectionPackage('api', [selectionFile(HOT)], { filesTotal: 40 })] }), selectionJob('e2e', { unplacedFiles: 2, packages: [selectionPackage('e2e', [], { filesTotal: 30 })] })],
+        }),
+      ]);
+
+      const html = await thePage('?group=pr&pr=9');
+
+      expect(rowsOf(html, 'pull-request').filter((row) => row[0] !== 'Tier').map((row) => [row[0], row[3]])).toEqual([['api', '1 of 40'], ['e2e', '0 of 30']]);
+      expect(text(sectionOf(html, 'pull-request'))).toContain('2 changed files placed no walk');
+    });
+
+    it('says nothing of unplaced files where the browser tier placed every one, or the send did not count them', async () => {
+      await sendSelection([
+        selectionPull(9, { mergedAt: MERGED, jobs: [selectionJob('test'), selectionJob('e2e', { unplacedFiles: 0 })] }),
+        selectionPull(10, { mergedAt: MERGED, jobs: [selectionJob('test'), selectionJob('e2e')] }),
+      ]);
+
+      expect(text(sectionOf(await thePage('?group=pr&pr=9'), 'pull-request'))).not.toContain('placed no walk');
+      expect(text(sectionOf(await thePage('?group=pr&pr=10'), 'pull-request'))).not.toContain('placed no walk');
+    });
+
     it('one that ran everything shows the rule and the paths that forced it, with counts and not every file', async () => {
       await sendSelection([selectionPull(8, { mergedAt: MERGED, jobs: [ranEverything('test', 'any tsconfig', 'tsconfig.json', times(30, (i) => `apps/api/tests/unit/f${i}.test.ts`)), docsOnly('e2e')] })]);
 
@@ -365,7 +389,18 @@ describe('Harness Monitor', () => {
 
       const [row] = rowsOf(await thePage('?group=package'), 'by-package');
 
-      expect(row).toEqual(['api', 'ran something on 1 of 2 that selected · 50%', '1', '0', '—']);
+      expect(row).toEqual(['api', '—', 'ran something on 1 of 2 that selected · 50%', '1', '0', '—']);
+    });
+
+    it('shows the most test files the package held on any pull request of the period', async () => {
+      await sendSelection([
+        selectionPull(1, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [selectionFile(HOT)], { filesTotal: 40 })] }), selectionJob('e2e')] }),
+        selectionPull(2, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [], { filesTotal: 43 })] }), selectionJob('e2e')] }),
+      ]);
+
+      const [row] = rowsOf(await thePage('?group=package'), 'by-package');
+
+      expect(row!.slice(0, 2)).toEqual(['api', '43']);
     });
   });
 });

@@ -72,6 +72,42 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe("a package's total test files and a job's unplaced changed files are kept as sent, and read as not recorded where a send had none", () => {
+    it('the answer names each package with the most test files any pull request found in it, and each job with the changed files it placed on no walk', async () => {
+      await sendSelection([
+        selectionPull(1, { jobs: [selectionJob('test', { packages: [selectionPackage('api', twelveFiles.slice(0, 2), { filesTotal: 40 })] }), selectionJob('e2e', { unplacedFiles: 2 })] }),
+        selectionPull(2, { jobs: [selectionJob('test', { packages: [selectionPackage('api', twelveFiles.slice(0, 2), { filesTotal: 44 })] }), selectionJob('e2e', { unplacedFiles: 0 })] }),
+      ]);
+
+      const answer = await theAnswer();
+
+      expect(answer.packages).toEqual([{ job: 'test', name: 'api', filesTotal: 44 }]);
+      expect(answer.pulls.jobs).toMatchObject([
+        { job: 'test', unplacedFiles: null },
+        { job: 'e2e', unplacedFiles: 2 },
+      ]);
+    });
+
+    it('a pull request sent without them is stored with none, never with a zero, and a later send with them fills them in', async () => {
+      await sendSelection([selectionPull(3, { jobs: [selectionJob('test', { packages: [selectionPackage('api', twelveFiles.slice(0, 2))] }), selectionJob('e2e')] })]);
+
+      expect((await theAnswer()).packages).toEqual([{ job: 'test', name: 'api', filesTotal: null }]);
+      expect((await theAnswer()).pulls.jobs.map((j) => j.unplacedFiles)).toEqual([null, null]);
+
+      await sendSelection([selectionPull(3, { jobs: [selectionJob('test', { packages: [selectionPackage('api', twelveFiles.slice(0, 2), { filesTotal: 9 })] }), selectionJob('e2e', { unplacedFiles: 1 })] })]);
+
+      expect((await theAnswer()).packages).toEqual([{ job: 'test', name: 'api', filesTotal: 9 }]);
+      expect((await theAnswer()).pulls.jobs.map((j) => j.unplacedFiles)).toEqual([null, 1]);
+    });
+
+    it('a send whose package total is below the files it names is refused whole', async () => {
+      const response = await sendSelection([selectionPull(4, { jobs: [selectionJob('test', { packages: [selectionPackage('api', twelveFiles, { filesTotal: 5 })] }), selectionJob('e2e')] })]);
+
+      expect(response.status).toBe(400);
+      expect(await storedSelection()).toEqual([]);
+    });
+  });
+
   describe('a miss found after the pull request was stored reaches it on the next send', () => {
     it('a pull request sent without a miss and then with one has the miss', async () => {
       await sendSelection([selectionPull(101)]);

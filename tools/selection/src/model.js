@@ -552,7 +552,7 @@ function selectedByRow(selectedBy, mode) {
   return { kind: 'chain', chain: selectedBy.chain, text: words(selectedBy) };
 }
 
-/** A package as the Monitor stores it: only the files the job ran, each with why. */
+/** A package as the Monitor stores it: only the files the job ran, each with why, and how many files it holds in all. */
 function packageRow(pkg) {
   return {
     name: pkg.name,
@@ -560,11 +560,15 @@ function packageRow(pkg) {
     mode: pkg.mode,
     report: pkg.report,
     reason: pkg.reason ? { rule: pkg.reason.rule, path: pkg.reason.path ?? null } : null,
+    filesTotal: pkg.files.length,
     files: pkg.files.filter((file) => file.status !== 'not run').map((file) => ({ path: file.path, level: file.level, status: file.status, selectedBy: selectedByRow(file.selectedBy, pkg.mode) })),
   };
 }
 
 const filesTotalOf = (packages) => packages.reduce((total, pkg) => total + pkg.files.length, 0);
+
+/** How many changed files the browser tier's selection placed on no walk, or null where its record does not say (a Test job has none, and an older record carries no list). */
+const unplacedOf = (packages) => (packages.some((pkg) => Array.isArray(pkg.unplaced)) ? packages.reduce((total, pkg) => total + (pkg.unplaced?.length ?? 0), 0) : null);
 
 /**
  * The pull requests as the Harness Monitor stores them: for each, a row per job
@@ -598,6 +602,7 @@ export function monitorRows({ pulls: pullData }) {
             filesTotal: ran ? filesTotalOf(pull.packages) : null,
             prDurationMs: pull.testDurationMs.pr,
             mainDurationMs: pull.testDurationMs.main,
+            unplacedFiles: null,
             changedFiles: pull.changedFiles,
             packages: pull.packages.map(packageRow),
           },
@@ -610,6 +615,7 @@ export function monitorRows({ pulls: pullData }) {
             filesTotal: e2eRan ? pull.e2e.filesTotal : null,
             prDurationMs: null,
             mainDurationMs: null,
+            unplacedFiles: e2eRan ? unplacedOf(pull.e2e.packages) : null,
             // The browser tier's own record names the diff it read; a run without one read the same diff the Test job did.
             changedFiles: data.prRun?.e2eRecord?.changedFiles ?? pull.changedFiles,
             packages: pull.e2e.packages.map(packageRow),

@@ -317,7 +317,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
         .filter((pkg) => pkg.job === job)
         .map(
           (pkg) =>
-            `<tr><td class="first">${esc(pkg.name)}</td><td>${pkg.mode === 'full' ? '<span class="pill plain">full</span>' : '<span class="pill plain">changed</span>'}</td><td>${pkg.rule ? `${esc(pkg.rule)}${pkg.path ? `<div class="sub">${mono(pkg.path)}</div>` : ''}` : '<span class="faint">—</span>'}</td><td class="num">${number(pkg.ran)}${pkg.failed ? ` <span class="pill over">${pkg.failed} failed</span>` : ''}${pkg.report === 'none' ? ' <span class="faint">no report</span>' : ''}</td></tr>`,
+            `<tr><td class="first">${esc(pkg.name)}</td><td>${pkg.mode === 'full' ? '<span class="pill plain">full</span>' : '<span class="pill plain">changed</span>'}</td><td>${pkg.rule ? `${esc(pkg.rule)}${pkg.path ? `<div class="sub">${mono(pkg.path)}</div>` : ''}` : '<span class="faint">—</span>'}</td><td class="num">${number(pkg.ran)}${pkg.filesTotal === null ? '' : ` of ${number(pkg.filesTotal)}`}${pkg.failed ? ` <span class="pill over">${pkg.failed} failed</span>` : ''}${pkg.report === 'none' ? ' <span class="faint">no report</span>' : ''}</td></tr>`,
         )
         .join('');
       const files = drill.files.filter((f) => f.job === job);
@@ -327,7 +327,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       const misses = v.misses.length ? `<p class="warning"><strong>${plural(v.misses.length, 'miss', 'misses')}:</strong> ${v.misses.map((m) => `${mono(m.path)}${m.reason === 'docs only' ? ' (docs only)' : ''}`).join(', ')} failed on main and did not run here.</p>` : '';
       return `<div class="drill-job">${head}${misses}<p class="sub">${OUTCOME_LABELS[o]}: ${number(v.filesRun ?? 0)} of ${plural(v.filesTotal ?? 0, UNIT[job][0], UNIT[job][1])} run</p>
 <div class="table"><table class="inner"><thead><tr><th scope="col">${job === 'test' ? 'Package' : 'Tier'}</th><th scope="col">Mode</th><th scope="col">Reason</th><th scope="col" class="num">Ran</th></tr></thead><tbody>${pkgRows}</tbody></table></div>
-<p class="sub">Selected, and why</p>${selectedList}</div>`;
+<p class="sub">Selected, and why</p>${selectedList}${v.unplacedFiles ? `<p class="sub">${plural(v.unplacedFiles, 'changed file')} placed no walk</p>` : ''}</div>`;
     });
     const times = jobs.includes('test') ? ` · Test job ${humanMs(jobOf(p, 'test').prDurationMs)}, main ${humanMs(jobOf(p, 'test').mainDurationMs)}` : '';
     return `${back}${section('pull-request', prLabel(p), `merged ${formatDateTime(p.mergedAt)} · ${outLink(p.url, 'on GitHub')}${times}`, `<div class="well drill">${changed}${parts.join('')}</div>`, 'panel wide drill-panel')}`;
@@ -387,7 +387,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
         const lead = [...r.reasons.entries()].sort((a, b) => b[1] - a[1])[0];
         const m = median(r.runs);
         const share = r.changed ? r.touched / r.changed : 0;
-        return `<tr><td class="first">${jobDot(r.job)}${esc(r.name)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:var(--cat-violet)"></div></div><div class="sub">ran something on ${number(r.touched)} of ${number(r.changed)} that selected · ${percent(share)}</div></td><td class="num">${m === null ? '<span class="faint">—</span>' : number(m)}</td><td class="num">${number(r.full)}</td><td>${lead ? `<a href="${link({ group: 'rule', rule: `${r.job}:${lead[0]}` })}">${esc(lead[0])}</a><div class="sub">${number(lead[1])} of its full runs</div>` : '<span class="faint">—</span>'}</td></tr>`;
+        return `<tr><td class="first">${jobDot(r.job)}${esc(r.name)}</td><td class="num faint-num">${r.files === null ? '<span class="faint">—</span>' : number(r.files)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:var(--cat-violet)"></div></div><div class="sub">ran something on ${number(r.touched)} of ${number(r.changed)} that selected · ${percent(share)}</div></td><td class="num">${m === null ? '<span class="faint">—</span>' : number(m)}</td><td class="num">${number(r.full)}</td><td>${lead ? `<a href="${link({ group: 'rule', rule: `${r.job}:${lead[0]}` })}">${esc(lead[0])}</a><div class="sub">${number(lead[1])} of its full runs</div>` : '<span class="faint">—</span>'}</td></tr>`;
       })
       .join('\n');
     return wide(
@@ -395,7 +395,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       'By package',
       'most often touched first',
       `<div class="well table"><table>
-<thead><tr><th scope="col">Package</th><th scope="col">When selecting</th><th scope="col" class="num">Typical run</th><th scope="col" class="num">Ran in full</th><th scope="col">Mostly because</th></tr></thead>
+<thead><tr><th scope="col">Package</th><th scope="col" class="num">Files</th><th scope="col">When selecting</th><th scope="col" class="num">Typical run</th><th scope="col" class="num">Ran in full</th><th scope="col">Mostly because</th></tr></thead>
 <tbody>${body}</tbody></table></div>
 <p class="legend-foot">A package selecting picks only the files the change reaches; touching it on most pull requests means a widely imported file sits under it.</p>`,
     );

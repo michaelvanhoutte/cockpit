@@ -17,6 +17,8 @@ export interface ViewJob {
   filesTotal: number | null;
   prDurationMs: number | null;
   mainDurationMs: number | null;
+  /** How many changed files the job's selection placed on no walk; null where not recorded. */
+  unplacedFiles: number | null;
   reasons: { rule: string; path: string | null }[];
   misses: { path: string; level: string; reason: string | null }[];
 }
@@ -47,6 +49,8 @@ export interface PackageRun {
   rule: string | null;
   /** The files it ran on that pull request. */
   ran: number;
+  /** Every test file it held on that pull request, ran or skipped; null where not recorded. */
+  filesTotal: number | null;
 }
 
 export interface StoredBar {
@@ -61,7 +65,7 @@ export interface StoredBar {
 export interface PullDrill {
   pull: ViewPull | null;
   changed: { path: string; ignored: boolean }[];
-  packages: { job: SelectionJob; name: string; mode: 'full' | 'changed'; report: 'written' | 'none'; rule: string | null; path: string | null; ran: number; failed: number }[];
+  packages: { job: SelectionJob; name: string; mode: 'full' | 'changed'; report: 'written' | 'none'; rule: string | null; path: string | null; ran: number; failed: number; filesTotal: number | null }[];
   files: { job: SelectionJob; path: string; status: 'passed' | 'failed'; text: string | null }[];
 }
 
@@ -100,7 +104,7 @@ export interface ViewWants {
   test: string | null;
 }
 
-const PULL_COLUMNS = 'p.pull_number, p.job, p.title, p.url, p.merged_at, p.status, p.ran_everything, p.selecting, p.files_run, p.files_total, p.pr_duration_ms, p.main_duration_ms';
+const PULL_COLUMNS = 'p.pull_number, p.job, p.title, p.url, p.merged_at, p.status, p.ran_everything, p.selecting, p.files_run, p.files_total, p.pr_duration_ms, p.main_duration_ms, p.unplaced_files';
 
 interface ViewRow {
   pull_number: number;
@@ -115,6 +119,7 @@ interface ViewRow {
   files_total: number | null;
   pr_duration_ms: number | null;
   main_duration_ms: number | null;
+  unplaced_files: number | null;
 }
 
 /** The pull requests the rows name, in the order the rows come, each with the jobs the rows carry. */
@@ -131,6 +136,7 @@ function pullsOf(rows: ViewRow[]): ViewPull[] {
       filesTotal: row.files_total,
       prDurationMs: row.pr_duration_ms,
       mainDurationMs: row.main_duration_ms,
+      unplacedFiles: row.unplaced_files,
       reasons: [],
       misses: [],
     };
@@ -193,7 +199,7 @@ export async function selectionView(db: D1Database, wants: ViewWants, from: numb
       db
         .prepare(
           `WITH ${SCOPE}
-           SELECT k.job, k.name, k.mode, k.reason_rule AS rule,
+           SELECT k.job, k.name, k.mode, k.reason_rule AS rule, k.files_total AS filesTotal,
                   (SELECT COUNT(*) FROM selection_files f WHERE f.pull_number = k.pull_number AND f.job = k.job AND f.package = k.name) AS ran
            FROM selection_packages k JOIN scoped s ON s.pull_number = k.pull_number AND s.job = k.job`,
         )
@@ -209,7 +215,7 @@ export async function selectionView(db: D1Database, wants: ViewWants, from: numb
       'pull-packages',
       db
         .prepare(
-          `SELECT x.job, x.name, x.mode, x.report, x.reason_rule AS rule, x.reason_path AS path,
+          `SELECT x.job, x.name, x.mode, x.report, x.reason_rule AS rule, x.reason_path AS path, x.files_total AS filesTotal,
                   (SELECT COUNT(*) FROM selection_files f WHERE f.pull_number = x.pull_number AND f.job = x.job AND f.package = x.name) AS ran,
                   (SELECT COUNT(*) FROM selection_files f WHERE f.pull_number = x.pull_number AND f.job = x.job AND f.package = x.name AND f.status = 'failed') AS failed
            FROM selection_packages x WHERE x.pull_number = ?1 AND ${OF_JOB} ORDER BY x.job, x.name`,
