@@ -49,6 +49,21 @@ export async function sealAttachmentLink(key: CryptoKey, named: Named, now: Date
   return base64url(token);
 }
 
+/**
+ * The address that opens one attachment of one account for an hour without a
+ * sign-in: the sealed token on `ATTACHMENT_LINK_PREFIX`, under this Cockpit's
+ * own origin. The one place an address is made, for the hand-off to Cowork and
+ * Claude Code and for what an app finds over MCP.
+ */
+export async function attachmentLinkAddress(
+  key: CryptoKey,
+  named: Named,
+  now: Date,
+  origin: string,
+): Promise<string> {
+  return new URL(`${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(key, named, now)}`, origin).toString();
+}
+
 /** What a token names, or `null` for one that is altered, sealed under another key, or expired at `now`. */
 export async function openAttachmentLink(key: CryptoKey, token: string, now: Date): Promise<Named | null> {
   const bytes = bytesOfBase64url(token);

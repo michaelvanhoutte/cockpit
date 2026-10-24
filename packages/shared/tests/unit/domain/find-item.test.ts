@@ -3,7 +3,7 @@ import type { WorkspaceSnapshot } from '../../../src/api/snapshot.js';
 import type { AgentRun } from '../../../src/domain/agent-run.js';
 import type { Item } from '../../../src/domain/item.js';
 import type { Panel } from '../../../src/domain/panel.js';
-import { FIND_LIMIT, findItems, indexForFind } from '../../../src/domain/find-item.js';
+import { FIND_LIMIT, findItems, findNeedle, indexForFind, searchTextOf, textMatches } from '../../../src/domain/find-item.js';
 
 /**
  * L1: Find item matches over a snapshot, so it is a view over a fixed snapshot.
@@ -62,6 +62,22 @@ describe('Dashboards', () => {
     ])('matches in $situation only', ({ over }) => {
       const snapshot = aSnapshot([anItem('a', over), anItem('b')]);
       expect(rowsFor(snapshot, 'CONSELIT.BE').rows.map((row) => row.itemId)).toEqual(['a']);
+    });
+
+    it.each([
+      { situation: 'capitals typed against lower case', title: 'ring the plumber', typed: 'PLUMBER', found: true },
+      { situation: 'lower case typed against capitals', title: 'Ring The Plumber', typed: 'the plumber', found: true },
+      { situation: 'an accented capital against its lower case', title: 'Réunion à Liège', typed: 'LIÈGE', found: true },
+      { situation: 'an accent left out, which is another letter', title: 'Réunion', typed: 'reunion', found: false },
+      { situation: 'spaces around what is typed', title: 'Ring the plumber', typed: '  plumber  ', found: true },
+      { situation: 'a word that is not there', title: 'Ring the plumber', typed: 'electrician', found: false },
+    ])('with $situation, an Item is found: $found', ({ title, typed, found }) => {
+      expect(textMatches(searchTextOf(anItem('a', { title })), findNeedle(typed))).toBe(found);
+    });
+
+    it('does not run a match across two fields', () => {
+      // The fields are one line apart, so words ending one and starting the next are not a phrase.
+      expect(textMatches(searchTextOf(anItem('a', { title: 'Ring', description: 'plumber' })), findNeedle('ring plumber'))).toBe(false);
     });
 
     it('keeps this Dashboard’s Items in Dashboard, every open one in Workspace, and no finished one', () => {

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyItemLink, itemLink, itemLinkAsHtml } from '../../src/itemLink';
+import { copyItemLink, itemLinkAsHtml } from '../../src/itemLink';
 import { aClipboard } from './support/clipboard';
 
 /**
- * L1, and pure: the link and the titled anchor built from it ("Copy an Item's
+ * L1, and pure: the titled anchor built from the link ("Copy an Item's
  * link from its menu and its form", issue 1247). That the row's menu and the
  * form hand it the right Item is tests/unit/components/ItemRow.test.tsx's and
  * ItemForm.test.tsx's.
@@ -25,14 +25,6 @@ describe('Item editing', () => {
 
     it('an address with an ampersand does not break out of the anchor', () => {
       expect(itemLinkAsHtml('https://x/?a=1&b=2', 't')).toBe('<a href="https://x/?a=1&amp;b=2">t</a>');
-    });
-  });
-
-  describe('the link names the Item’s workspace and the Item, on the page’s own origin', () => {
-    it('is the workspace address with the Item open', () => {
-      expect(itemLink('https://cockpit.example', 'ws-work', 'abc-123')).toBe(
-        'https://cockpit.example/w/ws-work?item=abc-123',
-      );
     });
   });
 });
