@@ -517,7 +517,7 @@ test.describe('Harness Monitor', () => {
     expect(await noSidewaysScroll()).toBe(true);
   });
 
-  test("Tests opens from the top bar, drills through the tree, opens a count's tests above it with the filters as they were, the filters sit in one row on a desk, and a phone scrolls the tree inside its panel", async ({ page, request: api }) => {
+  test("Tests opens from the top bar, drills through the tree, opens a count's tests above it with the filters as they were, the filters sit in one row on a desk, a phone scrolls the tree inside its panel, and picking a pull request shows its own tests", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const rule = (concept: string, statement: string, level: string, file: string, line: number) => ({ concept, statement, level, file, line, cases: [], todoCases: [] });
     const area = (key: string, rules: ReturnType<typeof rule>[], children: unknown[] = []) => ({
@@ -546,6 +546,9 @@ test.describe('Harness Monitor', () => {
       ],
     };
     expect((await api.post(`${monitor}/__e2e/seed-tests`, { data: { tree } })).ok()).toBe(true);
+    // An open pull request's own tests, at its own commit, with an area main does not have.
+    const ofPullRequest = { ...tree, commit: 'def5678', tree: [area('Sharing', [rule('Sharing', 'A shared workspace shows its owner', 'L1', 'apps/api/tests/unit/sharing.test.ts', 4)])] };
+    expect((await api.post(`${monitor}/__e2e/seed-tests`, { data: { tree: ofPullRequest, snapshot: 'pr-9201' } })).ok()).toBe(true);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
     const noSidewaysScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
@@ -584,6 +587,18 @@ test.describe('Harness Monitor', () => {
     await band('Testing level').click();
     await expect(page.locator('.tile')).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'By testing level' })).toBeVisible();
+
+    // Back on Concept area, main's: picking the pull request shows its own tree at its own commit, without Inbox, which it does not have.
+    await band('Concept area').click();
+    const picker = page.getByLabel('Tests of', { exact: true });
+    await expect(picker).toHaveValue('');
+    await picker.selectOption({ label: '#9201' });
+    await expect(page).toHaveURL(/[?&]pr=9201(&|$)/);
+    await expect(page.locator('.stamp')).toContainText('at def5678');
+    const every = page.getByRole('region', { name: 'Every area' });
+    await expect(every.getByRole('link', { name: 'Sharing', exact: true })).toBeVisible();
+    await expect(every.getByRole('link', { name: 'Inbox', exact: true })).toHaveCount(0);
+    expect(await noSidewaysScroll()).toBe(true);
   });
 
   test('the page is drawn in Inter, which the Monitor serves itself', async ({ page, request: api }) => {

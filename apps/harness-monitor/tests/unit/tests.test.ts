@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_PART_BYTES, readArea, readTree } from '../../src/tests';
+import { MAX_PART_BYTES, readArea, readTree, snapshotOf } from '../../src/tests';
 
 const COMMIT = 'abc1234';
 
@@ -65,6 +65,18 @@ describe('Harness Monitor', () => {
       const checked = await readTree(COMMIT, await gzip(tree({ tree: [area('Workspaces', { children: [area('Capture')] }), area('Triage')] })));
 
       expect(checked).toEqual({ ok: true, value: { commit: COMMIT, areas: ['Workspaces', 'Capture', 'Triage'] } });
+    });
+  });
+
+  describe("tests are sent as main's or as one pull request's, and as nothing else", () => {
+    it.each([
+      { situation: "main's", raw: 'main', snapshot: 'main' },
+      { situation: "pull request 9001's", raw: 'pr-9001', snapshot: 'pr-9001' },
+      { situation: 'a pull request written with a leading zero', raw: 'pr-09001', snapshot: null },
+      { situation: 'pull request 0', raw: 'pr-0', snapshot: null },
+      { situation: 'a branch', raw: 'feature', snapshot: null },
+    ])('$situation is read as $snapshot', ({ raw, snapshot }) => {
+      expect(snapshotOf(raw)).toBe(snapshot);
     });
   });
 });

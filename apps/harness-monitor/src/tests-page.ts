@@ -30,32 +30,51 @@ import {
   type ListSpec,
   type Ref,
   type Rule,
-  type TestsData,
   type TestsQuery,
+  type TestsView,
 } from './tests-report';
+import type { PullRequestTests } from './tests-store';
 
 /** The one colour a bar takes when its parts are packages, which are not told apart by colour. */
 const PLAIN = 'var(--cat-slate)';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`;
 
-/** The page when no snapshot of `main`'s tests has been made current yet: the frame, and the one thing to read. */
-function renderNothingYet(now: number): string {
-  const tabs = bandTabs(GROUPS.map((g): [string, string, boolean] => [testsAddress(DEFAULT_QUERY, { group: g }), GROUP_LABELS[g], g === 'area']));
-  return reportPage(
-    {
-      current: 'tests',
-      tabs,
-      body: section('nothing', 'Tests', '', '<p class="well empty">No snapshot of main&rsquo;s tests has arrived yet. The page shows the latest one once CI has sent it after a merge to main.</p>'),
-    },
-    now,
-  );
+/**
+ * Which snapshot the page shows, as a select of `main` and each open pull
+ * request with tests shown, newest first, that submits when changed. It keeps
+ * the view (the tab, the area and the filters) but not an open rule or list,
+ * which belong to the tests picked away from. Drawn only where there is a
+ * pull request to pick, or one asked for. A pull request's title is its
+ * author's text, so it is escaped like everything else a snapshot says.
+ */
+function picker(asked: TestsQuery, pulls: PullRequestTests[]): string {
+  const options: [string, string][] = [['', 'main'], ...pulls.map((p): [string, string] => [String(p.number), `#${p.number}${p.title ? ` · ${p.title}` : ''}`])];
+  const current = asked.pr === null ? '' : String(asked.pr);
+  const hidden = (['group', 'node', 'level', 'package', 'show', 'split'] as const)
+    .filter((name) => asked[name] !== null && asked[name] !== DEFAULT_QUERY[name])
+    .map((name) => `<input type="hidden" name="${name}" value="${esc(String(asked[name]))}">`)
+    .join('');
+  return `<label for="pr">Tests of</label> <select id="pr" name="pr" onchange="this.form.submit()">${options
+    .map(([value, text]) => `<option value="${esc(value)}"${value === current ? ' selected' : ''}>${esc(text)}</option>`)
+    .join('')}</select>${hidden}<noscript> <button type="submit">Show</button></noscript>`;
 }
 
-/** The Tests page: `main`'s shown snapshot as a tree of areas, counted by level or package, each count opening the tests behind it. */
-export function renderTests(data: TestsData | null, now: number): string {
-  if (!data) return renderNothingYet(now);
-  const { model, index: ix, query: q, lines } = data;
+/** The page when the snapshot asked for is not shown: `main`'s before CI has sent one, or a pull request with none. The frame, the picker where there is one, and the one thing to read. */
+function renderNothing({ asked, pulls }: TestsView, now: number): string {
+  const tabs = bandTabs(GROUPS.map((g): [string, string, boolean] => [testsAddress(DEFAULT_QUERY, { group: g, pr: asked.pr }), GROUP_LABELS[g], g === 'area']));
+  const pick = pulls.length > 0 || asked.pr !== null ? `<form class="stamp" method="get" action="/tests">${picker(asked, pulls)}</form>\n` : '';
+  const said =
+    asked.pr === null
+      ? 'No snapshot of main&rsquo;s tests has arrived yet. The page shows the latest one once CI has sent it after a merge to main.'
+      : `Pull request #${asked.pr} has no snapshot of its tests here. One arrives when CI finishes on its latest push, and goes once it merges or closes.`;
+  return reportPage({ current: 'tests', tabs, body: `${pick}${section('nothing', 'Tests', '', `<p class="well empty">${said}</p>`)}`, style: EXTRA }, now);
+}
+
+/** The Tests page: the shown snapshot, `main`'s or a pull request's, as a tree of areas, counted by level or package, each count opening the tests behind it. */
+export function renderTests(view: TestsView, now: number): string {
+  if (!view.data) return renderNothing(view, now);
+  const { model, index: ix, query: q, lines } = view.data;
   const scope = q.node ? ix.byKey.get(q.node)! : null;
   const inScope = scope ? [...walk([scope])] : [...walk(model.tree)];
   const blob = model.commitUrl && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/commit\/[0-9a-f]+$/.test(model.commitUrl) ? model.commitUrl.replace('/commit/', '/blob/') : null;
@@ -84,6 +103,7 @@ export function renderTests(data: TestsData | null, now: number): string {
     .map((v) => `<button type="submit" name="split" value="${v}" aria-pressed="${v === q.split}">${v === 'level' ? 'Level' : 'Package'}</button>`)
     .join('');
   const filters = `<form class="filters" method="get" action="/tests">
+${q.pr !== null ? hidden('pr', String(q.pr)) : ''}
 ${q.group !== 'area' ? hidden('group', q.group) : ''}
 ${selectField('node', 'Area', areaOptions, q.node ?? '')}
 ${q.group === 'gaps' ? (q.level ? hidden('level', q.level) : '') : selectField('level', 'Level', [['', 'Every level'], ...LEVELS.map((l): [string, string] => [l.id, `${l.id} · ${l.name}`])], q.level ?? '')}
@@ -148,7 +168,12 @@ ${onAreas && !q.rule ? `<div class="field"><span id="splitby">Count by</span><di
   const commit = model.commitUrl && blob ? `<a href="${esc(model.commitUrl)}" target="_blank" rel="noopener noreferrer">${esc(model.commit)}</a>` : esc(model.commit);
   const generated = model.generatedAt !== null && !Number.isNaN(Date.parse(model.generatedAt)) ? `, ${formatDateTime(Date.parse(model.generatedAt))}` : '';
   const tabs = bandTabs(GROUPS.map((g): [string, string, boolean] => [link({ group: g }), GROUP_LABELS[g], g === q.group]));
-  return reportPage({ current: 'tests', tabs, body: `<p class="stamp"><strong>main&rsquo;s tests</strong> at ${commit}${generated}. The explorer reads the test files and never runs them.</p>\n${filters}\n${crumbline}\n${body}`, style: EXTRA }, now);
+  const after = ` at ${commit}${generated}. The explorer reads the test files and never runs them.`;
+  const stamp =
+    view.pulls.length > 0 || q.pr !== null
+      ? `<form class="stamp" method="get" action="/tests">${picker(q, view.pulls)}<span>${after.trimStart()}</span></form>`
+      : `<p class="stamp"><strong>main&rsquo;s tests</strong>${after}</p>`;
+  return reportPage({ current: 'tests', tabs, body: `${stamp}\n${filters}\n${crumbline}\n${body}`, style: EXTRA }, now);
 
   // ---- Concept area: the tree under the chosen area, then that area's own rules ----
   function areaView(): string {
@@ -468,6 +493,8 @@ ${code(r)}
 
 const EXTRA = `
 .stamp{margin:0;font-size:13px;color:var(--ink-faint)}.stamp strong{color:var(--ink)}.stamp a{color:inherit}
+form.stamp{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}form.stamp label{font-weight:600;color:var(--ink)}
+form.stamp select{height:32px;font-size:13px;font-weight:600;max-width:100%;min-width:0;text-overflow:ellipsis}
 a.count{color:inherit;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 30%,transparent);text-underline-offset:3px}a.count:hover{color:var(--accent-deep)}
 code,.note code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
 .crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:15px;font-weight:500;color:var(--ink-strong)}

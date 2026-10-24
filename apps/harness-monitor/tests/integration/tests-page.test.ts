@@ -2,7 +2,7 @@ import { createExecutionContext, env, SELF, waitOnExecutionContext } from 'cloud
 import { beforeEach, describe, expect, it } from 'vitest';
 import worker from '../../src/worker';
 import { area, kase, model, rule, rules } from '../fixtures/tests-model';
-import { emptyTheDatabase, sendTestsModel } from './support';
+import { emptyTheDatabase, merged, sendTestsModel } from './support';
 
 beforeEach(emptyTheDatabase);
 
@@ -357,6 +357,91 @@ describe('Harness Monitor', () => {
 
       expect(html).not.toContain('<img src=x');
       expect(html).toContain('&#60;img src=x onerror=alert(1)&#62;');
+    });
+  });
+
+  describe('the picker lists the open pull requests with tests shown, and picking one shows its tests', () => {
+    /** The picker's options as offered, each `[value, text]`, and the one chosen; null where the page draws none. */
+    const picker = (html: string) => {
+      const select = /<form class="stamp" method="get" action="\/tests">.*?<select id="pr" name="pr" onchange="this.form.submit\(\)">(.*?)<\/select>/s.exec(html)?.[1];
+      if (select === undefined) return null;
+      const options = [...select.matchAll(/<option value="([^"]*)"( selected)?>(.*?)<\/option>/g)];
+      return { offered: options.map((o) => [o[1], o[3]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))]), chosen: options.find((o) => o[2])?.[1] ?? null };
+    };
+    const ofPullRequest = (commit: string, name: string) => model([area(name, rules(1, 'L1', API_UNIT))], { commit, commitUrl: `https://github.com/o/r/commit/${commit}` });
+
+    it('with tests for main, 9001 and 9003, it offers main, 9003 and 9001, newest first, with main chosen', async () => {
+      await sendTestsModel(SNAPSHOT);
+      await sendTestsModel(ofPullRequest('def5678', 'Only on 9001'), {}, 'pr-9001');
+      await sendTestsModel(ofPullRequest('fed8765', 'Only on 9003'), {}, 'pr-9003');
+
+      expect(picker(await thePage())).toEqual({
+        offered: [
+          ['', 'main'],
+          ['9003', '#9003'],
+          ['9001', '#9001'],
+        ],
+        chosen: '',
+      });
+    });
+
+    it("picking 9001 shows 9001's tree, names its commit, and keeps it on every link and filter", async () => {
+      await sendTestsModel(SNAPSHOT);
+      await sendTestsModel(ofPullRequest('def5678', 'Only on 9001'), {}, 'pr-9001');
+
+      const html = await thePage('?pr=9001');
+
+      expect(picker(html)?.chosen).toBe('9001');
+      expect(plain(html)).toContain('at def5678');
+      expect(rowOf(html, 'areas', 'Only on 9001')).not.toBe('');
+      expect(rowOf(html, 'areas', 'Inbox')).toBe('');
+      expect(hrefOf(rowOf(html, 'areas', 'Only on 9001'))).toBe('/tests?node=Only+on+9001&pr=9001');
+      expect(html.match(/<form class="filters".*?<\/form>/s)![0]).toContain('<input type="hidden" name="pr" value="9001">');
+    });
+
+    it.each([
+      { situation: 'a pull request with none', arrange: async () => {}, number: 9002 },
+      {
+        situation: 'a pull request linking has read as merged, before the next linking deletes its tests',
+        arrange: async () => {
+          await sendTestsModel(ofPullRequest('def5678', 'Only on 9001'), {}, 'pr-9001');
+          await merged(9001, '2026-10-24T08:00:00Z', 120);
+        },
+        number: 9001,
+      },
+    ])('$situation, asked for in the address, says it has none and is not offered', async ({ arrange, number }) => {
+      await sendTestsModel(SNAPSHOT);
+      await arrange();
+
+      const html = await thePage(`?pr=${number}`);
+
+      expect(plain(sectionOf(html, 'nothing'))).toContain(`Pull request #${number} has no snapshot of its tests here.`);
+      expect(picker(html)?.offered).toEqual([['', 'main']]);
+    });
+
+    it("with only main's tests, there is no picker to draw", async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      expect(picker(await thePage())).toBeNull();
+    });
+  });
+
+  describe("what a pull request's tests and title say is drawn as text, never run", () => {
+    it.each([
+      { situation: 'a rule statement containing a script', statement: '<script>alert(1)</script>', title: 'Fine', written: '&#60;script&#62;alert(1)&#60;/script&#62;' },
+      { situation: 'a title containing a script', statement: 'A rule', title: '<script>alert(2)</script>', written: '#9001 · &#60;script&#62;alert(2)&#60;/script&#62;' },
+    ])('$situation is shown as written', async ({ statement, title, written }) => {
+      await sendTestsModel(model([area('Offline', [rule(statement, 'L1', WEB, 5)])], { commit: 'def5678' }), {}, 'pr-9001');
+      await env.DB.prepare(
+        "INSERT INTO branch_links (branch, pr_number, title, state, merged_at, issue_number, engineer, pr_updated_at, linked_at) VALUES ('b/9001', 9001, ?1, 'OPEN', NULL, NULL, NULL, '2026-10-24T08:00:00Z', 0)",
+      )
+        .bind(title)
+        .run();
+
+      const html = await thePage('?pr=9001&tests=Offline%7E%7E');
+
+      expect(html).not.toMatch(/<script>alert/);
+      expect(html).toContain(written);
     });
   });
 

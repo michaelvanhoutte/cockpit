@@ -139,6 +139,7 @@ describe('Harness Monitor', () => {
       { situation: 'filters and a count by package', address: '/tests?level=F3&package=api&show=empty&split=package', q: query({ level: 'F3', package: 'api', show: 'empty', split: 'package' }) },
       { situation: 'the tests behind a count, with the page filters kept', address: '/tests?level=L1&tests=Inbox%7EF3%7E', q: query({ level: 'L1', list: { node: 'Inbox', level: 'F3', package: null } }) },
       { situation: 'a rule', address: '/tests?rule=a.test.ts%3A12', q: query({ rule: 'a.test.ts:12' }) },
+      { situation: "a pull request's tests, drilled in", address: '/tests?node=Inbox&pr=9001', q: query({ node: 'Inbox', pr: 9001 }) },
     ])('$situation', ({ address, q }) => {
       expect(parseTestsQuery(new URL(`https://monitor.test${address}`).searchParams)).toEqual(q);
       expect(testsAddress(q, { rule: q.rule, list: q.list })).toBe(address);
@@ -148,6 +149,10 @@ describe('Harness Monitor', () => {
       const q = parseTestsQuery(new URLSearchParams('group=nope&level=L9&package=zzz&show=x&split=y&tests=a~b~c~d'));
 
       expect(q).toEqual(query());
+    });
+
+    it.each([['09001'], ['-1'], ['0'], ['9001x'], ['12345678901']])("a pull request written %j is not one, so main's tests are shown", (pr) => {
+      expect(parseTestsQuery(new URLSearchParams({ pr })).pr).toBeNull();
     });
 
     it.each([['an unknown level', 'Inbox~L9~'], ['an unknown package', 'Inbox~~zzz'], ['an area name too long to be one', `${'a'.repeat(401)}~L1~`]])('a list with %s is dropped, since leaving that part empty would mean every one', (_, tests) => {

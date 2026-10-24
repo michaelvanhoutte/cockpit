@@ -123,18 +123,61 @@ export async function currentCommit(db: D1Database, snapshot: Snapshot): Promise
   return row?.commit_sha ?? null;
 }
 
+const CURRENT_TREE = `SELECT c.commit_sha AS commit_sha, t.document AS document FROM tests_current c
+  JOIN tests_trees t ON t.snapshot = c.snapshot AND t.commit_sha = c.commit_sha
+  WHERE c.snapshot = ?1`;
+
 /** The current snapshot's commit and its gzipped tree, or null when none has been made current. */
 export async function currentTree(db: D1Database, snapshot: Snapshot): Promise<{ commit: string; document: Uint8Array } | null> {
-  const row = await db
-    .prepare(
-      `SELECT c.commit_sha AS commit_sha, t.document AS document FROM tests_current c
-       JOIN tests_trees t ON t.snapshot = c.snapshot AND t.commit_sha = c.commit_sha
-       WHERE c.snapshot = ?1`,
-    )
-    .bind(snapshot)
-    .first<{ commit_sha: string; document: unknown }>();
+  const row = await db.prepare(CURRENT_TREE).bind(snapshot).first<{ commit_sha: string; document: unknown }>();
   return row ? { commit: row.commit_sha, document: bytesOf(row.document) } : null;
 }
+
+/** A pull request whose tests are shown: its number, the commit they are of, and its title where linking has read one. */
+export interface PullRequestTests {
+  number: number;
+  commit: string;
+  title: string | null;
+}
+
+/**
+ * Every pull request with tests shown, newest number first, leaving out one
+ * linking has already read as merged or closed, whose snapshot the next
+ * linking deletes (`CLOSED_SNAPSHOTS`).
+ */
+const PULL_REQUESTS_SHOWN = `SELECT CAST(substr(c.snapshot, 4) AS INTEGER) AS number, c.commit_sha AS commit_sha,
+       (SELECT b.title FROM branch_links b WHERE 'pr-' || b.pr_number = c.snapshot LIMIT 1) AS title
+  FROM tests_current c
+  WHERE c.snapshot LIKE 'pr-%'
+    AND NOT EXISTS (SELECT 1 FROM branch_links b WHERE 'pr-' || b.pr_number = c.snapshot AND b.state <> 'OPEN')
+  ORDER BY number DESC`;
+
+/**
+ * What the Tests page reads before anything else, in one round trip: the
+ * pull requests with tests shown, for its picker, and the tree shown for
+ * `snapshot`. A pull request's tree is null where the picker would not list it.
+ */
+export async function shownTests(db: D1Database, snapshot: Snapshot): Promise<{ pulls: PullRequestTests[]; tree: { commit: string; document: Uint8Array } | null }> {
+  const [listed, current] = await db.batch<Record<string, unknown>>([db.prepare(PULL_REQUESTS_SHOWN), db.prepare(CURRENT_TREE).bind(snapshot)]);
+  const pulls = (listed!.results as { number: number; commit_sha: string; title: string | null }[]).map((r) => ({ number: r.number, commit: r.commit_sha, title: r.title }));
+  const row = current!.results[0] as { commit_sha: string; document: unknown } | undefined;
+  const hidden = snapshot !== 'main' && !pulls.some((p) => `pr-${p.number}` === snapshot);
+  return { pulls, tree: row && !hidden ? { commit: row.commit_sha, document: bytesOf(row.document) } : null };
+}
+
+/**
+ * Linking's deletion of a merged or closed pull request's snapshot: every
+ * pull request the run read (`?1`, the JSON array it stores the links from)
+ * as no longer open, and every one the stored links already say is, so a
+ * snapshot that landed after its pull request closed goes at the next run.
+ * One statement, so linking stays inside its query budget: the trigger of
+ * migrations/0022_tests_pull_requests.sql takes each tree's source lines and
+ * switch with it. Runs after the links are stored, in the same batch, so a
+ * pull request reopened is read as open.
+ */
+export const CLOSED_SNAPSHOTS = `DELETE FROM tests_trees WHERE snapshot IN (
+  SELECT 'pr-' || (value ->> '$.number') FROM json_each(?1) WHERE value ->> '$.state' <> 'OPEN'
+  UNION SELECT 'pr-' || pr_number FROM branch_links WHERE state <> 'OPEN')`;
 
 /** One area's gzipped source lines in the current snapshot, or null when none is current or it holds none for the area. */
 export async function currentAreaLines(db: D1Database, snapshot: Snapshot, area: string): Promise<Uint8Array | null> {

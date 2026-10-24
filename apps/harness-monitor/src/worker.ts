@@ -22,10 +22,10 @@ import { renderStability } from './stability-page';
 import { loadStability, parseStabilityQuery, stabilityAddress } from './stability-report';
 import { newestRun, parsePeriod, stabilityAnswer, storeRuns } from './stability-store';
 import { correctBatch, stillUnphased, storeBatch, unpricedLines } from './store';
-import { COMMIT, MAX_PART_BYTES, readArea, readTree, SNAPSHOTS, tooLarge, type Snapshot } from './tests';
+import { COMMIT, MAX_PART_BYTES, pullRequestSnapshot, readArea, readTree, snapshotOf, tooLarge } from './tests';
 import { renderTests } from './tests-page';
 import { loadTests, parseTestsQuery, testsAddress } from './tests-report';
-import { currentCommit, currentTree, makeCurrent, storeArea, storeTree } from './tests-store';
+import { currentCommit, currentTree, makeCurrent, shownTests, storeArea, storeTree } from './tests-store';
 import { validateBatch, validateCorrections } from './validate';
 
 export interface Env {
@@ -152,19 +152,23 @@ async function readPart(request: Request, name: string): Promise<Uint8Array | Re
   return bytes;
 }
 
+/** The refusal for an address naming a snapshot the Monitor does not keep. */
+const noSuchSnapshot = (raw: string) => json({ error: `${JSON.stringify(raw)} is not a snapshot: use main, or pr- and a pull request's number.` }, 404);
+
 /**
  * One part of a test explorer snapshot, or the switch that makes it current
  * (src/tests.ts, src/tests-store.ts): `PUT .../tree` and `PUT .../areas/<key>`
  * take the part's gzip as the body, `POST .../current` makes the commit's
- * snapshot the one shown once every part has arrived.
+ * snapshot the one shown once every part has arrived. The snapshot is the
+ * address's, `main` or `pr-<number>`, never anything the parts say.
  */
 async function writeTests(request: Request, env: Env, snapshot: string, commit: string, part: string): Promise<Response> {
   const isSwitch = part === 'current';
   if (request.method !== (isSwitch ? 'POST' : 'PUT')) return json({ error: `Use ${isSwitch ? 'POST' : 'PUT'}.` }, 405);
   const refused = await refusal(request, env);
   if (refused) return refused;
-  if (!(SNAPSHOTS as readonly string[]).includes(snapshot)) return json({ error: `Only ${SNAPSHOTS.join(', ')}'s snapshot is stored.` }, 404);
-  const which = snapshot as Snapshot;
+  const which = snapshotOf(snapshot);
+  if (!which) return noSuchSnapshot(snapshot);
   if (!COMMIT.test(commit)) return json({ error: `${JSON.stringify(commit)} is not a commit.` }, 400);
   if (isSwitch) {
     const switched = await makeCurrent(env.DB, which, commit);
@@ -197,21 +201,22 @@ async function writeTests(request: Request, env: Env, snapshot: string, commit: 
 /** Which commit's snapshot is shown, uncached, for a send to check it is not older: public, as every read here is. */
 async function currentTests(request: Request, env: Env, snapshot: string): Promise<Response> {
   if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405);
-  if (!(SNAPSHOTS as readonly string[]).includes(snapshot)) return json({ error: `Only ${SNAPSHOTS.join(', ')}'s snapshot is stored.` }, 404);
-  return json({ snapshot, current: await currentCommit(env.DB, snapshot as Snapshot) });
+  const which = snapshotOf(snapshot);
+  if (!which) return noSuchSnapshot(snapshot);
+  return json({ snapshot, current: await currentCommit(env.DB, which) });
 }
 
 /** Whether the request asks for the JSON answer rather than the page: `?format=json`, or an `Accept` header naming `application/json`. */
 const wantsJson = (request: Request, url: URL) => url.searchParams.get('format') === 'json' || (request.headers.get('accept') ?? '').includes('application/json');
 
 /**
- * `main`'s shown tests: the Tests page, or, when the request asks
- * (`wantsJson`), the shown tree as JSON as it was sent (its commit, whether
- * coverage was available, the areas, rules and cases without source lines),
- * unpacked; before any has been made current, an empty answer saying so. The
- * page reads the same tree and, for a rule, one area's source lines. Cached
- * like the other reports under one key per view, so a page and its JSON never
- * share an entry.
+ * `main`'s shown tests, or with `?pr=<number>` an open pull request's: the
+ * Tests page, or, when the request asks (`wantsJson`), the shown tree as JSON
+ * as it was sent (its commit, whether coverage was available, the areas, rules
+ * and cases without source lines), unpacked; before any has been made current,
+ * an empty answer saying so. The page reads the same tree and, for a rule, one
+ * area's source lines. Cached like the other reports under one key per view,
+ * so a page and its JSON never share an entry.
  */
 async function tests(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
@@ -219,17 +224,18 @@ async function tests(request: Request, env: Env, ctx: ExecutionContext): Promise
   const query = parseTestsQuery(url.searchParams);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(asJson ? `${url.origin}/tests?format=json` : `${url.origin}${testsAddress(query, { rule: query.rule, list: query.list })}`);
+  const key = new Request(asJson ? `${url.origin}/tests?format=json${query.pr === null ? '' : `&pr=${query.pr}`}` : `${url.origin}${testsAddress(query, { rule: query.rule, list: query.list })}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 
   const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
   let response: Response;
   if (asJson) {
-    const current = await currentTree(env.DB, 'main');
+    const current = query.pr === null ? await currentTree(env.DB, 'main') : (await shownTests(env.DB, pullRequestSnapshot(query.pr))).tree;
+    const none = query.pr === null ? "No snapshot of main's tests has arrived yet." : `No snapshot of pull request ${query.pr}'s tests is held.`;
     response = current
       ? new Response(new Blob([current.document]).stream().pipeThrough(new DecompressionStream('gzip')), { headers: { ...headers, 'content-type': 'application/json' } })
-      : Response.json({ commit: null, coverageAvailable: null, tree: [], note: "No snapshot of main's tests has arrived yet." }, { headers });
+      : Response.json({ commit: null, coverageAvailable: null, tree: [], note: none }, { headers });
   } else {
     response = new Response(renderTests(await loadTests(env.DB, query), Date.now()), { headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } });
   }

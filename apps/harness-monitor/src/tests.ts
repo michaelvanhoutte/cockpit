@@ -1,15 +1,21 @@
 /**
- * The test explorer's snapshot as the Tests snapshot job sends it
- * (tools/test-explorer, `--send`): documents, not rows. A snapshot is one
+ * The test explorer's snapshot as the Tests snapshot job, or for a pull request
+ * the Pull request tests workflow, sends it (tools/test-explorer, `--send`):
+ * documents, not rows. A snapshot is one
  * gzipped tree (the model with every `context` taken out: areas, rules, cases,
  * counts and gaps) and one gzipped document per area holding that area's
  * source lines, keyed `file:line`. The Monitor checks each part's size and
  * shape and stores the bytes it was sent; it derives nothing from them.
  */
 
-/** The snapshots stored: `main`'s latest. Open pull requests' join it later. */
-export const SNAPSHOTS = ['main'] as const;
-export type Snapshot = (typeof SNAPSHOTS)[number];
+/** The snapshots stored: `main`'s latest, and each open pull request's latest push as `pr-<number>`. */
+export type Snapshot = 'main' | `pr-${number}`;
+
+/** The snapshot an address names, or null: `main`, or `pr-` and a pull request number with no sign or leading zero. */
+export const snapshotOf = (raw: string): Snapshot | null => (raw === 'main' || /^pr-[1-9]\d{0,9}$/.test(raw) ? (raw as Snapshot) : null);
+
+/** A pull request's snapshot. */
+export const pullRequestSnapshot = (number: number): Snapshot => `pr-${number}`;
 
 /** D1 stores at most 2,000,000 bytes a row; a part keeps clear of it, leaving room for the row's keys. */
 export const MAX_PART_BYTES = 1_900_000;
