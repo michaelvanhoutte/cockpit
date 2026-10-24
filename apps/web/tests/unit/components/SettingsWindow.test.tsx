@@ -225,13 +225,16 @@ describe('Across the app', () => {
   describe('Follow-ups shows the account’s number with no Workspace open', () => {
     it('reads it off the first Workspace’s copy, as on the capture page', async () => {
       held.followUpDays = { 'ws-alpha': 7 };
-      open('followups', { startsIn: undefined });
+      try {
+        open('followups', { startsIn: undefined });
 
-      const panel = await screen.findByRole('group', { name: 'How long to wait' });
-      await waitFor(() =>
-        expect(within(panel).getByRole('spinbutton', { name: 'Days after you set it' })).toHaveValue(7),
-      );
-      held.followUpDays = {};
+        const panel = await screen.findByRole('group', { name: 'How long to wait' });
+        await waitFor(() =>
+          expect(within(panel).getByRole('spinbutton', { name: 'Days after you set it' })).toHaveValue(7),
+        );
+      } finally {
+        held.followUpDays = {};
+      }
     });
   });
 

@@ -4,6 +4,7 @@ import { ACCOUNT_WIDE, FOLLOW_UP_DAYS, MOST_FOLLOW_UP_DAYS, dayOf, daysOnFrom, u
 import { snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
 import { weekdayDayLabel } from '../dateFormat';
 import { DEADLINE_PILLS } from '../dueDate';
+import { useUndo } from '../undo';
 import { SettingsPanel } from './SettingsPanel';
 import { daysTyped } from './WaitForReply';
 
@@ -12,16 +13,35 @@ import { daysTyped } from './WaitForReply';
  * issue 1465): the number *Wait for reply…* starts on, kept on the account.
  * Read off the given Workspace's held copy, which every Workspace's carries, and
  * saved on Enter, on leaving the box or on closing Settings; a change that has
- * not been read back yet is drawn at once.
+ * not been read back yet is drawn at once. A refusal that comes back once
+ * Settings has closed is said by the undo bar.
  */
-export default function ManageFollowUps({ workspaceId }: { workspaceId: string | undefined }) {
+export default function ManageFollowUps({
+  workspaceId,
+  pageHoldsIt,
+}: {
+  workspaceId: string | undefined;
+  /** The open Workspace's page reads that Workspace itself, so the section never re-reads a copy the page holds. */
+  pageHoldsIt: boolean;
+}) {
   const { data: saved = FOLLOW_UP_DAYS } = useQuery({
     ...snapshotQuery(workspaceId ?? ''),
     enabled: workspaceId !== undefined,
-    // Read only where the tab holds no copy, or one marked out of date: the open Workspace's page already holds it.
-    staleTime: Infinity,
+    // Read only where the tab holds no copy, or one marked out of date.
+    ...(pageHoldsIt ? { staleTime: Infinity } : {}),
     select: (held) => held.followUpDays,
   });
+  const kept = useRef(saved);
+  kept.current = saved;
+  const offerToUndo = useUndo();
+  // Whether Settings is still open, since it may close before a refusal comes back.
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+    };
+  }, []);
   /** A number sent and not yet read back. */
   const [chosen, setChosen] = useState<number | null>(null);
   const shown = chosen ?? saved;
@@ -50,8 +70,10 @@ export default function ManageFollowUps({ workspaceId }: { workspaceId: string |
       name: 'set_follow_up_days',
       payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: ACCOUNT_WIDE, days },
     }).catch((failure: unknown) => {
+      if (!open.current) return offerToUndo({ what: `Waiting ${days} days for a reply was not saved. ${whyNotDone(failure)}` });
+      // The box goes back to what is kept, unless typed in since, and follows it again.
       setChosen(null);
-      edited.current = true;
+      if (!edited.current) setTyped(String(kept.current));
       setFailed(`Not saved. ${whyNotDone(failure)}`);
     });
   };

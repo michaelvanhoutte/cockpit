@@ -87,7 +87,7 @@ export default function SettingsWindow({
  */
 function FollowUpsOf({ startsIn }: { startsIn: string | undefined }) {
   const { data } = useWorkspaces();
-  return <ManageFollowUps workspaceId={startsIn ?? data?.workspaces[0]?.id} />;
+  return <ManageFollowUps workspaceId={startsIn ?? data?.workspaces[0]?.id} pageHoldsIt={startsIn !== undefined} />;
 }
 
 /**
