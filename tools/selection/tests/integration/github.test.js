@@ -175,6 +175,19 @@ describe('collect', () => {
     await expect(collect({ repo: 'o/r', since: new Date('2026-02-01'), fetchImpl: fetch, retries: 0 })).rejects.toBeInstanceOf(GitHubError);
   });
 
+  it('reads an older window as a range, leaving out what merged after its end without spending the budget on it', async () => {
+    const listed = (number, mergedAt) => rawPull({ number, merged_at: mergedAt, updated_at: mergedAt, head: { sha: `head${number}` }, merge_commit_sha: `merge${number}` });
+    stubApi({
+      pulls: () => ok([listed(1, '2026-02-12T00:00:00Z'), listed(2, '2026-02-09T00:00:00Z'), listed(3, '2026-02-05T00:00:00Z'), listed(4, '2026-02-03T00:00:00Z')]),
+      files: () => ok([{ filename: 'docs/notes.md' }]),
+    });
+
+    const collected = await collect({ repo: 'o/r', since: new Date('2026-02-01'), until: new Date('2026-02-10T00:00:00Z'), maxPulls: 2, fetchImpl: fetch });
+
+    expect(collected.pulls.map((data) => data.pull.number)).toEqual([2, 3]);
+    expect(collected.truncated).toBe(true);
+  });
+
   it('does not fail the run for a legitimately empty result — no run, no artifact, no files', async () => {
     stubApi({ pulls: () => ok([rawPull()]), files: () => ok([]) });
     const collected = await collect({ repo: 'o/r', since: new Date('2026-02-01'), fetchImpl: fetch });

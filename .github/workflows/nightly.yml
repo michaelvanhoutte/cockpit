@@ -103,11 +103,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: package.json
+      # Also sends each pull request's selection to the Harness Monitor, from the
+      # newest merge it holds less two days, after the page is written. The write
+      # key is handed over on `main` only, never to a branch a manual run could
+      # pick. Until both the secret and the variable are set it says so and only
+      # writes the page (docs/deployment.md, "The Harness Monitor").
       - name: Work out whether test selection is working
-        run: node tools/selection/src/cli.js --out tools/selection/out/index.html --model tools/selection/out/model.json
+        run: |
+          send=--send
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            echo "::notice title=Selection not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, or this run is not on main, so the pull requests did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
+            send=
+          fi
+          node tools/selection/src/cli.js --out tools/selection/out/index.html --model tools/selection/out/model.json $send
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HARNESS_WRITE_KEY: ${{ github.ref == 'refs/heads/main' && secrets.HARNESS_WRITE_KEY || '' }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+      # A send the Monitor refused, or the pull budget cut short, fails the step
+      # above with the page already written, so the page is still uploaded.
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: test-selection-report
           path: tools/selection/out/

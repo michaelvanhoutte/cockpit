@@ -1,0 +1,68 @@
+name: Selection backfill
+
+# Sends an older window of merged pull requests' selection to the Harness
+# Monitor, which the `Selection` job in nightly.yml otherwise feeds from the
+# newest merge it holds. Run by hand from the Actions tab, because the write key
+# lives only in repository secrets (docs/deployment.md, "The Harness Monitor",
+# says how to cover 90 days). Sending a window twice stores each pull request
+# once.
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: First day to send, YYYY-MM-DD
+        required: true
+      to:
+        description: Last day to send, YYYY-MM-DD (empty for today)
+        required: false
+
+# Two backfills share the API's hourly allowance; one at a time.
+concurrency:
+  group: selection-backfill
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  send:
+    name: Send
+    # The write key only ever reaches `main`'s own code.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      issues: read
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
+      HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+      # Passed through the environment, never into the script, so an input is only ever data.
+      FROM: ${{ inputs.from }}
+      TO: ${{ inputs.to }}
+    steps:
+      - name: Check the key and the address are set
+        id: ready
+        run: |
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            echo "::notice title=Nothing sent::Set the secret HARNESS_WRITE_KEY and the variable HARNESS_MONITOR_URL first (docs/deployment.md, \"The Harness Monitor\")."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.ready == 'true'
+      # Node only, no install: the tool reads the API with the standard library.
+      - uses: actions/setup-node@v4
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          node-version-file: package.json
+      # About twelve requests a pull request against the hour's 1,000 that every workflow shares:
+      # 70 pull requests leaves room for the night's own job.
+      - name: Send the window
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -- --send --from "$FROM" --max-pulls 70
+          if [ -n "$TO" ]; then set -- "$@" --to "$TO"; fi
+          node tools/selection/src/cli.js "$@"

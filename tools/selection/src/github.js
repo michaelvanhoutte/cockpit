@@ -153,7 +153,7 @@ export async function pool(items, limit, worker, abort) {
  *
  * @returns {Promise<{ pulls: Pull[], truncated: boolean, reachedWindowEdge: boolean, oldestSeen: Date|null }>}
  */
-export async function listMergedPulls({ repo, base = 'main', since, maxPulls, ...ctx }) {
+export async function listMergedPulls({ repo, base = 'main', since, until = null, maxPulls, ...ctx }) {
   const pulls = [];
   const updates = [];
   let page = 1;
@@ -175,7 +175,8 @@ export async function listMergedPulls({ repo, base = 'main', since, maxPulls, ..
         break;
       }
       oldestSeen = updatedAt;
-      if (!raw.merged_at || new Date(raw.merged_at) < since) continue;
+      // An older window (the Harness Monitor's backfill) leaves out what merged at or after its end; those cost nothing and do not count against `maxPulls`.
+      if (!raw.merged_at || new Date(raw.merged_at) < since || (until && new Date(raw.merged_at) >= until)) continue;
       if (pulls.length >= maxPulls) {
         truncated = true;
         break;
@@ -334,14 +335,14 @@ async function readPull({ repo, pull, ...ctx }) {
  *
  * @returns {Promise<{ pulls: PullData[], truncated: boolean, reachedWindowEdge: boolean, coveredSince: Date }>}
  */
-export async function collect({ repo, branch = 'main', since, now = new Date(), maxPulls = 150, concurrency = 4, token, fetchImpl = globalThis.fetch, retries, retryDelayMs }) {
+export async function collect({ repo, branch = 'main', since, until = null, now = new Date(), maxPulls = 150, concurrency = 4, token, fetchImpl = globalThis.fetch, retries, retryDelayMs }) {
   if (typeof fetchImpl !== 'function') {
     throw new GitHubError('No fetch available; pass fetchImpl.', { reason: 'no-fetch' });
   }
 
   const abort = { stopped: false };
   const ctx = { token, fetchImpl, retries, retryDelayMs, abort };
-  const listing = await listMergedPulls({ repo, base: branch, since, maxPulls, ...ctx });
+  const listing = await listMergedPulls({ repo, base: branch, since, until, maxPulls, ...ctx });
 
   const pulls = await pool(
     listing.pulls,
