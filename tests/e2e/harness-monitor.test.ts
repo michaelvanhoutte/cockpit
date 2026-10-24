@@ -517,6 +517,75 @@ test.describe('Harness Monitor', () => {
     expect(await noSidewaysScroll()).toBe(true);
   });
 
+  test("Tests opens from the top bar, drills through the tree, opens a count's tests above it with the filters as they were, the filters sit in one row on a desk, and a phone scrolls the tree inside its panel", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    const rule = (concept: string, statement: string, level: string, file: string, line: number) => ({ concept, statement, level, file, line, cases: [], todoCases: [] });
+    const area = (key: string, rules: ReturnType<typeof rule>[], children: unknown[] = []) => ({
+      key,
+      label: key,
+      counts: { L1: rules.filter((r) => r.level === 'L1').length, F3: rules.filter((r) => r.level === 'F3').length, Contract: null },
+      rules,
+      filesNothingRuns: [],
+      branchesNothingTakes: null,
+      children,
+    });
+    const tree = {
+      commit: 'abc1234',
+      commitUrl: null,
+      generatedAt: '2026-10-24T03:00:00.000Z',
+      coverageAvailable: false,
+      availableLevels: { L3: false },
+      warnings: [],
+      tree: [
+        area('Workspaces', [], [
+          area('Inbox', [rule('Inbox', 'A dismissed item leaves the lists', 'L1', 'apps/api/tests/unit/triage.test.ts', 10), rule('Inbox', 'Capturing works in a browser', 'F3', 'tests/e2e/capture.test.ts', 10)], [
+            area('Capture', [rule('Capture', 'A captured thought lands in the inbox', 'F3', 'tests/e2e/capture.test.ts', 40), rule('Capture', 'A capture made offline arrives once', 'F3', 'tests/e2e/capture.test.ts', 70)]),
+          ]),
+        ]),
+        area('Offline', [rule('Offline', 'A change replayed after reconnecting is applied once', 'L1', 'apps/web/tests/unit/offline.test.ts', 5)]),
+      ],
+    };
+    expect((await api.post(`${monitor}/__e2e/seed-tests`, { data: { tree } })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    const noSidewaysScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    // From the costs page, the top bar's own tab opens it on Concept area, with the tiles an overview has.
+    await page.goto(`${monitor}/`);
+    await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Tests', exact: true }).click();
+    const band = tabOn(page);
+    await expect(page.getByRole('navigation', { name: 'Group by' }).getByRole('link')).toHaveText(['Concept area', 'Testing level', 'Package', 'Gaps']);
+    await expect(band('Concept area')).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('.tile')).toHaveCount(5);
+
+    // The filters share one row on a desk; the page never scrolls sideways, and the tree scrolls inside its panel on a phone.
+    const tops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(5);
+    if (!onAPhone) expect(new Set(tops).size).toBe(1);
+    expect(await noSidewaysScroll()).toBe(true);
+    if (onAPhone) expect(await page.getByRole('region', { name: 'Every area' }).locator('.table').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+
+    // Open Inbox: the tree starts at it, and the breadcrumb names the area above.
+    await page.getByRole('region', { name: 'Every area' }).getByRole('link', { name: 'Inbox', exact: true }).click();
+    await expect(page).toHaveURL(/[?&]node=Inbox(&|$)/);
+    await expect(page.getByRole('navigation', { name: 'Area' })).toHaveText('All areas›Workspaces›Inbox');
+    const drilled = page.getByRole('region', { name: 'Inbox, area by area' });
+
+    // Its F3 count of 3 opens those 3 rules above the tree, under the areas that own them; Level is as it was.
+    await drilled.getByRole('link', { name: '1 (3)' }).click();
+    await expect(page).toHaveURL(/[?&]tests=Inbox%7EF3%7E(&|#|$)/);
+    const opened = page.getByRole('region', { name: /^Tests: 3 rules in Inbox and inside it · F3/ });
+    await expect(opened.getByRole('row')).toHaveCount(1 + 2 + 3);
+    await expect(opened).toContainText('Workspaces › Inbox › Capture');
+    await expect(page.getByLabel('Level', { exact: true })).toHaveValue('');
+    expect((await opened.boundingBox())!.y).toBeLessThan((await drilled.boundingBox())!.y);
+    expect(await noSidewaysScroll()).toBe(true);
+
+    // Another tab has no tiles.
+    await band('Testing level').click();
+    await expect(page.locator('.tile')).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'By testing level' })).toBeVisible();
+  });
+
   test('the page is drawn in Inter, which the Monitor serves itself', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);

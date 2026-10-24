@@ -55,7 +55,7 @@ describe('Harness Monitor', () => {
       const html = await thePage();
 
       expect(html).toContain('<a href="/cycle-time" aria-current="page">Cycle time</a>');
-      expect([...html.matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual(['>Claude Code costs</a>', '>Cockpit&rsquo;s Claude calls</a>', '>Cycle time</a>', '>Test selection</a>', '>CI stability</a>']);
+      expect([...html.matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual(['>Claude Code costs</a>', '>Cockpit&rsquo;s Claude calls</a>', '>Cycle time</a>', '>Test selection</a>', '>Tests</a>', '>CI stability</a>']);
       expect(html.match(/<h1\b/g) ?? []).toHaveLength(0);
     });
 

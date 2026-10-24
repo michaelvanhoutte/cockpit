@@ -27,6 +27,7 @@ export const PAGES = [
   { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls' },
   { name: 'cycle-time', href: '/cycle-time', label: 'Cycle time' },
   { name: 'selection', href: '/selection', label: 'Test selection' },
+  { name: 'tests', href: '/tests', label: 'Tests' },
   { name: 'stability', href: '/stability', label: 'CI stability' },
 ] as const;
 export type PageName = (typeof PAGES)[number]['name'];

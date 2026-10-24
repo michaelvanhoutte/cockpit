@@ -135,3 +135,16 @@ export async function currentTree(db: D1Database, snapshot: Snapshot): Promise<{
     .first<{ commit_sha: string; document: unknown }>();
   return row ? { commit: row.commit_sha, document: bytesOf(row.document) } : null;
 }
+
+/** One area's gzipped source lines in the current snapshot, or null when none is current or it holds none for the area. */
+export async function currentAreaLines(db: D1Database, snapshot: Snapshot, area: string): Promise<Uint8Array | null> {
+  const row = await db
+    .prepare(
+      `SELECT l.document AS document FROM tests_current c
+       JOIN tests_area_lines l ON l.snapshot = c.snapshot AND l.commit_sha = c.commit_sha
+       WHERE c.snapshot = ?1 AND l.area = ?2`,
+    )
+    .bind(snapshot, area)
+    .first<{ document: unknown }>();
+  return row ? bytesOf(row.document) : null;
+}

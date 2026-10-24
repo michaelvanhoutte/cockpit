@@ -69,6 +69,7 @@ describe('Harness Monitor', () => {
         '>Cockpit&rsquo;s Claude calls</a>',
         '>Cycle time</a>',
         '>Test selection</a>',
+        '>Tests</a>',
         '>CI stability</a>',
       ]);
       expect([...html.matchAll(/<nav class="band"[^>]*>.*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual([
