@@ -15,11 +15,16 @@ import { namedTheSame } from '../domain/names.js';
 export const CREATE_ITEM = 'create_item';
 
 /**
- * The server's whole instruction to the model, one line, as the issue sets it:
+ * The server's whole instruction to the model, a line per tool that needs one:
  * the model decides when to call, and this is the one hint it needs.
+ * `find_items` is said both for a question about what is in Cockpit and for
+ * the check before capturing something already there ("Find items in Cockpit
+ * by text and condition, over MCP", issue 1242).
  */
-export const SERVER_INSTRUCTIONS =
-  'Use create_item when the user asks to capture, note or remember something in Cockpit.';
+export const SERVER_INSTRUCTIONS = [
+  'Use create_item when the user asks to capture, note or remember something in Cockpit.',
+  'Use find_items when the user asks what is in Cockpit, and before capturing something that may already be there.',
+].join(' ');
 
 
 /** The tool as `tools/list` answers it: a JSON Schema the client shows the model. */

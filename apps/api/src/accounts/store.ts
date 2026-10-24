@@ -13,7 +13,14 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { ACCOUNT_WIDE, panelTakesItems, uuidv7, type RememberedSentenceList } from '@cockpit/shared';
+import {
+  ACCOUNT_WIDE,
+  itemIdsWithRun,
+  panelTakesItems,
+  placesFiledOn,
+  uuidv7,
+  type RememberedSentenceList,
+} from '@cockpit/shared';
 import { derivedUuid } from '../domain/derived-uuid.js';
 import { occurrenceDueAt, type SeriesRow } from '../domain/series.js';
 import { nextOccurrenceDueAt, occurrenceNotBroughtBack } from './occurrences.js';
@@ -43,7 +50,9 @@ import {
   SENTENCES_REMEMBERED_PER_MINUTE,
   CODE_WINDOW_MS,
   admittedCalls,
+  admittedFind,
   countedCalls,
+  type FindCalls,
 } from './call-window.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
@@ -137,6 +146,7 @@ import {
   judgeableItemsForAccount,
   givenDueDateOf,
   listAssociationsForWorkspace,
+  attachmentsOfItems,
   listAttachmentsInWorkspace,
   listSeriesInWorkspace,
   listRunningSeries,
@@ -145,11 +155,13 @@ import {
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
   meaningsOfItems,
+  listItemsToSearch,
   listOpenItems,
   listPanelsInWorkspace,
   listRecurringItems,
   listWorkspaces,
   meaningsToCompareWith,
+  placesOfItems,
   queueRewriteAttempt,
   recentlyCapturedUnfiled,
   recentCapturedTimeZones,
@@ -165,6 +177,8 @@ import {
   type UnfiledCandidate,
 } from './repo.js';
 import { couldStillBeActedOn, pairOf, saidAgainBy } from '../domain/duplicates.js';
+import { foundItem, pageOfMatches, type FindAnswer, type ItemSearch } from '../domain/item-search.js';
+import { distinctPanelNames, itemsOnPanelsNamed, panelsNamed } from '../domain/panel-search.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
@@ -232,6 +246,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   #agentsRetired = false;
   /** The calls each app's grant was admitted for, newest last - see `appCaptureArrived`. */
   #appCaptures = new Map<string, number[]>();
+  /** The `find_items` calls each app's grant was admitted for - see `appFindArrived`. */
+  #appFinds = new Map<string, FindCalls>();
   /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
   #transcriptions: number[] = [];
   /** The offers to remember and the Remember presses this account made, refused ones included, newest last - see `sentenceCallArrived`. */
@@ -850,6 +866,88 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     if (!calls) return 'too-many';
     this.#appCaptures.set(grantId, calls);
     return 'admitted';
+  }
+
+  /**
+   * An app connected to this account calling `find_items` ("Find items in
+   * Cockpit by text and condition, over MCP", issue 1242): admitted, or refused
+   * as one of too many from that one grant in a minute or in a UTC day.
+   *
+   * **Counted here, in memory, apart from capture's count**, for the reason
+   * `appCaptureArrived` is counted here: a grant acts for one person and so for
+   * one account, and a count lost to the object being evicted starts the
+   * windows over, which is all it costs.
+   */
+  appFindArrived(grantId: string, at: string): 'admitted' | 'too-many-this-minute' | 'too-many-today' {
+    const { answer, calls } = admittedFind(this.#appFinds.get(grantId), Date.parse(at));
+    this.#appFinds.set(grantId, calls);
+    return answer;
+  }
+
+  /**
+   * One page of the Items matching a connected app's `find_items` ("Find items
+   * in Cockpit by text and condition, over MCP", issue 1242).
+   *
+   * **Where each Item is filed, and its files' names, are read for the page's
+   * Items only**, after the page is cut ("Give attachment links with found
+   * items, over MCP", issue 1244), so what a search costs is the account's Items
+   * (`listItemsToSearch`) and not their filings or files.
+   *
+   * **Naming a Panel reads the Panels and filings of the Workspaces in scope,
+   * and only then** ("Find items on a panel, over MCP", issue 1243): the Items
+   * are those of the Workspaces having a Panel of that name (`itemsOnPanelsNamed`),
+   * and where no Workspace in scope has one the answer is the names there are.
+   */
+  findItems(accountName: string, search: ItemSearch): Answer<FindAnswer> {
+    return this.#answer(accountName, (db) => {
+      const panelName = search.panel;
+      let candidates: Item[];
+      if (panelName === null) {
+        candidates = listItemsToSearch(db, accountName, search.workspaceId, search.includeDone);
+      } else {
+        // A Panel is named, so the Panels and filings of the Workspaces in scope
+        // are read now and not before ("Find items on a panel, over MCP", issue 1243).
+        const inScope = listWorkspaces(db, accountName).filter(
+          (workspace) => search.workspaceId === null || workspace.id === search.workspaceId,
+        );
+        const panelsOf = inScope.map((workspace) => ({
+          workspaceId: workspace.id,
+          panels: listPanelsInWorkspace(db, accountName, workspace.id),
+        }));
+        const withTheName = panelsOf.filter(({ panels }) => panelsNamed(panels, panelName).length > 0);
+        if (withTheName.length === 0) {
+          return { noSuchPanel: true as const, panelNames: distinctPanelNames(panelsOf.flatMap(({ panels }) => panels)) };
+        }
+        // An Item belonging to no Workspace yet is in every one's list but filed on no Panel.
+        const found = new Map<string, Item>();
+        for (const { workspaceId, panels } of withTheName) {
+          const board = {
+            // Open Items only: a finished one is on no Panel, so its row is not worth reading.
+            items: listItemsToSearch(db, accountName, workspaceId, false),
+            filings: listFilingsInWorkspace(db, accountName, workspaceId),
+            panels,
+            dashboards: listDashboards(db, accountName, workspaceId),
+            withRun: itemIdsWithRun(listOpenAgentRuns(db, accountName, workspaceId)),
+          };
+          for (const item of itemsOnPanelsNamed(board, panelName, search.today)) found.set(item.id, item);
+        }
+        candidates = [...found.values()];
+      }
+      const page = pageOfMatches(candidates, search);
+      const pageIds = page.items.map((item) => item.id);
+      const where = placesOfItems(db, accountName, pageIds);
+      const files = attachmentsOfItems(db, accountName, pageIds);
+      return {
+        items: page.items.map((item) =>
+          foundItem(
+            item,
+            placesFiledOn(item, where.filings, where.panels, where.dashboards),
+            files.filter((file) => file.itemId === item.id).map(({ id, filename }) => ({ id, filename })),
+          ),
+        ),
+        next: page.next,
+      };
+    });
   }
 
   /**

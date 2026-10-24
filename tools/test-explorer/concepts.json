@@ -58,6 +58,8 @@
         "apps/api/src/mcp/resources.ts",
         "apps/api/src/mcp/panel-reads.ts",
         "apps/api/src/mcp/create-item.ts",
+        "apps/api/src/mcp/find-items.ts",
+        "apps/api/src/domain/item-search.ts",
         "apps/api/src/mcp/connected-apps.ts",
         "apps/web/src/components/ManageConnectedApps.tsx",
         "apps/web/src/api/connectedApps.ts",

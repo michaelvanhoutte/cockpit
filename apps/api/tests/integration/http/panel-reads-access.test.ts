@@ -338,14 +338,14 @@ describe('MCP connections', () => {
         situation: 'capturing, naming MCP, as today',
         asks: MCP_RESOURCE,
         redirect: CALLBACK,
-        says: ['Allow Cockpit widget to create items in your Cockpit?', 'see the names of your workspaces and types'],
+        says: ['Allow Cockpit widget to create and read items in your Cockpit?', 'see the names of your workspaces and types'],
         doesNotSay: ['read your Panels'],
       },
       {
         situation: 'nothing named, as Claude asks',
         asks: null,
         redirect: CALLBACK,
-        says: ['Allow Cockpit widget to create items in your Cockpit?', 'see the names of your workspaces and types'],
+        says: ['Allow Cockpit widget to create and read items in your Cockpit?', 'see the names of your workspaces and types'],
         doesNotSay: ['read your Panels'],
       },
     ])('says $situation in its own words', async ({ asks, redirect, says, doesNotSay }) => {

@@ -31,6 +31,7 @@ import type { AccountSnapshot, Answer } from './answer.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { FindAnswer, ItemSearch } from '../domain/item-search.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
@@ -324,6 +325,14 @@ export interface Account {
   ): Promise<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>;
   /** An app connected to this account calling `create_item` or `report_run`, or reading Panels (issue 1445), under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
+  /** An app connected to this account calling `find_items`, counted apart from capture's: 10 a minute and 500 a day per grant (issue 1242). */
+  appFindArrived(grantId: string, at: string): Promise<'admitted' | 'too-many-this-minute' | 'too-many-today'>;
+  /**
+   * One page of the Items a connected app's `find_items` matches, each with the
+   * Panels it is filed on (issue 1242). The account's own Items alone: every
+   * query filters on the account.
+   */
+  findItems(search: ItemSearch): Promise<FindAnswer>;
   /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
@@ -467,6 +476,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     sealedCredential: async (sourceAccountId) =>
       unwrap(await store.sealedCredential(accountName, sourceAccountId)),
     appCaptureArrived: async (grantId, at) => store.appCaptureArrived(grantId, at),
+    appFindArrived: async (grantId, at) => store.appFindArrived(grantId, at),
+    findItems: async (search) => unwrap(await store.findItems(accountName, search)),
     transcriptionArrived: async (at) => store.transcriptionArrived(at),
     sentenceCallArrived: async (kind, at) => store.sentenceCallArrived(kind, at),
     textedCodeAsked: async (connectorId, limit, at) => store.textedCodeAsked(connectorId, limit, at),

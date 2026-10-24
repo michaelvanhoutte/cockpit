@@ -11,6 +11,46 @@ export const CODE_WINDOW_MS = 3_600_000;
 export const APP_CAPTURES_PER_MINUTE = 60;
 
 /**
+ * How many `find_items` calls one grant is admitted for in a minute, and in a
+ * UTC day ("Find items in Cockpit by text and condition, over MCP", issue
+ * 1242): each reads the Items in scope, so the day's limit is what keeps one
+ * looping agent from spending the free plan's Durable Object row allowance,
+ * past which every account request answers 503.
+ */
+export const FINDS_PER_MINUTE = 10;
+export const FINDS_PER_DAY = 500;
+
+/** What is kept of one grant's `find_items` calls: those of the last minute, and how many today. */
+export interface FindCalls {
+  minute: number[];
+  /** The UTC day `today` counts, as `2026-10-19`. */
+  day: string;
+  today: number;
+}
+
+/**
+ * Whether a grant may find now, and the count to keep. **Only an admitted call
+ * is counted**: a refused one reads nothing, so it spends neither the day's
+ * allowance nor the minute's. The day is asked first, because waiting a minute
+ * does not help a grant whose day is spent.
+ *
+ * Kept apart from capture's count (`admittedCalls` over `APP_CAPTURES_PER_MINUTE`),
+ * so sixty captures in a minute leave a find answering.
+ */
+export function admittedFind(
+  earlier: FindCalls | undefined,
+  now: number,
+): { answer: 'admitted' | 'too-many-this-minute' | 'too-many-today'; calls: FindCalls } {
+  const day = new Date(now).toISOString().slice(0, 10);
+  const spentToday = earlier && earlier.day === day ? earlier.today : 0;
+  const minute = earlier?.minute ?? [];
+  if (spentToday >= FINDS_PER_DAY) return { answer: 'too-many-today', calls: { minute, day, today: spentToday } };
+  const admitted = admittedCalls(minute, now, FINDS_PER_MINUTE);
+  if (!admitted) return { answer: 'too-many-this-minute', calls: { minute, day, today: spentToday } };
+  return { answer: 'admitted', calls: { minute: admitted, day, today: spentToday + 1 } };
+}
+
+/**
  * How many transcriptions one account is held to in a minute, refused ones
  * included ("Hold each account to 20 transcriptions a minute", issue 1043): far
  * above one person's dictation, and a ceiling on what the public guest account
