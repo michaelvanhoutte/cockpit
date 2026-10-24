@@ -116,6 +116,29 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe("a send's local check kinds are all four or none, and add up to the local time", () => {
+    const parts = { 'code-review': 100_000, 'security-review': 50_000, test: 150_000, browser: 0 };
+
+    it('takes the four where they add up to the local time', () => {
+      const checked = checkPulls({ pulls: [pull(14, { localParts: parts })] });
+
+      expect(checked.ok && checked.pulls[0]!.localParts).toEqual(parts);
+    });
+
+    it.each([
+      { situation: 'one kind missing', over: { localParts: { ...parts, browser: undefined } }, error: 'Pull request 0 (#15): has no localParts.browser.' },
+      { situation: 'kinds that are not an object', over: { localParts: [1, 2, 3, 4] }, error: 'Pull request 0 (#15): has localParts that is not an object.' },
+      { situation: 'a kind that is not a whole number', over: { localParts: { ...parts, test: 149_999.5, browser: 0.5 } }, error: 'Pull request 0 (#15): has localParts.test 149999.5, which is not a whole number of milliseconds, zero or more.' },
+      {
+        situation: 'kinds on a pull request no check ran on, which has no local time',
+        over: { localParts: parts, rounds: [], waitingToMergeMs: null, ciMs: 0, codingMs: null, localMs: null },
+        error: 'Pull request 0 (#15): has localParts but no localMs for them to add up to.',
+      },
+    ])('refuses the send for $situation', ({ over, error }) => {
+      expect(refusal([pull(15, over)])).toBe(error);
+    });
+  });
+
   describe("a send's local reviews carry each kind's own figures, or none, never a half", () => {
     const kinds = { 'code-review': { count: 1, ms: 240_000 }, 'security-review': { count: 1, ms: 120_000 } };
 

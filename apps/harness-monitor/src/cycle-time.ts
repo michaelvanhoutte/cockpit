@@ -51,6 +51,12 @@ export interface LocalReviews extends Counted {
 export const REVIEW_KINDS = ['code-review', 'security-review'] as const;
 export type ReviewKind = (typeof REVIEW_KINDS)[number];
 
+/** The parts of the local time: code review, security review, test runs and the browser pass. */
+export const LOCAL_KINDS = [...REVIEW_KINDS, 'test', 'browser'] as const;
+export type LocalKind = (typeof LOCAL_KINDS)[number];
+/** Each part's milliseconds with every minute counted once, adding up to the local time; the tool decides which part a shared minute goes to. */
+export type LocalParts = Record<LocalKind, number>;
+
 export interface Cancelled {
   runs: number;
   ms: number;
@@ -77,6 +83,8 @@ export interface CyclePull {
   localReviews: LocalReviews | null;
   localTests: Counted | null;
   localBrowser: Counted | null;
+  /** Null from a job that does not send them, or where `localMs` is null: not split by kind, never zero. */
+  localParts: LocalParts | null;
   runnerMs: number;
   superseded: Cancelled;
   cancelled: Cancelled;
@@ -163,6 +171,27 @@ function reviewsOf(value: unknown): LocalReviews | null | string {
     byKind[kind] = own;
   }
   return { ...total, byKind };
+}
+
+/**
+ * The local time's parts, or null where none were sent. Parts are refused on a pull request with no
+ * session record or no local time, and wherever they do not add up to the local time to the millisecond.
+ */
+function partsOf(value: unknown, recorded: boolean, localMs: number | null): LocalParts | null | string {
+  if (value === null || value === undefined) return null;
+  if (!isObject(value)) return 'has localParts that is not an object.';
+  if (!recorded) return 'has localParts but no session record.';
+  if (localMs === null) return 'has localParts but no localMs for them to add up to.';
+  const parts = {} as LocalParts;
+  for (const kind of LOCAL_KINDS) {
+    const ms = value[kind];
+    if (ms === undefined || ms === null) return `has no localParts.${kind}.`;
+    if (typeof ms !== 'number' || !Number.isSafeInteger(ms) || ms < 0) return `has localParts.${kind} ${JSON.stringify(ms)}, which is not a whole number of milliseconds, zero or more.`;
+    parts[kind] = ms;
+  }
+  const total = LOCAL_KINDS.reduce((sum, kind) => sum + parts[kind], 0);
+  if (total !== localMs) return `has localParts adding up to ${total} ms, not its localMs of ${localMs}.`;
+  return parts;
 }
 
 function cancelledOf(value: unknown, label: string): Cancelled | string {
@@ -286,6 +315,8 @@ function checkPull(raw: unknown): CyclePull | string {
   if (typeof localTests === 'string') return localTests;
   const localBrowser = counted(runs.browser, 'localRuns.browser');
   if (typeof localBrowser === 'string') return localBrowser;
+  const localParts = partsOf(raw.localParts, recorded, localMs);
+  if (typeof localParts === 'string') return localParts;
   const runnerMs = whole(raw, 'runnerMs');
   if (typeof runnerMs === 'string') return runnerMs;
   if (!isObject(raw.cancelled)) return 'has no cancelled.';
@@ -325,6 +356,7 @@ function checkPull(raw: unknown): CyclePull | string {
     localReviews,
     localTests,
     localBrowser,
+    localParts,
     runnerMs,
     superseded,
     cancelled,

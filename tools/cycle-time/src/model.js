@@ -607,11 +607,12 @@ function readRecord(body, firstCommit) {
 
   // A review is its start paired with the next end of the same kind; a second
   // start with no end between leaves the earlier one unpaired, and unpaired marks
-  // say nothing about how long a review took.
+  // say nothing about how long a review took. A review of a kind the session record does not
+  // know, written by hand, is left out, since the local time is split by the kinds it knows.
   const open = new Map();
   const reviews = [];
   for (const mark of marks) {
-    if (mark.phase === 'review-start') open.set(mark.kind, mark);
+    if (mark.phase === 'review-start' && REVIEW_KINDS.includes(mark.kind)) open.set(mark.kind, mark);
     else if (mark.phase === 'review-end' && open.has(mark.kind)) {
       const begun = open.get(mark.kind);
       open.delete(mark.kind);
@@ -712,6 +713,31 @@ function sliceRuns(runs, gaps) {
 /** The minutes that slices cover between them, where two that overlap count their shared minutes once. */
 function unionMs(slices) {
   return unionRanges(slices.map((slice) => ({ from: Date.parse(slice.at), to: Date.parse(slice.at) + slice.ms })));
+}
+
+/** The local kinds in the order a part of Local checks is named: each review kind, then test runs and the browser pass. */
+const LOCAL_KINDS = [...LOCAL_REVIEW_KINDS, ...LOCAL_RUN_KINDS];
+
+/**
+ * Each local kind's minutes with every minute counted once, so the four add up to the local time
+ * `unionMs` gives exactly. A minute two slices share goes to the one that ends last; of two ending together, to the one that started later, then to the kind
+ * later in `LOCAL_KINDS`, so the same slices always give the same parts. A kind with no slice is 0.
+ *
+ * @param {{ kind: string, at: string, ms: number }[]} slices the review and run slices, already cut to the gaps
+ */
+function localPartsOf(slices) {
+  const ranges = slices
+    .map((slice) => ({ kind: slice.kind, from: Date.parse(slice.at), to: Date.parse(slice.at) + slice.ms }))
+    .sort((a, b) => b.to - a.to || b.from - a.from || LOCAL_KINDS.indexOf(b.kind) - LOCAL_KINDS.indexOf(a.kind));
+  const parts = Object.fromEntries(LOCAL_KINDS.map((kind) => [kind, 0]));
+  const taken = [];
+  // The slice that ends last takes every minute it covers; each after it takes only what none before it took.
+  for (const range of ranges) {
+    const shared = taken.map((other) => ({ from: Math.max(other.from, range.from), to: Math.min(other.to, range.to) })).filter((overlap) => overlap.to > overlap.from);
+    parts[range.kind] += range.to - range.from - unionRanges(shared);
+    taken.push(range);
+  }
+  return parts;
 }
 
 /** The minutes that `{ from, to }` ranges cover between them, shared minutes once. */
@@ -827,6 +853,9 @@ export function pullModel(pull, trunk = 'main') {
     runSlices,
     // What the record marked of each, as `localReviews` is: `null` for a kind it has none of.
     localRuns: record.localRuns,
+    // The local time split by kind with each minute counted once, adding up to the local time; `null` where
+    // that time is (no session record, or no round to weigh it against), never zero.
+    localParts: balance ? localPartsOf([...reviewSlices, ...runSlices]) : null,
     // What each kind of check held this pull request's own rounds up for, the same
     // shape a window's `harness` is in — so the evolution chart can plot one pull
     // request's kinds the same way it reads a window's. `local` is the local review
@@ -1117,6 +1146,8 @@ export function monitorRows({ pulls, trunk = 'main' }) {
             }
           : null,
         localRuns: { test: pull.localRuns.test, browser: pull.localRuns.browser },
+        // `localMs` split by kind, each minute counted once, so the four add up to it; `null` where `localMs` is.
+        localParts: pull.localParts,
         runnerMs: pull.runnerMs,
         cancelled: pull.cancelled,
         rounds: pull.rounds.map((round) => ({

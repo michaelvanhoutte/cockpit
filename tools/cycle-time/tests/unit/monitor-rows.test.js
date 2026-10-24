@@ -167,6 +167,96 @@ describe('Cycle time', () => {
     });
   });
 
+  describe("a pull request's local check kinds, counted once, add up exactly to its local minutes, each shared minute going to the check that ends last", () => {
+    /** Code reviews, security reviews, test runs and browser passes as `[from, to]` minutes, before the one round at minutes 40 to 50. */
+    const withLocal = ({ codeReviews = [], securityReviews = [], tests = [], browser = [] }) => {
+      const review = (kind) => ([from, to]) => [{ at: at(from), phase: 'review-start', kind, level: 'high' }, { at: at(to), phase: 'review-end', kind, level: 'high' }];
+      const body = renderBlock([
+        { at: at(0), phase: 'start' },
+        ...codeReviews.flatMap(review('code-review')),
+        ...securityReviews.flatMap(review('security-review')),
+        ...browser.flatMap(([from, to]) => [{ at: at(from), phase: 'browser-start' }, { at: at(to), phase: 'browser-end' }]),
+        ...tests.map(([from, to]) => ({ run: 'test', scopes: ['api'], start: at(from), end: at(to) })),
+      ]);
+      const [row] = monitorRows({ pulls: [pull({ body, commits: [{ sha: 'a'.repeat(40), authoredAt: at(0), parents: 1, checks: [check('Test', 40, 50)] }] })] });
+      return row;
+    };
+    const inMinutes = (parts) => Object.fromEntries(Object.entries(parts).map(([kind, ms]) => [kind, ms / MIN]));
+
+    it.each([
+      {
+        situation: 'a code review and a test run overlapping by 10 minutes, the test run ending last',
+        local: { codeReviews: [[5, 25]], tests: [[15, 35]] },
+        parts: { 'code-review': 10, 'security-review': 0, test: 20, browser: 0 },
+      },
+      {
+        situation: 'a browser pass wholly inside a test run that ends later',
+        local: { tests: [[5, 30]], browser: [[10, 20]] },
+        parts: { 'code-review': 0, 'security-review': 0, test: 25, browser: 0 },
+      },
+      {
+        situation: 'a code review and a test run ending at the same moment, the code review starting later',
+        local: { codeReviews: [[10, 20]], tests: [[5, 20]] },
+        parts: { 'code-review': 10, 'security-review': 0, test: 5, browser: 0 },
+      },
+      {
+        situation: 'a security review and a browser pass over exactly the same minutes',
+        local: { securityReviews: [[10, 20]], browser: [[10, 20]] },
+        parts: { 'code-review': 0, 'security-review': 0, test: 0, browser: 10 },
+      },
+      {
+        situation: 'all four kinds, one after another with no overlap',
+        local: { codeReviews: [[1, 5]], securityReviews: [[6, 8]], tests: [[10, 20]], browser: [[25, 30]] },
+        parts: { 'code-review': 4, 'security-review': 2, test: 10, browser: 5 },
+      },
+      {
+        situation: 'a code review alone, the other kinds marked none of',
+        local: { codeReviews: [[5, 12]] },
+        parts: { 'code-review': 7, 'security-review': 0, test: 0, browser: 0 },
+      },
+    ])('$situation', ({ local, parts }) => {
+      const row = withLocal(local);
+
+      expect(inMinutes(row.localParts)).toEqual(parts);
+      expect(Object.values(row.localParts).reduce((total, ms) => total + ms, 0)).toBe(row.localMs);
+    });
+
+    it('gives the shared minutes of two checks ending together to the same one whichever was marked first', () => {
+      const one = withLocal({ codeReviews: [[10, 20]], securityReviews: [[10, 20]] });
+      const marks = renderBlock([
+        { at: at(0), phase: 'start' },
+        { at: at(10), phase: 'review-start', kind: 'security-review', level: 'high' },
+        { at: at(10), phase: 'review-start', kind: 'code-review', level: 'high' },
+        { at: at(20), phase: 'review-end', kind: 'security-review', level: 'high' },
+        { at: at(20), phase: 'review-end', kind: 'code-review', level: 'high' },
+      ]);
+      const [other] = monitorRows({ pulls: [pull({ body: marks, commits: [{ sha: 'a'.repeat(40), authoredAt: at(0), parents: 1, checks: [check('Test', 40, 50)] }] })] });
+
+      expect(inMinutes(one.localParts)).toEqual({ 'code-review': 0, 'security-review': 10, test: 0, browser: 0 });
+      expect(other.localParts).toEqual(one.localParts);
+    });
+
+    it('leaves a review of a kind the session record does not know out of the local time, so the parts still add up to it', () => {
+      const body = renderBlock([
+        { at: at(0), phase: 'start' },
+        { at: at(5), phase: 'review-start', kind: 'design-review', level: 'high' },
+        { at: at(15), phase: 'review-end', kind: 'design-review', level: 'high' },
+        { at: at(20), phase: 'review-start', kind: 'code-review', level: 'high' },
+        { at: at(25), phase: 'review-end', kind: 'code-review', level: 'high' },
+      ]);
+      const [row] = monitorRows({ pulls: [pull({ body, commits: [{ sha: 'a'.repeat(40), authoredAt: at(0), parents: 1, checks: [check('Test', 40, 50)] }] })] });
+
+      expect(inMinutes(row.localParts)).toEqual({ 'code-review': 5, 'security-review': 0, test: 0, browser: 0 });
+      expect(row.localMs).toBe(5 * MIN);
+    });
+
+    it('sends no parts, not zeroes, for a pull request with no session record', () => {
+      const [row] = monitorRows({ pulls: [pull({ body: '', commits: [flukyCommit] })] });
+
+      expect(row.localParts).toBeNull();
+    });
+  });
+
   describe('a pull request closed without merging is not sent', () => {
     it('leaves it out', () => {
       expect(monitorRows({ pulls: [pull({ mergedAt: null })] })).toEqual([]);

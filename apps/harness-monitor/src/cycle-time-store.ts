@@ -1,6 +1,6 @@
 import { addDays, belgianDay, startOfDay } from './belgium';
 import { PERIODS, type Period } from './costs';
-import type { CyclePull } from './cycle-time';
+import type { CyclePull, LocalParts } from './cycle-time';
 
 /** The windows each answer carries, in days, the shortest first: every one no longer than the period, and all of it for all time. 14 is the one `harness-cost-review` reads. */
 const WINDOW_DAYS = [7, 14, 30, 90] as const;
@@ -19,6 +19,7 @@ const PULL_COLUMNS = [
   'pull_number', 'title', 'url', 'merged_at', 'base', 'head', 'landing', 'additions', 'deletions', 'changed_files', 'commits', 'main_merges',
   'started_at', 'start_from', 'recorded', 'coding_ms', 'local_ms', 'ci_ms', 'waiting_to_merge_ms', 'away_ms', 'total_ms',
   'review_count', 'review_ms', 'code_review_count', 'code_review_ms', 'security_review_count', 'security_review_ms', 'test_runs', 'test_ms', 'browser_runs', 'browser_ms',
+  'local_code_review_ms', 'local_security_review_ms', 'local_test_ms', 'local_browser_ms',
   'runner_ms', 'superseded_runs', 'superseded_ms', 'cancelled_runs', 'cancelled_ms', 'received_at',
 ] as const;
 const ROUND_COLUMNS = ['pull_number', 'round_index', 'sha', 'pushed_at', 'ended_at', 'ms', 'red', 'commits', 'queue_not_recorded'] as const;
@@ -54,6 +55,8 @@ export async function storePulls(db: D1Database, pulls: CyclePull[], now = Date.
     security_review_count: p.localReviews?.byKind?.['security-review'].count ?? null, security_review_ms: p.localReviews?.byKind?.['security-review'].ms ?? null,
     test_runs: p.localTests?.count ?? null, test_ms: p.localTests?.ms ?? null,
     browser_runs: p.localBrowser?.count ?? null, browser_ms: p.localBrowser?.ms ?? null,
+    local_code_review_ms: p.localParts?.['code-review'] ?? null, local_security_review_ms: p.localParts?.['security-review'] ?? null,
+    local_test_ms: p.localParts?.test ?? null, local_browser_ms: p.localParts?.browser ?? null,
     runner_ms: p.runnerMs, superseded_runs: p.superseded.runs, superseded_ms: p.superseded.ms, cancelled_runs: p.cancelled.runs, cancelled_ms: p.cancelled.ms,
     received_at: now,
   }));
@@ -148,6 +151,10 @@ interface PullRow {
   test_ms: number | null;
   browser_runs: number | null;
   browser_ms: number | null;
+  local_code_review_ms: number | null;
+  local_security_review_ms: number | null;
+  local_test_ms: number | null;
+  local_browser_ms: number | null;
   runner_ms: number;
   superseded_runs: number;
   superseded_ms: number;
@@ -229,8 +236,11 @@ export interface CycleTimePull {
   size: { additions: number; deletions: number; files: number; commits: number; mainMerges: number };
   start: { at: string; from: string };
   recorded: boolean;
-  /** Writing against waiting: `codingMs` and `localMs` are null where nobody wrote the time down, which is not zero. */
-  time: { codingMs: number | null; localMs: number | null; ciMs: number; waitingToMergeMs: number | null; awayMs: number; totalMs: number };
+  /**
+   * Writing against waiting: `codingMs` and `localMs` are null where nobody wrote the time down, which is not zero.
+   * `localParts` is `localMs` by kind, each minute counted once so they add up to it; null for a row stored without them, which is not split by kind.
+   */
+  time: { codingMs: number | null; localMs: number | null; localParts: LocalParts | null; ciMs: number; waitingToMergeMs: number | null; awayMs: number; totalMs: number };
   /** Null where the time is not recorded or no check ran; `ratio` is null where there was no writing to weigh against. */
   balance: { codingMs: number; harnessMs: number; rounds: number; ratio: number | null } | null;
   /** Combined, and by kind where the row was stored with them; `byKind` is null for one stored without, which is not recorded. */
@@ -323,6 +333,13 @@ function assemble(pulls: PullRow[], rounds: RoundRow[], checks: CheckRow[], fail
   }));
 }
 
+/** The four parts only where all four are stored: a row stored before them, or with some of them, is not split by kind. */
+function localPartsOf(p: PullRow): LocalParts | null {
+  const { local_code_review_ms: codeReview, local_security_review_ms: securityReview, local_test_ms: test, local_browser_ms: browser } = p;
+  if (codeReview === null || securityReview === null || test === null || browser === null) return null;
+  return { 'code-review': codeReview, 'security-review': securityReview, test, browser };
+}
+
 function pullAnswer({ pull: p, rounds }: Stored): CycleTimePull {
   const harnessMs = p.local_ms === null ? null : p.ci_ms + p.local_ms;
   return {
@@ -336,7 +353,7 @@ function pullAnswer({ pull: p, rounds }: Stored): CycleTimePull {
     size: { additions: p.additions, deletions: p.deletions, files: p.changed_files, commits: p.commits, mainMerges: p.main_merges },
     start: { at: iso(p.started_at), from: p.start_from },
     recorded: p.recorded === 1,
-    time: { codingMs: p.coding_ms, localMs: p.local_ms, ciMs: p.ci_ms, waitingToMergeMs: p.waiting_to_merge_ms, awayMs: p.away_ms, totalMs: p.total_ms },
+    time: { codingMs: p.coding_ms, localMs: p.local_ms, localParts: localPartsOf(p), ciMs: p.ci_ms, waitingToMergeMs: p.waiting_to_merge_ms, awayMs: p.away_ms, totalMs: p.total_ms },
     balance:
       p.coding_ms === null || harnessMs === null
         ? null
