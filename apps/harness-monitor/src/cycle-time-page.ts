@@ -6,6 +6,7 @@ import { BLUE, GREY, RED, slot, VIOLET } from './palette';
 import { bandTabs, outLink, reportPage, section, tile } from './report';
 import {
   buckets,
+  CHECKS,
   checkRows,
   costOf,
   cycleTimeAddress,
@@ -22,53 +23,36 @@ import {
   PERIODS,
   plural,
   quantile,
+  outline,
+  PHASES,
   redRounds,
-  seriesOf,
-  SERIES,
   SIZES,
   sizeOf,
-  SPLIT_LABELS,
-  SPLITS,
-  splitTotals,
   startToMerge,
   sum,
-  TOTAL_LABELS,
-  totalOf,
   values,
   type CycleTimeQuery,
+  type OutlineRow,
+  type PhaseKey,
   type Pull,
-  type Split,
 } from './cycle-time-report';
 
 /**
- * The colour of each split's series (src/palette.ts), in stacking order: the
- * slots in turn, and grey for the series marked other, which stacks last. The
- * series beside the grey takes blue, a slot the grey clears.
+ * The colour of each phase (src/palette.ts), in stacking order: the slots in
+ * turn, blue beside the grey Away, which stacks last. A part of a phase is
+ * drawn in its phase's colour, and grey where it is not one of the named ones.
  */
-const COLOURS: Record<Split, Record<string, string>> = {
-  phase: { writing: slot(1), local: slot(2), ci: slot(3), waiting: BLUE, away: GREY },
-  harness: { ci: slot(1), 'code-review': slot(2), 'security-review': slot(3), test: slot(4), browser: BLUE, reviews: GREY },
-  check: { 'E2E (F3)': slot(1), Test: slot(2), Checks: slot(3), 'Test Explorer': slot(4), 'Contract tests': BLUE, other: GREY },
-};
+const COLOUR_OF_PHASE: Record<PhaseKey, string> = { writing: slot(1), local: slot(2), ci: slot(3), waiting: BLUE, away: GREY };
+const COLOURED = PHASES.map((s) => ({ ...s, colour: COLOUR_OF_PHASE[s.key] }));
+const colourOfPhase = (key: PhaseKey) => COLOUR_OF_PHASE[key];
 
-/** Each split's series with the colour it is drawn in; a series added without one fails the page loudly, rather than drawing in no colour. */
-const COLOURED = Object.fromEntries(
-  SPLITS.map((split) => [
-    split,
-    SERIES[split].map((s) => {
-      const colour = COLOURS[split][s.key];
-      if (colour === undefined) throw new Error(`The ${split} split's ${s.key} series has no colour`);
-      return { ...s, colour };
-    }),
-  ]),
-) as Record<Split, { key: string; label: string; colour: string }[]>;
+/** The Check tab's colour for each check, in the order CI runs them (the slots in turn, blue beside the grey), and grey for any other. */
+const CHECK_COLOURS = [slot(1), slot(2), slot(3), slot(4), BLUE];
+const colourOfCheck = (name: string) => CHECK_COLOURS[CHECKS.indexOf(name)] ?? GREY;
 
-const unrecordedNote = (n: number, split: Split) =>
-  n === 0
-    ? ''
-    : ` ${plural(n, 'pull request')} here ${n === 1 ? 'carries' : 'carry'} no session record: ${
-        split === 'phase' ? `${n === 1 ? 'its' : 'their'} writing starts at the first commit and ${n === 1 ? 'its' : 'their'}` : n === 1 ? 'its' : 'their'
-      } local checks are not recorded, which is not zero.`;
+const unrecordedNote = (n: number) =>
+  n === 0 ? '' : ` ${plural(n, 'pull request')} here ${n === 1 ? 'carries' : 'carry'} no session record: ${n === 1 ? 'its' : 'their'} writing starts at the first commit and ${n === 1 ? 'its' : 'their'} local checks are not recorded, which is not zero.`;
+const unsplitNote = (n: number) => (n === 0 ? '' : ` ${plural(n, 'pull request')} here ${n === 1 ? 'was' : 'were'} stored without the kinds of local check, so ${n === 1 ? 'its' : 'their'} local minutes are drawn as Not split by kind.`);
 
 /** The cycle time page: the same pull requests whatever the tab, narrowed by the filters, with the tiles and overview panels only on the first. */
 export function renderCycleTime(q: CycleTimeQuery, view: CycleTimeView, repository: string | undefined, now: number): string {
@@ -76,8 +60,6 @@ export function renderCycleTime(q: CycleTimeQuery, view: CycleTimeView, reposito
   const { list, previous } = filtered(view.pulls, q, now);
   const cost = (p: Pull) => costOf(view.costs, p);
   const issueOf = (p: Pull) => view.costs.get(p.number)?.issue ?? null;
-  /** A split's series in colour, as far as this list draws them. */
-  const drawn = (split: Split) => COLOURED[split].filter((c) => seriesOf(list, split).some((s) => s.key === c.key));
   /** A pull request's Sessions page exists only for one the Monitor has a branch link for; any other would be nothing found. */
   const sessions = (number: number) => view.costs.has(number);
   const sessionsLink = (number: number, text: string) => (sessions(number) ? `<a href="/pr/${number}">${text}</a>` : '');
@@ -105,29 +87,25 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
 </div>`;
   }
 
-  /** Where the time went: one bar over the list, cut by the split. */
+  /** One row of the outline: a name, a bar on the start-to-merge scale (a part's inside its phase's band), its minutes and its share. */
+  function outlineRow(r: OutlineRow): string {
+    const colour = r.other ? GREY : colourOfPhase(r.phase);
+    const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
+    const band = r.stretch ? `<div class="band" style="left:${pct(r.stretch.left)};width:${pct(r.stretch.width)}"></div>` : '';
+    return `<li class="o-row ${r.part ? 'o-pt' : 'o-ph'}"><span class="nm">${esc(r.label)}</span><div class="tr">${band}<div class="b" style="left:${pct(r.left)};width:${pct(r.width)};background:${colour}" title="${esc(r.label)} ${hm(r.ms)}"></div></div><span class="am">${hm(r.ms)}</span><span class="sh">${Math.round(r.share * 100)}%</span></li>`;
+  }
+
+  /** Where the time went: every phase on one start-to-merge scale, with Local checks and CI rounds opened into their parts. */
   function where(): string {
-    const series = drawn(q.split);
-    const { byKey, all, union } = splitTotals(list, q.split);
-    const shown = series.filter((s) => (byKey.get(s.key) ?? 0) > 0);
-    const bar = shown.map((s) => `<div style="flex:${byKey.get(s.key)};background:${s.colour}" title="${esc(s.label)} ${hm(byKey.get(s.key)!)}"></div>`).join('');
-    const legend = shown
-      .map((s) => `<li><i style="background:${s.colour}"></i><span class="name">${esc(s.label)}</span><span class="amount">${hm(byKey.get(s.key)!)}</span><span class="share">${all ? Math.round((byKey.get(s.key)! / all) * 100) : 0}%</span></li>`)
-      .join('');
-    const noRecord = unrecordedNote(list.filter((p) => !p.balance).length, q.split);
-    const notes: Record<Split, string> = {
-      phase: `Start to merge, cut into its parts. Writing is the time before the first push and the fixing between rounds, less local checks; local checks are the session&rsquo;s own reviews, test runs and browser pass; a CI round runs from a push to its last check finishing. Time before the session started is not measured.${noRecord}`,
-      harness: `Each kind&rsquo;s own minutes as the session record marked them. Kinds that ran at the same time count in each, and so does time the harness leaves out, such as a review that ran during a CI round, so they add up to ${hm(Math.max(0, all - union))} more than the ${hm(union)} the harness took.${series.some((s) => s.key === 'reviews') ? ' Pull requests stored before the review kinds were kept have one figure for both reviews, drawn as Reviews, not split by kind.' : ''}${noRecord}`,
-      check: 'Each CI round&rsquo;s time charged to the check that held it: every check is charged the time since the one before it finished, so checks in flight together count once, and the last to finish is the one the round waited on.',
-    };
+    const o = outline(list);
+    const noRecord = unrecordedNote(list.filter((p) => !p.balance).length) + unsplitNote(o.unsplit);
     return section(
       'where-it-went',
-      `Where the ${hm(all)} went`,
-      `by ${SPLIT_LABELS[q.split].toLowerCase()} · ${plural(list.length, 'pull request')}`,
+      `Where the ${hm(o.total)} went`,
+      plural(list.length, 'pull request'),
       `<div class="well where">
-<div class="bar" role="img" aria-label="${esc(shown.map((s) => `${s.label} ${hm(byKey.get(s.key)!)}`).join(', '))}">${bar}</div>
-<ul class="shares">${legend}</ul>
-<p class="note">${notes[q.split]}</p>
+<ul class="outline" aria-label="Phases of start to merge, with local checks and CI rounds opened into their parts">${o.rows.map(outlineRow).join('')}</ul>
+<p class="note">Every bar is on one scale, start to merge, and sits where it falls in it: a part inside the stretch of its phase. A phase&rsquo;s share is of start to merge; a part&rsquo;s is of its phase. Each minute counts once: time two local checks shared goes to the one that finished last.${noRecord}</p>
 </div>`,
       'panel wide',
     );
@@ -187,7 +165,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
 
   /** A stacked bar per pull request at the moment it merged, so a busy day looks busy and a quiet one quiet. */
   function overTime(): string {
-    const series = drawn(q.split);
+    const series = COLOURED;
     const days = PERIODS[q.period];
     const firstDay = days === null ? belgianDay(Math.min(...list.map(mergedMs), now)) : addDays(belgianDay(now), -(days - 1));
     const t0 = startOfDay(firstDay);
@@ -196,11 +174,11 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const plotW = width - left - right;
     const plotH = height - top - bottom;
     const stacks = list.map((p) => {
-      const v = values(p, q.split);
+      const v = values(p);
       return { p, v, total: sum(series.map((s) => v[s.key] ?? 0)) };
     });
     const tallest = Math.max(60_000, ...stacks.map((s) => s.total));
-    const cap = q.split === 'phase' ? Math.min(tallest, 4 * 3_600_000) : tallest;
+    const cap = Math.min(tallest, 4 * 3_600_000);
     const x = (t: number) => left + ((t - t0) / (t1 - t0)) * plotW;
     const y = (ms: number) => top + plotH - (Math.min(ms, cap) / cap) * plotH;
     const barW = Math.max(2, Math.min(8, plotW / Math.max(list.length, 1) - 1));
@@ -222,7 +200,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
             const y0 = y(at);
             at += ms;
             const y1 = y(at);
-            return `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0.5, y0 - y1).toFixed(1)}" fill="${s.colour}"><title>#${p.number} ${esc(p.title)} · ${esc(s.label)} ${hm(ms)} · ${TOTAL_LABELS[q.split].toLowerCase()} ${hm(totalOf(p, q.split))}</title></rect>`;
+            return `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0.5, y0 - y1).toFixed(1)}" fill="${s.colour}"><title>#${p.number} ${esc(p.title)} · ${esc(s.label)} ${hm(ms)} · start to merge ${hm(p.time.totalMs)}</title></rect>`;
           })
           .join('');
         const cut = total > cap ? `<path d="M${(cx - barW / 2 - 1).toFixed(1)} ${top + 6} l${(barW / 2 + 1).toFixed(1)} -6 l${(barW / 2 + 1).toFixed(1)} 6z" class="cut"><title>#${p.number} runs past the scale: ${hm(total)}</title></path>` : '';
@@ -233,9 +211,9 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const cutNote = tallest > cap ? ' · cut at 4h' : '';
     return section(
       'per-pull-request',
-      `${TOTAL_LABELS[q.split]}, each pull request as it merged`,
+      'Start to merge, each pull request as it merged',
       `<span class="legend">${legend}</span>`,
-      `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${TOTAL_LABELS[q.split]} per pull request, by when it merged">${grid}${ticks}${bars}</svg><p class="chart-note">A bar per pull request, at the moment it merged${cutNote}. A bar opens its Sessions.</p></div>`,
+      `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Start to merge per pull request, by when it merged">${grid}${ticks}${bars}</svg><p class="chart-note">A bar per pull request, at the moment it merged${cutNote}. A bar opens its Sessions.</p></div>`,
     );
   }
 
@@ -257,14 +235,14 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
 
   /** The rows of the Pull request, Issue, Size and Over time tabs. */
   function table(group: Exclude<CycleTimeQuery['group'], 'check'>): string {
-    const series = drawn(q.split);
+    const series = COLOURED;
     const all = buckets(group, list, issueOf);
     if (all.length === 0) return section('cycle-table', GROUP_LABELS[group], '', '<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide');
     const perPull = group === 'pr';
     const summed = group === 'issue';
     /** A row's minutes: a pull request's own, an issue's added up, a day's or a size's per pull request on average. */
     const fold = (pulls: Pull[], f: (p: Pull) => number) => sum(pulls.map(f)) / (perPull || summed ? 1 : pulls.length);
-    const rows = all.map((b) => ({ b, cells: series.map((s) => fold(b.pulls, (p) => values(p, q.split)[s.key] ?? 0)), total: fold(b.pulls, (p) => totalOf(p, q.split)) }));
+    const rows = all.map((b) => ({ b, cells: series.map((s) => fold(b.pulls, (p) => values(p)[s.key] ?? 0)), total: fold(b.pulls, (p) => p.time.totalMs) }));
     // Scaled to the 90th percentile row, so one pull request away for a night does not flatten every other bar.
     const max = Math.max(1, quantile(rows.map((r) => sum(r.cells)), 0.9) ?? 1);
     const heads = series.map((s) => `<th scope="col" class="num"><i style="background:${s.colour}"></i>${esc(s.label)}</th>`).join('');
@@ -286,7 +264,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
         const bar = cells.map((ms, i) => (ms > 0 ? `<div style="flex:0 0 ${((ms / max) * 100).toFixed(1)}%;background:${series[i]!.colour}"></div>` : '')).join('');
         const cellHtml = cells
           .map((ms, i) => {
-            const unrecorded = perPull && values(one, q.split)[series[i]!.key] === null;
+            const unrecorded = perPull && values(one)[series[i]!.key] === null;
             return `<td class="num">${unrecorded ? '<span class="faint">not recorded</span>' : ms > 0 ? hm(ms) : '<span class="faint">—</span>'}</td>`;
           })
           .join('');
@@ -309,7 +287,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
       `By ${group === 'day' ? 'day merged' : GROUP_LABELS[group].toLowerCase()}`,
       `${plural(all.length, noun)} · ${how}`,
       `<div class="well table"><table>
-<thead><tr><th scope="col">${group === 'day' ? 'Day merged' : GROUP_LABELS[group]}</th>${perPull ? '' : '<th scope="col" class="num">Pull requests</th>'}<th scope="col">Split</th>${heads}<th scope="col" class="num">${TOTAL_LABELS[q.split]}</th><th scope="col" class="num">Rounds</th><th scope="col" class="num">Claude Code</th></tr></thead>
+<thead><tr><th scope="col">${group === 'day' ? 'Day merged' : GROUP_LABELS[group]}</th>${perPull ? '' : '<th scope="col" class="num">Pull requests</th>'}<th scope="col">Split</th>${heads}<th scope="col" class="num">Start to merge</th><th scope="col" class="num">Rounds</th><th scope="col" class="num">Claude Code</th></tr></thead>
 <tbody>${body}</tbody></table></div>`,
       'panel wide',
     );
@@ -320,7 +298,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const { rows, rounds } = checkRows(list);
     if (list.length === 0) return section('by-check', 'By check', '', '<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide');
     if (rows.length === 0) return section('by-check', 'By check', '', '<p class="well empty">No CI round in these pull requests.</p>', 'panel wide');
-    const colourOf = (name: string) => COLOURED.check.find((s) => s.key === name)?.colour ?? GREY;
+    const colourOf = colourOfCheck;
     const max = Math.max(1, ...rows.map((r) => r.ms));
     const all = sum(list.flatMap((p) => p.rounds.map((r) => r.ms)));
     const body = rows
@@ -348,14 +326,11 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
   const heldDays = view.oldest === null ? 0 : Math.round((Date.parse(belgianDay(now)) - Date.parse(belgianDay(view.oldest))) / 86_400_000) + 1;
   const partial = days !== null && heldDays > 0 && heldDays < days ? `<p class="muted small">Only ${number(heldDays)} of the period&rsquo;s ${number(days)} days are stored so far.</p>` : '';
 
-  const toggles = SPLITS.map((v) => `<button type="submit" name="split" value="${v}" aria-pressed="${v === q.split}">${SPLIT_LABELS[v]}</button>`).join('');
   const form = `<form class="filters" method="get" action="/cycle-time">
 <input type="hidden" name="group" value="${q.group}">
 ${selectField('period', 'Merged', PERIOD_CHOICES, q.period, 'all')}
 ${selectField('size', 'Size', [['', 'Any size'], ...SIZES.map((s): [string, string] => [s.key, s.label])], q.size ?? '')}
 ${selectField('outcome', 'Rounds', OUTCOMES, q.outcome ?? '')}
-${q.group === 'check' ? '' : `<div class="field"><span id="splitby">Split by</span><div class="toggles" role="group" aria-labelledby="splitby">${toggles}</div></div>`}
-<input type="hidden" name="split" value="${q.split}">
 <noscript><button type="submit">Apply</button></noscript>
 </form>`;
 
@@ -369,6 +344,23 @@ const EXTRA = `
   .filters .field:nth-of-type(n+3){grid-column:1/-1}
 }
 .up{color:var(--over-ink)}.down{color:var(--good)}
+.outline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.o-row{display:grid;grid-template-columns:210px minmax(0,1fr) 80px 44px;align-items:center;gap:12px;height:28px}
+.o-row .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.o-row .am{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.o-row .sh{text-align:right;color:var(--ink-faint);font-size:13px;font-variant-numeric:tabular-nums}
+.o-row .tr{position:relative;height:12px;border-radius:3px;background:color-mix(in srgb,var(--shade) 7%,transparent)}
+.o-row .band{position:absolute;top:-8px;bottom:-8px;background:var(--accent-tint)}
+.o-row .b{position:absolute;top:0;bottom:0;min-width:2px;border-radius:3px}
+.o-ph .nm,.o-ph .am{color:var(--ink-strong);font-weight:500}
+.o-pt .nm,.o-pt .am{color:var(--ink);font-size:13px}
+.o-pt .nm{padding-left:20px}
+.o-pt .b{top:2px;bottom:2px;border-radius:2px}
+@media (max-width:640px){
+  .o-row{grid-template-columns:minmax(0,1fr) auto 40px;grid-template-areas:"nm am sh" "tr tr tr";height:auto;gap:3px 10px;padding:5px 0}
+  .o-row .nm{grid-area:nm}.o-row .am{grid-area:am}.o-row .sh{grid-area:sh}.o-row .tr{grid-area:tr}
+  .o-row .band{top:-3px;bottom:-3px}
+}
 .scatter-well{display:flex;flex-direction:column;gap:10px;padding:14px 14px 16px}
 .scatter-well svg{display:block;width:100%;max-width:340px;height:auto;margin:0 auto}
 .scatter-well .note{border-top:0;padding-top:0}

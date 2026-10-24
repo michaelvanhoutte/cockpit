@@ -328,7 +328,7 @@ test.describe('Harness Monitor', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
-  test('Cycle time opens from the top bar, its tabs and the Rounds filter narrow it with the cost beside each pull request, Split by Harness re-cuts them, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
+  test('Cycle time opens from the top bar, its tabs and the Rounds filter narrow it with the cost beside each pull request, Where the time went is one outline that fits a desk and a phone, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
     const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
@@ -386,11 +386,12 @@ test.describe('Harness Monitor', () => {
     await expect(page.getByRole('navigation', { name: 'Group by' }).getByRole('link')).toHaveText(['Over time', 'Pull request', 'Issue', 'Size', 'Check']);
     await expect(band('Over time')).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('.tile')).toHaveCount(4);
-    await expect(page.getByRole('region', { name: /^Where the .* went$/ })).toBeVisible();
+    const where = page.getByRole('region', { name: /^Where the .* went$/ });
+    await expect(where).toBeVisible();
 
     // The filters share one row on a desk; the page never scrolls sideways.
     const tops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
-    expect(tops).toHaveLength(4);
+    expect(tops).toHaveLength(3);
     if (!onAPhone) expect(new Set(tops).size).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
@@ -413,11 +414,37 @@ test.describe('Harness Monitor', () => {
     await expect(table.getByRole('row')).toHaveCount(2);
     await expect(table).toContainText('#9002 Save a Teams message');
 
-    // Split by Harness re-cuts the same pull requests.
-    await page.getByRole('button', { name: 'Harness' }).click();
-    await expect(page).toHaveURL(/[?&]split=harness(&|$)/);
-    await expect(page.getByRole('button', { name: 'Harness' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(table.getByRole('columnheader', { name: 'Security review' })).toBeVisible();
+    // There is no Split by, and an old link carrying one opens the one view.
+    await expect(page.getByRole('group', { name: 'Split by' })).toHaveCount(0);
+    await page.goto(`${monitor}/cycle-time?group=pr&outcome=red&split=harness`);
+    await expect(table.getByRole('columnheader', { name: 'Local checks' })).toBeVisible();
+    await expect(table.getByRole('columnheader', { name: 'Security review' })).toHaveCount(0);
+
+    // Over time: the outline is a row a phase, with its parts inside, on one line each with a name, a bar, its minutes and its share.
+    await page.goto(`${monitor}/cycle-time`);
+    const rows = where.locator('.o-row');
+    await expect(rows.locator('.nm')).toHaveText(['Writing', 'Local checks', 'Not split by kind', 'CI rounds', 'Test', 'Waiting to merge']);
+    const laidOut = await rows.evaluateAll((all) =>
+      all.map((row) => {
+        const [name, bar, minutes, share] = ['.nm', '.tr', '.am', '.sh'].map((c) => row.querySelector(c)!.getBoundingClientRect());
+        return { name: [name!.top, name!.height], bar: [bar!.top, bar!.height], minutes: [minutes!.top, minutes!.height], share: [share!.top, share!.height], left: [name!.left, bar!.left, minutes!.left, share!.left] };
+      }),
+    );
+    const centre = ([top, height]: number[]) => top! + height! / 2;
+    for (const r of laidOut) {
+      if (!onAPhone) {
+        // On a desk the four sit on one line, in the order name, bar, minutes, share.
+        expect(Math.abs(centre(r.name) - centre(r.bar))).toBeLessThan(2);
+        expect(Math.abs(centre(r.name) - centre(r.minutes))).toBeLessThan(2);
+        expect(Math.abs(centre(r.name) - centre(r.share))).toBeLessThan(2);
+        expect(r.left).toEqual([...r.left].sort((x, y) => x - y));
+      } else {
+        // On a phone the name, minutes and share share a line and the bar runs beneath, inside the panel.
+        expect(Math.abs(centre(r.name) - centre(r.minutes))).toBeLessThan(2);
+        expect(r.bar[0]!).toBeGreaterThan(r.name[0]!);
+      }
+    }
+    expect(await where.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 

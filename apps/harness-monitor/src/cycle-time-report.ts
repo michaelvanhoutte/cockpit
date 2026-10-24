@@ -1,4 +1,5 @@
 import { addDays, belgianDay, startOfDay } from './belgium';
+import type { LocalKind } from './cycle-time';
 import { cycleTimeView, type CycleTimePull, type CycleTimeView, type PullCost } from './cycle-time-store';
 import { number } from './page';
 
@@ -19,11 +20,6 @@ export const PERIOD_CHOICES: [Period, string][] = [['3d', 'Last 3 days'], ['7d',
 export const GROUPS = ['day', 'pr', 'issue', 'size', 'check'] as const;
 export type Group = (typeof GROUPS)[number];
 export const GROUP_LABELS: Record<Group, string> = { day: 'Over time', pr: 'Pull request', issue: 'Issue', size: 'Size', check: 'Check' };
-
-export const SPLITS = ['phase', 'harness', 'check'] as const;
-export type Split = (typeof SPLITS)[number];
-export const SPLIT_LABELS: Record<Split, string> = { phase: 'Phase', harness: 'Harness', check: 'Check' };
-export const TOTAL_LABELS: Record<Split, string> = { phase: 'Start to merge', harness: 'In the harness', check: 'CI rounds' };
 
 export const SIZES = [
   { key: 'xs', label: 'Under 100 lines', max: 100 },
@@ -46,12 +42,11 @@ export interface CycleTimeQuery {
   size: string | null;
   outcome: string | null;
   group: Group;
-  split: Split;
 }
 
-const DEFAULTS: CycleTimeQuery = { period: 'all', size: null, outcome: null, group: 'day', split: 'phase' };
+const DEFAULTS: CycleTimeQuery = { period: 'all', size: null, outcome: null, group: 'day' };
 
-/** The view the address asks for; anything unrecognised falls back to the default. */
+/** The view the address asks for; anything unrecognised, including a `split` an old link carries, is left out and falls back to the default. */
 export function parseCycleTimeQuery(params: URLSearchParams): CycleTimeQuery {
   const size = params.get('size');
   const outcome = params.get('outcome');
@@ -60,7 +55,6 @@ export function parseCycleTimeQuery(params: URLSearchParams): CycleTimeQuery {
     size: size !== null && SIZES.some((s) => s.key === size) ? size : null,
     outcome: outcome !== null && outcome !== '' && OUTCOMES.some(([v]) => v === outcome) ? outcome : null,
     group: GROUPS.find((g) => g === params.get('group')) ?? DEFAULTS.group,
-    split: SPLITS.find((s) => s === params.get('split')) ?? DEFAULTS.split,
   };
 }
 
@@ -68,7 +62,7 @@ export function parseCycleTimeQuery(params: URLSearchParams): CycleTimeQuery {
 export function cycleTimeAddress(q: CycleTimeQuery, over: Partial<CycleTimeQuery> = {}): string {
   const all = { ...q, ...over };
   const params = new URLSearchParams();
-  for (const key of ['period', 'size', 'outcome', 'group', 'split'] as const) if (all[key] !== DEFAULTS[key]) params.set(key, String(all[key]));
+  for (const key of ['period', 'size', 'outcome', 'group'] as const) if (all[key] !== DEFAULTS[key]) params.set(key, String(all[key]));
   const text = params.toString();
   return text === '' ? '/cycle-time' : `/cycle-time?${text}`;
 }
@@ -105,99 +99,50 @@ export const redRounds = (p: Pull) => p.rounds.filter((r) => r.red).length;
 export const flukeCount = (p: Pull) => p.flukes.length;
 export const mergedMs = (p: Pull) => Date.parse(p.mergedAt);
 
-/** The checks CI runs today, which the Check split names; any other a round held is drawn together as Other checks. */
-const CHECKS = ['E2E (F3)', 'Test', 'Checks', 'Test Explorer', 'Contract tests'];
+/** The checks CI runs today, which the outline and the Check tab name; any other a round held is drawn together as Other checks. */
+export const CHECKS = ['E2E (F3)', 'Test', 'Checks', 'Test Explorer', 'Contract tests'];
 
-/** Each series of a split, in stacking order: its key and its name. Grey, the series marked `other`, stacks last, so the series beside it can take a slot grey clears. The Harness split's `reviews` is for a pull request stored with its reviews combined only, and the Check split's `other` for checks CI did not run when this was written; each is drawn only where a pull request has one. */
-export const SERIES: Record<Split, { key: string; label: string; other?: boolean }[]> = {
-  phase: [
-    { key: 'writing', label: 'Writing' },
-    { key: 'local', label: 'Local checks' },
-    { key: 'ci', label: 'CI rounds' },
-    { key: 'waiting', label: 'Waiting to merge' },
-    { key: 'away', label: 'Away', other: true },
-  ],
-  harness: [
-    { key: 'ci', label: 'Tests and checks' },
-    { key: 'code-review', label: 'Code review' },
-    { key: 'security-review', label: 'Security review' },
-    { key: 'test', label: 'Test runs' },
-    { key: 'browser', label: 'Browser pass' },
-    { key: 'reviews', label: 'Reviews, not split by kind', other: true },
-  ],
-  check: [...CHECKS.map((name) => ({ key: name, label: name })), { key: 'other', label: 'Other checks', other: true }],
-};
+/** The five phases of a pull request, in stacking order: its key and its name. `away` is the grey one. */
+export const PHASES: { key: PhaseKey; label: string; other?: boolean }[] = [
+  { key: 'writing', label: 'Writing' },
+  { key: 'local', label: 'Local checks' },
+  { key: 'ci', label: 'CI rounds' },
+  { key: 'waiting', label: 'Waiting to merge' },
+  { key: 'away', label: 'Away', other: true },
+];
+export type PhaseKey = 'writing' | 'local' | 'ci' | 'waiting' | 'away';
 
-/**
- * Local checks that count towards the harness: each kind's own minutes, or null
- * where the record marked none, or where there was no round to weigh them
- * against. Null is not recorded, never zero.
- */
-function localKinds(p: Pull) {
-  if (p.balance === null || (p.localReviews === null && p.localRuns.test === null && p.localRuns.browser === null)) return null;
-  const byKind = p.localReviews?.byKind ?? null;
-  return {
-    'code-review': byKind?.['code-review'].ms ?? 0,
-    'security-review': byKind?.['security-review'].ms ?? 0,
-    // Reviews stored without their kinds: the one figure there is.
-    reviews: byKind === null ? (p.localReviews?.ms ?? 0) : 0,
-    test: p.localRuns.test?.ms ?? 0,
-    browser: p.localRuns.browser?.ms ?? 0,
-  };
-}
+/** The four kinds of local check the session record names, in the order they are drawn. */
+const LOCAL_PARTS: { key: LocalKind; label: string }[] = [
+  { key: 'code-review', label: 'Code review' },
+  { key: 'security-review', label: 'Security review' },
+  { key: 'test', label: 'Test runs' },
+  { key: 'browser', label: 'Browser pass' },
+];
 
-/** Each pull request's minutes per split, worked out once: a page asks for them once per series. */
-const VALUES = new WeakMap<Pull, Partial<Record<Split, Record<string, number | null>>>>();
+/** Each pull request's phases, worked out once: a page asks for them once per phase. */
+const VALUES = new WeakMap<Pull, Record<PhaseKey, number | null>>();
 
 /**
- * A pull request's minutes per series of a split; null where its session
- * record holds none, which is not zero. The five phases add up to start to
- * merge: a pull request with no record has its writing and its local checks
- * as one figure, the time that is left.
+ * A pull request's minutes per phase; null where its session record holds none,
+ * which is not zero. The five phases add up to start to merge: a pull request
+ * with no record has its writing and its local checks as one figure, the time
+ * that is left.
  */
-export function values(p: Pull, split: Split): Record<string, number | null> {
-  const kept = VALUES.get(p)?.[split];
+export function values(p: Pull): Record<PhaseKey, number | null> {
+  const kept = VALUES.get(p);
   if (kept) return kept;
-  const made = valuesOf(p, split);
-  VALUES.set(p, { ...VALUES.get(p), [split]: made });
+  const waiting = p.time.waitingToMergeMs ?? 0;
+  const made = {
+    writing: p.time.codingMs ?? Math.max(0, p.time.totalMs - p.time.ciMs - waiting - p.time.awayMs),
+    local: p.time.localMs,
+    ci: p.time.ciMs,
+    waiting,
+    away: p.time.awayMs,
+  };
+  VALUES.set(p, made);
   return made;
 }
-
-function valuesOf(p: Pull, split: Split): Record<string, number | null> {
-  const ci = p.time.ciMs;
-  if (split === 'phase') {
-    const waiting = p.time.waitingToMergeMs ?? 0;
-    return {
-      writing: p.time.codingMs ?? Math.max(0, p.time.totalMs - ci - waiting - p.time.awayMs),
-      local: p.time.localMs,
-      ci,
-      waiting,
-      away: p.time.awayMs,
-    };
-  }
-  if (split === 'harness') {
-    const kinds = localKinds(p);
-    return {
-      ci,
-      'code-review': kinds?.['code-review'] ?? null,
-      'security-review': kinds?.['security-review'] ?? null,
-      reviews: kinds?.reviews ?? null,
-      test: kinds?.test ?? null,
-      browser: kinds?.browser ?? null,
-    };
-  }
-  const out: Record<string, number> = {};
-  for (const r of p.rounds) {
-    for (const c of r.checks) {
-      const key = CHECKS.includes(c.name) ? c.name : 'other';
-      out[key] = (out[key] ?? 0) + c.heldMs;
-    }
-  }
-  return out;
-}
-
-/** What a split's series add up to without counting any minute twice: start to merge, the harness's own time, or the rounds'. */
-export const totalOf = (p: Pull, split: Split) => (split === 'phase' ? p.time.totalMs : split === 'harness' ? (p.balance ? p.balance.harnessMs : p.time.ciMs) : p.time.ciMs);
 
 export function matchesOutcome(p: Pull, outcome: string | null): boolean {
   if (outcome === 'green') return p.rounds.length === 1 && redRounds(p) === 0 && flukeCount(p) === 0;
@@ -230,28 +175,74 @@ export const costOf = (costs: Map<number, PullCost>, p: Pull): PullCost | null =
   return c && c.requests > 0 ? c : null;
 };
 
-// ---- Totals over a list
+// ---- The outline
 
-export interface SplitTotals {
-  /** Each series' minutes over the list, a null counted as nothing. */
-  byKey: Map<string, number>;
-  /** The series added up: a minute two kinds shared is in each. */
-  all: number;
-  /** The same time with each minute counted once. */
-  union: number;
+/** One row of the outline: a phase, or a part of one. `left` and `width` are shares of start to merge, so every bar sits on the one scale. */
+export interface OutlineRow {
+  key: string;
+  label: string;
+  ms: number;
+  /** A phase's share of start to merge, or a part's of its phase: 0 to 1. */
+  share: number;
+  left: number;
+  width: number;
+  /** The phase a part belongs to; a phase is its own. */
+  phase: PhaseKey;
+  part: boolean;
+  /** Drawn grey: time with no phase colour of its own, or a part that is not one of the named ones. */
+  other: boolean;
+  /** Where the phase's own stretch lies, for a part's band behind its bar. */
+  stretch: { left: number; width: number } | null;
 }
 
-/** The series a list is drawn in: the split's own, less the combined reviews and the other checks where no pull request in the list has any. */
-export function seriesOf(list: Pull[], split: Split) {
-  const combined = split === 'harness' && list.some((p) => (values(p, 'harness').reviews ?? 0) > 0);
-  const others = split === 'check' && list.some((p) => (values(p, 'check').other ?? 0) > 0);
-  return SERIES[split].filter((s) => (s.key !== 'reviews' || combined) && (s.key !== 'other' || split !== 'check' || others));
+export interface Outline {
+  /** Start to merge over the list: the phases added up. */
+  total: number;
+  rows: OutlineRow[];
+  /** Pull requests whose local checks are not split by kind. */
+  unsplit: number;
 }
 
-export function splitTotals(list: Pull[], split: Split): SplitTotals {
-  const series = seriesOf(list, split);
-  const byKey = new Map(series.map((s) => [s.key, sum(list.map((p) => values(p, split)[s.key] ?? 0))]));
-  return { byKey, all: sum([...byKey.values()]), union: sum(list.map((p) => totalOf(p, split))) };
+/**
+ * Where the time went, as one outline: every phase on one start-to-merge scale,
+ * Local checks opened into its four kinds and CI rounds into its checks. Each
+ * minute counts once, so a phase's parts add up to it: a pull request with no
+ * kinds stored puts its local minutes in Not split by kind. A row with no
+ * minutes is left out.
+ */
+export function outline(list: Pull[]): Outline {
+  const phases = Object.fromEntries(PHASES.map((ph) => [ph.key, sum(list.map((p) => values(p)[ph.key] ?? 0))])) as Record<PhaseKey, number>;
+  const total = sum(Object.values(phases));
+  const scale = (ms: number) => (total ? ms / total : 0);
+
+  const kinds = LOCAL_PARTS.map((k) => ({ key: k.key as string, label: k.label, ms: sum(list.map((p) => p.time.localParts?.[k.key] ?? 0)), other: false }));
+  const notSplit = sum(list.filter((p) => p.time.localParts === null).map((p) => p.time.localMs ?? 0));
+  const known = new Set(CHECKS);
+  const checks = [...CHECKS, 'other'].map((name) => {
+    const ms = sum(list.flatMap((p) => p.rounds.flatMap((r) => r.checks.filter((c) => (name === 'other' ? !known.has(c.name) : c.name === name)).map((c) => c.heldMs))));
+    return { key: name === 'other' ? 'other-checks' : `check:${name}`, label: name === 'other' ? 'Other checks' : name, ms, other: name === 'other' };
+  });
+  const partsOf: Partial<Record<PhaseKey, { key: string; label: string; ms: number; other: boolean }[]>> = {
+    local: [...kinds, { key: 'not-split', label: 'Not split by kind', ms: notSplit, other: true }],
+    ci: checks,
+  };
+
+  const rows: OutlineRow[] = [];
+  let at = 0;
+  for (const ph of PHASES) {
+    const ms = phases[ph.key];
+    if (ms <= 0) continue;
+    const stretch = { left: scale(at), width: scale(ms) };
+    rows.push({ key: ph.key, label: ph.label, ms, share: scale(ms), left: stretch.left, width: stretch.width, phase: ph.key, part: false, other: ph.other === true, stretch: null });
+    let inside = at;
+    for (const part of partsOf[ph.key] ?? []) {
+      if (part.ms <= 0) continue;
+      rows.push({ key: part.key, label: part.label, ms: part.ms, share: ms ? part.ms / ms : 0, left: scale(inside), width: scale(part.ms), phase: ph.key, part: true, other: part.other, stretch });
+      inside += part.ms;
+    }
+    at += ms;
+  }
+  return { total, rows, unsplit: list.filter((p) => p.time.localParts === null && (p.time.localMs ?? 0) > 0).length };
 }
 
 /** Median and p95 of start to merge, against the median of the period before. */
