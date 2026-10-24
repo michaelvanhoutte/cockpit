@@ -59,7 +59,7 @@ jobs:
         with:
           node-version-file: package.json
       # About twelve requests a pull request against the hour's 1,000 that every workflow shares:
-      # 70 pull requests leaves room for the night's own job.
+      # 70 pull requests uses most of it, so leave an hour before the night's job.
       - name: Send the window
         if: steps.ready.outputs.ready == 'true'
         run: |

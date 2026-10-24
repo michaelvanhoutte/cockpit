@@ -128,8 +128,11 @@ jobs:
           name: test-selection-report
           path: tools/selection/out/
       # After the upload, so a refused write turns this job red and costs the
-      # page nothing: Publish already tolerates a failed report job.
+      # page nothing: Publish already tolerates a failed report job. Runs after a
+      # failed send too, whenever the model was written, since the alarms read
+      # that and not the Monitor.
       - name: File, update or comment on the alarm for each bar
+        if: ${{ !cancelled() && hashFiles('tools/selection/out/model.json') != '' }}
         run: node tools/selection/src/alarm-cli.js --model tools/selection/out/model.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

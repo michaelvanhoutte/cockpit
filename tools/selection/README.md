@@ -55,7 +55,9 @@ pull request's misses; with the thresholds of the bars (`BAR_DEFS` in `src/model
 open alarm issue, so the Monitor's verdicts are judged against the numbers this tool owns. A pull
 request replaces the one stored under its number, so a miss found after it was stored reaches it with the
 next send. `GET <monitor>/selection?period=14d&job=both` answers the bars with their verdicts, the rules that
-forced a full run, the misses and the most selected tests as JSON: what `model.json` holds.
+forced a full run, the misses and the most selected tests as JSON: what `model.json` holds, counted from
+the stored rows and over any period, so the figures can differ from it (a test that did not exist yet counts
+as skippable there).
 
 It reads from the newest merge the Monitor holds (`GET /v1/selection`) less two days, or the last
 `--days` when it holds none. Until the secret `HARNESS_WRITE_KEY` and the variable `HARNESS_MONITOR_URL`

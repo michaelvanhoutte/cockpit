@@ -107,6 +107,23 @@ describe('Harness Monitor', () => {
       });
     });
 
+    it('a package whose process died before writing its report is not a pull request that could have skipped a test', async () => {
+      const hot = 'apps/api/tests/unit/hot.test.ts';
+      await sendSelection(
+        times(20, (index) =>
+          selectionPull(index + 1, {
+            mergedAt: MERGED,
+            jobs: [selectionJob('test', { packages: [index < 12 ? selectionPackage('api', [selectionFile(hot)]) : selectionPackage('api', [], { report: 'none' })] }), selectionJob('e2e')],
+          }),
+        ),
+      );
+
+      const answer = await theAnswer();
+
+      expect(barOf(answer, 'most-selected')).toMatchObject({ path: hot, count: 12, of: 12, verdict: 'crossed' });
+      expect(answer.mostSelected[0]).toMatchObject({ path: hot, selectedPulls: 12, selectingPulls: 12 });
+    });
+
     it('a rule that forced one package of several is listed, and reads within the bar because it left the job selecting', async () => {
       const oneForced = selectionJob('test', {
         packages: [fullPackage('api', 'a package config changed', 'apps/api/vitest.config.ts', ['a.test.ts']), selectionPackage('web', [])],

@@ -202,17 +202,27 @@ const inPeriod = `p.merged_at >= ?1 AND (?2 = 'both' OR p.job = ?2)`;
 /** The pull requests of the period that ran a job, and the packages of those: the scope the file queries count over. */
 const SCOPE = `scoped AS (SELECT pull_number, job, merged_at FROM selection_pulls p WHERE status = 'ran' AND ${inPeriod})`;
 
-/** Per package, the pull requests that selected in it rather than ran it whole: what a file of it could have skipped. */
+/**
+ * Per package, the pull requests that selected in it rather than ran it whole
+ * (and whose process wrote its report): what a file of it could have skipped.
+ * `tally` is the one pass over the period's file rows, which both the table and
+ * the bar read.
+ */
 const SELECTING = `selecting AS (
   SELECT k.job, k.name AS package, COUNT(*) AS pulls FROM selection_packages k JOIN scoped s ON s.pull_number = k.pull_number AND s.job = k.job
-  WHERE k.mode = 'changed' GROUP BY k.job, k.name
-), tally AS (
+  WHERE k.mode = 'changed' AND k.report = 'written' GROUP BY k.job, k.name
+), tally AS MATERIALIZED (
   SELECT f.job, f.package, f.path, MAX(f.level) AS level, SUM(f.chain_kind <> 'full') AS selected, SUM(f.chain_kind = 'full') AS full_run
   FROM selection_files f JOIN scoped s ON s.pull_number = f.pull_number AND s.job = f.job GROUP BY f.job, f.package, f.path
 )`;
 
+/**
+ * The table's rows (`top`, in order) and the bar's one file (`worst`), in one statement so the
+ * period's file rows are grouped once. `worst` is the file selected on the largest share of the
+ * pull requests that could have skipped it, among those with at least the bar's `min_over` of them.
+ */
 const MOST_SELECTED = `WITH ${SCOPE}, ${SELECTING}
-SELECT r.job, r.path, r.level, r.selected, r.selecting, r.full_run, (
+SELECT 'top' AS kind, ROW_NUMBER() OVER (ORDER BY r.selected DESC, r.full_run DESC, r.path) AS rank, r.job, r.path, r.selected, r.selecting, r.full_run, r.level, (
   SELECT f.chain_text FROM selection_files f JOIN scoped s ON s.pull_number = f.pull_number AND s.job = f.job
   WHERE f.job = r.job AND f.path = r.path AND f.chain_kind <> 'full'
   GROUP BY f.chain_text ORDER BY COUNT(*) DESC, MAX(s.merged_at) DESC LIMIT 1
@@ -222,14 +232,14 @@ FROM (
   FROM tally t LEFT JOIN selecting c ON c.job = t.job AND c.package = t.package
   ORDER BY t.selected DESC, t.full_run DESC, t.path LIMIT ?3
 ) r
-ORDER BY r.selected DESC, r.full_run DESC, r.path`;
-
-/** The file selected on the largest share of the pull requests that could have skipped it, among those with at least the bar's `min_over` of them. */
-const WORST_SELECTED = `WITH ${SCOPE}, ${SELECTING}
-SELECT t.path, t.selected, c.pulls AS "of"
-FROM tally t JOIN selecting c ON c.job = t.job AND c.package = t.package
-WHERE c.pulls >= (SELECT min_over FROM selection_bars WHERE id = 'most-selected')
-ORDER BY t.selected * 1.0 / c.pulls DESC, c.pulls DESC, t.path LIMIT 1`;
+UNION ALL
+SELECT * FROM (
+  SELECT 'worst', 1, t.job, t.path, t.selected, c.pulls, t.full_run, t.level, NULL
+  FROM tally t JOIN selecting c ON c.job = t.job AND c.package = t.package
+  WHERE c.pulls >= (SELECT min_over FROM selection_bars WHERE id = 'most-selected')
+  ORDER BY t.selected * 1.0 / c.pulls DESC, c.pulls DESC, t.path LIMIT 1
+)
+ORDER BY 1, 2`;
 
 const share = (count: number, of: number) => (of > 0 ? count / of : null);
 
@@ -276,7 +286,7 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
   const firstDay = length === null ? null : addDays(belgianDay(now), -(length - 1));
   const from = firstDay === null ? 0 : startOfDay(firstDay);
 
-  const [pulls, reasons, misses, bars, table, worst, oldest] = await db.batch([
+  const [pulls, reasons, misses, bars, selected, oldest] = await db.batch([
     db.prepare(`SELECT p.pull_number, p.job, p.title, p.url, p.merged_at, p.status, p.ran_everything FROM selection_pulls p WHERE ${inPeriod} ORDER BY p.merged_at DESC, p.pull_number DESC, p.job`).bind(from, job),
     db.prepare(
       `SELECT DISTINCT k.pull_number, k.job, k.reason_rule AS rule, k.reason_path AS path
@@ -290,7 +300,6 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
     ).bind(from, job),
     db.prepare('SELECT id, name, threshold, min_over, window_days, min_pulls, alarm_issue FROM selection_bars'),
     db.prepare(MOST_SELECTED).bind(from, job, MOST_SELECTED_ROWS),
-    db.prepare(WORST_SELECTED).bind(from, job),
     db.prepare('SELECT MIN(merged_at) AS oldest FROM selection_pulls'),
   ]);
   const pullRows = pulls!.results as unknown as PullRow[];
@@ -303,7 +312,13 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
   const read = minPulls !== null && total >= minPulls;
   const setting = (id: BarId) => barRows.find((each) => each.id === id) ?? null;
 
-  const rulesOf = (each: SelectionJob, number: number) => reasonRows.filter((r) => r.job === each && r.pull_number === number);
+  const selectedRows = selected!.results as unknown as { kind: 'top' | 'worst'; job: SelectionJob; path: string; level: string; selected: number; selecting: number; full_run: number; chain: string | null }[];
+  const reasonsOf = new Map<string, typeof reasonRows>();
+  for (const reason of reasonRows) {
+    const key = `${reason.job}:${reason.pull_number}`;
+    reasonsOf.set(key, [...(reasonsOf.get(key) ?? []), reason]);
+  }
+  const rulesOf = (each: SelectionJob, number: number) => reasonsOf.get(`${each}:${number}`) ?? [];
 
   // A bar is read on the pull requests whose job left a record: a documentation-only or no-record one never had the chance to be forced full.
   const forcedBar = (each: SelectionJob): SelectionBar | null => {
@@ -334,11 +349,11 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
   const mostBar = (): SelectionBar | null => {
     const stored = setting('most-selected');
     if (!stored) return null;
-    const top = (worst!.results[0] as { path: string; selected: number; of: number } | undefined) ?? null;
-    const value = top ? top.selected / top.of : null;
+    const top = selectedRows.find((row) => row.kind === 'worst') ?? null;
+    const value = top ? top.selected / top.selecting : null;
     const verdict = verdictOf(read, value, stored.threshold);
     return {
-      id: 'most-selected', name: stored.name, job, count: top?.selected ?? null, of: top?.of ?? null, value, threshold: stored.threshold, minOver: stored.min_over, path: top?.path ?? null,
+      id: 'most-selected', name: stored.name, job, count: top?.selected ?? null, of: top?.selecting ?? null, value, threshold: stored.threshold, minOver: stored.min_over, path: top?.path ?? null,
       cause: null, verdict, unread: verdict !== 'unread' ? null : read ? 'figure' : 'window', alarmIssue: stored.alarm_issue,
     };
   };
@@ -397,8 +412,8 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
     misses: (misses!.results as unknown as { job: SelectionJob; path: string; level: string; reason: string | null; pull_number: number; title: string; url: string; merged_at: number }[]).map(
       (row) => ({ job: row.job, path: row.path, level: row.level, reason: row.reason, pull: refOf(row) }),
     ),
-    mostSelected: (table!.results as unknown as { job: SelectionJob; path: string; level: string; selected: number; selecting: number; full_run: number; chain: string | null }[]).map((row) => ({
-      job: row.job, path: row.path, level: row.level, selectedPulls: row.selected, selectingPulls: row.selecting, fullRunPulls: row.full_run, mostCommonChain: row.chain,
-    })),
+    mostSelected: selectedRows
+      .filter((row) => row.kind === 'top')
+      .map((row) => ({ job: row.job, path: row.path, level: row.level, selectedPulls: row.selected, selectingPulls: row.selecting, fullRunPulls: row.full_run, mostCommonChain: row.chain })),
   };
 }
