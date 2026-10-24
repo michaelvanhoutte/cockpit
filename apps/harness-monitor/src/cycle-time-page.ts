@@ -22,6 +22,7 @@ import {
   plural,
   quantile,
   redRounds,
+  seriesOf,
   SERIES,
   SIZES,
   sizeOf,
@@ -44,7 +45,10 @@ const GREY = 'var(--cat-grey)';
 
 /** Each split's series with the colour it is drawn in: the ramp in stacking order, grey for the ones marked other. */
 const COLOURED = Object.fromEntries(
-  SPLITS.map((split) => [split, SERIES[split].map((s, i) => ({ ...s, colour: s.other ? GREY : RAMP[i % RAMP.length]! }))]),
+  SPLITS.map((split) => {
+    let step = 0;
+    return [split, SERIES[split].map((s) => ({ ...s, colour: s.other ? GREY : RAMP[step++ % RAMP.length]! }))];
+  }),
 ) as Record<Split, { key: string; label: string; colour: string }[]>;
 
 const unrecordedNote = (n: number, split: Split) =>
@@ -60,6 +64,8 @@ export function renderCycleTime(q: CycleTimeQuery, view: CycleTimeView, reposito
   const { list, previous } = filtered(view.pulls, q, now);
   const cost = (p: Pull) => costOf(view.costs, p);
   const issueOf = (p: Pull) => view.costs.get(p.number)?.issue ?? null;
+  /** A split's series in colour, as far as this list draws them. */
+  const drawn = (split: Split) => COLOURED[split].filter((c) => seriesOf(list, split).some((s) => s.key === c.key));
   const link = (over: Partial<CycleTimeQuery>) => esc(cycleTimeAddress(q, over));
 
   /** The tiles: a pull request's start to merge, how much of it was the harness, CI rounds, and what the Claude Code sessions cost. */
@@ -85,7 +91,7 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
 
   /** Where the time went: one bar over the list, cut by the split. */
   function where(): string {
-    const series = COLOURED[q.split];
+    const series = drawn(q.split);
     const { byKey, all, union } = splitTotals(list, q.split);
     const shown = series.filter((s) => (byKey.get(s.key) ?? 0) > 0);
     const bar = shown.map((s) => `<div style="flex:${byKey.get(s.key)};background:${s.colour}" title="${esc(s.label)} ${hm(byKey.get(s.key)!)}"></div>`).join('');
@@ -95,7 +101,7 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
     const noRecord = unrecordedNote(list.filter((p) => !p.balance).length, q.split);
     const notes: Record<Split, string> = {
       phase: `Start to merge, cut into its parts. Writing is the time before the first push and the fixing between rounds, less local checks; local checks are the session&rsquo;s own reviews, test runs and browser pass; a CI round runs from a push to its last check finishing. Time before the session started is not measured.${noRecord}`,
-      harness: `Each kind&rsquo;s own minutes. Kinds that ran at the same time count in each, so they add up to ${hm(Math.max(0, all - union))} more than the ${hm(union)} the harness took.${noRecord}`,
+      harness: `Each kind&rsquo;s own minutes. Kinds that ran at the same time count in each, so they add up to ${hm(Math.max(0, all - union))} more than the ${hm(union)} the harness took.${series.some((s) => s.key === 'reviews') ? ' Pull requests stored before the review kinds were kept have one figure for both reviews, drawn as Reviews, not split by kind.' : ''}${noRecord}`,
       check: 'Each CI round&rsquo;s time charged to the check that held it: every check is charged the time since the one before it finished, so checks in flight together count once, and the last to finish is the one the round waited on.',
     };
     return section(
@@ -165,7 +171,7 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
 
   /** A stacked bar per pull request at the moment it merged, so a busy day looks busy and a quiet one quiet. */
   function overTime(): string {
-    const series = COLOURED[q.split];
+    const series = drawn(q.split);
     const days = PERIODS[q.period];
     const firstDay = days === null ? belgianDay(Math.min(...list.map(mergedMs), now)) : addDays(belgianDay(now), -(days - 1));
     const t0 = startOfDay(firstDay);
@@ -235,7 +241,7 @@ ${tile('Claude Code cost', dollars(spent), priced.length ? `${dollars(spent / pr
 
   /** The rows of the Pull request, Issue, Size and Over time tabs. */
   function table(group: Exclude<CycleTimeQuery['group'], 'check'>): string {
-    const series = COLOURED[q.split];
+    const series = drawn(q.split);
     const all = buckets(group, list, issueOf);
     if (all.length === 0) return section('cycle-table', GROUP_LABELS[group], '', '<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide');
     const perPull = group === 'pr';

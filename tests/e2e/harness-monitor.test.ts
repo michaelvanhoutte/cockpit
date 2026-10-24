@@ -365,7 +365,7 @@ test.describe('Harness Monitor', () => {
       waitingToMergeMs: 60_000,
       awayMs: 0,
       totalMs: 3_600_000,
-      localReviews: { count: 1, ms: 300_000 },
+      localReviews: { count: 2, ms: 300_000, byKind: { 'code-review': { count: 1, ms: 180_000 }, 'security-review': { count: 1, ms: 120_000 } } },
       localRuns: { test: null, browser: null },
       runnerMs: 0,
       cancelled: { superseded: { runs: 0, ms: 0 }, other: { runs: 0, ms: 0 } },
@@ -417,7 +417,7 @@ test.describe('Harness Monitor', () => {
     await page.getByRole('button', { name: 'Harness' }).click();
     await expect(page).toHaveURL(/[?&]split=harness(&|$)/);
     await expect(page.getByRole('button', { name: 'Harness' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(table.getByRole('columnheader', { name: 'Local reviews' })).toBeVisible();
+    await expect(table.getByRole('columnheader', { name: 'Security review' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 

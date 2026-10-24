@@ -139,6 +139,34 @@ describe('Cycle time', () => {
     });
   });
 
+  describe('the local reviews are sent combined and by kind, so the Monitor can draw each', () => {
+    const marked = (marks) => renderBlock([{ at: at(0), phase: 'start' }, ...marks.map(([minute, phase, kind]) => ({ at: at(minute), phase, kind, level: 'high' }))]);
+    const review = (kind, from, to) => [[from, 'review-start', kind], [to, 'review-end', kind]];
+
+    it.each([
+      {
+        situation: 'a code review and a security review that overlapped',
+        marks: [...review('code-review', 1, 11), ...review('security-review', 6, 10)],
+        sent: { count: 2, ms: 10 * MIN, byKind: { 'code-review': { count: 1, ms: 10 * MIN }, 'security-review': { count: 1, ms: 4 * MIN } } },
+      },
+      {
+        situation: 'a code review alone, the security review none',
+        marks: review('code-review', 1, 6),
+        sent: { count: 1, ms: 5 * MIN, byKind: { 'code-review': { count: 1, ms: 5 * MIN }, 'security-review': { count: 0, ms: 0 } } },
+      },
+    ])('$situation', ({ marks, sent }) => {
+      const [row] = monitorRows({ pulls: [pull({ body: marked(marks), commits: [flukyCommit] })] });
+
+      expect(row.localReviews).toEqual(sent);
+    });
+
+    it('sends none where the record marked no review', () => {
+      const [row] = monitorRows({ pulls: [pull({ body: recorded, commits: [flukyCommit] })] });
+
+      expect(row.localReviews).toBeNull();
+    });
+  });
+
   describe('a pull request closed without merging is not sent', () => {
     it('leaves it out', () => {
       expect(monitorRows({ pulls: [pull({ mergedAt: null })] })).toEqual([]);

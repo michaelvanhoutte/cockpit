@@ -105,7 +105,7 @@ export const redRounds = (p: Pull) => p.rounds.filter((r) => r.red).length;
 export const flukeCount = (p: Pull) => p.flukes.length;
 export const mergedMs = (p: Pull) => Date.parse(p.mergedAt);
 
-/** Each series of a split, in stacking order: its key and its name. The Check split's names are the ones CI runs today; any other a round held is added after them. */
+/** Each series of a split, in stacking order: its key and its name. The Harness split's `reviews` is for a pull request stored with its reviews combined only, and is drawn only where one is. The Check split's names are the ones CI runs today; any other a round held is added after them. */
 export const SERIES: Record<Split, { key: string; label: string; other?: boolean }[]> = {
   phase: [
     { key: 'writing', label: 'Writing' },
@@ -116,7 +116,9 @@ export const SERIES: Record<Split, { key: string; label: string; other?: boolean
   ],
   harness: [
     { key: 'ci', label: 'Tests and checks' },
-    { key: 'reviews', label: 'Local reviews' },
+    { key: 'code-review', label: 'Code review' },
+    { key: 'security-review', label: 'Security review' },
+    { key: 'reviews', label: 'Reviews, not split by kind', other: true },
     { key: 'test', label: 'Test runs' },
     { key: 'browser', label: 'Browser pass' },
   ],
@@ -128,9 +130,17 @@ export const SERIES: Record<Split, { key: string; label: string; other?: boolean
  * where the record marked none, or where there was no round to weigh them
  * against. Null is not recorded, never zero.
  */
-function localKinds(p: Pull): { reviews: number; test: number; browser: number } | null {
+function localKinds(p: Pull) {
   if (p.balance === null || (p.localReviews === null && p.localRuns.test === null && p.localRuns.browser === null)) return null;
-  return { reviews: p.localReviews?.ms ?? 0, test: p.localRuns.test?.ms ?? 0, browser: p.localRuns.browser?.ms ?? 0 };
+  const byKind = p.localReviews?.byKind ?? null;
+  return {
+    'code-review': byKind?.['code-review'].ms ?? 0,
+    'security-review': byKind?.['security-review'].ms ?? 0,
+    // Reviews stored without their kinds: the one figure there is.
+    reviews: byKind === null ? (p.localReviews?.ms ?? 0) : 0,
+    test: p.localRuns.test?.ms ?? 0,
+    browser: p.localRuns.browser?.ms ?? 0,
+  };
 }
 
 /**
@@ -153,7 +163,14 @@ export function values(p: Pull, split: Split): Record<string, number | null> {
   }
   if (split === 'harness') {
     const kinds = localKinds(p);
-    return { ci, reviews: kinds?.reviews ?? null, test: kinds?.test ?? null, browser: kinds?.browser ?? null };
+    return {
+      ci,
+      'code-review': kinds?.['code-review'] ?? null,
+      'security-review': kinds?.['security-review'] ?? null,
+      reviews: kinds?.reviews ?? null,
+      test: kinds?.test ?? null,
+      browser: kinds?.browser ?? null,
+    };
   }
   const out: Record<string, number> = {};
   for (const r of p.rounds) for (const c of r.checks) out[c.name] = (out[c.name] ?? 0) + c.heldMs;
@@ -205,8 +222,14 @@ export interface SplitTotals {
   union: number;
 }
 
+/** The series a list is drawn in: the split's own, less the combined reviews where no pull request in the list was stored with them. */
+export function seriesOf(list: Pull[], split: Split) {
+  const combined = split === 'harness' && list.some((p) => (values(p, 'harness').reviews ?? 0) > 0);
+  return SERIES[split].filter((s) => s.key !== 'reviews' || combined);
+}
+
 export function splitTotals(list: Pull[], split: Split): SplitTotals {
-  const series = SERIES[split];
+  const series = seriesOf(list, split);
   const byKey = new Map(series.map((s) => [s.key, sum(list.map((p) => values(p, split)[s.key] ?? 0))]));
   return { byKey, all: sum([...byKey.values()]), union: sum(list.map((p) => totalOf(p, split))) };
 }

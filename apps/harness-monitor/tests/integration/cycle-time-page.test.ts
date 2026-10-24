@@ -202,9 +202,38 @@ describe('Harness Monitor', () => {
 
     it('Split by Harness says by how much the columns exceed the harness total', async () => {
       // A 15 minute review and a 15 minute test run that overlapped by 10 minutes: 20 minutes of local time.
-      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { localMs: 20 * MIN, localReviews: { count: 1, ms: 15 * MIN }, localRuns: { test: { count: 1, ms: 15 * MIN }, browser: null } })]);
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { localMs: 20 * MIN, localReviews: { count: 1, ms: 15 * MIN, byKind: { 'code-review': { count: 1, ms: 15 * MIN }, 'security-review': { count: 0, ms: 0 } } }, localRuns: { test: { count: 1, ms: 15 * MIN }, browser: null } })]);
 
       expect(text(await thePage('?split=harness'))).toContain('they add up to 10m more than the 25m the harness took');
+    });
+  });
+
+  describe('Split by Harness draws Code review and Security review, and a pull request stored with its reviews combined only has them named as such', () => {
+    const reviewed = (number: number, mergedAt: string, localReviews: unknown) => recorded(number, mergedAt, { localMs: 10 * MIN, localReviews, totalMs: 31 * MIN });
+
+    it('reads each review kind in its own column of a pull request', async () => {
+      await sendPulls([reviewed(1, '2026-10-30T10:00:00Z', { count: 2, ms: 10 * MIN, byKind: { 'code-review': { count: 1, ms: 10 * MIN }, 'security-review': { count: 1, ms: 4 * MIN } } })]);
+
+      const html = await thePage('?group=pr&split=harness');
+      const [row] = rowsOf(html, 'cycle-table');
+
+      expect([...html.matchAll(/<th scope="col" class="num"><i[^>]*><\/i>([^<]+)<\/th>/g)].map((m) => m[1])).toEqual(['Tests and checks', 'Code review', 'Security review', 'Test runs', 'Browser pass']);
+      expect(row!.slice(2, 7)).toEqual(['5m', '10m', '4m', '—', '—']);
+    });
+
+    it('draws the combined figure as Reviews, not split by kind, beside the others, only where a pull request has no kinds', async () => {
+      await sendPulls([
+        reviewed(1, '2026-10-30T10:00:00Z', { count: 2, ms: 10 * MIN, byKind: { 'code-review': { count: 1, ms: 10 * MIN }, 'security-review': { count: 1, ms: 4 * MIN } } }),
+        reviewed(2, '2026-10-29T10:00:00Z', { count: 2, ms: 8 * MIN }),
+      ]);
+
+      const html = await thePage('?group=pr&split=harness');
+      const rows = rowsOf(html, 'cycle-table');
+
+      expect(html).toContain('Reviews, not split by kind</th>');
+      // Newest first: the one with kinds has none combined, the other has its 8 minutes there and none under either kind.
+      expect(rows.map((r) => r.slice(2, 8))).toEqual([['5m', '10m', '4m', '—', '—', '—'], ['5m', '—', '—', '8m', '—', '—']]);
+      expect(text(await thePage('?split=harness'))).toContain('stored before the review kinds were kept');
     });
   });
 

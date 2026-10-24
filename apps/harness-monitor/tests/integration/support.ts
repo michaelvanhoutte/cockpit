@@ -167,7 +167,7 @@ export const cyclePull = (number: number, over: Record<string, unknown> = {}) =>
   waitingToMergeMs: 60_000,
   awayMs: 0,
   totalMs: 14_400_000,
-  localReviews: { count: 2, ms: 300_000 },
+  localReviews: { count: 2, ms: 300_000, byKind: { 'code-review': { count: 1, ms: 180_000 }, 'security-review': { count: 1, ms: 120_000 } } },
   localRuns: { test: null, browser: null },
   runnerMs: 600_000,
   cancelled: { superseded: { runs: 0, ms: 0 }, other: { runs: 0, ms: 0 } },

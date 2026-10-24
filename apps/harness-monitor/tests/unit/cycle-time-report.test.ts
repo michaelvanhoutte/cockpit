@@ -6,6 +6,7 @@ import {
   filtered,
   hm,
   parseCycleTimeQuery,
+  seriesOf,
   splitTotals,
   values,
   type CycleTimeQuery,
@@ -58,7 +59,7 @@ const pull = (number: number, over: Partial<Pull> = {}): Pull => ({
   recorded: true,
   time: { codingMs: 10 * MIN, localMs: 5 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 21 * MIN },
   balance: { codingMs: 10 * MIN, harnessMs: 10 * MIN, rounds: 1, ratio: 1 },
-  localReviews: { count: 1, ms: 5 * MIN },
+  localReviews: { count: 1, ms: 5 * MIN, byKind: { 'code-review': { count: 1, ms: 5 * MIN }, 'security-review': { count: 0, ms: 0 } } },
   localRuns: { test: null, browser: null },
   runnerMs: 0,
   cancelled: { superseded: { runs: 0, ms: 0 }, other: { runs: 0, ms: 0 } },
@@ -99,7 +100,7 @@ describe('Harness Monitor', () => {
   describe('a pull request with no session record says its local time is not recorded, never 0', () => {
     it.each([
       { situation: 'by phase', split: 'phase' as const, notRecorded: ['local'] },
-      { situation: 'by harness', split: 'harness' as const, notRecorded: ['reviews', 'test', 'browser'] },
+      { situation: 'by harness', split: 'harness' as const, notRecorded: ['code-review', 'security-review', 'reviews', 'test', 'browser'] },
     ])('$situation', ({ split, notRecorded }) => {
       const v = values(unrecorded(1), split);
 
@@ -113,23 +114,51 @@ describe('Harness Monitor', () => {
     const overlapping = pull(1, {
       balance: { codingMs: 10 * MIN, harnessMs: 25 * MIN, rounds: 1, ratio: 2.5 },
       time: { codingMs: 10 * MIN, localMs: 20 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 36 * MIN },
-      localReviews: { count: 1, ms: 15 * MIN },
+      localReviews: { count: 1, ms: 15 * MIN, byKind: { 'code-review': { count: 1, ms: 15 * MIN }, 'security-review': { count: 0, ms: 0 } } },
       localRuns: { test: { count: 1, ms: 15 * MIN }, browser: null },
     });
 
     it('counts both in full and the overlap as the overshoot', () => {
       const { byKey, all, union } = splitTotals([overlapping], 'harness');
 
-      expect(byKey.get('reviews')).toBe(15 * MIN);
+      expect(byKey.get('code-review')).toBe(15 * MIN);
       expect(byKey.get('test')).toBe(15 * MIN);
       expect(union).toBe(25 * MIN);
       expect(all - union).toBe(10 * MIN);
+    });
+
+    it('draws code review and security review as their own series, each in full where two reviews ran at once', () => {
+      // A 10 minute code review and a 4 minute security review inside it: 10 minutes of local time.
+      const together = pull(1, {
+        balance: { codingMs: 10 * MIN, harnessMs: 15 * MIN, rounds: 1, ratio: 1.5 },
+        time: { codingMs: 10 * MIN, localMs: 10 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 26 * MIN },
+        localReviews: { count: 2, ms: 10 * MIN, byKind: { 'code-review': { count: 1, ms: 10 * MIN }, 'security-review': { count: 1, ms: 4 * MIN } } },
+      });
+
+      const { byKey, all, union } = splitTotals([together], 'harness');
+
+      expect([byKey.get('code-review'), byKey.get('security-review'), byKey.has('reviews')]).toEqual([10 * MIN, 4 * MIN, false]);
+      expect(all - union).toBe(4 * MIN);
     });
 
     it('has no overshoot when nothing ran at once', () => {
       const { all, union } = splitTotals([pull(1)], 'harness');
 
       expect(all - union).toBe(0);
+    });
+  });
+
+  describe('a pull request stored with its reviews combined only has them drawn as one figure, named as such', () => {
+    const combined = pull(1, { localReviews: { count: 2, ms: 8 * MIN, byKind: null }, time: { codingMs: 10 * MIN, localMs: 8 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 24 * MIN }, balance: { codingMs: 10 * MIN, harnessMs: 13 * MIN, rounds: 1, ratio: 1.3 } });
+
+    it('puts the one figure under the combined series and none under either kind', () => {
+      expect(values(combined, 'harness')).toMatchObject({ 'code-review': 0, 'security-review': 0, reviews: 8 * MIN });
+    });
+
+    it('draws the combined series only for a list that holds such a pull request', () => {
+      expect(seriesOf([combined], 'harness').map((s) => s.key)).toEqual(['ci', 'code-review', 'security-review', 'reviews', 'test', 'browser']);
+      expect(seriesOf([pull(2)], 'harness').map((s) => s.key)).toEqual(['ci', 'code-review', 'security-review', 'test', 'browser']);
+      expect(seriesOf([combined, pull(2)], 'phase').map((s) => s.key)).toEqual(['writing', 'local', 'ci', 'waiting', 'away']);
     });
   });
 

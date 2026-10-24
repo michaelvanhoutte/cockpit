@@ -18,7 +18,7 @@ const ratioOf = (harnessMs: number, codingMs: number) => (codingMs > 0 ? harness
 const PULL_COLUMNS = [
   'pull_number', 'title', 'url', 'merged_at', 'base', 'head', 'landing', 'additions', 'deletions', 'changed_files', 'commits', 'main_merges',
   'started_at', 'start_from', 'recorded', 'coding_ms', 'local_ms', 'ci_ms', 'waiting_to_merge_ms', 'away_ms', 'total_ms',
-  'review_count', 'review_ms', 'test_runs', 'test_ms', 'browser_runs', 'browser_ms',
+  'review_count', 'review_ms', 'code_review_count', 'code_review_ms', 'security_review_count', 'security_review_ms', 'test_runs', 'test_ms', 'browser_runs', 'browser_ms',
   'runner_ms', 'superseded_runs', 'superseded_ms', 'cancelled_runs', 'cancelled_ms', 'received_at',
 ] as const;
 const ROUND_COLUMNS = ['pull_number', 'round_index', 'sha', 'pushed_at', 'ended_at', 'ms', 'red', 'commits', 'queue_not_recorded'] as const;
@@ -50,6 +50,8 @@ export async function storePulls(db: D1Database, pulls: CyclePull[], now = Date.
     started_at: p.startedAt, start_from: p.startFrom, recorded: bit(p.recorded), coding_ms: p.codingMs, local_ms: p.localMs, ci_ms: p.ciMs,
     waiting_to_merge_ms: p.waitingToMergeMs, away_ms: p.awayMs, total_ms: p.totalMs,
     review_count: p.localReviews?.count ?? null, review_ms: p.localReviews?.ms ?? null,
+    code_review_count: p.localReviews?.byKind?.['code-review'].count ?? null, code_review_ms: p.localReviews?.byKind?.['code-review'].ms ?? null,
+    security_review_count: p.localReviews?.byKind?.['security-review'].count ?? null, security_review_ms: p.localReviews?.byKind?.['security-review'].ms ?? null,
     test_runs: p.localTests?.count ?? null, test_ms: p.localTests?.ms ?? null,
     browser_runs: p.localBrowser?.count ?? null, browser_ms: p.localBrowser?.ms ?? null,
     runner_ms: p.runnerMs, superseded_runs: p.superseded.runs, superseded_ms: p.superseded.ms, cancelled_runs: p.cancelled.runs, cancelled_ms: p.cancelled.ms,
@@ -138,6 +140,10 @@ interface PullRow {
   total_ms: number;
   review_count: number | null;
   review_ms: number | null;
+  code_review_count: number | null;
+  code_review_ms: number | null;
+  security_review_count: number | null;
+  security_review_ms: number | null;
   test_runs: number | null;
   test_ms: number | null;
   browser_runs: number | null;
@@ -227,7 +233,8 @@ export interface CycleTimePull {
   time: { codingMs: number | null; localMs: number | null; ciMs: number; waitingToMergeMs: number | null; awayMs: number; totalMs: number };
   /** Null where the time is not recorded or no check ran; `ratio` is null where there was no writing to weigh against. */
   balance: { codingMs: number; harnessMs: number; rounds: number; ratio: number | null } | null;
-  localReviews: { count: number; ms: number } | null;
+  /** Combined, and by kind where the row was stored with them; `byKind` is null for one stored without, which is not recorded. */
+  localReviews: { count: number; ms: number; byKind: { 'code-review': { count: number; ms: number }; 'security-review': { count: number; ms: number } } | null } | null;
   localRuns: { test: { count: number; ms: number } | null; browser: { count: number; ms: number } | null };
   runnerMs: number;
   cancelled: { superseded: { runs: number; ms: number }; other: { runs: number; ms: number } };
@@ -334,7 +341,20 @@ function pullAnswer({ pull: p, rounds }: Stored): CycleTimePull {
       p.coding_ms === null || harnessMs === null
         ? null
         : { codingMs: p.coding_ms, harnessMs, rounds: rounds.length, ratio: ratioOf(harnessMs, p.coding_ms) },
-    localReviews: p.review_count === null ? null : { count: p.review_count, ms: p.review_ms ?? 0 },
+    localReviews:
+      p.review_count === null
+        ? null
+        : {
+            count: p.review_count,
+            ms: p.review_ms ?? 0,
+            byKind:
+              p.code_review_count === null || p.security_review_count === null
+                ? null
+                : {
+                    'code-review': { count: p.code_review_count, ms: p.code_review_ms ?? 0 },
+                    'security-review': { count: p.security_review_count, ms: p.security_review_ms ?? 0 },
+                  },
+          },
     localRuns: {
       test: p.test_runs === null ? null : { count: p.test_runs, ms: p.test_ms ?? 0 },
       browser: p.browser_runs === null ? null : { count: p.browser_runs, ms: p.browser_ms ?? 0 },
