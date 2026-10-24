@@ -1,51 +1,49 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ACCOUNT_WIDE, FOLLOW_UP_DAYS, MOST_FOLLOW_UP_DAYS, dayOf, daysOnFrom, followUpDaysSchema, uuidv7 } from '@cockpit/shared';
+import { ACCOUNT_WIDE, FOLLOW_UP_DAYS, MOST_FOLLOW_UP_DAYS, dayOf, daysOnFrom, uuidv7 } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
 import { weekdayDayLabel } from '../dateFormat';
 import { DEADLINE_PILLS } from '../dueDate';
 import { SettingsPanel } from './SettingsPanel';
-
-/** A whole number of days from 1 to 365, or null for anything else typed. */
-function daysIn(typed: string): number | null {
-  if (typed.trim() === '') return null;
-  const parsed = followUpDaysSchema.safeParse(Number(typed));
-  return parsed.success ? parsed.data : null;
-}
+import { daysTyped } from './WaitForReply';
 
 /**
  * Settings › Follow-ups ("Choose in Settings how many days to wait for a reply",
  * issue 1465): the number *Wait for reply…* starts on, kept on the account.
- * Read off the open Workspace's held copy, which every Workspace's carries, and
- * saved on Enter or on leaving the box; a change that has not been read back
- * yet is drawn at once.
+ * Read off the given Workspace's held copy, which every Workspace's carries, and
+ * saved on Enter, on leaving the box or on closing Settings; a change that has
+ * not been read back yet is drawn at once.
  */
 export default function ManageFollowUps({ workspaceId }: { workspaceId: string | undefined }) {
   const { data: saved = FOLLOW_UP_DAYS } = useQuery({
     ...snapshotQuery(workspaceId ?? ''),
-    // Never read for: the open Workspace's copy is already held, and the change below reads it again.
-    enabled: false,
-    select: (held) => held.followUpDays ?? FOLLOW_UP_DAYS,
+    enabled: workspaceId !== undefined,
+    // Read only where the tab holds no copy, or one marked out of date: the open Workspace's page already holds it.
+    staleTime: Infinity,
+    select: (held) => held.followUpDays,
   });
   /** A number sent and not yet read back. */
   const [chosen, setChosen] = useState<number | null>(null);
   const shown = chosen ?? saved;
   const [typed, setTyped] = useState(String(shown));
   const [failed, setFailed] = useState<string | null>(null);
-  const box = useRef<HTMLInputElement>(null);
+  /** The box holds something typed since it last showed what is kept, so only that is ever sent. */
+  const edited = useRef(false);
   const send = useSendCommand();
 
-  // What the account holds wins once it is read, here or from another device; the box follows unless it is being typed in.
+  // What the account holds wins once it is read, here or from another device; the box follows unless typed in.
   useEffect(() => {
     setChosen(null);
-    if (document.activeElement !== box.current) setTyped(String(saved));
+    if (!edited.current) setTyped(String(saved));
   }, [saved]);
 
-  const days = daysIn(typed);
+  const days = daysTyped(typed);
   const refused = days === null;
 
   const commit = () => {
-    if (days === null || days === shown) return;
+    if (!edited.current || days === null) return;
+    edited.current = false;
+    if (days === shown) return;
     setChosen(days);
     setFailed(null);
     send({
@@ -53,9 +51,17 @@ export default function ManageFollowUps({ workspaceId }: { workspaceId: string |
       payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: ACCOUNT_WIDE, days },
     }).catch((failure: unknown) => {
       setChosen(null);
+      edited.current = true;
       setFailed(`Not saved. ${whyNotDone(failure)}`);
     });
   };
+
+  // Closing Settings with Escape removes the box without a blur, so what it holds is saved as it goes.
+  const commitOnClose = useRef(commit);
+  useEffect(() => {
+    commitOnClose.current = commit;
+  });
+  useEffect(() => () => commitOnClose.current(), []);
 
   const today = dayOf(new Date());
 
@@ -72,14 +78,16 @@ export default function ManageFollowUps({ workspaceId }: { workspaceId: string |
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span>Give it a due date</span>
           <input
-            ref={box}
             type="number"
             inputMode="numeric"
             min={1}
             max={MOST_FOLLOW_UP_DAYS}
             step={1}
             value={typed}
-            onChange={(event) => setTyped(event.target.value)}
+            onChange={(event) => {
+              edited.current = true;
+              setTyped(event.target.value);
+            }}
             onBlur={commit}
             onKeyDown={(event) => {
               if (event.key !== 'Enter') return;

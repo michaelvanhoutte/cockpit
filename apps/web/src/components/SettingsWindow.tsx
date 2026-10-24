@@ -73,11 +73,21 @@ export default function SettingsWindow({
           content: <ConnectionsOf startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
         },
         { key: 'mcp', label: 'Connected apps', content: <ManageConnectedApps open onClose={onClose} /> },
-        { key: 'followups', label: 'Follow-ups', content: <ManageFollowUps workspaceId={startsIn} /> },
+        { key: 'followups', label: 'Follow-ups', content: <FollowUpsOf startsIn={startsIn} /> },
         { key: 'remembered', label: 'What Cockpit remembers', content: <ManageRememberedSentences focus={sentenceId} /> },
       ]}
     />
   );
+}
+
+/**
+ * Follow-ups, read off the open Workspace's copy, or the first Workspace's
+ * where Settings is opened with none open (the capture page): the number is
+ * the account's, and every Workspace's copy carries it.
+ */
+function FollowUpsOf({ startsIn }: { startsIn: string | undefined }) {
+  const { data } = useWorkspaces();
+  return <ManageFollowUps workspaceId={startsIn ?? data?.workspaces[0]?.id} />;
 }
 
 /**

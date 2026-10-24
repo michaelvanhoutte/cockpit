@@ -27,15 +27,18 @@ vi.mock('../../../src/api/queries', () => ({
 const TODAY = new Date('2026-10-22T10:00:00.000Z');
 
 let queries: QueryClient;
+let closeSettings: () => void;
 
-function open(followUpDays?: number) {
+/** Follow-ups over the tab's copy of the Workspace, which carries `followUpDays` where it says; with `copyHeld` false the tab holds none. */
+function open(followUpDays: number | undefined, copyHeld = true) {
   queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  if (followUpDays !== undefined) queries.setQueryData(['snapshot', 'ws-1'], { followUpDays });
-  render(
+  if (copyHeld) queries.setQueryData(['snapshot', 'ws-1'], { followUpDays });
+  const { unmount } = render(
     <QueryClientProvider client={queries}>
       <ManageFollowUps workspaceId="ws-1" />
     </QueryClientProvider>,
   );
+  closeSettings = unmount;
   return within(screen.getByRole('group', { name: 'How long to wait' }));
 }
 
@@ -78,6 +81,27 @@ describe('Settings', () => {
       await waitFor(() => expect(box()).toHaveValue(10));
       expect(panel.getByText(dueIn(10))).toBeVisible();
     });
+
+    it('takes a number chosen on another device into a box that has focus but nothing typed, and sends nothing on leaving it', async () => {
+      const user = userEvent.setup();
+      open(3);
+      await user.click(box());
+
+      act(() => {
+        queries.setQueryData(['snapshot', 'ws-1'], { followUpDays: 10 });
+      });
+      await waitFor(() => expect(box()).toHaveValue(10));
+      await user.tab();
+
+      expect(held.send).not.toHaveBeenCalled();
+    });
+
+    it('reads the Workspace where the tab holds no copy of it', async () => {
+      open(undefined, false);
+
+      expect(box()).toHaveValue(3);
+      await waitFor(() => expect(held.read).toHaveBeenCalledTimes(1));
+    });
   });
 
   describe('Follow-ups saves a whole number from 1 to 365 on Enter or on leaving the box', () => {
@@ -97,6 +121,17 @@ describe('Settings', () => {
         payload: expect.objectContaining({ workspaceId: ACCOUNT_WIDE, days: 5 }),
       });
       expect(panel.getByText(dueIn(5))).toBeVisible();
+    });
+
+    it('saves what the box holds when Settings closes before the box is left', async () => {
+      const user = userEvent.setup();
+      open(3);
+
+      await user.clear(box());
+      await user.type(box(), '5');
+      closeSettings();
+
+      expect(sentDays()).toEqual([5]);
     });
 
     it('saves nothing when the number is the one already kept', async () => {

@@ -578,7 +578,7 @@ const rowsFor: {
     params: (name) => [name, AT],
   },
   {
-    // The table `0097-account-follow-ups` creates (issue 1465): an account's chosen wait, for the next update to meet.
+    // The table `0097-account-follow-ups` creates ("Choose in Settings how many days to wait for a reply", issue 1465): an account's chosen wait, for the next update to meet.
     table: 'account_follow_ups',
     sql: 'INSERT INTO account_follow_ups (tenant_id, days) VALUES (?, 5)',
     params: (name) => [name],

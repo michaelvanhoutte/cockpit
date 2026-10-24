@@ -18,6 +18,8 @@ const held = vi.hoisted(() => ({
   accounts: {} as Record<string, unknown[]>,
   /** Whether a change is in flight, which keeps a window open until its answer is in. */
   pending: false,
+  /** The Follow-ups number each Workspace's snapshot carries, where one does. */
+  followUpDays: {} as Record<string, number>,
 }));
 held.arrived = new Promise<void>((resolve) => {
   held.releaseMcpCode = resolve;
@@ -45,7 +47,7 @@ vi.mock('../../../src/api/queries', () => ({
   },
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () => Promise.resolve({ items: [] }),
+    queryFn: () => Promise.resolve({ items: [], followUpDays: held.followUpDays[workspaceId] }),
   }),
 }));
 
@@ -217,6 +219,19 @@ describe('Across the app', () => {
       await user.selectOptions(within(panel).getByRole('combobox', { name: 'Workspace' }), 'ws-beta');
 
       expect(await within(screen.getByRole('group', { name: 'Workspace' })).findByText('Bea Teams')).toBeVisible();
+    });
+  });
+
+  describe('Follow-ups shows the account’s number with no Workspace open', () => {
+    it('reads it off the first Workspace’s copy, as on the capture page', async () => {
+      held.followUpDays = { 'ws-alpha': 7 };
+      open('followups', { startsIn: undefined });
+
+      const panel = await screen.findByRole('group', { name: 'How long to wait' });
+      await waitFor(() =>
+        expect(within(panel).getByRole('spinbutton', { name: 'Days after you set it' })).toHaveValue(7),
+      );
+      held.followUpDays = {};
     });
   });
 
