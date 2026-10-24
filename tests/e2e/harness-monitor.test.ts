@@ -650,4 +650,60 @@ test.describe('Harness Monitor', () => {
     await filed.getByRole('link', { name: 'Sessions' }).click();
     await expect(page.getByRole('heading', { level: 1, name: /#9001 Add a filter panel/ })).toBeVisible();
   });
+
+  test('pointing at or focusing a line of a per-day chart, or its key, keeps that line at full strength and fades the others, and the total never fades', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+
+    await page.goto(`${monitor}/`);
+
+    // Three phases cost something in the seed: Building, After push and CI reviews, and the total.
+    const chart = page.getByRole('region', { name: 'Cost per day' });
+    const line = (key: string) => chart.locator(`.lines > g[data-line="${key}"]`);
+    const keyOf = (name: string) => chart.locator('.legend .key', { hasText: name });
+    const opacities = () => Promise.all(['building', 'after-push', 'ci-reviews', 'total'].map((key) => line(key).evaluate((g) => getComputedStyle(g).opacity)));
+    const FADED = '0.15';
+    // A desk points; a phone has no pointer to leave on a key, so it taps, which also focuses it.
+    const pointAt = (target: ReturnType<typeof keyOf>) => (onAPhone ? target.tap() : target.hover());
+    const moveOff = async () => {
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await (onAPhone ? page.locator('body').tap({ position: { x: 1, y: 1 } }) : page.mouse.move(1, 1));
+    };
+
+    // Nothing is picked out at rest.
+    await expect.poll(opacities).toEqual(['1', '1', '1', '1']);
+
+    // A key picks its line out: the others fade, and the total, drawn dashed, does not.
+    await pointAt(keyOf('After push'));
+    await expect.poll(opacities).toEqual([FADED, '1', FADED, '1']);
+
+    // Moving off the chart brings every line back.
+    await moveOff();
+    await expect.poll(opacities).toEqual(['1', '1', '1', '1']);
+
+    // On a desk the line itself picks too, by its point on the day it cost something (every line sits on the baseline the days before).
+    if (!onAPhone) {
+      await line('ci-reviews').locator('circle').last().hover();
+      await expect.poll(opacities).toEqual([FADED, FADED, '1', '1']);
+      await moveOff();
+      await expect.poll(opacities).toEqual(['1', '1', '1', '1']);
+    }
+
+    // The keyboard reaches the keys in turn, each picks its line out and shows its focus ring.
+    await keyOf('Building').focus();
+    await page.keyboard.press('Tab');
+    await expect(keyOf('After push')).toBeFocused();
+    await expect.poll(opacities).toEqual([FADED, '1', FADED, '1']);
+    expect(await keyOf('After push').evaluate((key) => getComputedStyle(key).outlineStyle)).not.toBe('none');
+    await moveOff();
+    await expect.poll(opacities).toEqual(['1', '1', '1', '1']);
+
+    // Tokens per day picks its lines out the same way, and picking in one chart leaves the other whole.
+    const tokens = page.getByRole('region', { name: 'Tokens per day' });
+    await pointAt(tokens.locator('.legend .key', { hasText: 'Building' }));
+    await expect(tokens.locator('.lines > g[data-line="after-push"]')).toHaveCSS('opacity', FADED);
+    await expect(tokens.locator('.lines > g[data-line="total"]')).toHaveCSS('opacity', '1');
+    await expect(line('after-push')).toHaveCSS('opacity', '1');
+  });
 });

@@ -1,6 +1,7 @@
 import { belgianDay, formatDateTime, formatDay } from './belgium';
-import { esc, selectField } from './look';
+import { esc, lineKey, selectField } from './look';
 import { number, REPOSITORY } from './page';
+import { GREY, ORANGE, RED, VIOLET } from './palette';
 import { bandTabs, humanMs, outLink, pct, reportPage, section, tile } from './report';
 import {
   barsOf,
@@ -40,11 +41,11 @@ import {
 } from './selection-report';
 import type { SelectionView, ViewJob, ViewPull } from './selection-view';
 
-/** The report pages' one violet ramp (look.ts defines the --cat-* names as its steps). */
-const JOB_COLOURS: Record<Job, string> = { test: 'var(--cat-violet)', e2e: 'var(--cat-teal)' };
-/** The ramp, dark to light; "ran everything" turns red only where its job is over the bar for the period. */
-const OUTCOME_COLOURS: Record<Outcome, string> = { selected: 'var(--cat-violet)', full: 'var(--cat-teal)', docs: 'var(--cat-grey)', none: 'var(--cat-grey)' };
-const outcomeColour = (o: Outcome, over: boolean) => (o === 'full' && over ? 'var(--over)' : OUTCOME_COLOURS[o]);
+/** Each job takes a slot (src/palette.ts). */
+const JOB_COLOURS: Record<Job, string> = { test: VIOLET, e2e: ORANGE };
+/** The outcomes in stacking order, a job that never started being grey and stacking last; "ran everything" turns red only where its job is over the bar for the period. */
+const OUTCOME_COLOURS: Record<Outcome, string> = { selected: VIOLET, full: ORANGE, docs: GREY, none: GREY };
+const outcomeColour = (o: Outcome, over: boolean) => (o === 'full' && over ? RED : OUTCOME_COLOURS[o]);
 
 /** The advice for each rule, by job: what to do about a rule that forces a full run, in the rule's own words. */
 const ADVICE: Record<Job, Record<string, string>> = {
@@ -238,12 +239,12 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
           .join('')}</g>`;
       })
       .join('');
-    const legend = [...jobs.map((j) => `<span class="key"><i style="background:${JOB_COLOURS[j]}"></i>${JOB_NAMES[j]}</span>`), '<span class="key"><i class="dash bar-key"></i>Bar</span>'].join('');
+    const legend = [...jobs.map((j) => lineKey(JOB_NAMES[j], JOB_COLOURS[j])), '<span class="key"><i class="dash bar-key"></i>Bar</span>'].join('');
     return section(
       'ran-everything-per-day',
       'Share of pull requests that ran everything, per day',
       `<span class="legend">${legend}</span>`,
-      `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Share of pull requests that ran everything, per day">${grid}${barLines}${dates}${lines}</svg></div>`,
+      `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Share of pull requests that ran everything, per day">${grid}${barLines}${dates}<g class="lines">${lines}</g></svg></div>`,
     );
   }
 
@@ -399,7 +400,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
         const lead = [...r.reasons.entries()].sort((a, b) => b[1] - a[1])[0];
         const m = median(r.runs);
         const share = r.changed ? r.touched / r.changed : 0;
-        return `<tr><td class="first">${jobDot(r.job)}${esc(r.name)}</td><td class="num faint-num">${r.files === null ? '<span class="faint">—</span>' : number(r.files)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:var(--cat-violet)"></div></div><div class="sub">ran something on ${number(r.touched)} of ${number(r.changed)} that selected · ${percent(share)}</div></td><td class="num">${m === null ? '<span class="faint">—</span>' : number(m)}</td><td class="num">${number(r.full)}</td><td>${lead ? `<a href="${link({ group: 'rule', rule: `${r.job}:${lead[0]}` })}">${esc(lead[0])}</a><div class="sub">${number(lead[1])} of its full runs</div>` : '<span class="faint">—</span>'}</td></tr>`;
+        return `<tr><td class="first">${jobDot(r.job)}${esc(r.name)}</td><td class="num faint-num">${r.files === null ? '<span class="faint">—</span>' : number(r.files)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:${VIOLET}"></div></div><div class="sub">ran something on ${number(r.touched)} of ${number(r.changed)} that selected · ${percent(share)}</div></td><td class="num">${m === null ? '<span class="faint">—</span>' : number(m)}</td><td class="num">${number(r.full)}</td><td>${lead ? `<a href="${link({ group: 'rule', rule: `${r.job}:${lead[0]}` })}">${esc(lead[0])}</a><div class="sub">${number(lead[1])} of its full runs</div>` : '<span class="faint">—</span>'}</td></tr>`;
       })
       .join('\n');
     return wide(
@@ -423,7 +424,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       .map((t) => {
         const share = shareOf(t);
         const hot = crossed(t);
-        return `<tr${hot ? ' class="crossed"' : ''}><td class="first"><a class="mono" href="${link({ group: 'test', test: t.path })}">${esc(t.path)}</a><div class="sub mono-sub">${esc(whyText(t.chain, t.path))}</div></td><td>${esc(t.level)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:${hot ? 'var(--over)' : 'var(--cat-violet)'}"></div></div><div class="sub">${number(t.selected)} of ${number(t.selecting)} that could skip it · ${pct(share)}</div></td><td class="num">${number(t.fullRun)}</td><td>${hot ? '<span class="pill over">over the bar</span>' : t.selecting < bars.mostMinOver ? '<span class="faint">too few to read</span>' : ''}</td></tr>`;
+        return `<tr${hot ? ' class="crossed"' : ''}><td class="first"><a class="mono" href="${link({ group: 'test', test: t.path })}">${esc(t.path)}</a><div class="sub mono-sub">${esc(whyText(t.chain, t.path))}</div></td><td>${esc(t.level)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:${hot ? RED : VIOLET}"></div></div><div class="sub">${number(t.selected)} of ${number(t.selecting)} that could skip it · ${pct(share)}</div></td><td class="num">${number(t.fullRun)}</td><td>${hot ? '<span class="pill over">over the bar</span>' : t.selecting < bars.mostMinOver ? '<span class="faint">too few to read</span>' : ''}</td></tr>`;
       })
       .join('\n');
     return wide(

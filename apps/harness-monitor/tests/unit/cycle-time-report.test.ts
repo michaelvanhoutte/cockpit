@@ -156,7 +156,7 @@ describe('Harness Monitor', () => {
     });
 
     it('draws the combined series only for a list that holds such a pull request', () => {
-      expect(seriesOf([combined], 'harness').map((s) => s.key)).toEqual(['ci', 'code-review', 'security-review', 'reviews', 'test', 'browser']);
+      expect(seriesOf([combined], 'harness').map((s) => s.key)).toEqual(['ci', 'code-review', 'security-review', 'test', 'browser', 'reviews']);
       expect(seriesOf([pull(2)], 'harness').map((s) => s.key)).toEqual(['ci', 'code-review', 'security-review', 'test', 'browser']);
       expect(seriesOf([combined, pull(2)], 'phase').map((s) => s.key)).toEqual(['writing', 'local', 'ci', 'waiting', 'away']);
     });

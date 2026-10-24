@@ -108,7 +108,7 @@ export const mergedMs = (p: Pull) => Date.parse(p.mergedAt);
 /** The checks CI runs today, which the Check split names; any other a round held is drawn together as Other checks. */
 const CHECKS = ['E2E (F3)', 'Test', 'Checks', 'Test Explorer', 'Contract tests'];
 
-/** Each series of a split, in stacking order: its key and its name. The Harness split's `reviews` is for a pull request stored with its reviews combined only, and the Check split's `other` for checks CI did not run when this was written; each is drawn only where a pull request has one. */
+/** Each series of a split, in stacking order: its key and its name. Grey, the series marked `other`, stacks last, so the series beside it can take a slot grey clears. The Harness split's `reviews` is for a pull request stored with its reviews combined only, and the Check split's `other` for checks CI did not run when this was written; each is drawn only where a pull request has one. */
 export const SERIES: Record<Split, { key: string; label: string; other?: boolean }[]> = {
   phase: [
     { key: 'writing', label: 'Writing' },
@@ -121,9 +121,9 @@ export const SERIES: Record<Split, { key: string; label: string; other?: boolean
     { key: 'ci', label: 'Tests and checks' },
     { key: 'code-review', label: 'Code review' },
     { key: 'security-review', label: 'Security review' },
-    { key: 'reviews', label: 'Reviews, not split by kind', other: true },
     { key: 'test', label: 'Test runs' },
     { key: 'browser', label: 'Browser pass' },
+    { key: 'reviews', label: 'Reviews, not split by kind', other: true },
   ],
   check: [...CHECKS.map((name) => ({ key: name, label: name })), { key: 'other', label: 'Other checks', other: true }],
 };

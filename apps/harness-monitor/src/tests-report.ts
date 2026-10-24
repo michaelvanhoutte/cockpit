@@ -1,3 +1,4 @@
+import { GREY, slot } from './palette';
 import { pullRequestNumber, pullRequestSnapshot, unpack, type Snapshot } from './tests';
 import { currentAreaLines, shownTests, type PullRequestTests } from './tests-store';
 
@@ -52,15 +53,15 @@ export interface Model {
 /** One area's source lines, keyed `file:line`. */
 export type AreaLines = Record<string, Line[]>;
 
-/** testing-strategy's levels, in its own order, as tools/test-explorer/src/model.js names them. Coloured as one violet ramp, dark to light; the last two go grey. */
+/** testing-strategy's levels, in its own order, as tools/test-explorer/src/model.js names them. Each takes its own slot of the palette (src/palette.ts), and Contract, which most areas have none of, is grey. */
 export const LEVELS = [
-  { id: 'L1', name: 'Unit', description: 'No real dependencies: pure logic, calculations, branching, edge cases.', colour: 'var(--cat-violet)' },
-  { id: 'L2', name: 'Integration', description: 'Real infrastructure the service owns, its own database, no other service.', colour: 'var(--cat-slate)' },
-  { id: 'L3', name: 'System', description: 'Backend services wired together at the API level, no browser. Needs a second backend service.', colour: 'var(--cat-teal)' },
-  { id: 'F1', name: 'Frontend unit', description: 'No real dependencies: component and view-model logic.', colour: 'var(--cat-green)' },
-  { id: 'F2', name: 'Service-frontend', description: 'The frontend plus only its own service&rsquo;s backend.', colour: 'var(--cat-amber)' },
-  { id: 'F3', name: 'End-to-end', description: 'Everything real, in a real browser. The one level every capability must have.', colour: 'var(--cat-grey)' },
-  { id: 'Contract', name: 'Contract', description: 'Scheduled live checks against a third party. n/a for an area no contract suite names.', colour: 'color-mix(in srgb,var(--cat-grey) 55%,transparent)' },
+  { id: 'L1', name: 'Unit', description: 'No real dependencies: pure logic, calculations, branching, edge cases.', colour: slot(1) },
+  { id: 'L2', name: 'Integration', description: 'Real infrastructure the service owns, its own database, no other service.', colour: slot(2) },
+  { id: 'L3', name: 'System', description: 'Backend services wired together at the API level, no browser. Needs a second backend service.', colour: slot(3) },
+  { id: 'F1', name: 'Frontend unit', description: 'No real dependencies: component and view-model logic.', colour: slot(4) },
+  { id: 'F2', name: 'Service-frontend', description: 'The frontend plus only its own service&rsquo;s backend.', colour: slot(5) },
+  { id: 'F3', name: 'End-to-end', description: 'Everything real, in a real browser. The one level every capability must have.', colour: slot(6) },
+  { id: 'Contract', name: 'Contract', description: 'Scheduled live checks against a third party. n/a for an area no contract suite names.', colour: GREY },
 ] as const;
 export type LevelId = (typeof LEVELS)[number]['id'];
 export const LEVEL_IDS: readonly string[] = LEVELS.map((l) => l.id);

@@ -2,6 +2,7 @@ import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './be
 import type { CycleTimeView } from './cycle-time-store';
 import { esc, selectField } from './look';
 import { dollars, number, REPOSITORY } from './page';
+import { BLUE, GREY, RED, slot, VIOLET } from './palette';
 import { bandTabs, outLink, reportPage, section, tile } from './report';
 import {
   buckets,
@@ -39,16 +40,27 @@ import {
   type Split,
 } from './cycle-time-report';
 
-/** The report pages' one violet ramp, darkest first (look.ts defines the --cat-* names as its steps); grey is for other or none. */
-const RAMP = ['var(--cat-violet)', 'var(--cat-slate)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-amber)'];
-const GREY = 'var(--cat-grey)';
+/**
+ * The colour of each split's series (src/palette.ts), in stacking order: the
+ * slots in turn, and grey for the series marked other, which stacks last. The
+ * series beside the grey takes blue, a slot the grey clears.
+ */
+const COLOURS: Record<Split, Record<string, string>> = {
+  phase: { writing: slot(1), local: slot(2), ci: slot(3), waiting: BLUE, away: GREY },
+  harness: { ci: slot(1), 'code-review': slot(2), 'security-review': slot(3), test: slot(4), browser: BLUE, reviews: GREY },
+  check: { 'E2E (F3)': slot(1), Test: slot(2), Checks: slot(3), 'Test Explorer': slot(4), 'Contract tests': BLUE, other: GREY },
+};
 
-/** Each split's series with the colour it is drawn in: the ramp in stacking order, grey for the ones marked other. */
+/** Each split's series with the colour it is drawn in; a series added without one fails the page loudly, rather than drawing in no colour. */
 const COLOURED = Object.fromEntries(
-  SPLITS.map((split) => {
-    let step = 0;
-    return [split, SERIES[split].map((s) => ({ ...s, colour: s.other ? GREY : RAMP[step++ % RAMP.length]! }))];
-  }),
+  SPLITS.map((split) => [
+    split,
+    SERIES[split].map((s) => {
+      const colour = COLOURS[split][s.key];
+      if (colour === undefined) throw new Error(`The ${split} split's ${s.key} series has no colour`);
+      return { ...s, colour };
+    }),
+  ]),
 ) as Record<Split, { key: string; label: string; colour: string }[]>;
 
 const unrecordedNote = (n: number, split: Split) =>
@@ -132,7 +144,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const y = (ms: number) => S.top + plotH - (Math.min(ms, scale) / scale) * plotH;
     const ratio = harnessShare(list).ratio;
     const maxLines = Math.max(1, ...dots.map(lines));
-    const colour = (rounds: number) => (rounds >= 3 ? 'var(--over)' : 'var(--cat-slate)');
+    const colour = (rounds: number) => (rounds >= 3 ? RED : VIOLET);
     const grid = [0, 0.5, 1]
       .map(
         (f) =>
@@ -154,8 +166,8 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
       })
       .join('');
     const keys = [
-      ['var(--cat-slate)', 'a pull request'],
-      ['var(--over)', '3 rounds or more'],
+      [VIOLET, 'a pull request'],
+      [RED, '3 rounds or more'],
     ]
       .map(([c, t]) => `<span class="key"><i style="background:${c}"></i>${t}</span>`)
       .join('');

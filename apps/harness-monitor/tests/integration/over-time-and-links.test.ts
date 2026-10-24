@@ -59,7 +59,7 @@ describe('Harness Monitor', () => {
       expect(html).toContain('<h2 id="perday">Cost per day</h2>');
       expect(html).toContain('<svg viewBox=');
       expect([...perDay(html).matchAll(/<g data-line="([^"]*)">/g)].map((m) => m[1])).toEqual(['building', 'after-push', 'total']);
-      expect([...perDay(html).matchAll(/<span class="key">.*?<\/i>(.*?)<\/span>/g)].map((m) => m[1])).toEqual(['Building', 'After push', 'Total']);
+      expect([...perDay(html).matchAll(/<span class="key"[^>]*>.*?<\/i>(.*?)<\/span>/g)].map((m) => m[1])).toEqual(['Building', 'After push', 'Total']);
     });
 
     it('a day with no cost between two that have some is a zero point, and each point carries its value', async () => {

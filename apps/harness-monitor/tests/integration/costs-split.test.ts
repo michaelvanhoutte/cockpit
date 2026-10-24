@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { linked, pullRequest } from './github-support';
+import { GREY, panelOf, RED, slot, swatches } from './series-colours';
 import { costRows, emptyTheDatabase, send, spend, theExport, thePage, whereItWent, withPrices } from './support';
 
 beforeEach(async () => {
@@ -76,8 +77,8 @@ describe('Harness Monitor', () => {
         ['main', 'On main $1.00'],
       ]);
       // A by-day question has no branch of its own, and still places each request by its pull request.
-      expect(byDay.rows.map((r) => [r.label, r.colours])).toEqual([['1 Oct 2026', 'Merged $5.00 · Still open $4.00 · Closed unmerged $3.00 · No pull request $2.00 · On main $1.00']]);
-      expect(byDay.bar.bar).toBe('Merged $5.00, Still open $4.00, Closed unmerged $3.00, No pull request $2.00, On main $1.00');
+      expect(byDay.rows.map((r) => [r.label, r.colours])).toEqual([['1 Oct 2026', 'Merged $5.00 · Still open $4.00 · Closed unmerged $3.00 · On main $1.00 · No pull request $2.00']]);
+      expect(byDay.bar.bar).toBe('Merged $5.00, Still open $4.00, Closed unmerged $3.00, On main $1.00, No pull request $2.00');
     });
 
     it('by phase, which is the default, the colours are the phases, Unphased only where the period holds some', async () => {
@@ -95,6 +96,62 @@ describe('Harness Monitor', () => {
       expect(asked.rows.map((r) => r.colours)).toEqual(['Unphased $2.00 · Building $3.00 · After push $1.00']);
       expect(unasked.rows).toEqual(asked.rows);
       expect(unasked.bar).toEqual(asked.bar);
+    });
+  });
+
+  describe('each phase, place and outcome has its own colour, in the order the bar stacks them', () => {
+    it('by phase, Unphased is grey and the eight phases take the first eight slots in pipeline order', async () => {
+      const phases = ['outside-process', 'scoping-planning', 'building', 'local-code-review', 'local-security-review', 'after-push', 'ci-reviews', 'process-review'];
+      await send([
+        // Building from before phase marks existed counts as Unphased.
+        spend('u', 1, { branch: 'b/10', category: 'building', time: '2026-09-20T12:00:00Z' }),
+        ...phases.map((category) => spend(category, 1, { branch: 'b/10', category })),
+      ]);
+
+      expect(swatches(panelOf(await thePage('?period=all'), 'where'))).toEqual([
+        ['Unphased', GREY],
+        ['Outside the process', slot(1)],
+        ['Scoping & planning', slot(2)],
+        ['Building', slot(3)],
+        ['Local code review', slot(4)],
+        ['Local security review', slot(5)],
+        ['After push', slot(6)],
+        ['CI reviews', slot(7)],
+        ['Process review', slot(8)],
+      ]);
+    });
+
+    it("by where, engineers' machines, cloud sessions and Actions take the first three slots", async () => {
+      await send([spend('a', 3, { ranWhere: 'local' }), spend('b', 2, { ranWhere: 'cloud' }), spend('c', 1, { ranWhere: 'actions', category: 'ci-reviews' })]);
+
+      expect(swatches(panelOf(await thePage('?period=all&split=where'), 'where'))).toEqual([
+        ["Engineers' machines", slot(1)],
+        ['Cloud sessions', slot(2)],
+        ['CI (GitHub Actions)', slot(3)],
+      ]);
+    });
+
+    it('by outcome, closed is red, no pull request is grey and stacks last, and On main beside it is blue', async () => {
+      await send([
+        spend('m', 5, { branch: 'b/merged' }),
+        spend('o', 4, { branch: 'b/open' }),
+        spend('c', 3, { branch: 'b/closed' }),
+        spend('u', 2, { branch: 'b/unlinked' }),
+        spend('n', 1, { branch: 'main' }),
+      ]);
+      await linked(
+        pullRequest({ number: 1, title: 'Merged', headRefName: 'b/merged', state: 'MERGED', mergedAt: '2026-03-02T10:00:00Z' }),
+        pullRequest({ number: 2, title: 'Open', headRefName: 'b/open', state: 'OPEN', mergedAt: null }),
+        pullRequest({ number: 3, title: 'Closed', headRefName: 'b/closed', state: 'CLOSED', mergedAt: null }),
+      );
+
+      expect(swatches(panelOf(await thePage('?period=all&split=outcome'), 'where'))).toEqual([
+        ['Merged', slot(1)],
+        ['Still open', slot(2)],
+        ['Closed unmerged', RED],
+        ['On main', slot(6)],
+        ['No pull request', GREY],
+      ]);
     });
   });
 

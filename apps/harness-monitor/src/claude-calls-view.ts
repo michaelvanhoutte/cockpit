@@ -16,6 +16,7 @@ import {
 import { dayChart, firstDay, MODEL_ID, PERIODS, type DayChart, type Period } from './costs';
 import { band, esc, selectField, shell } from './look';
 import { costPerDay, dollars, jobLines, number, PERIOD_LABELS, signed } from './page';
+import { BLUE, colourByPlace, foldAmounts, foldSeries, GREY, isFolded, slot } from './palette';
 
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -27,23 +28,38 @@ const SPLIT_LABELS: Record<CallSplit, string> = { environment: 'Environment', fe
 const UNITS: Record<CallGroup, [string, string]> = { day: ['day', 'days'], feature: ['row', 'rows'], environment: ['row', 'rows'], pr: ['row', 'rows'], startedBy: ['row', 'rows'] };
 const ORDERS: Record<CallGroup, string> = { day: 'newest first', pr: 'newest first', environment: 'production first', feature: 'dearest first', startedBy: 'dearest first' };
 
-/** An environment takes its step on the violet ramp by name, so the dark appearance can swap them (src/look.ts). */
+/** An environment takes its slot by name, in stacking order; one the page does not know is grey and stacks last, so the last known one takes blue, a slot grey clears. */
 const ENVIRONMENT_COLOURS: Record<string, string> = {
-  production: 'var(--cat-violet)',
-  staging: 'var(--cat-teal)',
-  ci: 'var(--cat-slate)',
-  local: 'var(--cat-amber)',
+  production: slot(1),
+  staging: slot(2),
+  ci: slot(3),
+  local: BLUE,
 };
-/** Every other value takes one of these by its place among all on record, so it keeps its colour whatever the filters; they wrap past five, the ramp's steps. */
-const RAMP = ['var(--cat-violet)', 'var(--cat-amber)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-slate)'];
 
-/** The colour of a series: grey for a call with no starter, a step on the ramp otherwise. */
+/** What a split counts by place on record: every feature, model or starter, a call with no starter being none of them. */
+const knownOf = (page: CallsPage) => (page.query.split === 'feature' ? page.features : page.query.split === 'model' ? page.models : page.startedBys.filter((s) => s !== ''));
+
+/** The colour of a series: its environment's, grey for a call with no starter, otherwise the slot of its place on record. */
 function colourOf(page: CallsPage, key: string): string {
   const { split } = page.query;
-  if (split === 'environment') return Object.hasOwn(ENVIRONMENT_COLOURS, key) ? ENVIRONMENT_COLOURS[key]! : 'var(--cat-grey)';
-  if (split === 'startedBy' && key === '') return 'var(--cat-grey)';
-  const known = split === 'feature' ? page.features : split === 'model' ? page.models : page.startedBys.filter((s) => s !== '');
-  return RAMP[Math.max(known.indexOf(key), 0) % RAMP.length]!;
+  if (split === 'environment') return Object.hasOwn(ENVIRONMENT_COLOURS, key) ? ENVIRONMENT_COLOURS[key]! : GREY;
+  if (split === 'startedBy' && key === '') return GREY;
+  return colourByPlace(knownOf(page), key);
+}
+
+/** The page with every feature, model or starter past the eighth on record drawn as one Other, in the period before as well. */
+function foldedPage(page: CallsPage): CallsPage {
+  const { split } = page.query;
+  if (split === 'environment') return page;
+  const known = knownOf(page);
+  const folded = (key: string) => !(split === 'startedBy' && key === '') && isFolded(known, key);
+  return {
+    ...page,
+    series: foldSeries(page.series, folded),
+    bySeries: foldAmounts(page.bySeries, folded),
+    groups: page.groups.map((g) => ({ ...g, bySeries: foldAmounts(g.bySeries, folded) })),
+    previous: page.previous === null ? null : { ...page.previous, bySeries: foldAmounts(page.previous.bySeries, folded) },
+  };
 }
 
 /** A change under half a cent reads $0.00 either way, so it is no change. */
@@ -176,7 +192,8 @@ ${body}
 }
 
 /** The public page: Cockpit's own Claude calls, grouped and filtered. Counts and dollars only; the copies hold no user, account or item. */
-export function renderClaudeCalls(page: CallsPage, report: { repository?: string | undefined }, now = Date.now()): string {
+export function renderClaudeCalls(unfolded: CallsPage, report: { repository?: string | undefined }, now = Date.now()): string {
+  const page = foldedPage(unfolded);
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
   const body = [
     '<h1 class="sr-only">Cockpit&rsquo;s Claude calls</h1>',
