@@ -43,6 +43,14 @@ export interface Counted {
   ms: number;
 }
 
+/** The local reviews: the combined figure, and each kind's own where the job sent them (null from one that does not, which is not recorded). */
+export interface LocalReviews extends Counted {
+  byKind: Record<ReviewKind, Counted> | null;
+}
+
+export const REVIEW_KINDS = ['code-review', 'security-review'] as const;
+export type ReviewKind = (typeof REVIEW_KINDS)[number];
+
 export interface Cancelled {
   runs: number;
   ms: number;
@@ -66,7 +74,7 @@ export interface CyclePull {
   waitingToMergeMs: number | null;
   awayMs: number;
   totalMs: number;
-  localReviews: Counted | null;
+  localReviews: LocalReviews | null;
   localTests: Counted | null;
   localBrowser: Counted | null;
   runnerMs: number;
@@ -138,6 +146,23 @@ function counted(value: unknown, label: string): Counted | null | string {
   const ms = whole(value, 'ms');
   if (typeof ms === 'string') return `${label} ${ms}`;
   return { count: count, ms: ms };
+}
+
+/** The reviews' count and minutes, with each kind's where sent: both kinds or neither, since a kind the record marked none of is sent as zero. */
+function reviewsOf(value: unknown): LocalReviews | null | string {
+  const total = counted(value, 'localReviews');
+  if (total === null || typeof total === 'string') return total;
+  const kinds = (value as Fields).byKind;
+  if (kinds === null || kinds === undefined) return { ...total, byKind: null };
+  if (!isObject(kinds)) return 'has localReviews.byKind that is not an object.';
+  const byKind = {} as Record<ReviewKind, Counted>;
+  for (const kind of REVIEW_KINDS) {
+    const own = counted(kinds[kind], `localReviews.byKind.${kind}`);
+    if (own === null) return `has no localReviews.byKind.${kind}.`;
+    if (typeof own === 'string') return own;
+    byKind[kind] = own;
+  }
+  return { ...total, byKind };
 }
 
 function cancelledOf(value: unknown, label: string): Cancelled | string {
@@ -254,7 +279,7 @@ function checkPull(raw: unknown): CyclePull | string {
   if (typeof awayMs === 'string') return awayMs;
   const totalMs = whole(raw, 'totalMs');
   if (typeof totalMs === 'string') return totalMs;
-  const localReviews = counted(raw.localReviews, 'localReviews');
+  const localReviews = reviewsOf(raw.localReviews);
   if (typeof localReviews === 'string') return localReviews;
   const runs = isObject(raw.localRuns) ? raw.localRuns : {};
   const localTests = counted(runs.test, 'localRuns.test');

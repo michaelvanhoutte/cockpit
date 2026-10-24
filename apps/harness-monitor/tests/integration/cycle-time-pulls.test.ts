@@ -71,6 +71,39 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe("a pull request's local reviews are stored and answered by kind beside the combined figure, and as not recorded where it was stored without the kinds", () => {
+    const answered = async (number: number) => {
+      const response = await SELF.fetch('https://monitor.test/cycle-time?format=json&period=all');
+      return ((await response.json()) as { pulls: { number: number; localReviews: unknown }[] }).pulls.find((p) => p.number === number)!.localReviews;
+    };
+
+    it.each([
+      {
+        situation: 'a code review and a security review',
+        sent: { count: 2, ms: 300_000, byKind: { 'code-review': { count: 1, ms: 240_000 }, 'security-review': { count: 1, ms: 120_000 } } },
+        answer: { count: 2, ms: 300_000, byKind: { 'code-review': { count: 1, ms: 240_000 }, 'security-review': { count: 1, ms: 120_000 } } },
+      },
+      {
+        situation: 'a code review and no security review, which is zero of that kind',
+        sent: { count: 1, ms: 240_000, byKind: { 'code-review': { count: 1, ms: 240_000 }, 'security-review': { count: 0, ms: 0 } } },
+        answer: { count: 1, ms: 240_000, byKind: { 'code-review': { count: 1, ms: 240_000 }, 'security-review': { count: 0, ms: 0 } } },
+      },
+      { situation: 'reviews sent without their kinds, as before they were kept', sent: { count: 2, ms: 300_000 }, answer: { count: 2, ms: 300_000, byKind: null } },
+      { situation: 'no review marked', sent: null, answer: null },
+    ])('$situation', async ({ sent, answer }) => {
+      await sendPulls([cyclePull(5, { localReviews: sent })]);
+
+      expect(await answered(5)).toEqual(answer);
+    });
+
+    it('a later send of the same pull request replaces the kinds with its own', async () => {
+      await sendPulls([cyclePull(5, { localReviews: { count: 2, ms: 300_000 } })]);
+      await sendPulls([cyclePull(5)]);
+
+      expect(await answered(5)).toMatchObject({ byKind: { 'code-review': { ms: 180_000 }, 'security-review': { ms: 120_000 } } });
+    });
+  });
+
   describe('the Monitor says when its newest stored pull request merged, where the next send reads from', () => {
     it.each([
       { situation: 'with nothing stored', sent: [], newestMerge: null },

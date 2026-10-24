@@ -115,4 +115,29 @@ describe('Harness Monitor', () => {
       expect(checked.ok && checked.pulls[0]).toMatchObject({ number: 10, recorded: false, codingMs: null, localMs: null, localReviews: null });
     });
   });
+
+  describe("a send's local reviews carry each kind's own figures, or none, never a half", () => {
+    const kinds = { 'code-review': { count: 1, ms: 240_000 }, 'security-review': { count: 1, ms: 120_000 } };
+
+    it('takes both kinds beside the combined figure', () => {
+      const checked = checkPulls({ pulls: [pull(11, { localReviews: { count: 2, ms: 300_000, byKind: kinds } })] });
+
+      expect(checked.ok && checked.pulls[0]!.localReviews).toEqual({ count: 2, ms: 300_000, byKind: kinds });
+    });
+
+    it('takes a send from a job that does not send the kinds yet, which reads as not recorded', () => {
+      const checked = checkPulls({ pulls: [pull(12, { localReviews: { count: 2, ms: 300_000 } })] });
+
+      expect(checked.ok && checked.pulls[0]!.localReviews).toEqual({ count: 2, ms: 300_000, byKind: null });
+    });
+
+    it.each([
+      { situation: 'one kind missing', byKind: { 'code-review': kinds['code-review'] }, error: 'Pull request 0 (#13): has no localReviews.byKind.security-review.' },
+      { situation: 'a kind that is null', byKind: { ...kinds, 'security-review': null }, error: 'Pull request 0 (#13): has no localReviews.byKind.security-review.' },
+      { situation: 'a kind with a negative duration', byKind: { ...kinds, 'code-review': { count: 1, ms: -1 } }, error: 'Pull request 0 (#13): localReviews.byKind.code-review has ms -1, which is not a whole number of milliseconds, zero or more.' },
+      { situation: 'kinds that are not an object', byKind: 'both', error: 'Pull request 0 (#13): has localReviews.byKind that is not an object.' },
+    ])('refuses the send for $situation', ({ byKind, error }) => {
+      expect(refusal([pull(13, { localReviews: { count: 2, ms: 300_000, byKind } })])).toBe(error);
+    });
+  });
 });

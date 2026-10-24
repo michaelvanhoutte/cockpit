@@ -328,6 +328,99 @@ test.describe('Harness Monitor', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
+  test('Cycle time opens from the top bar, its tabs and the Rounds filter narrow it with the cost beside each pull request, Split by Harness re-cuts them, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
+    const check = (name: string, minutes: number, over: Record<string, unknown> = {}) => ({
+      name,
+      attempt: 1,
+      heldMs: minutes * 60_000,
+      last: true,
+      failure: null,
+      flukeMs: null,
+      queuedMs: null,
+      detailNotRecorded: false,
+      noFileFailed: false,
+      failedSteps: [],
+      failedFiles: [],
+      ...over,
+    });
+    const round = (checks: unknown[], red: boolean) => ({ sha: 'b'.repeat(40), pushedAt: hoursAgo(30), endedAt: hoursAgo(29), ms: 300_000, red, commits: 1, queueNotRecorded: false, checks });
+    // 9001 and 9002 are the pull requests the seed priced, at $6.00 and $3.00; 9003 has no cost.
+    const pull = (number: number, title: string, hours: number, rounds: unknown[]) => ({
+      number,
+      title,
+      url: `https://github.com/o/r/pull/${number}`,
+      mergedAt: hoursAgo(hours),
+      base: 'main',
+      head: null,
+      landing: false,
+      size: { additions: 30, deletions: 10, files: 3, commits: 2, mainMerges: 0 },
+      start: { at: hoursAgo(hours + 1), from: 'session-record' },
+      recorded: true,
+      codingMs: 600_000,
+      localMs: 300_000,
+      ciMs: 300_000 * rounds.length,
+      waitingToMergeMs: 60_000,
+      awayMs: 0,
+      totalMs: 3_600_000,
+      localReviews: { count: 2, ms: 300_000, byKind: { 'code-review': { count: 1, ms: 180_000 }, 'security-review': { count: 1, ms: 120_000 } } },
+      localRuns: { test: null, browser: null },
+      runnerMs: 0,
+      cancelled: { superseded: { runs: 0, ms: 0 }, other: { runs: 0, ms: 0 } },
+      rounds,
+    });
+    const pulls = [
+      pull(9001, 'Add a filter panel', 20, [round([check('Test', 5)], false)]),
+      pull(9002, 'Save a Teams message', 5, [round([check('Test', 5, { failure: 'red', failedSteps: ['Run the tests'] })], true), round([check('Test', 5)], false)]),
+      pull(9003, 'Tidy the inbox', 70, [round([check('Test', 5)], false)]),
+    ];
+    expect((await api.post(`${monitor}/__e2e/seed-cycle-time`, { data: { pulls } })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+
+    // From the costs page, the top bar's own tab opens it on Over time, with the tiles an overview has.
+    await page.goto(`${monitor}/`);
+    await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Cycle time' }).click();
+    const band = tabOn(page);
+    await expect(page.getByRole('navigation', { name: 'Group by' }).getByRole('link')).toHaveText(['Over time', 'Pull request', 'Issue', 'Size', 'Check']);
+    await expect(band('Over time')).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('.tile')).toHaveCount(4);
+    await expect(page.getByRole('region', { name: /^Where the .* went$/ })).toBeVisible();
+
+    // The filters share one row on a desk; the page never scrolls sideways.
+    const tops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(4);
+    if (!onAPhone) expect(new Set(tops).size).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Pull request: a row each with the cost the Monitor holds, which opens its Sessions; no tiles here.
+    await band('Pull request').click();
+    await expect(page.locator('.tile')).toHaveCount(0);
+    const table = page.getByRole('region', { name: 'By pull request' });
+    await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ })).toContainText('$6.00');
+    await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ }).getByRole('link', { name: 'Sessions' })).toHaveAttribute('href', '/pr/9001');
+    await expect(table.getByRole('row', { name: /#9003 Tidy the inbox/ })).not.toContainText('$');
+    await expect(table.getByRole('row')).toHaveCount(4);
+    const wide = page.locator('.well.table');
+    if (onAPhone) expect(await wide.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+
+    // Rounds: had a red round keeps the tab and the pull request that had one.
+    await page.getByLabel('Rounds', { exact: true }).selectOption({ label: 'Had a red round' });
+    await expect(page).toHaveURL(/[?&]outcome=red(&|$)/);
+    await expect(page).toHaveURL(/[?&]group=pr(&|$)/);
+    await expect(band('Pull request')).toHaveAttribute('aria-current', 'page');
+    await expect(table.getByRole('row')).toHaveCount(2);
+    await expect(table).toContainText('#9002 Save a Teams message');
+
+    // Split by Harness re-cuts the same pull requests.
+    await page.getByRole('button', { name: 'Harness' }).click();
+    await expect(page).toHaveURL(/[?&]split=harness(&|$)/);
+    await expect(page.getByRole('button', { name: 'Harness' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(table.getByRole('columnheader', { name: 'Security review' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
   test('the page is drawn in Inter, which the Monitor serves itself', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);

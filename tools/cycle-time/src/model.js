@@ -1108,7 +1108,14 @@ export function monitorRows({ pulls, trunk = 'main' }) {
         waitingToMergeMs: pull.waitingToMergeMs,
         awayMs: sum(pull.awayMs),
         totalMs: pull.totalMs,
-        localReviews: pull.localReviews ? { count: pull.localReviews.count, ms: pull.localReviews.ms } : null,
+        // `byKind` is each review kind's own count and minutes, zero for a kind the record marked none of; the Monitor keeps them beside the combined figure.
+        localReviews: pull.localReviews
+          ? {
+              count: pull.localReviews.count,
+              ms: pull.localReviews.ms,
+              byKind: Object.fromEntries(LOCAL_REVIEW_KINDS.map((kind) => [kind, { count: pull.localReviews.byKind[kind]?.count ?? 0, ms: pull.localReviews.byKind[kind]?.ms ?? 0 }])),
+            }
+          : null,
         localRuns: { test: pull.localRuns.test, browser: pull.localRuns.browser },
         runnerMs: pull.runnerMs,
         cancelled: pull.cancelled,

@@ -18,7 +18,7 @@ const ratioOf = (harnessMs: number, codingMs: number) => (codingMs > 0 ? harness
 const PULL_COLUMNS = [
   'pull_number', 'title', 'url', 'merged_at', 'base', 'head', 'landing', 'additions', 'deletions', 'changed_files', 'commits', 'main_merges',
   'started_at', 'start_from', 'recorded', 'coding_ms', 'local_ms', 'ci_ms', 'waiting_to_merge_ms', 'away_ms', 'total_ms',
-  'review_count', 'review_ms', 'test_runs', 'test_ms', 'browser_runs', 'browser_ms',
+  'review_count', 'review_ms', 'code_review_count', 'code_review_ms', 'security_review_count', 'security_review_ms', 'test_runs', 'test_ms', 'browser_runs', 'browser_ms',
   'runner_ms', 'superseded_runs', 'superseded_ms', 'cancelled_runs', 'cancelled_ms', 'received_at',
 ] as const;
 const ROUND_COLUMNS = ['pull_number', 'round_index', 'sha', 'pushed_at', 'ended_at', 'ms', 'red', 'commits', 'queue_not_recorded'] as const;
@@ -50,6 +50,8 @@ export async function storePulls(db: D1Database, pulls: CyclePull[], now = Date.
     started_at: p.startedAt, start_from: p.startFrom, recorded: bit(p.recorded), coding_ms: p.codingMs, local_ms: p.localMs, ci_ms: p.ciMs,
     waiting_to_merge_ms: p.waitingToMergeMs, away_ms: p.awayMs, total_ms: p.totalMs,
     review_count: p.localReviews?.count ?? null, review_ms: p.localReviews?.ms ?? null,
+    code_review_count: p.localReviews?.byKind?.['code-review'].count ?? null, code_review_ms: p.localReviews?.byKind?.['code-review'].ms ?? null,
+    security_review_count: p.localReviews?.byKind?.['security-review'].count ?? null, security_review_ms: p.localReviews?.byKind?.['security-review'].ms ?? null,
     test_runs: p.localTests?.count ?? null, test_ms: p.localTests?.ms ?? null,
     browser_runs: p.localBrowser?.count ?? null, browser_ms: p.localBrowser?.ms ?? null,
     runner_ms: p.runnerMs, superseded_runs: p.superseded.runs, superseded_ms: p.superseded.ms, cancelled_runs: p.cancelled.runs, cancelled_ms: p.cancelled.ms,
@@ -138,6 +140,10 @@ interface PullRow {
   total_ms: number;
   review_count: number | null;
   review_ms: number | null;
+  code_review_count: number | null;
+  code_review_ms: number | null;
+  security_review_count: number | null;
+  security_review_ms: number | null;
   test_runs: number | null;
   test_ms: number | null;
   browser_runs: number | null;
@@ -227,7 +233,8 @@ export interface CycleTimePull {
   time: { codingMs: number | null; localMs: number | null; ciMs: number; waitingToMergeMs: number | null; awayMs: number; totalMs: number };
   /** Null where the time is not recorded or no check ran; `ratio` is null where there was no writing to weigh against. */
   balance: { codingMs: number; harnessMs: number; rounds: number; ratio: number | null } | null;
-  localReviews: { count: number; ms: number } | null;
+  /** Combined, and by kind where the row was stored with them; `byKind` is null for one stored without, which is not recorded. */
+  localReviews: { count: number; ms: number; byKind: { 'code-review': { count: number; ms: number }; 'security-review': { count: number; ms: number } } | null } | null;
   localRuns: { test: { count: number; ms: number } | null; browser: { count: number; ms: number } | null };
   runnerMs: number;
   cancelled: { superseded: { runs: number; ms: number }; other: { runs: number; ms: number } };
@@ -334,7 +341,20 @@ function pullAnswer({ pull: p, rounds }: Stored): CycleTimePull {
       p.coding_ms === null || harnessMs === null
         ? null
         : { codingMs: p.coding_ms, harnessMs, rounds: rounds.length, ratio: ratioOf(harnessMs, p.coding_ms) },
-    localReviews: p.review_count === null ? null : { count: p.review_count, ms: p.review_ms ?? 0 },
+    localReviews:
+      p.review_count === null
+        ? null
+        : {
+            count: p.review_count,
+            ms: p.review_ms ?? 0,
+            byKind:
+              p.code_review_count === null || p.security_review_count === null
+                ? null
+                : {
+                    'code-review': { count: p.code_review_count, ms: p.code_review_ms ?? 0 },
+                    'security-review': { count: p.security_review_count, ms: p.security_review_ms ?? 0 },
+                  },
+          },
     localRuns: {
       test: p.test_runs === null ? null : { count: p.test_runs, ms: p.test_ms ?? 0 },
       browser: p.browser_runs === null ? null : { count: p.browser_runs, ms: p.browser_ms ?? 0 },
@@ -483,6 +503,65 @@ function windowAnswer(stored: Stored[], { days, firstDay }: { days: number | nul
     flukes: rounds.length
       ? { count: flukeRows.length, pulls: new Set(flukeRows.map((c) => c.pull)).size, ms: sum(flukeRows.map((c) => c.row.fluke_ms!)) }
       : null,
+  };
+}
+
+/** What the Monitor's own cost totals hold for one pull request, joined through its branch links. */
+export interface PullCost {
+  /** Priced requests only, in millionths of a dollar. */
+  micros: number;
+  /** Zero where no request was recorded for it, which is no figure, never $0.00. */
+  requests: number;
+  unpricedRequests: number;
+  /** The issue its link names. */
+  issue: number | null;
+  /** That issue's title as the linking job read it, null when none was. */
+  issueTitle: string | null;
+}
+
+/** What the cycle time page draws: the pull requests merged from a time on with their rounds and checks, what each cost, and the oldest merge stored. */
+export interface CycleTimeView {
+  pulls: CycleTimePull[];
+  costs: Map<number, PullCost>;
+  oldest: number | null;
+}
+
+/**
+ * The pull requests merged from `from` on, newest first, with the cost of each:
+ * one batch, so a view is one round trip. The failing steps and files are left
+ * out, since the page draws none.
+ */
+export async function cycleTimeView(db: D1Database, from: number): Promise<CycleTimeView> {
+  const [pulls, rounds, checks, costs, oldest] = await db.batch([
+    db.prepare('SELECT * FROM cycle_time_pulls WHERE merged_at >= ?1 ORDER BY merged_at DESC, pull_number DESC').bind(from),
+    db.prepare(
+      `SELECT r.* FROM cycle_time_rounds r JOIN cycle_time_pulls p ON p.pull_number = r.pull_number
+       WHERE p.merged_at >= ?1 ORDER BY r.pull_number, r.round_index`,
+    ).bind(from),
+    db.prepare(
+      `SELECT c.* FROM cycle_time_checks c JOIN cycle_time_pulls p ON p.pull_number = c.pull_number
+       WHERE p.merged_at >= ?1 ORDER BY c.pull_number, c.round_index, c.position`,
+    ).bind(from),
+    db.prepare(
+      `SELECT l.pr_number AS pr, MAX(l.issue_number) AS issue, MAX(s.issue_title) AS issueTitle, COALESCE(SUM(t.cost_micros), 0) AS micros,
+              COALESCE(SUM(t.requests), 0) AS requests, COALESCE(SUM(t.unpriced_requests), 0) AS unpriced
+       FROM cycle_time_pulls p JOIN branch_links l ON l.pr_number = p.pull_number
+       LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
+       LEFT JOIN daily_split_totals t ON t.branch = l.branch
+       WHERE p.merged_at >= ?1 GROUP BY l.pr_number`,
+    ).bind(from),
+    db.prepare('SELECT MIN(merged_at) AS oldest FROM cycle_time_pulls'),
+  ]);
+  const stored = assemble(pulls!.results as unknown as PullRow[], rounds!.results as unknown as RoundRow[], checks!.results as unknown as CheckRow[], []);
+  return {
+    pulls: stored.map(pullAnswer),
+    costs: new Map(
+      (costs!.results as unknown as { pr: number; issue: number | null; issueTitle: string | null; micros: number; requests: number; unpriced: number }[]).map((r) => [
+        r.pr,
+        { micros: r.micros, requests: r.requests, unpricedRequests: r.unpriced, issue: r.issue, issueTitle: r.issueTitle },
+      ]),
+    ),
+    oldest: (oldest!.results[0] as { oldest: number | null } | undefined)?.oldest ?? null,
   };
 }
 

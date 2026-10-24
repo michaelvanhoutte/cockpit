@@ -25,6 +25,7 @@ const LOGO = `<svg aria-hidden="true" viewBox="0 0 32 32" class="logo"><rect x="
 export const PAGES = [
   { name: 'costs', href: '/', label: 'Claude Code costs' },
   { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls' },
+  { name: 'cycle-time', href: '/cycle-time', label: 'Cycle time' },
   { name: 'stability', href: '/stability', label: 'CI stability' },
 ] as const;
 export type PageName = (typeof PAGES)[number]['name'];
