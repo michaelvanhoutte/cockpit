@@ -44,6 +44,32 @@ node src/cli.js --help
 GitHub caps the unauthenticated caller at 60 requests an hour, which a window's worth of pull
 requests will exhaust before it finishes.
 
+## Where the rows go
+
+The same nightly `Selection` job also **sends each merged pull request to the Harness Monitor**
+(`--send`), which keeps them so a period can reach past the 14 days the page shows. What is sent, how
+it is stored and what `GET <monitor>/selection?period=14d&job=both` answers are in
+[the architecture](../../docs/architecture.md), "The Harness Monitor". The bars' thresholds (`BAR_DEFS`
+in `src/model.js`) travel with the rows, so the Monitor's verdicts are judged against the numbers this
+tool owns. Its figures are counted from the stored rows over any period, so they can differ from
+`model.json`'s (a test that did not exist yet counts as skippable there).
+
+It reads from the newest merge the Monitor holds (`GET /v1/selection`) less two days, or the last
+`--days` when it holds none. Until the secret `HARNESS_WRITE_KEY` and the variable `HARNESS_MONITOR_URL`
+are set, and off `main`, the job records a notice and sends nothing
+(["The Harness Monitor"](../../docs/deployment.md)).
+
+```bash
+HARNESS_MONITOR_URL=… HARNESS_WRITE_KEY=… node src/cli.js --send                       # the night's send, and the page
+HARNESS_MONITOR_URL=… HARNESS_WRITE_KEY=… node src/cli.js --send --from 2026-07-25 --to 2026-07-28
+                                                                                         # the backfill: that window only, no page
+```
+
+**Backfill** the 90 days GitHub still holds with the *Selection backfill* workflow
+(`.github/workflows/selection-backfill.yml`), run by hand on `main` with `from` 90 days ago. A read costs
+about twelve requests a pull request, so it stops at 70 pull requests, fails and names the `--to` day it
+reached; run it again with that `to` until it passes. Sending a window twice stores each pull request once.
+
 ## What the model says
 
 **A pull request is one of three things**: `ran` (its Test job uploaded a
@@ -120,8 +146,9 @@ collect(repo)  →  buildModel(...)  →  renderHtml(model)  →  out/index.html
   (src/github.js)   (src/model.js)      (src/render/)         (out/model.json with --json)
 ```
 
-`github.js` is the only file that does I/O and `model.js` the only one that
-computes; `render/` draws what it is handed. `src/zip.js` is just enough of
+`github.js` is the only file that does I/O against GitHub and `model.js` the only one that
+computes (`monitorRows` and `monitorBars` cut the rows the Monitor stores, `src/monitor.js` only
+asks and posts); `render/` draws what it is handed. `src/zip.js` is just enough of
 the zip format to read the one file (`record.json`) out of the archive
 GitHub's artifact download endpoint hands back — nothing else in this
 repository reads a zip, so nothing bigger earns its dependency for it.

@@ -12,6 +12,8 @@ import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
+import { checkSelection } from './selection';
+import { newestSelectionMerge, parseJobFilter, parseSelectionPeriod, selectionAnswer, storeSelection } from './selection-store';
 import { checkRuns } from './stability';
 import { renderStability } from './stability-page';
 import { loadStability, parseStabilityQuery, stabilityAddress } from './stability-report';
@@ -101,6 +103,17 @@ async function writeCycleTime(request: Request, env: Env): Promise<Response> {
   return json(await storePulls(env.DB, checked.pulls));
 }
 
+/** A send of test selection's pull requests, with the bars' thresholds, stored whole or refused whole. */
+async function writeSelection(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = checkSelection(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await storeSelection(env.DB, checked.pulls, checked.bars));
+}
+
 /** Whether the request asks for the JSON answer rather than the page: `?format=json`, or an `Accept` header naming `application/json`. */
 const wantsJson = (request: Request, url: URL) => url.searchParams.get('format') === 'json' || (request.headers.get('accept') ?? '').includes('application/json');
 
@@ -128,6 +141,29 @@ async function cycleTime(request: Request, env: Env, ctx: ExecutionContext): Pro
     : new Response(renderCycleTime(query, await loadCycleTime(env.DB, query, now), env.GITHUB_REPOSITORY, now), {
         headers: { ...headers, 'content-type': 'text/html; charset=utf-8' },
       });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
+ * Test selection, as JSON for the period and job the address asks: how many pull
+ * requests ran, ran everything or were documentation only, each bar read against
+ * the thresholds the last send carried, the rules that forced a full run, the
+ * misses and the files selected most often. The page is a later child's; until
+ * it lands the address answers JSON whatever the request asks for. Cached like
+ * the other reports under one key per view.
+ */
+async function selection(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const period = parseSelectionPeriod(url.searchParams.get('period'));
+  const job = parseJobFilter(url.searchParams.get('job'));
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/selection?period=${period}&job=${job}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const response = Response.json(await selectionAnswer(env.DB, period, job, Date.now()), { headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' } });
   if (cache) ctx.waitUntil(cache.put(key, response.clone()));
   return response;
 }
@@ -313,6 +349,13 @@ export default {
       return json({ error: 'Use GET or POST.' }, 405);
     }
     if (pathname === '/cycle-time' && request.method === 'GET') return cycleTime(request, env, ctx);
+    if (pathname === '/v1/selection') {
+      if (request.method === 'POST') return writeSelection(request, env);
+      // Where the next send starts reading: public, as every read here is.
+      if (request.method === 'GET') return json({ newestMerge: await newestSelectionMerge(env.DB) });
+      return json({ error: 'Use GET or POST.' }, 405);
+    }
+    if (pathname === '/selection' && request.method === 'GET') return selection(request, env, ctx);
     if (pathname === '/v1/usage/corrections') {
       return request.method === 'POST' || request.method === 'GET' ? correct(request, env) : json({ error: 'Use POST or GET.' }, 405);
     }

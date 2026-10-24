@@ -41,6 +41,16 @@ export const BARS = Object.freeze({
   misses: 1,
 });
 
+/** Each bar with its name and the numbers it is read against: what the page draws, and what the Harness Monitor is sent so its verdicts are judged against the same ones. */
+export const BAR_DEFS = Object.freeze([
+  { id: 'e2e-forced-full', name: 'E2E forced to run every spec', threshold: BARS.forcedFull, minOver: null },
+  { id: 'test-forced-full', name: 'Test forced to run everything', threshold: BARS.forcedFull, minOver: null },
+  { id: 'misses', name: 'Misses', threshold: BARS.misses, minOver: null },
+  { id: 'most-selected', name: 'A test selected on nearly every pull request', threshold: BARS.mostSelected.share, minOver: BARS.mostSelected.minOver },
+]);
+
+const barName = (id) => BAR_DEFS.find((def) => def.id === id).name;
+
 const time = (text) => {
   const ms = Date.parse(text ?? '');
   return Number.isFinite(ms) ? ms : null;
@@ -406,12 +416,12 @@ function barsOf(windowPulls, summary, alarmNumbers) {
     actualDays: summary.actualDays,
     read,
     items: [
-      forced('e2e-forced-full', 'E2E forced to run every spec', summary.e2e.forcedFull, e2e),
-      forced('test-forced-full', 'Test forced to run everything', summary.forcedFull, test),
-      bar({ id: 'misses', name: 'Misses', count: summary.misses, of: null, value: summary.misses, threshold: BARS.misses }),
+      forced('e2e-forced-full', barName('e2e-forced-full'), summary.e2e.forcedFull, e2e),
+      forced('test-forced-full', barName('test-forced-full'), summary.forcedFull, test),
+      bar({ id: 'misses', name: barName('misses'), count: summary.misses, of: null, value: summary.misses, threshold: BARS.misses }),
       bar({
         id: 'most-selected',
-        name: 'A test selected on nearly every pull request',
+        name: barName('most-selected'),
         count: selected?.selected ?? null,
         of: selected?.of ?? null,
         value: selected?.share ?? null,
@@ -525,5 +535,104 @@ export function buildModel({ pulls: pullData, now, requestedDays, coveredSince, 
       limit,
     ),
     pulls,
+  };
+}
+
+/** The most misses of one pull request, and characters of a chain in words, that the Monitor takes (apps/harness-monitor/src/selection.ts): it refuses a whole batch past either, which would hold every later night back. */
+const KEPT_MISSES = 500;
+const KEPT_TEXT = 2000;
+
+/** Why a file ran, as the Harness Monitor stores it: a kind, and for a chain or a concept the structure and its words. A file of a package that ran everything was not picked. */
+function selectedByRow(selectedBy, mode) {
+  if (mode === 'full') return { kind: 'full' };
+  const words = (value) => chainText(value).slice(0, KEPT_TEXT);
+  if (!selectedBy) return { kind: 'unknown', text: words(null) };
+  if (selectedBy.kind === 'itself') return { kind: 'itself', text: words(selectedBy) };
+  if (selectedBy.kind === 'concept') return { kind: 'concept', owners: selectedBy.owners, text: words(selectedBy) };
+  return { kind: 'chain', chain: selectedBy.chain, text: words(selectedBy) };
+}
+
+/** A package as the Monitor stores it: only the files the job ran, each with why. */
+function packageRow(pkg) {
+  return {
+    name: pkg.name,
+    dir: pkg.dir,
+    mode: pkg.mode,
+    report: pkg.report,
+    reason: pkg.reason ? { rule: pkg.reason.rule, path: pkg.reason.path ?? null } : null,
+    files: pkg.files.filter((file) => file.status !== 'not run').map((file) => ({ path: file.path, level: file.level, status: file.status, selectedBy: selectedByRow(file.selectedBy, pkg.mode) })),
+  };
+}
+
+const filesTotalOf = (packages) => packages.reduce((total, pkg) => total + pkg.files.length, 0);
+
+/**
+ * The pull requests as the Harness Monitor stores them: for each, a row per job
+ * (Test, E2E) with its status, what it ran and why, its changed files and its
+ * packages, and the misses of both. A job that did not run says nothing about
+ * what it ran. Only the files a job ran are sent, since what a test could have
+ * skipped is told by the packages that selected.
+ *
+ * @param {object} input
+ * @param {import('./github.js').PullData[]} input.pulls
+ */
+export function monitorRows({ pulls: pullData }) {
+  return pullData
+    .filter((data) => time(data.pull.mergedAt) !== null)
+    .map((data) => {
+      const pull = pullModel(data);
+      const ran = pull.status === 'ran';
+      const e2eRan = pull.e2e.status === 'ran';
+      return {
+        number: pull.number,
+        title: pull.title,
+        url: pull.url,
+        mergedAt: pull.mergedAt,
+        jobs: [
+          {
+            job: 'test',
+            status: pull.status,
+            ranEverything: pull.ranEverything,
+            selecting: pull.selecting,
+            filesRun: ran ? pull.filesRun : null,
+            filesTotal: ran ? filesTotalOf(pull.packages) : null,
+            prDurationMs: pull.testDurationMs.pr,
+            mainDurationMs: pull.testDurationMs.main,
+            changedFiles: pull.changedFiles,
+            packages: pull.packages.map(packageRow),
+          },
+          {
+            job: 'e2e',
+            status: pull.e2e.status,
+            ranEverything: pull.e2e.ranEverything,
+            selecting: pull.e2e.selecting,
+            filesRun: e2eRan ? pull.e2e.filesRun : null,
+            filesTotal: e2eRan ? pull.e2e.filesTotal : null,
+            prDurationMs: null,
+            mainDurationMs: null,
+            // The browser tier's own record names the diff it read; a run without one read the same diff the Test job did.
+            changedFiles: data.prRun?.e2eRecord?.changedFiles ?? pull.changedFiles,
+            packages: pull.e2e.packages.map(packageRow),
+          },
+        ],
+        misses: pull.misses.slice(0, KEPT_MISSES).map((miss) => ({ job: miss.level === 'e2e' ? 'e2e' : 'test', path: miss.path, level: miss.level, reason: miss.reason ?? null })),
+      };
+    });
+}
+
+/**
+ * The bars' thresholds as the Monitor is sent them, with each bar's open alarm
+ * issue. `alarms` is the repository's alarm issues, or undefined where they
+ * could not be read, in which case none is sent and the Monitor keeps the ones
+ * it holds: a failed read must not clear an alarm the cost review is reading.
+ *
+ * @param {{ alarms?: { number: number, state: string, body: string }[] }} [input]
+ */
+export function monitorBars({ alarms } = {}) {
+  const open = alarms ? openAlarmNumbers(alarms) : null;
+  return {
+    windowDays: BARS.windowDays,
+    minPulls: BARS.minPulls,
+    items: BAR_DEFS.map((def) => ({ ...def, ...(open ? { alarmIssue: open.get(def.id) ?? null } : {}) })),
   };
 }

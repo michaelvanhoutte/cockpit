@@ -51,6 +51,12 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM cycle_time_rounds'),
     env.DB.prepare('DELETE FROM cycle_time_checks'),
     env.DB.prepare('DELETE FROM cycle_time_failures'),
+    env.DB.prepare('DELETE FROM selection_pulls'),
+    env.DB.prepare('DELETE FROM selection_packages'),
+    env.DB.prepare('DELETE FROM selection_files'),
+    env.DB.prepare('DELETE FROM selection_changed_files'),
+    env.DB.prepare('DELETE FROM selection_misses'),
+    env.DB.prepare('DELETE FROM selection_bars'),
     env.DB.prepare('DELETE FROM claude_calls'),
     env.DB.prepare('DELETE FROM claude_call_daily_totals'),
     env.DB.prepare('DELETE FROM claude_call_place'),
@@ -194,6 +200,102 @@ export async function storedPulls(): Promise<{ pull_number: number; recorded: nu
             (SELECT SUM(c.fluke_ms) FROM cycle_time_checks c WHERE c.pull_number = p.pull_number) AS fluke_ms
      FROM cycle_time_pulls p ORDER BY p.pull_number`,
   ).all<{ pull_number: number; recorded: number; rounds: number; checks: number; failures: number; fluke_ms: number | null }>();
+  return results;
+}
+
+/** A file a job ran, picked by an import chain from a changed file unless told otherwise. */
+export const selectionFile = (path: string, over: Record<string, unknown> = {}) => ({
+  path,
+  level: 'unit',
+  status: 'passed',
+  selectedBy: { kind: 'chain', chain: [path, 'apps/api/src/a.ts'], text: `${path} → apps/api/src/a.ts` },
+  ...over,
+});
+
+/** A package that selected rather than ran everything, with the files it ran. */
+export const selectionPackage = (name: string, files: unknown[], over: Record<string, unknown> = {}) => ({
+  name,
+  dir: `apps/${name}`,
+  mode: 'changed',
+  report: 'written',
+  reason: null,
+  files,
+  ...over,
+});
+
+/** A package that ran everything because `rule` named `path`; its files were not picked, the package ran them all. */
+export const fullPackage = (name: string, rule: string, path: string | null, paths: string[] = []) =>
+  selectionPackage(
+    name,
+    paths.map((p) => selectionFile(p, { selectedBy: { kind: 'full' } })),
+    { mode: 'full', reason: { rule, path } },
+  );
+
+/** One job of a pull request: it ran and selected unless told otherwise. */
+export const selectionJob = (job: 'test' | 'e2e', over: Record<string, unknown> = {}) => ({
+  job,
+  status: 'ran',
+  ranEverything: false,
+  selecting: true,
+  filesRun: 12,
+  filesTotal: 300,
+  prDurationMs: job === 'test' ? 90_000 : null,
+  mainDurationMs: job === 'test' ? 400_000 : null,
+  changedFiles: [{ path: 'apps/api/src/a.ts', ignored: false }],
+  packages: [],
+  ...over,
+});
+
+/** A job that ran everything for `rule` (`path`). */
+export const ranEverything = (job: 'test' | 'e2e', rule: string, path: string | null, paths: string[] = []) =>
+  selectionJob(job, { ranEverything: true, selecting: false, filesRun: paths.length, packages: [fullPackage(job === 'e2e' ? 'e2e' : 'api', rule, path, paths)] });
+
+/** A job that never started, the diff touching nothing it checks. */
+export const docsOnly = (job: 'test' | 'e2e') =>
+  selectionJob(job, { status: 'docs-only', selecting: false, filesRun: null, filesTotal: null, prDurationMs: null, mainDurationMs: null, packages: [] });
+
+/** A merged pull request as the Selection job sends it: both jobs selected, no miss, merged at `mergedAt`. */
+export const selectionPull = (number: number, over: Record<string, unknown> = {}) => ({
+  number,
+  title: `Pull request ${number}`,
+  url: `https://github.com/o/r/pull/${number}`,
+  mergedAt: '2026-10-01T12:00:00Z',
+  jobs: [selectionJob('test'), selectionJob('e2e')],
+  misses: [],
+  ...over,
+});
+
+/** The bars as the tool sends them: its thresholds, and no open alarm. */
+export const selectionBars = (over: Record<string, unknown> = {}, items?: Record<string, unknown>[]) => ({
+  windowDays: 14,
+  minPulls: 20,
+  items: items ?? [
+    { id: 'e2e-forced-full', name: 'E2E forced to run every spec', threshold: 0.25, minOver: null, alarmIssue: null },
+    { id: 'test-forced-full', name: 'Test forced to run everything', threshold: 0.25, minOver: null, alarmIssue: null },
+    { id: 'misses', name: 'Misses', threshold: 1, minOver: null, alarmIssue: null },
+    { id: 'most-selected', name: 'A test selected on nearly every pull request', threshold: 0.8, minOver: 10, alarmIssue: null },
+  ],
+  ...over,
+});
+
+/** A send of pull requests as the Selection job makes it, with the right key unless told otherwise. */
+export function sendSelection(pulls: unknown[], bars: unknown = selectionBars(), headers: Record<string, string> = { authorization: `Bearer ${WRITE_KEY}` }) {
+  return SELF.fetch('https://monitor.test/v1/selection', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ pulls, bars }),
+  });
+}
+
+/** What is stored: each pull request and job with how many packages, files and changed files sit under it. */
+export async function storedSelection(): Promise<{ pull_number: number; job: string; status: string; packages: number; files: number; changed: number }[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT p.pull_number, p.job, p.status,
+            (SELECT COUNT(*) FROM selection_packages k WHERE k.pull_number = p.pull_number AND k.job = p.job) AS packages,
+            (SELECT COUNT(*) FROM selection_files f WHERE f.pull_number = p.pull_number AND f.job = p.job) AS files,
+            (SELECT COUNT(*) FROM selection_changed_files c WHERE c.pull_number = p.pull_number AND c.job = p.job) AS changed
+     FROM selection_pulls p ORDER BY p.pull_number, p.job`,
+  ).all<{ pull_number: number; job: string; status: string; packages: number; files: number; changed: number }>();
   return results;
 }
 
