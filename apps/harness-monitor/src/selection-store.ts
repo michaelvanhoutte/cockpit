@@ -197,10 +197,10 @@ interface PullRow {
   ran_everything: number;
 }
 
-const inPeriod = `p.merged_at >= ?1 AND (?2 = 'both' OR p.job = ?2)`;
+export const inPeriod = `p.merged_at >= ?1 AND (?2 = 'both' OR p.job = ?2)`;
 
 /** The pull requests of the period that ran a job, and the packages of those: the scope the file queries count over. */
-const SCOPE = `scoped AS (SELECT pull_number, job, merged_at FROM selection_pulls p WHERE status = 'ran' AND ${inPeriod})`;
+export const SCOPE = `scoped AS (SELECT pull_number, job, merged_at FROM selection_pulls p WHERE status = 'ran' AND ${inPeriod})`;
 
 /**
  * Per package, the pull requests that selected in it rather than ran it whole
@@ -221,7 +221,7 @@ const SELECTING = `selecting AS (
  * period's file rows are grouped once. `worst` is the file selected on the largest share of the
  * pull requests that could have skipped it, among those with at least the bar's `min_over` of them.
  */
-const MOST_SELECTED = `WITH ${SCOPE}, ${SELECTING}
+export const MOST_SELECTED = `WITH ${SCOPE}, ${SELECTING}
 SELECT 'top' AS kind, ROW_NUMBER() OVER (ORDER BY r.selected DESC, r.full_run DESC, r.path) AS rank, r.job, r.path, r.selected, r.selecting, r.full_run, r.level, (
   SELECT f.chain_text FROM selection_files f JOIN scoped s ON s.pull_number = f.pull_number AND s.job = f.job
   WHERE f.job = r.job AND f.path = r.path AND f.chain_kind <> 'full'
@@ -239,25 +239,27 @@ SELECT * FROM (
   WHERE c.pulls >= (SELECT min_over FROM selection_bars WHERE id = 'most-selected')
   ORDER BY t.selected * 1.0 / c.pulls DESC, c.pulls DESC, t.path LIMIT 1
 )
+UNION ALL
+SELECT 'count', 1, NULL, NULL, COUNT(*), NULL, NULL, NULL, NULL FROM tally WHERE selected > 0
 ORDER BY 1, 2`;
 
 const share = (count: number, of: number) => (of > 0 ? count / of : null);
 
 /** A share against its bar. Unread wherever the period is too small or the figure cannot be given, never within. The tolerance keeps 29 of 116 (exactly a quarter) on the right side of a float. */
-function verdictOf(read: boolean, value: number | null, threshold: number): SelectionBar['verdict'] {
+export function verdictOf(read: boolean, value: number | null, threshold: number): SelectionBar['verdict'] {
   if (!read || value === null) return 'unread';
   return value + 1e-9 >= threshold ? 'crossed' : 'within';
 }
 
 /** Of the pull requests that ran everything, the rule that forced the most of them (a pull request counted once per rule), or null where none names one. */
-function leadingRule(rulesOf: string[][]): { rule: string; count: number } | null {
+export function leadingRule(rulesOf: string[][]): { rule: string; count: number } | null {
   const tally = new Map<string, number>();
   for (const rules of rulesOf) for (const rule of new Set(rules)) tally.set(rule, (tally.get(rule) ?? 0) + 1);
   const [leader] = [...tally].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   return leader ? { rule: leader[0], count: leader[1] } : null;
 }
 
-const refOf = (row: { pull_number: number; title: string; url: string; merged_at: number }): PullRef => ({
+export const refOf = (row: { pull_number: number; title: string; url: string; merged_at: number }): PullRef => ({
   number: row.pull_number,
   title: row.title,
   url: row.url,
@@ -312,7 +314,7 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
   const read = minPulls !== null && total >= minPulls;
   const setting = (id: BarId) => barRows.find((each) => each.id === id) ?? null;
 
-  const selectedRows = selected!.results as unknown as { kind: 'top' | 'worst'; job: SelectionJob; path: string; level: string; selected: number; selecting: number; full_run: number; chain: string | null }[];
+  const selectedRows = selected!.results as unknown as { kind: 'top' | 'worst' | 'count'; job: SelectionJob; path: string; level: string; selected: number; selecting: number; full_run: number; chain: string | null }[];
   const reasonsOf = new Map<string, typeof reasonRows>();
   for (const reason of reasonRows) {
     const key = `${reason.job}:${reason.pull_number}`;

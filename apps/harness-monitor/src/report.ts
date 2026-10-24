@@ -34,8 +34,9 @@ export const outLink = (u: string | null | undefined, text: string, cls = '') =>
 export const section = (id: string, title: string, aside: string, content: string, cls = 'panel') =>
   `<section class="${cls}" aria-labelledby="${id}">${band(title, aside, id)}${content}</section>`;
 
-export const tile = (label: string, value: string, note: string, cls = '') =>
-  `<div class="tile ${cls}"><span class="tile-label">${label}</span><span class="tile-value">${value}</span><span class="tile-note">${note}</span></div>`;
+/** A tile: a label, a figure and a note, or several, each its own line. */
+export const tile = (label: string, value: string, note: string | string[], cls = '') =>
+  `<div class="tile ${cls}"><span class="tile-label">${label}</span><span class="tile-value">${value}</span>${(typeof note === 'string' ? [note] : note).map((n) => `<span class="tile-note">${n}</span>`).join('')}</div>`;
 
 /** A page's own tabs on the band: `[href, text, current]`. */
 export const bandTabs = (tabs: [href: string, text: string, current: boolean][]) =>

@@ -421,6 +421,102 @@ test.describe('Harness Monitor', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
+  test('Test selection opens from the top bar, its tabs, the Job toggle and a pull request open what each job ran and why, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
+    const hot = 'apps/api/tests/unit/hot.test.ts';
+    const job = (name: 'test' | 'e2e', over: Record<string, unknown>) => ({
+      job: name,
+      status: 'ran',
+      ranEverything: false,
+      selecting: true,
+      filesRun: 1,
+      filesTotal: 40,
+      prDurationMs: name === 'test' ? 90_000 : null,
+      mainDurationMs: name === 'test' ? 400_000 : null,
+      changedFiles: [{ path: 'apps/api/src/b.ts', ignored: false }],
+      packages: [],
+      ...over,
+    });
+    const pkg = (name: string, mode: 'full' | 'changed', files: unknown[], reason: { rule: string; path: string | null } | null = null) => ({ name, dir: `apps/${name}`, mode, report: 'written', reason, files });
+    const file = (path: string, selectedBy: unknown) => ({ path, level: 'unit', status: 'passed', selectedBy });
+    const pull = (number: number, title: string, hours: number, jobs: unknown[]) => ({ number, title, url: `https://github.com/o/r/pull/${number}`, mergedAt: hoursAgo(hours), jobs, misses: [] });
+    const everything = (name: 'test' | 'e2e', rule: string, path: string) =>
+      job(name, { ranEverything: true, selecting: false, filesRun: 2, packages: [pkg(name === 'test' ? 'api' : 'e2e', 'full', [file('a.test.ts', { kind: 'full' }), file('b.test.ts', { kind: 'full' })], { rule, path })] });
+    const docs = (name: 'test' | 'e2e') => job(name, { status: 'docs-only', selecting: false, filesRun: null, filesTotal: null, prDurationMs: null, mainDurationMs: null });
+    const pulls = [
+      pull(9101, 'Add a filter panel', 20, [
+        job('test', { packages: [pkg('api', 'changed', [file(hot, { kind: 'chain', chain: [hot, 'apps/api/src/a.ts', 'apps/api/src/b.ts'], text: `${hot} → apps/api/src/a.ts → apps/api/src/b.ts` })])] }),
+        job('e2e', {}),
+      ]),
+      pull(9102, 'Save a Teams message', 5, [everything('test', 'any tsconfig', 'tsconfig.json'), everything('e2e', 'owned by no concept', 'apps/api/src/b.ts')]),
+      pull(9103, 'Tidy the docs', 70, [docs('test'), docs('e2e')]),
+    ];
+    const bars = {
+      windowDays: 14,
+      minPulls: 20,
+      items: [
+        { id: 'e2e-forced-full', name: 'E2E forced to run every spec', threshold: 0.25, minOver: null, alarmIssue: null },
+        { id: 'test-forced-full', name: 'Test forced to run everything', threshold: 0.25, minOver: null, alarmIssue: null },
+        { id: 'misses', name: 'Misses', threshold: 1, minOver: null, alarmIssue: null },
+        { id: 'most-selected', name: 'A test selected on nearly every pull request', threshold: 0.8, minOver: 10, alarmIssue: null },
+      ],
+    };
+    expect((await api.post(`${monitor}/__e2e/seed-selection`, { data: { pulls, bars } })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    const noSidewaysScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    // From the costs page, the top bar's own tab opens it on the Overview, with the four bars as tiles.
+    await page.goto(`${monitor}/`);
+    await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Test selection' }).click();
+    const band = tabOn(page);
+    await expect(page.getByRole('navigation', { name: 'Group by' }).getByRole('link')).toHaveText(['Overview', 'Pull request', 'What forced a full run', 'Package', 'Most selected tests', 'Misses']);
+    await expect(band('Overview')).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('.tile')).toHaveCount(4);
+    await expect(page.getByRole('region', { name: 'What each job did with 3 pull requests' })).toBeVisible();
+
+    // The filters share one row on a desk; the page never scrolls sideways.
+    const tops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(2);
+    if (!onAPhone) expect(new Set(tops).size).toBe(1);
+    expect(await noSidewaysScroll()).toBe(true);
+
+    // Pull request: no tiles here, a row each, and the select for which pull requests; the wide table scrolls inside its panel.
+    await band('Pull request').click();
+    await expect(page.locator('.tile')).toHaveCount(0);
+    const table = page.getByRole('region', { name: 'By pull request' });
+    await expect(table.getByRole('row')).toHaveCount(4);
+    const rowTops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
+    expect(rowTops).toHaveLength(3);
+    if (!onAPhone) expect(new Set(rowTops).size).toBe(1);
+    expect(await table.locator('.table').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(onAPhone);
+
+    // Open one: what changed, each package's mode, and the files selected with the chain behind each.
+    await table.getByRole('link', { name: /#9101 Add a filter panel/ }).click();
+    await expect(page).toHaveURL(/[?&]pr=9101(&|$)/);
+    await expect(page.getByLabel('Pull requests', { exact: true })).toHaveCount(0);
+    const drill = page.getByRole('region', { name: /#9101 Add a filter panel/ });
+    await expect(drill).toContainText('Selected a subset: 1 of 40 test files run');
+    await expect(drill).toContainText(hot);
+    await expect(drill).toContainText('via apps/api/src/a.ts → apps/api/src/b.ts');
+    expect(await noSidewaysScroll()).toBe(true);
+
+    // Job: E2E keeps the tab and the pull request, and leaves only the E2E job.
+    await page.getByRole('button', { name: 'E2E job' }).click();
+    await expect(page).toHaveURL(/[?&]job=e2e(&|$)/);
+    await expect(page).toHaveURL(/[?&]pr=9101(&|$)/);
+    await expect(page.getByRole('button', { name: 'E2E job' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(drill).not.toContainText('Test job');
+    await expect(drill).toContainText('E2E job');
+
+    // Back to every pull request, then the rule that forced the full runs opens its paths.
+    await page.getByRole('link', { name: 'Every pull request' }).click();
+    await band('What forced a full run').click();
+    await page.getByRole('link', { name: 'owned by no concept' }).click();
+    await expect(page.getByRole('region', { name: /E2E job: owned by no concept/ })).toContainText('apps/api/src/b.ts');
+    expect(await noSidewaysScroll()).toBe(true);
+  });
+
   test('the page is drawn in Inter, which the Monitor serves itself', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
