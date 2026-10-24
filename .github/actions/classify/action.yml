@@ -5,6 +5,9 @@ outputs:
   product_changed:
     description: "'false' on a documentation-only diff, else 'true'. Unset if the step could not run, which every caller's gate reads as a diff that does touch the product."
     value: ${{ steps.classify.outputs.product_changed }}
+  widget_changed:
+    description: "'false' when nothing the Android widget's build and tests read changed, else 'true'. Unset if the step could not run, or while the base commit's classifier predates this output, which the widget job reads as a diff that does touch it."
+    value: ${{ steps.classify.outputs.widget_changed }}
 
 runs:
   using: composite

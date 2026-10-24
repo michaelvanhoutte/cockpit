@@ -94,6 +94,7 @@ What each area does, split by topic:
 - [Dashboards](product/dashboards.md)
 - [Across the app](product/across-the-app.md)
 - [Offline](product/offline.md)
+- [Home-screen widget](product/home-screen-widget.md)
 - [Glossary](product/glossary.md)
 
 Design — how the app looks — is `design-system.md`, not this document.

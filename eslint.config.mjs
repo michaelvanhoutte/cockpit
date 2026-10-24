@@ -80,6 +80,9 @@ export default [
       'playwright-report/**',
       'tools/*/out/**',
       'poc/**',
+      // The Android widget is Kotlin and Gradle, with no pnpm package; what it
+      // generates under `build/` and `.gradle/` is not ours to lint.
+      'apps/android-widget/**',
       'docs/**',
       '.claude/**',
     ],

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">One Cockpit Panel on your home screen</string>
+    <string name="refresh">Refresh</string>
+    <string name="add_item">Add an item</string>
+    <string name="priority_high">High priority</string>
+    <string name="priority_normal">Normal priority</string>
+    <string name="priority_low">Low priority</string>
+</resources>

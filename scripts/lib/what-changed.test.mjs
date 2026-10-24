@@ -27,6 +27,7 @@ import {
   printable,
   productChanged,
   productPaths,
+  widgetChanged,
 } from './what-changed.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -298,6 +299,12 @@ describe('isSecurityPath and isStoredDataPath', () => {
     assert.equal(isStoredDataPath('apps/api/src/accounts/store.ts'), true, "the Durable Object every account's rows are actually read and written through");
   });
 
+  it('calls the Android widget security, since it keeps a sign-in token on a phone', () => {
+    assert.equal(isSecurityPath('apps/android-widget/app/src/main/java/com/conselit/cockpit/widget/Storage.kt'), true);
+    assert.equal(isStoredDataPath('apps/android-widget/app/src/main/java/com/conselit/cockpit/widget/Storage.kt'), false);
+    assert.equal(isSecurityPath('apps/android-widget-notes/x.kt'), false, 'a neighbour that merely starts with the same letters');
+  });
+
   it('calls its own classifier security, so a change that weakens it cannot classify itself out of review', () => {
     // A change to the classifier itself has to be on this list, or it would
     // classify itself as harmless and skip the one review that would have
@@ -313,6 +320,30 @@ describe('isSecurityPath and isStoredDataPath', () => {
     ]) {
       assert.equal(isSecurityPath(path), true, `${path} decides or asserts the verdict and should be a security path`);
     }
+  });
+});
+
+describe('widgetChanged', () => {
+  it('is true for the app, the sample answers its tests read, and the workflow that runs them', () => {
+    for (const path of [
+      'apps/android-widget/app/build.gradle.kts',
+      'apps/android-widget/gradlew',
+      'packages/shared/samples/panel-read.sample.json',
+      '.github/workflows/ci.yml',
+    ]) {
+      assert.equal(widgetChanged([path]), true, `${path} can change what the widget's tests say`);
+    }
+  });
+
+  it('is false for a diff that touches nothing the widget reads, product code included', () => {
+    assert.equal(widgetChanged(['apps/web/src/main.tsx', 'apps/api/src/mcp/panel-reads.ts', 'docs/deployment.md', 'packages/shared/src/index.ts']), false);
+    assert.equal(widgetChanged(['apps/android-widget-notes/x.kt']), false, 'a neighbour that merely starts with the same letters');
+  });
+
+  it('is true for one path among others, and for a diff it could not read', () => {
+    assert.equal(widgetChanged(['docs/a.md', 'apps/android-widget/settings.gradle.kts']), true);
+    assert.equal(widgetChanged([]), true);
+    assert.equal(widgetChanged(undefined), true);
   });
 });
 
@@ -523,6 +554,26 @@ describe('classify', () => {
     assert.match(lines[0], /no paths in this diff/);
   });
 
+  it('says whether the Android widget is touched, beside whether the product is', () => {
+    const widget = classify(readers({ event: pullRequest, diff: `apps/android-widget/app/build.gradle.kts${NUL}docs/a.md${NUL}` }));
+    assert.equal(widget.widget, true);
+    assert.equal(widget.changed, true);
+    const web = classify(readers({ event: pullRequest, diff: `apps/web/src/main.tsx${NUL}` }));
+    assert.equal(web.widget, false);
+    assert.equal(web.changed, true);
+  });
+
+  it('runs the widget as well wherever it ran everything', () => {
+    for (const result of [
+      classify(readers({ event: pullRequest, diff: '' })),
+      classify(readers({ event: pullRequest, failDiff: true })),
+      classify(readers({ failRead: true })),
+      classify(),
+    ]) {
+      assert.equal(result.widget, true);
+    }
+  });
+
   it('runs everything when git could not answer, and says so as a warning', () => {
     const { changed, security, lines } = classify(readers({ event: pullRequest, failDiff: true }));
     assert.equal(changed, true);
@@ -638,6 +689,37 @@ describe('the mechanical checks', () => {
     // Test Explorer needs Test and now sees a green job on such a diff, so it asks Test's answer itself.
     assert.match(job(yaml, 'test-explorer'), /if: \$\{\{ success\(\) && needs\.test\.outputs\.product_changed != 'false' \}\}/, 'Test Explorer would run on a documentation-only diff');
     assert.match(job(yaml, 'test'), /product_changed: \$\{\{ steps\.classify\.outputs\.product_changed \}\}/, 'Test publishes no answer for Test Explorer');
+  });
+
+  it('build the Android widget only when something it reads changed, and run it where the classifier said nothing', () => {
+    const yaml = workflow('ci.yml');
+    assert.match(classifier, /widget_changed:\s+description:.*\s+value: \$\{\{ steps\.classify\.outputs\.widget_changed \}\}/, 'the classifier action publishes no answer for the widget');
+    assert.match(readFileSync(join(repo, 'scripts/what-changed.mjs'), 'utf8'), /widget_changed=\$\{widget\}/, 'the classifier writes no answer for the widget');
+    const widget = job(yaml, 'widget');
+    assert.ok(widget.includes(useClassifier), "ci.yml's widget job does not run the classifier");
+    assert.deepEqual(needsOf(widget), [], "ci.yml's widget job waits for another");
+    const steps = stepsAfterClassifier(widget);
+    assert.ok(steps.length >= 3, 'the widget job has too few steps after its classifier to be real');
+    for (const step of steps) {
+      // A failure step only fires after a gated step failed, so it cannot fire on a skip.
+      if (step.includes('Upload the test and lint reports')) continue;
+      assert.match(step, /if: .*steps\.classify\.outputs\.widget_changed != 'false'/, `ci.yml's widget job has a step that runs on a diff the widget does not read:\n${step}`);
+    }
+    assert.match(widget, /gradlew --no-daemon testStagingDebugUnitTest /, 'the widget job runs no tests');
+  });
+
+  it('cut the widget release on a tag, from the four secrets, and from nothing else', () => {
+    const release = workflow('widget-release.yml');
+    const on = triggersOf(release);
+    assert.match(on, /tags: \['widget-v\*'\]/, 'the release is not cut by a widget-v tag');
+    assert.doesNotMatch(on, /pull_request|branches/, 'the release must not run for a branch or a pull request');
+    for (const secret of ['WIDGET_KEYSTORE_BASE64', 'WIDGET_KEYSTORE_PASSWORD', 'WIDGET_KEY_ALIAS', 'WIDGET_KEY_PASSWORD']) {
+      assert.ok(release.includes(`secrets.${secret}`), `the release never reads ${secret}`);
+    }
+    assert.match(release, /permissions:\n {2}contents: read/, 'the workflow should be read-only by default');
+    assert.match(job(release, 'release'), /permissions:\n {6}contents: write/, 'only the release job may write the release');
+    assert.match(release, /merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/, 'a tag on a commit that is not on main would be signed and released');
+    assert.match(release, /\(0\|\[1-9\]\[0-9\]\*\)\\\.\(0\|\[1-9\]\[0-9\]\?\)\\\.\(0\|\[1-9\]\[0-9\]\?\)/, 'a leading zero or a three-digit part would make a wrong version code');
   });
 
   it('start Test and the shards with the run, not when Checks ends', () => {

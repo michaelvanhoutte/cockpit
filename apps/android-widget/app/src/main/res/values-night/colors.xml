@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="surface">#23242A</color>
+    <color name="ink">#E4E5EA</color>
+    <color name="ink_faint">#8A8E9A</color>
+    <color name="divider">#14FFFFFF</color>
+    <color name="button">#1AFFFFFF</color>
+
+    <color name="flag_unset_bg">#0DE4E5EA</color>
+    <color name="flag_unset_ink">#26E4E5EA</color>
+
+    <color name="pill_near_bg">#4A3519</color>
+    <color name="pill_near_ink">#E8C08A</color>
+    <color name="pill_week_ink">#E8C08A</color>
+</resources>

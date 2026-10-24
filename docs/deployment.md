@@ -215,6 +215,24 @@ The hook never sends conversation text, and a request it could not send goes aga
 
 **Backfill test selection once the secret and variable are set**: run *Selection backfill* on `main` with `from` 90 days ago and `to` empty, the same way. It stops at its pull budget, 70 pull requests or about three days of merges, since each pull request costs about twelve requests; run it again with the same `from` and the `to` day it names until it passes. Leave an hour between runs and before a night's `Selection` job. A 90-day backfill writes about 600,000 file rows in all (a pull request that ran a package whole stores every file of it). Sending a window again stores each pull request once, with a miss found since.
 
+### The Android widget
+
+`apps/android-widget` is the one part of Cockpit that is **released, not deployed**. The Worker and the web app update from the origin: a deploy reaches every open tab. An installed Android app cannot, so the widget is **the one versioned artefact**, an APK on a GitHub Release, cut by pushing a tag `widget-v1.2.3` (`widget-release.yml`), installed by hand and replaced only by installing the next. A release carries the production build alone; the staging build (separate application ID, its own origin and its own return address) is made by an engineer with `./gradlew assembleStagingDebug` in `apps/android-widget`.
+
+- **What a release may change.** The reads under `/apps` only gain fields and the widget ignores the ones it does not know, so a new Cockpit never needs a new widget. A change that cannot be additive gets a `v2` address, and retiring `v1` answers `410` with "the app needs a newer version", which the widget shows as *Update Cockpit widget*, opening the release page. Nothing else checks for an update, so **release a widget that reads `v2` and let the owner's phone have it before `v1` is retired.**
+- **`OAUTH_KV` is the limit if many phones install it.** Every widget on a phone shares one sign-in whose access token lasts an hour, so a phone renews about 24 times a day, and each renewal writes to `OAUTH_KV` where Claude's connection already spends the monthly allowance in "The environments". Noting that an app last read a Panel adds at most 144 writes a day (one in ten minutes). A phone therefore costs the order of 200 writes a day, some 6,000 a month: fine for a handful of phones, and a couple of hundred would spend the million. Past it the writes are billed, not refused.
+- **The signing key is the owner's, made once, and cannot be replaced.** Android installs an update only over an app signed with the same key, so **a lost key means every phone uninstalls the widget, and signs in again, before a differently signed one will install.** The workflow only reads it, from four repository secrets.
+
+**Making the key, once, by the owner.**
+
+1. Make it: `keytool -genkeypair -v -keystore cockpit-widget-release.jks -alias cockpit-widget -keyalg RSA -keysize 4096 -validity 10000`. It asks for a keystore password and a key password (the same one is fine) and a name for the certificate.
+2. Note the SHA-256 fingerprint it prints, or print it again with `keytool -list -v -keystore cockpit-widget-release.jks -alias cockpit-widget`.
+3. **Keep two offline copies** of `cockpit-widget-release.jks` and of both passwords, somewhere that is not this repository and not only on one computer. Never commit it: `.gitignore` refuses `*.jks`.
+4. Encode it: in PowerShell `[Convert]::ToBase64String([IO.File]::ReadAllBytes("cockpit-widget-release.jks")) | Set-Clipboard`, elsewhere `base64 -w0 cockpit-widget-release.jks`.
+5. Store the four repository secrets (Settings › Secrets and variables › Actions, or `gh secret set <name>`): `WIDGET_KEYSTORE_BASE64` (the text from step 4), `WIDGET_KEYSTORE_PASSWORD`, `WIDGET_KEY_ALIAS` (`cockpit-widget`) and `WIDGET_KEY_PASSWORD`.
+6. Cut the first release: `git tag widget-v1.0.0` then `git push origin widget-v1.0.0`. The run's summary prints the fingerprint of the key that signed the APK: **it must equal the one noted in step 2.** The release appears on the repository's Releases page; the tests run first, so a release that fails them is not cut.
+7. On the phone, open that page, download the APK and install it (Android asks once to allow installs from the browser). A later release installs over this one and keeps the sign-in.
+
 ## 3. One Worker serves the whole application
 
 Not Pages plus a separate API Worker. One Worker per environment serves the Hono
