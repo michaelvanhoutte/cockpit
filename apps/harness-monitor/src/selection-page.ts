@@ -131,7 +131,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       tile(
         'Misses',
         number(misses),
-        ['a test that failed on main after its pull request skipped it · any miss crosses', ...(misses ? [`<a href="${link({ group: 'miss' })}">See which</a>`] : []), ...unread, ...alarm(bars.alarm.misses, missVerdict)],
+        [`a test that failed on main after its pull request skipped it · ${bars.misses <= 1 ? 'any miss' : `${number(bars.misses)} or more`} crosses`, ...(misses ? [`<a href="${link({ group: 'miss' })}">See which</a>`] : []), ...unread, ...alarm(bars.alarm.misses, missVerdict)],
         tileClass(missVerdict),
       ),
     );
@@ -335,7 +335,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       const files = drill.files.filter((f) => f.job === job);
       const selectedList = files.length
         ? `<ul class="files">${files.map((f) => `<li><span class="mono${f.status === 'failed' ? ' over-ink' : ''}">${esc(f.path)}${f.status === 'failed' ? ' (failed)' : ''}</span><div class="sub">${esc(whyText(f.text, f.path))}</div></li>`).join('')}</ul>`
-        : '<p class="faint">Nothing selected: every package that ran, ran in full.</p>';
+        : `<p class="faint">${drill.packages.some((pkg) => pkg.job === job && pkg.mode === 'changed') ? 'Nothing selected.' : 'Nothing selected: every package that ran, ran in full.'}</p>`;
       const misses = v.misses.length ? `<p class="warning"><strong>${plural(v.misses.length, 'miss', 'misses')}:</strong> ${v.misses.map((m) => `${mono(m.path)}${m.reason === 'docs only' ? ' (docs only)' : ''}`).join(', ')} failed on main and did not run here.</p>` : '';
       return `<div class="drill-job">${head}${misses}<p class="sub">${OUTCOME_LABELS[o]}: ${number(v.filesRun ?? 0)} of ${plural(v.filesTotal ?? 0, UNIT[job][0], UNIT[job][1])} run</p>
 <div class="table"><table class="inner"><thead><tr><th scope="col">${job === 'test' ? 'Package' : 'Tier'}</th><th scope="col">Mode</th><th scope="col">Reason</th><th scope="col" class="num">Ran</th></tr></thead><tbody>${pkgRows}</tbody></table></div>
@@ -413,7 +413,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     );
   }
 
-  const crossed = (t: { selected: number; selecting: number }) => t.selecting >= bars.mostMinOver && shareOf(t) + 1e-9 >= bars.mostShare;
+  const crossed = (t: { selected: number; selecting: number }) => read && t.selecting >= bars.mostMinOver && shareOf(t) + 1e-9 >= bars.mostShare;
 
   function byTest(): string {
     const all = view.tally.filter((t) => t.selected > 0);

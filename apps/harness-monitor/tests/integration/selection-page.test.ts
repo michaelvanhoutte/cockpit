@@ -416,6 +416,28 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe('a bar is read only on a period large enough to read it, on every tab', () => {
+    it('a test selected on every pull request of twelve is not over the bar, since a bar needs twenty', async () => {
+      await sendSelection(times(12, (index) => selectionPull(index + 1, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [selectionFile(HOT)])] }), selectionJob('e2e')] })));
+
+      const html = await thePage('?group=test');
+
+      expect(rowsOf(html, 'most-selected-tests')[0]!.slice(2)).not.toContain('over the bar');
+      expect(sectionOf(html, 'most-selected-tests')).not.toContain('crossed');
+    });
+  });
+
+  describe('a pull request that selected a subset but ran no file of a package does not say every package ran in full', () => {
+    it('says only that nothing was selected', async () => {
+      await sendSelection([selectionPull(7, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [])] }), selectionJob('e2e')] })]);
+
+      const drill = text(sectionOf(await thePage('?group=pr&pr=7&job=test'), 'pull-request'));
+
+      expect(drill).toContain('Nothing selected.');
+      expect(drill).not.toContain('ran in full');
+    });
+  });
+
   describe('a view kept at the edge is the one the address asks for, drill-down included', () => {
     it('two pull requests opened from the same tab are two views, each its own', async () => {
       await sendSelection([selectionPull(7, { mergedAt: MERGED }), selectionPull(8, { mergedAt: MERGED })]);
