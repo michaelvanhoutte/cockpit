@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import type { Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
 import { expect, test } from './support/app';
 
 /**
@@ -328,8 +328,11 @@ test.describe('Harness Monitor', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
-  test('Cycle time opens from the top bar, its tabs and the Rounds filter narrow it with the cost beside each pull request, Where the time went is one outline that fits a desk and a phone, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
-    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+  /**
+   * The costs seed and three merged pull requests: 9001 and 9002 are the ones the seed priced, at $6.00 and $3.00; 9003 has no cost.
+   * 9001 and 9003 had one round of Test, 9002 a red one then a green one, so its CI rounds are twice as long. None carries its local kinds.
+   */
+  async function seedCycleTime(api: APIRequestContext) {
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
     const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
     const check = (name: string, minutes: number, over: Record<string, unknown> = {}) => ({
@@ -347,7 +350,6 @@ test.describe('Harness Monitor', () => {
       ...over,
     });
     const round = (checks: unknown[], red: boolean) => ({ sha: 'b'.repeat(40), pushedAt: hoursAgo(30), endedAt: hoursAgo(29), ms: 300_000, red, commits: 1, queueNotRecorded: false, checks });
-    // 9001 and 9002 are the pull requests the seed priced, at $6.00 and $3.00; 9003 has no cost.
     const pull = (number: number, title: string, hours: number, rounds: unknown[]) => ({
       number,
       title,
@@ -377,6 +379,11 @@ test.describe('Harness Monitor', () => {
       pull(9003, 'Tidy the inbox', 70, [round([check('Test', 5)], false)]),
     ];
     expect((await api.post(`${monitor}/__e2e/seed-cycle-time`, { data: { pulls } })).ok()).toBe(true);
+  }
+
+  test('Cycle time opens from the top bar, its tabs and the Rounds filter narrow it with the cost beside each pull request, Where the time went is one outline that fits a desk and a phone, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    await seedCycleTime(api);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
 
     // From the costs page, the top bar's own tab opens it on Over time, with the tiles an overview has.
@@ -446,6 +453,115 @@ test.describe('Harness Monitor', () => {
     }
     expect(await where.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
+  test("a Cycle time row opens to its own outline from its chevron or anywhere on it outside its links, and closes with a second click, with no request, several at once, from the keyboard, and fitting a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    await seedCycleTime(api);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    const noSideways = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    await page.goto(`${monitor}/cycle-time?group=pr`);
+    await page.waitForLoadState('load');
+    const table = page.getByRole('region', { name: 'By pull request' });
+    const row = (number: number) => table.locator('tr[data-figures]', { hasText: `#${number}` });
+    const strips = table.locator('tr.detail');
+    const stripOf = (number: number) => row(number).locator('xpath=following-sibling::tr[1][contains(@class, "detail")]');
+    const opening = (number: number) => row(number).getByRole('button', { name: new RegExp(`^(Open|Close) #${number} `) });
+    const requests: string[] = [];
+    page.on('request', (r) => requests.push(r.url()));
+
+    // The chevron: a closed row's strip is not in the page, then it is that row's own outline, beneath it, with the row tinted.
+    await expect(opening(9001)).toHaveAttribute('aria-expanded', 'false');
+    await expect(strips).toHaveCount(0);
+    await opening(9001).click();
+    await expect(opening(9001)).toHaveAttribute('aria-expanded', 'true');
+    await expect(opening(9001)).toHaveAccessibleName('Close #9001 Add a filter panel');
+    await expect(row(9001)).toHaveClass(/\bopen\b/);
+    await expect(strips).toBeVisible();
+    await expect(strips.locator('.o-row .nm')).toHaveText(['Writing', 'Local checks', 'Not split by kind', 'CI rounds', 'Test', 'Waiting to merge']);
+    await expect(strips.locator('.o-row .am')).toHaveText(['10m', '5m', '5m', '5m', '5m', '1m']);
+    await expect(strips.locator('.o-row .sh')).toHaveText(['48%', '24%', '100%', '24%', '100%', '5%']);
+    expect(await row(9001).evaluate((tr) => tr.nextElementSibling?.classList.contains('detail'))).toBe(true);
+    if (!onAPhone) {
+      // On a desk each row of the strip keeps a name, a bar, its minutes and its share on one line.
+      const box = await strips.locator('.o-row').first().evaluate((li) => ['.nm', '.tr', '.am', '.sh'].map((c) => Math.round(li.querySelector(c)!.getBoundingClientRect().top + li.querySelector(c)!.getBoundingClientRect().height / 2)));
+      expect(Math.max(...box) - Math.min(...box)).toBeLessThan(2);
+    }
+
+    // Anywhere else on the row closes it, and the same again opens it.
+    await row(9001).locator('.split-cell').click();
+    await expect(strips).toBeHidden();
+    await expect(opening(9001)).toHaveAttribute('aria-expanded', 'false');
+    await expect(row(9001)).not.toHaveClass(/\bopen\b/);
+    await row(9001).locator('.split-cell').click();
+    await expect(strips).toBeVisible();
+
+    // Two rows open at once, each with its own figures: 9002's two rounds of Test are twice 9001's one.
+    await row(9002).locator('td.total').first().click();
+    await expect(strips).toHaveCount(2);
+    await expect(stripOf(9001)).toBeVisible();
+    await expect(stripOf(9002)).toBeVisible();
+    await expect(stripOf(9002).locator('.o-row .am')).toHaveText(['10m', '5m', '5m', '10m', '10m', '1m']);
+    await expect(stripOf(9001).locator('.o-row .am')).toHaveText(['10m', '5m', '5m', '5m', '5m', '1m']);
+    expect(await noSideways()).toBe(true);
+    if (onAPhone) {
+      // On a phone the strip stays inside the panel's width while the wide table scrolls beneath it.
+      const [strip, panel] = await Promise.all([stripOf(9001).locator('.strip').boundingBox(), table.locator('.well.table').boundingBox()]);
+      expect(strip!.x).toBeGreaterThanOrEqual(panel!.x);
+      expect(strip!.x + strip!.width).toBeLessThanOrEqual(panel!.x + panel!.width + 1);
+    }
+
+    // Nothing above sent a request: the strips were drawn from what the page already held.
+    expect(requests).toEqual([]);
+
+    // A row's links go where they went and neither open nor close it: a click that is stopped before it navigates leaves each row as it was.
+    await page.evaluate(() => document.addEventListener('click', (e) => e.preventDefault()));
+    await row(9001).getByRole('link', { name: 'Sessions' }).click();
+    await row(9002).getByRole('link', { name: /#9002 Save a Teams message/ }).click();
+    await expect(strips).toHaveCount(2);
+    await expect(stripOf(9001)).toBeVisible();
+    await expect(stripOf(9002)).toBeVisible();
+    await row(9003).getByRole('link', { name: /#9003 Tidy the inbox/ }).click();
+    await expect(opening(9003)).toHaveAttribute('aria-expanded', 'false');
+    await expect(strips).toHaveCount(2);
+
+    // Left to itself, a link opens its page: a pull request's Sessions, with the row left closed behind it.
+    await page.goto(`${monitor}/cycle-time?group=pr`);
+    await table.locator('tr[data-figures]', { hasText: '#9001' }).getByRole('link', { name: 'Sessions' }).click();
+    await expect(page).toHaveURL(`${monitor}/pr/9001`);
+
+    // An open row is not kept in the address: a reload draws every row closed.
+    await page.goto(`${monitor}/cycle-time?group=pr`);
+    await expect(opening(9001)).toHaveAttribute('aria-expanded', 'false');
+    await expect(strips).toHaveCount(0);
+
+    // The keyboard: Tab from the last filter reaches the first chevron, and Enter opens and closes it.
+    await page.getByLabel('Rounds', { exact: true }).focus();
+    await page.keyboard.press('Tab');
+    await expect(table.locator('.chev').first()).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(strips).toBeVisible();
+    await expect(table.locator('.chev').first()).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Enter');
+    await expect(strips).toBeHidden();
+
+    // Over time, Issue and Size open their rows too, and the Check tab has nothing to open.
+    for (const [group, region, name] of [
+      ['day', 'By day merged', /^Open \d{1,2} \w{3} \d{4}$/],
+      ['issue', 'By issue', /^Open (#9000 .+|No issue named)$/],
+      ['size', 'By size', /^Open Under 100 lines$/],
+    ] as const) {
+      await page.goto(`${monitor}/cycle-time?group=${group}`);
+      const rows = page.getByRole('region', { name: region });
+      await expect(rows.getByRole('button', { name }).first()).toHaveAttribute('aria-expanded', 'false');
+      await rows.getByRole('button', { name }).first().click();
+      await expect(rows.locator('tr.detail .o-row .nm').first()).toHaveText('Writing');
+      expect(await noSideways()).toBe(true);
+    }
+    await page.goto(`${monitor}/cycle-time?group=check`);
+    await expect(page.getByRole('region', { name: 'By check' })).toBeVisible();
+    await expect(page.locator('.chev')).toHaveCount(0);
   });
 
   test('Test selection opens from the top bar, its tabs, the Job toggle and a pull request open what each job ran and why, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
