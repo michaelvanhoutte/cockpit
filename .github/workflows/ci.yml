@@ -71,7 +71,7 @@ jobs:
   # them start with the run ("Run the E2E (F3) job as four shards under one
   # required check, starting alongside Checks", issue 1279).
   # `Concepts`, `Test Explorer`, `Tests snapshot`, `Stability` and `Publish` still gate nothing
-  # of their own; `docs/architecture.md` §9.1 says why.
+  # of their own; `docs/architecture.md`, "CI/CD", says why.
   #
   # This closes one gap in what a pull request's own head can influence — the
   # classifier's decision — and not the wider one: `pull_request` still builds
@@ -515,7 +515,8 @@ jobs:
         with:
           name: test-explorer-model
           path: tools/test-explorer/model/model.json
-          retention-days: 1
+          # Long enough to re-run `Tests snapshot` after the Monitor was down a weekend.
+          retention-days: 7
 
   # Sends `main`'s model to the Harness Monitor as its tests: the tree, each
   # area's source lines, then the switch that shows them, which deletes the
@@ -533,6 +534,8 @@ jobs:
       contents: read
       actions: read
     continue-on-error: true
+    # A Monitor that accepts and never answers would otherwise hold the job for six hours.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -546,11 +549,15 @@ jobs:
             exit 0
           fi
           # A re-run of an older commit would otherwise show its tests over newer
-          # ones. Either read failing sends anyway, as a send before this did.
-          shown=$(curl -fsS "${HARNESS_MONITOR_URL%/}/tests?format=json" | jq -r '.commit // empty') || shown=
-          if [ -n "$shown" ] && [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$shown...$GITHUB_SHA" --jq .status)" = behind ]; then
-            echo "::notice title=Tests not sent::The Harness Monitor shows main's tests at $shown, newer than $GITHUB_SHA, so this run sent nothing."
-            exit 0
+          # ones, and a re-run of the shown one would rewrite them part by part
+          # while shown. Either read failing sends anyway, as a send before this did.
+          shown=$(curl -fsS --max-time 30 "${HARNESS_MONITOR_URL%/}/v1/tests/main" | jq -r '.current // empty') || shown=
+          if [ -n "$shown" ]; then
+            order=$(gh api "repos/$GITHUB_REPOSITORY/compare/$shown...$GITHUB_SHA" --jq .status) || order=
+            if [ "$order" = behind ] || [ "$order" = identical ]; then
+              echo "::notice title=Tests not sent::The Harness Monitor already shows main's tests at $shown, this commit or a newer one, so this run sent nothing."
+              exit 0
+            fi
           fi
           node tools/test-explorer/src/cli.js --send tools/test-explorer/model/model.json
         env:

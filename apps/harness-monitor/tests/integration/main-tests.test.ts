@@ -16,7 +16,7 @@ import {
 
 beforeEach(emptyTheDatabase);
 
-/** The product's 37 areas, as the tree names them. */
+/** Areas as the tree names them, about as many as the product has. */
 const AREAS = testsAreas(37);
 const A = 'aaaaaaa';
 const B = 'bbbbbbb';
@@ -143,7 +143,7 @@ describe('Harness Monitor', () => {
       });
 
       expect(response.status).toBe(413);
-      expect(((await response.json()) as { error: string }).error).toMatch(/^Area "Area 1" is .* over the 1,900,000 a part may hold/);
+      expect(((await response.json()) as { error: string }).error).toMatch(/^Area "Area 1" is at least [\d,]+ bytes gzipped, over the 1,900,000 a part may hold/);
       expect(await storedTests()).toEqual({ commits: [{ commit: B, areas: 0 }], current: null });
     });
 
@@ -152,6 +152,18 @@ describe('Harness Monitor', () => {
 
       expect(response.status).toBe(409);
       expect(await storedTests()).toEqual({ commits: [], current: null });
+    });
+  });
+
+  describe("a send reads which commit's tests are shown, so it can refuse to show older ones", () => {
+    it('it answers none before any are shown, then the commit shown, not one still being sent', async () => {
+      const current = async () => (await (await SELF.fetch('https://monitor.test/v1/tests/main')).json()) as Record<string, unknown>;
+      expect(await current()).toEqual({ snapshot: 'main', current: null });
+
+      await shown(A);
+      await unfinished(B, 5);
+
+      expect(await current()).toEqual({ snapshot: 'main', current: A });
     });
   });
 

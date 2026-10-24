@@ -202,7 +202,7 @@ The hook never sends conversation text, and a request it could not send goes aga
 |---|---|
 | `Stability` in `ci.yml`, on every merge to `main` | each run, job and step from the newest run the Monitor holds less two days, or the last 30 days when it holds none |
 | *Stability backfill* (`stability-backfill.yml`), by hand | the runs of the window it is given |
-| `Tests snapshot` in `ci.yml`, on every merge to `main` that `Test Explorer` runs on | the model `Test Explorer` built, as the tree, each area's source lines and the switch that shows them, or nothing when the Monitor already shows a newer commit's |
+| `Tests snapshot` in `ci.yml`, on every merge to `main` that `Test Explorer` runs on | the model `Test Explorer` built, as the tree, each area's source lines and the switch that shows them, or nothing when the Monitor already shows this commit's or a newer one's |
 | `Cycle time` in `nightly.yml`, every night | each pull request merged since the newest merge the Monitor holds less two days, or the last 14 days when it holds none, with its rounds and their checks |
 | *Cycle time backfill* (`cycle-time-backfill.yml`), by hand | the pull requests merged in the window it is given |
 | `Selection` in `nightly.yml`, every night | each pull request merged since the newest merge the Monitor holds less two days, or the last 14 days when it holds none, with what its Test and E2E jobs selected and the chain that picked each file, its misses, and the bars' thresholds |
@@ -1104,8 +1104,9 @@ Then, by hand (no API, or deliberately not automated):
      surfaces within a week of merging rather than before a pull request can
      merge.
 
-     The four CI jobs left out of the five are the reports: Test Explorer and
-     Stability deliberately do not gate; Tests snapshot and Publish *could not*
+     The four CI jobs left out of the five are the reports and a sender: Test
+     Explorer and Stability deliberately do not gate; Tests snapshot, which sends
+     `main`'s tests to the Harness Monitor, and Publish *could not*
      gate anything if they were listed — their `if:` skips them on every pull
      request, and a skipped job reports as passing.
 

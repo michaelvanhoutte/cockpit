@@ -93,11 +93,9 @@ const stillMissing = (commit: string, missing: string[]): Stored => ({
  * unfinished. The switch is one statement guarded on every part being there,
  * and the deletions only follow a switch that landed, all in one batch, so a
  * part deleted by another switch meanwhile refuses this one rather than showing
- * a snapshot with a part missing.
+ * a snapshot with a part missing. Only a refused switch reads which parts.
  */
 export async function makeCurrent(db: D1Database, snapshot: Snapshot, commit: string, now = Date.now()): Promise<Stored> {
-  const missing = await missingParts(db, snapshot, commit);
-  if (missing.length > 0) return stillMissing(commit, missing);
   const isCurrent = '(SELECT commit_sha FROM tests_current WHERE snapshot = ?1) = ?2';
   const [switched] = await db.batch([
     db
@@ -114,7 +112,15 @@ export async function makeCurrent(db: D1Database, snapshot: Snapshot, commit: st
     db.prepare(`DELETE FROM tests_trees WHERE snapshot = ?1 AND commit_sha <> ?2 AND ${isCurrent}`).bind(snapshot, commit),
   ]);
   if (switched!.meta.changes > 0) return { ok: true };
-  return stillMissing(commit, await missingParts(db, snapshot, commit));
+  const missing = await missingParts(db, snapshot, commit);
+  if (missing.length > 0) return stillMissing(commit, missing);
+  return { ok: false, status: 409, error: `A part of ${commit} arrived while it was being made current; send the switch again.` };
+}
+
+/** The commit whose snapshot is shown, or null when none has been made current: where a send checks it is not older. */
+export async function currentCommit(db: D1Database, snapshot: Snapshot): Promise<string | null> {
+  const row = await db.prepare('SELECT commit_sha FROM tests_current WHERE snapshot = ?1').bind(snapshot).first<{ commit_sha: string }>();
+  return row?.commit_sha ?? null;
 }
 
 /** The current snapshot's commit and its gzipped tree, or null when none has been made current. */

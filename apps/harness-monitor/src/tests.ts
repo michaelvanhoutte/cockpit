@@ -35,8 +35,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const refused = (error: string): { ok: false; error: string } => ({ ok: false, error });
 
 /** The refusal for a part larger than a row holds, naming it and the limit. */
-export const tooLarge = (part: string, bytes: number) =>
-  `${part} is ${bytes.toLocaleString('en')} bytes gzipped, over the ${MAX_PART_BYTES.toLocaleString('en')} a part may hold (D1 stores at most 2 MB a row).`;
+export const tooLarge = (part: string, bytes: number, atLeast?: 'at least') =>
+  `${part} is ${atLeast ? `${atLeast} ` : ''}${bytes.toLocaleString('en')} bytes gzipped, over the ${MAX_PART_BYTES.toLocaleString('en')} a part may hold (D1 stores at most 2 MB a row).`;
 
 /**
  * The part's JSON, unpacked from gzip, or why it cannot be read. The size is
@@ -107,9 +107,11 @@ export function checkTree(value: unknown): Checked<TreeFacts> {
   const walk = (nodes: unknown[], depth: number): string | null => {
     if (depth > 20) return 'The tree nests more than 20 areas deep.';
     for (const node of nodes) {
-      if (!isRecord(node)) return `Area ${areas.length} is not an object.`;
+      const at = `Area ${areas.length + 1} in tree order`;
+      if (!isRecord(node)) return `${at} is not an object.`;
       const { key } = node;
-      if (typeof key !== 'string' || key === '' || key.length > 200) return `Area ${areas.length} has no key.`;
+      if (typeof key !== 'string' || key === '') return `${at} has no key.`;
+      if (key.length > 200) return `${at} has a key over 200 characters.`;
       const named = `Area ${JSON.stringify(key)}`;
       if (seen.has(key)) return `${named} appears twice.`;
       if (typeof node.label !== 'string') return `${named} has no label.`;
