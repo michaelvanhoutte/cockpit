@@ -164,7 +164,7 @@ async function selection(request: Request, env: Env, ctx: ExecutionContext): Pro
   const job = parseJobFilter(url.searchParams.get('job'));
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(asJson ? `${url.origin}/selection?format=json&period=${period}&job=${job}` : `${url.origin}${selectionAddress(query)}`);
+  const key = new Request(asJson ? `${url.origin}/selection?format=json&period=${period}&job=${job}` : `${url.origin}${selectionAddress(query, query)}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 

@@ -105,6 +105,12 @@ describe('Selection', () => {
       expect(job(counted, 'e2e').unplacedFiles).toBe(2);
     });
 
+    it('sends no total for a package whose process wrote no report, rather than none held', () => {
+      const crashed = aPull({ test: [pkg({ report: 'none', files: [] })] });
+
+      expect(job(crashed, 'test').packages[0]).toMatchObject({ report: 'none', filesTotal: null });
+    });
+
     it('sends no count of unplaced files, rather than none, where the browser tier did not run or its record carries no list', () => {
       const olderRecord = aPull({ test: [pkg()], e2e: [pkg({ name: 'e2e', dir: 'tests/e2e' })] });
       const docs = aPull({ files: ['docs/notes.md'] });

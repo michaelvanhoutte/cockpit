@@ -1,4 +1,5 @@
 import { addDays, belgianDay, startOfDay } from './belgium';
+import { quantile } from './cycle-time-report';
 import { number } from './page';
 import { leadingRule, type JobFilter, verdictOf } from './selection-store';
 import type { BarId, SelectionJob } from './selection';
@@ -107,15 +108,11 @@ export function wantsOf(q: SelectionQuery): ViewWants {
 
 // ---- Reading
 
-export const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`;
+export { plural } from './cycle-time-report';
 export const percent = (value: number) => `${Math.round(value * 100)}%`;
 
-export function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length / 2;
-  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[Math.floor(mid)]!;
-}
+/** The middle value, the middle pair averaged on an even count; null for none. */
+export const median = (values: number[]) => quantile(values, 0.5);
 
 /** The bars' numbers as the last send carried them; the tool's own values stand in for one never sent. */
 export interface Bars {
@@ -253,6 +250,8 @@ export function packageRows(runs: PackageRun[]): PackageSummary[] {
       if (run.rule) row.reasons.set(run.rule, (row.reasons.get(run.rule) ?? 0) + 1);
       continue;
     }
+    // A package that wrote no report says nothing of what it ran, so it is neither a selection nor a miss of one.
+    if (run.report === 'none') continue;
     row.changed++;
     if (run.ran > 0) {
       row.touched++;

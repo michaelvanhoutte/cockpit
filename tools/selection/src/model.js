@@ -560,7 +560,8 @@ function packageRow(pkg) {
     mode: pkg.mode,
     report: pkg.report,
     reason: pkg.reason ? { rule: pkg.reason.rule, path: pkg.reason.path ?? null } : null,
-    filesTotal: pkg.files.length,
+    // A package whose process wrote no report lists no files, which is not that it holds none.
+    filesTotal: pkg.report === 'none' ? null : pkg.files.length,
     files: pkg.files.filter((file) => file.status !== 'not run').map((file) => ({ path: file.path, level: file.level, status: file.status, selectedBy: selectedByRow(file.selectedBy, pkg.mode) })),
   };
 }

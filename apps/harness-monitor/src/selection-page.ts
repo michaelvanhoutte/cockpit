@@ -1,7 +1,7 @@
 import { belgianDay, formatDateTime, formatDay } from './belgium';
 import { esc, selectField } from './look';
 import { number, REPOSITORY } from './page';
-import { bandTabs, humanMs, outLink, reportPage, section, tile } from './report';
+import { bandTabs, humanMs, outLink, pct, reportPage, section, tile } from './report';
 import {
   barsOf,
   dayOf,
@@ -38,7 +38,7 @@ import {
   type Outcome,
   type SelectionQuery,
 } from './selection-report';
-import type { SelectionView, ViewJob } from './selection-view';
+import type { SelectionView, ViewJob, ViewPull } from './selection-view';
 
 /** The report pages' one violet ramp (look.ts defines the --cat-* names as its steps). */
 const JOB_COLOURS: Record<Job, string> = { test: 'var(--cat-violet)', e2e: 'var(--cat-teal)' };
@@ -50,6 +50,7 @@ const outcomeColour = (o: Outcome, over: boolean) => (o === 'full' && over ? 'va
 const ADVICE: Record<Job, Record<string, string>> = {
   test: {
     'push to main': 'Expected on a push to main, which runs everything by design; nothing to fix.',
+    'not a pull request': 'Not a pull request event, so nothing to select from. Nothing to fix.',
     'diff unreadable': 'The job could not read the diff, so it ran everything rather than guess. A recurring one is a CI fault: fix the checkout.',
     'any tsconfig': 'A tsconfig can extend another package’s, so it forces every package, and should.',
     'outside every package': 'A file outside every package’s directory forces every package, since the import graph cannot attribute it. Fix: move the path under a package, or narrow the rule for files no test can depend on.',
@@ -61,10 +62,12 @@ const ADVICE: Record<Job, Record<string, string>> = {
   },
   e2e: {
     'push to main': 'Expected on a push to main, which runs everything by design; nothing to fix.',
+    'not a pull request': 'Not a pull request event, so nothing to select from. Nothing to fix.',
     'diff unreadable': 'The job could not read the diff, so it ran every spec rather than guess. A recurring one is a CI fault: fix the checkout.',
     'no product file in the diff': 'Nothing in the diff places a walk, so every spec ran. A pull request that changes only tests or tooling lands here.',
     'e2e support, registry or config': 'Support code, the area registry or the Playwright config is shared by every walk, so it forces every spec, and should.',
     'any tsconfig': 'A tsconfig can extend another package’s, so it forces every walk, and should.',
+    lockfile: 'The lockfile changes what every walk installs, so it forces every spec, and should.',
     'any package.json': 'A package.json can change what every walk runs against, so it forces every spec.',
     'workflow or action': 'A workflow or action changes how the job itself runs, so it forces every spec.',
     'outside every package': 'A workflow, the lockfile or a root config forces every walk, and should.',
@@ -92,6 +95,9 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
   const read = pulls.length >= bars.minPulls;
   const over: Record<Job, boolean> = { test: overBar(pulls, 'test', bars), e2e: overBar(pulls, 'e2e', bars) };
   const link = (to: Partial<SelectionQuery>) => esc(selectionAddress(q, to));
+  /** The ran-everything bar of the jobs shown: one figure where they share it, each job's own where they differ. */
+  const sharedBar = new Set(jobs.map((j) => bars.forcedFull[j])).size === 1;
+  const forcedBarText = sharedBar ? percent(bars.forcedFull[jobs[0]!]) : jobs.map((j) => `${JOB_NAMES[j]} ${percent(bars.forcedFull[j])}`).join(', ');
   const wide = (id: string, title: string, aside: string, content: string) => section(id, title, aside, content, 'panel wide');
 
   /** The bars, as tiles, read on the period's own pull requests. */
@@ -108,7 +114,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       out.push(
         tile(
           `${JOB_NAMES[job]} ran everything`,
-          value === null ? 'none' : percent(value),
+          value === null ? 'none' : pct(value),
           [
             `${number(full.length)} of ${plural(views.length, 'pull request')} that ran it · bar ${percent(bars.forcedFull[job])}`,
             ...(lead ? [`Mostly <a href="${link({ group: 'rule', rule: `${job}:${lead.rule}` })}">${esc(lead.rule)}</a>, ${number(lead.count)} of them`] : []),
@@ -134,7 +140,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     out.push(
       tile(
         'Most selected test',
-        top ? percent(shareOf(top)) : 'none',
+        top ? pct(shareOf(top)) : 'none',
         top
           ? [
               `<a href="${link({ group: 'test', test: top.path })}">${esc(top.path.split('/').pop() ?? top.path)}</a>, ${number(top.selected)} of ${number(top.selecting)} that could skip it`,
@@ -171,7 +177,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       `What each job did with ${plural(pulls.length, 'pull request')}`,
       '',
       `<div class="well where">${blocks}
-<p class="note">Selecting a subset is selection working. Running everything is the cost a rule forced, read against the ${percent(bars.forcedFull.test)} bar; a documentation-only pull request never starts either job.</p></div>`,
+<p class="note">Selecting a subset is selection working. Running everything is the cost a rule forced, read against ${sharedBar ? `the ${forcedBarText} bar` : `each job&rsquo;s bar (${forcedBarText})`}; a documentation-only pull request never starts either job.</p></div>`,
       'panel wide',
     );
   }
@@ -200,6 +206,9 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
   }
 
   const days = dayRange(q.period, view.oldest, now);
+  /** The period's pull requests by Belgian day, bucketed once for the chart and the table. */
+  const pullsOn = new Map<string, ViewPull[]>();
+  for (const p of pulls) pullsOn.set(dayOf(p), [...(pullsOn.get(dayOf(p)) ?? []), p]);
 
   /** Each job's share of pull requests that ran everything, per Belgian day, against the bar. */
   function overTimeChart(): string {
@@ -207,16 +216,19 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     const x = (i: number) => (days.length === 1 ? (left + width - right) / 2 : left + (i / (days.length - 1)) * (width - left - right));
     const y = (v: number) => top + (1 - v) * (height - top - bottom);
     const grid = [0, 0.5, 1].map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(f).toFixed(1)}" y2="${y(f).toFixed(1)}" class="gridline"/><text x="${left - 10}" y="${(y(f) + 4).toFixed(1)}" text-anchor="end" class="axis">${percent(f)}</text>`).join('');
-    const bar = jobs.map((job) => bars.forcedFull[job]);
-    const barValue = bar[0]!;
-    const barLine = `<line x1="${left}" x2="${width - right}" y1="${y(barValue).toFixed(1)}" y2="${y(barValue).toFixed(1)}" class="threshold"/><text x="${width - right}" y="${(y(barValue) - 6).toFixed(1)}" text-anchor="end" class="axis">bar ${percent(barValue)}</text>`;
-    const ends = [...new Set([0, Math.floor((days.length - 1) / 2), days.length - 1])];
+    const barLines = jobs
+      .filter((job, i) => sharedBar ? i === 0 : true)
+      .map((job, i) => {
+        const v = bars.forcedFull[job];
+        return `<line x1="${left}" x2="${width - right}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="threshold"/><text x="${width - right}" y="${(y(v) - 6 + i * 20).toFixed(1)}" text-anchor="end" class="axis">${sharedBar ? '' : `${JOB_NAMES[job]} `}bar ${percent(v)}</text>`;
+      })
+      .join('');    const ends = [...new Set([0, Math.floor((days.length - 1) / 2), days.length - 1])];
     const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 8}" text-anchor="${i === 0 ? 'start' : i === days.length - 1 ? 'end' : 'middle'}" class="axis">${formatDay(days[i]!)}</text>`).join('');
     const lines = jobs
       .map((job) => {
         const points = days
           .map((d, i) => {
-            const ran = pulls.filter((p) => dayOf(p) === d).map((p) => jobOf(p, job)).filter((v) => v.status === 'ran');
+            const ran = (pullsOn.get(d) ?? []).map((p) => jobOf(p, job)).filter((v) => v.status === 'ran');
             return ran.length ? { i, d, full: ran.filter((v) => v.ranEverything).length, of: ran.length } : null;
           })
           .filter((pt) => pt !== null);
@@ -231,7 +243,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       'ran-everything-per-day',
       'Share of pull requests that ran everything, per day',
       `<span class="legend">${legend}</span>`,
-      `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Share of pull requests that ran everything, per day">${grid}${barLine}${dates}${lines}</svg></div>`,
+      `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Share of pull requests that ran everything, per day">${grid}${barLines}${dates}${lines}</svg></div>`,
     );
   }
 
@@ -251,7 +263,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     const rows = [...days]
       .reverse()
       .map((d) => {
-        const list = pulls.filter((p) => dayOf(p) === d);
+        const list = pullsOn.get(d) ?? [];
         if (list.length === 0) {
           return `<tr><td class="first">${formatDay(d)}</td><td class="num faint-num">0</td>${jobs.map(() => '<td class="split-cell"><span class="faint">—</span></td>').join('')}<td class="num faint-num">—</td>${jobs.map(() => '<td class="num faint-num">—</td>').join('')}</tr>`;
         }
@@ -348,7 +360,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       'What forced a full run',
       `${plural(rows.length, 'rule')} · worst first · a pull request counts once per rule`,
       `<div class="well table"><table>
-<thead><tr><th scope="col">Job</th><th scope="col">Rule</th><th scope="col" class="num">Pull requests</th><th scope="col" class="num">Left running everything</th><th scope="col" class="num">Paths</th><th scope="col">Bar ${percent(bars.forcedFull[jobs[0]!])}</th></tr></thead>
+<thead><tr><th scope="col">Job</th><th scope="col">Rule</th><th scope="col" class="num">Pull requests</th><th scope="col" class="num">Left running everything</th><th scope="col" class="num">Paths</th><th scope="col">Bar ${forcedBarText}</th></tr></thead>
 <tbody>${body}</tbody></table></div>`,
     );
   }
@@ -411,7 +423,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       .map((t) => {
         const share = shareOf(t);
         const hot = crossed(t);
-        return `<tr${hot ? ' class="crossed"' : ''}><td class="first"><a class="mono" href="${link({ group: 'test', test: t.path })}">${esc(t.path)}</a><div class="sub mono-sub">${esc(whyText(t.chain, t.path))}</div></td><td>${esc(t.level)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:${hot ? 'var(--over)' : 'var(--cat-violet)'}"></div></div><div class="sub">${number(t.selected)} of ${number(t.selecting)} that could skip it · ${percent(share)}</div></td><td class="num">${number(t.fullRun)}</td><td>${hot ? '<span class="pill over">over the bar</span>' : t.selecting < bars.mostMinOver ? '<span class="faint">too few to read</span>' : ''}</td></tr>`;
+        return `<tr${hot ? ' class="crossed"' : ''}><td class="first"><a class="mono" href="${link({ group: 'test', test: t.path })}">${esc(t.path)}</a><div class="sub mono-sub">${esc(whyText(t.chain, t.path))}</div></td><td>${esc(t.level)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:${hot ? 'var(--over)' : 'var(--cat-violet)'}"></div></div><div class="sub">${number(t.selected)} of ${number(t.selecting)} that could skip it · ${pct(share)}</div></td><td class="num">${number(t.fullRun)}</td><td>${hot ? '<span class="pill over">over the bar</span>' : t.selecting < bars.mostMinOver ? '<span class="faint">too few to read</span>' : ''}</td></tr>`;
       })
       .join('\n');
     return wide(

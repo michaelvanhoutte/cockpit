@@ -46,6 +46,8 @@ export interface PackageRun {
   job: SelectionJob;
   name: string;
   mode: 'full' | 'changed';
+  /** 'none' where its process wrote no report: what it ran is then unknown, not nothing. */
+  report: 'written' | 'none';
   rule: string | null;
   /** The files it ran on that pull request. */
   ran: number;
@@ -199,7 +201,7 @@ export async function selectionView(db: D1Database, wants: ViewWants, from: numb
       db
         .prepare(
           `WITH ${SCOPE}
-           SELECT k.job, k.name, k.mode, k.reason_rule AS rule, k.files_total AS filesTotal,
+           SELECT k.job, k.name, k.mode, k.report, k.reason_rule AS rule, k.files_total AS filesTotal,
                   (SELECT COUNT(*) FROM selection_files f WHERE f.pull_number = k.pull_number AND f.job = k.job AND f.package = k.name) AS ran
            FROM selection_packages k JOIN scoped s ON s.pull_number = k.pull_number AND s.job = k.job`,
         )

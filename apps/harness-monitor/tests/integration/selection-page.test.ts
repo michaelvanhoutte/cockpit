@@ -1,5 +1,6 @@
-import { SELF } from 'cloudflare:test';
+import { createExecutionContext, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import worker from '../../src/worker';
 import { docsOnly, emptyTheDatabase, fullPackage, ranEverything, selectionBars, selectionFile, selectionJob, selectionPackage, selectionPull, sendSelection } from './support';
 
 beforeEach(async () => {
@@ -312,7 +313,7 @@ describe('Harness Monitor', () => {
 
       const [first] = rowsOf(await thePage('?group=test'), 'most-selected-tests');
 
-      expect(first).toEqual([`${HOT} via apps/api/src/a.ts → apps/api/src/b.ts`, 'unit', '11 of 13 that could skip it · 85%', '7', 'over the bar']);
+      expect(first).toEqual([`${HOT} via apps/api/src/a.ts → apps/api/src/b.ts`, 'unit', '11 of 13 that could skip it · 84.6%', '7', 'over the bar']);
     });
 
     it('a test no pull request in the period ran says so', async () => {
@@ -401,6 +402,36 @@ describe('Harness Monitor', () => {
       const [row] = rowsOf(await thePage('?group=package'), 'by-package');
 
       expect(row!.slice(0, 2)).toEqual(['api', '43']);
+    });
+
+    it('does not count a package whose process wrote no report as one that selected', async () => {
+      await sendSelection([
+        selectionPull(1, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [selectionFile(HOT)])] }), selectionJob('e2e')] }),
+        selectionPull(2, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [], { report: 'none' })] }), selectionJob('e2e')] }),
+      ]);
+
+      const [row] = rowsOf(await thePage('?group=package'), 'by-package');
+
+      expect(row![2]).toBe('ran something on 1 of 1 that selected · 100%');
+    });
+  });
+
+  describe('a view kept at the edge is the one the address asks for, drill-down included', () => {
+    it('two pull requests opened from the same tab are two views, each its own', async () => {
+      await sendSelection([selectionPull(7, { mergedAt: MERGED }), selectionPull(8, { mergedAt: MERGED })]);
+      const cached = { ...env, PAGE_CACHE_SECONDS: '300' };
+      const open = async (query: string) => {
+        const ctx = createExecutionContext();
+        const response = await worker.fetch(new Request(`https://monitor.test/selection${query}`), cached, ctx);
+        await waitOnExecutionContext(ctx);
+        return text(sectionOf(await response.text(), 'pull-request'));
+      };
+
+      const seven = await open('?group=pr&pr=7');
+      const eight = await open('?group=pr&pr=8');
+
+      expect(seven).toContain('Pull request 7');
+      expect(eight).toContain('Pull request 8');
     });
   });
 });
