@@ -5,7 +5,7 @@ import { belgianDay, formatDateTime } from './belgium';
  * the section heading and the page around them. The Monitor imports nothing
  * from Cockpit, so the values below are copied by value from
  * docs/design-system.md and apps/web/src/styles.css, not shared, except the
- * cat-* series colours, which are the calmer palette and differ from the web app's.
+ * series colours (`--series-*`), the Monitor's own chart palette (src/palette.ts).
  */
 
 /** Names, titles and logins come from outside, so they are escaped. */
@@ -81,6 +81,31 @@ ${page.body}
 </body></html>`;
 }
 
+/**
+ * A line chart's key: a swatch and a name, or the total's dashed one when
+ * `colour` is null. A series' key can be focused, so pointing at it or tabbing
+ * to it picks its line out (HIGHLIGHT); the total's cannot, since the total
+ * never fades.
+ */
+export const lineKey = (label: string, colour: string | null) =>
+  colour === null
+    ? `<span class="key"><i class="dash" aria-hidden="true"></i>${label}</span>`
+    : `<span class="key" tabindex="0"><i style="background:${colour}" aria-hidden="true"></i>${label}</span>`;
+
+/**
+ * Picking a line out of a line chart, with no script: a chart is the innermost
+ * `.panel` or `.trend` holding a `.legend` of keys and a `.lines` of groups, one
+ * per key in the same order. Pointing at or focusing a series' key, or pointing
+ * at its line, fades every other line but the total (`data-line=total`).
+ */
+const LINE_CHART = ':is(.panel,.trend):not(:has(.panel,.trend))';
+const HIGHLIGHT = Array.from({ length: 16 }, (_, i) => i + 1)
+  .map(
+    (n) =>
+      `${LINE_CHART}:has(.legend .key[tabindex]:nth-child(${n}):is(:hover,:focus),.lines>g:nth-child(${n}):not([data-line=total]):hover) .lines>g:not(:nth-child(${n})):not([data-line=total]){opacity:.15}`,
+  )
+  .join('\n');
+
 /** Cockpit's tokens (docs/design-system.md), copied by value: the Monitor shares no code with Cockpit. */
 export const STYLE = `
 @font-face{font-family:'Inter Variable';font-style:normal;font-display:swap;font-weight:100 900;src:url(${FONT_URL}) format('woff2-variations')}
@@ -89,7 +114,7 @@ export const STYLE = `
   --ink-strong:#16181d;--ink:#3a3f4b;--ink-soft:#555b68;--ink-faint:#5a5f6d;--shade:#16181d;
   --graphite-top:#2d2e35;--graphite-bottom:#16181d;--chrome-ink:#f2f1f8;--chrome-ink-soft:#a5a3b5;
   --accent:#6f62b5;--accent-deep:#5d5294;--accent-soft:#b5abfc;--accent-tint:#e7e5fe;--on-accent:#fff;--bar:#594e91;--logo-dot:#9a8fd6;
-  --cat-violet:#3f3670;--cat-slate:#5d5294;--cat-teal:#8579c4;--cat-green:#aaa1db;--cat-amber:#cbc5ea;--cat-grey:#b4b7c0;
+  --series-1:#562ab4;--series-2:#eb6200;--series-3:#ab1f68;--series-4:#169b95;--series-5:#7f5704;--series-6:#257ff6;--series-7:#868b3d;--series-8:#7c2f85;--series-grey:#6e717a;
   --due:#8579c4;--due-soft:#f1dcc0;--due-ink:#6b4515;--over:#bf5d55;--over-ink:#9d4d46;--good:#0b7a55;
   --shadow-panel:0 0 0 1px color-mix(in srgb,var(--accent) 14%,#d3d6e2),0 1px 2px rgb(22 24 29 / .05);
   --well-edge:inset 0 2px 3px -1px rgb(22 24 29 / .12);
@@ -100,7 +125,7 @@ export const STYLE = `
   --ground:#23242a;--surface:#24252b;--field:#141519;--well:#141418;
   --ink-strong:#e4e5ea;--ink:#c2c5cd;--ink-soft:#9a9eaa;--ink-faint:#8a8e9a;--shade:#e4e5ea;
   --accent-deep:#b3abdb;--accent-tint:color-mix(in srgb,#6f62b5 22%,#23242a);
-  --cat-violet:#d6cfff;--cat-slate:#b3a8f0;--cat-teal:#8f82d8;--cat-green:#6f62b5;--cat-amber:#4f4685;--cat-grey:#5b5e68;
+  --series-1:#6c48d1;--series-2:#ea691f;--series-3:#b91a6f;--series-4:#01aaa2;--series-5:#895f11;--series-6:#408ffe;--series-7:#6a6e1a;--series-8:#9a5ca1;--series-grey:#80838d;
   --due:#8f82d8;--due-soft:#4a3519;--due-ink:#e8c08a;--over-ink:#e0867f;--good:#4ad6a0;
   --shadow-panel:0 0 0 1px rgb(255 255 255 / .06),0 1px 2px rgb(0 0 0 / .3);
   --well-edge:inset 0 2px 3px -1px rgb(0 0 0 / .5),0 0 0 1px rgb(255 255 255 / .04);
@@ -194,6 +219,8 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .legend{display:flex;flex-wrap:wrap;gap:4px 16px}
 .key{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:400;color:var(--ink-soft);letter-spacing:0;text-transform:none}
 .key i.dash{width:16px;height:0;border-top:2px dashed var(--ink-strong);border-radius:0;background:none}
+.lines>g{transition:opacity .12s}
+${HIGHLIGHT}
 
 /* Tables */
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}

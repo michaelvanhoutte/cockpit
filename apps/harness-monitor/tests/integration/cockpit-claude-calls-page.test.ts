@@ -21,6 +21,7 @@ import {
   theRoute,
   type Call,
 } from './cockpit-support';
+import { GREY, panelOf, slot, swatches } from './series-colours';
 import { linked, pullRequest } from './github-support';
 import { emptyTheDatabase, groupTabs, send, spend, thePage, withPrices } from './support';
 
@@ -615,4 +616,19 @@ describe('Harness Monitor', () => {
       expect(await callsJobLine(await theCallsPage())).toContain('Nothing was copied. Never succeeded.');
     });
   });
+
+  describe('an environment has its own colour by name, and one the page does not know is grey and follows the four', () => {
+    it('production, staging, CI and local take the first three slots and blue, an unknown environment grey', async () => {
+      await importTheCalls([...CALLS, callLike({ id: 20, at: '2026-10-22T09:00:00Z', environment: 'preview', costUsd: 1 })]);
+
+      expect(swatches(panelOf(await theCallsPage(), 'where'))).toEqual([
+        ['Production', slot(1)],
+        ['Staging', slot(2)],
+        ['CI', slot(3)],
+        ['Local', slot(6)],
+        ['preview', GREY],
+      ]);
+    });
+  });
+
 });

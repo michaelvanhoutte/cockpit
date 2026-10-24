@@ -28,46 +28,62 @@ import {
   type Who,
 } from './costs';
 import { type JobName, type JobStatus } from './jobs';
-import { band, esc, shell } from './look';
+import { band, esc, lineKey, shell } from './look';
+import { colourByPlace, foldAmounts, foldSeries, GREY, isFolded, RED, slot, VIOLET } from './palette';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
 
 export const number = (n: number) => n.toLocaleString('en-US');
 export const dollars = (micros: number) => `$${(micros / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-/** Cockpit's category colours, by name, so the dark appearance can swap them (src/look.ts). */
+/** Each phase takes its own slot, in pipeline order; what no phase claims is grey. */
 export const COLOURS: Record<Category, string> = {
-  unphased: 'var(--cat-grey)',
-  'outside-process': 'var(--cat-amber)',
-  'scoping-planning': 'var(--cat-slate)',
-  building: 'var(--cat-violet)',
-  'local-code-review': 'var(--cat-amber)',
-  'local-security-review': 'var(--cat-slate)',
-  'after-push': 'var(--cat-teal)',
-  'ci-reviews': 'var(--cat-green)',
-  'process-review': 'var(--cat-violet)',
+  unphased: GREY,
+  'outside-process': slot(1),
+  'scoping-planning': slot(2),
+  building: slot(3),
+  'local-code-review': slot(4),
+  'local-security-review': slot(5),
+  'after-push': slot(6),
+  'ci-reviews': slot(7),
+  'process-review': slot(8),
 };
+/** Where a request ran and how its pull request ended, in stacking order. Closed is red, being bad; no pull request is grey and stacks last, so On main beside it takes blue, one of the slots grey clears. */
 const SERIES_COLOURS: Record<string, string> = {
-  local: 'var(--cat-violet)',
-  cloud: 'var(--cat-teal)',
-  actions: 'var(--cat-slate)',
-  merged: 'var(--cat-green)',
-  open: 'var(--cat-violet)',
-  closed: 'var(--over)',
-  'no-pr': 'var(--cat-grey)',
-  'on-main': 'var(--cat-amber)',
+  local: slot(1),
+  cloud: slot(2),
+  actions: slot(3),
+  merged: slot(1),
+  open: slot(2),
+  closed: RED,
+  'on-main': slot(6),
+  'no-pr': GREY,
 };
-/** A model or an engineer takes these by its place among all on record, so it keeps its colour whatever the filters; they wrap past five, the ramp's steps. The requests no pull request claims and the pull requests with no known author take the ramp's grey, for "other or none". */
-const MODEL_COLOURS = ['var(--cat-violet)', 'var(--cat-amber)', 'var(--cat-teal)', 'var(--cat-green)', 'var(--cat-slate)'];
+/** A model or an engineer takes the slot of its place among all on record, so it keeps its colour whatever the filters; the ninth onward are drawn together as Other. The requests no pull request claims and the pull requests with no known author are grey, for "other or none". */
 const colourOf = (split: Split, key: string, known: string[]) =>
   split === 'phase'
     ? COLOURS[key as Category]
     : split === 'model' || split === 'engineer'
       ? key === UNATTRIBUTED || key === UNKNOWN_ENGINEER
-        ? 'var(--cat-grey)'
-        : MODEL_COLOURS[Math.max(known.indexOf(key), 0) % MODEL_COLOURS.length]!
+        ? GREY
+        : colourByPlace(known, key)
       : SERIES_COLOURS[key]!;
 /** The keys a colouring takes its colours from: every engineer on record, or every model. */
 const knownKeys = (page: CostsPage) => (page.query.split === 'engineer' ? page.engineers : page.models);
+
+/** The page with every model or engineer past the eighth on record drawn as one Other: one bar segment, one legend row, one line, one column, carrying their sum. */
+export function foldedPage(page: CostsPage): CostsPage {
+  const { split } = page.query;
+  if (split !== 'model' && split !== 'engineer') return page;
+  const known = knownKeys(page);
+  const folded = (key: string) => key !== UNATTRIBUTED && key !== UNKNOWN_ENGINEER && isFolded(known, key);
+  return {
+    ...page,
+    series: foldSeries(page.series, folded),
+    tokenSeries: foldSeries(page.tokenSeries, folded),
+    bySeries: foldAmounts(page.bySeries, folded),
+    groups: page.groups.map((g) => ({ ...g, bySeries: foldAmounts(g.bySeries, folded), tokensBySeries: foldAmounts(g.tokensBySeries, folded) })),
+  };
+}
 export const PERIOD_LABELS: Record<Period, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All time' };
 export const WHO_LABELS: Record<Who, string> = { all: 'All', main: 'Main session', subagents: 'Subagents' };
 const GROUP_LABELS: Record<Group, string> = { pr: 'Pull request', issue: 'Issue', engineer: 'Engineer', category: 'Category', day: 'Day' };
@@ -256,13 +272,12 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
     })
     .join('');
   const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${chart.total.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} ${x(chart.days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
-  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id)}<div class="well chart">${note}<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${drawn}</svg></div>
+  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id)}<div class="well chart">${note}<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}<g class="lines">${drawn}</g></svg></div>
 </section>`;
 }
 
 /** A chart's key: a swatch and a name for each line, the total's dashed. */
-const keys = (lines: { label: string; colour: string; dash?: boolean | undefined }[]) =>
-  lines.map((l) => `<span class="key"><i${l.dash ? ' class="dash"' : ` style="background:${l.colour}"`} aria-hidden="true"></i>${esc(l.label)}</span>`).join('');
+const keys = (lines: { label: string; colour: string; dash?: boolean | undefined }[]) => lines.map((l) => lineKey(esc(l.label), l.dash ? null : l.colour)).join('');
 
 /** A count as an axis reads it: 120,000 is "120k". */
 const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000).toLocaleString('en-US')}k` : n.toLocaleString('en-US', { maximumFractionDigits: 0 }));
@@ -308,14 +323,14 @@ function trendChart(t: Trends, d: TrendDrawing): string {
     })
     .join('');
   const legend = shown.length === 1 ? '' : `<div class="legend">${keys(shown)}</div>`;
-  return `${head}<div class="chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}${drawn}</svg></div>${legend}</section>`;
+  return `${head}<div class="chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}<g class="lines">${drawn}</g></svg></div>${legend}</section>`;
 }
 
 /** "Is the harness getting more expensive?": starting context, pull request size and cost per 1,000 lines changed. */
 function harnessTrends(page: CostsPage): string {
   const t = page.trends;
   if (t === null) return '';
-  const ink = 'var(--cat-violet)';
+  const ink = VIOLET;
   const per = t.weekly ? 'week' : 'day';
   const charts = [
     trendChart(t, {
@@ -427,10 +442,11 @@ ${shown.map((g) => row(g, query.group, max, query, page.series, knownKeys(page),
 
 /** The public page: Claude Code's cost, grouped and filtered. Counts and dollars only; never an email or any content. */
 export function renderPage(
-  page: CostsPage,
+  unfolded: CostsPage,
   report: { unpriced: UnpricedLine[]; repository?: string | undefined },
   now = Date.now(),
 ): string {
+  const page = foldedPage(unfolded);
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
   // What the sentence changes comes first, in reading order; the trends, which only the filters change, come last.
   const body = [
