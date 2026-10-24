@@ -123,6 +123,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         attachments: [],
         series: [],
         itemFormPresentation: 'centered',
+        followUpDays: 3,
         duplicates: held.duplicates,
         filings: [],
         agentRuns: [],

@@ -172,7 +172,7 @@
     {
       "key": "Triage",
       "label": "Triage",
-      "browserWalks": 15,
+      "browserWalks": 16,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -575,7 +575,8 @@
       "sourcePatterns": [
         "apps/web/src/components/SettingsModal.tsx",
         "apps/web/src/components/SettingsWindow.tsx",
-        "apps/web/src/components/SettingsPanel.tsx"
+        "apps/web/src/components/SettingsPanel.tsx",
+        "apps/web/src/components/ManageFollowUps.tsx"
       ]
     },
     {

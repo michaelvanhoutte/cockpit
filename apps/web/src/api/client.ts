@@ -286,6 +286,8 @@ const commandSenders = {
     api.v1.commands.delete_remembered_sentence.$post({ json: p }, o),
   set_item_form_presentation: (p: CommandPayload<'set_item_form_presentation'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_item_form_presentation.$post({ json: p }, o),
+  set_follow_up_days: (p: CommandPayload<'set_follow_up_days'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_follow_up_days.$post({ json: p }, o),
 } as const;
 
 /**

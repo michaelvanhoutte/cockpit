@@ -52,6 +52,7 @@ const held = vi.hoisted(() => ({
   series: [] as Series[],
   agentRuns: [] as { id: string; itemId: string }[],
   itemFormPresentation: 'centered' as 'centered' | 'docked',
+  followUpDays: 3,
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
   open: vi.fn(),
@@ -225,6 +226,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         series: held.series,
         agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
+        followUpDays: held.followUpDays,
         // What the Workspace calls each source (issue 927).
         sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message' },
       } as unknown as WorkspaceSnapshot;

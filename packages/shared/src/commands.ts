@@ -49,7 +49,7 @@ import {
 } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
-/** What a change to the whole account names instead of a workspace: remembered sentences, the Item form's presentation. */
+/** What a change to the whole account names instead of a workspace: remembered sentences, the Item form's presentation, the Follow-ups number. */
 export const ACCOUNT_WIDE = 'account';
 
 /**
@@ -729,6 +729,17 @@ export const setItemFormPresentationSchema = commandEnvelopeSchema.extend({
   presentation: itemFormPresentationSchema,
 });
 export type SetItemFormPresentationCommand = z.infer<typeof setItemFormPresentationSchema>;
+
+/**
+ * set_follow_up_days — how many days *Wait for reply…* starts on, from
+ * Settings › Follow-ups ("Choose in Settings how many days to wait for a
+ * reply", issue 1465). Account-scoped: `workspaceId` on the envelope is
+ * `ACCOUNT_WIDE`. Moves no due date already given.
+ */
+export const setFollowUpDaysSchema = commandEnvelopeSchema.extend({
+  days: followUpDaysSchema,
+});
+export type SetFollowUpDaysCommand = z.infer<typeof setFollowUpDaysSchema>;
 /**
  * propose_item_texts — one command for both texts, sent by the enrichment job
  * rather than a client ("Clean up a captured note into a clear title and a
@@ -1053,6 +1064,7 @@ export const commandSchemas = {
   add_attachment: addAttachmentSchema,
   remove_attachment: removeAttachmentSchema,
   set_item_form_presentation: setItemFormPresentationSchema,
+  set_follow_up_days: setFollowUpDaysSchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
   propose_item_fields: proposeItemFieldsSchema,

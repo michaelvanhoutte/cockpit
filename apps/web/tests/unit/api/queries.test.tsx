@@ -103,6 +103,7 @@ const snapshot: WorkspaceSnapshot = {
   attachments: [],
   series: [],
     itemFormPresentation: 'centered',
+    followUpDays: 3,
     duplicates: [],
   filings: [],
   agentRuns: [],

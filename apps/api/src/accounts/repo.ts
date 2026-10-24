@@ -4,6 +4,7 @@ import type { Column } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   DEFAULT_ITEM_FORM_PRESENTATION,
+  FOLLOW_UP_DAYS,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
   panelColumnsSchema,
@@ -43,6 +44,7 @@ import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } fr
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
+  accountFollowUps,
   accountItemFormPresentation,
   agentRunActivity,
   agentRuns,
@@ -1723,6 +1725,20 @@ export function getItemFormPresentation(db: AccountDb, tenantId: string): ItemFo
     .where(eq(accountItemFormPresentation.tenantId, tenantId))
     .get();
   return row?.presentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
+}
+
+/**
+ * How many days *Wait for reply…* starts on for this account ("Choose in
+ * Settings how many days to wait for a reply", issue 1465), resolved to
+ * `FOLLOW_UP_DAYS`, 3, for an account that has never chosen.
+ */
+export function getFollowUpDays(db: AccountDb, tenantId: string): number {
+  const row = db
+    .select({ days: accountFollowUps.days })
+    .from(accountFollowUps)
+    .where(eq(accountFollowUps.tenantId, tenantId))
+    .get();
+  return row?.days ?? FOLLOW_UP_DAYS;
 }
 
 /**

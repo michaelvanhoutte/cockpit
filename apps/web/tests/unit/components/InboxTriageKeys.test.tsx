@@ -77,6 +77,7 @@ function snapshot(): WorkspaceSnapshot {
     attachments: [],
     series: [],
     itemFormPresentation: 'centered',
+    followUpDays: 3,
     duplicates: [],
     filings: held.filings,
     agentRuns: [],

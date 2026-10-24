@@ -107,6 +107,7 @@ function theWorkspace(workspaceId: string): WorkspaceSnapshot {
     filings: [],
     agentRuns: [],
     itemFormPresentation: 'centered',
+    followUpDays: 3,
     generatedAt: '2026-10-21T09:00:00.000Z',
   } as unknown as WorkspaceSnapshot;
 }

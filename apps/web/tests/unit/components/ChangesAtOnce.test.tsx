@@ -174,6 +174,7 @@ function theWorkspace(presentation: 'centered' | 'docked' = 'centered'): Workspa
     associations: [],
     attachments: [],
     itemFormPresentation: presentation,
+    followUpDays: 3,
     duplicates: pairs,
     filings: [],
     agentRuns: [],

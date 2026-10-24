@@ -141,7 +141,7 @@ describe('Across the app', () => {
   });
 
   describe('each section of Settings is headed by the name of its entry', () => {
-    it.each(['Connections', 'Connected apps', 'Appearance'])('heads %s with its own name', async (name) => {
+    it.each(['Connections', 'Connected apps', 'Follow-ups', 'Appearance'])('heads %s with its own name', async (name) => {
       const user = userEvent.setup();
       open('connections');
       await user.click(entry(name));
@@ -170,6 +170,7 @@ describe('Across the app', () => {
         'Appearance',
         'Connections',
         'Connected apps',
+        'Follow-ups',
         'What Cockpit remembers',
       ]);
     });
@@ -196,6 +197,14 @@ describe('Across the app', () => {
       expect(within(address).getByText(`${window.location.origin}/mcp`)).toBeVisible();
       const apps = screen.getByRole('group', { name: 'Connected apps' });
       expect(await within(apps).findByText('No connected apps')).toBeVisible();
+    });
+
+    it('draws Follow-ups’ number and its example in the How long to wait panel', async () => {
+      open('followups');
+
+      const panel = await screen.findByRole('group', { name: 'How long to wait' });
+      expect(within(panel).getByRole('spinbutton', { name: 'Days after you set it' })).toHaveValue(3);
+      expect(within(panel).getByText('Reply from Jan about the audit trail')).toBeVisible();
     });
 
     it('draws Connections’ picker in the Workspace panel’s header, and the connections of the workspace picked inside it', async () => {

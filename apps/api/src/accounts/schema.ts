@@ -1504,6 +1504,23 @@ export const accountItemFormPresentation = sqliteTable(
 );
 
 /**
+ * One row per account: how many days *Wait for reply…* starts on, chosen in
+ * Settings › Follow-ups ("Choose in Settings how many days to wait for a
+ * reply", issue 1465). **The shape `accountItemFormPresentation` above takes**:
+ * no row until the account chooses, which `getFollowUpDays` (`repo.ts`) reads
+ * as `FOLLOW_UP_DAYS`, 3. A whole number from 1 to 365, the range
+ * `followUpDaysSchema` refuses outside.
+ */
+export const accountFollowUps = sqliteTable(
+  'account_follow_ups',
+  {
+    tenantId: text('tenant_id').primaryKey(),
+    days: integer('days').notNull(),
+  },
+  (t) => [check('account_follow_ups_days_is_in_range', sql.raw('days BETWEEN 1 AND 365'))],
+);
+
+/**
  * A worked example of a note and the title and message chosen for it, added
  * by hand rather than corrected after the fact ("Pin an example of how you
  * want a note written", issue 397). Nothing reads or writes it any more

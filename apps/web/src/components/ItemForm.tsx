@@ -1447,6 +1447,7 @@ function TheForm({
    */
   const waitChoice = draft
     ? {
+        workspaceId,
         waitingSince: draft.status === 'waiting' ? (item?.waitingSince ?? null) : null,
         onWait: (days: number) => {
           const dueDate = daysOnFrom(dayOf(new Date()), days);

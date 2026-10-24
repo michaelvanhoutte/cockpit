@@ -227,7 +227,8 @@ The Zod schemas in `packages/shared/src` are the wire contract; where a decision
 
 **Account-wide changes (`commands.ts`):**
 
-- **`ACCOUNT_WIDE`**: every command's envelope carries a workspace, since that is what a change announces itself on — but a remembered sentence, and how the Item's form is drawn, belong to the account, outside any workspace. This value says "the whole account": nothing is stored against it, and the client reads it as every workspace's read model having changed. A remembered sentence is logged against it all the same but announced on its own (`remembered_sentences_changed`, below), since no workspace draws one.
+- **`ACCOUNT_WIDE`**: every command's envelope carries a workspace, since that is what a change announces itself on — but a remembered sentence, how the Item's form is drawn and the Follow-ups number belong to the account, outside any workspace. This value says "the whole account": nothing is stored against it, and the client reads it as every workspace's read model having changed. A remembered sentence is logged against it all the same but announced on its own (`remembered_sentences_changed`, below), since no workspace draws one.
+- **`set_follow_up_days` writes one row per account, which every Workspace's snapshot carries as `followUpDays`**, as it carries `itemFormPresentation` ("Choose in Settings how many days to wait for a reply", issue 1465). So *Wait for reply…* starts on it offline and on a cold open with no read of its own, and a change re-reads only the open Workspace. No row reads as 3. Rejected: a read of its own, like the remembered sentences', which is not kept offline.
 
 **Users and access (`api/users.ts`):**
 

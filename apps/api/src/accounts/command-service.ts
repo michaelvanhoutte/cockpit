@@ -5,6 +5,7 @@ import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../doma
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
 import {
+  accountFollowUps,
   accountItemFormPresentation,
   agentRuns,
   associations,
@@ -2069,6 +2070,22 @@ export function runCommand<N extends CommandName>(
             target: accountItemFormPresentation.tenantId,
             set: { presentation: cmd.presentation },
           })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_follow_up_days': {
+      const cmd = payload as CommandPayload<'set_follow_up_days'>;
+      // Every Workspace's snapshot carries it, so every one is announced as
+      // changed, whichever Workspace the envelope names.
+      everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        // Upserted, as the Item form's presentation is above: no account has a
+        // row until it chooses. Only the number moves; no due date already given does.
+        tx.insert(accountFollowUps)
+          .values({ tenantId, days: cmd.days })
+          .onConflictDoUpdate({ target: accountFollowUps.tenantId, set: { days: cmd.days } })
           .run();
         tx.insert(commands).values(commandRow).run();
       });

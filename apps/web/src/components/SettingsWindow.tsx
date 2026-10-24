@@ -10,9 +10,10 @@ const ManageConnections = lazy(() => import('./ManageConnections'));
 const ManageConnectedApps = lazy(() => import('./ManageConnectedApps'));
 const ManageAppearance = lazy(() => import('./ManageAppearance'));
 const ManageRememberedSentences = lazy(() => import('./ManageRememberedSentences'));
+const ManageFollowUps = lazy(() => import('./ManageFollowUps'));
 
-/** The sections of Settings, in the order they are listed. */
-export type SettingsKey = 'connections' | 'mcp' | 'remembered' | 'appearance';
+/** The sections of Settings. */
+export type SettingsKey = 'connections' | 'mcp' | 'followups' | 'remembered' | 'appearance';
 
 /** How a trip out to Microsoft or Google ended, and the workspace it was made from. */
 export interface ConnectOutcomeFor {
@@ -72,6 +73,7 @@ export default function SettingsWindow({
           content: <ConnectionsOf startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
         },
         { key: 'mcp', label: 'Connected apps', content: <ManageConnectedApps open onClose={onClose} /> },
+        { key: 'followups', label: 'Follow-ups', content: <ManageFollowUps workspaceId={startsIn} /> },
         { key: 'remembered', label: 'What Cockpit remembers', content: <ManageRememberedSentences focus={sentenceId} /> },
       ]}
     />

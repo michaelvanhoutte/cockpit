@@ -577,6 +577,12 @@ const rowsFor: {
           VALUES (?, 'ws-before', 'teams', 'a-tenant:somebody', 'source-before', 'it-done-before', ?)`,
     params: (name) => [name, AT],
   },
+  {
+    // The table `0097-account-follow-ups` creates (issue 1465): an account's chosen wait, for the next update to meet.
+    table: 'account_follow_ups',
+    sql: 'INSERT INTO account_follow_ups (tenant_id, days) VALUES (?, 5)',
+    params: (name) => [name],
+  },
 ];
 
 /**
@@ -3701,6 +3707,54 @@ describe('Triage', () => {
       await abortAllDurableObjects();
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
       expect(await itemsIn(name)).toEqual(after);
+    });
+  });
+});
+
+/**
+ * "Choose in Settings how many days to wait for a reply" (issue 1465): an
+ * account from before it gains an empty table, every row it already held stays
+ * as it was, and it waits 3 days until it chooses.
+ */
+describe('Triage', () => {
+  describe('an account already in use waits 3 days for a reply until it chooses, and keeps everything it held', () => {
+    const FOLLOW_UPS = '0097-account-follow-ups';
+    const everyRowIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => {
+        const tables = sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+          .toArray()
+          .map((row) => row.name);
+        return Object.fromEntries(tables.map((table) => [table, sql.exec(`SELECT * FROM \`${table}\` ORDER BY rowid`).toArray()]));
+      });
+    const timesApplied = (name: string) =>
+      inStoreAsItIs(name, (sql) => sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', FOLLOW_UPS).one().n);
+
+    it('adds the table empty, reads 3 in its Workspace, and changes nothing the second time it is opened', async () => {
+      const name = 'aged-store-before-follow-ups';
+      await agedTo(name, justBefore(FOLLOW_UPS));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await everyRowIn(name);
+      expect(before).not.toHaveProperty('account_follow_ups');
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await everyRowIn(name);
+      expect(after.account_follow_ups).toEqual([]);
+      // Left out: the change ledger, and the Agent that every open converts to a
+      // remembered sentence whatever change it applies (`retire-agents.ts`).
+      const { account_follow_ups: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
+      expect(keptAfter).toEqual(keptBefore);
+      expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok', value: { followUpDays: 3 } });
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await timesApplied(name)).toBe(1);
+      expect(await everyRowIn(name)).toEqual(after);
     });
   });
 });

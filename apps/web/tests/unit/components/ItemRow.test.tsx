@@ -12,9 +12,13 @@ import { DockedItemContext, type DockedItem } from '../../../src/itemForm';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { aClipboard } from '../support/clipboard';
 
+/** A read of the Workspace, which the row never makes: what it draws is what the tab already holds. */
+const readTheWorkspace = vi.hoisted(() => vi.fn(() => new Promise<never>(() => {})));
+
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   useSendCommand: vi.fn(),
+  snapshotQuery: (workspaceId: string) => ({ queryKey: ['snapshot', workspaceId], queryFn: readTheWorkspace }),
 }));
 
 const mockUseCommand = vi.mocked(useCommand);
@@ -86,7 +90,10 @@ function aRow({
   alsoIn,
   dock,
   extra,
+  followUpDays,
 }: {
+  /** The days the account chose in Settings › Follow-ups, in the Workspace the tab holds; nothing held where absent. */
+  followUpDays?: number;
   refused?: boolean;
   unanswered?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
@@ -141,6 +148,8 @@ function aRow({
   );
   // The query client is what the row's own suggestions window reads through.
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The Workspace as the tab holds it, where a case says what the account chose in Follow-ups.
+  if (followUpDays !== undefined) queries.setQueryData(['snapshot', 'ws-work'], { followUpDays });
   const withDock = (node: React.ReactNode) => (
     <QueryClientProvider client={queries}>
       <DockedItemContext.Provider value={dock ?? { openId: null, show: () => {} }}>
@@ -1850,6 +1859,29 @@ describe('Triage', () => {
         payload: expect.objectContaining({ itemId: 'item-1', workspaceId: 'ws-work', days, timeZone: expect.any(String) }),
       });
       expect(screen.queryByLabelText('Days to wait')).toBeNull();
+    });
+
+    /**
+     * "Choose in Settings how many days to wait for a reply" (issue 1465): off
+     * the copy the tab holds, which is the one saved on the device when
+     * offline, so the question never waits on a read. That the account's
+     * choice reaches that copy is L2 (`follow-ups.test.ts`).
+     */
+    it.each([
+      { situation: 'the days the account chose', followUpDays: 7, days: 7 },
+      { situation: '3, where the Workspace held says nothing', followUpDays: undefined, days: 3 },
+    ])('starts on $situation, without reading for them', async ({ followUpDays, days }) => {
+      readTheWorkspace.mockClear();
+      const user = userEvent.setup();
+      const { send } = aRow(followUpDays === undefined ? {} : { followUpDays });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Wait for reply…' }));
+
+      expect(await screen.findByLabelText('Days to wait')).toHaveValue(days);
+      await user.keyboard('{Enter}');
+      expect(send).toHaveBeenCalledWith({ name: 'wait_for_reply', payload: expect.objectContaining({ days }) });
+      expect(readTheWorkspace).not.toHaveBeenCalled();
     });
 
     it('Waiting for reply in the Status submenu opens the same question', async () => {

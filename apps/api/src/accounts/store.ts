@@ -124,6 +124,7 @@ import {
   getAttachmentForDownload,
   getItem,
   getItemFormPresentation,
+  getFollowUpDays,
   getWorkspace,
   isItemFiled,
   claudeProposalContext,
@@ -265,6 +266,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId),
         series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
+        followUpDays: getFollowUpDays(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
       };
