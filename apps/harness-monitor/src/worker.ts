@@ -23,6 +23,8 @@ import { loadStability, parseStabilityQuery, stabilityAddress } from './stabilit
 import { newestRun, parsePeriod, stabilityAnswer, storeRuns } from './stability-store';
 import { correctBatch, stillUnphased, storeBatch, unpricedLines } from './store';
 import { COMMIT, MAX_PART_BYTES, readArea, readTree, SNAPSHOTS, tooLarge, type Snapshot } from './tests';
+import { renderTests } from './tests-page';
+import { loadTests, parseTestsQuery, testsAddress } from './tests-report';
 import { currentCommit, currentTree, makeCurrent, storeArea, storeTree } from './tests-store';
 import { validateBatch, validateCorrections } from './validate';
 
@@ -199,32 +201,41 @@ async function currentTests(request: Request, env: Env, snapshot: string): Promi
   return json({ snapshot, current: await currentCommit(env.DB, snapshot as Snapshot) });
 }
 
+/** Whether the request asks for the JSON answer rather than the page: `?format=json`, or an `Accept` header naming `application/json`. */
+const wantsJson = (request: Request, url: URL) => url.searchParams.get('format') === 'json' || (request.headers.get('accept') ?? '').includes('application/json');
+
 /**
- * The current snapshot of `main`'s tests as JSON: the tree document as it was
- * sent (its commit, whether coverage was available, the areas, rules and cases
- * without source lines), unpacked; or, before any has been made current, an
- * empty answer saying so. Always JSON until the Tests page draws it. Cached
- * like the other reports.
+ * `main`'s shown tests: the Tests page, or, when the request asks
+ * (`wantsJson`), the shown tree as JSON as it was sent (its commit, whether
+ * coverage was available, the areas, rules and cases without source lines),
+ * unpacked; before any has been made current, an empty answer saying so. The
+ * page reads the same tree and, for a rule, one area's source lines. Cached
+ * like the other reports under one key per view, so a page and its JSON never
+ * share an entry.
  */
 async function tests(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+  const asJson = wantsJson(request, url);
+  const query = parseTestsQuery(url.searchParams);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(`${url.origin}/tests?format=json`);
+  const key = new Request(asJson ? `${url.origin}/tests?format=json` : `${url.origin}${testsAddress(query)}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 
-  const headers = { 'content-type': 'application/json', vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
-  const current = await currentTree(env.DB, 'main');
-  const response = current
-    ? new Response(new Blob([current.document]).stream().pipeThrough(new DecompressionStream('gzip')), { headers })
-    : Response.json({ commit: null, coverageAvailable: null, tree: [], note: "No snapshot of main's tests has arrived yet." }, { headers });
+  const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
+  let response: Response;
+  if (asJson) {
+    const current = await currentTree(env.DB, 'main');
+    response = current
+      ? new Response(new Blob([current.document]).stream().pipeThrough(new DecompressionStream('gzip')), { headers: { ...headers, 'content-type': 'application/json' } })
+      : Response.json({ commit: null, coverageAvailable: null, tree: [], note: "No snapshot of main's tests has arrived yet." }, { headers });
+  } else {
+    response = new Response(renderTests(await loadTests(env.DB, query), Date.now()), { headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } });
+  }
   if (cache) ctx.waitUntil(cache.put(key, response.clone()));
   return response;
 }
-
-/** Whether the request asks for the JSON answer rather than the page:`?format=json`, or an `Accept` header naming `application/json`. */
-const wantsJson = (request: Request, url: URL) => url.searchParams.get('format') === 'json' || (request.headers.get('accept') ?? '').includes('application/json');
 
 /**
  * Cycle time: the page, or its stored pull requests as JSON when the request

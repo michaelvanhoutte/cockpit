@@ -347,6 +347,25 @@ export async function sendEveryTestsPart(commit: string, areas: string[], over: 
   if (statuses.some((s) => s !== 200)) throw new Error(`a part was refused: ${statuses.join(', ')}`);
 }
 
+/**
+ * A whole snapshot sent and shown: the tree, then each area's source lines (those `lines` names, else none), then the switch.
+ * Every part must be answered 200.
+ */
+export async function sendTestsModel(snapshot: { commit: string; tree: { key: string; children: unknown[] }[] }, lines: Record<string, unknown> = {}) {
+  const keys: string[] = [];
+  const collect = (nodes: { key: string; children: unknown[] }[]) => {
+    for (const node of nodes) {
+      keys.push(node.key);
+      collect(node.children as { key: string; children: unknown[] }[]);
+    }
+  };
+  collect(snapshot.tree);
+  const statuses = [(await sendTestsTree(snapshot.commit, snapshot)).status];
+  for (const key of keys) statuses.push((await sendTestsArea(snapshot.commit, key, lines[key] ?? {})).status);
+  statuses.push((await showTests(snapshot.commit)).status);
+  if (statuses.some((s) => s !== 200)) throw new Error(`a part was refused: ${statuses.join(', ')}`);
+}
+
 /** The tests' JSON answer, as a reader asks for it. */
 export async function theTests(): Promise<Record<string, unknown>> {
   const response = await SELF.fetch('https://monitor.test/tests?format=json');
