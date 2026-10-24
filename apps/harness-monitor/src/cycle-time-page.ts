@@ -3,6 +3,7 @@ import type { CycleTimeView } from './cycle-time-store';
 import { esc, selectField } from './look';
 import { dollars, number, REPOSITORY } from './page';
 import { BLUE, GREY, RED, slot, VIOLET } from './palette';
+import { STRIP_SCRIPT } from './cycle-time-strip';
 import { bandTabs, outLink, reportPage, section, tile } from './report';
 import {
   buckets,
@@ -24,6 +25,8 @@ import {
   plural,
   quantile,
   outline,
+  outlineFigures,
+  OUTLINE_SLOTS,
   PHASES,
   redRounds,
   SIZES,
@@ -45,6 +48,10 @@ import {
 const COLOUR_OF_PHASE: Record<PhaseKey, string> = { writing: slot(1), local: slot(2), ci: slot(3), waiting: BLUE, away: GREY };
 const COLOURED = PHASES.map((s) => ({ ...s, colour: COLOUR_OF_PHASE[s.key] }));
 const colourOfPhase = (key: PhaseKey) => COLOUR_OF_PHASE[key];
+/** An outline row's colour: its phase's, or grey where it is not one of the named parts. */
+const colourOfSlot = (s: { phase: PhaseKey; other: boolean }) => (s.other ? GREY : colourOfPhase(s.phase));
+/** What the strip's script lays a row out from, once a page: each slot's name, whether it is a part, whether it is grey, and its colour. */
+const SLOTS_JSON = JSON.stringify(OUTLINE_SLOTS.map((s) => [s.label, s.part ? 1 : 0, s.other ? 1 : 0, colourOfSlot(s)])).replace(/</g, '\\u003c');
 
 /** The Check tab's colour for each check, in the order CI runs them (the slots in turn, blue beside the grey), and grey for any other. */
 const CHECK_COLOURS = [slot(1), slot(2), slot(3), slot(4), BLUE];
@@ -89,7 +96,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
 
   /** One row of the outline: a name, a bar on the start-to-merge scale (a part's inside its phase's band), its minutes and its share. */
   function outlineRow(r: OutlineRow): string {
-    const colour = r.other ? GREY : colourOfPhase(r.phase);
+    const colour = colourOfSlot(r);
     const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
     const band = r.stretch ? `<div class="band" style="left:${pct(r.stretch.left)};width:${pct(r.stretch.width)}"></div>` : '';
     return `<li class="o-row ${r.part ? 'o-pt' : 'o-ph'}"><span class="nm">${esc(r.label)}</span><div class="tr">${band}<div class="b" style="left:${pct(r.left)};width:${pct(r.width)};background:${colour}" title="${esc(r.label)} ${hm(r.ms)}"></div></div><span class="am">${hm(r.ms)}</span><span class="sh">${Math.round(r.share * 100)}%</span></li>`;
@@ -241,7 +248,8 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const perPull = group === 'pr';
     const summed = group === 'issue';
     /** A row's minutes: a pull request's own, an issue's added up, a day's or a size's per pull request on average. */
-    const fold = (pulls: Pull[], f: (p: Pull) => number) => sum(pulls.map(f)) / (perPull || summed ? 1 : pulls.length);
+    const per = (pulls: Pull[]) => (perPull || summed ? 1 : pulls.length);
+    const fold = (pulls: Pull[], f: (p: Pull) => number) => sum(pulls.map(f)) / per(pulls);
     const rows = all.map((b) => ({ b, cells: series.map((s) => fold(b.pulls, (p) => values(p)[s.key] ?? 0)), total: fold(b.pulls, (p) => p.time.totalMs) }));
     // Scaled to the 90th percentile row, so one pull request away for a night does not flatten every other bar.
     const max = Math.max(1, quantile(rows.map((r) => sum(r.cells)), 0.9) ?? 1);
@@ -277,7 +285,10 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
         const costCell = priced.length
           ? `${perPull ? `<a href="/pr/${one.number}">${dollars(spent)}</a>` : dollars(spent)}${notes.length ? `<div class="sub">${notes.join(' · ')}</div>` : ''}`
           : '<span class="faint" title="The Monitor holds no Claude Code request for it">—</span>';
-        return `<tr><td class="first">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</td>${perPull ? '' : `<td class="num faint-num">${number(b.pulls.length)}</td>`}<td class="split-cell"><div class="split">${bar}</div></td>${cellHtml}<td class="num total">${hm(total)}</td><td class="num">${number(rounds)}${red ? ` <span class="up">· ${red} red</span>` : ''}</td><td class="num total">${costCell}</td></tr>`;
+        // The figures of the row's own outline, on the table's measure, in milliseconds written in base 36 to keep the row short: opening it draws the strip from them, with no request.
+        const figures = outlineFigures(b.pulls, per(b.pulls)).map((n) => (n > 0 ? Math.round(n).toString(36) : ''));
+        while (figures.at(-1) === '') figures.pop();
+        return `<tr data-figures="${figures.join(',')}"><td class="first">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</td>${perPull ? '' : `<td class="num faint-num">${number(b.pulls.length)}</td>`}<td class="split-cell"><div class="split">${bar}</div></td>${cellHtml}<td class="num total">${hm(total)}</td><td class="num">${number(rounds)}${red ? ` <span class="up">· ${red} red</span>` : ''}</td><td class="num total">${costCell}</td></tr>`;
       })
       .join('\n');
     const how = perPull ? 'newest first' : summed ? 'its pull requests added up · newest first' : group === 'day' ? 'a pull request on average · newest first' : 'a pull request on average';
@@ -286,9 +297,11 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
       'cycle-table',
       `By ${group === 'day' ? 'day merged' : GROUP_LABELS[group].toLowerCase()}`,
       `${plural(all.length, noun)} · ${how}`,
-      `<div class="well table"><table>
+      `<div class="well table"><table class="openable">
 <thead><tr><th scope="col">${group === 'day' ? 'Day merged' : GROUP_LABELS[group]}</th>${perPull ? '' : '<th scope="col" class="num">Pull requests</th>'}<th scope="col">Split</th>${heads}<th scope="col" class="num">Start to merge</th><th scope="col" class="num">Rounds</th><th scope="col" class="num">Claude Code</th></tr></thead>
-<tbody>${body}</tbody></table></div>`,
+<tbody>${body}</tbody></table></div>
+<script type="application/json" id="outline-slots">${SLOTS_JSON}</script>
+<script>${STRIP_SCRIPT}</script>`,
       'panel wide',
     );
   }
@@ -377,4 +390,28 @@ a:hover .dot,a:focus .dot{fill-opacity:1;stroke:var(--ink-strong)}
 .tag{display:inline-block;padding:0 6px;border-radius:var(--radius-sm);background:color-mix(in srgb,var(--shade) 8%,transparent);color:var(--ink-soft);font-size:12px}
 .tile-note .up,.tile-note .down{font-weight:600}
 .table .first{min-width:300px}.table .split-cell{min-width:130px}
+.openable{--open-tint:color-mix(in srgb,var(--accent) 8%,var(--well))}
+/* The table can be wider than its panel and scroll inside it; a strip stays as wide as the panel and keeps to the visible edge, so its minutes are never out of sight. */
+.well.table:has(>.openable){container-type:inline-size}
+.strip{position:sticky;left:0;width:calc(100cqw - 58px)}
+.open-cell{width:28px;padding-right:0!important}
+.chev{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;margin:-3px 0;padding:0;border:0;border-radius:6px;background:none;color:var(--ink-soft);font:inherit;font-size:14px;cursor:pointer}
+.chev:hover{background:color-mix(in srgb,var(--shade) 8%,transparent);color:var(--ink-strong)}
+.openable tr[data-figures]{cursor:pointer}
+.openable tr.open>td{background:var(--open-tint);border-bottom-color:transparent}
+.openable tr.detail:hover{background:none}
+.openable tr.detail>td{padding:4px 10px 16px 48px;background:var(--open-tint)}
+.strip .outline{gap:1px}
+.strip .o-row .tr{background:var(--field)}
+@media (min-width:641px){
+  .strip .o-row{grid-template-columns:200px minmax(0,1fr) 70px 44px;height:24px}
+  .strip .o-ph .nm,.strip .o-ph .am{font-size:13px}
+  .strip .o-pt .nm,.strip .o-pt .am,.strip .o-row .sh{font-size:12px}
+  .strip .o-row .tr{height:10px}
+  .strip .o-row .band{top:-7px;bottom:-7px}
+}
+@media (max-width:640px){
+  .openable tr.detail>td{padding:4px 10px 12px 16px}
+  .strip{width:calc(100cqw - 26px)}
+}
 `;

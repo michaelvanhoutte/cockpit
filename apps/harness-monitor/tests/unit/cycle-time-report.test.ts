@@ -6,12 +6,16 @@ import {
   filtered,
   hm,
   parseCycleTimeQuery,
+  layOut,
   outline,
+  outlineFigures,
+  OUTLINE_SLOTS,
   values,
   type CycleTimeQuery,
   type Outline,
   type Pull,
 } from '../../src/cycle-time-report';
+import { STRIP_LAYOUT_SOURCE } from '../../src/cycle-time-strip';
 import type { CycleTimeCheck, CycleTimeRound } from '../../src/cycle-time-store';
 
 const MIN = 60_000;
@@ -308,6 +312,53 @@ describe('Harness Monitor', () => {
       const q = parseCycleTimeQuery(new URLSearchParams(`period=7d&group=pr&split=${value}`));
 
       expect(cycleTimeAddress(q)).toBe('/cycle-time?period=7d&group=pr');
+    });
+  });
+
+  describe("a table row's strip is laid out in the browser exactly as Where the time went is on the page", () => {
+    // The strip's script draws from the figures a row carries, so its arithmetic is a second copy of the page's: held to it here, over every kind of row.
+    const browser = new Function(`${STRIP_LAYOUT_SOURCE}; return { hm, layOut };`)() as {
+      hm: (ms: number) => string;
+      layOut: (slots: unknown[], figures: number[]) => { total: number; rows: { slot: number; ms: number; share: number; left: number; width: number; stretch: { left: number; width: number } | null }[] };
+    };
+    const slots = OUTLINE_SLOTS.map((s) => [s.label, s.part ? 1 : 0, s.other ? 1 : 0, 'colour']);
+    const a = split(1, [4, 1, 3, 1], { rounds: [round([check('Test', 2), check('E2E (F3)', 3, { last: true })])] });
+    const b = split(2, [2, 2, 6, 2], { rounds: [round([check('Test', 1), check('Brand new', 4, { last: true })])] });
+
+    it.each([
+      { situation: 'one pull request split by kind', list: [a], per: 1 },
+      { situation: 'two added up', list: [a, b], per: 1 },
+      { situation: 'two on average', list: [a, b], per: 2 },
+      { situation: 'one among them not split by kind', list: [a, notSplit(3)], per: 2 },
+      { situation: 'one with no session record', list: [a, unrecorded(4)], per: 1 },
+      { situation: 'one with nothing to open', list: [pull(5, { balance: null, rounds: [], time: { localParts: null, codingMs: null, localMs: null, ciMs: 0, waitingToMergeMs: null, awayMs: 0, totalMs: 40 * MIN } })], per: 1 },
+    ])('$situation gives the same rows, bars and shares', ({ list, per }) => {
+      const figures = outlineFigures(list, per).map(Math.round);
+      const page = layOut(figures);
+      const drawn = browser.layOut(slots, figures);
+
+      expect(drawn.total).toBe(page.total);
+      expect(drawn.rows.map((r) => OUTLINE_SLOTS[r.slot]!.key)).toEqual(page.rows.map((r) => r.key));
+      for (const [i, r] of drawn.rows.entries()) {
+        const want = page.rows[i]!;
+        expect([r.ms, r.share, r.left, r.width]).toEqual([want.ms, want.share, want.left, want.width]);
+        expect(r.stretch).toEqual(want.stretch);
+      }
+    });
+
+    it('reads a duration as the page does', () => {
+      for (const ms of [0, 45_000, 59_400, 59_600, 12 * MIN, 65 * MIN, 25 * 60 * MIN + 29 * MIN]) expect(browser.hm(ms)).toBe(hm(ms));
+    });
+
+    it('lays out the same rows as the outline of the pull requests it was cut from', () => {
+      expect(layOut(outlineFigures([a, b])).rows).toEqual(outline([a, b]).rows);
+    });
+
+    it("divides a row's minutes by its pull requests where it is an average, and by one where it is added up", () => {
+      const slot = OUTLINE_SLOTS.findIndex((s) => s.key === 'writing');
+
+      expect(outlineFigures([a, b], 2)[slot]).toBe(10 * MIN);
+      expect(outlineFigures([a, b])[slot]).toBe(20 * MIN);
     });
   });
 

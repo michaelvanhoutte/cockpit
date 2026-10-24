@@ -341,6 +341,104 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe("any row of Over time, Pull request, Issue and Size opens to its own outline, on the table's measure", () => {
+    /** Each row's figures as the page carries them, in minutes, named for the outline row each belongs to; a row with no minutes in it has no entry. */
+    function stripsOf(html: string): Record<string, number>[] {
+      const slots = JSON.parse(/<script type="application\/json" id="outline-slots">(.*?)<\/script>/s.exec(html)![1]!) as [string, number, number, string][];
+      return [...html.matchAll(/<tr data-figures="([^"]*)">/g)].map((m) => Object.fromEntries(m[1]!.split(',').flatMap((figure, i) => (figure === '' ? [] : [[slots[i]![0], parseInt(figure, 36) / MIN]]))));
+    }
+    /** A recorded pull request of `writing` minutes whose time adds up to its own start to merge. */
+    const writing = (number: number, minutes: number, mergedAt = '2026-10-30T10:00:00Z', over: Record<string, unknown> = {}) => recorded(number, mergedAt, { codingMs: minutes * MIN, totalMs: (minutes + 11) * MIN, ...over });
+    const startToMerge = (row: string[]) => row[row.length - 3];
+
+    it("a day's row is its pull requests' outline on average, which adds up to the row's own start to merge", async () => {
+      await sendPulls([writing(1, 3), writing(2, 9), writing(3, 18)]);
+
+      const html = await thePage();
+      const [row] = rowsOf(html, 'cycle-table');
+      const [strip] = stripsOf(html);
+
+      expect(startToMerge(row!)).toBe('21m');
+      expect(strip).toEqual({ Writing: 10, 'Local checks': 5, 'Not split by kind': 5, 'CI rounds': 5, Test: 5, 'Waiting to merge': 1 });
+      expect(strip!.Writing! + strip!['Local checks']! + strip!['CI rounds']! + strip!['Waiting to merge']!).toBe(21);
+    });
+
+    it("a pull request's row is its own outline, its local checks split by kind", async () => {
+      await sendPulls([writing(1, 10, '2026-10-30T10:00:00Z', { localParts: { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 } })]);
+
+      const [strip] = stripsOf(await thePage('?group=pr'));
+
+      expect(strip).toEqual({ Writing: 10, 'Local checks': 5, 'Code review': 3, 'Security review': 2, 'CI rounds': 5, Test: 5, 'Waiting to merge': 1 });
+    });
+
+    it("an issue's row adds its two pull requests up, not averages them", async () => {
+      await sendPulls([writing(1, 4, '2026-10-29T10:00:00Z'), writing(2, 8)]);
+      await costing(1, null, 7);
+      await costing(2, null, 7);
+
+      const html = await thePage('?group=issue');
+      const [strip] = stripsOf(html);
+
+      expect(rowsOf(html, 'cycle-table')).toHaveLength(1);
+      expect(strip).toEqual({ Writing: 12, 'Local checks': 10, 'Not split by kind': 10, 'CI rounds': 10, Test: 10, 'Waiting to merge': 2 });
+    });
+
+    it("a size's row is its pull requests' outline on average, one row to each size", async () => {
+      const large = { size: { additions: 1900, deletions: 100, files: 20, commits: 3, mainMerges: 0 } };
+      await sendPulls([writing(1, 4), writing(2, 8), writing(3, 20, '2026-10-30T10:00:00Z', large)]);
+
+      const strips = stripsOf(await thePage('?group=size'));
+
+      expect(strips.map((s) => s.Writing)).toEqual([6, 20]);
+      expect(strips.map((s) => s['CI rounds'])).toEqual([5, 5]);
+    });
+
+    it('a row whose pull requests were stored without their kinds has its local minutes as Not split by kind, and a mixed day counts only those', async () => {
+      await sendPulls([
+        writing(1, 10, '2026-10-30T10:00:00Z', { localParts: { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 } }),
+        writing(2, 10),
+      ]);
+
+      const [strip] = stripsOf(await thePage());
+
+      expect(strip).toMatchObject({ 'Local checks': 5, 'Code review': 1.5, 'Security review': 1, 'Not split by kind': 2.5 });
+    });
+
+    it.each([
+      { tab: 'day', query: '' },
+      { tab: 'pr', query: '?group=pr' },
+      { tab: 'issue', query: '?group=issue' },
+      { tab: 'size', query: '?group=size' },
+    ])('the $tab tab sends each row with its figures and nothing else to open: the strips and the chevrons are drawn in the browser, so a page without it is as it was', async ({ query }) => {
+      await sendPulls([writing(1, 10), writing(2, 10, '2026-10-29T10:00:00Z')]);
+
+      const html = await thePage(query);
+      const markup = html.replace(/<style>.*?<\/style>/s, '').replace(/<script>.*?<\/script>/gs, '');
+
+      expect(html.match(/<tr data-figures="/g)?.length).toBeGreaterThan(0);
+      expect(html).toContain('<table class="openable">');
+      for (const part of ['class="chev"', 'class="detail"', 'open-cell']) expect(markup).not.toContain(part);
+    });
+
+    it('carries a pull request’s figures in under a hundred characters, a row of the page weighing little for being openable', async () => {
+      await sendPulls([writing(1, 10, '2026-10-30T10:00:00Z', { localParts: { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 } })]);
+
+      const [figures] = [...(await thePage('?group=pr')).matchAll(/<tr data-figures="([^"]*)">/g)].map((m) => m[1]!);
+
+      expect(figures!.length).toBeLessThan(100);
+    });
+
+    it.each([['?group=check'], ['?group=check&period=3d']])('the Check tab’s rows do not open, at %s', async (query) => {
+      await sendPulls([writing(1, 10)]);
+
+      const html = await thePage(query);
+      const markup = html.replace(/<style>.*?<\/style>/s, '');
+
+      expect(hasSection(html, 'by-check')).toBe(true);
+      for (const part of ['data-figures', 'openable', 'outline-slots', '<script']) expect(markup).not.toContain(part);
+    });
+  });
+
   describe('tiles and overview panels are on Over time only', () => {
     beforeEach(async () => {
       await sendPulls([recorded(1, '2026-10-30T10:00:00Z'), recorded(2, '2026-10-29T10:00:00Z', { rounds: [red(), green()] })]);
