@@ -22,6 +22,12 @@ Every run on every branch, `main` included, also uploads its report as the
 `main`'s raw `out/` is when the page is not what you want. Both come from the `Test
 Explorer` job in `.github/workflows/ci.yml`.
 
+**`main`'s latest model also goes to the Harness Monitor**, which keeps no history:
+the `Tests snapshot` job sends the model `Test Explorer` wrote with `--model`, as the tree
+without source lines, then each area's source lines, then the switch that shows them.
+`GET /tests?format=json` on the Monitor answers the tree it shows ("The Harness Monitor"
+in [docs/architecture.md](../../docs/architecture.md)).
+
 ## Running it
 
 ```bash
@@ -35,6 +41,9 @@ Or directly from this package:
 cd tools/test-explorer
 node src/cli.js                    # writes out/index.html
 node src/cli.js --json             # writes out/model.json instead, for another consumer
+node src/cli.js --model <file>     # writes the page and the model beside it
+node src/cli.js --send <file>      # sends a model to the Harness Monitor as main's tests, with
+                                   # HARNESS_MONITOR_URL and HARNESS_WRITE_KEY set
 node src/cli.js --check-concepts   # the CI check, see below
 node src/cli.js --repo <path>      # analyze a different checkout
 node src/cli.js --help

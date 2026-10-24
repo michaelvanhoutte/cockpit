@@ -157,7 +157,7 @@ A second, separate service: Worker `harness-monitor` with its own D1 database `h
 | **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | hourly: branch linking; daily, 03:10 UTC: fetch the price list and price waiting rows; 03:20 UTC: rebuild the daily totals; 00:30 and 12:30 UTC: copy Cockpit's Claude calls from production (separate invocations, each sized to 50 queries) | `harness-monitor.<subdomain>.workers.dev` |
 
 - **No staging.** Migrations are expand-then-contract like Cockpit's; D1's point-in-time restore is the backstop, since rows from cloud sessions exist nowhere else. The workflow applies migrations, then deploys.
-- **The costs, pull request, Claude calls, CI stability, cycle time and test selection pages are cached at the edge** for `PAGE_CACHE_SECONDS` (`wrangler.jsonc`, 300) **only once a custom domain or route is attached**, because Cloudflare's Cache API does nothing on `workers.dev`. Until then every view reads D1: the costs pages from the totals alone, the CI stability and cycle time pages from every stored run or pull request in the period, and test selection's JSON answer, overview, Package and Most selected tests from its stored files, about 600,000 rows at 90 days. A cached request costs no database read, and a new report shows within that time. Local runs and tests set it to 0.
+- **The costs, pull request, Claude calls, CI stability, cycle time and test selection pages, and the tests' answer, are cached at the edge** for `PAGE_CACHE_SECONDS` (`wrangler.jsonc`, 300) **only once a custom domain or route is attached**, because Cloudflare's Cache API does nothing on `workers.dev`. Until then every view reads D1: the costs pages from the totals alone, the CI stability and cycle time pages from every stored run or pull request in the period, and test selection's JSON answer, overview, Package and Most selected tests from its stored files, about 600,000 rows at 90 days. A cached request costs no database read, and a new report shows within that time. Local runs and tests set it to 0.
 - **The costs table opens in each grouping's own order** (pull requests and issues newest first, categories in pipeline order, days newest first), and `sort=total` puts it dearest first; engineers are always by total. The sort is part of the page's address, so the cache keeps each order as its own page.
 - **Reading the pages is public; writing rows, re-placing them and starting jobs need the write key**, the Worker secret `HARNESS_WRITE_KEY`, sent as `Authorization: Bearer <key>`. Unset, every write is refused. Rotate it with `wrangler secret put HARNESS_WRITE_KEY` and update each holder of it.
 - **Prices come from LiteLLM's public file** (`raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json`, no secret), fetched by the daily cron. To correct or add a model before LiteLLM does, edit `apps/harness-monitor/src/price-overrides.json` (USD per million tokens; it wins over LiteLLM for the models it names). The page shows what the last price run did, or why its fetch failed.
@@ -196,12 +196,13 @@ The hook never sends conversation text, and a request it could not send goes aga
 
 **Uploading past sessions.** Run `pnpm harness:upload` on each desktop machine, once after its hook is set up, to send the requests the hook never saw in that machine's local logs for this repository. It needs the same two variables, and prints how many requests it sent, how many the monitor already had, and how many log lines it could not read. Re-running it is safe: a stored request is ignored. Run it before removing worktrees, since a branch whose worktree is gone has lost its marks, and its requests are then placed only by the process step their session was in. Cloud sessions' logs are deleted with their containers, so the hook is the only way those reach the monitor. `pnpm harness:upload --re-place` instead places each stored local Unphased request from 21 Sep on again by the hook's current rule, where that rule puts it in Scoping & planning, After push, Process review or Outside the process, sending only request ids and phases; cloud sessions' rows, and requests the rule puts in any other phase, stay Unphased. Dump the database first, from the repository root so wrangler finds the database by name rather than by `wrangler.jsonc`'s placeholder id (`node apps/harness-monitor/node_modules/wrangler/bin/wrangler.js d1 export harness-monitor --remote --output <file>`), since it rewrites stored rows, and run `pnpm harness:run rebuild` after it, since the costs page reads totals it leaves stale. It is safe to re-run: only a row still Unphased changes.
 
-**CI stability's runs, cycle time's pull requests and test selection's pull requests reach the Monitor from CI.** Set the repository secret `HARNESS_WRITE_KEY` (the key from step 4) and the repository variable `HARNESS_MONITOR_URL` (the Worker's address, no path) first; until both are set, each job below records a notice and sends nothing, and fails nothing. Besides the `@claude` runs above, only these jobs hold them, all on `main`'s own code and never a pull request's:
+**CI stability's runs, cycle time's pull requests, test selection's pull requests and `main`'s tests reach the Monitor from CI.** Set the repository secret `HARNESS_WRITE_KEY` (the key from step 4) and the repository variable `HARNESS_MONITOR_URL` (the Worker's address, no path) first; until both are set, each job below records a notice and sends nothing, and fails nothing. Besides the `@claude` runs above, only these jobs hold them, all on `main`'s own code and never a pull request's:
 
 | Job | Sends |
 |---|---|
 | `Stability` in `ci.yml`, on every merge to `main` | each run, job and step from the newest run the Monitor holds less two days, or the last 30 days when it holds none |
 | *Stability backfill* (`stability-backfill.yml`), by hand | the runs of the window it is given |
+| `Tests snapshot` in `ci.yml`, on every merge to `main` that `Test Explorer` runs on | the model `Test Explorer` built, as the tree, each area's source lines and the switch that shows them and deletes the tests shown before; a send that stops leaves the tests before shown |
 | `Cycle time` in `nightly.yml`, every night | each pull request merged since the newest merge the Monitor holds less two days, or the last 14 days when it holds none, with its rounds and their checks |
 | *Cycle time backfill* (`cycle-time-backfill.yml`), by hand | the pull requests merged in the window it is given |
 | `Selection` in `nightly.yml`, every night | each pull request merged since the newest merge the Monitor holds less two days, or the last 14 days when it holds none, with what its Test and E2E jobs selected and the chain that picked each file, its misses, and the bars' thresholds |
@@ -1084,7 +1085,7 @@ Then, by hand (no API, or deliberately not automated):
      merging. It would force an "Update branch" click every time `main` moves, and
      the semantic conflict it guards against is exactly what staging catches; a
      bad merge reaches staging, never production.
-   - **`contexts`** — five names: three of `ci.yml`'s six checks (`Checks`, which
+   - **`contexts`** — five names: three of `ci.yml`'s seven checks (`Checks`, which
      carries the classifier and the fast mechanical checks as steps since "Run
      the six small CI jobs as one, so a push stops paying six runner
      start-ups" (issue 378), `Test` and `E2E (F3)`, the fan-in job over the four
@@ -1103,10 +1104,10 @@ Then, by hand (no API, or deliberately not automated):
      surfaces within a week of merging rather than before a pull request can
      merge.
 
-     The three CI jobs left out of the five are the reports: Test Explorer and
-     Stability deliberately do not gate; Publish *could not* gate anything if
-     it were listed — its `if:` skips it on every pull request, and a skipped
-     job reports as passing.
+     The four CI jobs left out of the five are the reports: Test Explorer and
+     Stability deliberately do not gate; Tests snapshot and Publish *could not*
+     gate anything if they were listed — their `if:` skips them on every pull
+     request, and a skipped job reports as passing.
 
      **Every name in this list is read off a real run**, never predicted, and
      that ordering is the point. GitHub matches these strings with no idea

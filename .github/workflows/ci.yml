@@ -70,7 +70,7 @@ jobs:
   # classifier action themselves rather than waiting on this job's, so all of
   # them start with the run ("Run the E2E (F3) job as four shards under one
   # required check, starting alongside Checks", issue 1279).
-  # `Concepts`, `Test Explorer`, `Stability` and `Publish` still gate nothing
+  # `Concepts`, `Test Explorer`, `Tests snapshot`, `Stability` and `Publish` still gate nothing
   # of their own; `docs/architecture.md` §9.1 says why.
   #
   # This closes one gap in what a pull request's own head can influence — the
@@ -500,7 +500,9 @@ jobs:
         with:
           name: coverage-reports
           path: .
-      - run: pnpm test:explorer
+      # Writes the model beside the page, outside out/ so the site never
+      # publishes it, for `tests-snapshot` below to send.
+      - run: node tools/test-explorer/src/cli.js --model tools/test-explorer/model/model.json
       # Kept on every branch, and not replaced by the published page: it is how
       # a pull request's own report gets read, and the fallback when a deploy
       # fails.
@@ -508,6 +510,45 @@ jobs:
         with:
           name: test-explorer-report
           path: tools/test-explorer/out/
+      - uses: actions/upload-artifact@v4
+        if: ${{ github.event_name == 'push' }}
+        with:
+          name: test-explorer-model
+          path: tools/test-explorer/model/model.json
+          retention-days: 1
+
+  # Sends `main`'s model to the Harness Monitor as its tests: the tree, each
+  # area's source lines, then the switch that shows them, which deletes the
+  # ones before. Its own job, on `main` pushes only, because the write key must
+  # never reach `test-explorer`, which runs a pull request's code. It runs no
+  # package code: it reads the model `test-explorer` built and sends it. Until
+  # both the secret and the variable are set it says so and sends nothing
+  # (docs/deployment.md, "The Harness Monitor"). Advisory, as the explorer is.
+  tests-snapshot:
+    name: Tests snapshot
+    needs: test-explorer
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-explorer-model
+          path: tools/test-explorer/model/
+      - name: Send main's tests to the Harness Monitor
+        run: |
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            echo "::notice title=Tests not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, so main's tests did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
+            exit 0
+          fi
+          node tools/test-explorer/src/cli.js --send tools/test-explorer/model/model.json
+        env:
+          HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
 
   # How reliable each job on `main` has been: pass rates over 7 and 30 days with
   # cancellations counted apart from failures, durations, how long `main` stayed

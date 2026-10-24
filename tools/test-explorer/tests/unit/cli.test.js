@@ -30,6 +30,15 @@ describe('parseArgs', () => {
     expect(parseArgs(['--json', '--out', 'x.json'])).toEqual({ json: true, out: 'x.json' });
   });
 
+  it.each([
+    { flag: '--model', parsed: { model: 'm.json' } },
+    { flag: '--send', parsed: { send: 'm.json' } },
+  ])('consumes the model file after $flag, and refuses $flag without one', ({ flag, parsed }) => {
+    expect(parseArgs([flag, 'm.json'])).toEqual(parsed);
+    expect(parseArgs([flag])).toEqual({ invalid: `${flag} needs a path to a model file` });
+    expect(parseArgs([flag, '--json'])).toEqual({ invalid: `${flag} needs a path to a model file` });
+  });
+
   it('returns { unknown } for an unrecognized argument instead of exiting the process', () => {
     expect(parseArgs(['--nope'])).toEqual({ unknown: '--nope' });
   });

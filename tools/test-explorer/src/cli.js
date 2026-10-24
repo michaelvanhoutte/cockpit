@@ -2,26 +2,32 @@
  * The wiring, and the only place analyze/ and render/ meet.
  *
  *   analyze(repo) -> Model -> renderHtml(Model) -> a file
+ *   a model file  -> sendSnapshot(Model)        -> the Harness Monitor, with --send
  *
  * `--json` stops after the first arrow, so anything else can consume the
  * model: a different renderer, a CI check, a diff against the previous run.
+ * `--send` reads a model an earlier run wrote rather than analyzing, so the job
+ * holding the write key needs neither the repository's packages nor its tests.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { analyze } from './analyze/index.js';
-import { renderHtml } from './render/html.js';
 import { walkTree } from './model.js';
+import { MonitorError, sendSnapshot } from './monitor.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO = path.resolve(here, '../../..');
 
-function main(argv) {
+async function main(argv) {
   const args = parseArgs(argv);
   if (args.unknown) {
     process.stderr.write(`unknown argument: ${args.unknown}\n\n${USAGE}`);
+    return 2;
+  }
+  if (args.invalid) {
+    process.stderr.write(`${args.invalid}\n\n${USAGE}`);
     return 2;
   }
   if (args.help) {
@@ -29,9 +35,13 @@ function main(argv) {
     return 0;
   }
 
+  if (args.send) return send(args.send);
+
+  // Imported here rather than at the top, so `--send` runs without the packages analyze/ parses with.
+  const { analyze } = await import('./analyze/index.js');
   const repo = path.resolve(args.repo ?? DEFAULT_REPO);
 
-  if (args.checkConcepts) return checkConcepts(repo);
+  if (args.checkConcepts) return checkConcepts(analyze(repo));
 
   const model = analyze(repo);
   for (const warning of model.warnings) process.stderr.write(`warning: ${warning}\n`);
@@ -43,6 +53,7 @@ function main(argv) {
     return 0;
   }
 
+  const { renderHtml } = await import('./render/html.js');
   const out = args.out ?? path.join(here, '../out/index.html');
   // File links in the report (rule/gap file:line) need to know where the
   // report itself will be opened from, to compute a relative href — a render
@@ -51,7 +62,41 @@ function main(argv) {
   const repoRelPrefix = path.relative(path.dirname(out), repo).split(path.sep).join('/');
   write(out, renderHtml(model, { repoRelPrefix }));
   process.stderr.write(`wrote ${path.relative(repo, out)}\n`);
+  if (args.model) {
+    write(args.model, JSON.stringify(model));
+    process.stderr.write(`wrote ${path.relative(repo, path.resolve(args.model))}\n`);
+  }
   return 0;
+}
+
+/**
+ * Sends the model in `file` to the Harness Monitor at $HARNESS_MONITOR_URL
+ * with $HARNESS_WRITE_KEY, and exits non-zero naming the part it refused.
+ */
+async function send(file) {
+  const url = process.env.HARNESS_MONITOR_URL;
+  const key = process.env.HARNESS_WRITE_KEY;
+  if (!url || !key) {
+    process.stderr.write('--send needs HARNESS_MONITOR_URL and HARNESS_WRITE_KEY set (docs/deployment.md, "The Harness Monitor").\n');
+    return 2;
+  }
+  let model;
+  try {
+    model = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    process.stderr.write(`Could not read the model at ${file}: ${error.message}\n`);
+    return 2;
+  }
+  try {
+    const sent = await sendSnapshot({ url, key, model });
+    const largest = sent.largestArea ? `, the largest area ${sent.largestArea.key} at ${sent.largestArea.bytes} bytes` : '';
+    process.stderr.write(`sent main's tests at ${sent.commit} to the Harness Monitor and showed them: the tree at ${sent.treeBytes} bytes gzipped and ${sent.areas} areas${largest}\n`);
+    return 0;
+  } catch (error) {
+    if (!(error instanceof MonitorError)) throw error;
+    process.stderr.write(`${error.message}\n`);
+    return 1;
+  }
 }
 
 /**
@@ -66,8 +111,7 @@ function main(argv) {
  * (testing-strategy.md §9.1's undotted-area convention), there was nothing
  * left for a file-overlap check to reject.
  */
-function checkConcepts(repo) {
-  const model = analyze(repo);
+function checkConcepts(model) {
   if (!model.unregisteredAreas.length) {
     const nodes = [...walkTree(model.tree)];
     const total = nodes.reduce((sum, n) => sum + n.rules.length, 0);
@@ -88,11 +132,12 @@ function write(file, contents) {
 
 /**
  * Pure: no process.exit, no I/O — an unrecognized flag comes back as
- * `{ unknown: a }` for main() to act on, rather than parseArgs deciding how
- * the process ends. That's what makes this testable as plain logic.
+ * `{ unknown: a }`, and a flag missing its value as `{ invalid: reason }`, for
+ * main() to act on, rather than parseArgs deciding how the process ends.
+ * That's what makes this testable as plain logic.
  *
  * @param {string[]} argv
- * @returns {{ help?: boolean, json?: boolean, checkConcepts?: boolean, out?: string, repo?: string, unknown?: string }}
+ * @returns {{ help?: boolean, json?: boolean, checkConcepts?: boolean, out?: string, repo?: string, model?: string, send?: string, unknown?: string, invalid?: string }}
  */
 export function parseArgs(argv) {
   const args = {};
@@ -103,7 +148,11 @@ export function parseArgs(argv) {
     else if (a === '--check-concepts') args.checkConcepts = true;
     else if (a === '--out') args.out = argv[++i];
     else if (a === '--repo') args.repo = argv[++i];
-    else return { unknown: a };
+    else if (a === '--model' || a === '--send') {
+      const value = argv[++i];
+      if (!value || value.startsWith('--')) return { invalid: `${a} needs a path to a model file` };
+      args[a.slice(2)] = value;
+    } else return { unknown: a };
   }
   return args;
 }
@@ -113,6 +162,9 @@ const USAGE = `Usage: node src/cli.js [options]
   --out <file>       Where to write. Defaults to out/index.html, or out/model.json with --json.
   --repo <dir>        Repository to analyze. Defaults to the repo this tool sits in.
   --json               Emit the model instead of a page, for another consumer.
+  --model <file>     Also write the model beside the page, for --send.
+  --send <file>      Send the model a --json or --model run wrote to the Harness Monitor at
+                       $HARNESS_MONITOR_URL with $HARNESS_WRITE_KEY, as main's tests, and write nothing.
   --check-concepts   Fail if any test declares a feature area missing from concepts.json.
   --help                This.
 `;
@@ -123,5 +175,13 @@ const USAGE = `Usage: node src/cli.js [options]
 // process.argv[1] is backslash-separated and needs proper drive-letter/URL encoding to match
 // import.meta.url's file:///C:/... form.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exitCode = main(process.argv.slice(2));
+  main(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      process.stderr.write(`${error.stack ?? error}\n`);
+      process.exitCode = 1;
+    },
+  );
 }

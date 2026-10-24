@@ -1,3 +1,4 @@
 node_modules/
 out/
+model/
 package-lock.json

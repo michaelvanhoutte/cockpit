@@ -61,6 +61,9 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM claude_call_daily_totals'),
     env.DB.prepare('DELETE FROM claude_call_place'),
     env.DB.prepare('DELETE FROM claude_call_job_runs'),
+    env.DB.prepare('DELETE FROM tests_trees'),
+    env.DB.prepare('DELETE FROM tests_area_lines'),
+    env.DB.prepare('DELETE FROM tests_current'),
   ]);
 }
 
@@ -297,6 +300,71 @@ export async function storedSelection(): Promise<{ pull_number: number; job: str
      FROM selection_pulls p ORDER BY p.pull_number, p.job`,
   ).all<{ pull_number: number; job: string; status: string; packages: number; files: number; changed: number }>();
   return results;
+}
+
+/** `count` areas, named `Area 1` onwards, the first holding the rest beneath it as the product's tree nests. */
+export const testsAreas = (count: number) => Array.from({ length: count }, (_, i) => `Area ${i + 1}`);
+
+/** A tree as the test explorer sends it: the model without source lines, one rule in each area. */
+export const testsTree = (commit: string, areas: string[], over: Record<string, unknown> = {}) => {
+  const node = (key: string) => ({
+    key,
+    label: key,
+    counts: { L1: 1 },
+    rules: [{ concept: key, statement: `a rule of ${key}`, level: 'L1', file: 'a.test.ts', line: 3, cases: [], todoCases: [] }],
+    filesNothingRuns: [],
+    branchesNothingTakes: null,
+    path: [],
+    children: [] as unknown[],
+  });
+  const [first, ...rest] = areas.map(node);
+  if (first) first.children = rest;
+  return { commit, commitUrl: null, generatedAt: '2026-10-24T03:00:00.000Z', coverageAvailable: true, tree: first ? [first] : [], ...over };
+};
+
+const gzip = async (value: unknown) =>
+  new Uint8Array(await new Response(new Blob([JSON.stringify(value)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+
+/** One part of main's tests as the test explorer sends it, gzipped, with the write key. */
+async function sendTestsPart(commit: string, part: string, value: unknown) {
+  return SELF.fetch(`https://monitor.test/v1/tests/main/${commit}/${part}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/gzip', authorization: `Bearer ${WRITE_KEY}` },
+    body: await gzip(value),
+  });
+}
+
+export const sendTestsTree = (commit: string, tree: unknown) => sendTestsPart(commit, 'tree', tree);
+export const sendTestsArea = (commit: string, area: string, lines: unknown = { 'a.test.ts:3': [{ line: 3, text: `it('${area}')` }] }) =>
+  sendTestsPart(commit, `areas/${encodeURIComponent(area)}`, lines);
+export const showTests = (commit: string) =>
+  SELF.fetch(`https://monitor.test/v1/tests/main/${commit}/current`, { method: 'POST', headers: { authorization: `Bearer ${WRITE_KEY}` } });
+
+/** Sends the tree and every one of `areas`' source lines, each answered 200, without making them current. */
+export async function sendEveryTestsPart(commit: string, areas: string[], over: Record<string, unknown> = {}) {
+  const statuses = [(await sendTestsTree(commit, testsTree(commit, areas, over))).status];
+  for (const area of areas) statuses.push((await sendTestsArea(commit, area)).status);
+  if (statuses.some((s) => s !== 200)) throw new Error(`a part was refused: ${statuses.join(', ')}`);
+}
+
+/** The tests' JSON answer, as a reader asks for it. */
+export async function theTests(): Promise<Record<string, unknown>> {
+  const response = await SELF.fetch('https://monitor.test/tests?format=json');
+  if (response.status !== 200) throw new Error(`/tests answered ${response.status}`);
+  return response.json();
+}
+
+/** Every commit with parts stored, how many area parts it holds, and which commit is shown. */
+export async function storedTests(): Promise<{ commits: { commit: string; areas: number }[]; current: string | null }> {
+  const { results } = await env.DB.prepare(
+    `SELECT t.commit_sha, (SELECT COUNT(*) FROM tests_area_lines l WHERE l.snapshot = t.snapshot AND l.commit_sha = t.commit_sha) AS areas
+     FROM tests_trees t
+     UNION SELECT l.commit_sha, COUNT(*) FROM tests_area_lines l
+     WHERE NOT EXISTS (SELECT 1 FROM tests_trees t WHERE t.snapshot = l.snapshot AND t.commit_sha = l.commit_sha) GROUP BY l.commit_sha
+     ORDER BY 1`,
+  ).all<{ commit_sha: string; areas: number }>();
+  const current = await env.DB.prepare("SELECT commit_sha FROM tests_current WHERE snapshot = 'main'").first<{ commit_sha: string }>();
+  return { commits: results.map((r) => ({ commit: r.commit_sha, areas: r.areas })), current: current?.commit_sha ?? null };
 }
 
 export interface Total {
