@@ -347,10 +347,6 @@ ${q.group === 'check' ? '' : `<div class="field"><span id="splitby">Split by</sp
 }
 
 const EXTRA = `
-.toggles{display:flex;gap:2px;padding:3px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--shade) 7%,transparent)}
-.toggles button{height:32px;padding:0 14px;border:0;border-radius:7px;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--ink-soft);cursor:pointer}
-.toggles button:hover{color:var(--ink-strong);background:color-mix(in srgb,var(--shade) 6%,transparent)}
-.toggles button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);box-shadow:inset 0 1px 0 rgb(255 255 255 / .15),0 1px 2px rgb(22 24 29 / .2)}
 @media (max-width:640px){
   .filters{grid-template-columns:repeat(2,minmax(0,1fr))}
   .filters .field:nth-of-type(n+3){grid-column:1/-1}

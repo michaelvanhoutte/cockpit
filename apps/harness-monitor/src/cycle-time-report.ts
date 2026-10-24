@@ -77,7 +77,7 @@ export function cycleTimeAddress(q: CycleTimeQuery, over: Partial<CycleTimeQuery
 
 /** 45s, 12m, 1h 05m: a time a person reads, not a stopwatch. */
 export function hm(ms: number): string {
-  if (ms < 60_000) return ms <= 0 ? '0m' : `${Math.round(ms / 1000)}s`;
+  if (ms < 59_500) return ms <= 0 ? '0m' : `${Math.round(ms / 1000)}s`;
   const minutes = Math.round(ms / 60_000);
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
@@ -105,7 +105,10 @@ export const redRounds = (p: Pull) => p.rounds.filter((r) => r.red).length;
 export const flukeCount = (p: Pull) => p.flukes.length;
 export const mergedMs = (p: Pull) => Date.parse(p.mergedAt);
 
-/** Each series of a split, in stacking order: its key and its name. The Harness split's `reviews` is for a pull request stored with its reviews combined only, and is drawn only where one is. The Check split's names are the ones CI runs today; any other a round held is added after them. */
+/** The checks CI runs today, which the Check split names; any other a round held is drawn together as Other checks. */
+const CHECKS = ['E2E (F3)', 'Test', 'Checks', 'Test Explorer', 'Contract tests'];
+
+/** Each series of a split, in stacking order: its key and its name. The Harness split's `reviews` is for a pull request stored with its reviews combined only, and the Check split's `other` for checks CI did not run when this was written; each is drawn only where a pull request has one. */
 export const SERIES: Record<Split, { key: string; label: string; other?: boolean }[]> = {
   phase: [
     { key: 'writing', label: 'Writing' },
@@ -122,7 +125,7 @@ export const SERIES: Record<Split, { key: string; label: string; other?: boolean
     { key: 'test', label: 'Test runs' },
     { key: 'browser', label: 'Browser pass' },
   ],
-  check: ['E2E (F3)', 'Test', 'Checks', 'Test Explorer', 'Contract tests'].map((name) => ({ key: name, label: name })),
+  check: [...CHECKS.map((name) => ({ key: name, label: name })), { key: 'other', label: 'Other checks', other: true }],
 };
 
 /**
@@ -173,7 +176,12 @@ export function values(p: Pull, split: Split): Record<string, number | null> {
     };
   }
   const out: Record<string, number> = {};
-  for (const r of p.rounds) for (const c of r.checks) out[c.name] = (out[c.name] ?? 0) + c.heldMs;
+  for (const r of p.rounds) {
+    for (const c of r.checks) {
+      const key = CHECKS.includes(c.name) ? c.name : 'other';
+      out[key] = (out[key] ?? 0) + c.heldMs;
+    }
+  }
   return out;
 }
 
@@ -222,10 +230,11 @@ export interface SplitTotals {
   union: number;
 }
 
-/** The series a list is drawn in: the split's own, less the combined reviews where no pull request in the list was stored with them. */
+/** The series a list is drawn in: the split's own, less the combined reviews and the other checks where no pull request in the list has any. */
 export function seriesOf(list: Pull[], split: Split) {
   const combined = split === 'harness' && list.some((p) => (values(p, 'harness').reviews ?? 0) > 0);
-  return SERIES[split].filter((s) => s.key !== 'reviews' || combined);
+  const others = split === 'check' && list.some((p) => (values(p, 'check').other ?? 0) > 0);
+  return SERIES[split].filter((s) => (s.key !== 'reviews' || combined) && (s.key !== 'other' || split !== 'check' || others));
 }
 
 export function splitTotals(list: Pull[], split: Split): SplitTotals {
@@ -307,7 +316,7 @@ export interface CheckRow {
 /** Which check held the rounds up: per check, the rounds it held, the ones it finished last, its minutes and what went wrong in it. Most minutes first. */
 export function checkRows(list: Pull[]): { rows: CheckRow[]; rounds: number; names: string[] } {
   const rounds = list.flatMap((p) => p.rounds.map((r) => ({ p, r })));
-  const names = SERIES.check.map((s) => s.key);
+  const names = [...CHECKS];
   for (const { r } of rounds) for (const c of r.checks) if (!names.includes(c.name)) names.push(c.name);
   const rows = names
     .map((name): CheckRow => {

@@ -196,6 +196,20 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe('Split by Check keeps the time of a check CI does not run today, drawn together as Other checks', () => {
+    const withNew = pull(1, { rounds: [round([check('E2E (F3)', 9), check('Brand new', 7, { last: true }), check('Another', 2)])] });
+
+    it('adds the unknown checks up under one series beside the known ones', () => {
+      expect(values(withNew, 'check')).toEqual({ 'E2E (F3)': 9 * MIN, other: 9 * MIN });
+      expect(splitTotals([withNew], 'check').all).toBe(18 * MIN);
+    });
+
+    it('draws that series only for a list that holds such a pull request', () => {
+      expect(seriesOf([withNew], 'check').map((s) => s.key)).toContain('other');
+      expect(seriesOf([pull(2)], 'check').map((s) => s.key)).not.toContain('other');
+    });
+  });
+
   describe('Merged, Size and Rounds keep only matching pull requests', () => {
     const now = Date.parse('2026-10-22T12:00:00Z');
     const q = (over: Partial<CycleTimeQuery>): CycleTimeQuery => ({ period: 'all', size: null, outcome: null, group: 'day', split: 'phase', ...over });
@@ -258,6 +272,7 @@ describe('Harness Monitor', () => {
       { ms: 12 * MIN, text: '12m' },
       { ms: 65 * MIN, text: '1h 05m' },
       { ms: 0, text: '0m' },
+      { ms: 59_600, text: '1m' },
     ])('$ms ms reads $text', ({ ms, text }) => {
       expect(hm(ms)).toBe(text);
     });
