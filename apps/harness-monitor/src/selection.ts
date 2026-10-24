@@ -5,6 +5,7 @@
  * file it ran with the chain that picked it, and its misses; with the bars'
  * thresholds. The Monitor checks their shape and stores them; it derives nothing.
  */
+import { ISO_TIME } from './validate';
 
 /** Most pull requests one send may carry. The body is capped too, at the Worker's MAX_BODY characters. */
 export const MAX_PULLS = 50;
@@ -100,9 +101,6 @@ export interface SelectionBars {
 }
 
 export type CheckedSelection = { ok: true; pulls: SelectionPull[]; bars: SelectionBars } | { ok: false; error: string };
-
-/** A four-digit year and an explicit zone, as GitHub writes every time. */
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
 type Fields = Record<string, unknown>;
 

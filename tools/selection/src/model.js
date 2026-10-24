@@ -538,13 +538,18 @@ export function buildModel({ pulls: pullData, now, requestedDays, coveredSince, 
   };
 }
 
+/** The most misses of one pull request, and characters of a chain in words, that the Monitor takes (apps/harness-monitor/src/selection.ts): it refuses a whole batch past either, which would hold every later night back. */
+const KEPT_MISSES = 500;
+const KEPT_TEXT = 2000;
+
 /** Why a file ran, as the Harness Monitor stores it: a kind, and for a chain or a concept the structure and its words. A file of a package that ran everything was not picked. */
 function selectedByRow(selectedBy, mode) {
   if (mode === 'full') return { kind: 'full' };
-  if (!selectedBy) return { kind: 'unknown', text: chainText(null) };
-  if (selectedBy.kind === 'itself') return { kind: 'itself', text: chainText(selectedBy) };
-  if (selectedBy.kind === 'concept') return { kind: 'concept', owners: selectedBy.owners, text: chainText(selectedBy) };
-  return { kind: 'chain', chain: selectedBy.chain, text: chainText(selectedBy) };
+  const words = (value) => chainText(value).slice(0, KEPT_TEXT);
+  if (!selectedBy) return { kind: 'unknown', text: words(null) };
+  if (selectedBy.kind === 'itself') return { kind: 'itself', text: words(selectedBy) };
+  if (selectedBy.kind === 'concept') return { kind: 'concept', owners: selectedBy.owners, text: words(selectedBy) };
+  return { kind: 'chain', chain: selectedBy.chain, text: words(selectedBy) };
 }
 
 /** A package as the Monitor stores it: only the files the job ran, each with why. */
@@ -610,7 +615,7 @@ export function monitorRows({ pulls: pullData }) {
             packages: pull.e2e.packages.map(packageRow),
           },
         ],
-        misses: pull.misses.map((miss) => ({ job: miss.level === 'e2e' ? 'e2e' : 'test', path: miss.path, level: miss.level, reason: miss.reason ?? null })),
+        misses: pull.misses.slice(0, KEPT_MISSES).map((miss) => ({ job: miss.level === 'e2e' ? 'e2e' : 'test', path: miss.path, level: miss.level, reason: miss.reason ?? null })),
       };
     });
 }

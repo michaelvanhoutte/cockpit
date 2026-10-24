@@ -91,6 +91,21 @@ describe('Selection', () => {
       expect(batches.map((batch) => batch.map((p) => p.number))).toEqual([[1, 2], [3]]);
     });
 
+    it('the bars every batch carries count against its characters, so no request body passes the cap', async () => {
+      const bars = { ...BARS, items: [{ ...BARS.items[0], name: 'y'.repeat(600) }] };
+      const bodies = [];
+      const fetchImpl = async (_url, init) => {
+        bodies.push(init.body.length);
+        return { ok: true, status: 200, json: async () => ({}) };
+      };
+      const pulls = Array.from({ length: 5 }, (_, i) => pull(i + 1, { title: 'x'.repeat(900) }));
+
+      await sendPulls({ url: 'https://monitor.test', key: 'k', pulls, bars, fetchImpl, maxChars: 3_000 });
+
+      expect(bodies.length).toBeGreaterThan(1);
+      expect(Math.max(...bodies)).toBeLessThanOrEqual(3_000);
+    });
+
     it('a pull request too large for a batch on its own is refused, saying which', () => {
       expect(() => cutBatches([pull(7, { title: 'x'.repeat(3_000) })], { maxChars: 2_500 })).toThrow('Pull request 7 is');
     });

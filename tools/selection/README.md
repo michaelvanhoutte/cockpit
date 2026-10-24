@@ -46,18 +46,13 @@ requests will exhaust before it finishes.
 
 ## Where the rows go
 
-The same nightly `Selection` job also **sends each merged pull request to the
-[Harness Monitor](../../docs/architecture.md)**, which keeps them so a period can reach past the
-14 days the page shows (`--send`). For each pull request and each job (Test, E2E) it sends whether
-the job ran, ran everything (with the rule and path that forced it) or was documentation only, its
-packages and modes, its changed files, **the files it ran, each with the chain that picked it**, and the
-pull request's misses; with the thresholds of the bars (`BAR_DEFS` in `src/model.js`) and each bar's
-open alarm issue, so the Monitor's verdicts are judged against the numbers this tool owns. A pull
-request replaces the one stored under its number, so a miss found after it was stored reaches it with the
-next send. `GET <monitor>/selection?period=14d&job=both` answers the bars with their verdicts, the rules that
-forced a full run, the misses and the most selected tests as JSON: what `model.json` holds, counted from
-the stored rows and over any period, so the figures can differ from it (a test that did not exist yet counts
-as skippable there).
+The same nightly `Selection` job also **sends each merged pull request to the Harness Monitor**
+(`--send`), which keeps them so a period can reach past the 14 days the page shows. What is sent, how
+it is stored and what `GET <monitor>/selection?period=14d&job=both` answers are in
+[the architecture](../../docs/architecture.md), "The Harness Monitor". The bars' thresholds (`BAR_DEFS`
+in `src/model.js`) travel with the rows, so the Monitor's verdicts are judged against the numbers this
+tool owns. Its figures are counted from the stored rows over any period, so they can differ from
+`model.json`'s (a test that did not exist yet counts as skippable there).
 
 It reads from the newest merge the Monitor holds (`GET /v1/selection`) less two days, or the last
 `--days` when it holds none. Until the secret `HARNESS_WRITE_KEY` and the variable `HARNESS_MONITOR_URL`

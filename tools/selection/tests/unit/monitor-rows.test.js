@@ -116,6 +116,22 @@ describe('Selection', () => {
 
       expect(rowOf(missed).misses).toEqual([{ job: 'test', path: 'apps/api/tests/unit/m.test.ts', level: 'unit', reason: null }]);
     });
+
+    it('cuts what the Monitor would refuse a whole batch for, so one extreme pull request never holds every later night back', () => {
+      const longChain = Array.from({ length: 60 }, (_, index) => `apps/api/src/a-module-with-a-long-name-${index}.ts`);
+      const broken = {
+        ...aPull({ test: [pkg({ files: [file('apps/api/tests/unit/a.test.ts', 'passed', { selectedBy: { kind: 'chain', chain: longChain } })] })] }),
+        mainRun: {
+          id: 2,
+          testDurationMs: 400_000,
+          record: record([pkg({ mode: 'full', files: Array.from({ length: 600 }, (_, index) => file(`apps/api/tests/unit/f${index}.test.ts`, 'failed')) })], [], 'push'),
+          e2eRecord: null,
+        },
+      };
+
+      expect(rowOf(broken).misses).toHaveLength(500);
+      expect(job(broken, 'test').packages[0].files[0].selectedBy.text).toHaveLength(2000);
+    });
   });
 
   describe("the bars' thresholds are sent with the rows, since the tool owns them", () => {

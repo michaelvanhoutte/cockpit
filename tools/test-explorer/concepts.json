@@ -675,6 +675,8 @@
         "apps/harness-monitor/src/cycle-time-store.ts",
         "apps/harness-monitor/src/cycle-time-report.ts",
         "apps/harness-monitor/src/cycle-time-page.ts",
+        "apps/harness-monitor/src/selection.ts",
+        "apps/harness-monitor/src/selection-store.ts",
         "apps/harness-monitor/src/report.ts",
         "apps/harness-monitor/src/claude-calls-page.ts",
         "apps/harness-monitor/src/claude-calls-view.ts",

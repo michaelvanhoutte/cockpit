@@ -164,6 +164,14 @@ describe('Harness Monitor', () => {
       expect(test.forcedFullRules).toEqual([]);
     });
 
+    it('a period or job it does not know is read as the bars\' own: 14 days, both jobs', async () => {
+      await sendSelection(thirtyWithNineFull());
+
+      const answer = await theAnswer('?period=forever&job=nobody');
+
+      expect(answer).toMatchObject({ period: '14d', job: 'both', pulls: { total: 30 } });
+    });
+
     it('with nothing stored, the answer is empty and reads nothing', async () => {
       const answer = await theAnswer();
 
