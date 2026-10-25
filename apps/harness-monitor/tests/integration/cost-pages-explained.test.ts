@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callLike, giveTheWorkerTheReadToken, importTheCalls, theCallsPage } from './cockpit-support';
+import { callLike, giveTheWorkerTheReadToken, importTheCalls, theCallsPage, withoutExplanations } from './cockpit-support';
 import { linked, pullRequest } from './github-support';
 import { panelOf } from './series-colours';
 import { emptyTheDatabase, send, spend, theBarePage, thePullRequest, usage, withPrices } from './support';
@@ -13,8 +13,6 @@ const partsOf = (html: string, id: string) => {
   return panel ? [...panel.matchAll(/<dt>(.*?)<\/dt>/g)].map((m) => m[1]) : null;
 };
 const THREE_PARTS = ['What it shows', 'How to read it', 'What to look for'];
-/** A panel without its (i)s and their explanations: what the reader sees on the panel itself. */
-const withoutExplanations = (html: string) => html.replace(/<button type="button" class="info"[^>]*>i<\/button>/g, '').replace(/<div id="x-[^"]*" popover="manual" class="explain-pop">.*?<\/div>/gs, '');
 /** A table's panel, by the name it is read out as. */
 const tableOf = (html: string, name: string) => new RegExp(`<section class="panel" aria-label="${name}">.*?</section>`, 's').exec(html)?.[0] ?? '';
 /** The (i) a panel carries first, beside its heading: the id of the explanation it opens, null where it has none. */

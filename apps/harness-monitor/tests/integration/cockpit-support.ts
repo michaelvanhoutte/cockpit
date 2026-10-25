@@ -190,7 +190,7 @@ export function callsColumns(html: string): string[] {
 }
 
 /** The page without its (i)s and the explanations they open, so a panel reads as its figures alone. */
-const withoutExplanations = (html: string) =>
+export const withoutExplanations = (html: string) =>
   html.replace(/<button type="button" class="info"[^>]*>i<\/button>/g, '').replace(/<div id="x-[^"]*" popover="manual" class="explain-pop">.*?<\/div>/gs, '');
 
 /** The tiles: Spent, Calls and, but for all time, the comparison. */

@@ -103,19 +103,13 @@ function summary(page: PullRequestPage): string {
 <div class="total-box"><div class="mono big" id="pr-total">${dollars(page.totalMicros)}${unpriced(page.unpricedRequests)}</div><div class="muted">at API list price, ${periodNote(page.query)}${share}</div></div></div>`;
 }
 
-/** A pull request's page is part of the costs page: its tab stays current, over a band with no groupings. */
-const framed = (body: string, now: number) => shell({ current: 'costs', body: `<a class="back" href="/">&larr; All costs</a>\n${body}` }, now);
+/** A pull request's page is part of the costs page: its tab stays current, over a band with no groupings, and it opens with that tab's lead. */
+const framed = (body: string, now: number) =>
+  shell({ current: 'costs', body: `${costsLead()}\n<a class="back" href="/">&larr; All costs</a>\n${body}\n${EXPLAIN_SCRIPT}`, style: EXPLAIN_STYLE }, now);
 
-/** One pull request's cost, opening with the costs page's lead, since it is reached from that tab. Counts, dollars and opaque ids only; never an email or any content. */
+/** One pull request's cost. Counts, dollars and opaque ids only; never an email or any content. */
 export function renderPullRequest(page: PullRequestPage, now = Date.now()): string {
-  return shell(
-    {
-      current: 'costs',
-      body: `${costsLead()}\n<a class="back" href="/">&larr; All costs</a>\n${summary(page)}\n${filters(page)}\n${categories(page)}\n${sessions(page)}\n${EXPLAIN_SCRIPT}`,
-      style: EXPLAIN_STYLE,
-    },
-    now,
-  );
+  return framed(`${summary(page)}\n${filters(page)}\n${categories(page)}\n${sessions(page)}`, now);
 }
 
 /** A number no pull request is known by. */

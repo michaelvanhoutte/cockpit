@@ -44,9 +44,9 @@ export const TABLES: Record<CallGroup, Explanation> = {
     shows:
       'Each row is a pull request whose CI contract tests called Claude, newest first, with how many runs made the calls; Sessions opens its Claude Code costs. <b>Nightly and by-hand runs on main</b> gathers CI&rsquo;s other calls, and <b>No pull request</b> every call made outside CI.',
   },
-  startedBy: { shows: 'Each row is what set calls off, dearest first: a person in the app, a connector such as Teams, MCP or a CI run. <b>Not recorded</b> is a call stored without one.' },
+  startedBy: { shows: 'Each row is what set calls off, dearest first: a person in the app, a change to an item, a connector such as Teams, MCP, a backfill or a CI run. <b>Not recorded</b> is a call stored without one.' },
 };
 
 /** What follows the question on the page's lead: the words a newcomer will not know. */
 export const LEAD_MORE =
-  'These are the calls Cockpit&rsquo;s own features make to Claude with Cockpit&rsquo;s Anthropic key, not the Claude Code sessions that build it, which Claude Code costs counts. An <b>environment</b> is where a call was made: production for real users, staging, CI&rsquo;s contract tests or a developer&rsquo;s machine. A <b>starter</b> is what set it off: a person in the app, a connector such as Teams, MCP or a CI run.';
+  'These are the calls Cockpit&rsquo;s own features make to Claude with Cockpit&rsquo;s Anthropic key, not the Claude Code sessions that build it, which Claude Code costs counts. An <b>environment</b> is where a call was made: production for real users, staging, CI&rsquo;s contract tests or a developer&rsquo;s machine. A <b>starter</b> is what set it off: a person in the app, a change to an item, a connector such as Teams, MCP, a backfill or a CI run.';

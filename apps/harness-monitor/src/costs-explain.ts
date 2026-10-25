@@ -5,13 +5,13 @@ import type { Group } from './costs';
 export const WHAT = {
   where: {
     shows: 'The period&rsquo;s Claude Code spend as one bar, cut by what the sentence colours it by: phase, engineer, model, where the work ran, or what became of its pull request.',
-    read: 'Each segment is as wide as its share, and the list under the bar gives each one&rsquo;s dollars. The phases run in the order of the process: <b>Outside the process</b> (work no issue started, such as a question or a one-off fix), <b>Scoping &amp; planning</b>, <b>Building</b>, <b>Local code review</b> and <b>Local security review</b> on the developer&rsquo;s machine, <b>After push</b> (everything after the first push: answering CI and review, rechecking), <b>CI reviews</b> and <b>Process review</b> (the agent reviewing its own sessions and the process). CI reviews counts only the <code>@claude</code> runs in GitHub Actions; Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai and is <b>not measured</b>. By outcome, <b>On main</b> is work done straight on <code>main</code>. The note at the right counts the table&rsquo;s rows and their median.',
-    look: 'Building is the change itself; every other phase is what the process spends around it. A large After push share means changes keep coming back from CI or review to be fixed, which the Cycle time tab counts in rounds. Unphased growing after 21 Sep 2026 is a recording gap, not a cost.',
+    read: 'Each segment is as wide as its share, and the list under the bar gives each one&rsquo;s dollars. The phases run in the order of the process: <b>Outside the process</b> (work no process step claims, such as a question or a one-off fix), <b>Scoping &amp; planning</b>, <b>Building</b>, <b>Local code review</b> and <b>Local security review</b> (the reviews a session runs itself), <b>After push</b> (everything after the first push: answering CI and review, rechecking), <b>CI reviews</b> and <b>Process review</b> (the agent reviewing its own sessions and the process). CI reviews counts only the <code>@claude</code> runs in GitHub Actions; Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai and is <b>not measured</b>. By outcome, <b>On main</b> is work on <code>main</code> that no pull request is credited with. The note beside the heading counts the table&rsquo;s rows and their median.',
+    look: 'Building is the change itself; every other phase is what the process spends around it. A large After push share means changes keep coming back from CI or review to be fixed, which the Cycle time tab counts in rounds. Unphased spend after 21 Sep 2026 is a recording gap, a checkout whose hook predates phases, not work outside them.',
   },
   perDay: {
     shows: 'What Claude Code cost each day of the period, one line per colour of the sentence and a dashed line for the total.',
     read: 'Each point is a Belgian day; a day with no request sits at zero rather than being skipped. Point at a dot for its dollars, or at a name in the key to pick its line out.',
-    look: 'Spikes are the days to explain: the By day rows below give each day&rsquo;s tokens, and each pull request as the rows says who spent it. A line that climbs while the others hold is a phase, model or engineer whose spend is growing.',
+    look: 'Spikes are the days to explain: the By day rows below give each day&rsquo;s tokens, and choosing each pull request as the rows says who spent them. A line that climbs while the others hold is a phase, model or engineer whose spend is growing.',
   },
   tokensPerDay: {
     shows: 'How many tokens Claude Code used each day, with the same lines as Cost per day.',
@@ -41,7 +41,7 @@ export const WHAT = {
   byCategory: {
     shows: 'This pull request&rsquo;s Claude Code cost in each phase of the process.',
     read: 'Each bar is scaled to the dearest phase. Beside the dollars, how many requests it took; Local code review counts its requests at each review level, strongest first. Only requests inside the period chosen above count, so an older pull request may show part of its cost: choose All time for the whole.',
-    look: 'After push outweighing Building means the change came back from CI or review more than once, and its row on the Cycle time tab says how many rounds.',
+    look: 'After push outweighing Building means answering CI and review cost more than writing the change; its row on the Cycle time tab says how many rounds it took.',
   },
   sessions: {
     shows: 'Each row is one Claude Code session that worked on this pull request&rsquo;s branch, dearest first, with where it ran, its models, requests, tokens and cost. Under it, its main agent and each subagent it started, with their share of the session&rsquo;s cost.',
@@ -50,14 +50,14 @@ export const WHAT = {
 
 /** What each grouping's table shows. */
 export const TABLES: Record<Group, Explanation> = {
-  day: { shows: 'Each row is a day, newest first: its cost, a bar coloured as the sentence says (point at it for each colour&rsquo;s dollars), and its tokens of each kind, priced or not. A day with requests no price covers says how many beside its total.' },
+  day: { shows: 'Each row is a day, newest first unless Total sorts them: its cost, a bar coloured as the sentence says (point at it for each colour&rsquo;s dollars), and its tokens of each kind, priced or not. A day with requests no price covers says how many beside its total.' },
   pr: {
     shows:
-      'Each row is one pull request, open ones first, then merged ones newest first, with its issue, author, merge date and lines changed; its title opens it on GitHub and Sessions opens its own page here. A branch no pull request names keeps its own row: <i>linking&hellip;</i> until the hourly job has looked for it, <i>unattributed</i> after.',
+      'Each row is one pull request, open ones first, then merged ones newest first unless Total sorts them, with its issue, author, merge date and lines changed; its title opens it on GitHub and Sessions opens its own page here. A branch no pull request names keeps its own row, reading <i>linking&hellip;</i> until the nightly rebuild has seen linking catch up, then the issue its session&rsquo;s work was credited to, or <i>unattributed</i> where none was.',
   },
-  issue: { shows: 'Each row is one issue, its pull requests&rsquo; costs added up, a child issue&rsquo;s under its parent, so work split into several pull requests compares fairly with work done in one. <b>No issue</b> gathers pull requests that close none; <b>Unattributed</b> is spend on branches no pull request names.' },
-  engineer: { shows: 'Each row is an engineer, the author of the pull requests the spend went into, dearest first. <b>Unattributed</b> is spend on branches no pull request names.' },
-  category: { shows: 'Each row is a phase, in the order of the process, its bar cut by what the sentence colours it by, so a row reads who spent the phase, on which model, where, or into which outcome.' },
+  issue: { shows: 'Each row is one issue, its pull requests&rsquo; costs added up, a child issue&rsquo;s under its parent, so work split into several pull requests compares fairly with work done in one. A process phase&rsquo;s work on a branch no pull request names counts under the pull request its session went on to work on. <b>No issue</b> gathers pull requests that close none; <b>Unattributed</b> is spend no pull request claims.' },
+  engineer: { shows: 'Each row is an engineer, the author of the pull requests the spend went into or was credited to, dearest first. <b>Unattributed</b> is spend no pull request claims.' },
+  category: { shows: 'Each row is a phase, in the order of the process unless Total sorts them, its bar cut by what the sentence colours it by, so a row reads who spent the phase, on which model, where, or into which outcome.' },
 };
 
 /** What follows the question on the page's lead: the words a newcomer will not know. */
