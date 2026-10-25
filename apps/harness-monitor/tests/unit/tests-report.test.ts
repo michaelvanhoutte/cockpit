@@ -164,6 +164,11 @@ describe('Harness Monitor', () => {
       expect(parseTestsQuery(new URLSearchParams({ pr })).pr).toBeNull();
     });
 
+    it("main's picked ahead of a pull request carried along is main's, and the pull request alone is itself", () => {
+      expect(parseTestsQuery(new URLSearchParams('pr=&group=package&pr=9002')).pr).toBeNull();
+      expect(parseTestsQuery(new URLSearchParams('group=package&pr=9002')).pr).toBe(9002);
+    });
+
     it.each([['an unknown level', 'Inbox~L9~'], ['an unknown package', 'Inbox~~zzz'], ['an area name too long to be one', `${'a'.repeat(401)}~L1~`]])('a list with %s is dropped, since leaving that part empty would mean every one', (_, tests) => {
       expect(parseTestsQuery(new URLSearchParams({ tests })).list).toBeNull();
     });

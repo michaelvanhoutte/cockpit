@@ -130,12 +130,13 @@ export function parseTestsQuery(params: URLSearchParams): TestsQuery {
   // A part that is written but not understood drops the list: leaving it empty would mean every area, level or package.
   const readable = (value: string | undefined, got: unknown) => !value || got !== null;
   const list = params.has('tests') && extra.length === 0 && readable(node, listed.node) && readable(level, listed.level) && readable(pkg, listed.package) ? listed : null;
+  const group = pick<Group>(params.get('group'), GROUPS, 'area');
   return {
-    group: pick(params.get('group'), GROUPS, 'area'),
+    group,
     node: text(params.get('node')),
     // A filter that repeats the rows is dropped, as its control is not offered.
-    level: params.get('group') === 'level' ? null : oneOf(params.get('level'), LEVEL_IDS),
-    package: params.get('group') === 'package' ? null : oneOf(params.get('package'), PACKAGE_KEYS),
+    level: group === 'level' ? null : oneOf(params.get('level'), LEVEL_IDS),
+    package: group === 'package' ? null : oneOf(params.get('package'), PACKAGE_KEYS),
     show: pick(params.get('show'), SHOWS, 'all'),
     split: pick(params.get('split'), SPLITS, 'level'),
     rule: text(params.get('rule')),

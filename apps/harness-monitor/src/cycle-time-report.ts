@@ -51,12 +51,13 @@ const DEFAULTS: CycleTimeQuery = { period: 'all', size: null, outcome: null, gro
 export function parseCycleTimeQuery(params: URLSearchParams): CycleTimeQuery {
   const size = params.get('size');
   const outcome = params.get('outcome');
+  const group = GROUPS.find((g) => g === params.get('group')) ?? DEFAULTS.group;
   return {
     period: (Object.keys(PERIODS) as Period[]).find((p) => p === params.get('period')) ?? DEFAULTS.period,
     // A filter that repeats the rows is dropped, as its control is not offered.
-    size: params.get('group') !== 'size' && size !== null && SIZES.some((s) => s.key === size) ? size : null,
+    size: group !== 'size' && size !== null && SIZES.some((s) => s.key === size) ? size : null,
     outcome: outcome !== null && outcome !== '' && OUTCOMES.some(([v]) => v === outcome) ? outcome : null,
-    group: GROUPS.find((g) => g === params.get('group')) ?? DEFAULTS.group,
+    group,
   };
 }
 

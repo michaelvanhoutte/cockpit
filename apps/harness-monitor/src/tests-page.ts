@@ -6,6 +6,7 @@ import { reportPage, section, tile } from './report';
 import {
   branchGaps,
   countOf,
+  DEFAULT_QUERY,
   deepRules,
   distinctFiles,
   GROUPS,
@@ -58,9 +59,20 @@ function whose(asked: TestsQuery, pulls: PullRequestTests[]): string {
   return inline('pr', 'Tests of', options, asked.pr === null ? '' : String(asked.pr));
 }
 
-/** The page when the snapshot asked for is not shown: `main`'s before CI has sent one, or a pull request with none. The sentence, and the one thing to read. */
+/**
+ * The page when the snapshot asked for is not shown: `main`'s before CI has sent
+ * one, or a pull request with none. The sentence, and the one thing to read. The
+ * view asked for rides along as hidden fields, since it has no filters to carry
+ * it. An unlisted pull request does too, after its select: its option is
+ * disabled, so the form never sends it, and new rows would otherwise fall back
+ * to `main`; picking `main`'s sends an empty value first, which wins.
+ */
 function renderNothing({ asked, pulls }: TestsView, now: number): string {
-  const controls = sentenceForm('/tests', `Show ${whose(asked, pulls)} tests for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), asked.group)}`, []);
+  const kept = (['node', 'level', 'package', 'show', 'split'] as const)
+    .filter((name) => asked[name] !== null && asked[name] !== DEFAULT_QUERY[name])
+    .map((name) => `<input type="hidden" name="${name}" value="${esc(String(asked[name]))}">`);
+  if (asked.pr !== null && !pulls.some((p) => p.number === asked.pr)) kept.push(`<input type="hidden" name="pr" value="${asked.pr}">`);
+  const controls = sentenceForm('/tests', `Show ${whose(asked, pulls)} tests for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), asked.group)}`, [], [], kept.join(''));
   const said =
     asked.pr === null
       ? 'No snapshot of main&rsquo;s tests has arrived yet. The page shows the latest one once CI has sent it after a merge to main.'

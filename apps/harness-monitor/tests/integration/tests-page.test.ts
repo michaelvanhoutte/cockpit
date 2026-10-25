@@ -414,6 +414,20 @@ describe('Harness Monitor', () => {
       expect(picker(html)).toEqual({ offered: ['main’s'], chosen: `#${number}` });
     });
 
+    it('a pull request with none keeps itself and the view asked for when new rows are chosen, and picking main’s still wins', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const form = (await thePage('?pr=9002&node=Inbox&split=package')).match(/<form class="sentence-form".*?<\/form>/s)![0];
+      // Its own option is disabled, so the form never sends it; the hidden field after the select does, and an empty main’s before it is read first.
+      const select = form.indexOf('name="pr"');
+      const kept = form.indexOf('<input type="hidden" name="pr" value="9002">');
+
+      expect(select).toBeGreaterThan(-1);
+      expect(kept).toBeGreaterThan(select);
+      expect(form).toContain('<input type="hidden" name="node" value="Inbox">');
+      expect(form).toContain('<input type="hidden" name="split" value="package">');
+    });
+
     it("with only main's tests, the sentence says main's as words", async () => {
       await sendTestsModel(SNAPSHOT);
 
