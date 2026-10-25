@@ -24,14 +24,12 @@ function rowsOf(html: string, id: string): string[][] {
     .slice(1);
 }
 
-/** The outline's rows as read: name, minutes and share, and whether the row is a part of a phase. */
+/** The outline's rows as read: name, the time spent named under a phase's name, minutes and share, and whether the row is a part of a phase. */
 const outlineOf = (html: string) =>
-  [...(/<ul class="outline".*?<\/ul>/s.exec(html)?.[0] ?? '').matchAll(/<li class="o-row (o-pt|o-ph)"><span class="nm">(.*?)<\/span>.*?<span class="am">(.*?)<\/span><span class="sh">(.*?)<\/span><\/li>/gs)].map((m) => ({
-    part: m[1] === 'o-pt',
-    name: m[2]!,
-    amount: m[3]!,
-    share: m[4]!,
-  }));
+  [...(/<ul class="outline".*?<\/ul>/s.exec(html)?.[0] ?? '').matchAll(/<li class="o-row (o-pt|o-ph)"><span class="nm">(.*?)<\/span><div class="tr">.*?<span class="am[^"]*">(.*?)<\/span><span class="sh">(.*?)<\/span><\/li>/gs)].map((m) => {
+    const [, name, spent] = /^(.*?)(?: <span class="spent">(.*)<\/span>)?$/s.exec(m[2]!)!;
+    return { part: m[1] === 'o-pt', name: name!, ...(spent === undefined ? {} : { spent }), amount: m[3]!, share: m[4]! };
+  });
 const columnHeads = (html: string, id: string) => [...(new RegExp(`<section[^>]*aria-labelledby="${id}".*?</section>`, 's').exec(html)?.[0] ?? '').matchAll(/<th scope="col"[^>]*>(?:<i[^>]*><\/i>)?([^<]+)<\/th>/g)].map((m) => m[1]);
 /** What hovering each row's Split bar says, a row to an entry, in the table's order; undefined where the row has no hover. */
 const hoversOf = (html: string, id: string) =>
@@ -42,10 +40,12 @@ const hasSection = (html: string, id: string) => new RegExp(`<section[^>]*aria-l
 const text = (html: string) => html.replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
 const MIN = 60_000;
 
+/** A check attempt that held a round `minutes` and ran for `running` of them, which defaults to all. */
+const ran = (name: string, minutes: number, over: Record<string, unknown> = {}) => cycleCheck(name, minutes * MIN, { runningMs: minutes * MIN, ...over });
 /** One green round of the `Test` check, `ms` long. */
-const green = (minutes = 5) => cycleRound([cycleCheck('Test', minutes * MIN, { last: true })], { ms: minutes * MIN });
+const green = (minutes = 5) => cycleRound([ran('Test', minutes, { last: true })], { ms: minutes * MIN });
 /** One round of `Test` that went red at the step `Run the tests`. */
-const red = (minutes = 5) => cycleRound([cycleCheck('Test', minutes * MIN, { last: true, failure: 'red', failedSteps: ['Run the tests'] })], { ms: minutes * MIN, red: true });
+const red = (minutes = 5) => cycleRound([ran('Test', minutes, { last: true, failure: 'red', failedSteps: ['Run the tests'] })], { ms: minutes * MIN, red: true });
 
 /** A recorded pull request: 10 minutes of writing, 5 of local checks, the rounds, a minute waiting to merge. */
 const recorded = (number: number, mergedAt: string, over: Record<string, unknown> = {}) => {
@@ -323,61 +323,117 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe("Where the time went is one outline: every phase, with Local checks and CI rounds opened into their parts", () => {
+  describe("Where the time went is one outline: phases as time waited, with Local checks and CI rounds opened into their parts as time spent", () => {
     // Two pull requests merged within the day, 21 minutes each: 10 writing, 5 local checks (3 + 2 of reviews), 5 of Test, a minute waiting.
-    const split = (number: number, parts: Record<string, number>) => recorded(number, '2026-10-30T10:00:00Z', { localParts: parts });
+    const split = (number: number, parts: Record<string, number>, over: Record<string, unknown> = {}) => recorded(number, '2026-10-30T10:00:00Z', { localParts: parts, ...over });
     const kinds = { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 };
+    /** The outline's row of a name, as drawn: its markup, from its list item to the next. */
+    const rowOf = (html: string, name: string) => new RegExp(`<li class="o-row [^"]*"><span class="nm">${name}[ <].*?</li>`, 's').exec(/<ul class="outline".*?<\/ul>/s.exec(html)![0])![0];
+    const styleOf = (markup: string, cls: string) => {
+      const m = new RegExp(`<div class="${cls}" style="left:([\\d.]+)%;width:([\\d.]+)%`).exec(markup);
+      return m === null ? null : { left: Number(m[1]), width: Number(m[2]) };
+    };
 
-    it('lists the phases in order, the local checks opened into their kinds and CI rounds into its checks, each with its minutes and share', async () => {
+    it('lists the phases in order as time waited, the local checks opened into their kinds and CI rounds into its checks as time spent, each with its minutes and share', async () => {
       await sendPulls([split(1, kinds), split(2, kinds)]);
 
       expect(outlineOf(await thePage())).toEqual([
         { part: false, name: 'Writing', amount: '20m', share: '48%' },
-        { part: false, name: 'Local checks', amount: '10m', share: '24%' },
-        { part: true, name: 'Code review', amount: '6m', share: '60%' },
-        { part: true, name: 'Security review', amount: '4m', share: '40%' },
-        { part: false, name: 'CI rounds', amount: '10m', share: '24%' },
-        { part: true, name: 'Test', amount: '10m', share: '100%' },
+        { part: false, name: 'Local checks', spent: '10m spent', amount: '10m waited', share: '24%' },
+        { part: true, name: 'Code review', amount: '6m spent', share: '60%' },
+        { part: true, name: 'Security review', amount: '4m spent', share: '40%' },
+        { part: false, name: 'CI rounds', spent: '10m spent', amount: '10m waited', share: '24%' },
+        { part: true, name: 'Test', amount: '10m spent', share: '100%' },
         { part: false, name: 'Waiting to merge', amount: '2m', share: '5%' },
       ]);
     });
 
-    it('draws a pull request stored without its kinds as Not split by kind under Local checks, so the parts still add up', async () => {
+    it("reads each kind's own minutes as the session recorded them, so a phase's time spent is more than the minutes waited where kinds ran at once", async () => {
+      // A code review of 5 minutes, a test run of 4 and a browser pass of 1, all inside the 5 minutes the checks ran.
+      await sendPulls([
+        split(1, { 'code-review': 5 * MIN, 'security-review': 0, test: 0, browser: 0 }, { localReviews: { count: 1, ms: 5 * MIN, byKind: { 'code-review': { count: 1, ms: 5 * MIN }, 'security-review': { count: 0, ms: 0 } } }, localRuns: { test: { count: 1, ms: 4 * MIN }, browser: { count: 1, ms: MIN } } }),
+      ]);
+
+      expect(outlineOf(await thePage()).filter((r) => r.name === 'Local checks' || r.part).slice(0, 4)).toEqual([
+        { part: false, name: 'Local checks', spent: '10m spent side by side', amount: '5m waited', share: '24%' },
+        { part: true, name: 'Code review', amount: '5m spent', share: '50%' },
+        { part: true, name: 'Test runs', amount: '4m spent', share: '40%' },
+        { part: true, name: 'Browser pass', amount: '1m spent', share: '10%' },
+      ]);
+    });
+
+    it('draws a pull request stored without its kinds as Not split by kind under Local checks, as time spent', async () => {
       await sendPulls([split(1, kinds), recorded(2, '2026-10-30T10:00:00Z')]);
 
       const rows = outlineOf(await thePage());
 
       expect(rows.filter((r) => r.part).map((r) => [r.name, r.amount])).toEqual([
-        ['Code review', '3m'],
-        ['Security review', '2m'],
-        ['Not split by kind', '5m'],
-        ['Test', '10m'],
+        ['Code review', '3m spent'],
+        ['Security review', '2m spent'],
+        ['Not split by kind', '5m spent'],
+        ['Test', '10m spent'],
       ]);
       expect(text(await thePage())).toContain('1 pull request here was stored without the kinds of local check');
     });
 
-    it('titles the panel with the time it covers, counts the pull requests, and states how each minute counts once', async () => {
+    it('titles the panel with the time it covers, counts the pull requests, and says what phases and parts are', async () => {
       await sendPulls([split(1, kinds), split(2, kinds)]);
 
       const html = text(await thePage());
 
       expect(html).toContain('Where the 42m went 2 pull requests');
-      expect(html).toContain('time two local checks shared goes to the one that finished last.');
-      expect(html).not.toContain('as a CI round');
+      expect(html).toContain('Phases are the time you waited, and add up to start to merge.');
+      expect(html).toContain('A phase s parts are the time spent, each drawn at its own length on the same scale, starting where its phase starts; the dashed line is where the wait ended');
+      expect(html).not.toContain('finished last');
     });
 
-    it('sets each part inside its phase on the one scale', async () => {
+    it('starts each part where its phase starts at its own length, with a dashed line where the phase ends', async () => {
       await sendPulls([split(1, kinds)]);
 
       const html = await thePage();
-      const left = (name: string) => Number(new RegExp(`<span class="nm">${name}</span>.*?<div class="b" style="left:([\\d.]+)%`, 's').exec(html)![1]);
+      const local = styleOf(rowOf(html, 'Local checks'), 'b')!;
+      const review = rowOf(html, 'Code review');
+      const security = rowOf(html, 'Security review');
 
-      // Writing 10m of 21m starts Local checks, whose first kind starts with it; CI rounds start after its 5m.
-      expect(left('Local checks')).toBeCloseTo(47.62, 1);
-      expect(left('Code review')).toBeCloseTo(47.62, 1);
-      expect(left('Security review')).toBeCloseTo(47.62 + (3 / 21) * 100, 1);
-      expect(left('CI rounds')).toBeCloseTo(((10 + 5) / 21) * 100, 1);
-      expect(html).toContain('class="band"');
+      // Writing is 10 of 21 minutes, Local checks wait 5 of them; code review spent 3 and security review 2.
+      expect(local.left).toBeCloseTo((10 / 21) * 100, 1);
+      expect(styleOf(review, 'b')!.left).toBeCloseTo(local.left, 1);
+      expect(styleOf(security, 'b')!.left).toBeCloseTo(local.left, 1);
+      expect(styleOf(review, 'b')!.width).toBeCloseTo((3 / 21) * 100, 1);
+      expect(styleOf(security, 'b')!.width).toBeCloseTo((2 / 21) * 100, 1);
+      expect(styleOf(review, 'band')).toEqual({ left: local.left, width: local.width });
+      expect(Number(/<div class="edge" style="left:([\d.]+)%/.exec(review)![1])).toBeCloseTo(((10 + 5) / 21) * 100, 1);
+      expect(rowOf(html, 'Local checks')).not.toContain('class="edge"');
+    });
+
+    it("runs a check that ran longer in total than the round waited past the dashed line, and one longer than the rest of the scale to the scale's end with its minutes in full", async () => {
+      // A round that held the pull request 5 minutes, in which E2E ran four shards of 10 minutes and Test an hour.
+      const shards = [1, 2, 3, 4].map((n) => ran('E2E (F3)', 5, { attempt: n, runningMs: 10 * MIN }));
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { rounds: [cycleRound([...shards, ran('Test', 5, { runningMs: 60 * MIN, last: true })], { ms: 5 * MIN })] })]);
+
+      const html = await thePage();
+      const e2e = rowOf(html, 'E2E \\(F3\\)');
+      const test = rowOf(html, 'Test');
+      const edge = Number(/<div class="edge" style="left:([\d.]+)%/.exec(e2e)![1]);
+      const long = styleOf(test, 'b')!;
+
+      expect(styleOf(e2e, 'b')!.left + styleOf(e2e, 'b')!.width).toBeGreaterThan(edge);
+      expect(long.left + long.width).toBeCloseTo(100, 1);
+      expect(outlineOf(html).find((r) => r.name === 'Test')!.amount).toBe('1h 00m spent');
+    });
+
+    it('draws a check whose running time is not recorded as not recorded, with no bar and no share, and its phase with no time spent to name', async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { rounds: [cycleRound([cycleCheck('Test', 5 * MIN, { last: true })], { ms: 5 * MIN })] })]);
+
+      const html = await thePage();
+
+      expect(outlineOf(html).filter((r) => r.name === 'CI rounds' || r.name === 'Test')).toEqual([
+        { part: false, name: 'CI rounds', spent: 'time spent not recorded', amount: '5m waited', share: '24%' },
+        { part: true, name: 'Test', amount: 'not recorded', share: '—' },
+      ]);
+      expect(rowOf(html, 'Test')).not.toContain('class="b"');
+      expect(rowOf(html, 'Test')).toContain('class="edge"');
+      expect(text(html)).toContain('1 pull request here has a check with no running time recorded');
     });
 
     it('is drawn on Over time only', async () => {
@@ -388,10 +444,10 @@ describe('Harness Monitor', () => {
   });
 
   describe("any row of Over time, Pull request, Issue and Size opens to its own outline, on the table's measure", () => {
-    /** Each row's figures as the page carries them, in minutes, named for the outline row each belongs to; a row with no minutes in it has no entry. */
-    function stripsOf(html: string): Record<string, number>[] {
+    /** Each row's figures as the page carries them, in minutes, named for the outline row each belongs to, null for a part's time spent not recorded; a row with no minutes in it has no entry. */
+    function stripsOf(html: string): Record<string, number | null>[] {
       const slots = JSON.parse(/<script type="application\/json" id="outline-slots">(.*?)<\/script>/s.exec(html)![1]!) as [string, number, number, string][];
-      return [...html.matchAll(/<tr data-figures="([^"]*)">/g)].map((m) => Object.fromEntries(m[1]!.split(',').flatMap((figure, i) => (figure === '' ? [] : [[slots[i]![0], parseInt(figure, 36) / MIN]]))));
+      return [...html.matchAll(/<tr data-figures="([^"]*)">/g)].map((m) => Object.fromEntries(m[1]!.split(',').flatMap((figure, i) => (figure === '' ? [] : [[slots[i]![0], figure === '-' ? null : parseInt(figure, 36) / MIN]]))));
     }
     /** A recorded pull request of `writing` minutes whose time adds up to its own start to merge. */
     const writing = (number: number, minutes: number, mergedAt = '2026-10-30T10:00:00Z', over: Record<string, unknown> = {}) => recorded(number, mergedAt, { codingMs: minutes * MIN, totalMs: (minutes + 11) * MIN, ...over });
@@ -460,6 +516,20 @@ describe('Harness Monitor', () => {
       const [strip] = stripsOf(await thePage());
 
       expect(strip).toMatchObject({ 'Local checks': 5, 'Code review': 1.5, 'Security review': 1, 'Not split by kind': 2.5 });
+    });
+
+    it('a row carries a check’s time spent as it ran, which can be more than its phase waited, and a dash for one not recorded', async () => {
+      // A round that held 5 minutes in which E2E ran four shards of 10 minutes; and a pull request whose Test attempt was stored without a running time.
+      const shards = [1, 2, 3, 4].map((n) => ran('E2E (F3)', 5, { attempt: n, runningMs: 10 * MIN, last: n === 4 }));
+      await sendPulls([writing(1, 10, '2026-10-30T10:00:00Z', { rounds: [cycleRound(shards, { ms: 5 * MIN })] }), writing(2, 10, '2026-10-29T10:00:00Z', { rounds: [cycleRound([cycleCheck('Test', 5 * MIN, { last: true })], { ms: 5 * MIN })] })]);
+
+      const html = await thePage('?group=pr');
+      const [newer, older] = stripsOf(html);
+      const raw = [...html.matchAll(/<tr data-figures="([^"]*)">/g)].map((m) => m[1]!);
+
+      expect(newer).toMatchObject({ 'CI rounds': 5, 'E2E (F3)': 40 });
+      expect(older).toMatchObject({ 'CI rounds': 5, Test: null });
+      expect(raw[1]).toContain('-');
     });
 
     it.each([
@@ -581,13 +651,13 @@ describe('Harness Monitor', () => {
 
     it('in the outline, each phase is in its slot and a part is in its phase’s colour, grey where it is not a named part', async () => {
       const kinds = { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 };
-      const checks = ['Test', 'Mystery check'].map((name, i) => cycleCheck(name, 3 * MIN, { last: i === 1 }));
+      const checks = ['Test', 'Mystery check'].map((name, i) => ran(name, 3, { last: i === 1 }));
       await sendPulls([
         recorded(1, '2026-10-30T10:00:00Z', { localParts: kinds, awayMs: MIN, totalMs: 22 * MIN, rounds: [cycleRound(checks, { ms: 6 * MIN })], ciMs: 6 * MIN }),
         recorded(2, '2026-10-29T10:00:00Z'),
       ]);
 
-      const rows = [...(/<ul class="outline".*?<\/ul>/s.exec(await thePage())?.[0] ?? '').matchAll(/<span class="nm">(.*?)<\/span>.*?class="b" style="[^"]*background:([^";]*)"/gs)].map((m) => [m[1], m[2]]);
+      const rows = [...(/<ul class="outline".*?<\/ul>/s.exec(await thePage())?.[0] ?? '').matchAll(/<span class="nm">([^<]*).*?class="b" style="[^"]*background:([^";]*)"/gs)].map((m) => [m[1]!.trim(), m[2]]);
 
       expect(rows).toEqual([
         ['Writing', slot(1)],

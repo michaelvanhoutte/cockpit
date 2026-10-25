@@ -34,6 +34,7 @@ import {
   startToMerge,
   sum,
   values,
+  words,
   type CycleTimeQuery,
   type OutlineRow,
   type PhaseKey,
@@ -59,6 +60,8 @@ const colourOfCheck = (name: string) => CHECK_COLOURS[CHECKS.indexOf(name)] ?? G
 
 const unrecordedNote = (n: number) =>
   n === 0 ? '' : ` ${plural(n, 'pull request')} here ${n === 1 ? 'carries' : 'carry'} no session record: ${n === 1 ? 'its' : 'their'} writing starts at the first commit and ${n === 1 ? 'its' : 'their'} local checks are not recorded, which is not zero.`;
+const noRunningNote = (n: number) =>
+  n === 0 ? '' : ` ${plural(n, 'pull request')} here ${n === 1 ? 'has' : 'have'} a check with no running time recorded, so that check&rsquo;s time spent is drawn as not recorded rather than as a short sum.`;
 const unsplitNote = (n: number) => (n === 0 ? '' : ` ${plural(n, 'pull request')} here ${n === 1 ? 'was' : 'were'} stored without the kinds of local check, so ${n === 1 ? 'its' : 'their'} local minutes are drawn as Not split by kind.`);
 
 /** The cycle time page: the same pull requests whatever the tab, narrowed by the filters, with the tiles and overview panels only on the first. */
@@ -94,25 +97,32 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
 </div>`;
   }
 
-  /** One row of the outline: a name, a bar on the start-to-merge scale (a part's inside its phase's band), its minutes and its share. */
+  /**
+   * One row of the outline: a name (a phase's with its time spent under it), a bar on the start-to-merge scale, its time and its share. A phase's bar is where it waited;
+   * a part's starts where its phase starts at its own length, with a dashed line where the phase's wait ended.
+   */
   function outlineRow(r: OutlineRow): string {
     const colour = colourOfSlot(r);
     const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
+    const say = words(r);
     const band = r.stretch ? `<div class="band" style="left:${pct(r.stretch.left)};width:${pct(r.stretch.width)}"></div>` : '';
-    return `<li class="o-row ${r.part ? 'o-pt' : 'o-ph'}"><span class="nm">${esc(r.label)}</span><div class="tr">${band}<div class="b" style="left:${pct(r.left)};width:${pct(r.width)};background:${colour}" title="${esc(r.label)} ${hm(r.ms)}"></div></div><span class="am">${hm(r.ms)}</span><span class="sh">${Math.round(r.share * 100)}%</span></li>`;
+    const bar = r.ms === null ? '' : `<div class="b" style="left:${pct(r.left)};width:${pct(r.width)};background:${colour}" title="${esc(r.label)} ${say.amount}"></div>`;
+    const edge = r.stretch ? `<div class="edge" style="left:${pct(r.stretch.left + r.stretch.width)}"></div>` : '';
+    const spent = say.spent === null ? '' : ` <span class="spent">${say.spent}</span>`;
+    return `<li class="o-row ${r.part ? 'o-pt' : 'o-ph'}"><span class="nm">${esc(r.label)}${spent}</span><div class="tr">${band}${bar}${edge}</div><span class="am${r.ms === null ? ' faint' : ''}">${say.amount}</span><span class="sh">${r.share === null ? '—' : `${Math.round(r.share * 100)}%`}</span></li>`;
   }
 
-  /** Where the time went: every phase on one start-to-merge scale, with Local checks and CI rounds opened into their parts. */
+  /** Where the time went: every phase on one start-to-merge scale as time waited, with Local checks and CI rounds opened into their parts as time spent. */
   function where(): string {
     const o = outline(list);
-    const noRecord = unrecordedNote(list.filter((p) => !p.balance).length) + unsplitNote(o.unsplit);
+    const noRecord = unrecordedNote(list.filter((p) => !p.balance).length) + unsplitNote(o.unsplit) + noRunningNote(o.noRunning);
     return section(
       'where-it-went',
       `Where the ${hm(o.total)} went`,
       plural(list.length, 'pull request'),
       `<div class="well where">
-<ul class="outline" aria-label="Phases of start to merge, with local checks and CI rounds opened into their parts">${o.rows.map(outlineRow).join('')}</ul>
-<p class="note">Every bar is on one scale, start to merge, and sits where it falls in it: a part inside the stretch of its phase. A phase&rsquo;s share is of start to merge; a part&rsquo;s is of its phase. Each minute counts once: time two local checks shared goes to the one that finished last.${noRecord}</p>
+<ul class="outline" aria-label="Phases of start to merge as time waited, with local checks and CI rounds opened into their parts as time spent">${o.rows.map(outlineRow).join('')}</ul>
+<p class="note">Phases are the time you waited, and add up to start to merge. A phase&rsquo;s parts are the time spent, each drawn at its own length on the same scale, starting where its phase starts; the dashed line is where the wait ended, and a part that ran longer in total, such as E2E&rsquo;s four shards side by side, runs past it. A CI check&rsquo;s time is all its jobs&rsquo; added up, shards and re-runs included, queueing left out.${noRecord}</p>
 </div>`,
       'panel wide',
     );
@@ -281,11 +291,13 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
         const costCell = priced.length
           ? `${perPull ? `<a href="/pr/${one.number}">${dollars(spent)}</a>` : dollars(spent)}${notes.length ? `<div class="sub">${notes.join(' · ')}</div>` : ''}`
           : '<span class="faint" title="The Monitor holds no Claude Code request for it">—</span>';
-        // The figures of the row's own outline, on the table's measure, in milliseconds written in base 36 to keep the row short: opening it draws the strip from them, with no request.
-        const figures = outlineFigures(b.pulls, per(b.pulls)).map((n) => (Math.round(n) > 0 ? Math.round(n).toString(36) : ''));
+        // The figures of the row's own outline, on the table's measure, in milliseconds written in base 36 to keep the row short, a dash for a part's time spent that is not recorded: opening it draws the strip from them, with no request.
+        const own = outlineFigures(b.pulls, per(b.pulls));
+        const figures = own.map((n) => (n === null ? '-' : Math.round(n) > 0 ? Math.round(n).toString(36) : ''));
         while (figures.at(-1) === '') figures.pop();
-        // A row with no minutes at all has no outline to draw, so it is not offered to open.
-        return `<tr${figures.length ? ` data-figures="${figures.join(',')}"` : ''}><td class="first">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</td>${perPull ? '' : `<td class="num faint-num">${number(b.pulls.length)}</td>`}<td class="split-cell"${hover}><div class="split">${bar}</div></td><td class="num total">${hm(total)}</td><td class="num">${number(rounds)}${red ? ` <span class="up">· ${red} red</span>` : ''}</td><td class="num total">${costCell}</td></tr>`;
+        // A row with no minutes in any phase has no outline to draw, so it is not offered to open.
+        const opens = OUTLINE_SLOTS.some((s, i) => !s.part && Math.round(own[i]!) > 0);
+        return `<tr${opens ? ` data-figures="${figures.join(',')}"` : ''}><td class="first">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</td>${perPull ? '' : `<td class="num faint-num">${number(b.pulls.length)}</td>`}<td class="split-cell"${hover}><div class="split">${bar}</div></td><td class="num total">${hm(total)}</td><td class="num">${number(rounds)}${red ? ` <span class="up">· ${red} red</span>` : ''}</td><td class="num total">${costCell}</td></tr>`;
       })
       .join('\n');
     const how = perPull ? 'newest first' : summed ? 'its pull requests added up · newest first' : group === 'day' ? 'a pull request on average · newest first' : 'a pull request on average';
@@ -355,12 +367,15 @@ const EXTRA = `
 }
 .up{color:var(--over-ink)}.down{color:var(--good)}
 .outline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
-.o-row{display:grid;grid-template-columns:210px minmax(0,1fr) 80px 44px;align-items:center;gap:12px;height:28px}
+.o-row{display:grid;grid-template-columns:230px minmax(0,1fr) 120px 44px;align-items:center;gap:12px;min-height:28px}
 .o-row .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.o-row .spent{display:block;font-size:11px;font-weight:400;color:var(--ink-faint)}
 .o-row .am{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.o-row .am.faint{color:var(--ink-faint);font-weight:400}
 .o-row .sh{text-align:right;color:var(--ink-faint);font-size:13px;font-variant-numeric:tabular-nums}
 .o-row .tr{position:relative;height:12px;border-radius:3px;background:color-mix(in srgb,var(--shade) 7%,transparent)}
 .o-row .band{position:absolute;top:-8px;bottom:-8px;background:var(--accent-tint)}
+.o-row .edge{position:absolute;top:-8px;bottom:-8px;width:0;border-left:1.5px dashed var(--ink-soft)}
 .o-row .b{position:absolute;top:0;bottom:0;min-width:2px;border-radius:3px}
 .o-ph .nm,.o-ph .am{color:var(--ink-strong);font-weight:500}
 .o-pt .nm,.o-pt .am{color:var(--ink);font-size:13px}
@@ -368,8 +383,8 @@ const EXTRA = `
 .o-pt .b{top:2px;bottom:2px;border-radius:2px}
 @media (max-width:640px){
   .o-row{grid-template-columns:minmax(0,1fr) auto 40px;grid-template-areas:"nm am sh" "tr tr tr";height:auto;gap:3px 10px;padding:5px 0}
-  .o-row .nm{grid-area:nm}.o-row .am{grid-area:am}.o-row .sh{grid-area:sh}.o-row .tr{grid-area:tr}
-  .o-row .band{top:-3px;bottom:-3px}
+  .o-row .nm{grid-area:nm;overflow:visible;white-space:normal}.o-row .am{grid-area:am}.o-row .sh{grid-area:sh}.o-row .tr{grid-area:tr}
+  .o-row .band,.o-row .edge{top:-3px;bottom:-3px}
 }
 .scatter-well{display:flex;flex-direction:column;gap:10px;padding:14px 14px 16px}
 .scatter-well svg{display:block;width:100%;max-width:340px;height:auto;margin:0 auto}
@@ -401,11 +416,12 @@ a:hover .dot,a:focus .dot{fill-opacity:1;stroke:var(--ink-strong)}
 .strip .outline{gap:1px}
 .strip .o-row .tr{background:var(--field)}
 @media (min-width:641px){
-  .strip .o-row{grid-template-columns:200px minmax(0,1fr) 70px 44px;height:24px}
+  .strip .o-row{grid-template-columns:200px minmax(0,1fr) 110px 44px;min-height:24px}
   .strip .o-ph .nm,.strip .o-ph .am{font-size:13px}
   .strip .o-pt .nm,.strip .o-pt .am,.strip .o-row .sh{font-size:12px}
   .strip .o-row .tr{height:10px}
-  .strip .o-row .band{top:-7px;bottom:-7px}
+  .strip .o-row .band,.strip .o-row .edge{top:-7px;bottom:-7px}
+  .strip .o-row .spent{font-size:11px}
 }
 @media (max-width:640px){
   .openable tr.detail>td{padding:4px 10px 12px 16px}

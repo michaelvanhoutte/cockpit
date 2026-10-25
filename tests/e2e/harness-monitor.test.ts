@@ -330,7 +330,8 @@ test.describe('Harness Monitor', () => {
 
   /**
    * The costs seed and three merged pull requests: 9001 and 9002 are the ones the seed priced, at $6.00 and $3.00; 9003 has no cost.
-   * 9001 and 9003 had one round of Test, 9002 a red one then a green one, so its CI rounds are twice as long. None carries its local kinds.
+   * 9001 and 9003 had one round of Test, 9002 a red one then a green one, so its CI rounds are twice as long. 9001's round also ran E2E as four shards, 40 minutes of running in the 5 the round held.
+   * None carries its local kinds.
    */
   async function seedCycleTime(api: APIRequestContext) {
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
@@ -343,6 +344,7 @@ test.describe('Harness Monitor', () => {
       failure: null,
       flukeMs: null,
       queuedMs: null,
+      runningMs: minutes * 60_000,
       detailNotRecorded: false,
       noFileFailed: false,
       failedSteps: [],
@@ -374,7 +376,7 @@ test.describe('Harness Monitor', () => {
       rounds,
     });
     const pulls = [
-      pull(9001, 'Add a filter panel', 20, [round([check('Test', 5)], false)]),
+      pull(9001, 'Add a filter panel', 20, [round([check('E2E (F3)', 5, { runningMs: 40 * 60_000 }), check('Test', 5)], false)]),
       pull(9002, 'Save a Teams message', 5, [round([check('Test', 5, { failure: 'red', failedSteps: ['Run the tests'] })], true), round([check('Test', 5)], false)]),
       pull(9003, 'Tidy the inbox', 70, [round([check('Test', 5)], false)]),
     ];
@@ -429,10 +431,11 @@ test.describe('Harness Monitor', () => {
     await expect(table.getByRole('columnheader', { name: 'Split', exact: true })).toBeVisible();
     await expect(table.getByRole('columnheader', { name: 'Security review' })).toHaveCount(0);
 
-    // Over time: the outline is a row a phase, with its parts inside, on one line each with a name, a bar, its minutes and its share.
+    // Over time: the outline is a row a phase as time waited, with its parts as time spent beneath, on one line each with a name, a bar, its time and its share.
     await page.goto(`${monitor}/cycle-time`);
     const rows = where.locator('.o-row');
-    await expect(rows.locator('.nm')).toHaveText(['Writing', 'Local checks', 'Not split by kind', 'CI rounds', 'Test', 'Waiting to merge']);
+    await expect(rows.locator('.nm')).toHaveText(['Writing', 'Local checks 15m spent', 'Not split by kind', 'CI rounds 1h 00m spent side by side', 'E2E (F3)', 'Test', 'Waiting to merge']);
+    await expect(rows.locator('.am')).toHaveText(['30m', '15m waited', '15m spent', '20m waited', '40m spent', '20m spent', '3m']);
     const laidOut = await rows.evaluateAll((all) =>
       all.map((row) => {
         const [name, bar, minutes, share] = ['.nm', '.tr', '.am', '.sh'].map((c) => row.querySelector(c)!.getBoundingClientRect());
@@ -455,6 +458,17 @@ test.describe('Harness Monitor', () => {
     }
     expect(await where.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // A part's bar starts where its phase's bar starts and a dashed line marks where the phase's wait ended; E2E's four shards ran longer than CI rounds waited, so its bar runs past the line and stays inside the panel.
+    await expect(where.locator('.edge')).toHaveCount(3);
+    const e2e = await where.locator('.o-row', { hasText: 'E2E (F3)' }).evaluate((li) => {
+      const [track, bar, edge] = ['.tr', '.b', '.edge'].map((c) => li.querySelector(c)!.getBoundingClientRect());
+      return { track: track!.right, bar: [bar!.left, bar!.right], edge: edge!.left };
+    });
+    const ci = await where.locator('.o-row', { hasText: 'CI rounds' }).evaluate((li) => li.querySelector('.b')!.getBoundingClientRect().left);
+    expect(Math.abs(e2e.bar[0]! - ci)).toBeLessThan(1);
+    expect(e2e.bar[1]!).toBeGreaterThan(e2e.edge + 1);
+    expect(e2e.bar[1]!).toBeLessThanOrEqual(e2e.track + 1);
   });
 
   test("a Cycle time row opens to its own outline from its chevron or anywhere on it outside its links, and closes with a second click, with no request, several at once, from the keyboard, and fitting a phone", async ({ page, request: api }) => {
@@ -481,9 +495,10 @@ test.describe('Harness Monitor', () => {
     await expect(opening(9001)).toHaveAccessibleName('Close #9001 Add a filter panel');
     await expect(row(9001)).toHaveClass(/\bopen\b/);
     await expect(strips).toBeVisible();
-    await expect(strips.locator('.o-row .nm')).toHaveText(['Writing', 'Local checks', 'Not split by kind', 'CI rounds', 'Test', 'Waiting to merge']);
-    await expect(strips.locator('.o-row .am')).toHaveText(['10m', '5m', '5m', '5m', '5m', '1m']);
-    await expect(strips.locator('.o-row .sh')).toHaveText(['48%', '24%', '100%', '24%', '100%', '5%']);
+    await expect(strips.locator('.o-row .nm')).toHaveText(['Writing', 'Local checks 5m spent', 'Not split by kind', 'CI rounds 45m spent side by side', 'E2E (F3)', 'Test', 'Waiting to merge']);
+    await expect(strips.locator('.o-row .am')).toHaveText(['10m', '5m waited', '5m spent', '5m waited', '40m spent', '5m spent', '1m']);
+    await expect(strips.locator('.o-row .sh')).toHaveText(['48%', '24%', '100%', '24%', '89%', '11%', '5%']);
+    await expect(strips.locator('.o-row .edge')).toHaveCount(3);
     expect(await row(9001).evaluate((tr) => tr.nextElementSibling?.classList.contains('detail'))).toBe(true);
     if (!onAPhone) {
       // On a desk each row of the strip keeps a name, a bar, its minutes and its share on one line.
@@ -504,8 +519,8 @@ test.describe('Harness Monitor', () => {
     await expect(strips).toHaveCount(2);
     await expect(stripOf(9001)).toBeVisible();
     await expect(stripOf(9002)).toBeVisible();
-    await expect(stripOf(9002).locator('.o-row .am')).toHaveText(['10m', '5m', '5m', '10m', '10m', '1m']);
-    await expect(stripOf(9001).locator('.o-row .am')).toHaveText(['10m', '5m', '5m', '5m', '5m', '1m']);
+    await expect(stripOf(9002).locator('.o-row .am')).toHaveText(['10m', '5m waited', '5m spent', '10m waited', '10m spent', '1m']);
+    await expect(stripOf(9001).locator('.o-row .am')).toHaveText(['10m', '5m waited', '5m spent', '5m waited', '40m spent', '5m spent', '1m']);
     expect(await noSideways()).toBe(true);
     if (onAPhone) {
       // On a phone the strip stays inside the panel's width while the wide table scrolls beneath it.

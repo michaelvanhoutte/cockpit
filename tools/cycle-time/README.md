@@ -52,7 +52,7 @@ the newest merge the Monitor holds less two days (the last `--days` days when it
 row with its time split, its rounds and each round's checks, from `monitorRows` in `src/model.js`.
 Its local time also goes as `localParts`, split into code review, security review, test runs and the
 browser pass with each minute counted once: a minute two of them shared goes to the one that ended
-last, so the four add up to `localMs` exactly, and the Monitor refuses a batch where they do not.
+last, so the four add up to `localMs` exactly, and the Monitor refuses a batch where they do not. The Monitor's page does not read them: it draws each kind's own minutes (`localReviews.byKind`, `localRuns`) as time spent.
 Each check attempt goes with its `runningMs`, the runner time its jobs used start to end: every shard of
 a family and its fan-in added up, a cancelled job until it was cancelled, a skipped shard, a check another
 app posted, a job that never started and a re-run's copy where its job list was read counting 0, queueing left out. So a pull request's GitHub Actions attempts add up to

@@ -113,7 +113,7 @@ describe('Harness Monitor', () => {
 
   describe("a pull request's local check kinds, each minute counted once, are stored and answered as sent, and as not split by kind where it was stored without them", () => {
     const parts = { 'code-review': 120_000, 'security-review': 0, test: 150_000, browser: 30_000 };
-    // The page draws none of them yet, so its view is the only place they reach it.
+    // The page's own view, which draws them.
     const inThePagesView = async (number: number) => (await cycleTimeView(env.DB, 0)).pulls.find((p) => p.number === number)!.time.localParts;
 
     it.each([
@@ -203,7 +203,7 @@ describe('Harness Monitor', () => {
       const pulls = ((await response.json()) as { pulls: { number: number; rounds: { checks: { runningMs: number | null }[] }[] }[] }).pulls;
       return pulls.find((p) => p.number === number)!.rounds.flatMap((r) => r.checks.map((c) => c.runningMs));
     };
-    // The page draws none of them yet, so its view is the only place they reach it.
+    // The page's own view, which draws them.
     const inThePagesView = async (number: number) => (await cycleTimeView(env.DB, 0)).pulls.find((p) => p.number === number)!.rounds.flatMap((r) => r.checks.map((c) => c.runningMs));
 
     it.each([
