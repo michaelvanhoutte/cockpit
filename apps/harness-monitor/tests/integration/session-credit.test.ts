@@ -192,7 +192,7 @@ describe('Harness Monitor', () => {
 
       expect(await rowsBy('issue', '&engineer=alice')).toEqual({ '#11': '$3.00' });
       expect(await rowsBy('issue', `&engineer=${UNATTRIBUTED}`)).toEqual({ Unattributed: '$5.00' });
-      expect(await rowsBy('engineer', '&engineer=alice')).toEqual({ alice: '$3.00' });
+      expect(Object.values(await rowsBy('day', '&engineer=alice'))).toEqual(['$3.00']);
     });
 
     it('coloured by outcome the credited cost takes the credited pull request\'s outcome', async () => {
