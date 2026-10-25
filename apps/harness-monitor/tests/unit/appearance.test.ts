@@ -2,21 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { APPEARANCE_BOOT } from '../../src/appearance';
 
 type Scheme = 'dark' | 'light';
-type StorageEvent = { key: string | null };
+type PageEvent = { key?: string | null; persisted?: boolean };
 
 /**
  * A window with only what the script reads and writes: the document's
  * `data-appearance`, the select it sets, storage (which may refuse), and the one
- * listener it adds. `drawn` is the stylesheet's own rule: a choice on the
+ * listeners it adds. `drawn` is the stylesheet's own rule: a choice on the
  * document wins, with none the device's scheme does. `switchDevice` and
- * `otherTabStores` are the two things that happen while the page is open.
+ * `otherTabStores` happen while the page is open; `backAfterAnotherPageStores`
+ * while it waits to be brought back by Back, when no storage event reaches it.
  */
 function pageOpenedWith({ remembered, device, refuses }: { remembered?: string | undefined; device: Scheme; refuses?: 'reading' | 'writing' }) {
   const attributes = new Map<string, string>();
   const select = { value: '' };
   let stored: string | null = remembered ?? null;
   let scheme = device;
-  let onStorage: ((event: StorageEvent) => void) | undefined;
+  const listeners: Record<string, (event: PageEvent) => void> = {};
   const fakeWindow = {
     document: {
       documentElement: {
@@ -40,7 +41,7 @@ function pageOpenedWith({ remembered, device, refuses }: { remembered?: string |
         stored = null;
       },
     },
-    addEventListener: (_: string, listener: (event: StorageEvent) => void) => (onStorage = listener),
+    addEventListener: (type: string, listener: (event: PageEvent) => void) => (listeners[type] = listener),
     monitorAppearance: undefined as { show: () => void; choose: (value: string) => void } | undefined,
   };
   new Function('window', APPEARANCE_BOOT)(fakeWindow);
@@ -55,7 +56,11 @@ function pageOpenedWith({ remembered, device, refuses }: { remembered?: string |
     },
     otherTabStores: (next: string | null) => {
       stored = next;
-      onStorage?.({ key: 'monitor.appearance' });
+      listeners.storage?.({ key: 'monitor.appearance' });
+    },
+    backAfterAnotherPageStores: (next: string | null) => {
+      stored = next;
+      listeners.pageshow?.({ persisted: true });
     },
     choose: (value: string) => fakeWindow.monitorAppearance!.choose(value),
   };
@@ -117,6 +122,15 @@ describe('Harness Monitor', () => {
 
       expect(page.drawn()).toBe(drawn);
       expect(page.shows()).toBe(shows);
+    });
+
+    it('a page brought back by Back after another page chose Light, device dark: drawn light, the select showing Light', () => {
+      const page = pageOpenedWith({ device: 'dark' });
+
+      page.backAfterAnotherPageStores('light');
+
+      expect(page.drawn()).toBe('light');
+      expect(page.shows()).toBe('light');
     });
 
     it('this tab chooses Match device after Light, device dark: drawn dark, and nothing remembered', () => {

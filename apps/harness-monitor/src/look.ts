@@ -199,6 +199,7 @@ h1,h2,h3,p{margin:0}
 .pages a[aria-current=page]{background:var(--bar);color:var(--chrome-ink)}
 .status{margin-left:auto;color:var(--chrome-ink-soft);font-size:12px;padding-bottom:10px}
 .appearance{padding-bottom:10px}.appearance select{height:28px;font-size:12px;padding:0 26px 0 8px;background-position:right 8px center}
+@media (scripting:none){.appearance{display:none}}
 .band{background:var(--bar);padding:8px 20px 0}
 
 /* A page's sentence, on the band and pinned */

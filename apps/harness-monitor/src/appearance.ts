@@ -14,6 +14,8 @@
  * Plain ES5 taking the window as its argument, so a test can hand it a fake one
  * (tests/unit/appearance.test.ts). Storage may refuse a read, which follows the
  * device, or a write, which still applies the choice and does not remember it.
+ * A page brought back by Back missed any storage event while it was away, so it
+ * reads the choice again.
  */
 export const APPEARANCE_BOOT = `(function(win){
 var KEY='monitor.appearance';
@@ -27,4 +29,4 @@ show:show,
 choose:function(value){var choice=value==='light'||value==='dark'?value:null;try{if(choice)win.localStorage.setItem(KEY,choice);else win.localStorage.removeItem(KEY)}catch(e){}draw(choice);show()}
 };
 win.addEventListener('storage',function(event){if(event.key===KEY||event.key===null){draw(remembered());show()}});
-})(window)`;
+win.addEventListener('pageshow',function(event){if(event.persisted){draw(remembered());show()}});})(window)`;
