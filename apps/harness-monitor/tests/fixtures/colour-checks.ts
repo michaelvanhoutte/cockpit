@@ -92,7 +92,7 @@ function resolve(value: string, from: Record<string, string>): string {
 /** Every colour a theme of the stylesheet declares, the dark theme's over the light's. */
 export function paletteOf(theme: Theme): { well: string; slots: string[]; grey: string } {
   const light = declared(/:root\{([^}]*)\}/.exec(STYLE)![1]!);
-  const dark = declared(/@media \(prefers-color-scheme:dark\)\{:root\{([^}]*)\}\}/.exec(STYLE)![1]!);
+  const dark = declared(/:root\[data-appearance=dark\]\{([^}]*)\}/.exec(STYLE)![1]!);
   const all = theme === 'light' ? light : { ...light, ...dark };
   const colour = (name: string) => {
     if (all[name] === undefined) throw new Error(`The ${theme} stylesheet declares no ${name}`);

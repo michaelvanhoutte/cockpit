@@ -211,7 +211,7 @@ test.describe('Harness Monitor', () => {
     await expect(choice(page, 'Rows')).toHaveValue('engineer');
   });
 
-  test('the sentence stays on screen as the page scrolls, on a desk and on a phone, and the page is dark on a dark device', async ({ page, request: api }) => {
+  test('the sentence stays on screen as the page scrolls, on a desk and on a phone', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
@@ -247,12 +247,74 @@ test.describe('Harness Monitor', () => {
       expect(tops[1]).toBeGreaterThan(tops[0]!);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
 
-    // The ground is Cockpit's warm grey, and the selects and ground take their dark values when the device is dark.
-    const colours = () => page.evaluate(() => [document.body, document.querySelector('.sentence select')!].map((e) => getComputedStyle(e).backgroundColor));
-    expect(await colours()).toEqual(['rgb(226, 226, 223)', 'rgb(255, 255, 255)']);
+  test('on a dark device, choosing Light draws every page light at once and from the first frame after a reload, until Match device puts it back, with the choice in the top bar', async ({ page }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    // Cockpit's warm grey ground and its field, in each appearance.
+    const LIGHT = ['rgb(226, 226, 223)', 'rgb(255, 255, 255)'];
+    const DARK = ['rgb(35, 36, 42)', 'rgb(20, 21, 25)'];
+    const colours = () => page.evaluate(() => [document.body, document.querySelector('#appearance')!].map((e) => getComputedStyle(e).backgroundColor));
+    const appearance = page.getByRole('combobox', { name: 'Appearance', exact: true });
+    // Where on the page the choice was first drawn: still in the head means before anything below it was.
+    await page.addInitScript(() => {
+      new MutationObserver(() => {
+        if (Reflect.get(window, 'appearanceDrawnIn') === undefined && document.documentElement.hasAttribute('data-appearance')) Reflect.set(window, 'appearanceDrawnIn', document.body === null ? 'head' : 'body');
+      }).observe(document, { attributes: true, subtree: true });
+    });
+    const drawnIn = () => page.evaluate(() => Reflect.get(window, 'appearanceDrawnIn'));
+
     await page.emulateMedia({ colorScheme: 'dark' });
-    expect(await colours()).toEqual(['rgb(35, 36, 42)', 'rgb(20, 21, 25)']);
+    await page.goto(`${monitor}/`);
+
+    // Nothing chosen: the device's dark, with Match device showing.
+    expect(await colours()).toEqual(DARK);
+    await expect(appearance).toHaveValue('');
+    expect(await drawnIn()).toBeUndefined();
+
+    // The select sits at the right of the top bar: after the status on a desk, on the brand row on a phone where the status is hidden and the current tab still runs into the band.
+    const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
+    const [select, brand, status, tabs, tab, band] = await Promise.all([box('#appearance'), box('.brand'), box('.status'), box('.pages'), box('.pages a[aria-current=page]'), box('.band')]);
+    const right = await page.evaluate(() => document.documentElement.clientWidth);
+    if (onAPhone) {
+      expect(select.y + select.height / 2).toBeGreaterThan(brand.y);
+      expect(select.y + select.height / 2).toBeLessThan(brand.y + brand.height);
+      expect(select.x).toBeGreaterThan(brand.x + brand.width);
+      expect(Math.round(select.x + select.width)).toBe(right - 12);
+      expect(tabs.y).toBeGreaterThanOrEqual(brand.y + brand.height - 1);
+      expect(Math.abs(tab.y + tab.height - band.y)).toBeLessThan(1.5);
+    } else {
+      expect(select.x).toBeGreaterThan(status.x + status.width);
+      expect(Math.round(select.x + select.width)).toBe(right - 20);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Light chosen: light at once, on the page already open.
+    await page.evaluate(() => Reflect.set(window, 'thisPage', true));
+    await appearance.selectOption({ label: 'Light' });
+    expect(await colours()).toEqual(LIGHT);
+    await expect(appearance).toHaveValue('light');
+    expect(await page.evaluate(() => Reflect.get(window, 'thisPage'))).toBe(true);
+    // The rest does not differ with the width, so a phone's walk ends here.
+    if (onAPhone) return;
+
+    // Another page, then a reload: light before anything below the head was drawn, and the select showing Light.
+    await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Cycle time' }).click();
+    await expect(page).toHaveURL(/\/cycle-time/);
+    expect(await colours()).toEqual(LIGHT);
+    await expect(appearance).toHaveValue('light');
+    await page.reload();
+    expect(await colours()).toEqual(LIGHT);
+    await expect(appearance).toHaveValue('light');
+    expect(await drawnIn()).toBe('head');
+
+    // Match device: dark again, and remembered as nothing.
+    await appearance.selectOption({ label: 'Match device' });
+    expect(await colours()).toEqual(DARK);
+    await page.reload();
+    expect(await colours()).toEqual(DARK);
+    await expect(appearance).toHaveValue('');
   });
 
   test('CI stability opens from the top bar, its sentence and the Workflow filter narrow it, choosing each workflow starts it in its own order with every workflow and no Workflow filter, Open in Actions follows the filter on a desk, and a phone scrolls the wide tables inside their panels', async ({ page, request: api }) => {
