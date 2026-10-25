@@ -1,13 +1,12 @@
 import { belgianDay, formatDateTime, formatDay } from './belgium';
-import { esc, lineKey, selectField } from './look';
+import { esc, inline, lineKey, sentenceForm } from './look';
 import { number, REPOSITORY } from './page';
 import { GREY, ORANGE, RED, VIOLET } from './palette';
-import { bandTabs, humanMs, outLink, pct, reportPage, section, tile } from './report';
+import { humanMs, outLink, pct, reportPage, section, tile } from './report';
 import {
   barsOf,
   dayOf,
   dayRange,
-  GROUP_LABELS,
   GROUPS,
   JOB_CHOICES,
   JOB_NAMES,
@@ -35,11 +34,14 @@ import {
   UNIT,
   verdictOf,
   whyText,
+  type Group,
   type Job,
   type Outcome,
   type SelectionQuery,
 } from './selection-report';
 import type { SelectionView, ViewJob, ViewPull } from './selection-view';
+
+const ROW_WORDS: Record<Group, string> = { day: 'each day', pr: 'each pull request', rule: 'each rule that forced a full run', package: 'each package', test: 'each test, most selected first', miss: 'each miss' };
 
 /** Each job takes a slot (src/palette.ts). */
 const JOB_COLOURS: Record<Job, string> = { test: VIOLET, e2e: ORANGE };
@@ -487,17 +489,17 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
   else if (q.group === 'test') detail = q.test ? testDrill(q.test) : byTest();
   else detail = byMiss();
 
-  // Period, which pull requests (on the Pull request tab, not inside one) and Job, in one row.
-  const toggles = JOB_CHOICES.map(([v, text]) => `<button type="submit" name="job" value="${v}" aria-pressed="${v === q.job}">${text}</button>`).join('');
+  // The controls as one sentence on the band. A drill-down rides along as hidden fields until the rows change, which the address then drops.
   const drill = [q.pr !== null ? `<input type="hidden" name="pr" value="${q.pr}">` : '', q.rule ? `<input type="hidden" name="rule" value="${esc(q.rule)}">` : '', q.test ? `<input type="hidden" name="test" value="${esc(q.test)}">` : ''].join('');
-  const form = `<form class="filters" method="get" action="/selection">
-<input type="hidden" name="group" value="${q.group}">${drill}
-${selectField('period', 'Period', PERIOD_CHOICES, q.period, '14d')}
-${q.group === 'pr' && q.pr === null ? selectField('outcome', 'Pull requests', OUTCOME_CHOICES, q.outcome ?? '') : ''}
-<div class="field"><span id="jobby">Job</span><div class="toggles" role="group" aria-labelledby="jobby">${toggles}</div></div>
-<input type="hidden" name="job" value="${q.job}">
-<noscript><button type="submit">Apply</button></noscript>
-</form>`;
+  const form = sentenceForm(
+    '/selection',
+    `Show test selection for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
+in ${inline('job', 'Job', JOB_CHOICES, q.job)}
+over ${inline('period', 'Period', PERIOD_CHOICES, q.period)}`,
+    [q.group === 'pr' && q.pr === null ? inline('outcome', 'Pull requests', OUTCOME_CHOICES, q.outcome ?? '', '') : ''],
+    [],
+    drill,
+  );
   // A drill-down reads its own rows, so it never waits on the period holding any other.
   const content = !drilling && pulls.length === 0 ? '<p class="well empty">Nothing in this period. No pull request merged in it.</p>' : detail;
 
@@ -505,8 +507,7 @@ ${q.group === 'pr' && q.pr === null ? selectField('outcome', 'Pull requests', OU
   const heldDays = view.oldest === null ? 0 : Math.round((Date.parse(belgianDay(now)) - Date.parse(belgianDay(view.oldest))) / 86_400_000) + 1;
   const partial = !drilling && length !== null && heldDays > 0 && heldDays < length ? `<p class="muted small">Only ${number(heldDays)} of the period&rsquo;s ${number(length)} days are stored so far.</p>` : '';
 
-  const tabs = bandTabs(GROUPS.map((g): [string, string, boolean] => [link({ group: g }), GROUP_LABELS[g], g === q.group]));
-  return reportPage({ current: 'selection', tabs, body: `${form}\n${partial}${content}`, style: EXTRA }, now);
+  return reportPage({ current: 'selection', controls: form, body: `${partial}${content}`, style: EXTRA }, now);
 }
 
 const EXTRA = `
@@ -547,8 +548,6 @@ details summary{cursor:pointer;color:var(--accent-deep);font-size:14px;font-weig
 details.more{display:inline}
 details.more summary{display:inline;font-size:13px}
 @media (max-width:640px){
-  .filters{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .filters .field:last-of-type{grid-column:1/-1}
   .tile-note{word-break:break-word}
 }
 `;

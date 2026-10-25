@@ -1,11 +1,10 @@
 import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './belgium';
-import { esc, lineKey, selectField } from './look';
+import { esc, inline, lineKey, sentenceForm } from './look';
 import { number, REPOSITORY } from './page';
 import { BLUE, colourByPlace, GREY, isFolded, ORANGE, OTHER, OTHER_LABEL, RED, VIOLET } from './palette';
-import { bandTabs, humanMs, outLink, pct, reportPage, section, tile } from './report';
+import { humanMs, outLink, pct, reportPage, section, tile } from './report';
 import {
   clipSpans,
-  GROUP_LABELS,
   GROUPS,
   redMs,
   sortJobs,
@@ -25,6 +24,15 @@ import {
   type StabilityQuery,
   type Tally,
 } from './stability-report';
+
+const ROW_WORDS: Record<StabilityQuery['group'], string> = { job: 'each job', workflow: 'each workflow', red: 'each red spell', failures: 'each failure', day: 'each day' };
+/** The period as a word of the page's sentence ("over the last 7 days"). */
+const PERIOD_WORDS: [string, string][] = [
+  ['7d', 'the last 7 days'],
+  ['30d', 'the last 30 days'],
+  ['90d', 'the last 90 days'],
+  ['all', 'everything held'],
+];
 
 /** The branch the runs are of: the Stability job sends `main`'s alone. */
 const BRANCH = 'main';
@@ -363,28 +371,19 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
     ? section('nothing', 'CI stability', '', '<p class="well empty">Nothing in this period. No run of main is stored for it with these filters.</p>')
     : `${q.group === 'job' ? overviewOf() : ''}${tabBodies[q.group]()}`;
 
-  // Filters: Period and Workflow submit on change; Sort only where a tab has more than one order.
+  // The controls as one sentence on the band: the order is a word of it where the rows have more than one, and the Workflow filter is not offered when the rows are workflows.
   const sorts = SORTS[q.group];
-  const toggles = sorts.map(([v, t]) => `<button type="submit" name="sort" value="${v}" aria-pressed="${v === sort}">${t}</button>`).join('');
-  const periods: [string, string][] = [
-    ['7d', 'Last 7 days'],
-    ['30d', 'Last 30 days'],
-    ['90d', 'Last 90 days'],
-    ['all', 'Everything held'],
-  ];
-  const workflowChoices: [string, string][] = [['', 'Every workflow'], ...data.finishedWorkflows.map((w): [string, string] => [w, w])];
+  const workflowChoices: [string, string][] = [['', 'All workflows'], ...data.finishedWorkflows.map((w): [string, string] => [w, w])];
   if (q.workflow !== null && !data.finishedWorkflows.includes(q.workflow)) workflowChoices.push([q.workflow, q.workflow]);
-  const form = `<form class="filters" method="get" action="/stability">
-<input type="hidden" name="group" value="${q.group}">
-${selectField('period', 'Period', periods, q.period, '7d')}
-${selectField('workflow', 'Workflow', workflowChoices, q.workflow ?? '')}
-${sorts.length ? `<div class="field"><span id="sortby">Sort by</span><div class="toggles" role="group" aria-labelledby="sortby">${toggles}</div></div><input type="hidden" name="sort" value="${esc(sort)}">` : ''}
-${repo ? `<a class="button" href="https://github.com/${repo}/actions?query=branch%3A${encodeURIComponent(BRANCH)}" target="_blank" rel="noopener noreferrer">Open in Actions</a>` : ''}
-<noscript><button type="submit">Apply</button></noscript>
-</form>`;
-
-  const tabs = bandTabs(GROUPS.map((g): [string, string, boolean] => [link({ group: g, sort: null, steps: null }), GROUP_LABELS[g], g === q.group]));
-  return reportPage({ current: 'stability', tabs, body: `${form}\n${partial}${redNow}${anomalies}\n${content}`, style: EXTRA }, now);
+  const form = sentenceForm(
+    '/stability',
+    `Show CI on main for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
+${sorts.length ? inline('sort', 'Order', sorts.map(([v, t]): [string, string] => [v, `${t.toLowerCase()} first`]), sort) : ''}
+over ${inline('period', 'Period', PERIOD_WORDS, q.period)}`,
+    [q.group === 'workflow' ? '' : inline('workflow', 'Workflow', workflowChoices, q.workflow ?? '', '')],
+    repo ? [`<a class="button" href="https://github.com/${repo}/actions?query=branch%3A${encodeURIComponent(BRANCH)}" target="_blank" rel="noopener noreferrer">Open in Actions</a>`] : [],
+  );
+  return reportPage({ current: 'stability', controls: form, body: `${partial}${redNow}${anomalies}\n${content}`, style: EXTRA }, now);
 }
 
 const EXTRA = `

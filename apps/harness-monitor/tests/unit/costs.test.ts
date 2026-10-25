@@ -25,6 +25,8 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
   issueTitle: null,
   issueParent: null,
   issueParentTitle: null,
+  credited: 0,
+  creditIssue: null,
   ...over,
 });
 
@@ -67,6 +69,15 @@ describe('Harness Monitor', () => {
       { situation: 'each issue, coloured by engineer', query: 'group=issue&split=engineer', group: 'issue', split: 'engineer' },
     ])('an address never colours the rows by what they already are: $situation', ({ query, group, split }) => {
       expect(parseQuery(new URLSearchParams(query))).toMatchObject({ group, split });
+    });
+
+    it.each([
+      { situation: 'each engineer with an Engineer filter', query: 'group=engineer&engineer=alice', held: { engineer: null, category: null } },
+      { situation: 'each phase with a Phase filter', query: 'group=category&category=building', held: { engineer: null, category: null } },
+      { situation: 'each phase with an Engineer filter, which it does not repeat', query: 'group=category&engineer=alice', held: { engineer: 'alice', category: null } },
+      { situation: 'each pull request with an Engineer filter', query: 'group=pr&engineer=alice&category=building', held: { engineer: 'alice', category: 'building' } },
+    ])('an address never filters to what the rows already are: $situation holds $held', ({ query, held }) => {
+      expect(parseQuery(new URLSearchParams(query))).toMatchObject(held);
     });
 
     it('the same page has one address however it was spelled', () => {
@@ -167,6 +178,27 @@ describe('Harness Monitor', () => {
       const [group] = groupRows([row({ prNumber: null, title: null, branch, lastAt })], 'pr', success);
 
       expect(group!.sub).toBe(says);
+    });
+
+    it.each([
+      { situation: 'requests credited to one issue', credited: [11, 11], says: 'Issue #11' },
+      { situation: 'requests credited to two issues', credited: [11, 12], says: 'several issues' },
+      { situation: 'requests credited to a pull request that closes no issue', credited: [null], says: 'No issue' },
+      { situation: 'requests credited to an issue and to a pull request that closes none', credited: [11, null], says: 'Issue #11' },
+    ])('a branch with $situation says so once the credit is good through its newest request', ({ credited, says }) => {
+      const rows = credited.map((creditIssue, i) => row({ prNumber: null, title: null, branch: 'b/x', lastAt: 10, series: `s${i}`, credited: 1, creditIssue }));
+
+      const [group] = groupRows(rows, 'pr', 20);
+
+      expect(group!.sub).toBe(says);
+    });
+
+    it('a branch with credited requests and a newer one the credit has not reached is linking', () => {
+      const rows = [row({ prNumber: null, title: null, branch: 'b/x', lastAt: 10, credited: 1, creditIssue: 11 }), row({ prNumber: null, title: null, branch: 'b/x', lastAt: 30, series: 'later' })];
+
+      const [group] = groupRows(rows, 'pr', 20);
+
+      expect(group!.sub).toBe('linking…');
     });
   });
 

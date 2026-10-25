@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
 import { theCallsPage } from './cockpit-support';
-import { emptyTheDatabase, groupTabs, send, spend, theBarePage, theSentence, thePullRequest, withPrices } from './support';
+import { emptyTheDatabase, send, spend, theBarePage, theSentence, thePullRequest, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -18,7 +18,7 @@ function topBar(html: string) {
   return {
     mark: bar.includes('<svg') && bar.includes('class="logo"'),
     name: /<span>Harness Monitor<\/span>/.test(bar),
-    tabs: [...(/<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(bar)?.[1] ?? '').matchAll(/<a href="[^"]*"( aria-current="page")?>([^<]*)<\/a>/g)].map((m) => ({ label: m[2]!.replace(/&rsquo;/g, "'"), current: m[1] !== undefined })),
+    tabs: [...(/<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(bar)?.[1] ?? '').matchAll(/<a href="[^"]*"(?: title="[^"]*")?( aria-current="page")?>([^<]*)<\/a>/g)].map((m) => ({ label: m[2]!.replace(/&rsquo;/g, "'"), current: m[1] !== undefined })),
   };
 }
 

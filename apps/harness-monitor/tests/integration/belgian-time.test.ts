@@ -185,7 +185,7 @@ describe('Harness Monitor', () => {
     /** The Monitor as it stood before the change: every total and every stored day under the UTC day. */
     async function asBeforeTheChange() {
       await send(REQUESTS);
-      for (const table of ['daily_totals', 'daily_split_totals', 'session_starts', 'usage_requests']) {
+      for (const table of ['daily_totals', 'daily_credited_totals', 'session_starts', 'usage_requests']) {
         for (const [belgian, utc] of OLD_DAYS) await env.DB.prepare(`UPDATE ${table} SET day = ? WHERE day = ?`).bind(utc, belgian).run();
       }
     }
@@ -236,7 +236,7 @@ describe('Harness Monitor', () => {
       const whole = await filed();
       // A run that stopped part-way: one table re-filed, the others emptied or still under UTC days.
       await env.DB.batch([
-        env.DB.prepare('DELETE FROM daily_split_totals'),
+        env.DB.prepare('DELETE FROM daily_credited_totals'),
         env.DB.prepare("UPDATE daily_totals SET day = '2026-10-21' WHERE day = '2026-10-22'"),
         env.DB.prepare("UPDATE session_starts SET day = '2026-01-10' WHERE day = '2026-01-11'"),
       ]);

@@ -1,7 +1,7 @@
 import { SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GREY, panelOf, RED, slot, swatches } from './series-colours';
-import { emptyTheDatabase, sendRuns, stabilityJob, stabilityRun, stabilityStep } from './support';
+import { emptyTheDatabase, sendRuns, stabilityJob, stabilityRun, stabilityStep, theSentence } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -52,8 +52,8 @@ describe('Harness Monitor', () => {
     it('opens as a page from its own tab in the top bar', async () => {
       const html = await thePage();
 
-      expect(html).toContain('<a href="/stability" aria-current="page">CI stability</a>');
-      expect(html).toContain('<a href="/">Claude Code costs</a>');
+      expect(html).toMatch(/<a href="\/stability" title="[^"]*" aria-current="page">CI stability<\/a>/);
+      expect(html).toMatch(/<a href="\/" title="[^"]*">Claude Code costs<\/a>/);
       expect(html.match(/<h1\b/g) ?? []).toHaveLength(0);
     });
 
@@ -145,11 +145,12 @@ describe('Harness Monitor', () => {
       ]);
 
       const jobs = rowsOf(await thePage('?workflow=CI'), 'by-job');
-      const workflows = rowsOf(await thePage('?workflow=CI&group=workflow'), 'by-workflow');
+      const everyWorkflow = rowsOf(await thePage('?workflow=CI&group=workflow'), 'by-workflow');
       const spells = rowsOf(await thePage('?workflow=CI&group=red'), 'spells');
 
       expect(jobs.map((r) => r[0])).toEqual(['Test CI · steps']);
-      expect(workflows.map((r) => r[0])).toEqual(['CI 1 job']);
+      // Each workflow lists every workflow: a filter to one would repeat the rows, so the address drops it.
+      expect(everyWorkflow.map((r) => r[0])).toEqual(['CI 1 job', 'Nightly 1 job']);
       expect(spells.map((r) => r[0])).toEqual(['CI Test · Run the tests']);
     });
   });
@@ -165,7 +166,7 @@ describe('Harness Monitor', () => {
       expect(hasSection(html, 'last-runs')).toBe(true);
     });
 
-    it.each([['workflow'], ['red'], ['failures'], ['day']])('the %s tab goes from the band to the filters to its own content', async (group) => {
+    it.each([['workflow'], ['red'], ['failures'], ['day']])('the %s tab goes from the sentence on the band to its own content', async (group) => {
       await sendRuns([ran(1, '2026-10-30T09:00:00Z', 'fail'), ran(2, '2026-10-30T10:00:00Z', 'pass')]);
 
       const html = await thePage(`?group=${group}`);
@@ -173,7 +174,7 @@ describe('Harness Monitor', () => {
       expect(html).not.toContain('class="tiles"');
       expect(hasSection(html, 'ended')).toBe(false);
       expect(hasSection(html, 'last-runs')).toBe(false);
-      expect(html.indexOf('class="band"')).toBeLessThan(html.indexOf('class="filters"'));
+      expect(html.indexOf('class="band band-controls"')).toBeLessThan(html.indexOf('<main>'));
     });
   });
 
@@ -223,13 +224,48 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('Sort by puts a tab in the order it names', () => {
-    it('the Job tab by Slowest puts the slowest job first', async () => {
+  describe('the order is a word of the sentence, and puts the rows in the order it names', () => {
+    it('each job, slowest first, puts the slowest job first', async () => {
       await sendRuns([
         stabilityRun(1, { createdAt: '2026-10-30T09:00:00Z', jobs: [stabilityJob('Fast', 10_000), stabilityJob('Slow', 900_000), stabilityJob('Middle', 100_000)] }),
       ]);
 
-      expect(rowsOf(await thePage('?sort=slowest'), 'by-job').map((r) => r[0]!.split(' ')[0])).toEqual(['Slow', 'Middle', 'Fast']);
+      const html = await thePage('?sort=slowest');
+
+      expect(rowsOf(html, 'by-job').map((r) => r[0]!.split(' ')[0])).toEqual(['Slow', 'Middle', 'Fast']);
+      expect(theSentence(html).text).toBe('Show CI on main for [each job] [slowest first] over [the last 7 days]');
+    });
+  });
+
+  describe('the sentence says what the page shows, and offers only what it can', () => {
+    it('the bare address reads each job, least reliable first, over the last 7 days, with the Workflow filter under Only and Open in Actions after it', async () => {
+      await sendRuns([ran(1, '2026-10-30T09:00:00Z', 'pass')]);
+
+      const html = await thePage();
+      const { text: sentence, choices } = theSentence(html);
+
+      expect(sentence).toBe('Show CI on main for [each job] [least reliable first] over [the last 7 days]');
+      expect(choices.group!.offered).toEqual(['each job', 'each workflow', 'each red spell', 'each failure', 'each day']);
+      expect(choices.sort!.offered).toEqual(['least reliable first', 'slowest first', 'most failures first']);
+      expect(choices.period!.offered).toEqual(['the last 7 days', 'the last 30 days', 'the last 90 days', 'everything held']);
+      expect(Object.keys(choices)).toEqual(['group', 'sort', 'period', 'workflow']);
+      expect(choices.workflow!.held).toBe(false);
+      expect(/<div class="only"><span>Only<\/span>.*Open in Actions<\/a><\/div>/s.test(html)).toBe(true);
+    });
+
+    it.each([
+      { situation: 'each failure', query: '?group=failures', keys: ['group', 'period', 'workflow'] },
+      { situation: 'each day', query: '?group=day', keys: ['group', 'period', 'workflow'] },
+      { situation: 'each red spell', query: '?group=red', keys: ['group', 'sort', 'period', 'workflow'] },
+      { situation: 'each workflow, which offers no Workflow filter', query: '?group=workflow&workflow=CI', keys: ['group', 'sort', 'period'] },
+    ])('$situation offers $keys', async ({ query, keys }) => {
+      expect(Object.keys(theSentence(await thePage(query)).choices)).toEqual(keys);
+    });
+
+    it.each(['', '?group=workflow', '?group=red', '?group=failures', '?group=day'])('has no grouping tabs, no Sort by toggle and no labelled filter row at %s', async (query) => {
+      const html = await thePage(query);
+
+      for (const gone of ['band-tabs', 'aria-label="Group by"', 'class="filters"', 'class="toggles"', 'aria-pressed', '<label ']) expect(html).not.toContain(gone);
     });
   });
 

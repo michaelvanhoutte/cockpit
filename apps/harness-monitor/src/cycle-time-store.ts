@@ -568,7 +568,7 @@ export async function cycleTimeView(db: D1Database, from: number): Promise<Cycle
               COALESCE(SUM(t.requests), 0) AS requests, COALESCE(SUM(t.unpriced_requests), 0) AS unpriced
        FROM cycle_time_pulls p JOIN branch_links l ON l.pr_number = p.pull_number
        LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
-       LEFT JOIN daily_split_totals t ON t.branch = l.branch
+       LEFT JOIN daily_credited_totals t ON t.branch = l.branch
        WHERE p.merged_at >= ?1 GROUP BY l.pr_number`,
     ).bind(from),
     db.prepare('SELECT MIN(merged_at) AS oldest FROM cycle_time_pulls'),

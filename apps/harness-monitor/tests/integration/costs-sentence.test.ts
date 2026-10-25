@@ -43,6 +43,16 @@ describe('Harness Monitor', () => {
       expect(sentence.choices.split!.offered).toContain(disabled);
     });
 
+    it.each([
+      { situation: 'each engineer', query: 'group=engineer&engineer=alice', filters: ['category', 'model', 'who'] },
+      { situation: 'each phase', query: 'group=category&category=building', filters: ['engineer', 'model', 'who'] },
+    ])('$situation offers no filter that repeats the rows, so none holds a value', async ({ query, filters }) => {
+      const { choices } = theSentence(await page(query));
+
+      expect(Object.keys(choices)).toEqual(['group', 'split', 'period', ...filters]);
+      expect(Object.values(choices).filter((c) => c.held)).toEqual([]);
+    });
+
     it('a model chosen is marked as holding a value, and every choice of the sentence is in the one form that keeps it', async () => {
       const html = await page('group=pr&model=claude-opus-4-8&split=model&period=7d');
       const { choices, text } = theSentence(html);

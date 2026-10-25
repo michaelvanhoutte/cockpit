@@ -2,7 +2,7 @@ import { createExecutionContext, env, SELF, waitOnExecutionContext } from 'cloud
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../../src/worker';
 import { GREY, RED, slot, swatches } from './series-colours';
-import { docsOnly, emptyTheDatabase, fullPackage, ranEverything, selectionBars, selectionFile, selectionJob, selectionPackage, selectionPull, sendSelection } from './support';
+import { docsOnly, emptyTheDatabase, fullPackage, ranEverything, selectionBars, selectionFile, selectionJob, selectionPackage, selectionPull, sendSelection, theSentence } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -61,10 +61,10 @@ const hotTest = () =>
 
 describe('Harness Monitor', () => {
   describe('test selection is a page, and the same address answers JSON to a request that asks', () => {
-    it('opens from its own tab in the top bar, between cycle time and CI stability, with the six tabs of the page on the band', async () => {
+    it('opens from its own tab in the top bar, between cycle time and CI stability, with the sentence of the page on the band', async () => {
       const html = await thePage();
 
-      expect(html).toContain('<a href="/selection" aria-current="page">Test selection</a>');
+      expect(html).toMatch(/<a href="\/selection" title="[^"]*" aria-current="page">Test selection<\/a>/);
       expect([...html.matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual([
         '>Claude Code costs</a>',
         '>Cockpit&rsquo;s Claude calls</a>',
@@ -73,14 +73,7 @@ describe('Harness Monitor', () => {
         '>Tests</a>',
         '>CI stability</a>',
       ]);
-      expect([...html.matchAll(/<nav class="band"[^>]*>.*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual([
-        '>Overview</a>',
-        '>Pull request</a>',
-        '>What forced a full run</a>',
-        '>Package</a>',
-        '>Most selected tests</a>',
-        '>Misses</a>',
-      ]);
+      expect(theSentence(html).choices.group!.offered).toEqual(['each day', 'each pull request', 'each rule that forced a full run', 'each package', 'each test, most selected first', 'each miss']);
     });
 
     it('answers JSON to ?format=json or an Accept header for it, and a page to anything else', async () => {
@@ -344,7 +337,7 @@ describe('Harness Monitor', () => {
       expect(['what-each-job-did', 'typical-pull-request', 'ran-everything-per-day', 'by-day'].map((id) => hasSection(html, id))).toEqual(Array(4).fill(expected.overview));
       expect(html.includes('name="outcome"')).toBe(expected.select);
       expect(html).toContain('name="period"');
-      expect(html).toContain('name="job" value="e2e"');
+      expect(html).toContain('name="job"');
     });
 
     it('a pull request opened leaves the pull request select behind', async () => {
@@ -361,6 +354,43 @@ describe('Harness Monitor', () => {
       // The days before the first pull request held are not listed: nothing there is "no pull request merged".
       expect(rows.map((row) => row.slice(0, 2))).toEqual([['15 Oct 2026', '0'], ['14 Oct 2026', '1'], ['13 Oct 2026', '0'], ['12 Oct 2026', '1']].map(([day, merged]) => [expect.stringContaining(day!.slice(0, 6)), merged]));
       expect(rows[1]![3]).toContain('ran everything on 1 of 1');
+    });
+  });
+
+  describe('the sentence says what the page shows, and offers only what it can', () => {
+    it('the bare address reads each day, in both jobs, over the last 14 days, with no Only row', async () => {
+      const html = await thePage();
+      const { text: sentence, choices } = theSentence(html);
+
+      expect(sentence).toBe('Show test selection for [each day] in [both jobs] over [the last 14 days]');
+      expect(choices.group!.offered).toEqual(['each day', 'each pull request', 'each rule that forced a full run', 'each package', 'each test, most selected first', 'each miss']);
+      expect(choices.job!.offered).toEqual(['both jobs', 'the Test job', 'the E2E job']);
+      expect(choices.period!.offered).toEqual(['the last 7 days', 'the last 14 days', 'everything held']);
+      expect(Object.keys(choices)).toEqual(['group', 'job', 'period']);
+      expect(html).not.toContain('class="only"');
+    });
+
+    it('each pull request offers the pull requests outcome under Only, and the job chosen is read in the sentence', async () => {
+      const { text: sentence, choices } = theSentence(await thePage('?group=pr&job=e2e&outcome=full'));
+
+      expect(sentence).toBe('Show test selection for [each pull request] in [the E2E job] over [the last 14 days]');
+      expect(choices.outcome).toMatchObject({ chosen: 'Ran everything', held: true });
+      expect(choices.outcome!.offered).toEqual(['Every pull request', 'Selected a subset', 'Ran everything', 'With a miss', 'Documentation only']);
+    });
+
+    it('one pull request opened has no outcome filter, and the form carries the pull request', async () => {
+      await sendSelection([selectionPull(7, { mergedAt: MERGED })]);
+
+      const html = await thePage('?group=pr&pr=7');
+
+      expect(Object.keys(theSentence(html).choices)).toEqual(['group', 'job', 'period']);
+      expect(html).toContain('<input type="hidden" name="pr" value="7">');
+    });
+
+    it.each(['', '?group=pr', '?group=rule', '?group=package', '?group=test', '?group=miss'])('has no grouping tabs, no Job toggle and no labelled filter row at %s', async (query) => {
+      const html = await thePage(query);
+
+      for (const gone of ['band-tabs', 'aria-label="Group by"', 'class="filters"', 'class="toggles"', 'aria-pressed', '<label ']) expect(html).not.toContain(gone);
     });
   });
 

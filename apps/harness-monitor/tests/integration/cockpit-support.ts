@@ -222,12 +222,6 @@ export function callsChanges(html: string) {
 /** The Cost per day chart's description, or null where the page draws none. */
 export const callsChart = (html: string) => /<svg [^>]*aria-label="(Cost per day[^"]*)"/.exec(html)?.[1] ?? null;
 
-/** The filters that hold a value (wear the accent border), and the toggles that are pressed. */
-export const callsControls = (html: string) => ({
-  held: [...html.matchAll(/<select id="(\w+)"[^>]*? data-set>/g)].map((m) => m[1]!),
-  pressed: [...html.matchAll(/<button type="submit" name="split" value="\w+" aria-pressed="true">(.*?)<\/button>/g)].map((m) => m[1]!),
-});
-
 /** The warning about calls with no price: its sentence, or null where there is none. */
 export const callsWarning = (html: string) => {
   const found = /<section class="panel warning" role="status"[^>]*>.*?<p>(.*?)<\/p>/s.exec(html);

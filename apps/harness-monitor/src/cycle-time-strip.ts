@@ -3,8 +3,8 @@
  * the row already carries (`data-figures`: one number per outline slot, in
  * OUTLINE_SLOTS order, milliseconds in base 36 on the table's own measure, a
  * dash for a part's time spent that is not recorded), so opening is no request.
- * The page needs no script otherwise: the chevrons are the script's own, so
- * without one the table is as it was and no strip opens.
+ * The table needs no script otherwise (the (i)'s is src/explain.ts): the chevrons
+ * are the script's own, so without one the table is as it was and no strip opens.
  */
 
 /** The pure functions of the script: a duration as `hm` reads it, `layOut` (cycle-time-report.ts) over slots `[label, part, other, colour]`, and the words a row carries (`words`). A unit test holds all three to the server's. */

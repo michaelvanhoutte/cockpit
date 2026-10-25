@@ -12,6 +12,7 @@ export const EXPORT_PAGE_SIZE = 20_000;
 /**
  * The request rows a question keeps: the same day, category and engineer rules the page's totals apply, and one pull request if asked.
  * The period starts at a Belgian midnight and is cut on the request's exact time, never on the day stored on its row, which for older rows is a UTC day.
+ * The engineer is the author of the request's own pull request, else of the one it is credited to (`e`, joined by `exportCsv` for every question but one pull request's).
  */
 export function requestFilter(query: CostQuery, pullRequest: number | null, now = Date.now()): { where: string; binds: (string | number)[] } {
   const where: string[] = [];
@@ -30,9 +31,10 @@ export function requestFilter(query: CostQuery, pullRequest: number | null, now 
     binds.push(query.model);
   }
   if (query.who !== 'all') where.push(`u.subagent = ${query.who === 'subagents' ? 1 : 0}`);
-  if (query.engineer === UNATTRIBUTED) where.push('l.branch IS NULL');
+  const credited = pullRequest === null;
+  if (query.engineer === UNATTRIBUTED) where.push(credited ? 'COALESCE(l.branch, e.branch) IS NULL' : 'l.branch IS NULL');
   else if (query.engineer !== null) {
-    where.push('l.engineer = ?');
+    where.push(credited ? 'COALESCE(l.engineer, e.engineer) = ?' : 'l.engineer = ?');
     binds.push(query.engineer);
   }
   if (pullRequest !== null) {
@@ -158,16 +160,21 @@ function csvLine(r: RequestRow): string {
  */
 export function exportCsv(db: D1Database, query: CostQuery, pullRequest: number | null, filename: string, now = Date.now()): Response {
   const { where, binds } = requestFilter(query, pullRequest, now);
-  const base = `SELECT u.occurred_at, u.request_id, u.session_id, u.branch, l.pr_number AS prNumber, l.issue_number AS issue,
+  // A request credited to a pull request its own branch does not have carries that pull request's issue and engineer, and no pull request.
+  const base =
+    pullRequest === null
+      ? `SELECT u.occurred_at, u.request_id, u.session_id, u.branch, l.pr_number AS prNumber, COALESCE(l.issue_number, e.issue_number) AS issue,
+      COALESCE(l.engineer, e.engineer) AS engineer, ${requestPhaseSql('u.')} AS category, u.model, u.speed, u.ran_where, u.input_tokens, u.output_tokens,
+      u.cache_creation_tokens, u.cache_read_tokens, u.cost_micros, u.price_basis
+    FROM usage_requests u LEFT JOIN branch_links l ON l.branch = u.branch
+    LEFT JOIN request_credits c ON l.branch IS NULL AND c.request_id = u.request_id
+    LEFT JOIN branch_links e ON e.branch = c.credit_branch`
+      : // One pull request starts from its few branches and reads their rows through usage_requests_branch;
+        // left to itself the planner walks every request in time order to honour the ORDER BY.
+        `SELECT u.occurred_at, u.request_id, u.session_id, u.branch, l.pr_number AS prNumber, l.issue_number AS issue,
       l.engineer AS engineer, ${requestPhaseSql('u.')} AS category, u.model, u.speed, u.ran_where, u.input_tokens, u.output_tokens,
       u.cache_creation_tokens, u.cache_read_tokens, u.cost_micros, u.price_basis
-    FROM ${
-      // One pull request starts from its few branches and reads their rows through usage_requests_branch;
-      // left to itself the planner walks every request in time order to honour the ORDER BY.
-      pullRequest === null
-        ? 'usage_requests u LEFT JOIN branch_links l'
-        : 'branch_links l CROSS JOIN usage_requests u'
-    } ON l.branch = u.branch`;
+    FROM branch_links l CROSS JOIN usage_requests u ON l.branch = u.branch`;
   const first = `${base} ${where} ORDER BY u.occurred_at, u.request_id LIMIT ${EXPORT_PAGE_SIZE}`;
   const after = `${base} ${where === '' ? 'WHERE' : `${where} AND`} (u.occurred_at, u.request_id) > (?, ?)
     ORDER BY u.occurred_at, u.request_id LIMIT ${EXPORT_PAGE_SIZE}`;

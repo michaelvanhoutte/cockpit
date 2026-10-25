@@ -38,6 +38,8 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM usage_requests'),
     env.DB.prepare('DELETE FROM daily_totals'),
     env.DB.prepare('DELETE FROM daily_split_totals'),
+    env.DB.prepare('DELETE FROM daily_credited_totals'),
+    env.DB.prepare('DELETE FROM request_credits'),
     env.DB.prepare('DELETE FROM session_starts'),
     env.DB.prepare('DELETE FROM price_list'),
     env.DB.prepare('DELETE FROM branch_links'),
@@ -626,15 +628,9 @@ export interface SentenceChoice {
   held: boolean;
 }
 
-/** The groupings as a page's band offers them as tabs (the Claude calls page; the costs page has the sentence instead), left to right: the name, where it goes, and whether it is the page's. */
-export function groupTabs(html: string): { label: string; href: string; current: boolean }[] {
-  const tabs = /<div class="band-tabs">(.*?)<\/div>/s.exec(html)?.[1] ?? '';
-  return [...tabs.matchAll(/<a href="([^"]*)"( aria-current="page")?>(.*?)<\/a>/g)].map(([, href, current, label]) => ({ label: label!, href: href!.replace(/&amp;/g, '&'), current: current !== undefined }));
-}
-
 /** The band's sentence and its filters as a visitor sees them: each choice by the address parameter it sets, and the sentence with its choices in brackets. */
 export function theSentence(html: string): { text: string; choices: Record<string, SentenceChoice>; pinned: boolean } {
-  const decode = (t: string) => t.replace(/<[^>]*>/g, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+  const decode = (t: string) => t.replace(/<[^>]*>/g, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&rsquo;/g, '’');
   const band = /<div class="band band-controls">(.*?)<\/form><\/div>/s.exec(html)?.[1] ?? '';
   const choices: Record<string, SentenceChoice> = {};
   for (const [, name, attributes, options] of band.matchAll(/<select name="(\w+)" aria-label="[^"]*"([^>]*)>(.*?)<\/select>/gs)) {
@@ -657,13 +653,15 @@ export interface SplitTotal {
   cost_micros: number;
   unpriced_requests: number;
   last_at: number;
+  /** The branch the requests are credited to; '' under no credit. */
+  credit_branch: string;
 }
 
 /** The totals the costs page reads, one row per key. */
 export async function splitTotals(): Promise<SplitTotal[]> {
   const { results } = await env.DB.prepare(
-    `SELECT day, branch, category, model, ran_where, subagent, requests, cost_micros, unpriced_requests, last_at
-     FROM daily_split_totals ORDER BY day, branch, category, model, ran_where, subagent`,
+    `SELECT day, branch, category, model, ran_where, subagent, credit_branch, requests, cost_micros, unpriced_requests, last_at
+     FROM daily_credited_totals ORDER BY day, branch, category, model, ran_where, subagent, credit_branch`,
   ).all<SplitTotal>();
   return results;
 }
@@ -672,7 +670,7 @@ export async function splitTotals(): Promise<SplitTotal[]> {
 export async function splitTokens(): Promise<[string, string, number, number, number, number][]> {
   const { results } = await env.DB.prepare(
     `SELECT branch, model, input_tokens AS i, output_tokens AS o, cache_creation_tokens AS w, cache_read_tokens AS r
-     FROM daily_split_totals ORDER BY day, branch, category, model, ran_where, subagent`,
+     FROM daily_credited_totals ORDER BY day, branch, category, model, ran_where, subagent, credit_branch`,
   ).all<{ branch: string; model: string; i: number; o: number; w: number; r: number }>();
   return results.map((t) => [t.branch, t.model, t.i, t.o, t.w, t.r]);
 }
