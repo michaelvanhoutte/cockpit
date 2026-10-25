@@ -1,5 +1,6 @@
 import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './belgium';
-import { esc, inline, lineKey, sentenceForm } from './look';
+import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
+import { esc, inline, lineKey, questionOf, sentenceForm } from './look';
 import { number, REPOSITORY } from './page';
 import { BLUE, colourByPlace, GREY, isFolded, ORANGE, OTHER, OTHER_LABEL, RED, VIOLET } from './palette';
 import { humanMs, outLink, pct, reportPage, section, tile } from './report';
@@ -24,6 +25,7 @@ import {
   type StabilityQuery,
   type Tally,
 } from './stability-report';
+import { LEAD_MORE, WHAT } from './stability-explain';
 
 const ROW_WORDS: Record<StabilityQuery['group'], string> = { job: 'each job', workflow: 'each workflow', red: 'each red spell', failures: 'each failure', day: 'each day' };
 /** The period as a word of the page's sentence ("over the last 7 days"). */
@@ -132,10 +134,10 @@ export function renderStability(q: StabilityQuery, data: StabilityData, reposito
     const reliable = [...jobs].filter((j) => j.job.tally.rate !== null && j.job.tally.completed >= 3).sort((a, b) => a.job.tally.rate! - b.job.tally.rate! || b.job.tally.completed - a.job.tally.completed)[0];
     const slowest = [...jobs].filter((j) => j.job.durations !== null).sort((a, b) => b.job.durations!.median - a.job.durations!.median)[0];
     const tiles = `<div class="tiles">
-${tile('Runs passed', overall.rate === null ? '—' : `<span class="rate ${bandOf(overall.rate)}">${pct(overall.rate)}</span>`, `${number(overall.pass)} of ${number(overall.completed)} finished · ${number(overall.cancelled)} cancelled left out`)}
-${tile(`Time ${BRANCH} was red`, humanMs(red), `${Math.round((red / Math.max(1, until - from)) * 100)}% of ${periodWords} · ${number(spells.length)} spell${spells.length === 1 ? '' : 's'}`, red > 0 ? 'up' : '')}
-${reliable ? tile('Least reliable job', `<a href="${jobLink(reliable)}">${esc(reliable.job.name)}</a>`, `${pct(reliable.job.tally.rate!)} · ${number(reliable.job.tally.fail)} failed of ${number(reliable.job.tally.completed)} · ${esc(reliable.workflow)}`, 'name') : ''}
-${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job.name)}</a>`, `median ${humanMs(slowest.job.durations!.median)} · p90 ${humanMs(slowest.job.durations!.p90)} · ${esc(slowest.workflow)}`, 'name') : ''}
+${tile('Runs passed', overall.rate === null ? '—' : `<span class="rate ${bandOf(overall.rate)}">${pct(overall.rate)}</span>`, `${number(overall.pass)} of ${number(overall.completed)} finished · ${number(overall.cancelled)} cancelled left out`, '', explain('t-passed', 'Runs passed', WHAT.passed))}
+${tile(`Time ${BRANCH} was red`, humanMs(red), `${Math.round((red / Math.max(1, until - from)) * 100)}% of ${periodWords} · ${number(spells.length)} spell${spells.length === 1 ? '' : 's'}`, red > 0 ? 'up' : '', explain('t-red', `Time ${BRANCH} was red`, WHAT.red))}
+${reliable ? tile('Least reliable job', `<a href="${jobLink(reliable)}">${esc(reliable.job.name)}</a>`, `${pct(reliable.job.tally.rate!)} · ${number(reliable.job.tally.fail)} failed of ${number(reliable.job.tally.completed)} · ${esc(reliable.workflow)}`, 'name', explain('t-least', 'Least reliable job', WHAT.leastReliable)) : ''}
+${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job.name)}</a>`, `median ${humanMs(slowest.job.durations!.median)} · p90 ${humanMs(slowest.job.durations!.p90)} · ${esc(slowest.workflow)}`, 'name', explain('t-slowest', 'Slowest job', WHAT.slowest)) : ''}
 </div>`;
 
     const jobsTally = sumTallies(jobs.map((j) => j.job.tally));
@@ -149,9 +151,9 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
       `<div class="well where">
 <div class="bar" role="img" aria-label="${shown.map((o) => `${o.label} ${c[o.key]}`).join(', ')}">${shown.map((o) => `<div style="flex:${c[o.key]};background:${o.colour}" title="${o.label} ${c[o.key]}"></div>`).join('')}</div>
 <ul class="shares">${shown.map((o) => `<li><i style="background:${o.colour}"></i><span class="name">${o.label}</span><span class="amount">${number(c[o.key])}</span><span class="share">${totalRuns ? Math.round((c[o.key] / totalRuns) * 100) : 0}%</span></li>`).join('')}</ul>
-<p class="note">A pass rate counts only the runs that finished: a cancelled run is not a failed one. <code>cancel-in-progress</code> cancels a run a newer push overtakes, and the slowest job most, so folding cancels into failures would read the browser tier far worse than it is. A skipped job never ran.</p>
 </div>`,
       'panel wide',
+      explain('ended', 'How every job run ended', WHAT.ended),
     );
 
     const lasts = data.lastRuns
@@ -159,7 +161,7 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
       .sort((a, b) => (a.last.outcome === b.last.outcome ? b.last.at - a.last.at : a.last.outcome === 'pass' ? 1 : -1))
       .map((l) => `<li><span class="name">${esc(l.workflow)}</span><span class="delta ${l.last.outcome === 'pass' ? 'down' : 'up'}">${outLink(l.last.url, l.last.outcome === 'pass' ? 'passed' : 'failed', 'verdict')}</span><span class="from">${esc(formatDateTime(l.last.at))}</span></li>`)
       .join('');
-    const lastPanel = section('last-runs', 'Last run of each workflow', '', `<ul class="well changes">${lasts || '<li class="faint">No finished run</li>'}</ul>`, 'panel narrow');
+    const lastPanel = section('last-runs', 'Last run of each workflow', '', `<ul class="well changes">${lasts || '<li class="faint">No finished run</li>'}</ul>`, 'panel narrow', explain('last-runs', 'Last run of each workflow', WHAT.lastRuns));
     return `${tiles}\n<div class="row">${ended}${lastPanel}</div>\n`;
   }
 
@@ -181,10 +183,11 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
         `${esc(chosen.workflow)} · median ${humanMs(chosen.job.durations?.median)} · p90 ${humanMs(chosen.job.durations?.p90)} · <a href="${link({ steps: null })}">Close</a>`,
         `<div class="well">${
           steps.length
-            ? `<ul class="steps"><li class="head"><span>Step</span><span><i class="median"></i>Median <i class="p90"></i>p90</span><span class="num">Median</span><span class="num">p90</span><span class="num">Runs</span></li>${list}</ul><p class="note steps-note">From the jobs that passed or failed; skipped and cancelled steps are left out. A sharded job&rsquo;s steps are every shard&rsquo;s together.</p>`
+            ? `<ul class="steps"><li class="head"><span>Step</span><span><i class="median"></i>Median <i class="p90"></i>p90</span><span class="num">Median</span><span class="num">p90</span><span class="num">Runs</span></li>${list}</ul>`
             : '<p class="empty">No step finished in this period.</p>'
         }</div>`,
         'panel wide',
+        explain('steps', `where ${esc(chosen.job.name)}&rsquo;s time goes`, WHAT.steps),
       );
     }
     const table = rows
@@ -202,8 +205,9 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
 <thead><tr><th scope="col">Job</th><th scope="col" class="num">Last run</th><th scope="col" class="num">Pass rate</th><th scope="col">Outcomes</th><th scope="col" class="num">Failed</th><th scope="col" class="num">Cancelled</th><th scope="col" class="num">Median</th><th scope="col" class="num">p90</th></tr></thead>
 <tbody>${table}</tbody></table></div>`,
           'panel wide',
+          explain('by-job', 'By job', WHAT.job),
         )
-      : section('by-job', 'By job', '', '<p class="well empty">No job ran in this period.</p>');
+      : section('by-job', 'By job', '', '<p class="well empty">No job ran in this period.</p>', 'panel', explain('by-job', 'By job', WHAT.job));
     return out;
   }
 
@@ -230,12 +234,14 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
 <thead><tr><th scope="col">Workflow</th><th scope="col" class="num">Last run</th><th scope="col" class="num">Pass rate</th><th scope="col">Outcomes</th><th scope="col" class="num">Failed</th><th scope="col" class="num">Red spells</th><th scope="col">Time red</th></tr></thead>
 <tbody>${table}</tbody></table></div>`,
       'panel wide',
+      explain('by-workflow', 'By workflow', WHAT.workflow),
     );
   }
 
   function redTab(): string {
     const rows = sortSpells(spells, sort, until);
-    if (!rows.length) return section('spells', `How long ${esc(BRANCH)} stayed red`, '', `<p class="well empty">${esc(BRANCH)} was not red in this period.</p>`);
+    const info = explain('spells', `How long ${esc(BRANCH)} stayed red`, WHAT.spells);
+    if (!rows.length) return section('spells', `How long ${esc(BRANCH)} stayed red`, '', `<p class="well empty">${esc(BRANCH)} was not red in this period.</p>`, 'panel', info);
     const len = (s: Spell) => spellSpan(s, until)[1] - spellSpan(s, until)[0];
     const peak = Math.max(...rows.map(len), 1);
     const table = rows
@@ -251,8 +257,9 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
       `${number(rows.length)} spells · ${humanMs(red)} red with overlaps counted once · ${sort === 'longest' ? 'longest' : 'newest'} first`,
       `<div class="well table"><table>
 <thead><tr><th scope="col">Workflow</th><th scope="col" class="num">Went red</th><th scope="col" class="num">Green again</th><th scope="col">Lasted</th><th scope="col" class="num">Commits</th></tr></thead>
-<tbody>${table}</tbody></table><p class="note steps-note">A spell runs from a failing run to the next passing one of the same workflow; consecutive failures are one spell, and a cancelled run between them neither opens nor closes one. The failing job is the one that failed in the run that opened it.</p></div>`,
+<tbody>${table}</tbody></table></div>`,
       'panel wide',
+      info,
     );
   }
 
@@ -287,6 +294,7 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
           )
           .join('\n')}</tbody></table></div>`,
         'panel wide',
+        explain('where-they-died', 'Where they died', WHAT.whereTheyDied),
       );
     }
     const listed = failures.slice(0, FAILURE_LIMIT);
@@ -304,8 +312,9 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
             )
             .join('\n')}</tbody></table>${failures.length > listed.length ? `<p class="note steps-note">The newest ${number(listed.length)} are listed; the counts above use all ${number(failures.length)}.</p>` : ''}</div>`,
           'panel wide',
+          explain('recent-failures', 'Recent failures', WHAT.recent),
         )
-      : section('recent-failures', 'Recent failures', '', '<p class="well empty">No failure in this period.</p>');
+      : section('recent-failures', 'Recent failures', '', '<p class="well empty">No failure in this period.</p>', 'panel', explain('recent-failures', 'Recent failures', WHAT.recent));
     return out;
   }
 
@@ -337,7 +346,14 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
       )
       .join('');
     const legend = [...lines.map((l) => lineKey(esc(l.label), l.colour)), lineKey('Any workflow', null)].join('');
-    let out = section('red-per-day', `Time ${esc(BRANCH)} was red, per day`, `<span class="legend">${legend}</span>`, `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Time red per day">${area}${grid}${dates}<g class="lines">${drawn}</g></svg></div>`);
+    let out = section(
+      'red-per-day',
+      `Time ${esc(BRANCH)} was red, per day`,
+      `<span class="legend">${legend}</span>`,
+      `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Time red per day">${area}${grid}${dates}<g class="lines">${drawn}</g></svg></div>`,
+      'panel',
+      explain('red-per-day', `Time ${esc(BRANCH)} was red, per day`, WHAT.perDay),
+    );
 
     const dayPeak = Math.max(...total, 1);
     const heads = lines.map((l) => `<th scope="col" class="num"><i style="background:${l.colour}"></i>${esc(l.label)}</th>`).join('');
@@ -359,8 +375,9 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
       `${number(days.length)} days · newest first`,
       `<div class="well table"><table>
 <thead><tr><th scope="col">Day</th><th scope="col">Split</th>${heads}<th scope="col" class="num">Spells began</th><th scope="col" class="num">Failures</th><th scope="col" class="num">Any workflow</th></tr></thead>
-<tbody>${rows}</tbody></table><p class="note steps-note">Workflows red at the same time count once under Any workflow, so it is less than the row&rsquo;s sum.</p></div>`,
+<tbody>${rows}</tbody></table></div>`,
       'panel wide',
+      explain('by-day', 'By day', WHAT.day),
     );
     return out;
   }
@@ -383,7 +400,9 @@ over ${inline('period', 'Period', PERIOD_WORDS, q.period)}`,
     [q.group === 'workflow' ? '' : inline('workflow', 'Workflow', workflowChoices, q.workflow ?? '', '')],
     repo ? [`<a class="button" href="https://github.com/${repo}/actions?query=branch%3A${encodeURIComponent(BRANCH)}" target="_blank" rel="noopener noreferrer">Open in Actions</a>`] : [],
   );
-  return reportPage({ current: 'stability', controls: form, body: `${partial}${redNow}${anomalies}\n${content}`, style: EXTRA }, now);
+  // The page opens with the question its top tab names and the words a newcomer will not know, under the band, on every tab.
+  const pageLead = lead(questionOf('stability'), LEAD_MORE);
+  return reportPage({ current: 'stability', controls: form, body: `${pageLead}\n${partial}${redNow}${anomalies}\n${content}\n${EXPLAIN_SCRIPT}`, style: EXTRA + EXPLAIN_STYLE }, now);
 }
 
 const EXTRA = `

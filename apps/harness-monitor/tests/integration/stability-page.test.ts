@@ -1,5 +1,6 @@
 import { SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { withoutExplanations } from './cockpit-support';
 import { GREY, panelOf, RED, slot, swatches } from './series-colours';
 import { emptyTheDatabase, sendRuns, stabilityJob, stabilityRun, stabilityStep, theSentence } from './support';
 
@@ -45,7 +46,8 @@ function rowsOf(html: string, id: string): string[][] {
 }
 
 const hasSection = (html: string, id: string) => new RegExp(`<section[^>]*aria-labelledby="${id}"`).test(html);
-const text = (html: string) => html.replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
+/** What the page or a panel reads as its figures, without the (i)s and the explanations they open. */
+const text = (html: string) => withoutExplanations(html).replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
 
 describe('Harness Monitor', () => {
   describe("CI stability's stored runs are a page, and the same address answers JSON to a request that asks", () => {
@@ -192,7 +194,6 @@ describe('Harness Monitor', () => {
         ['Build', '2m 15s', '3m 00s', '2'],
         ['Run the tests', '6m 00s', '8m 00s', '2'],
       ]);
-      expect(panel).toContain('A sharded job&rsquo;s steps are every shard&rsquo;s together.');
       expect(html).toContain('class="chosen"');
     });
 

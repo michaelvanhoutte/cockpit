@@ -2,6 +2,7 @@ import { createExecutionContext, env, SELF, waitOnExecutionContext } from 'cloud
 import { beforeEach, describe, expect, it } from 'vitest';
 import worker from '../../src/worker';
 import { area, kase, model, rule, rules } from '../fixtures/tests-model';
+import { withoutExplanations } from './cockpit-support';
 import { emptyTheDatabase, merged, sendTestsModel, theSentence } from './support';
 import { coloursOf, GREY, segments, slot, swatches } from './series-colours';
 
@@ -55,7 +56,8 @@ const thePage = async (query = '', init: RequestInit = {}) => {
   return response.text();
 };
 
-const plain = (html: string) => html.replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[#\w]+;/g, ' ').replace(/\s+/g, ' ').trim();
+/** What the page or a panel reads as its figures, without the (i)s and the explanations they open. */
+const plain = (html: string) => withoutExplanations(html).replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[#\w]+;/g, ' ').replace(/\s+/g, ' ').trim();
 const sectionOf = (html: string, id: string) => new RegExp(`<section[^>]*aria-labelledby="${id}".*?</section>`, 's').exec(html)?.[0] ?? '';
 const hasSection = (html: string, id: string) => sectionOf(html, id) !== '';
 /** A table row of a section, as markup, by the text its first cell starts with. */
