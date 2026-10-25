@@ -2,7 +2,7 @@ import { createExecutionContext, env, SELF, waitOnExecutionContext } from 'cloud
 import { beforeEach, describe, expect, it } from 'vitest';
 import worker from '../../src/worker';
 import { area, kase, model, rule, rules } from '../fixtures/tests-model';
-import { emptyTheDatabase, merged, sendTestsModel } from './support';
+import { emptyTheDatabase, merged, sendTestsModel, theSentence } from './support';
 import { coloursOf, GREY, segments, slot, swatches } from './series-colours';
 
 beforeEach(emptyTheDatabase);
@@ -114,7 +114,7 @@ describe('Harness Monitor', () => {
       expect(plain(opened)).toContain('Workspaces › Inbox 1 rule');
       expect(plain(opened)).toContain('Workspaces › Inbox › Capture 2 rules');
       expect([...opened.matchAll(/<td class="first"><a href="[^"]*rule=/g)]).toHaveLength(3);
-      expect(html).toMatch(/<select id="level" name="level" onchange="this.form.submit\(\)">/);
+      expect(theSentence(html).choices.level).toMatchObject({ chosen: 'All levels', held: false });
     });
 
     it('a count followed while Level is L1 opens the tests it names, and Level stays L1', async () => {
@@ -123,7 +123,7 @@ describe('Harness Monitor', () => {
       const html = await thePage('?level=L1&tests=Inbox%7EF3%7E');
 
       expect(plain(sectionOf(html, 'tests'))).toContain('Tests: 3 rules in Inbox and inside it · F3 · End-to-end');
-      expect(html).toMatch(/<select id="level" name="level" onchange="this.form.submit\(\)" data-set><option value="">Every level<\/option><option value="L1" selected>/);
+      expect(theSentence(html).choices.level).toMatchObject({ chosen: 'L1 · Unit', held: true });
     });
 
     it("a package column's count on Testing level opens that level's rules in that package", async () => {
@@ -321,13 +321,13 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('the filters keep the Count by choice', () => {
-    it('changing a filter on another tab sends split along', async () => {
+  describe('the sentence keeps the Count by choice', () => {
+    it('changing a word of the sentence on another tab sends split along', async () => {
       await sendTestsModel(SNAPSHOT);
 
       const html = await thePage('?group=level&split=package');
 
-      expect(html.match(/<form class="filters".*?<\/form>/s)![0]).toContain('<input type="hidden" name="split" value="package">');
+      expect(html.match(/<form class="sentence-form".*?<\/form>/s)![0]).toContain('<input type="hidden" name="split" value="package">');
     });
   });
 
@@ -361,16 +361,11 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('the picker lists the open pull requests with tests shown, and picking one shows its tests', () => {
-    /** The picker's options that can be picked, each `[value, text]`, and the one chosen; null where the page draws none. */
+  describe('the sentence lists the open pull requests with tests shown, and picking one shows its tests', () => {
+    /** The options of the sentence's first word that can be picked, and the one chosen; null where the sentence has only the plain word. */
     const picker = (html: string) => {
-      const select = /<form class="stamp" method="get" action="\/tests">.*?<select id="pr" name="pr" onchange="this.form.submit\(\)">(.*?)<\/select>/s.exec(html)?.[1];
-      if (select === undefined) return null;
-      const options = [...select.matchAll(/<option value="([^"]*)"((?: \w+)*)>(.*?)<\/option>/g)];
-      return {
-        offered: options.filter((o) => !/ disabled/.test(o[2]!)).map((o) => [o[1], o[3]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))]),
-        chosen: options.find((o) => / selected/.test(o[2]!))?.[1] ?? null,
-      };
+      const choice = theSentence(html).choices.pr;
+      return choice === undefined ? null : { offered: choice.offered.filter((text) => !choice.disabled.includes(text)), chosen: choice.chosen };
     };
     const ofPullRequest = (commit: string, name: string) => model([area(name, rules(1, 'L1', API_UNIT))], { commit, commitUrl: `https://github.com/o/r/commit/${commit}` });
 
@@ -380,12 +375,8 @@ describe('Harness Monitor', () => {
       await sendTestsModel(ofPullRequest('fed8765', 'Only on 9003'), {}, 'pr-9003');
 
       expect(picker(await thePage())).toEqual({
-        offered: [
-          ['', 'main'],
-          ['9003', '#9003'],
-          ['9001', '#9001'],
-        ],
-        chosen: '',
+        offered: ['main’s', '#9003', '#9001'],
+        chosen: 'main’s',
       });
     });
 
@@ -395,12 +386,12 @@ describe('Harness Monitor', () => {
 
       const html = await thePage('?pr=9001');
 
-      expect(picker(html)?.chosen).toBe('9001');
+      expect(picker(html)?.chosen).toBe('#9001');
       expect(plain(html)).toContain('at def5678');
       expect(rowOf(html, 'areas', 'Only on 9001')).not.toBe('');
       expect(rowOf(html, 'areas', 'Inbox')).toBe('');
       expect(hrefOf(rowOf(html, 'areas', 'Only on 9001'))).toBe('/tests?node=Only+on+9001&pr=9001');
-      expect(html.match(/<form class="filters".*?<\/form>/s)![0]).toContain('<input type="hidden" name="pr" value="9001">');
+      expect(html.match(/<form class="sentence-form".*?<\/form>/s)![0]).toContain('<option value="9001" selected>');
     });
 
     it.each([
@@ -420,13 +411,30 @@ describe('Harness Monitor', () => {
       const html = await thePage(`?pr=${number}`);
 
       expect(plain(sectionOf(html, 'nothing'))).toContain(`Pull request #${number} has no snapshot of its tests here.`);
-      expect(picker(html)).toEqual({ offered: [['', 'main']], chosen: String(number) });
+      expect(picker(html)).toEqual({ offered: ['main’s'], chosen: `#${number}` });
     });
 
-    it("with only main's tests, there is no picker to draw", async () => {
+    it('a pull request with none keeps itself and the view asked for when new rows are chosen, and picking main’s still wins', async () => {
       await sendTestsModel(SNAPSHOT);
 
-      expect(picker(await thePage())).toBeNull();
+      const form = (await thePage('?pr=9002&node=Inbox&split=package')).match(/<form class="sentence-form".*?<\/form>/s)![0];
+      // Its own option is disabled, so the form never sends it; the hidden field after the select does, and an empty main’s before it is read first.
+      const select = form.indexOf('name="pr"');
+      const kept = form.indexOf('<input type="hidden" name="pr" value="9002">');
+
+      expect(select).toBeGreaterThan(-1);
+      expect(kept).toBeGreaterThan(select);
+      expect(form).toContain('<input type="hidden" name="node" value="Inbox">');
+      expect(form).toContain('<input type="hidden" name="split" value="package">');
+    });
+
+    it("with only main's tests, the sentence says main's as words", async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = await thePage();
+
+      expect(picker(html)).toBeNull();
+      expect(theSentence(html).text).toBe('Show main’s tests for [each concept area] counted by [level]');
     });
   });
 
@@ -449,13 +457,67 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe('the sentence says whose tests, for which rows, and offers only what it can', () => {
+    it("the bare address reads main's tests for each concept area counted by level, with Area, Level, Package and Show under Only", async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const { text, choices } = theSentence(await thePage());
+
+      expect(text).toBe('Show main’s tests for [each concept area] counted by [level]');
+      expect(choices.group!.offered).toEqual(['each concept area', 'each testing level', 'each package', 'each gap']);
+      expect(choices.split!.offered).toEqual(['level', 'package']);
+      expect(Object.keys(choices)).toEqual(['group', 'split', 'node', 'level', 'package', 'show']);
+      expect(Object.values(choices).filter((c) => c.held)).toEqual([]);
+    });
+
+    it.each([
+      { situation: 'each testing level, which counts by package and offers no Level filter', query: '?group=level&level=L1', keys: ['group', 'node', 'package'] },
+      { situation: 'each package, which offers no Package filter', query: '?group=package&package=api', keys: ['group', 'node', 'level'] },
+      { situation: 'each gap, which offers no Level filter and carries a level held in the form', query: '?group=gaps&level=L1', keys: ['group', 'node', 'package'] },
+      { situation: 'a rule opened, which counts by nothing', query: `?rule=${encodeURIComponent(`${API_INT}:20`)}`, keys: ['group', 'node', 'level', 'package', 'show'] },
+    ])('$situation', async ({ query, keys }) => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = await thePage(query);
+
+      expect(Object.keys(theSentence(html).choices)).toEqual(keys);
+      if (query.startsWith('?group=gaps')) expect(html).toContain('<input type="hidden" name="level" value="L1">');
+      if (!query.startsWith('?group=') || query.startsWith('?group=gaps')) expect(theSentence(html).text).not.toContain('counted by');
+    });
+
+    it('a pull request picked in the first word is read in the sentence and in the stamp', async () => {
+      await sendTestsModel(SNAPSHOT);
+      await sendTestsModel(model([area('Only on 9001', rules(1, 'L1', API_UNIT))], { commit: 'def5678', commitUrl: 'https://github.com/o/r/commit/def5678' }), {}, 'pr-9001');
+
+      const html = await thePage('?pr=9001');
+
+      expect(theSentence(html).text).toBe('Show [#9001] tests for [each concept area] counted by [level]');
+      expect(plain(html)).toContain('#9001 s tests at def5678');
+    });
+
+    it.each(['', '?group=level', '?group=package', '?group=gaps'])('has no grouping tabs, no Count by toggle and no labelled filter row at %s', async (query) => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = await thePage(query);
+
+      for (const gone of ['band-tabs', 'aria-label="Group by"', 'class="filters"', 'class="toggles"', 'aria-pressed', '<label ']) expect(html).not.toContain(gone);
+    });
+  });
+
   describe("with no snapshot of main's tests stored, the page says there is none yet", () => {
     it.each([[''], ['?group=gaps'], ['?rule=a.test.ts%3A3']])('the address %j opens the frame and says nothing has arrived', async (query) => {
       const html = await thePage(query);
 
       expect(plain(sectionOf(html, 'nothing'))).toContain('No snapshot of main s tests has arrived yet.');
       expect(html).toContain('<a href="/tests" aria-current="page">Tests</a>');
-      expect(html).not.toContain('class="filters"');
+      expect(theSentence(html).text).toMatch(/^Show main’s tests for \[each [a-z ]+\]$/);
+      expect(html).not.toContain('class="only"');
+    });
+  });
+
+  describe('the sentence of a page with nothing to show keeps the rows asked for', () => {
+    it('each gap asked for stays chosen, so choosing again is a change', async () => {
+      expect(theSentence(await thePage('?group=gaps')).choices.group!.chosen).toBe('each gap');
     });
   });
 

@@ -64,8 +64,9 @@ export function parseQuery(params: URLSearchParams): CostQuery {
   return {
     // Own keys only: `in` would accept `toString` and the page would throw.
     period: period !== null && Object.hasOwn(PERIODS, period) ? period : '30d',
-    engineer: params.get('engineer') || null,
-    category: (CATEGORIES as readonly string[]).includes(category) ? category : null,
+    // A filter that repeats the rows is dropped, as its control is not offered.
+    engineer: group_ === 'engineer' ? null : params.get('engineer') || null,
+    category: group_ !== 'category' && (CATEGORIES as readonly string[]).includes(category) ? category : null,
     model: MODEL_ID.test(model) ? model : null,
     who: (WHOS as readonly string[]).includes(who) ? who : 'all',
     group: group_,

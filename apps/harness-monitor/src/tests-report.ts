@@ -84,7 +84,6 @@ export const pkgLabel = (key: string) => PACKAGES.find((p) => p.key === key)?.la
 
 export const GROUPS = ['area', 'level', 'package', 'gaps'] as const;
 export type Group = (typeof GROUPS)[number];
-export const GROUP_LABELS: Record<Group, string> = { area: 'Concept area', level: 'Testing level', package: 'Package', gaps: 'Gaps' };
 export const SHOWS = ['all', 'files', 'empty'] as const;
 export type Show = (typeof SHOWS)[number];
 export const SPLITS = ['level', 'package'] as const;
@@ -131,11 +130,13 @@ export function parseTestsQuery(params: URLSearchParams): TestsQuery {
   // A part that is written but not understood drops the list: leaving it empty would mean every area, level or package.
   const readable = (value: string | undefined, got: unknown) => !value || got !== null;
   const list = params.has('tests') && extra.length === 0 && readable(node, listed.node) && readable(level, listed.level) && readable(pkg, listed.package) ? listed : null;
+  const group = pick<Group>(params.get('group'), GROUPS, 'area');
   return {
-    group: pick(params.get('group'), GROUPS, 'area'),
+    group,
     node: text(params.get('node')),
-    level: oneOf(params.get('level'), LEVEL_IDS),
-    package: oneOf(params.get('package'), PACKAGE_KEYS),
+    // A filter that repeats the rows is dropped, as its control is not offered.
+    level: group === 'level' ? null : oneOf(params.get('level'), LEVEL_IDS),
+    package: group === 'package' ? null : oneOf(params.get('package'), PACKAGE_KEYS),
     show: pick(params.get('show'), SHOWS, 'all'),
     split: pick(params.get('split'), SPLITS, 'level'),
     rule: text(params.get('rule')),

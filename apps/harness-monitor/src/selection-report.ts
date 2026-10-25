@@ -19,15 +19,16 @@ export const UNIT: Record<Job, [string, string]> = { test: ['test file', 'test f
 
 export const GROUPS = ['day', 'pr', 'rule', 'package', 'test', 'miss'] as const;
 export type Group = (typeof GROUPS)[number];
-export const GROUP_LABELS: Record<Group, string> = { day: 'Overview', pr: 'Pull request', rule: 'What forced a full run', package: 'Package', test: 'Most selected tests', miss: 'Misses' };
 
-/** The Period filter, in days; `all` is every pull request held, which reaches about 90 days. */
+/** The Period choice, in days; `all` is every pull request held, which reaches about 90 days. */
 export const PERIODS = { '7d': 7, '14d': 14, all: null } as const;
 export type Period = keyof typeof PERIODS;
-export const PERIOD_CHOICES: [Period, string][] = [['7d', 'Last 7 days'], ['14d', 'Last 14 days'], ['all', 'Everything held']];
+/** The period as a word of the page's sentence ("over the last 14 days"). */
+export const PERIOD_CHOICES: [Period, string][] = [['7d', 'the last 7 days'], ['14d', 'the last 14 days'], ['all', 'everything held']];
 export const DEFAULT_PERIOD: Period = '14d';
 
-export const JOB_CHOICES: [JobFilter, string][] = [['both', 'Both'], ['test', 'Test job'], ['e2e', 'E2E job']];
+/** The job as a word of the page's sentence ("in the E2E job"). */
+export const JOB_CHOICES: [JobFilter, string][] = [['both', 'both jobs'], ['test', 'the Test job'], ['e2e', 'the E2E job']];
 
 export const OUTCOME_FILTERS = ['selected', 'full', 'miss', 'docs'] as const;
 export type OutcomeFilter = (typeof OUTCOME_FILTERS)[number];

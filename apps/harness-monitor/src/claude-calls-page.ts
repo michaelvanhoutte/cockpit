@@ -21,6 +21,10 @@ export const CALL_SPLITS = ['environment', 'feature', 'model', 'startedBy'] as c
 export type CallSplit = (typeof CALL_SPLITS)[number];
 export const DEFAULT_CALL_SPLIT: CallSplit = 'environment';
 
+/** The colouring a grouping already is, which would repeat its rows: never offered, and an address asking for it falls back. */
+export const SAME_AS_ROWS: Partial<Record<CallGroup, CallSplit>> = { feature: 'feature', environment: 'environment', startedBy: 'startedBy' };
+const INSTEAD: Record<CallSplit, CallSplit> = { environment: 'feature', feature: 'environment', model: 'environment', startedBy: 'environment' };
+
 /** The environments production's record names, in the order the page lists them. */
 export const ENVIRONMENTS = ['production', 'staging', 'ci', 'local'] as const;
 export type Environment = (typeof ENVIRONMENTS)[number];
@@ -46,14 +50,17 @@ export function parseCallsQuery(params: URLSearchParams): CallsQuery {
   const environment = params.get('environment') ?? '';
   const feature = params.get('feature') ?? '';
   const model = params.get('model') ?? '';
+  const rows = (CALL_GROUPS as readonly string[]).includes(group) ? (group as CallGroup) : DEFAULT_CALL_GROUP;
+  const asked = (CALL_SPLITS as readonly string[]).includes(split) ? (split as CallSplit) : DEFAULT_CALL_SPLIT;
   return {
     // Own keys only: `in` would accept `toString` and the page would throw.
     period: Object.hasOwn(PERIODS, period) ? (period as Period) : '30d',
-    environment: (ENVIRONMENTS as readonly string[]).includes(environment) ? (environment as Environment) : null,
-    feature: FEATURE_ID.test(feature) ? feature : null,
+    // A filter that repeats the rows is dropped, as its control is not offered.
+    environment: rows !== 'environment' && (ENVIRONMENTS as readonly string[]).includes(environment) ? (environment as Environment) : null,
+    feature: rows !== 'feature' && FEATURE_ID.test(feature) ? feature : null,
     model: MODEL_ID.test(model) ? model : null,
-    group: (CALL_GROUPS as readonly string[]).includes(group) ? (group as CallGroup) : DEFAULT_CALL_GROUP,
-    split: (CALL_SPLITS as readonly string[]).includes(split) ? (split as CallSplit) : DEFAULT_CALL_SPLIT,
+    group: rows,
+    split: SAME_AS_ROWS[rows] === asked ? INSTEAD[asked] : asked,
   };
 }
 

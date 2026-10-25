@@ -6,7 +6,6 @@ import {
   callsChanges,
   callsChart,
   callsColumns,
-  callsControls,
   callsJobLine,
   callsRows,
   callsTiles,
@@ -23,7 +22,7 @@ import {
 } from './cockpit-support';
 import { GREY, panelOf, slot, swatches } from './series-colours';
 import { linked, pullRequest } from './github-support';
-import { emptyTheDatabase, groupTabs, send, spend, thePage, withPrices } from './support';
+import { emptyTheDatabase, send, spend, theSentence, thePage, withPrices } from './support';
 
 /** CI's contract run: the calls a pull request's run makes, started by the run. */
 const CI = { environment: 'ci', startedBy: 'contract-run' };
@@ -84,7 +83,7 @@ describe('Harness Monitor', () => {
     it('the bare address is Over time for the last 30 days, split by environment: a row per day, newest first, and the cost per day', async () => {
       const html = await theCallsPage();
 
-      expect(groupTabs(html).find((t) => t.current)?.label).toBe('Over time');
+      expect(theSentence(html).text).toBe('Show cost for [each day] coloured by [environment] over [the last 30 days]');
       expect(callsColumns(html)).toEqual(['Production', 'Staging', 'CI', 'Local']);
       expect(callsRows(html).map((r) => [r.label, r.calls, ...r.cells, r.total])).toEqual([
         ['23 Oct 2026', '3', '—', '—', '$1.75', '—', '$1.75'],
@@ -195,21 +194,11 @@ describe('Harness Monitor', () => {
       expect(callsTiles(html)[1]).toEqual({ label: 'Calls', value: '0', note: 'none in this period' });
     });
 
-    it('the groupings are tabs on the band, each keeping the filters and the split', async () => {
-      const tabs = groupTabs(await theCallsPage('?environment=ci&split=model&period=7d&group=pr'));
+    it('a filter shows what it holds, and the rows, the colours and the period hold no value', async () => {
+      const held = (html: string) => Object.entries(theSentence(html).choices).filter(([, c]) => c.held).map(([name]) => name);
 
-      expect(tabs.map((t) => t.label)).toEqual(['Over time', 'Feature', 'Environment', 'Pull request', 'Started by']);
-      expect(tabs.find((t) => t.current)?.label).toBe('Pull request');
-      expect(tabs.every((t) => t.href.startsWith('/claude-calls?') && /environment=ci/.test(t.href) && /split=model/.test(t.href) && /period=7d/.test(t.href))).toBe(true);
-      expect(tabs.map((t) => /group=(\w+)/.exec(t.href)?.[1] ?? null)).toEqual([null, 'feature', 'environment', 'pr', 'startedBy']);
-    });
-
-    it('a control shows what it holds', async () => {
-      expect(callsControls(await theCallsPage())).toEqual({ held: [], pressed: ['Environment'] });
-      expect(callsControls(await theCallsPage('?period=7d&environment=ci&feature=clean-up-a-note&model=claude-sonnet-4-5&split=model'))).toEqual({
-        held: ['period', 'environment', 'feature', 'model'],
-        pressed: ['Model'],
-      });
+      expect(held(await theCallsPage())).toEqual([]);
+      expect(held(await theCallsPage('?period=7d&environment=ci&feature=clean-up-a-note&model=claude-sonnet-4-5&split=model'))).toEqual(['environment', 'feature', 'model']);
     });
   });
 
@@ -235,14 +224,15 @@ describe('Harness Monitor', () => {
       ]);
 
       const features = await theCallsPage('?group=feature');
+      const dropdown = await theCallsPage();
       expect(callsRows(features).map((r) => r.label)).toEqual(['constructor', 'Has_Upper']);
       expect(callsColumns(await theCallsPage('?group=environment&split=feature'))).toEqual(['constructor', 'Has_Upper']);
       // A feature the dropdown leaves out still has a colour of its own.
       const heads = [...(await theCallsPage('?group=environment&split=feature')).matchAll(/<th scope="col" class="num"><i style="background:([^"]+)"/g)].map((m) => m[1]);
       expect(new Set(heads).size).toBe(2);
       expect(callsColumns(await theCallsPage())).toEqual(['Production', 'valueOf']);
-      expect(features).toContain('<option value="constructor">');
-      expect(features).not.toContain('Has_Upper</option>');
+      expect(dropdown).toContain('<option value="constructor">');
+      expect(dropdown).not.toContain('Has_Upper</option>');
     });
   });
 

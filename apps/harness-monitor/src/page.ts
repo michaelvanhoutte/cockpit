@@ -28,7 +28,7 @@ import {
   type Who,
 } from './costs';
 import { type JobName, type JobStatus } from './jobs';
-import { band, esc, lineKey, shell } from './look';
+import { band, esc, inline, lineKey, shell } from './look';
 import { colourByPlace, foldAmounts, foldSeries, GREY, isFolded, RED, slot, VIOLET } from './palette';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
@@ -146,15 +146,7 @@ ${rows}
 
 const ROW_WORDS: Record<Group, string> = { day: 'each day', pr: 'each pull request', issue: 'each issue', engineer: 'each engineer', category: 'each phase' };
 const COLOUR_WORDS: Record<Split, string> = { phase: 'phase', engineer: 'engineer', model: 'model', where: 'where it ran', outcome: 'outcome' };
-const PERIOD_WORDS: Record<Period, string> = { '7d': 'the last 7 days', '30d': 'the last 30 days', '90d': 'the last 90 days', all: 'all time' };
-
-/** A select inside the sentence: its name read by assistive technology, its value shown as a word of the sentence. A filter that holds a value wears `data-set`. */
-function inline(name: string, label: string, options: [value: string, text: string, off?: boolean][], current: string, resting: string | null = null): string {
-  const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
-  // New rows start in their own order, so choosing them leaves the form's sort behind; every other choice keeps it.
-  const leave = name === 'group' ? 'if(this.form.elements.sort)this.form.elements.sort.disabled=true;' : '';
-  return `<select name="${name}" aria-label="${label}" onchange="${leave}this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
-}
+export const PERIOD_WORDS: Record<Period, string> = { '7d': 'the last 7 days', '30d': 'the last 30 days', '90d': 'the last 90 days', all: 'all time' };
 
 /**
  * The page's controls as one sentence on the band, pinned to the top: what the
@@ -174,8 +166,8 @@ function controls({ query, engineers, models }: CostsPage): string {
 coloured by ${inline('split', 'Colours', SPLITS.map((v): [string, string, boolean] => [v, COLOUR_WORDS[v], SAME_AS_ROWS[query.group] === v]), query.split)}
 over ${inline('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]), query.period)}</p>
 <div class="only"><span>Only</span>
-${inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', '')}
-${inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', '')}
+${query.group === 'engineer' ? '' : inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', '')}
+${query.group === 'category' ? '' : inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', '')}
 ${inline('model', 'Model', modelOptions, query.model ?? '', '')}
 ${inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all')}
 <a class="button" href="/export.csv${queryString(query, { group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 })}" download>Export CSV</a></div>
