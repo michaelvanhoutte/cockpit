@@ -249,7 +249,8 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
   function table(group: Exclude<CycleTimeQuery['group'], 'check'>): string {
     const series = COLOURED;
     const all = buckets(group, list, issueOf);
-    const info = explain(`t-${group}`, group === 'day' ? 'By day merged' : `By ${GROUP_LABELS[group].toLowerCase()}`, WHAT[group]);
+    // The (i) is named for the heading the panel wears: the tab's label while empty, the table's title otherwise.
+    const info = explain(`t-${group}`, all.length === 0 ? GROUP_LABELS[group] : group === 'day' ? 'By day merged' : `By ${GROUP_LABELS[group].toLowerCase()}`, WHAT[group]);
     if (all.length === 0) return section('cycle-table', GROUP_LABELS[group], '', '<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide', info);
     const perPull = group === 'pr';
     const summed = group === 'issue';
