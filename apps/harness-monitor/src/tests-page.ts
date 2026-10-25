@@ -534,7 +534,7 @@ ${code(r)}
 const EXTRA = `
 .stamp{margin:0;font-size:13px;color:var(--ink-faint)}.stamp a{color:inherit}
 a.count{color:inherit;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 30%,transparent);text-underline-offset:3px}a.count:hover{color:var(--accent-deep)}
-code,.note code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
 .crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:15px;font-weight:500;color:var(--ink-strong)}
 .crumbs a{color:var(--accent-deep)}.crumbs .sep{color:var(--ink-faint)}
 .tile-value small{font-size:15px;font-weight:500;color:var(--ink-faint)}

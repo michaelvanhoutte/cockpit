@@ -25,7 +25,7 @@ export const WHAT = {
   },
   typical: {
     shows: 'What a typical pull request ran: for each job, how many test files or specs a run that selected ran, how long the Test job took beside <code>main</code>&rsquo;s own run of the same merge, and how many pull requests were documentation only.',
-    read: 'Each figure is a median. A job&rsquo;s count is over the pull requests that selected; <i>of</i> is how many it holds in all, so the two together say how much a selection skips. <code>main</code> runs every test on the merge, so its time is what the Test job costs without selection.',
+    read: 'Each job&rsquo;s figure and the times are medians; <i>Documentation only</i> counts pull requests. A job&rsquo;s count is over the pull requests that selected; <i>of</i> is how many it holds in all, so the two together say how much a selection skips. <code>main</code> runs every test on the merge, so its time is what the Test job costs without selection.',
     look: 'A typical run close to the whole count, or a Test job time close to <code>main</code>&rsquo;s, means selection saves little even when it works.',
   },
   perDay: {

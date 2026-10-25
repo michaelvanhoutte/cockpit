@@ -39,6 +39,7 @@ import {
   type Job,
   type Outcome,
   type SelectionQuery,
+  type Verdict,
 } from './selection-report';
 import { LEAD_MORE, TABLES, WHAT } from './selection-explain';
 import type { SelectionView, ViewJob, ViewPull } from './selection-view';
@@ -84,6 +85,10 @@ const ADVICE: Record<Job, Record<string, string>> = {
 };
 const adviceFor = (job: Job, rule: string) => ADVICE[job][rule] ?? 'No advice is written for this rule yet.';
 
+/** A tile's label with its verdict after it, so the (i) follows both. Each verdict word is its own element, so the label wraps between them and the (i) binds to the last. */
+const withVerdict = (label: string, verdict: Verdict) =>
+  verdict === 'unread' ? label : `${label} ${(verdict === 'crossed' ? '· over the bar' : '· within').split(' ').map((w) => `<em>${w}</em>`).join(' ')}`;
+
 const mono = (s: string) => `<span class="mono">${esc(s)}</span>`;
 const prLabel = (p: { number: number; title: string }) => `<span class="pr-no">#${p.number}</span> ${esc(p.title)}`;
 const jobDot = (job: Job) => `<i class="job-dot" style="background:${JOB_COLOURS[job]}"></i>`;
@@ -119,7 +124,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       const lead = leadingRuleOf(full);
       out.push(
         tile(
-          `${JOB_NAMES[job]} ran everything`,
+          withVerdict(`${JOB_NAMES[job]} ran everything`, verdict),
           value === null ? 'none' : pct(value),
           [
             `${number(full.length)} of ${plural(views.length, 'pull request')} that ran it · bar ${percent(bars.forcedFull[job])}`,
@@ -136,7 +141,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     const missVerdict = verdictOf(read, pulls.length ? misses : null, bars.misses);
     out.push(
       tile(
-        'Misses',
+        withVerdict('Misses', missVerdict),
         number(misses),
         [`a test that failed on main after its pull request skipped it · ${bars.misses <= 1 ? 'any miss' : `${number(bars.misses)} or more`} crosses`, ...(misses ? [`<a href="${link({ group: 'miss' })}">See which</a>`] : []), ...unread, ...alarm(bars.alarm.misses, missVerdict)],
         tileClass(missVerdict),
@@ -147,7 +152,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     const topVerdict = verdictOf(read, top ? shareOf(top) : null, bars.mostShare);
     out.push(
       tile(
-        'Most selected test',
+        withVerdict('Most selected test', topVerdict),
         top ? pct(shareOf(top)) : 'none',
         top
           ? [
@@ -525,8 +530,9 @@ const EXTRA = `
 .first .mono{color:var(--ink-strong)}
 td.first{min-width:260px}
 .tile-note a{color:var(--accent-deep)}
-.tile.up .tile-label::after{content:' · over the bar';color:var(--over-ink)}
-.tile.down .tile-label::after{content:' · within';color:var(--good)}
+.tile-label em{font-style:normal}
+.tile.up .tile-label em{color:var(--over-ink)}
+.tile.down .tile-label em{color:var(--good)}
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
 .pill.over{background:color-mix(in srgb,var(--over) 14%,transparent);color:var(--over-ink)}
 .pill.good{background:color-mix(in srgb,var(--good) 14%,transparent);color:var(--good)}

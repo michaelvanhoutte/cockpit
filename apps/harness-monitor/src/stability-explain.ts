@@ -23,7 +23,7 @@ export const WHAT = {
     look: 'The slowest job sets how long every merge waits for its verdict, and the slower it is, the more often a newer push cancels it before it finishes.',
   },
   ended: {
-    shows: 'Every job run on <code>main</code> in the period, all workflows together, by how it ended.',
+    shows: 'Every job run on <code>main</code> in the period, by how it ended: every workflow&rsquo;s together, or only the one the Workflow filter picks.',
     read: 'Each segment is as wide as its share, and the list gives the counts. Violet passed, red failed, orange is still running, blue ended some other way, and grey was cancelled or skipped. A pass rate counts only the runs that finished: a cancelled run is not a failed one. <code>cancel-in-progress</code> cancels a run a newer push overtakes, and the slowest job most, so folding cancels into failures would read the browser tier far worse than it is. A skipped job never ran.',
     look: 'Red is the share to watch. A wide grey share is pushes overtaking each other, which costs runner time but is not instability.',
   },
@@ -52,4 +52,4 @@ export const WHAT = {
 
 /** What follows the question on the page's lead: the words a newcomer will not know. */
 export const LEAD_MORE =
-  'Every figure is GitHub Actions on the <code>main</code> branch: each workflow run, such as CI after a merge or a nightly job, and the jobs inside it. A <b>pass rate</b> is the runs that passed out of those that finished with a verdict, passed or failed. A <b>cancelled</b> run was stopped before it finished, mostly by a newer push overtaking it, so it counts as neither. A <b>red spell</b> is a stretch when a workflow&rsquo;s latest run had failed, from that run to the next one that passed. A <b>fluke</b> is a check that fails and then passes on a re-run with nothing changed; the page sees only how each run ended, so it cannot tell a fluke from a real break.';
+  'Every figure is GitHub Actions on the <code>main</code> branch: each workflow run, such as CI after a merge or a nightly job, and the jobs inside it. A <b>pass rate</b> is the runs that passed out of those that finished with a verdict, passed or failed. A <b>cancelled</b> run was stopped before it finished, mostly by a newer push overtaking it, so it counts as neither. A <b>red spell</b> is a stretch when a workflow&rsquo;s latest run had failed, from that run to the next one that passed. A <b>fluke</b> is a check that fails and then passes on a re-run with nothing changed; the page keeps only each run&rsquo;s latest verdict, so a fluke re-run to green counts as a pass, and one left red cannot be told from a real break.';

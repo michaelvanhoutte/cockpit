@@ -108,12 +108,14 @@ describe('Harness Monitor', () => {
 
       const [test, e2e] = tiles(html).filter((t) => /ran everything/i.test(t.text));
       expect(e2e).toMatchObject({ cls: 'up' });
-      expect(e2e!.text).toContain('E2E job ran everything 30% 9 of 30 pull requests that ran it · bar 25%');
+      expect(e2e!.text).toContain('E2E job ran everything · over the bar 30% 9 of 30 pull requests that ran it · bar 25%');
+      // The verdict is the label's last words, so the (i) follows it.
+      expect(html).toContain('<em>bar</em><button type="button" class="info" data-pop="x-t-e2e-full"');
       expect(html).toContain('Mostly <a href="/selection?group=rule&#38;rule=e2e%3Aowned+by+no+concept">owned by no concept</a>, 9 of them');
       expect(e2e!.text).toContain('Alarm issue #1520');
       expect(html).toContain('href="https://github.com/michaelvanhoutte/cockpit/issues/1520"');
       expect(test).toMatchObject({ cls: 'down' });
-      expect(test!.text).toContain('Test job ran everything 0%');
+      expect(test!.text).toContain('Test job ran everything · within 0%');
     });
 
     it('twelve pull requests are too few to read, so no bar judges them and each says what it needs', async () => {
@@ -129,7 +131,7 @@ describe('Harness Monitor', () => {
     it('the job chosen is read alone: its own tile, and the misses and most selected test of its own rows', async () => {
       await sendSelection(thirtyWithNineFull());
 
-      const e2e = tiles(await thePage('?job=e2e')).map((t) => t.text.split(' ').slice(0, 3).join(' '));
+      const e2e = tiles(await thePage('?job=e2e')).map((t) => t.text.replace(/ · (over the bar|within)/, '').split(' ').slice(0, 3).join(' '));
 
       expect(e2e).toEqual(['E2E job ran', 'Misses 0 a', 'Most selected test']);
     });
