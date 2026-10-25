@@ -695,15 +695,17 @@ describe('Harness Monitor', () => {
 
   describe('a table with nothing to list still carries its (i) over the empty panel', () => {
     it.each([
-      { situation: 'Over time, in a period with no merged pull request', query: '?period=3d', panel: 'cycle-table', id: 't-day', says: 'Nothing in this period' },
-      { situation: 'Pull request, in a period with no merged pull request', query: '?group=pr&period=3d', panel: 'cycle-table', id: 't-pr', says: 'Nothing in this period' },
-      { situation: 'Check, in a period with no merged pull request', query: '?group=check&period=3d', panel: 'by-check', id: 't-check', says: 'Nothing in this period' },
-    ])('$situation', async ({ query, panel, id, says }) => {
+      { situation: 'Over time, in a period with no merged pull request', query: '?period=3d', panel: 'cycle-table', id: 't-day', named: 'Over time', says: 'Nothing in this period' },
+      { situation: 'Pull request, in a period with no merged pull request', query: '?group=pr&period=3d', panel: 'cycle-table', id: 't-pr', named: 'Pull request', says: 'Nothing in this period' },
+      { situation: 'Check, in a period with no merged pull request', query: '?group=check&period=3d', panel: 'by-check', id: 't-check', named: 'By check', says: 'Nothing in this period' },
+    ])('$situation', async ({ query, panel, id, named, says }) => {
       await sendPulls([recorded(3, '2026-10-01T10:00:00Z')]);
 
       const html = await thePage(query);
 
       expect(text(panelOf(html, panel))).toContain(says);
+      // Named for the heading the empty panel wears, which a screen reader hears beside it.
+      expect(panelOf(html, panel)).toContain(`aria-label="How to read ${named}"`);
       expect(infoOfPanel(html, panel)).toBe(id);
       expect(partsOf(html, id)).toEqual(['What it shows']);
     });

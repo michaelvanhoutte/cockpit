@@ -249,9 +249,10 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
   function table(group: Exclude<CycleTimeQuery['group'], 'check'>): string {
     const series = COLOURED;
     const all = buckets(group, list, issueOf);
-    // The (i) is named for the heading the panel wears: the tab's label while empty, the table's title otherwise.
-    const info = explain(`t-${group}`, all.length === 0 ? GROUP_LABELS[group] : group === 'day' ? 'By day merged' : `By ${GROUP_LABELS[group].toLowerCase()}`, WHAT[group]);
-    if (all.length === 0) return section('cycle-table', GROUP_LABELS[group], '', '<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide', info);
+    // The heading the panel wears, which names its (i): the tab's label while empty, the table's title otherwise.
+    const title = all.length === 0 ? GROUP_LABELS[group] : `By ${group === 'day' ? 'day merged' : GROUP_LABELS[group].toLowerCase()}`;
+    const info = explain(`t-${group}`, title, WHAT[group]);
+    if (all.length === 0) return section('cycle-table', title, '','<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide', info);
     const perPull = group === 'pr';
     const summed = group === 'issue';
     /** A row's minutes: a pull request's own, an issue's added up, a day's or a size's per pull request on average. */
@@ -299,7 +300,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const noun = group === 'day' ? 'day' : group === 'size' ? 'size' : group === 'issue' ? 'issue' : 'pull request';
     return section(
       'cycle-table',
-      `By ${group === 'day' ? 'day merged' : GROUP_LABELS[group].toLowerCase()}`,
+      title,
       `${plural(all.length, noun)} · ${how}`,
       `<div class="well table"><table class="openable">
 <thead><tr><th scope="col">${group === 'day' ? 'Day merged' : GROUP_LABELS[group]}</th>${perPull ? '' : '<th scope="col" class="num">Pull requests</th>'}<th scope="col" class="split-head">Split</th><th scope="col" class="num">Start to merge</th><th scope="col" class="num">Rounds</th><th scope="col" class="num">Claude Code</th></tr></thead>
