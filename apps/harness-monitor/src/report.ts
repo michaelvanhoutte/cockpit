@@ -1,3 +1,4 @@
+import { labelWithInfo, type Info } from './explain';
 import { esc, shell, band, type PageName } from './look';
 
 /**
@@ -29,13 +30,13 @@ export const githubUrl = (u: string | null | undefined) => (u && /^https:\/\/git
 export const outLink = (u: string | null | undefined, text: string, cls = '') =>
   `<a href="${githubUrl(u)}"${cls ? ` class="${cls}"` : ''} target="_blank" rel="noopener noreferrer">${text}</a>`;
 
-/** A section over a well, named for a screen reader by its heading. */
-export const section = (id: string, title: string, aside: string, content: string, cls = 'panel') =>
-  `<section class="${cls}" aria-labelledby="${id}">${band(title, aside, id)}${content}</section>`;
+/** A section over a well, named for a screen reader by its heading alone, with the (i) of `info` beside it where it explains itself. */
+export const section = (id: string, title: string, aside: string, content: string, cls = 'panel', info?: Info) =>
+  `<section class="${cls}" aria-labelledby="${id}">${band(title, aside, id, info?.both)}${content}</section>`;
 
-/** A tile: a label, a figure and a note, or several, each its own line. */
-export const tile = (label: string, value: string, note: string | string[], cls = '') =>
-  `<div class="tile ${cls}"><span class="tile-label">${label}</span><span class="tile-value">${value}</span>${(typeof note === 'string' ? [note] : note).map((n) => `<span class="tile-note">${n}</span>`).join('')}</div>`;
+/** A tile: a label, a figure and a note, or several, each its own line. Its (i) stays on the label's line. */
+export const tile = (label: string, value: string, note: string | string[], cls = '', info?: Info) =>
+  `<div class="tile ${cls}"><span class="tile-label">${info ? labelWithInfo(label, info.button) : label}</span><span class="tile-value">${value}</span>${(typeof note === 'string' ? [note] : note).map((n) => `<span class="tile-note">${n}</span>`).join('')}${info?.panel ?? ''}</div>`;
 
 /** What a report page adds to the shared stylesheet. */
 export const REPORT_STYLE = `

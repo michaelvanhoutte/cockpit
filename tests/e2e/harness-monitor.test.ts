@@ -558,8 +558,10 @@ test.describe('Harness Monitor', () => {
     await expect(opening(9001)).toHaveAttribute('aria-expanded', 'false');
     await expect(strips).toHaveCount(0);
 
-    // The keyboard: Tab from the last filter reaches the first chevron, and Enter opens and closes it.
+    // The keyboard: Tab from the last filter passes the table's (i) and reaches the first chevron, and Enter opens and closes it.
     await choice(page, 'Rounds').focus();
+    await page.keyboard.press('Tab');
+    await expect(table.getByRole('button', { name: 'How to read By pull request' })).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(table.locator('.chev').first()).toBeFocused();
     await page.keyboard.press('Enter');
@@ -584,6 +586,133 @@ test.describe('Harness Monitor', () => {
     await page.goto(`${monitor}/cycle-time?group=check`);
     await expect(page.getByRole('region', { name: 'By check' })).toBeVisible();
     await expect(page.locator('.chev')).toHaveCount(0);
+  });
+
+  test("an (i) on Cycle time opens its explanation on pointing or a tap, keeps it on a click, and closes it on leaving, a second click, a click elsewhere or Escape, one at a time, with no request, inside the screen's width", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    await seedCycleTime(api);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+
+    // The page's timers are ours to run, so that "still open after leaving" is asked after the time it would have closed in, not after a sleep.
+    await page.clock.install();
+    await page.goto(`${monitor}/cycle-time`);
+    await page.waitForLoadState('load');
+    const info =(name: string) => page.getByRole('button', { name: `How to read ${name}`, exact: true });
+    const where = info('Where the time went');
+    const scatter = info('Writing against the harness');
+    const whereText = page.locator('#x-where');
+    const scatterText = page.locator('#x-scatter');
+    const requests: string[] = [];
+    page.on('request', (r) => requests.push(r.url()));
+    // A desk points and clicks; a phone taps, which the browser answers as a click after the touch.
+    const press = (target: typeof where) => (onAPhone ? target.tap() : target.click());
+    // Elsewhere is the footer's empty edge: an explanation opens over the panels beside its (i), but never down there.
+    const elsewhere = () => (onAPhone ? page.locator('footer').tap({ position: { x: 5, y: 5 } }) : page.locator('footer').click({ position: { x: 5, y: 5 } }));
+
+    // Closed at rest, naming what it opens.
+    await expect(whereText).toBeHidden();
+    await expect(where).toHaveAttribute('aria-expanded', 'false');
+
+    if (!onAPhone) {
+      // Pointing opens it, with its three parts, and leaving closes it.
+      await where.hover();
+      await expect(whereText).toBeVisible();
+      await expect(whereText.locator('dt')).toHaveText(['What it shows', 'How to read it', 'What to look for']);
+      await expect(where).toHaveAttribute('aria-expanded', 'true');
+      await page.mouse.move(1, 1);
+      await expect(whereText).toBeHidden();
+    }
+
+    // A click or tap keeps it open after the pointer leaves, and sits within the screen's width.
+    await press(where);
+    await expect(whereText).toBeVisible();
+    await page.mouse.move(1, 1);
+    await page.clock.runFor(1000);
+    await expect(whereText).toBeVisible();
+    const box = (await whereText.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // A second click or tap on it closes it.
+    await press(where);
+    await expect(whereText).toBeHidden();
+
+    // A click or tap elsewhere closes it, and so does Escape.
+    await press(where);
+    await expect(whereText).toBeVisible();
+    await elsewhere();
+    await expect(whereText).toBeHidden();
+    await press(where);
+    await expect(whereText).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(whereText).toBeHidden();
+    await expect(where).toHaveAttribute('aria-expanded', 'false');
+
+    // Opening a second one closes the first. The first may be open over the second's (i), so the second is reached from the keyboard.
+    await press(where);
+    await expect(whereText).toBeVisible();
+    await scatter.focus();
+    await page.keyboard.press('Enter');
+    await expect(scatterText).toBeVisible();
+    await expect(whereText).toBeHidden();
+    await elsewhere();
+    await expect(scatterText).toBeHidden();
+
+    // From the keyboard: focus and Enter open it, Escape closes it.
+    await where.focus();
+    await page.keyboard.press('Enter');
+    await expect(whereText).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(whereText).toBeHidden();
+
+    // The text was in the page already: nothing above asked for anything.
+    expect(requests).toEqual([]);
+  });
+
+  test("a Cycle time tile's (i) sits on its label's line, on a desk and on a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    await seedCycleTime(api);
+
+    await page.goto(`${monitor}/cycle-time`);
+    const tiles = page.locator('.tile');
+    await expect(tiles).toHaveCount(4);
+
+    // For each tile: the lines its label's words are set on, and where its (i) sits against the last of them.
+    const check = async () => {
+      const laidOut = await tiles.evaluateAll((all) =>
+        all.map((tile) => {
+          const label = tile.querySelector('.tile-label')!;
+          const button = label.querySelector('.info')!.getBoundingClientRect();
+          // Every line the label's words (not the button's) are set on.
+          const words = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+          const lines: { top: number; bottom: number }[] = [];
+          while (words.nextNode()) {
+            if (words.currentNode.parentElement!.closest('button')) continue;
+            const range = document.createRange();
+            range.selectNodeContents(words.currentNode);
+            for (const r of range.getClientRects()) if (r.width > 0) lines.push({ top: r.top, bottom: r.bottom });
+          }
+          const last = lines.reduce((a, b) => (b.top > a.top ? b : a));
+          return { name: label.firstChild!.textContent!, button: (button.top + button.bottom) / 2, last, right: button.right, tile: tile.getBoundingClientRect().right };
+        }),
+      );
+      for (const t of laidOut) {
+        // The centre of the (i) is within the last line of the label's words, and inside its tile.
+        expect(t.button, `${t.name} at ${page.viewportSize()!.width}px`).toBeGreaterThanOrEqual(t.last.top);
+        expect(t.button, `${t.name} at ${page.viewportSize()!.width}px`).toBeLessThanOrEqual(t.last.bottom);
+        expect(t.right, t.name).toBeLessThanOrEqual(t.tile);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    };
+    await check();
+    // A phone is any width from a narrow handset up to the project's: a label wraps at some of them and not at others, and its (i) goes with its last word at each.
+    if ((page.viewportSize()?.width ?? 0) <= 640) {
+      for (let width = 320; width <= 480; width += 8) {
+        await page.setViewportSize({ width, height: 800 });
+        await check();
+      }
+    }
   });
 
   test('Test selection opens from the top bar, its sentence and a pull request open what each job ran and why, choosing each package leaves the pull request and keeps the job, the longest sentence fits a desk and a phone, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
