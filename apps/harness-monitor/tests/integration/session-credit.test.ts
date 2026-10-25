@@ -362,6 +362,19 @@ describe('Harness Monitor', () => {
   describe('deployed totals read the same across the migration', () => {
     /** The Monitor as the release before this one left it: the old totals holding every request, and no credited totals, credits or credit mark. */
     async function asTheReleaseBefore() {
+      // The table migration 0026 drops, which the release before still wrote: recreated empty here, because the schema no longer has it.
+      await env.DB.prepare('DROP TABLE IF EXISTS daily_split_totals').run();
+      await env.DB.prepare(
+        `CREATE TABLE daily_split_totals (
+           day TEXT NOT NULL, branch TEXT NOT NULL, category TEXT NOT NULL, model TEXT NOT NULL, ran_where TEXT NOT NULL,
+           subagent INTEGER NOT NULL, requests INTEGER NOT NULL, cost_micros INTEGER NOT NULL, unpriced_requests INTEGER NOT NULL,
+           unpriced_input_tokens INTEGER NOT NULL, unpriced_output_tokens INTEGER NOT NULL,
+           unpriced_cache_creation_tokens INTEGER NOT NULL, unpriced_cache_read_tokens INTEGER NOT NULL, last_at INTEGER NOT NULL,
+           input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+           cache_creation_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+           PRIMARY KEY (day, branch, category, model, ran_where, subagent)
+         )`,
+      ).run();
       await env.DB.batch([
         env.DB.prepare(
           `INSERT INTO daily_split_totals (day, branch, category, model, ran_where, subagent, requests, cost_micros, unpriced_requests,
