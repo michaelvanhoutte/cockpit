@@ -10,12 +10,12 @@ export const WHAT = {
   },
   misses: {
     shows: 'How many times a test failed on <code>main</code>&rsquo;s run of a merge after the pull request&rsquo;s own last run had skipped it.',
-    read: 'Each is one test file or spec, counted per pull request and job. A documentation-only pull request ran no test at all, so every failure on <code>main</code> after it counts as its miss. The note says how many cross the bar, and See which opens them on the Misses tab.',
+    read: 'Each is one test file or spec, counted per pull request and job. A documentation-only pull request ran no test at all, so every failure on <code>main</code> after it counts as its miss. The note says how many cross the bar, and See which opens them on the Misses tab. The label reads <i>over the bar</i> in red once they do, <i>within</i> in green below it, and nothing while the period holds too few pull requests to judge.',
     look: 'Zero is the only healthy number: a miss is a broken test that reached <code>main</code> because selection judged the change could not affect it. A miss on a test that then passes on <code>main</code>&rsquo;s next run may be a flaky test rather than a selection that skipped too much.',
   },
   mostSelected: {
     shows: 'The test file or spec selected on the largest share of the pull requests that could have skipped it.',
-    read: '<b>Could have skipped it</b> counts the pull requests on which its package ran only what the change reaches, rather than running whole. A test is ranked only once enough pull requests could have skipped it; the note gives that minimum and the bar. Its name opens it on the Most selected tests tab.',
+    read: '<b>Could have skipped it</b> counts the pull requests on which its package ran only what the change reaches, rather than running whole. A test is ranked only once enough pull requests could have skipped it; the note gives that minimum and the bar. The label reads <i>over the bar</i> in red once its share reaches the bar, <i>within</i> in green below it, and nothing while the period holds too few pull requests to judge. Its name opens it on the Most selected tests tab.',
     look: 'A test selected on nearly every pull request is usually reached through a file nearly every change touches, such as a shared helper, so selection saves nothing on it. The chain beside it on the Most selected tests tab is the import to cut.',
   },
   whatEachJobDid: {

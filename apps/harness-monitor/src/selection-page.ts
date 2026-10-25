@@ -85,9 +85,9 @@ const ADVICE: Record<Job, Record<string, string>> = {
 };
 const adviceFor = (job: Job, rule: string) => ADVICE[job][rule] ?? 'No advice is written for this rule yet.';
 
-/** A tile's label with its verdict after it, so the (i) follows both. Each verdict word is its own element, so the label wraps between them and the (i) binds to the last. */
+/** A tile's label with its verdict after it, so the (i) follows both. Each verdict word is its own element, with no space inside one, so the label wraps between them and the (i) binds to the last; the dot keeps to the word after it. */
 const withVerdict = (label: string, verdict: Verdict) =>
-  verdict === 'unread' ? label : `${label} ${(verdict === 'crossed' ? '· over the bar' : '· within').split(' ').map((w) => `<em>${w}</em>`).join(' ')}`;
+  verdict === 'unread' ? label : `${label} ${(verdict === 'crossed' ? '·&nbsp;over the bar' : '·&nbsp;within').split(' ').map((w) => `<em>${w}</em>`).join(' ')}`;
 
 const mono = (s: string) => `<span class="mono">${esc(s)}</span>`;
 const prLabel = (p: { number: number; title: string }) => `<span class="pr-no">#${p.number}</span> ${esc(p.title)}`;
