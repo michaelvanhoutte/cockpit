@@ -218,7 +218,9 @@ function derivedConclusion(members) {
  * (a shard missing, or no fan-in), never the longest of the shards that happened to be read.
  */
 function familyAttempt(family, members, fresh, fanIn, complete) {
-  const starts = [...fresh, ...(fanIn ? [fanIn] : [])].map((attempt) => time(attempt.startedAt)).filter((ms) => ms !== null);
+  // The jobs this attempt ran, for its start and running time: each shard's own attempt in this wave, never a stand-in counted again, and the fan-in.
+  const jobs = [...fresh, ...(fanIn ? [fanIn] : [])];
+  const starts = jobs.map((attempt) => time(attempt.startedAt)).filter((ms) => ms !== null);
   const ended = fanIn ? fanIn.completedAt : members.every((member) => time(member.completedAt) !== null) ? iso(Math.max(...members.map((member) => time(member.completedAt)))) : null;
   const failing = members.filter((member) => classify(member) === 'fail');
   // A fan-in skipped behind a failed shard (a `needs` job without `always()`) says nothing, so the shards' verdict stands in.
@@ -251,8 +253,7 @@ function familyAttempt(family, members, fresh, fanIn, complete) {
     ...(queue ? { queue } : {}),
     failure,
     family: { shards: members.length, complete },
-    // The jobs this attempt ran, for its running time: each shard's own attempt in this wave, never a stand-in counted again, and the fan-in.
-    jobs: [...fresh, ...(fanIn ? [fanIn] : [])],
+    jobs,
   };
 }
 
@@ -350,11 +351,11 @@ function queuedMs(attempt) {
   return created === null || started === null ? null : Math.max(0, started - created);
 }
 
-/** Runner time one attempt used, start to end; a copy, a skipped job and one that never started used none. */
+/** Runner time one attempt used, start to end; a check another app posted, a copy, a skipped job and one that never started used none. */
 function runnerMs(attempt) {
   const from = time(attempt.startedAt);
   const to = time(attempt.completedAt);
-  if (isCopy(attempt) || classify(attempt) === 'skipped' || from === null || to === null) return 0;
+  if ((attempt.app != null && attempt.app !== 'github-actions') || isCopy(attempt) || classify(attempt) === 'skipped' || from === null || to === null) return 0;
   return Math.max(0, to - from);
 }
 

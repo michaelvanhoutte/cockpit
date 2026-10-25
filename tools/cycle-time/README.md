@@ -54,8 +54,8 @@ Its local time also goes as `localParts`, split into code review, security revie
 browser pass with each minute counted once: a minute two of them shared goes to the one that ended
 last, so the four add up to `localMs` exactly, and the Monitor refuses a batch where they do not.
 Each check attempt goes with its `runningMs`, the runner time its jobs used start to end: every shard of
-a family and its fan-in added up, a cancelled job until it was cancelled, a skipped shard, a re-run's copy
-and a job that never started counting 0, queueing left out. So a pull request's GitHub Actions attempts add up to
+a family and its fan-in added up, a cancelled job until it was cancelled, a skipped shard, a check another
+app posted, a job that never started and a re-run's copy where its job list was read counting 0, queueing left out. So a pull request's GitHub Actions attempts add up to
 its `runnerMs`, and the Monitor refuses a batch with one negative, or on some of a pull request's attempts and not others.
 A pull request with no session record is sent with its writing and local time `null`, which the
 Monitor stores and answers as not recorded, never as zero; `localParts` is `null` wherever `localMs` is. A pull request is replaced by its number, so

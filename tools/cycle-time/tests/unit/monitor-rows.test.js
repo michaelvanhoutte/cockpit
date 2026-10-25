@@ -305,6 +305,11 @@ describe('Cycle time', () => {
         commits: [commit('a', [check('Test', 2, 6), check('Checks', 4, 4, 'cancelled'), check('Pages', 3, 3, 'skipped')])],
         running: [[1, 'Checks', 1, 0], [1, 'Test', 1, 4]],
       },
+      {
+        situation: 'a check another app posted, which used no runner of ours',
+        commits: [commit('a', [check('Test', 2, 6), check('Scan', 1, 30, 'success', { app: 'other-app' })])],
+        running: [[1, 'Test', 1, 4], [1, 'Scan', 1, 0]],
+      },
     ])('$situation', ({ commits, running }) => {
       const [row] = monitorRows({ pulls: [pull({ body: recorded, commits })] });
 
@@ -324,6 +329,7 @@ describe('Cycle time', () => {
           check('E2E (F3)', 27, 28),
           check('Pages', 3, 3, 'skipped'),
           check('Lint', 25, 29, 'cancelled'),
+          check('Scan', 1, 30, 'success', { app: 'other-app' }),
         ]),
         commit('b', [check('Checks', 29, 33), check('Lint', 30, 30, 'cancelled'), check('Test', 30, 41)]),
       ];
