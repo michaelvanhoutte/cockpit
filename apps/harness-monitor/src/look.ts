@@ -1,3 +1,4 @@
+import { APPEARANCE_BOOT } from './appearance';
 import { belgianDay, formatDateTime } from './belgium';
 
 /**
@@ -80,12 +81,22 @@ ${hidden}
 </form>`;
 }
 
-/** The top bar: the mark, the name, one tab per page and when the figures were read. */
+/**
+ * The appearance select, at the right of the top bar. No option is selected
+ * here: every viewer is sent the same page, so the script in the head sets the
+ * select from the choice this browser remembers (src/appearance.ts), and
+ * `autocomplete="off"` keeps the browser from restoring an older value over it.
+ */
+const APPEARANCE_SELECT = `<span class="appearance"><select id="appearance" aria-label="Appearance" autocomplete="off" onchange="monitorAppearance.choose(this.value)"><option value="">Match device</option><option value="light">Light</option><option value="dark">Dark</option></select></span>
+<script>monitorAppearance.show()</script>`;
+
+/** The top bar: the mark, the name, one tab per page, when the figures were read and the appearance. */
 function chrome(current: PageName, now: number): string {
   return `<header class="topbar">
 <a class="brand" href="/">${LOGO}<span>Harness Monitor</span></a>
 <nav class="pages" aria-label="Pages">${PAGES.map((p) => `<a href="${p.href}" title="${p.question}"${p.name === current ? ' aria-current="page"' : ''}>${p.label}</a>`).join('')}</nav>
 <span class="status">Updated ${formatDateTime(now)} · public, read-only</span>
+${APPEARANCE_SELECT}
 </header>`;
 }
 
@@ -100,6 +111,7 @@ export function shell(page: { current: PageName; controls?: string; body: string
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
+<script>${APPEARANCE_BOOT}</script>
 <link rel="preload" href="${FONT_URL}" as="font" type="font/woff2" crossorigin>
 <style>${STYLE}${page.style ?? ''}</style>
 </head><body>
@@ -137,6 +149,19 @@ const HIGHLIGHT = Array.from({ length: 16 }, (_, i) => i + 1)
   )
   .join('\n');
 
+/** The dark tokens: applied under the device's dark scheme unless Light is chosen, and whenever Dark is. */
+const DARK = `
+  --ground:#23242a;--surface:#24252b;--field:#141519;--well:#141418;
+  --ink-strong:#e4e5ea;--ink:#c2c5cd;--ink-soft:#9a9eaa;--ink-faint:#8a8e9a;--shade:#e4e5ea;
+  --accent-deep:#b3abdb;--accent-tint:color-mix(in srgb,#6f62b5 22%,#23242a);
+  --series-1:#6c48d1;--series-2:#ea691f;--series-3:#b91a6f;--series-4:#01aaa2;--series-5:#895f11;--series-6:#408ffe;--series-7:#6a6e1a;--series-8:#9a5ca1;--series-grey:#80838d;
+  --due:#8f82d8;--due-soft:#4a3519;--due-ink:#e8c08a;--over-ink:#e0867f;--good:#4ad6a0;
+  --shadow-panel:0 0 0 1px rgb(255 255 255 / .06),0 1px 2px rgb(0 0 0 / .3);
+  --well-edge:inset 0 2px 3px -1px rgb(0 0 0 / .5),0 0 0 1px rgb(255 255 255 / .04);
+  color-scheme:dark;
+`;
+const DARK_CHEVRON = `background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c2c5cd' stroke-width='1.5'/%3E%3C/svg%3E")`;
+
 /** Cockpit's tokens (docs/design-system.md), copied by value: the Monitor shares no code with Cockpit. */
 export const STYLE = `
 @font-face{font-family:'Inter Variable';font-style:normal;font-display:swap;font-weight:100 900;src:url(${FONT_URL}) format('woff2-variations')}
@@ -152,16 +177,8 @@ export const STYLE = `
   --radius-sm:4px;--radius-md:10px;--radius-lg:14px;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{
-  --ground:#23242a;--surface:#24252b;--field:#141519;--well:#141418;
-  --ink-strong:#e4e5ea;--ink:#c2c5cd;--ink-soft:#9a9eaa;--ink-faint:#8a8e9a;--shade:#e4e5ea;
-  --accent-deep:#b3abdb;--accent-tint:color-mix(in srgb,#6f62b5 22%,#23242a);
-  --series-1:#6c48d1;--series-2:#ea691f;--series-3:#b91a6f;--series-4:#01aaa2;--series-5:#895f11;--series-6:#408ffe;--series-7:#6a6e1a;--series-8:#9a5ca1;--series-grey:#80838d;
-  --due:#8f82d8;--due-soft:#4a3519;--due-ink:#e8c08a;--over-ink:#e0867f;--good:#4ad6a0;
-  --shadow-panel:0 0 0 1px rgb(255 255 255 / .06),0 1px 2px rgb(0 0 0 / .3);
-  --well-edge:inset 0 2px 3px -1px rgb(0 0 0 / .5),0 0 0 1px rgb(255 255 255 / .04);
-  color-scheme:dark;
-}}
+@media (prefers-color-scheme:dark){:root:not([data-appearance=light]){${DARK}}}
+:root[data-appearance=dark]{${DARK}}
 *{box-sizing:border-box}
 html{background:var(--ground)}
 body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.55 'Inter Variable',Inter,system-ui,sans-serif;font-feature-settings:'cv11','ss01';-webkit-font-smoothing:antialiased}
@@ -181,6 +198,7 @@ h1,h2,h3,p{margin:0}
 .pages a:hover{color:var(--chrome-ink);background:rgb(255 255 255 / .06)}
 .pages a[aria-current=page]{background:var(--bar);color:var(--chrome-ink)}
 .status{margin-left:auto;color:var(--chrome-ink-soft);font-size:12px;padding-bottom:10px}
+.appearance{padding-bottom:10px}.appearance select{height:28px;font-size:12px;padding:0 26px 0 8px;background-position:right 8px center}
 .band{background:var(--bar);padding:8px 20px 0}
 
 /* A page's sentence, on the band and pinned */
@@ -198,7 +216,8 @@ main{max-width:1320px;margin:0 auto;padding:20px 20px 40px;display:flex;flex-dir
 .field{display:flex;flex-direction:column;gap:4px}
 .field>span,.field>label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint)}
 select{height:38px;padding:0 32px 0 12px;font:inherit;font-size:14px;color:var(--ink-strong);background:var(--field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235a5f6d' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 12px center;border:1px solid color-mix(in srgb,var(--shade) 18%,transparent);border-radius:var(--radius-md);appearance:none;box-shadow:inset 0 1px 2px rgb(22 24 29 / .06);cursor:pointer}
-@media (prefers-color-scheme:dark){select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c2c5cd' stroke-width='1.5'/%3E%3C/svg%3E")}}
+@media (prefers-color-scheme:dark){:root:not([data-appearance=light]) select{${DARK_CHEVRON}}}
+:root[data-appearance=dark] select{${DARK_CHEVRON}}
 select[data-set]{border:2px solid var(--accent);padding-left:11px}
 .button{margin-left:auto;display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:var(--radius-md);background:var(--surface);box-shadow:var(--shadow-panel);color:var(--ink-strong);font-size:14px;font-weight:500;text-decoration:none}
 .button:hover{background:var(--field)}
@@ -297,6 +316,7 @@ footer{padding:0 20px 28px;text-align:center;font-size:12px;color:var(--ink-fain
 
 @media (max-width:640px){
   .topbar{padding:10px 12px 0}.status{display:none}.band{padding:8px 12px 0}
+  .brand{order:-2}.appearance{order:-1;margin-left:auto}
   .pages{width:100%;overflow-x:auto;scrollbar-width:none}.pages a{white-space:nowrap;font-size:14px;padding:8px 12px 9px}
   main{padding:16px 16px 32px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px}.filters select{width:100%}

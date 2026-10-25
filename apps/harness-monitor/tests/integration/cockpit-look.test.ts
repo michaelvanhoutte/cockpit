@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:test';
+import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
 import { theCallsPage } from './cockpit-support';
@@ -21,6 +21,19 @@ function topBar(html: string) {
     tabs: [...(/<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(bar)?.[1] ?? '').matchAll(/<a href="[^"]*"(?: title="[^"]*")?( aria-current="page")?>([^<]*)<\/a>/g)].map((m) => ({ label: m[2]!.replace(/&rsquo;/g, "'"), current: m[1] !== undefined })),
   };
 }
+
+/** The top bar's appearance select as a visitor receives it: where it sits and each option with whether the page selected it. */
+function appearanceChoice(html: string) {
+  const bar = /<header class="topbar">(.*?)<\/header>/s.exec(html)![1]!;
+  const select = /<select id="appearance"[^>]*>(.*?)<\/select>/s.exec(bar);
+  return {
+    afterTheStatus: bar.indexOf('class="status"') !== -1 && bar.indexOf('class="status"') < bar.indexOf('id="appearance"'),
+    options: [...(select?.[1] ?? '').matchAll(/<option value="([^"]*)"( selected)?>([^<]*)<\/option>/g)].map((m) => ({ value: m[1], text: m[3], selected: m[2] !== undefined })),
+  };
+}
+
+/** A page at its address, asked for the way a browser asks, with whatever else the request carries. */
+const theMonitorAt = async (address: string, init: RequestInit = {}) => (await SELF.fetch(`https://monitor.test${address}`, init)).text();
 
 /** The filters that hold a value (wear the accent border) on a pull request's page. */
 const held = (html: string) => [...html.matchAll(/<select id="(\w+)"[^>]*? data-set>/g)].map((m) => m[1]!);
@@ -60,6 +73,45 @@ describe('Harness Monitor', () => {
       const bar = /<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(await theBarePage())![1]!;
 
       expect([...bar.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/', '/claude-calls', '/cycle-time', '/selection', '/tests', '/stability']);
+    });
+  });
+
+  describe('every viewer is sent the same page, and every page offers the choice', () => {
+    it.each([
+      { situation: 'the costs page', page: () => theMonitorAt('/') },
+      { situation: "a pull request's page", page: () => theMonitorAt('/pr/7') },
+      { situation: "Cockpit's Claude calls", page: () => theMonitorAt('/claude-calls') },
+      { situation: 'Cycle time', page: () => theMonitorAt('/cycle-time') },
+      { situation: 'Test selection', page: () => theMonitorAt('/selection') },
+      { situation: 'Tests', page: () => theMonitorAt('/tests') },
+      { situation: 'CI stability', page: () => theMonitorAt('/stability') },
+    ])('$situation offers Match device, Light and Dark in the top bar after the status, with no option selected by the page', async ({ page }) => {
+      expect(appearanceChoice(await page())).toEqual({
+        afterTheStatus: true,
+        options: [
+          { value: '', text: 'Match device', selected: false },
+          { value: 'light', text: 'Light', selected: false },
+          { value: 'dark', text: 'Dark', selected: false },
+        ],
+      });
+    });
+
+    it.each([
+      { situation: 'a cookie naming Light', address: '/', init: { headers: { cookie: 'appearance=light; monitor.appearance=light' } } },
+      { situation: 'an address naming Light', address: '/?appearance=light&monitor.appearance=light', init: {} },
+    ])('a request carrying $situation gets the costs page byte for byte as one carrying neither', async ({ address, init }) => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-23T12:00:00Z') });
+
+      expect(await theMonitorAt(address, init)).toBe(await theMonitorAt('/'));
+    });
+
+    it('the choice is applied before the page’s styles, in the head', async () => {
+      const html = await theMonitorAt('/');
+      const head = /<head>(.*?)<\/head>/s.exec(html)![1]!;
+
+      expect(head.indexOf('monitor.appearance')).toBeGreaterThan(-1);
+      expect(head.indexOf('monitor.appearance')).toBeLessThan(head.indexOf('<style>'));
+      expect(head.indexOf('<script>')).toBeLessThan(head.indexOf('<style>'));
     });
   });
 
