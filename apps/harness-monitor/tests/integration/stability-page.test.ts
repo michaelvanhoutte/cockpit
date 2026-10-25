@@ -52,8 +52,8 @@ describe('Harness Monitor', () => {
     it('opens as a page from its own tab in the top bar', async () => {
       const html = await thePage();
 
-      expect(html).toContain('<a href="/stability" aria-current="page">CI stability</a>');
-      expect(html).toContain('<a href="/">Claude Code costs</a>');
+      expect(html).toMatch(/<a href="\/stability" title="[^"]*" aria-current="page">CI stability<\/a>/);
+      expect(html).toMatch(/<a href="\/" title="[^"]*">Claude Code costs<\/a>/);
       expect(html.match(/<h1\b/g) ?? []).toHaveLength(0);
     });
 

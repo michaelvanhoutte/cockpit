@@ -42,6 +42,21 @@ const hasSection = (html: string, id: string) => new RegExp(`<section[^>]*aria-l
 const text = (html: string) => html.replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
 const MIN = 60_000;
 
+/** A tile as drawn, up to the next one, found by what its label reads. */
+const tileOf = (html: string, label: string) =>
+  html
+    .split('<div class="tile ')
+    .slice(1)
+    .find((tile) => text(/class="tile-label">(.*?)<span class="tile-value"/s.exec(tile)![1]!).trim().startsWith(label)) ?? '';
+/** The parts of the explanation an (i) opens, by the name of each; null where the page draws none by that id. */
+const partsOf = (html: string, id: string) => {
+  const panel = new RegExp(`<div id="x-${id}" popover="manual" class="explain-pop">(.*?)</div>`, 's').exec(html);
+  return panel ? [...panel[1]!.matchAll(/<dt>(.*?)<\/dt>/g)].map((m) => m[1]) : null;
+};
+const THREE_PARTS = ['What it shows', 'How to read it', 'What to look for'];
+/** The (i) a panel carries beside its heading: the id of the explanation it opens, null where it has none. */
+const infoOfPanel = (html: string, id: string) => /<button [^>]*data-pop="x-([^"]*)"/.exec(panelOf(html, id))?.[1] ?? null;
+
 /** One green round of the `Test` check, `ms` long. */
 const green = (minutes = 5) => cycleRound([cycleCheck('Test', minutes * MIN, { last: true })], { ms: minutes * MIN });
 /** One round of `Test` that went red at the step `Run the tests`. */
@@ -69,7 +84,7 @@ describe('Harness Monitor', () => {
     it('opens as a page from its own tab in the top bar, between the Claude calls and CI stability', async () => {
       const html = await thePage();
 
-      expect(html).toContain('<a href="/cycle-time" aria-current="page">Cycle time</a>');
+      expect(html).toMatch(/<a href="\/cycle-time" title="[^"]*" aria-current="page">Cycle time<\/a>/);
       expect([...html.matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual(['>Claude Code costs</a>', '>Cockpit&rsquo;s Claude calls</a>', '>Cycle time</a>', '>Test selection</a>', '>Tests</a>', '>CI stability</a>']);
       expect(html.match(/<h1\b/g) ?? []).toHaveLength(0);
     });
@@ -142,7 +157,7 @@ describe('Harness Monitor', () => {
 
       const html = await thePage();
 
-      expect(html).toMatch(/Claude Code cost<\/span><span class="tile-value">—</);
+      expect(text(tileOf(html, 'Claude Code cost'))).toContain('Claude Code cost i — none priced');
       expect(html).not.toContain('$0.00');
     });
 
@@ -356,14 +371,13 @@ describe('Harness Monitor', () => {
       expect(text(await thePage())).toContain('1 pull request here was stored without the kinds of local check');
     });
 
-    it('titles the panel with the time it covers, counts the pull requests, and states how each minute counts once', async () => {
+    it('titles the panel with the time it covers and counts the pull requests', async () => {
       await sendPulls([split(1, kinds), split(2, kinds)]);
 
-      const html = text(await thePage());
+      const panel = panelOf(await thePage(), 'where-it-went');
 
-      expect(html).toContain('Where the 42m went 2 pull requests');
-      expect(html).toContain('time two local checks shared goes to the one that finished last.');
-      expect(html).not.toContain('as a CI round');
+      expect(panel).toContain('<h2 id="where-it-went">Where the 42m went</h2>');
+      expect(panel).toContain('<span class="aside">2 pull requests</span>');
     });
 
     it('sets each part inside its phase on the one scale', async () => {
@@ -493,7 +507,8 @@ describe('Harness Monitor', () => {
       const markup = html.replace(/<style>.*?<\/style>/s, '');
 
       expect(hasSection(html, 'by-check')).toBe(true);
-      for (const part of ['data-figures', 'openable', 'outline-slots', '<script']) expect(markup).not.toContain(part);
+      // The only script it carries is the (i)'s: the rows' own, which names `openable`, is not sent where nothing opens.
+      for (const part of ['data-figures', 'openable', 'outline-slots']) expect(markup).not.toContain(part);
     });
   });
 
@@ -505,7 +520,7 @@ describe('Harness Monitor', () => {
     it('Over time draws the four tiles, where the time went, the writing against the harness and the per-pull-request chart', async () => {
       const html = await thePage();
 
-      expect([...html.matchAll(/class="tile-label">([^<]+)</g)].map((m) => m[1])).toEqual(['Start to merge', 'In the harness', 'CI rounds', 'Claude Code cost']);
+      expect([...html.matchAll(/class="tile-label">(.*?)<button/g)].map((m) => m[1]!.replace(/<[^>]+>/g, ''))).toEqual(['Start to merge', 'In the harness', 'CI rounds', 'Claude Code cost']);
       for (const id of ['where-it-went', 'writing-against-harness', 'per-pull-request']) expect(hasSection(html, id)).toBe(true);
     });
 
@@ -616,6 +631,171 @@ describe('Harness Monitor', () => {
         ['Contract tests', slot(6)],
         ['Mystery check', GREY],
       ]);
+    });
+  });
+
+  describe('every tile, chart and table of Cycle time explains itself behind an (i) beside its heading or label', () => {
+    beforeEach(async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z'), recorded(2, '2026-10-29T10:00:00Z', { rounds: [red(), green()] })]);
+    });
+
+    it.each([
+      { tile: 'Start to merge', id: 't-start' },
+      { tile: 'In the harness', id: 't-harness' },
+      { tile: 'CI rounds', id: 't-rounds' },
+      { tile: 'Claude Code cost', id: 't-cost' },
+    ])('the $tile tile carries its own (i), whose explanation says what it shows, how to read it and what to look for', async ({ tile, id }) => {
+      const html = await thePage();
+
+      expect(tileOf(html, tile)).toContain(`data-pop="x-${id}"`);
+      expect(partsOf(html, id)).toEqual(THREE_PARTS);
+    });
+
+    it.each([
+      { panel: 'where-it-went', id: 'where' },
+      { panel: 'writing-against-harness', id: 'scatter' },
+      { panel: 'per-pull-request', id: 'over-time' },
+    ])('the $panel chart carries its own (i), with the three parts', async ({ panel, id }) => {
+      const html = await thePage();
+
+      expect(infoOfPanel(html, panel)).toBe(id);
+      expect(partsOf(html, id)).toEqual(THREE_PARTS);
+    });
+
+    it.each([
+      { tab: 'Over time', query: '', id: 't-day' },
+      { tab: 'Pull request', query: '?group=pr', id: 't-pr' },
+      { tab: 'Issue', query: '?group=issue', id: 't-issue' },
+      { tab: 'Size', query: '?group=size', id: 't-size' },
+    ])('the $tab tab’s table carries an (i) saying what it shows', async ({ query, id }) => {
+      const html = await thePage(query);
+
+      expect(infoOfPanel(html, 'cycle-table')).toBe(id);
+      expect(partsOf(html, id)).toEqual(['What it shows']);
+    });
+
+    it('the Check tab’s table, drawn apart from the others, carries one too', async () => {
+      const html = await thePage('?group=check');
+
+      expect(infoOfPanel(html, 'by-check')).toBe('t-check');
+      expect(partsOf(html, 't-check')).toEqual(['What it shows']);
+    });
+
+    it('draws each (i) once, each to an explanation of its own on the page', async () => {
+      const html = await thePage();
+      const buttons = [...html.matchAll(/<button [^>]*data-pop="(x-[^"]*)"/g)].map((m) => m[1]);
+      const panels = [...html.matchAll(/<div id="(x-[^"]*)" popover="manual"/g)].map((m) => m[1]);
+
+      // Four tiles, three charts and the table.
+      expect(buttons).toHaveLength(8);
+      expect(new Set(buttons).size).toBe(8);
+      expect(panels.sort()).toEqual([...buttons].sort());
+    });
+  });
+
+  describe('a table with nothing to list still carries its (i) over the empty panel', () => {
+    it.each([
+      { situation: 'Over time, in a period with no merged pull request', query: '?period=3d', panel: 'cycle-table', id: 't-day', says: 'Nothing in this period' },
+      { situation: 'Pull request, in a period with no merged pull request', query: '?group=pr&period=3d', panel: 'cycle-table', id: 't-pr', says: 'Nothing in this period' },
+      { situation: 'Check, in a period with no merged pull request', query: '?group=check&period=3d', panel: 'by-check', id: 't-check', says: 'Nothing in this period' },
+    ])('$situation', async ({ query, panel, id, says }) => {
+      await sendPulls([recorded(3, '2026-10-01T10:00:00Z')]);
+
+      const html = await thePage(query);
+
+      expect(text(panelOf(html, panel))).toContain(says);
+      expect(infoOfPanel(html, panel)).toBe(id);
+      expect(partsOf(html, id)).toEqual(['What it shows']);
+    });
+
+    it('Check, over pull requests that held no CI round', async () => {
+      await sendPulls([recorded(3, '2026-10-30T11:00:00Z', { rounds: [], ciMs: 0 })]);
+
+      const html = await thePage('?group=check');
+
+      expect(text(panelOf(html, 'by-check'))).toContain('No CI round in these pull requests');
+      expect(infoOfPanel(html, 'by-check')).toBe('t-check');
+      expect(partsOf(html, 't-check')).toEqual(['What it shows']);
+    });
+  });
+
+  describe('a section is named for a screen reader by its title alone, not by the (i) beside it or the explanation it opens', () => {
+    beforeEach(async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z')]);
+    });
+
+    it.each([
+      { situation: 'Where the time went', query: '', id: 'where-it-went', title: 'Where the 21m went' },
+      { situation: 'Writing against the harness', query: '', id: 'writing-against-harness', title: 'Writing against the harness' },
+      { situation: 'the per-pull-request chart', query: '', id: 'per-pull-request', title: 'Start to merge, each pull request as it merged' },
+      { situation: 'the Over time table', query: '', id: 'cycle-table', title: 'By day merged' },
+      { situation: 'the Check table', query: '?group=check', id: 'by-check', title: 'By check' },
+    ])('$situation is labelled by a heading that holds only its title', async ({ query, id, title }) => {
+      const html = await thePage(query);
+
+      expect(html).toContain(`aria-labelledby="${id}"`);
+      expect(new RegExp(`<h2 id="${id}">([^<]*)</h2>`).exec(html)?.[1]).toBe(title);
+    });
+  });
+
+  describe('each top tab names the question its page answers on pointing', () => {
+    it.each([
+      { tab: 'Claude Code costs', question: 'What does building this app with Claude Code cost, and where does the money go?' },
+      { tab: 'Cockpit’s Claude calls', question: 'What do the app’s own AI features cost to run?' },
+      { tab: 'Cycle time', question: 'How long does a change take to land, and how much of that is waiting on checks rather than writing?' },
+      { tab: 'Test selection', question: 'Does CI run only the tests a change can affect?' },
+      { tab: 'Tests', question: 'What do the tests cover, and at which level?' },
+      { tab: 'CI stability', question: 'How often do the automated checks fail, and which ones?' },
+    ])('the $tab tab carries its question', async ({ tab, question }) => {
+      const bar = [...(await thePage()).matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0];
+      const tabs = [...bar.matchAll(/<a [^>]*title="([^"]*)"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[2]!.replace(/&rsquo;/g, '’'), m[1]!.replace(/&rsquo;/g, '’')]);
+
+      expect(tabs).toContainEqual([tab, question]);
+      expect(tabs).toHaveLength(6);
+    });
+  });
+
+  describe('Cycle time opens with the question its tab names and what “the harness” means, above the filters, on every tab', () => {
+    it.each([[''], ['?group=pr'], ['?group=issue'], ['?group=size'], ['?group=check']])('at %s', async (query) => {
+      const html = await thePage(query);
+      const [lead] = [...html.matchAll(/<div class="lead">(.*?)<\/div>/gs)];
+
+      expect(text(lead![1]!)).toContain('How long does a change take to land, and how much of that is waiting on checks rather than writing?');
+      expect(text(lead![1]!)).toContain('The harness is everything that checks the agent s work before it lands');
+      expect(html.indexOf('class="lead"')).toBeGreaterThan(html.indexOf('</header>'));
+      expect(html.indexOf('class="lead"')).toBeLessThan(html.indexOf('<form class="filters"'));
+    });
+  });
+
+  describe('a fixed note is said once, in its explanation; a note read from the figures stays on its chart', () => {
+    it('Where the time went no longer has the fixed note under it, and its explanation says it', async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { localParts: { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 } })]);
+
+      const html = await thePage();
+      const well = /<div class="well where">.*?<\/section>/s.exec(html)![0];
+
+      expect(text(well)).not.toContain('Every bar is on one scale');
+      expect(text(well)).not.toContain('Each minute counts once');
+      expect(well).not.toContain('class="note"');
+      expect(text(html.match(/<div id="x-where".*?<\/div>/s)![0])).toContain('Each minute counts once: time two local checks shared goes to the one that finished last.');
+    });
+
+    it('a pull request carrying no session record still has its note under Where the time went', async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { recorded: false, codingMs: null, localMs: null, localReviews: null, totalMs: 21 * MIN, start: { at: '2026-10-30T09:39:00Z', from: 'first-commit' } })]);
+
+      const well = /<div class="well where">.*?<\/section>/s.exec(await thePage())![0];
+
+      expect(text(well)).toContain('1 pull request here carries no session record');
+      expect(well).toContain('<p class="note">');
+    });
+
+    it('the scatter still says under it how many pull requests spent longer in the harness than writing', async () => {
+      // 4 minutes of writing against 10 of checking, and 30 against 10.
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { codingMs: 4 * MIN, totalMs: 15 * MIN }), recorded(2, '2026-10-29T10:00:00Z', { codingMs: 30 * MIN, totalMs: 41 * MIN })]);
+
+      const well = /<div class="well scatter-well">.*?<\/section>/s.exec(await thePage())![0];
+
+      expect(text(well)).toContain('1 of 2 pull requests spent longer in the harness than writing');
     });
   });
 });

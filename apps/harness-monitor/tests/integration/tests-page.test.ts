@@ -72,7 +72,7 @@ describe('Harness Monitor', () => {
 
       const html = await thePage();
 
-      expect(html).toContain('<a href="/tests" aria-current="page">Tests</a>');
+      expect(html).toMatch(/<a href="\/tests" title="[^"]*" aria-current="page">Tests<\/a>/);
       expect(plain(html.match(/<nav class="pages".*?<\/nav>/s)![0])).toBe('Claude Code costs Cockpit s Claude calls Cycle time Test selection Tests CI stability');
       expect(html.match(/<h1\b/g) ?? []).toHaveLength(0);
       expect(html).toContain('abc1234');
@@ -454,7 +454,7 @@ describe('Harness Monitor', () => {
       const html = await thePage(query);
 
       expect(plain(sectionOf(html, 'nothing'))).toContain('No snapshot of main s tests has arrived yet.');
-      expect(html).toContain('<a href="/tests" aria-current="page">Tests</a>');
+      expect(html).toMatch(/<a href="\/tests" title="[^"]*" aria-current="page">Tests<\/a>/);
       expect(html).not.toContain('class="filters"');
     });
   });

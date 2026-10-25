@@ -650,7 +650,7 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 10,
+      "browserWalks": 12,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",
@@ -677,6 +677,8 @@
         "apps/harness-monitor/src/cycle-time-store.ts",
         "apps/harness-monitor/src/cycle-time-report.ts",
         "apps/harness-monitor/src/cycle-time-page.ts",
+        "apps/harness-monitor/src/cycle-time-explain.ts",
+        "apps/harness-monitor/src/explain.ts",
         "apps/harness-monitor/src/selection.ts",
         "apps/harness-monitor/src/selection-store.ts",
         "apps/harness-monitor/src/selection-view.ts",

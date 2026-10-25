@@ -21,20 +21,32 @@ export const FONT_URL = '/fonts/inter-5.3.0-latin-wght.woff2';
 /** The mark: four rounded squares, the fourth in the default theme's violet lifted for the chrome. */
 const LOGO = `<svg aria-hidden="true" viewBox="0 0 32 32" class="logo"><rect x="3" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="3" y="17" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="17" width="12" height="12" rx="2.5" fill="var(--logo-dot)"/></svg>`;
 
-/** Every page the top bar lists, in tab order. A new page is a line here and its own route. */
+/**
+ * Every page the top bar lists, in tab order, with the question it answers: the
+ * tab names it on pointing, and the page may open with it. A new page is a line
+ * here and its own route.
+ */
 export const PAGES = [
-  { name: 'costs', href: '/', label: 'Claude Code costs' },
-  { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls' },
-  { name: 'cycle-time', href: '/cycle-time', label: 'Cycle time' },
-  { name: 'selection', href: '/selection', label: 'Test selection' },
-  { name: 'tests', href: '/tests', label: 'Tests' },
-  { name: 'stability', href: '/stability', label: 'CI stability' },
+  { name: 'costs', href: '/', label: 'Claude Code costs', question: 'What does building this app with Claude Code cost, and where does the money go?' },
+  { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls', question: 'What do the app&rsquo;s own AI features cost to run?' },
+  { name: 'cycle-time', href: '/cycle-time', label: 'Cycle time', question: 'How long does a change take to land, and how much of that is waiting on checks rather than writing?' },
+  { name: 'selection', href: '/selection', label: 'Test selection', question: 'Does CI run only the tests a change can affect?' },
+  { name: 'tests', href: '/tests', label: 'Tests', question: 'What do the tests cover, and at which level?' },
+  { name: 'stability', href: '/stability', label: 'CI stability', question: 'How often do the automated checks fail, and which ones?' },
 ] as const;
 export type PageName = (typeof PAGES)[number]['name'];
+/** The question a page answers. */
+export const questionOf = (name: PageName) => PAGES.find((p) => p.name === name)!.question;
 
-/** A section heading: the strip Cockpit draws over a panel, with an optional note at its right. */
-export const band = (title: string, aside = '', id = '') =>
-  `<div class="section-band"><h2${id === '' ? '' : ` id="${id}"`}>${title}</h2>${aside === '' ? '' : `<span class="aside">${aside}</span>`}</div>`;
+/**
+ * A section heading: the strip Cockpit draws over a panel, with an optional note
+ * at its right. An (i) (`info`, src/explain.ts) sits beside the heading, not in
+ * it, so the section stays named by its title alone.
+ */
+export const band = (title: string, aside = '', id = '', info = '') => {
+  const heading = `<h2${id === '' ? '' : ` id="${id}"`}>${title}</h2>`;
+  return `<div class="section-band">${info === '' ? heading : `<div class="heading">${heading}${info}</div>`}${aside === '' ? '' : `<span class="aside">${aside}</span>`}</div>`;
+};
 
 /** A control that holds a value wears `data-set`, as Cockpit's filters do. */
 export function selectField(id: string, label: string, options: [value: string, text: string][], current: string, resting = ''): string {
@@ -48,7 +60,7 @@ export function selectField(id: string, label: string, options: [value: string, 
 function chrome(current: PageName, now: number): string {
   return `<header class="topbar">
 <a class="brand" href="/">${LOGO}<span>Harness Monitor</span></a>
-<nav class="pages" aria-label="Pages">${PAGES.map((p) => `<a href="${p.href}"${p.name === current ? ' aria-current="page"' : ''}>${p.label}</a>`).join('')}</nav>
+<nav class="pages" aria-label="Pages">${PAGES.map((p) => `<a href="${p.href}" title="${p.question}"${p.name === current ? ' aria-current="page"' : ''}>${p.label}</a>`).join('')}</nav>
 <span class="status">Updated ${formatDateTime(now)} · public, read-only</span>
 </header>`;
 }

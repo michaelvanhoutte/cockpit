@@ -1,9 +1,11 @@
 import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './belgium';
 import type { CycleTimeView } from './cycle-time-store';
-import { esc, selectField } from './look';
+import { esc, questionOf, selectField } from './look';
 import { dollars, number, REPOSITORY } from './page';
 import { BLUE, GREY, RED, slot, VIOLET } from './palette';
 import { STRIP_SCRIPT } from './cycle-time-strip';
+import { LEAD_MORE, WHAT } from './cycle-time-explain';
+import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
 import { bandTabs, outLink, reportPage, section, tile } from './report';
 import {
   buckets,
@@ -87,10 +89,10 @@ export function renderCycleTime(q: CycleTimeQuery, view: CycleTimeView, reposito
     const priced = list.filter((p) => cost(p) !== null);
     const spent = sum(priced.map((p) => cost(p)!.micros));
     return `<div class="tiles">
-${tile('Start to merge', median === null ? '—' : hm(median), median === null ? 'no pull request merged' : `median of ${plural(list.length, 'pull request')} · p95 ${hm(p95!)}${compare}`)}
-${tile('In the harness', share === null ? '—' : `${Math.round(share * 100)}%`, ratio === null ? 'no pull request with a session record' : `of writing plus harness · median ${ratio.toFixed(1)}× the writing`)}
-${tile('CI rounds', number(rounds), list.length ? `${(rounds / list.length).toFixed(1)} a pull request · ${plural(red, 'red round')} · ${plural(flukes, 'fluke')}` : 'none')}
-${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length ? `${dollars(spent / priced.length)} a pull request · ${number(priced.length)} of ${number(list.length)} priced` : 'none priced')}
+${tile('Start to merge', median === null ? '—' : hm(median), median === null ? 'no pull request merged' : `median of ${plural(list.length, 'pull request')} · p95 ${hm(p95!)}${compare}`, '', explain('t-start', 'Start to merge', WHAT.startToMerge))}
+${tile('In the harness', share === null ? '—' : `${Math.round(share * 100)}%`, ratio === null ? 'no pull request with a session record' : `of writing plus harness · median ${ratio.toFixed(1)}× the writing`, '', explain('t-harness', 'In the harness', WHAT.inHarness))}
+${tile('CI rounds', number(rounds), list.length ? `${(rounds / list.length).toFixed(1)} a pull request · ${plural(red, 'red round')} · ${plural(flukes, 'fluke')}` : 'none', '', explain('t-rounds', 'CI rounds', WHAT.rounds))}
+${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length ? `${dollars(spent / priced.length)} a pull request · ${number(priced.length)} of ${number(list.length)} priced` : 'none priced', '', explain('t-cost', 'Claude Code cost', WHAT.cost))}
 </div>`;
   }
 
@@ -111,10 +113,10 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
       `Where the ${hm(o.total)} went`,
       plural(list.length, 'pull request'),
       `<div class="well where">
-<ul class="outline" aria-label="Phases of start to merge, with local checks and CI rounds opened into their parts">${o.rows.map(outlineRow).join('')}</ul>
-<p class="note">Every bar is on one scale, start to merge, and sits where it falls in it: a part inside the stretch of its phase. A phase&rsquo;s share is of start to merge; a part&rsquo;s is of its phase. Each minute counts once: time two local checks shared goes to the one that finished last.${noRecord}</p>
+<ul class="outline" aria-label="Phases of start to merge, with local checks and CI rounds opened into their parts">${o.rows.map(outlineRow).join('')}</ul>${noRecord ? `\n<p class="note">${noRecord.trim()}</p>` : ''}
 </div>`,
       'panel wide',
+      explain('where', 'Where the time went', WHAT.where),
     );
   }
 
@@ -167,6 +169,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
 <p class="note">${dots.length ? `${number(above)} of ${plural(dots.length, 'pull request')} spent longer in the harness than writing${ratio === null ? '' : `; the median took ${ratio.toFixed(1)}× its writing`}. Dot size is lines changed${off ? `; ${plural(off, 'dot')} past two hours ${off === 1 ? 'sits' : 'sit'} hollow on the edge` : ''}. A dot opens its Sessions.` : 'No pull request here carries a session record.'}</p>
 </div>`,
       'panel narrow',
+      explain('scatter', 'Writing against the harness', WHAT.scatter),
     );
   }
 
@@ -221,6 +224,8 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
       'Start to merge, each pull request as it merged',
       `<span class="legend">${legend}</span>`,
       `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Start to merge per pull request, by when it merged">${grid}${ticks}${bars}</svg><p class="chart-note">A bar per pull request, at the moment it merged${cutNote}. A bar opens its Sessions.</p></div>`,
+      'panel',
+      explain('over-time', 'Start to merge, each pull request as it merged', WHAT.overTime),
     );
   }
 
@@ -244,7 +249,8 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
   function table(group: Exclude<CycleTimeQuery['group'], 'check'>): string {
     const series = COLOURED;
     const all = buckets(group, list, issueOf);
-    if (all.length === 0) return section('cycle-table', GROUP_LABELS[group], '', '<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide');
+    const info = explain(`t-${group}`, group === 'day' ? 'By day merged' : `By ${GROUP_LABELS[group].toLowerCase()}`, WHAT[group]);
+    if (all.length === 0) return section('cycle-table', GROUP_LABELS[group], '', '<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide', info);
     const perPull = group === 'pr';
     const summed = group === 'issue';
     /** A row's minutes: a pull request's own, an issue's added up, a day's or a size's per pull request on average. */
@@ -300,14 +306,16 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
 <script type="application/json" id="outline-slots">${SLOTS_JSON}</script>
 <script>${STRIP_SCRIPT}</script>`,
       'panel wide',
+      info,
     );
   }
 
   /** Which check held the rounds up. */
   function checks(): string {
     const { rows, rounds } = checkRows(list);
-    if (list.length === 0) return section('by-check', 'By check', '', '<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide');
-    if (rows.length === 0) return section('by-check', 'By check', '', '<p class="well empty">No CI round in these pull requests.</p>', 'panel wide');
+    const info = explain('t-check', 'By check', WHAT.check);
+    if (list.length === 0) return section('by-check', 'By check', '', '<p class="well empty">Nothing in this period. No merged pull request matches these filters.</p>', 'panel wide', info);
+    if (rows.length === 0) return section('by-check', 'By check', '', '<p class="well empty">No CI round in these pull requests.</p>', 'panel wide', info);
     const colourOf = colourOfCheck;
     const max = Math.max(1, ...rows.map((r) => r.ms));
     const all = sum(list.flatMap((p) => p.rounds.map((r) => r.ms)));
@@ -325,6 +333,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
 <thead><tr><th scope="col">Check</th><th scope="col" class="num">Rounds it held</th><th scope="col" class="num">Finished last</th><th scope="col">Held for</th><th scope="col" class="num">Minutes</th><th scope="col" class="num">Share</th><th scope="col" class="num">A round, median</th><th scope="col" class="num">Red rounds</th><th scope="col" class="num">Flukes</th><th scope="col" class="num">Queue, median</th></tr></thead>
 <tbody>${body}</tbody></table></div>`,
       'panel wide',
+      info,
     );
   }
 
@@ -345,7 +354,9 @@ ${selectField('outcome', 'Rounds', OUTCOMES, q.outcome ?? '')}
 </form>`;
 
   const tabs = bandTabs(GROUPS.map((g): [string, string, boolean] => [link({ group: g }), GROUP_LABELS[g], g === q.group]));
-  return reportPage({ current: 'cycle-time', tabs, body: `${form}\n${partial}${content}`, style: EXTRA }, now);
+  // The page opens with the question its top tab names and the words a newcomer will not know, on every tab.
+  const pageLead = lead(questionOf('cycle-time'), LEAD_MORE);
+  return reportPage({ current: 'cycle-time', tabs, body: `${pageLead}\n${form}\n${partial}${content}\n${EXPLAIN_SCRIPT}`, style: EXTRA + EXPLAIN_STYLE }, now);
 }
 
 const EXTRA = `
