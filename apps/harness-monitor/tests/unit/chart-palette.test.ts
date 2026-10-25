@@ -87,6 +87,8 @@ const costRow = (series: string, dollars: number): TotalRow => ({
   issueTitle: null,
   issueParent: null,
   issueParentTitle: null,
+  credited: 0,
+  creditIssue: null,
 });
 
 /** The costs page of one day, coloured by `split`, holding one request per key at $1, $2, $3 and so on in the order given. */
@@ -104,6 +106,7 @@ function costsOf(split: Split, onRecord: { engineers?: string[]; models?: string
     bySeries,
     totalMicros: groups[0]!.totalMicros,
     lastLinkSuccessAt: null,
+    creditedThrough: null,
     jobs: [],
     trends: null,
   };

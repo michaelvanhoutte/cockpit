@@ -25,6 +25,8 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
   issueTitle: null,
   issueParent: null,
   issueParentTitle: null,
+  credited: 0,
+  creditIssue: null,
   ...over,
 });
 
@@ -167,6 +169,27 @@ describe('Harness Monitor', () => {
       const [group] = groupRows([row({ prNumber: null, title: null, branch, lastAt })], 'pr', success);
 
       expect(group!.sub).toBe(says);
+    });
+
+    it.each([
+      { situation: 'requests credited to one issue', credited: [11, 11], says: 'Issue #11' },
+      { situation: 'requests credited to two issues', credited: [11, 12], says: 'several issues' },
+      { situation: 'requests credited to a pull request that closes no issue', credited: [null], says: 'No issue' },
+      { situation: 'requests credited to an issue and to a pull request that closes none', credited: [11, null], says: 'Issue #11' },
+    ])('a branch with $situation says so once the credit is good through its newest request', ({ credited, says }) => {
+      const rows = credited.map((creditIssue, i) => row({ prNumber: null, title: null, branch: 'b/x', lastAt: 10, series: `s${i}`, credited: 1, creditIssue }));
+
+      const [group] = groupRows(rows, 'pr', 20);
+
+      expect(group!.sub).toBe(says);
+    });
+
+    it('a branch with credited requests and a newer one the credit has not reached is linking', () => {
+      const rows = [row({ prNumber: null, title: null, branch: 'b/x', lastAt: 10, credited: 1, creditIssue: 11 }), row({ prNumber: null, title: null, branch: 'b/x', lastAt: 30, series: 'later' })];
+
+      const [group] = groupRows(rows, 'pr', 20);
+
+      expect(group!.sub).toBe('linking…');
     });
   });
 

@@ -147,6 +147,10 @@ export interface TotalRow {
   /** The issue's parent and its title; null for an issue with none, or until linking has read it. */
   issueParent: number | null;
   issueParentTitle: string | null;
+  /** By pull request only: 1 when the row's cost is credited to a pull request its own branch does not have. */
+  credited: number;
+  /** By pull request only: the issue that credited pull request closes, if any. */
+  creditIssue: number | null;
 }
 
 export interface CostGroup {
@@ -245,7 +249,7 @@ export function seriesOf(split: Split, totals: Record<string, number>): Series[]
 }
 
 /** Where a row belongs for a grouping: its key, label and the second line, or what is known of its pull request. */
-function placeOf(row: TotalRow, group: Group, linking: (row: TotalRow) => 'linking…' | 'unattributed') {
+function placeOf(row: TotalRow, group: Group) {
   const linked = row.prNumber !== null;
   switch (group) {
     case 'category':
@@ -271,7 +275,8 @@ function placeOf(row: TotalRow, group: Group, linking: (row: TotalRow) => 'linki
             sub: row.issue === null ? 'No issue' : `Issue #${row.issue}`,
             catchAll: false,
           }
-        : { key: `branch-${row.branch}`, label: row.branch === '' ? 'No branch' : row.branch, sub: row.branch === '' ? 'unattributed' : linking(row), catchAll: row.branch === '' };
+        : // The second line of a branch no pull request names is settled once all its rows are in: see `groupRows`.
+          { key: `branch-${row.branch}`, label: row.branch === '' ? 'No branch' : row.branch, sub: 'unattributed', catchAll: row.branch === '' };
   }
 }
 
@@ -307,16 +312,19 @@ const newer = (a: Recency, b: Recency) => a.tier - b.tier || b.at - a.at;
  * no pull request names), issues by their newest pull request, categories in
  * pipeline order, days newest first, with catch-alls last. `total` is dearest
  * first, and engineers are always by total. A session newer than the last
- * time linking caught up is "linking…" (its pull request may not have been
- * seen yet); otherwise a branch no pull request names is "unattributed".
+ * time the credit was last good through (linking has caught up and a rebuild
+ * has seen it) is "linking…", its pull request or its credit not being known
+ * yet. Otherwise a branch no pull request names reads the issue its credited
+ * requests went to ("several issues" for more than one), else "unattributed".
  */
-export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: number | null, sort: Sort = 'default'): CostGroup[] {
-  const linking = (row: TotalRow) => (row.branch !== '' && (lastLinkSuccessAt === null || row.lastAt > lastLinkSuccessAt) ? 'linking…' : 'unattributed');
+export function groupRows(rows: TotalRow[], group: Group, creditedThrough: number | null, sort: Sort = 'default'): CostGroup[] {
   const groups = new Map<string, CostGroup>();
   const prs = new Map<string, Set<number>>();
   const recency = new Map<string, Recency>();
+  /** A branch no pull request names: its newest request, and the issues its credited requests went to. */
+  const branches = new Map<string, { lastAt: number; credited: boolean; issues: Set<number> }>();
   for (const row of rows) {
-    const place = placeOf(row, group, linking);
+    const place = placeOf(row, group);
     let g = groups.get(place.key);
     if (!g) {
       g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, issue: group === 'pr' ? row.issue : group === 'issue' && row.issue !== null ? rowIssue(row) : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, bySeries: bag(), totalMicros: 0, unpricedRequests: 0, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, tokensBySeries: bag(), totalTokens: 0 };
@@ -336,11 +344,32 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     // Two pull requests on one issue may have been read apart, one before the title was.
     if (group === 'issue' && row.issue !== null && rowIssueTitle(row) && g.label === issueLabel(rowIssue(row), null)) g.label = issueLabel(rowIssue(row), rowIssueTitle(row));
     if (row.prNumber !== null) prs.get(place.key)!.add(row.prNumber);
+    if (group === 'pr' && row.prNumber === null && row.branch !== '') {
+      const branch = branches.get(place.key) ?? { lastAt: 0, credited: false, issues: new Set<number>() };
+      branch.lastAt = Math.max(branch.lastAt, row.lastAt);
+      if (row.credited === 1) {
+        branch.credited = true;
+        if (row.creditIssue !== null) branch.issues.add(row.creditIssue);
+      }
+      branches.set(place.key, branch);
+    }
     const r = recencyOf(row);
     const best = recency.get(place.key);
     if (!best || newer(r, best) < 0) recency.set(place.key, r);
   }
   for (const [key, g] of groups) g.pullRequests = prs.get(key)!.size;
+  for (const [key, branch] of branches) {
+    groups.get(key)!.sub =
+      creditedThrough === null || branch.lastAt > creditedThrough
+        ? 'linking…'
+        : !branch.credited
+          ? 'unattributed'
+          : branch.issues.size === 0
+            ? 'No issue'
+            : branch.issues.size === 1
+              ? `Issue #${[...branch.issues][0]}`
+              : 'several issues';
+  }
   const byTotal = (a: CostGroup, b: CostGroup) => b.totalMicros - a.totalMicros || a.label.localeCompare(b.label);
   const list = [...groups.values()];
   if (group === 'engineer' || sort === 'total') return list.sort(group === 'day' ? (a, b) => b.totalMicros - a.totalMicros || b.key.localeCompare(a.key) : byTotal);
@@ -513,30 +542,40 @@ export interface CostsPage {
   totalMicros: number;
   /** Epoch milliseconds; null while linking has never succeeded. */
   lastLinkSuccessAt: number | null;
+  /** Epoch milliseconds the credit is good through: when linking last caught up, as the last rebuild saw it; null until a rebuild has. */
+  creditedThrough: number | null;
   /** What each job last did: read in the same batch as the figures. */
   jobs: JobStatus[];
   /** The Over time page's trend charts; null for every other grouping. */
   trends: Trends | null;
 }
 
+/**
+ * The pull request a total counts under: its own branch's link `l`, else the link of the branch it is credited to `e`
+ * (joined only where `l` is missing, so a branch that has since got a pull request of its own is counted under it).
+ */
+const LINKS = `LEFT JOIN branch_links l ON l.branch = t.branch
+         LEFT JOIN branch_links e ON l.branch IS NULL AND e.branch = t.credit_branch`;
+/** A column of the pull request a total counts under. */
+const counted = (column: string) => `COALESCE(l.${column}, e.${column})`;
 /** Where a request's pull request stands, from its branch and the link GitHub linking stored. */
-const OUTCOME = `CASE WHEN t.branch = 'main' THEN 'on-main' WHEN l.state = 'MERGED' THEN 'merged' WHEN l.state = 'OPEN' THEN 'open'
-  WHEN l.state = 'CLOSED' THEN 'closed' ELSE 'no-pr' END`;
+const OUTCOME = `CASE WHEN t.branch = 'main' AND e.branch IS NULL THEN 'on-main' WHEN ${counted('state')} = 'MERGED' THEN 'merged' WHEN ${counted('state')} = 'OPEN' THEN 'open'
+  WHEN ${counted('state')} = 'CLOSED' THEN 'closed' ELSE 'no-pr' END`;
 /** Whose pull request a request belongs to: the author, "unknown" for a linked pull request without one, Unattributed for none. */
-const ENGINEER = `CASE WHEN l.branch IS NULL THEN '${UNATTRIBUTED}' ELSE COALESCE(l.engineer, '${UNKNOWN_ENGINEER}') END`;
+const ENGINEER = `CASE WHEN ${counted('branch')} IS NULL THEN '${UNATTRIBUTED}' ELSE COALESCE(${counted('engineer')}, '${UNKNOWN_ENGINEER}') END`;
 const SERIES_COLUMN: Record<Split, string> = { phase: PHASE, engineer: ENGINEER, model: 't.model', where: 't.ran_where', outcome: OUTCOME };
 /** Every request's tokens by kind, priced or not: read for every grouping, drawn for each day alone. */
 const TOKEN_SUMS = `SUM(t.input_tokens) AS inputTokens, SUM(t.output_tokens) AS outputTokens,
            SUM(t.cache_creation_tokens) AS cacheCreationTokens, SUM(t.cache_read_tokens) AS cacheReadTokens`;
 
 /**
- * Reads the page's figures from the split totals and the branch links, never
+ * Reads the page's figures from the credited totals and the branch links, never
  * from the request rows: a public page view must not spend the free plan's
  * read allowance on the table that grows with every request.
  */
 export async function costsPage(db: D1Database, query: CostQuery, now = Date.now()): Promise<CostsPage> {
   const first = firstDay(query.period, now);
-  // What narrows a request: its phase, model and agent, then the engineer its pull request names.
+  // What narrows a request: its phase, model and agent, then the engineer its pull request (or the one it is credited to) names.
   const narrowing: string[] = [];
   const narrowBinds: (string | number)[] = [];
   if (query.category !== null) {
@@ -550,9 +589,9 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
   if (query.who !== 'all') narrowing.push(`t.subagent = ${query.who === 'subagents' ? 1 : 0}`);
   const byEngineer: string[] = [];
   const engineerBinds: string[] = [];
-  if (query.engineer === UNATTRIBUTED) byEngineer.push('l.branch IS NULL');
+  if (query.engineer === UNATTRIBUTED) byEngineer.push(`${counted('branch')} IS NULL`);
   else if (query.engineer !== null) {
-    byEngineer.push('l.engineer = ?');
+    byEngineer.push(`${counted('engineer')} = ?`);
     engineerBinds.push(query.engineer);
   }
   const where = [...(first === null ? [] : ['t.day >= ?']), ...narrowing, ...byEngineer];
@@ -563,6 +602,9 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
   const phase = query.group === 'category' ? PHASE : "''";
   const phaseKey = query.group === 'category' ? `, ${PHASE}` : '';
   const series = SERIES_COLUMN[query.split];
+  // A pull request's own row is the pull request its branch names; every other grouping counts credited cost under the pull request it is credited to.
+  const byPullRequest = query.group === 'pr';
+  const link = (column: string) => (byPullRequest ? `l.${column}` : counted(column));
   // A by-day question needs no branch unless it filters by engineer or colours by outcome or engineer, which are the things a link says.
   const select =
     query.group === 'day'
@@ -570,31 +612,34 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt, ${TOKEN_SUMS},
            NULL AS prNumber, NULL AS title, NULL AS state, NULL AS mergedAt, NULL AS issue, NULL AS engineer,
            NULL AS linesAdded, NULL AS linesRemoved, NULL AS openedAt, NULL AS issueTitle,
-           NULL AS issueParent, NULL AS issueParentTitle
-         FROM daily_split_totals t ${needsLinks ? 'LEFT JOIN branch_links l ON l.branch = t.branch' : ''}
+           NULL AS issueParent, NULL AS issueParentTitle, 0 AS credited, NULL AS creditIssue
+         FROM daily_credited_totals t ${needsLinks ? LINKS : ''}
          ${conditions} GROUP BY t.day, ${series}`
       : `SELECT '' AS day, t.branch AS branch, ${phase} AS category, ${series} AS series, SUM(t.cost_micros) AS costMicros,
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt, ${TOKEN_SUMS},
-           l.pr_number AS prNumber, l.title AS title, l.state AS state, l.merged_at AS mergedAt,
-           l.issue_number AS issue, l.engineer AS engineer,
+           ${link('pr_number')} AS prNumber, ${link('title')} AS title, ${link('state')} AS state, ${link('merged_at')} AS mergedAt,
+           ${link('issue_number')} AS issue, ${link('engineer')} AS engineer,
            s.lines_added AS linesAdded, s.lines_removed AS linesRemoved, s.opened_at AS openedAt, s.issue_title AS issueTitle,
-           l.issue_parent AS issueParent, l.issue_parent_title AS issueParentTitle
-         FROM daily_split_totals t LEFT JOIN branch_links l ON l.branch = t.branch
-         LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
-         ${conditions} GROUP BY t.branch${phaseKey}, ${series}`;
+           ${link('issue_parent')} AS issueParent, ${link('issue_parent_title')} AS issueParentTitle,
+           ${byPullRequest ? 'CASE WHEN e.branch IS NULL THEN 0 ELSE 1 END' : '0'} AS credited, ${byPullRequest ? 'e.issue_number' : 'NULL'} AS creditIssue
+         FROM daily_credited_totals t ${LINKS}
+         LEFT JOIN pull_request_stats s ON s.pr_number = ${link('pr_number')}
+         ${conditions} GROUP BY t.branch, e.branch${phaseKey}, ${series}`;
 
   // Only the Over time page draws the trend charts, so only it reads their sessions and merged pull requests.
-  const reads = query.group === 'day' ? trendReads(db, query, first, { narrowing, narrowBinds, byEngineer, engineerBinds }) : [];
+  const reads = query.group === 'day' ? trendReads(db, query, first, { narrowing, narrowBinds }) : [];
   const [rows, engineers, models, state, runs, list, sessionRows, pullRequestRows] = await db.batch([
     db.prepare(select).bind(...binds),
     db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
-    db.prepare('SELECT DISTINCT model FROM daily_split_totals ORDER BY model'),
-    db.prepare('SELECT last_success_at AS lastSuccessAt FROM link_state WHERE id = 1'),
+    db.prepare('SELECT DISTINCT model FROM daily_credited_totals ORDER BY model'),
+    db.prepare('SELECT last_success_at AS lastSuccessAt, credited_through AS creditedThrough FROM link_state WHERE id = 1'),
     ...jobReads(db),
     ...reads,
   ]);
-  const lastLinkSuccessAt = (state!.results[0] as { lastSuccessAt: number | null } | undefined)?.lastSuccessAt ?? null;
-  const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, lastLinkSuccessAt, query.sort);
+  const linkState = state!.results[0] as { lastSuccessAt: number | null; creditedThrough: number | null } | undefined;
+  const lastLinkSuccessAt = linkState?.lastSuccessAt ?? null;
+  const creditedThrough = linkState?.creditedThrough ?? null;
+  const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, creditedThrough, query.sort);
   const bySeries = bag();
   for (const g of groups) for (const [key, micros] of Object.entries(g.bySeries)) bySeries[key] = (bySeries[key] ?? 0) + micros;
   const tokensBySeries = bag();
@@ -609,6 +654,7 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     bySeries,
     totalMicros: groups.reduce((sum, g) => sum + g.totalMicros, 0),
     lastLinkSuccessAt,
+    creditedThrough,
     jobs: jobStatuses(runs!, list!, lastLinkSuccessAt),
     trends:
       sessionRows === undefined || query.group !== 'day'
@@ -625,38 +671,48 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
 interface Narrowing {
   narrowing: string[];
   narrowBinds: (string | number)[];
-  byEngineer: string[];
-  engineerBinds: string[];
 }
 
 /**
  * The reads behind the trend charts. Starting context follows the period, the
- * engineer and the model alone, from the sessions' first main-agent requests.
- * Pull request size and cost per line follow every filter, over the pull
- * requests merged in the period, each with its whole cost: a pull request with
+ * engineer and the model alone, from the sessions' first main-agent requests;
+ * a session whose first request is credited starts under the credited pull
+ * request's author, as the rest of the page counts it. Pull request size and
+ * cost per line follow every filter, over the pull requests merged in the
+ * period, each with its own whole cost (never a credit): a pull request with
  * no request that passes the filters is not in them.
  */
 function trendReads(db: D1Database, query: CostQuery, first: string | null, f: Narrowing) {
   const since = first === null ? [] : [first];
-  const starts = [...(first === null ? [] : ['ss.day >= ?']), ...(query.model === null ? [] : ['ss.model = ?']), ...f.byEngineer];
-  const merged = ["l.state = 'MERGED' AND l.merged_at IS NOT NULL", ...(first === null ? [] : ["strftime('%s', l.merged_at) * 1000 >= ?"]), ...f.narrowing, ...f.byEngineer];
+  const engineerBinds = query.engineer === null || query.engineer === UNATTRIBUTED ? [] : [query.engineer];
+  const startedBy = query.engineer === UNATTRIBUTED ? 'COALESCE(l.branch, e.branch) IS NULL' : 'COALESCE(l.engineer, e.engineer) = ?';
+  const starts = [...(first === null ? [] : ['ss.day >= ?']), ...(query.model === null ? [] : ['ss.model = ?']), ...(query.engineer === null ? [] : [startedBy])];
+  // The merged pull request is the row, so its author is its own.
+  const mergedBy = query.engineer === UNATTRIBUTED ? ['l.branch IS NULL'] : query.engineer === null ? [] : ['l.engineer = ?'];
+  const merged = ["l.state = 'MERGED' AND l.merged_at IS NOT NULL", ...(first === null ? [] : ["strftime('%s', l.merged_at) * 1000 >= ?"]), ...f.narrowing, ...mergedBy];
   return [
     db
       .prepare(
         `SELECT ss.day AS day, ss.input_tokens + ss.cache_creation_tokens + ss.cache_read_tokens AS tokens
-         FROM session_starts ss ${query.engineer === null ? '' : 'LEFT JOIN branch_links l ON l.branch = ss.branch'}
+         FROM session_starts ss ${
+           query.engineer === null
+             ? ''
+             : `LEFT JOIN branch_links l ON l.branch = ss.branch
+                LEFT JOIN request_credits rc ON l.branch IS NULL AND rc.request_id = ss.request_id
+                LEFT JOIN branch_links e ON e.branch = rc.credit_branch`
+         }
          ${starts.length === 0 ? '' : `WHERE ${starts.join(' AND ')}`}`,
       )
-      .bind(...since, ...(query.model === null ? [] : [query.model]), ...f.engineerBinds),
+      .bind(...since, ...(query.model === null ? [] : [query.model]), ...engineerBinds),
     db
       .prepare(
         `SELECT l.pr_number AS pr, l.merged_at AS mergedAt, s.lines_added + s.lines_removed AS lines, ${PHASE} AS category, SUM(t.cost_micros) AS costMicros
-         FROM daily_split_totals t JOIN branch_links l ON l.branch = t.branch
+         FROM daily_credited_totals t JOIN branch_links l ON l.branch = t.branch
          LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
          WHERE ${merged.join(' AND ')}
          GROUP BY l.pr_number, ${PHASE}`,
       )
-      .bind(...(first === null ? [] : [startOfDay(first)]), ...f.narrowBinds, ...f.engineerBinds),
+      .bind(...(first === null ? [] : [startOfDay(first)]), ...f.narrowBinds, ...engineerBinds),
   ];
 }
 
