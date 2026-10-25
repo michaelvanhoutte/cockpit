@@ -33,6 +33,11 @@ const outlineOf = (html: string) =>
     share: m[4]!,
   }));
 const columnHeads = (html: string, id: string) => [...(new RegExp(`<section[^>]*aria-labelledby="${id}".*?</section>`, 's').exec(html)?.[0] ?? '').matchAll(/<th scope="col"[^>]*>(?:<i[^>]*><\/i>)?([^<]+)<\/th>/g)].map((m) => m[1]);
+/** What hovering each row's Split bar says, a row to an entry, in the table's order; undefined where the row has no hover. */
+const hoversOf = (html: string, id: string) =>
+  [...(new RegExp(`<section[^>]*aria-labelledby="${id}".*?</section>`, 's').exec(html)?.[0] ?? '').matchAll(/<tr[ >].*?<\/tr>/gs)]
+    .filter((row) => row[0].includes('class="split-cell"'))
+    .map((row) => /<td class="split-cell"(?: title="([^"]*)")?>/.exec(row[0])![1]);
 const hasSection = (html: string, id: string) => new RegExp(`<section[^>]*aria-labelledby="${id}"`).test(html);
 const text = (html: string) => html.replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
 const MIN = 60_000;
@@ -98,7 +103,7 @@ describe('Harness Monitor', () => {
       const html = await thePage('?group=pr');
       const [row] = rowsOf(html, 'cycle-table');
 
-      expect(row![9]).toBe('$4.20');
+      expect(row![row!.length - 1]).toBe('$4.20');
       expect(row![0]).toContain('Sessions');
       expect(html).toContain('<a href="/pr/1">Sessions</a>');
       expect(html).toContain('<a href="/pr/1">$4.20</a>');
@@ -127,7 +132,7 @@ describe('Harness Monitor', () => {
       const html = await thePage('?group=pr');
       const rows = rowsOf(html, 'cycle-table');
 
-      expect(rows.map((r) => r[9])).toEqual(['—', '—']);
+      expect(rows.map((r) => r[r.length - 1])).toEqual(['—', '—']);
       expect(html).not.toContain('$0.00');
     });
 
@@ -213,32 +218,76 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('a pull request with no session record says "not recorded" in its times, never 0', () => {
-    it('its local checks read not recorded and its writing is the time left of start to merge', async () => {
+  describe('a pull request with no session record says so by its tag, and reads "not recorded" nowhere in its row', () => {
+    it('its sub-line carries the tag, its row never says not recorded, and its writing is the time left of start to merge', async () => {
       await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { recorded: false, codingMs: null, localMs: null, localReviews: null, totalMs: 21 * MIN, start: { at: '2026-10-30T09:39:00Z', from: 'first-commit' } })]);
 
       const html = await thePage('?group=pr');
       const [row] = rowsOf(html, 'cycle-table');
 
-      // Label, split, writing, local checks, CI rounds, waiting to merge, away, start to merge, rounds, Claude Code.
-      expect(row!.slice(2, 9)).toEqual(['15m', 'not recorded', '5m', '1m', '—', '21m', '1']);
+      // Label, split, start to merge, rounds, Claude Code.
+      expect(row!.slice(2, 4)).toEqual(['21m', '1']);
       expect(row![0]).toContain('no session record');
+      expect(row!.join(' ')).not.toContain('not recorded');
+      expect(hoversOf(html, 'cycle-table')).toEqual(['Writing 15m · CI rounds 5m · Waiting to merge 1m']);
       expect(text(await thePage())).toContain('1 pull request here carries no session record');
     });
   });
 
-  describe("a pull request's phases add up to its start to merge", () => {
-    it('writing, local checks, CI rounds, waiting to merge and away add up to its start to merge', async () => {
+  describe("hovering a row's Split bar names each phase's time, in phase order, on the row's own measure, and they add up to its start to merge", () => {
+    const minutes = (hover: string | undefined) => (hover ?? '').split(' · ').reduce((total, part) => total + Number(/(\d+)m$/.exec(part)![1]), 0);
+
+    it('a pull request names its writing, local checks, CI rounds and wait, which add up to its start to merge', async () => {
       await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { totalMs: 21 * MIN })]);
 
-      const [row] = rowsOf(await thePage('?group=pr'), 'cycle-table');
+      const html = await thePage('?group=pr');
+      const [row] = rowsOf(html, 'cycle-table');
+      const [hover] = hoversOf(html, 'cycle-table');
 
-      expect(row!.slice(2, 8)).toEqual(['10m', '5m', '5m', '1m', '—', '21m']);
+      expect(hover).toBe('Writing 10m · Local checks 5m · CI rounds 5m · Waiting to merge 1m');
+      expect(minutes(hover)).toBe(21);
+      expect(row!.at(-3)).toBe('21m');
+    });
+
+    it('a pull request with time away names Away last', async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { awayMs: 3 * MIN, totalMs: 24 * MIN })]);
+
+      expect(hoversOf(await thePage('?group=pr'), 'cycle-table')).toEqual(['Writing 10m · Local checks 5m · CI rounds 5m · Waiting to merge 1m · Away 3m']);
+    });
+
+    it("a day of two pull requests names each phase's average, as its start to merge is", async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { codingMs: 6 * MIN, totalMs: 17 * MIN }), recorded(2, '2026-10-30T11:00:00Z', { codingMs: 14 * MIN, totalMs: 25 * MIN })]);
+
+      const html = await thePage();
+      const [row] = rowsOf(html, 'cycle-table');
+
+      expect(hoversOf(html, 'cycle-table')).toEqual(['Writing 10m · Local checks 5m · CI rounds 5m · Waiting to merge 1m']);
+      expect(row!.at(-3)).toBe('21m');
+    });
+
+    it("an issue of two pull requests names each phase's sum", async () => {
+      await sendPulls([recorded(1, '2026-10-29T10:00:00Z', { totalMs: 21 * MIN }), recorded(2, '2026-10-30T10:00:00Z', { totalMs: 21 * MIN })]);
+      await costing(1, null, 7);
+      await costing(2, null, 7);
+
+      const html = await thePage('?group=issue');
+
+      expect(hoversOf(html, 'cycle-table')).toEqual(['Writing 20m · Local checks 10m · CI rounds 10m · Waiting to merge 2m']);
+      expect(rowsOf(html, 'cycle-table')[0]!.at(-3)).toBe('42m');
+    });
+
+    it('a row with no minutes at all has no hover', async () => {
+      await sendPulls([recorded(1, '2026-10-30T10:00:00Z', { rounds: [cycleRound([cycleCheck('Test', 0, { last: true })])], ciMs: 0, totalMs: 0, codingMs: 0, localMs: 0, waitingToMergeMs: 0, awayMs: 0, localReviews: { count: 0, ms: 0, byKind: { 'code-review': { count: 0, ms: 0 }, 'security-review': { count: 0, ms: 0 } } } })]);
+
+      const html = await thePage('?group=pr');
+
+      expect(hoversOf(html, 'cycle-table')).toEqual([undefined]);
+      expect(html).not.toContain('title=""');
     });
   });
 
-  describe('the page has one view: every chart and table in phases, with no Split by', () => {
-    const phaseHeads = ['Day merged', 'Pull requests', 'Split', 'Writing', 'Local checks', 'CI rounds', 'Waiting to merge', 'Away', 'Start to merge', 'Rounds', 'Claude Code'];
+  describe('the page has one view: every chart and table in phases, with no column per phase and no Split by', () => {
+    const heads = (first: string, withCount = true) => [first, ...(withCount ? ['Pull requests'] : []), 'Split', 'Start to merge', 'Rounds', 'Claude Code'];
     beforeEach(async () => {
       await sendPulls([recorded(1, '2026-10-30T10:00:00Z'), recorded(2, '2026-10-29T10:00:00Z', { size: { additions: 1900, deletions: 100, files: 20, commits: 3, mainMerges: 0 } })]);
     });
@@ -246,21 +295,18 @@ describe('Harness Monitor', () => {
     it('draws the By day table and the per-pull-request chart in phases on Over time', async () => {
       const html = await thePage();
 
-      expect(columnHeads(html, 'cycle-table')).toEqual(phaseHeads);
+      expect(columnHeads(html, 'cycle-table')).toEqual(heads('Day merged'));
       expect(html).toContain('Start to merge, each pull request as it merged');
       const chart = /<section[^>]*aria-labelledby="per-pull-request".*?<\/section>/s.exec(html)![0];
       expect([...chart.matchAll(/<span class="key"><i[^>]*><\/i>([^<]+)<\/span>/g)].map((m) => m[1])).toEqual(['Writing', 'Local checks', 'CI rounds', 'Waiting to merge', 'Away']);
     });
 
     it.each([
-      { tab: 'pr', first: 'Pull request' },
-      { tab: 'issue', first: 'Issue' },
-      { tab: 'size', first: 'Size' },
-    ])('draws the $tab tab in phases', async ({ tab, first }) => {
-      const heads = columnHeads(await thePage(`?group=${tab}`), 'cycle-table');
-
-      expect(heads[0]).toBe(first);
-      expect(heads.slice(heads.indexOf('Writing'))).toEqual(['Writing', 'Local checks', 'CI rounds', 'Waiting to merge', 'Away', 'Start to merge', 'Rounds', 'Claude Code']);
+      { tab: 'pr', first: 'Pull request', withCount: false },
+      { tab: 'issue', first: 'Issue', withCount: true },
+      { tab: 'size', first: 'Size', withCount: true },
+    ])('draws the $tab tab with no column per phase', async ({ tab, first, withCount }) => {
+      expect(columnHeads(await thePage(`?group=${tab}`), 'cycle-table')).toEqual(heads(first, withCount));
     });
 
     it.each([[''], ['?group=pr'], ['?group=issue'], ['?group=size'], ['?group=check']])('has no Split by control at %s', async (query) => {
@@ -519,7 +565,9 @@ describe('Harness Monitor', () => {
       const phases = [['Writing', slot(1)], ['Local checks', slot(2)], ['CI rounds', slot(3)], ['Waiting to merge', slot(6)], ['Away', GREY]];
 
       expect(swatches(panelOf(html, 'per-pull-request'))).toEqual(phases);
-      expect(swatches(panelOf(html, 'cycle-table'))).toEqual(phases);
+      // The table has no swatch column: its Split bar draws the same colours, in the same order.
+      const bar = /<div class="split">(.*?)<\/div><\/td>/s.exec(panelOf(html, 'cycle-table'))![1]!;
+      expect([...bar.matchAll(/background:([^";]*)/g)].map((m) => m[1])).toEqual(phases.map(([, colour]) => colour));
     });
 
     it('a dot of the scatter is violet, and red from three rounds', async () => {

@@ -410,8 +410,10 @@ test.describe('Harness Monitor', () => {
     await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ }).getByRole('link', { name: 'Sessions' })).toHaveAttribute('href', '/pr/9001');
     await expect(table.getByRole('row', { name: /#9003 Tidy the inbox/ })).not.toContainText('$');
     await expect(table.getByRole('row')).toHaveCount(4);
+    // No column per phase: the table fits its panel on a desk and scrolls inside it on a phone.
+    await expect(table.getByRole('columnheader', { name: 'Local checks' })).toHaveCount(0);
     const wide = page.locator('.well.table');
-    if (onAPhone) expect(await wide.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await wide.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(onAPhone);
 
     // Rounds: had a red round keeps the tab and the pull request that had one.
     await page.getByLabel('Rounds', { exact: true }).selectOption({ label: 'Had a red round' });
@@ -424,7 +426,7 @@ test.describe('Harness Monitor', () => {
     // There is no Split by, and an old link carrying one opens the one view.
     await expect(page.getByRole('group', { name: 'Split by' })).toHaveCount(0);
     await page.goto(`${monitor}/cycle-time?group=pr&outcome=red&split=harness`);
-    await expect(table.getByRole('columnheader', { name: 'Local checks' })).toBeVisible();
+    await expect(table.getByRole('columnheader', { name: 'Split', exact: true })).toBeVisible();
     await expect(table.getByRole('columnheader', { name: 'Security review' })).toHaveCount(0);
 
     // Over time: the outline is a row a phase, with its parts inside, on one line each with a name, a bar, its minutes and its share.
