@@ -83,10 +83,10 @@ describe('Harness Monitor', () => {
       expect(whereItWent(html).heading).toBe("Where the period's $0.00 went, by phase");
     });
 
-    it('the not-measured note and the list-price label are always there', async () => {
+    it('the not-measured note, in where it went’s explanation, and the list-price label are always there', async () => {
       const html = await thePage();
 
-      expect(html).toContain('Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai, and is <strong>not measured</strong>');
+      expect(/<div id="x-where" popover="manual" class="explain-pop">.*?<\/div>/s.exec(html)?.[0]).toContain('Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai and is <b>not measured</b>');
       expect(html).not.toContain('Approvals');
       await send([spend('r', 1)]);
       expect(await thePage('?period=all')).toContain('at API list price');

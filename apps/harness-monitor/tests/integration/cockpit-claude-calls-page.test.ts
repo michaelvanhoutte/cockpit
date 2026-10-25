@@ -163,7 +163,7 @@ describe('Harness Monitor', () => {
       expect(callsColumns(await theCallsPage('?split=startedBy'))).toEqual(['Captured in app', 'Contract run']);
     });
 
-    it('where the dollars went is told by the split, each series with its dollars and share, and points to the Console', async () => {
+    it('where the dollars went is told by the split, each series with its dollars and share', async () => {
       const where = callsWhereItWent(await theCallsPage());
 
       expect(where.heading).toBe('Where the $20.00 went');
@@ -173,7 +173,6 @@ describe('Harness Monitor', () => {
         { name: 'CI', amount: '$4.75', share: '24%' },
         { name: 'Local', amount: '$4.00', share: '20%' },
       ]);
-      expect(where.note).toContain("Compare with the Anthropic Console's Cost page for the same days: a gap is spend no row records.");
     });
 
     it('an address naming nothing the page knows is the bare address', async () => {

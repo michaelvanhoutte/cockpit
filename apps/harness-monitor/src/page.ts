@@ -27,8 +27,10 @@ import {
   type Trends,
   type Who,
 } from './costs';
+import { LEAD_MORE, TABLES, WHAT } from './costs-explain';
+import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead, type Explanation, type Info } from './explain';
 import { type JobName, type JobStatus } from './jobs';
-import { band, esc, inline, lineKey, shell } from './look';
+import { band, esc, inline, lineKey, questionOf, shell } from './look';
 import { colourByPlace, foldAmounts, foldSeries, GREY, isFolded, RED, slot, VIOLET } from './palette';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
@@ -196,10 +198,10 @@ function whereItWent(page: CostsPage): string {
         `<li><i style="background:${colourOf(query.split, s.key, knownKeys(page))}" aria-hidden="true"></i><span class="name">${esc(s.label)}</span><span class="amount">${dollars(cost(s))}</span></li>`,
     )
     .join('');
-  return `<section class="panel" aria-labelledby="where">${band(`Where the period&rsquo;s ${dollars(totalMicros)} went, by ${COLOUR_WORDS[query.split]}`, summary, 'where')}<div class="well pad">
+  const info = explain('where', 'Where the period&rsquo;s cost went', WHAT.where);
+  return `<section class="panel" aria-labelledby="where">${band(`Where the period&rsquo;s ${dollars(totalMicros)} went, by ${COLOUR_WORDS[query.split]}`, summary, 'where', info.both)}<div class="well pad">
 <div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
 <ul class="shares">${legend}</ul>
-<p class="note">CI reviews counts the <span class="mono">@claude</span> runs in GitHub Actions only. Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai, and is <strong>not measured</strong>.</p>
 </div></section>`;
 }
 
@@ -216,15 +218,9 @@ export const tokenCount = (n: number) =>
   n >= 999.95e6 ? `${(n / 1e9).toFixed(2)}B` : n >= 999.5e3 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : number(Math.round(n));
 
 /** How each per-day chart is headed, labelled and read. */
-const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) => string; axis: (n: number) => string; note: string }> = {
-  cost: { title: 'Cost per day', id: 'perday', value: dollars, axis: dollars, note: '' },
-  tokens: {
-    title: 'Tokens per day',
-    id: 'tokensperday',
-    value: (n) => `${tokenCount(n)} tokens`,
-    axis: tokenCount,
-    note: '<p class="note chart-note">Input, output, cache write and cache read tokens summed, priced or not.</p>',
-  },
+const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) => string; axis: (n: number) => string }> = {
+  cost: { title: 'Cost per day', id: 'perday', value: dollars, axis: dollars },
+  tokens: { title: 'Tokens per day', id: 'tokensperday', value: (n) => `${tokenCount(n)} tokens`, axis: tokenCount },
 };
 
 /**
@@ -234,13 +230,14 @@ const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) 
 function overTime(page: CostsPage, now: number, measure: Measure): string {
   const { query } = page;
   const chart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, firstDay(query.period, now), now, measure);
-  return costPerDay(chart, (key) => colourOf(query.split, key, knownKeys(page)), measure);
+  const { id, title } = MEASURES[measure];
+  return costPerDay(chart, (key) => colourOf(query.split, key, knownKeys(page)), measure, explain(id, title, measure === 'cost' ? WHAT.perDay : WHAT.tokensPerDay));
 }
 
-/** The per-day panel for a chart in its measure, each line in the colour `colour` gives its series; empty where the chart has no day. */
-export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure = 'cost'): string {
+/** The per-day panel for a chart in its measure, each line in the colour `colour` gives its series, with the (i) of `info`; empty where the chart has no day. */
+export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure, info: Info): string {
   if (chart.days.length === 0) return '';
-  const { title, id, value, axis, note } = MEASURES[measure];
+  const { title, id, value, axis } = MEASURES[measure];
   const { width, height, left, right, top, bottom } = CHART;
   const peak = Math.max(...chart.total, 1);
   const x = (i: number) => (chart.days.length === 1 ? (left + width - right) / 2 : left + (i / (chart.days.length - 1)) * (width - left - right));
@@ -264,7 +261,7 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
     })
     .join('');
   const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${chart.total.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} ${x(chart.days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
-  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id)}<div class="well chart">${note}<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}<g class="lines">${drawn}</g></svg></div>
+  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}<g class="lines">${drawn}</g></svg></div>
 </section>`;
 }
 
@@ -277,8 +274,8 @@ const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000).toLocaleSt
 interface TrendDrawing {
   id: string;
   title: string;
-  /** What the chart measures, in a sentence. */
-  note: string;
+  /** What the chart measures, how to read it and what to look for, behind the (i) beside its heading. */
+  what: Explanation;
   lines: (TrendLine & { colour: string; dash?: boolean })[];
   /** A value as a point's title reads it, and as the axis does. */
   value: (n: number) => string;
@@ -289,7 +286,7 @@ interface TrendDrawing {
 function trendChart(t: Trends, d: TrendDrawing): string {
   const { width, height, left, right, top, bottom } = CHART;
   const shown = d.lines.filter((l) => l.values.some((v) => v !== null));
-  const head = `<section class="trend" aria-labelledby="${d.id}"><h3 id="${d.id}">${d.title}</h3><p class="note">${d.note}</p>`;
+  const head = `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}</div>`;
   if (shown.length === 0) return `${head}<p class="muted" data-empty="${d.id}">Nothing to chart in this period.</p></section>`;
   const peak = Math.max(...shown.flatMap((l) => l.values.map((v) => v ?? 0)), 1);
   const x = (i: number) => (t.buckets.length === 1 ? (left + width - right) / 2 : left + (i / (t.buckets.length - 1)) * (width - left - right));
@@ -323,12 +320,11 @@ function harnessTrends(page: CostsPage): string {
   const t = page.trends;
   if (t === null) return '';
   const ink = VIOLET;
-  const per = t.weekly ? 'week' : 'day';
   const charts = [
     trendChart(t, {
       id: 'starting-context',
       title: 'Starting context',
-      note: `Median tokens (input, cache write and cache read) in each session&rsquo;s first main-agent request, by ${per}.`,
+      what: WHAT.startingContext,
       lines: [{ key: 'starting-context', label: 'Starting context', values: t.startingContext, colour: ink }],
       value: (n) => `${number(n)} tokens`,
       axis: compact,
@@ -336,7 +332,7 @@ function harnessTrends(page: CostsPage): string {
     trendChart(t, {
       id: 'pull-request-size',
       title: 'Pull request size',
-      note: `Median lines changed per merged pull request, by ${per} merged.`,
+      what: WHAT.prSize,
       lines: [{ key: 'pull-request-size', label: 'Lines changed', values: t.prSize, colour: ink }],
       value: (n) => `${number(n)} lines`,
       axis: compact,
@@ -344,13 +340,14 @@ function harnessTrends(page: CostsPage): string {
     trendChart(t, {
       id: 'cost-per-line',
       title: 'Cost per 1,000 lines changed',
-      note: `Merged pull requests&rsquo; cost divided by thousands of lines added plus removed, by ${per} merged. A phase is not drawn before it was recorded (21 Sep 2026).`,
+      what: WHAT.costPerLine,
       lines: t.costPerThousandLines.map((l) => (l.key === 'total' ? { ...l, colour: 'var(--ink-strong)', dash: true } : { ...l, colour: COLOURS[l.key as Category] })),
       value: dollars,
       axis: dollars,
     }),
   ];
-  return `<section class="panel" aria-labelledby="trends">${band('Is the harness getting more expensive?', 'Not affected by &ldquo;coloured by&rdquo;: these follow the period and the &ldquo;Only&rdquo; filters.', 'trends')}<div class="well pad">${charts.join('\n')}</div></section>`;
+  const info = explain('trends', 'Is the harness getting more expensive?', WHAT.trends);
+  return `<section class="panel" aria-labelledby="trends">${band('Is the harness getting more expensive?', 'Not affected by &ldquo;coloured by&rdquo;: these follow the period and the &ldquo;Only&rdquo; filters.', 'trends', info.both)}<div class="well pad">${charts.join('\n')}</div></section>`;
 }
 
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
@@ -402,7 +399,8 @@ function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: 
 function table(page: CostsPage, repository: string | null): string {
   const { query, groups } = page;
   const title = `By ${GROUP_LABELS[query.group].toLowerCase()}`;
-  if (groups.length === 0) return `<section class="panel">${band(title)}<p class="well empty">Nothing in this period. No Claude Code requests match the filters.</p></section>`;
+  const info = explain(`t-${query.group}`, title, TABLES[query.group]);
+  if (groups.length === 0) return `<section class="panel">${band(title, '', '', info.both)}<p class="well empty">Nothing in this period. No Claude Code requests match the filters.</p></section>`;
   // A page past the end shows the last one, rather than an empty table.
   const pageNo = Math.min(query.page, Math.ceil(groups.length / PAGE_SIZE));
   const start = (pageNo - 1) * PAGE_SIZE;
@@ -422,7 +420,7 @@ function table(page: CostsPage, repository: string | null): string {
   const totalHead = switchable && !byTotal ? `<a href="/${queryString(query, { sort: 'total', page: 1 })}">Total</a>` : 'Total';
   const marks = (on: boolean) => (on ? ' ▾' : '');
   const sortedBy = byTotal ? 'total' : SORTED_BY[query.group];
-  return `<section class="panel" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">${band(title)}<div class="well">
+  return `<section class="panel" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">${band(title, '', '', info.both)}<div class="well">
 <div class="scroll"><table class="costs">
 <thead><tr><th scope="col" class="first">${firstHead}${marks(!byTotal)}</th>${extraHeads}<th scope="col" class="split-head">Coloured by ${COLOUR_WORDS[query.split]}</th><th scope="col" class="num">${totalHead}${marks(byTotal)}</th>${tokenHeads}</tr></thead>
 <tbody>
@@ -440,9 +438,10 @@ export function renderPage(
 ): string {
   const page = foldedPage(unfolded);
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
-  // What the sentence changes comes first, in reading order; the trends, which only the filters change, come last.
+  // The question its tab names opens the page, on every grouping; then what the sentence changes, in reading order; the trends, which only the filters change, come last.
   const body = [
     '<h1 class="sr-only">Claude Code costs</h1>',
+    costsLead(),
     warning(report.unpriced),
     whereItWent(page),
     page.query.group === 'day' ? overTime(page, now, 'cost') : '',
@@ -450,6 +449,10 @@ export function renderPage(
     table(page, repository),
     harnessTrends(page),
     jobLines(page.jobs),
+    EXPLAIN_SCRIPT,
   ].join('\n');
-  return shell({ current: 'costs', controls: controls(page), body }, now);
+  return shell({ current: 'costs', controls: controls(page), body, style: EXPLAIN_STYLE }, now);
 }
+
+/** The costs page's lead, which a pull request's page, reached from its tab, opens with too. */
+export const costsLead = () => lead(questionOf('costs'), LEAD_MORE);
