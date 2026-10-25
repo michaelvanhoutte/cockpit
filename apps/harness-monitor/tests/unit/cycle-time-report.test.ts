@@ -11,6 +11,7 @@ import {
   outlineFigures,
   OUTLINE_SLOTS,
   values,
+  words,
   type CycleTimeQuery,
   type Outline,
   type Pull,
@@ -28,7 +29,7 @@ const check = (name: string, minutes: number, over: Partial<CycleTimeCheck> = {}
   failure: null,
   flukeMs: null,
   queuedMs: null,
-  runningMs: null,
+  runningMs: minutes * MIN,
   failedSteps: [],
   failedFiles: [],
   ...over,
@@ -86,19 +87,31 @@ const unrecorded = (number: number, over: Partial<Pull> = {}) =>
 const phases = (p: Pull) => values(p);
 const added = (v: Record<string, number | null>) => Object.values(v).reduce<number>((a, b) => a + (b ?? 0), 0);
 
-/** A recorded pull request whose local checks are split by kind: `parts` minutes of code review, security review, test runs and browser pass. */
-const split = (number: number, parts: [number, number, number, number], over: Partial<Pull> = {}): Pull => {
+/**
+ * A recorded pull request whose local checks are split by kind: `parts` minutes of code review, security review, test runs and browser pass, each as the session recorded it.
+ * `waited` is the minutes any of them ran, a minute two shared counted once; it is all of them added up where none overlap.
+ * The counted-once parts stored beside them are put all on the test runs, so a figure that read them would be wrong.
+ */
+const split = (number: number, parts: [number, number, number, number], over: Partial<Pull> = {}, waited?: number): Pull => {
   const [codeReview, securityReview, test, browser] = parts.map((m) => m * MIN) as [number, number, number, number];
-  const local = codeReview + securityReview + test + browser;
+  const local = waited === undefined ? codeReview + securityReview + test + browser : waited * MIN;
   return pull(number, {
-    time: { localParts: { 'code-review': codeReview, 'security-review': securityReview, test, browser }, codingMs: 10 * MIN, localMs: local, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 16 * MIN + local },
+    time: { localParts: { 'code-review': 0, 'security-review': 0, test: local, browser: 0 }, codingMs: 10 * MIN, localMs: local, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 16 * MIN + local },
+    localReviews: { count: 2, ms: codeReview + securityReview, byKind: { 'code-review': { count: 1, ms: codeReview }, 'security-review': { count: 1, ms: securityReview } } },
+    localRuns: { test: { count: 1, ms: test }, browser: { count: 1, ms: browser } },
     ...over,
   });
 };
 /** A recorded pull request with 7 minutes of local checks stored without their kinds. */
-const notSplit = (number: number) => pull(number, { time: { localParts: null, codingMs: 10 * MIN, localMs: 7 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 23 * MIN } });
+const notSplit = (number: number) =>
+  pull(number, {
+    time: { localParts: null, codingMs: 10 * MIN, localMs: 7 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 23 * MIN },
+    localReviews: { count: 1, ms: 7 * MIN, byKind: null },
+  });
 const row = (o: Outline, key: string) => o.rows.find((r) => r.key === key)!;
 const end = (r: { left: number; width: number }) => r.left + r.width;
+/** A phase's or part's minutes, which are never null in a case that reads them. */
+const inMinutes = (o: Outline, key: string) => row(o, key).ms! / MIN;
 
 describe('Harness Monitor', () => {
   describe("a pull request's phases add up exactly to its start to merge", () => {
@@ -121,35 +134,89 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe("the outline's phases add up to start to merge, and each opened phase's parts add up to the phase", () => {
+  describe("the outline's phases are time waited and add up to start to merge, and a phase's parts are time spent and add up to the time spent it names", () => {
     // 9 minutes of local checks split 4 / 1 / 3 / 1, and 12 of them split 2 / 2 / 6 / 2; each with a round of Test then E2E (F3).
     const a = split(1, [4, 1, 3, 1], { rounds: [round([check('Test', 2), check('E2E (F3)', 3, { last: true })])] });
     const b = split(2, [2, 2, 6, 2], { rounds: [round([check('Test', 1), check('E2E (F3)', 4, { last: true })])] });
+    const spentOf = (o: Outline, phase: string) => o.rows.filter((r) => r.part && r.phase === phase).reduce((total, r) => total + r.ms!, 0);
 
     it.each([
       { situation: 'pull requests all split by kind', list: [a, b] },
       { situation: 'one among them not split by kind', list: [a, b, notSplit(3)] },
     ])('$situation', ({ list }) => {
       const o = outline(list);
-      const sumOf = (rows: typeof o.rows) => rows.reduce((total, r) => total + r.ms, 0);
       const phasesOf = o.rows.filter((r) => !r.part);
 
-      expect(sumOf(phasesOf)).toBe(o.total);
+      expect(phasesOf.reduce((total, r) => total + r.ms!, 0)).toBe(o.total);
       expect(o.total).toBe(list.reduce((total, p) => total + p.time.totalMs, 0));
-      for (const phase of phasesOf.filter((r) => r.key === 'local' || r.key === 'ci')) expect(sumOf(o.rows.filter((r) => r.part && r.phase === phase.key))).toBe(phase.ms);
+      for (const phase of phasesOf.filter((r) => r.key === 'local' || r.key === 'ci')) expect(row(o, phase.key).spent).toEqual({ ms: spentOf(o, phase.key), overlap: spentOf(o, phase.key) > phase.ms! });
     });
 
-    it('puts the local minutes of a pull request not split by kind in Not split by kind, grey, after the four kinds', () => {
+    it('counts a minute a code review and a test run shared once in Local checks waited and in full for each, so its time spent is more', () => {
+      // A code review of 10 minutes and a test run of 12 overlapping it by 10: 12 minutes waited, 22 spent.
+      const o = outline([split(1, [10, 0, 12, 0], {}, 12)]);
+
+      expect(inMinutes(o, 'local')).toBe(12);
+      expect(inMinutes(o, 'code-review')).toBe(10);
+      expect(inMinutes(o, 'test')).toBe(12);
+      expect(row(o, 'local').spent).toEqual({ ms: 22 * MIN, overlap: true });
+    });
+
+    it('keeps the minutes of a browser pass run wholly inside a test run, not 0', () => {
+      const o = outline([split(1, [0, 0, 10, 3], {}, 10)]);
+
+      expect(inMinutes(o, 'browser')).toBe(3);
+      expect(inMinutes(o, 'test')).toBe(10);
+      expect(inMinutes(o, 'local')).toBe(10);
+    });
+
+    it("adds E2E's shards up as its time spent, more than the CI rounds waited, and says the phase's parts ran side by side", () => {
+      // Four shards of 10 minutes each in a round that held the pull request 12 minutes.
+      const shards = [1, 2, 3, 4].map((n) => check('E2E (F3)', 12, { attempt: n, runningMs: 10 * MIN, last: n === 4 }));
+      const o = outline([pull(1, { rounds: [round(shards, { ms: 12 * MIN })], time: { ...pull(1).time, ciMs: 12 * MIN, totalMs: 28 * MIN } })]);
+
+      expect(inMinutes(o, 'check:E2E (F3)')).toBe(40);
+      expect(inMinutes(o, 'ci')).toBe(12);
+      expect(row(o, 'ci').spent).toEqual({ ms: 40 * MIN, overlap: true });
+    });
+
+    it('does not say side by side where the parts took less time than the wait', () => {
+      // A check that queued for most of the minutes it held the round.
+      const o = outline([pull(1, { rounds: [round([check('Test', 5, { runningMs: 2 * MIN, last: true })])] })]);
+
+      expect(row(o, 'ci').spent).toEqual({ ms: 2 * MIN, overlap: false });
+    });
+
+    it('puts the local minutes of a pull request not split by kind in Not split by kind, grey, after the four kinds, as time spent', () => {
       const o = outline([a, notSplit(3)]);
 
-      expect(o.rows.filter((r) => r.part && r.phase === 'local').map((r) => [r.label, r.ms / MIN, r.other])).toEqual([
+      expect(o.rows.filter((r) => r.part && r.phase === 'local').map((r) => [r.label, r.ms! / MIN, r.other])).toEqual([
         ['Code review', 4, false],
         ['Security review', 1, false],
         ['Test runs', 3, false],
         ['Browser pass', 1, false],
         ['Not split by kind', 7, true],
       ]);
+      expect(row(o, 'local').spent).toEqual({ ms: 16 * MIN, overlap: false });
       expect(o.unsplit).toBe(1);
+    });
+
+    it("decides a pull request is not split from its reviews having no per-kind split, never from the counted-once parts", () => {
+      const kinds = split(3, [4, 1, 0, 0]);
+      const noKinds = pull(4, { ...notSplit(4), time: { ...notSplit(4).time, localParts: { 'code-review': 7 * MIN, 'security-review': 0, test: 0, browser: 0 } } });
+      const o = outline([{ ...kinds, time: { ...kinds.time, localParts: null } }, noKinds]);
+
+      expect(inMinutes(o, 'code-review')).toBe(4);
+      expect(inMinutes(o, 'not-split')).toBe(7);
+      expect(o.unsplit).toBe(1);
+    });
+
+    it('reads a pull request with no reviews recorded as split, its review kinds 0 and its test runs and browser pass from the runs', () => {
+      const runsOnly = pull(3, { localReviews: null, localRuns: { test: { count: 1, ms: 3 * MIN }, browser: { count: 1, ms: MIN } }, time: { ...pull(3).time, localMs: 4 * MIN } });
+      const o = outline([runsOnly]);
+
+      expect(o.rows.filter((r) => r.part && r.phase === 'local').map((r) => [r.label, r.ms! / MIN])).toEqual([['Test runs', 3], ['Browser pass', 1]]);
+      expect(o.unsplit).toBe(0);
     });
 
     it('leaves Not split by kind out where every pull request is split, and counts none for one with no session record', () => {
@@ -164,45 +231,108 @@ describe('Harness Monitor', () => {
       expect(outline([none]).rows.map((r) => r.key)).not.toContain('not-split');
     });
 
-    it("reads a phase's share as of start to merge and a part's as of its phase", () => {
+    it("reads a phase's share as of start to merge and a part's as of its phase's time spent, so a phase's parts add up to 100%", () => {
       const o = outline([a]);
 
-      // Start to merge is 25 minutes: local checks 9 of them, code review 4 of those.
+      // Start to merge is 25 minutes: local checks waited 9 of them, code review 4 of the 9 spent.
       expect(row(o, 'local').share).toBeCloseTo(9 / 25);
       expect(row(o, 'code-review').share).toBeCloseTo(4 / 9);
       expect(row(o, 'check:E2E (F3)').share).toBeCloseTo(3 / 5);
+      for (const phase of ['local', 'ci']) expect(o.rows.filter((r) => r.part && r.phase === phase).reduce((total, r) => total + r.share!, 0)).toBeCloseTo(1);
+    });
+
+    it('takes a share of a phase whose parts overlap from the time spent, not the time waited', () => {
+      const o = outline([split(1, [10, 0, 12, 0], {}, 12)]);
+
+      expect(row(o, 'test').share).toBeCloseTo(12 / 22);
     });
 
     it('opens CI rounds into its checks, those CI does not run today drawn together as Other checks, grey', () => {
       const o = outline([pull(1, { rounds: [round([check('E2E (F3)', 9), check('Brand new', 7), check('Another', 2, { last: true })])] })]);
 
-      expect(o.rows.filter((r) => r.part && r.phase === 'ci').map((r) => [r.label, r.ms / MIN, r.other])).toEqual([
+      expect(o.rows.filter((r) => r.part && r.phase === 'ci').map((r) => [r.label, r.ms! / MIN, r.other])).toEqual([
         ['E2E (F3)', 9, false],
         ['Other checks', 9, true],
       ]);
     });
 
-    it('leaves out a row with no minutes', () => {
-      expect(outline([pull(1)]).rows.map((r) => r.label)).toEqual(['Writing', 'Local checks', 'Not split by kind', 'CI rounds', 'Test', 'Waiting to merge']);
+    it('adds a check up over every round and attempt it ran in', () => {
+      const o = outline([pull(1, { rounds: [round([check('Test', 3, { runningMs: 2 * MIN })]), round([check('Test', 4, { runningMs: 3 * MIN, attempt: 2 })])] })]);
+
+      expect(inMinutes(o, 'check:Test')).toBe(5);
+    });
+
+    it('leaves a row with no minutes out', () => {
+      expect(outline([pull(1)]).rows.map((r) => r.label)).toEqual(['Writing', 'Local checks', 'Code review', 'CI rounds', 'Test', 'Waiting to merge']);
     });
   });
 
-  describe("each part's bar sits inside its phase's stretch on the one scale", () => {
-    const o = outline([split(1, [4, 1, 3, 1], { rounds: [round([check('Test', 2), check('E2E (F3)', 3, { last: true })])] })]);
+  describe('a check with an attempt whose running time is not recorded has its time spent not recorded, never a short sum', () => {
+    const noRunning = check('Test', 5, { runningMs: null });
+    const known = check('E2E (F3)', 5, { runningMs: 4 * MIN, last: true });
+    const o = outline([pull(1, { rounds: [round([noRunning, known])] }), pull(2, { rounds: [round([check('Test', 5, { runningMs: 5 * MIN, last: true })])] })]);
 
-    it('starts the first kind where Local checks starts, and each next one where the one before ends', () => {
-      expect(row(o, 'code-review').left).toBeCloseTo(row(o, 'local').left);
-      expect(row(o, 'security-review').left).toBeCloseTo(end(row(o, 'code-review')));
-      expect(row(o, 'browser').left).toBeCloseTo(end(row(o, 'test')));
+    it('draws that check as not recorded, with no minutes and no share', () => {
+      expect(row(o, 'check:Test')).toMatchObject({ ms: null, share: null, width: 0 });
     });
 
-    it('ends the last kind and the last check where their phase ends, and carries the phase as the stretch behind it', () => {
-      expect(end(row(o, 'browser'))).toBeCloseTo(end(row(o, 'local')));
-      // Checks are drawn in the order CI runs them: E2E (F3) first, then Test.
-      expect(row(o, 'check:E2E (F3)').left).toBeCloseTo(row(o, 'ci').left);
-      expect(row(o, 'check:Test').left).toBeCloseTo(end(row(o, 'check:E2E (F3)')));
-      expect(end(row(o, 'check:Test'))).toBeCloseTo(end(row(o, 'ci')));
+    it("leaves the phase's time spent and every share in it not recorded, and keeps a check that is recorded in full", () => {
+      expect(row(o, 'ci').spent).toEqual({ ms: null, overlap: false });
+      expect(row(o, 'check:E2E (F3)')).toMatchObject({ ms: 4 * MIN, share: null });
+    });
+
+    it('leaves the phase waited as it is', () => {
+      expect(inMinutes(o, 'ci')).toBe(10);
+    });
+
+    it('counts the pull requests it affects, one for each however many of its checks are not recorded', () => {
+      expect(o.noRunning).toBe(1);
+      expect(outline([pull(1, { rounds: [round([noRunning, check('E2E (F3)', 5, { runningMs: null, last: true })])] })]).noRunning).toBe(1);
+    });
+
+    it('stays not recorded on average as it does added up', () => {
+      const slot = OUTLINE_SLOTS.findIndex((s) => s.key === 'check:Test');
+
+      expect(outlineFigures([pull(1, { rounds: [round([noRunning])] })], 3)[slot]).toBeNull();
+    });
+  });
+
+  describe("each part's bar starts where its phase starts at its own length on the one scale, and the wait's end is marked", () => {
+    // Local checks wait 9 minutes of 25; CI rounds wait 5.
+    const o = outline([split(1, [4, 1, 3, 1], { rounds: [round([check('Test', 2), check('E2E (F3)', 3, { last: true })])] })]);
+
+    it("starts every part where its phase starts, not where the part before it ends", () => {
+      for (const key of ['code-review', 'security-review', 'test', 'browser']) expect(row(o, key).left).toBeCloseTo(row(o, 'local').left);
+      for (const key of ['check:E2E (F3)', 'check:Test']) expect(row(o, key).left).toBeCloseTo(row(o, 'ci').left);
+    });
+
+    it('gives a part its own length on the scale, ending inside its phase where it is shorter than the wait', () => {
+      expect(row(o, 'code-review').width).toBeCloseTo(4 / 25);
+      expect(end(row(o, 'code-review'))).toBeLessThan(end(row(o, 'local')));
+    });
+
+    it('carries the phase as the stretch behind a part, whose end is where the dashed line goes', () => {
       expect(row(o, 'code-review').stretch).toEqual({ left: row(o, 'local').left, width: row(o, 'local').width });
+    });
+
+    it('runs a part longer than its phase waited past the phase', () => {
+      // Four shards of 10 minutes in a round that held 12.
+      const shards = [1, 2, 3, 4].map((n) => check('E2E (F3)', 12, { attempt: n, runningMs: 10 * MIN, last: n === 4 }));
+      const wide = outline([pull(1, { rounds: [round(shards, { ms: 12 * MIN })], time: { ...pull(1).time, ciMs: 12 * MIN, totalMs: 28 * MIN } })]);
+      const e2e = row(wide, 'check:E2E (F3)');
+
+      expect(end(e2e)).toBeGreaterThan(end(row(wide, 'ci')));
+      expect(end(e2e)).toBeLessThanOrEqual(1 + 1e-9);
+    });
+
+    it("draws a part longer than the rest of the scale to the scale's end, its minutes still in full", () => {
+      // 5 of 10 minutes waited on CI at the end of the scale, then a check that ran 60.
+      const long = outline([pull(1, { rounds: [round([check('Test', 5, { runningMs: 60 * MIN, last: true })])], time: { ...pull(1).time, totalMs: 21 * MIN } })]);
+      const test = row(long, 'check:Test');
+
+      expect(end(test)).toBeCloseTo(1);
+      expect(test.ms).toBe(60 * MIN);
+      expect(words(test).amount).toBe('1h 00m spent');
     });
 
     it('lays the phases end to end from 0 to 1', () => {
@@ -211,6 +341,26 @@ describe('Harness Monitor', () => {
       expect(top[0]!.left).toBe(0);
       expect(end(top.at(-1)!)).toBeCloseTo(1);
       for (let i = 1; i < top.length; i++) expect(top[i]!.left).toBeCloseTo(end(top[i - 1]!));
+    });
+  });
+
+  describe('a row says what it is: a phase its time waited with its time spent under its name, a part its time spent', () => {
+    const o = outline([split(1, [10, 0, 12, 0], {}, 12)]);
+
+    it.each([
+      { situation: 'a phase without parts', key: 'writing', spent: null, amount: '10m' },
+      { situation: 'a phase with parts that ran side by side', key: 'local', spent: '22m spent side by side', amount: '12m waited' },
+      { situation: 'a phase with parts that did not', key: 'ci', spent: '5m spent', amount: '5m waited' },
+      { situation: 'a part', key: 'code-review', spent: null, amount: '10m spent' },
+    ])('$situation', ({ key, spent, amount }) => {
+      expect(words(row(o, key))).toEqual({ spent, amount });
+    });
+
+    it('says a part not recorded is not recorded, and its phase has no time spent to name', () => {
+      const none = outline([pull(1, { rounds: [round([check('Test', 5, { runningMs: null, last: true })])] })]);
+
+      expect(words(row(none, 'check:Test'))).toEqual({ spent: null, amount: 'not recorded' });
+      expect(words(row(none, 'ci'))).toEqual({ spent: 'time spent not recorded', amount: '5m waited' });
     });
   });
 
@@ -326,23 +476,31 @@ describe('Harness Monitor', () => {
 
   describe("a table row's strip is laid out in the browser exactly as Where the time went is on the page", () => {
     // The strip's script draws from the figures a row carries, so its arithmetic is a second copy of the page's: held to it here, over every kind of row.
-    const browser = new Function(`${STRIP_LAYOUT_SOURCE}; return { hm, layOut };`)() as {
+    const browser = new Function(`${STRIP_LAYOUT_SOURCE}; return { hm, layOut, words };`)() as {
       hm: (ms: number) => string;
-      layOut: (slots: unknown[], figures: number[]) => { total: number; rows: { slot: number; ms: number; share: number; left: number; width: number; stretch: { left: number; width: number } | null }[] };
+      layOut: (slots: unknown[], figures: (number | null)[]) => { total: number; rows: { slot: number; ms: number | null; share: number | null; left: number; width: number; spent: { ms: number | null; overlap: boolean } | null; stretch: { left: number; width: number } | null }[] };
+      words: (part: number, row: unknown) => { spent: string | null; amount: string };
     };
     const slots = OUTLINE_SLOTS.map((s) => [s.label, s.part ? 1 : 0, s.other ? 1 : 0, 'colour']);
     const a = split(1, [4, 1, 3, 1], { rounds: [round([check('Test', 2), check('E2E (F3)', 3, { last: true })])] });
     const b = split(2, [2, 2, 6, 2], { rounds: [round([check('Test', 1), check('Brand new', 4, { last: true })])] });
+    // Four shards of an hour in a round that held 12 minutes, the last of them cut off at the end of the scale; and a check whose running time was never stored.
+    const shards = [1, 2, 3, 4].map((n) => check('E2E (F3)', 12, { attempt: n, runningMs: 60 * MIN, last: n === 4 }));
+    const past = pull(6, { rounds: [round(shards, { ms: 12 * MIN })], time: { ...pull(6).time, ciMs: 12 * MIN, totalMs: 28 * MIN } });
+    const unstored = pull(7, { rounds: [round([check('Test', 5, { runningMs: null, last: true })])] });
 
     it.each([
       { situation: 'one pull request split by kind', list: [a], per: 1 },
       { situation: 'two added up', list: [a, b], per: 1 },
       { situation: 'two on average', list: [a, b], per: 2 },
       { situation: 'one among them not split by kind', list: [a, notSplit(3)], per: 2 },
+      { situation: 'parts that ran past the end of the scale', list: [past], per: 1 },
+      { situation: 'a check whose running time is not recorded, added up and on average', list: [a, unstored], per: 2 },
+      { situation: 'two overlapping kinds, whose time spent is more than the wait', list: [split(8, [10, 0, 12, 0], {}, 12)], per: 1 },
       { situation: 'one with no session record', list: [a, unrecorded(4)], per: 1 },
       { situation: 'one with nothing to open', list: [pull(5, { balance: null, rounds: [], time: { localParts: null, codingMs: null, localMs: null, ciMs: 0, waitingToMergeMs: null, awayMs: 0, totalMs: 40 * MIN } })], per: 1 },
     ])('$situation gives the same rows, bars and shares', ({ list, per }) => {
-      const figures = outlineFigures(list, per).map(Math.round);
+      const figures = outlineFigures(list, per).map((n) => (n === null ? null : Math.round(n)));
       const page = layOut(figures);
       const drawn = browser.layOut(slots, figures);
 
@@ -352,6 +510,8 @@ describe('Harness Monitor', () => {
         const want = page.rows[i]!;
         expect([r.ms, r.share, r.left, r.width]).toEqual([want.ms, want.share, want.left, want.width]);
         expect(r.stretch).toEqual(want.stretch);
+        expect(r.spent).toEqual(want.spent);
+        expect(browser.words(OUTLINE_SLOTS[r.slot]!.part ? 1 : 0, r)).toEqual(words(want));
       }
     });
 

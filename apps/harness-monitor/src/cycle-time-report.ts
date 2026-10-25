@@ -180,15 +180,22 @@ export const costOf = (costs: Map<number, PullCost>, p: Pull): PullCost | null =
 
 // ---- The outline
 
-/** One row of the outline: a phase, or a part of one. `left` and `width` are shares of start to merge, so every bar sits on the one scale. */
+/**
+ * One row of the outline: a phase, or a part of one. `left` and `width` are
+ * shares of start to merge, so every bar sits on the one scale.
+ */
 export interface OutlineRow {
   key: string;
   label: string;
-  ms: number;
-  /** A phase's share of start to merge, or a part's of its phase: 0 to 1. */
-  share: number;
+  /** A phase's time waited, or a part's time spent, which is null where it is not recorded. */
+  ms: number | null;
+  /** A phase's share of start to merge, or a part's of its phase's time spent: 0 to 1; null for a part with no time spent recorded, or in a phase whose is not. */
+  share: number | null;
   left: number;
+  /** A part's is its own length, cut where the scale ends; 0 where not recorded. */
   width: number;
+  /** A phase that opens into parts: the time spent they add up to, null where one of them is not recorded. Null for a phase without parts and for a part. */
+  spent: { ms: number | null; overlap: boolean } | null;
   /** The phase a part belongs to; a phase is its own. */
   phase: PhaseKey;
   part: boolean;
@@ -204,6 +211,8 @@ export interface Outline {
   rows: OutlineRow[];
   /** Pull requests whose local checks are not split by kind. */
   unsplit: number;
+  /** Pull requests with a check attempt whose running time is not recorded. */
+  noRunning: number;
 }
 
 /** A row the outline can have, in the order it is drawn: each phase, then the parts it opens into. */
@@ -226,63 +235,120 @@ export const OUTLINE_SLOTS: OutlineSlot[] = PHASES.flatMap((ph): OutlineSlot[] =
 });
 
 /**
- * The minutes of every slot over `list`, divided by `per` where a row is a
- * pull request on average. A phase is the pull requests' phases added up; a
- * part is its own sum, and a pull request with no kinds stored puts its local
- * minutes in Not split by kind, so a phase's parts add up to it.
+ * Whether a pull request's local checks are split by kind. Reviews recorded
+ * without a per-kind split are not; no reviews recorded is, with both review
+ * kinds at 0, and its test runs and browser pass still come from `localRuns`.
  */
-export function outlineFigures(list: Pull[], per = 1): number[] {
-  const known = new Set(CHECKS);
-  const figure = (s: OutlineSlot): number => {
-    if (!s.part) return sum(list.map((p) => values(p)[s.phase] ?? 0));
-    if (s.key === 'not-split') return sum(list.filter((p) => p.time.localParts === null).map((p) => p.time.localMs ?? 0));
-    if (s.phase === 'local') return sum(list.map((p) => p.time.localParts?.[s.key as LocalKind] ?? 0));
-    return sum(list.flatMap((p) => p.rounds.flatMap((r) => r.checks.filter((c) => (s.key === 'other-checks' ? !known.has(c.name) : `check:${c.name}` === s.key)).map((c) => c.heldMs))));
-  };
-  return OUTLINE_SLOTS.map((s) => figure(s) / per);
+export const splitByKind = (p: Pull) => p.localReviews === null || p.localReviews.byKind !== null;
+
+/** A local kind's own minutes as the session recorded them: two kinds at once are each counted in full. */
+function kindMs(p: Pull, kind: LocalKind): number {
+  if (kind === 'test' || kind === 'browser') return p.localRuns[kind]?.ms ?? 0;
+  return p.localReviews?.byKind?.[kind].ms ?? 0;
 }
 
 /**
- * Lays figures out as one start-to-merge scale: every phase end to end, each
- * part inside its phase's stretch. A phase's share is of start to merge, a
- * part's of its phase. A slot with no minutes is left out, and a phase left out
- * takes its parts with it. The strip a table row opens runs the same
- * arithmetic in the browser (STRIP_LAYOUT_SOURCE), which a unit test holds to this.
+ * The figure of every slot over `list`, divided by `per` where a row is a pull
+ * request on average. A phase is the pull requests' time waited added up. A
+ * part is time spent: a local kind's own minutes, a CI check's attempts'
+ * running time added up, and for a pull request with no kinds stored its local
+ * minutes in Not split by kind. A CI part with any attempt whose running time
+ * is not recorded is null, never the sum of the rest.
  */
-export function layOut(figures: number[]): { total: number; rows: OutlineRow[] } {
+export function outlineFigures(list: Pull[], per = 1): (number | null)[] {
+  const known = new Set(CHECKS);
+  const figure = (s: OutlineSlot): number | null => {
+    if (!s.part) return sum(list.map((p) => values(p)[s.phase] ?? 0));
+    if (s.key === 'not-split') return sum(list.filter((p) => !splitByKind(p)).map((p) => p.time.localMs ?? 0));
+    if (s.phase === 'local') return sum(list.filter(splitByKind).map((p) => kindMs(p, s.key as LocalKind)));
+    const attempts = list.flatMap((p) => p.rounds.flatMap((r) => r.checks.filter((c) => (s.key === 'other-checks' ? !known.has(c.name) : `check:${c.name}` === s.key))));
+    return attempts.some((c) => c.runningMs === null) ? null : sum(attempts.map((c) => c.runningMs!));
+  };
+  return OUTLINE_SLOTS.map((s) => {
+    const ms = figure(s);
+    return ms === null ? null : ms / per;
+  });
+}
+
+/**
+ * Lays figures out as one start-to-merge scale. Phases are time waited, end to
+ * end, and add up to start to merge. A phase's parts are time spent: each bar
+ * starts where its phase starts, at its own length on the same scale, cut where
+ * the scale ends, so one that ran longer than the phase waited runs past the
+ * phase's end, which the row's `stretch` marks. A phase's share is of start to
+ * merge; a part's is of its phase's time spent. A slot with no minutes is left
+ * out, and a phase left out takes its parts with it; a part not recorded stays,
+ * with no bar, and leaves its phase's time spent and its shares not recorded.
+ * The strip a table row opens runs the same arithmetic in the browser
+ * (STRIP_LAYOUT_SOURCE), which a unit test holds to this.
+ */
+export function layOut(figures: (number | null)[]): { total: number; rows: OutlineRow[] } {
   const total = sum(OUTLINE_SLOTS.flatMap((s, i) => (s.part ? [] : [figures[i]!])));
   const scale = (ms: number) => (total ? ms / total : 0);
+  // What each phase's parts add up to; null where one is not recorded, and absent for a phase with none.
+  const spent = new Map<PhaseKey, number | null>();
+  OUTLINE_SLOTS.forEach((s, i) => {
+    const ms = figures[i] ?? null;
+    if (!s.part || (ms !== null && ms <= 0)) return;
+    const before = spent.get(s.phase);
+    spent.set(s.phase, ms === null || before === null ? null : (before ?? 0) + ms);
+  });
   const rows: OutlineRow[] = [];
   let at = 0;
-  let inside = 0;
-  let phaseMs = 0;
   let stretch: { left: number; width: number } | null = null;
   OUTLINE_SLOTS.forEach((s, i) => {
-    const ms = figures[i]!;
+    const ms = figures[i] ?? null;
     if (!s.part) {
-      stretch = ms > 0 ? { left: scale(at), width: scale(ms) } : null;
+      stretch = ms! > 0 ? { left: scale(at), width: scale(ms!) } : null;
       if (stretch === null) return;
-      phaseMs = ms;
-      inside = at;
-      rows.push({ key: s.key, label: s.label, ms, share: scale(ms), left: stretch.left, width: stretch.width, phase: s.phase, part: false, other: s.other, stretch: null });
-      at += ms;
-    } else if (stretch !== null && ms > 0) {
-      rows.push({ key: s.key, label: s.label, ms, share: phaseMs ? ms / phaseMs : 0, left: scale(inside), width: scale(ms), phase: s.phase, part: true, other: s.other, stretch });
-      inside += ms;
+      const all = spent.get(s.phase);
+      const mine = all === undefined ? null : { ms: all, overlap: all !== null && all > ms! };
+      rows.push({ key: s.key, label: s.label, ms, share: scale(ms!), left: stretch.left, width: stretch.width, spent: mine, phase: s.phase, part: false, other: s.other, stretch: null });
+      at += ms!;
+    } else if (stretch !== null && (ms === null || ms > 0)) {
+      const all = spent.get(s.phase) ?? null;
+      const { left, width } = stretch as { left: number; width: number };
+      rows.push({
+        key: s.key,
+        label: s.label,
+        ms,
+        share: ms === null || !all ? null : ms / all,
+        left,
+        width: ms === null ? 0 : Math.min(scale(ms), 1 - left),
+        spent: null,
+        phase: s.phase,
+        part: true,
+        other: s.other,
+        stretch,
+      });
     }
   });
   return { total, rows };
 }
 
 /**
- * Where the time went, as one outline: every phase on one start-to-merge scale,
- * Local checks opened into its four kinds and CI rounds into its checks. Each
- * minute counts once, so a phase's parts add up to it: a pull request with no
- * kinds stored puts its local minutes in Not split by kind. A row with no
- * minutes is left out.
+ * What a row says: the line under a phase's name naming its time spent, and its
+ * amount, a phase's as time waited where it has parts and a part's as time
+ * spent. The strip's script has the same words (`words`), which a unit test
+ * holds to these.
+ */
+export function words(r: OutlineRow): { spent: string | null; amount: string } {
+  const spent = r.spent === null ? null : r.spent.ms === null ? 'time spent not recorded' : `${hm(r.spent.ms)} spent${r.spent.overlap ? ' side by side' : ''}`;
+  if (r.part) return { spent, amount: r.ms === null ? 'not recorded' : `${hm(r.ms)} spent` };
+  return { spent, amount: r.spent === null ? hm(r.ms!) : `${hm(r.ms!)} waited` };
+}
+
+/**
+ * Where the time went, as one outline: every phase on one start-to-merge scale
+ * as time waited, Local checks opened into its four kinds and CI rounds into
+ * its checks as time spent. A row with no minutes is left out.
  */
 export function outline(list: Pull[]): Outline {
-  return { ...layOut(outlineFigures(list)), unsplit: list.filter((p) => p.time.localParts === null && (p.time.localMs ?? 0) > 0).length };
+  return {
+    ...layOut(outlineFigures(list)),
+    unsplit: list.filter((p) => !splitByKind(p) && (p.time.localMs ?? 0) > 0).length,
+    noRunning: list.filter((p) => p.rounds.some((r) => r.checks.some((c) => c.runningMs === null))).length,
+  };
 }
 
 /** Median and p95 of start to merge, against the median of the period before. */
