@@ -200,6 +200,15 @@ describe('Harness Monitor', () => {
       expect(leadPlace(html).beforeThePanels).toBe(true);
     });
 
+    it('a number no pull request has, reached the same way, opens with the same lead', async () => {
+      await costs([spend('a', 2)], true);
+
+      const html = await (await thePullRequest(9999)).text();
+
+      expect(html).toContain('Nothing found');
+      expect(leadOf(html)).toContain('What does building this app with Claude Code cost, and where does the money go?');
+    });
+
     it.each([[''], ['?group=feature']])('Cockpit’s Claude calls, under the band’s sentence, at %s', async (query) => {
       putBack = await calls();
 
