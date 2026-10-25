@@ -1,5 +1,6 @@
 import { belgianDay, formatDateTime, formatDay } from './belgium';
-import { esc, inline, lineKey, sentenceForm } from './look';
+import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
+import { esc, inline, lineKey, questionOf, sentenceForm } from './look';
 import { number, REPOSITORY } from './page';
 import { GREY, ORANGE, RED, VIOLET } from './palette';
 import { humanMs, outLink, pct, reportPage, section, tile } from './report';
@@ -39,6 +40,7 @@ import {
   type Outcome,
   type SelectionQuery,
 } from './selection-report';
+import { LEAD_MORE, TABLES, WHAT } from './selection-explain';
 import type { SelectionView, ViewJob, ViewPull } from './selection-view';
 
 const ROW_WORDS: Record<Group, string> = { day: 'each day', pr: 'each pull request', rule: 'each rule that forced a full run', package: 'each package', test: 'each test, most selected first', miss: 'each miss' };
@@ -101,7 +103,8 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
   /** The ran-everything bar of the jobs shown: one figure where they share it, each job's own where they differ. */
   const sharedBar = new Set(jobs.map((j) => bars.forcedFull[j])).size === 1;
   const forcedBarText = sharedBar ? percent(bars.forcedFull[jobs[0]!]) : jobs.map((j) => `${JOB_NAMES[j]} ${percent(bars.forcedFull[j])}`).join(', ');
-  const wide = (id: string, title: string, aside: string, content: string) => section(id, title, aside, content, 'panel wide');
+  /** A tab's table, with the (i) that says what its rows are. */
+  const wide = (id: string, title: string, aside: string, content: string) => section(id, title, aside, content, 'panel wide', explain(id, title, TABLES[q.group]));
 
   /** The bars, as tiles, read on the period's own pull requests. */
   function tiles(): string {
@@ -125,6 +128,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
             ...alarm(bars.alarm[`${job}-forced-full`], verdict),
           ],
           tileClass(verdict),
+          explain(`t-${job}-full`, `${JOB_NAMES[job]} ran everything`, WHAT.ranEverything),
         ),
       );
     }
@@ -136,6 +140,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
         number(misses),
         [`a test that failed on main after its pull request skipped it · ${bars.misses <= 1 ? 'any miss' : `${number(bars.misses)} or more`} crosses`, ...(misses ? [`<a href="${link({ group: 'miss' })}">See which</a>`] : []), ...unread, ...alarm(bars.alarm.misses, missVerdict)],
         tileClass(missVerdict),
+        explain('t-misses', 'Misses', WHAT.misses),
       ),
     );
     const top = view.worst;
@@ -153,6 +158,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
             ]
           : [`no test had ${bars.mostMinOver} pull requests that could skip it`],
         tileClass(topVerdict),
+        explain('t-most', 'Most selected test', WHAT.mostSelected),
       ),
     );
     return `<div class="tiles">${out.join('\n')}</div>`;
@@ -175,13 +181,14 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
         return `<div class="job-block"><div class="job-name"><i style="background:${JOB_COLOURS[job]}"></i>${JOB_NAMES[job]}</div><div class="bar" role="img" aria-label="${esc(present.map((o) => `${OUTCOME_LABELS[o]} ${counts.get(o)}`).join(', '))}">${bar}</div><ul class="shares">${legend}</ul></div>`;
       })
       .join('');
+    const title = `What each job did with ${plural(pulls.length, 'pull request')}`;
     return section(
       'what-each-job-did',
-      `What each job did with ${plural(pulls.length, 'pull request')}`,
-      '',
-      `<div class="well where">${blocks}
-<p class="note">Selecting a subset is selection working. Running everything is the cost a rule forced, read against ${sharedBar ? `the ${forcedBarText} bar` : `each job&rsquo;s bar (${forcedBarText})`}; a documentation-only pull request never starts either job.</p></div>`,
+      title,
+      `ran everything read against ${sharedBar ? `the ${forcedBarText} bar` : `each job&rsquo;s bar, ${forcedBarText}`}`,
+      `<div class="well where">${blocks}</div>`,
       'panel wide',
+      explain('what-each-job-did', title, WHAT.whatEachJobDid),
     );
   }
 
@@ -205,7 +212,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     }
     const docs = pulls.filter((p) => jobs.every((j) => jobOf(p, j).status === 'docs-only')).length;
     items.push(`<li><span class="name">Documentation only</span><span class="delta">${number(docs)}</span><span class="from">of ${plural(pulls.length, 'pull request')}, skipped both jobs</span></li>`);
-    return section('typical-pull-request', 'A typical pull request', '', `<ul class="well changes">${items.join('')}</ul>`, 'panel narrow');
+    return section('typical-pull-request', 'A typical pull request', '', `<ul class="well changes">${items.join('')}</ul>`, 'panel narrow', explain('typical-pull-request', 'A typical pull request', WHAT.typical));
   }
 
   const days = dayRange(q.period, view.oldest, now);
@@ -247,6 +254,8 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       'Share of pull requests that ran everything, per day',
       `<span class="legend">${legend}</span>`,
       `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Share of pull requests that ran everything, per day">${grid}${barLines}${dates}<g class="lines">${lines}</g></svg></div>`,
+      'panel',
+      explain('ran-everything-per-day', 'Share of pull requests that ran everything, per day', WHAT.perDay),
     );
   }
 
@@ -321,7 +330,8 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     const back = `<a class="back" href="${link({ group: 'pr' })}">&larr; Every pull request</a>`;
     const drill = view.pullDrill;
     const p = drill?.pull;
-    if (!drill || !p) return `${back}${section('pull-request', 'Pull request', '', '<p class="well empty">That pull request is not in the data held.</p>', 'panel wide drill-panel')}`;
+    const info = explain('pull-request', 'what each job ran and why', WHAT.pull);
+    if (!drill || !p) return `${back}${section('pull-request', 'Pull request', '', '<p class="well empty">That pull request is not in the data held.</p>', 'panel wide drill-panel', info)}`;
     const changed = `<details><summary>${plural(drill.changed.length, 'changed file')}</summary><ul class="files">${drill.changed.map((f) => `<li class="mono${f.ignored ? ' faint' : ''}">${esc(f.path)}${f.ignored ? ' (ignored by selection)' : ''}</li>`).join('')}</ul></details>`;
     const parts = jobs.map((job) => {
       const v = jobOf(p, job);
@@ -345,7 +355,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
 <p class="sub">Selected, and why</p>${selectedList}${v.unplacedFiles ? `<p class="sub">${plural(v.unplacedFiles, 'changed file')} placed no walk</p>` : ''}</div>`;
     });
     const times = jobs.includes('test') ? ` · Test job ${humanMs(jobOf(p, 'test').prDurationMs)}, main ${humanMs(jobOf(p, 'test').mainDurationMs)}` : '';
-    return `${back}${section('pull-request', prLabel(p), `merged ${formatDateTime(p.mergedAt)} · ${outLink(p.url, 'on GitHub')}${times}`, `<div class="well drill">${changed}${parts.join('')}</div>`, 'panel wide drill-panel')}`;
+    return `${back}${section('pull-request', prLabel(p), `merged ${formatDateTime(p.mergedAt)} · ${outLink(p.url, 'on GitHub')}${times}`, `<div class="well drill">${changed}${parts.join('')}</div>`, 'panel wide drill-panel', info)}`;
   }
 
   function byRule(): string {
@@ -374,7 +384,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     const job = key.slice(0, at) as Job;
     const rule = key.slice(at + 1);
     const row = ruleRows(pulls, jobs).find((r) => r.job === job && r.rule === rule);
-    const panel = (title: string, aside: string, content: string) => `${back}${section('rule', title, aside, content, 'panel wide drill-panel')}`;
+    const panel = (title: string, aside: string, content: string) => `${back}${section('rule', title, aside, content, 'panel wide drill-panel', explain('rule', 'this rule&rsquo;s paths', WHAT.rule))}`;
     if (!row) return panel(esc(rule), '', '<p class="well empty">This rule forced nothing in this period for the jobs chosen.</p>');
     const paths = [...row.paths.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
     const body = paths
@@ -411,8 +421,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       'most often touched first',
       `<div class="well table"><table>
 <thead><tr><th scope="col">Package</th><th scope="col" class="num">Files</th><th scope="col">When selecting</th><th scope="col" class="num">Typical run</th><th scope="col" class="num">Ran in full</th><th scope="col">Mostly because</th></tr></thead>
-<tbody>${body}</tbody></table></div>
-<p class="legend-foot">A package selecting picks only the files the change reaches; touching it on most pull requests means a widely imported file sits under it.</p>`,
+<tbody>${body}</tbody></table></div>`,
     );
   }
 
@@ -435,15 +444,14 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       `${plural(view.tallyCount, 'file')} selected at least once · the ${Math.min(TEST_ROWS, view.tallyCount)} most selected`,
       `<div class="well table"><table>
 <thead><tr><th scope="col">Test, and the chain that most often selected it</th><th scope="col">Level</th><th scope="col">Selected</th><th scope="col" class="num">Full runs</th><th scope="col">Bar ${percent(bars.mostShare)}</th></tr></thead>
-<tbody>${body}</tbody></table></div>
-<p class="legend-foot">If the chain is wider than what actually depends on the file, narrowing it is what would shrink the count.</p>`,
+<tbody>${body}</tbody></table></div>`,
     );
   }
 
   function testDrill(path: string): string {
     const back = `<a class="back" href="${link({ group: 'test' })}">&larr; Every test</a>`;
     const drill = view.testDrill;
-    const panel = (aside: string, content: string) => `${back}${section('test', mono(path), aside, content, 'panel wide drill-panel')}`;
+    const panel = (aside: string, content: string) => `${back}${section('test', mono(path), aside, content, 'panel wide drill-panel', explain('test', 'the pull requests that selected this test', WHAT.test))}`;
     if (!drill || drill.rows.length === 0) return panel('', '<p class="well empty">No pull request in this period ran this test.</p>');
     const selected = drill.rows.filter((r) => r.kind !== 'full');
     const full = drill.rows.length - selected.length;
@@ -475,8 +483,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       `${plural(rows.length, 'miss', 'misses')} · newest first`,
       `<div class="well table"><table>
 <thead><tr><th scope="col">Pull request</th><th scope="col">Test or spec that failed on main</th><th scope="col">Level</th><th scope="col">Job</th><th scope="col">Why it did not run</th></tr></thead>
-<tbody>${body}</tbody></table></div>
-<p class="legend-foot">What to do: widen the import chain the missing file should have been reached through, or add the edge Vitest&rsquo;s own graph does not see.</p>`,
+<tbody>${body}</tbody></table></div>`,
     );
   }
 
@@ -507,7 +514,9 @@ over ${inline('period', 'Period', PERIOD_CHOICES, q.period)}`,
   const heldDays = view.oldest === null ? 0 : Math.round((Date.parse(belgianDay(now)) - Date.parse(belgianDay(view.oldest))) / 86_400_000) + 1;
   const partial = !drilling && length !== null && heldDays > 0 && heldDays < length ? `<p class="muted small">Only ${number(heldDays)} of the period&rsquo;s ${number(length)} days are stored so far.</p>` : '';
 
-  return reportPage({ current: 'selection', controls: form, body: `${partial}${content}`, style: EXTRA }, now);
+  // The page opens with the question its top tab names and the words a newcomer will not know, under the band, on every tab.
+  const pageLead = lead(questionOf('selection'), LEAD_MORE);
+  return reportPage({ current: 'selection', controls: form, body: `${pageLead}\n${partial}${content}\n${EXPLAIN_SCRIPT}`, style: EXTRA + EXPLAIN_STYLE }, now);
 }
 
 const EXTRA = `

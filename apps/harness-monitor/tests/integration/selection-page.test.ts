@@ -1,6 +1,7 @@
 import { createExecutionContext, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../../src/worker';
+import { withoutExplanations } from './cockpit-support';
 import { GREY, RED, slot, swatches } from './series-colours';
 import { docsOnly, emptyTheDatabase, fullPackage, ranEverything, selectionBars, selectionFile, selectionJob, selectionPackage, selectionPull, sendSelection, theSentence } from './support';
 
@@ -25,11 +26,12 @@ function rowsOf(html: string, id: string): string[][] {
     .slice(1);
 }
 
-const plain = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/&rarr;/g, '→').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
+/** What a panel reads as its figures, without the (i)s and the explanations they open. */
+const plain = (html: string) => withoutExplanations(html).replace(/<[^>]+>/g, ' ').replace(/&rarr;/g, '→').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
 const text = (html: string) => plain(html.replace(/<style>.*?<\/style>/s, ''));
 const hasSection = (html: string, id: string) => new RegExp(`<section[^>]*aria-labelledby="${id}"`).test(html);
 const sectionOf = (html: string, id: string) => new RegExp(`<section[^>]*aria-labelledby="${id}".*?</section>`, 's').exec(html)?.[0] ?? '';
-const tiles = (html: string) => [...html.matchAll(/<div class="tile ([^"]*)">(.*?)<\/div>/gs)].map((m) => ({ cls: m[1]!.trim(), text: plain(m[2]!) }));
+const tiles = (html: string) => [...withoutExplanations(html).matchAll(/<div class="tile ([^"]*)">(.*?)<\/div>/gs)].map((m) => ({ cls: m[1]!.trim(), text: plain(m[2]!) }));
 const headers = (html: string, id: string) => [...(/<thead>.*?<\/thead>/s.exec(sectionOf(html, id))?.[0] ?? '').matchAll(/<th[^>]*>(.*?)<\/th>/gs)].map((m) => plain(m[1]!));
 
 const MERGED = '2026-10-10T10:00:00Z';
