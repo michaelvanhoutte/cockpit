@@ -254,7 +254,6 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const rows = all.map((b) => ({ b, cells: series.map((s) => fold(b.pulls, (p) => values(p)[s.key] ?? 0)), total: fold(b.pulls, (p) => p.time.totalMs) }));
     // Scaled to the 90th percentile row, so one pull request away for a night does not flatten every other bar.
     const max = Math.max(1, quantile(rows.map((r) => sum(r.cells)), 0.9) ?? 1);
-    const heads = series.map((s) => `<th scope="col" class="num"><i style="background:${s.colour}"></i>${esc(s.label)}</th>`).join('');
     const body = rows
       .map(({ b, cells, total }) => {
         const one = b.pulls[0]!;
@@ -271,12 +270,9 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
           sub = b.pulls.map((p) => [prLink(p, `#${p.number}`), sessionsLink(p.number, 'Sessions')].filter(Boolean).join(' ')).join(' · ');
         }
         const bar = cells.map((ms, i) => (ms > 0 ? `<div style="flex:0 0 ${((ms / max) * 100).toFixed(1)}%;background:${series[i]!.colour}"></div>` : '')).join('');
-        const cellHtml = cells
-          .map((ms, i) => {
-            const unrecorded = perPull && values(one)[series[i]!.key] === null;
-            return `<td class="num">${unrecorded ? '<span class="faint">not recorded</span>' : ms > 0 ? hm(ms) : '<span class="faint">—</span>'}</td>`;
-          })
-          .join('');
+        // No column per phase: hovering the bar names each phase's time, on the row's own measure.
+        const named = series.flatMap((s, i) => (cells[i]! > 0 ? [`${s.label} ${hm(cells[i]!)}`] : []));
+        const hover = named.length ? ` title="${esc(named.join(' · '))}"` : '';
         const rounds = sum(b.pulls.map((p) => p.rounds.length));
         const red = sum(b.pulls.map(redRounds));
         const priced = b.pulls.filter((p) => cost(p) !== null);
@@ -290,7 +286,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
         const figures = outlineFigures(b.pulls, per(b.pulls)).map((n) => (Math.round(n) > 0 ? Math.round(n).toString(36) : ''));
         while (figures.at(-1) === '') figures.pop();
         // A row with no minutes at all has no outline to draw, so it is not offered to open.
-        return `<tr${figures.length ? ` data-figures="${figures.join(',')}"` : ''}><td class="first">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</td>${perPull ? '' : `<td class="num faint-num">${number(b.pulls.length)}</td>`}<td class="split-cell"><div class="split">${bar}</div></td>${cellHtml}<td class="num total">${hm(total)}</td><td class="num">${number(rounds)}${red ? ` <span class="up">· ${red} red</span>` : ''}</td><td class="num total">${costCell}</td></tr>`;
+        return `<tr${figures.length ? ` data-figures="${figures.join(',')}"` : ''}><td class="first">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</td>${perPull ? '' : `<td class="num faint-num">${number(b.pulls.length)}</td>`}<td class="split-cell"${hover}><div class="split">${bar}</div></td><td class="num total">${hm(total)}</td><td class="num">${number(rounds)}${red ? ` <span class="up">· ${red} red</span>` : ''}</td><td class="num total">${costCell}</td></tr>`;
       })
       .join('\n');
     const how = perPull ? 'newest first' : summed ? 'its pull requests added up · newest first' : group === 'day' ? 'a pull request on average · newest first' : 'a pull request on average';
@@ -300,7 +296,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
       `By ${group === 'day' ? 'day merged' : GROUP_LABELS[group].toLowerCase()}`,
       `${plural(all.length, noun)} · ${how}`,
       `<div class="well table"><table class="openable">
-<thead><tr><th scope="col">${group === 'day' ? 'Day merged' : GROUP_LABELS[group]}</th>${perPull ? '' : '<th scope="col" class="num">Pull requests</th>'}<th scope="col">Split</th>${heads}<th scope="col" class="num">Start to merge</th><th scope="col" class="num">Rounds</th><th scope="col" class="num">Claude Code</th></tr></thead>
+<thead><tr><th scope="col">${group === 'day' ? 'Day merged' : GROUP_LABELS[group]}</th>${perPull ? '' : '<th scope="col" class="num">Pull requests</th>'}<th scope="col" class="split-head">Split</th><th scope="col" class="num">Start to merge</th><th scope="col" class="num">Rounds</th><th scope="col" class="num">Claude Code</th></tr></thead>
 <tbody>${body}</tbody></table></div>
 <script type="application/json" id="outline-slots">${SLOTS_JSON}</script>
 <script>${STRIP_SCRIPT}</script>`,
@@ -388,7 +384,7 @@ a:hover .dot,a:focus .dot{fill-opacity:1;stroke:var(--ink-strong)}
 .chart-note{margin:6px 4px 0;font-size:13px;color:var(--ink-faint)}
 .tag{display:inline-block;padding:0 6px;border-radius:var(--radius-sm);background:color-mix(in srgb,var(--shade) 8%,transparent);color:var(--ink-soft);font-size:12px}
 .tile-note .up,.tile-note .down{font-weight:600}
-.table .first{min-width:300px}.table .split-cell{min-width:130px}
+.table .first{min-width:300px}
 .openable{--open-tint:color-mix(in srgb,var(--accent) 8%,var(--well))}
 /* The table can be wider than its panel and scroll inside it; a strip stays as wide as the panel and keeps to the visible edge, so its minutes are never out of sight. */
 .well.table:has(>.openable){container-type:inline-size}

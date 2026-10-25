@@ -28,6 +28,7 @@ const check = (name: string, minutes: number, over: Partial<CycleTimeCheck> = {}
   failure: null,
   flukeMs: null,
   queuedMs: null,
+  runningMs: null,
   failedSteps: [],
   failedFiles: [],
   ...over,

@@ -257,6 +257,90 @@ describe('Cycle time', () => {
     });
   });
 
+  describe("a check attempt's running time is the runner time its jobs used, so a pull request's attempts add up to its GitHub Actions runner minutes", () => {
+    const sha = (letter) => letter.repeat(40);
+    const commit = (letter, checks) => ({ sha: sha(letter), authoredAt: at(0), parents: 1, checks });
+    /** Each attempt sent, as `[round, name, attempt, minutes of running time]`. */
+    const runningOf = (row) => row.rounds.flatMap((round, index) => round.checks.map((c) => [index + 1, c.name, c.attempt, c.runningMs / MIN]));
+    const shards = (spans, conclusion = 'success', overrides = {}) => spans.map(([from, to], index) => check(`E2E (F3) (${index + 1})`, from, to, conclusion, overrides));
+    /** A re-run's copy of a job that passed: created at minute 20, carrying the start and end of the job it copies. */
+    const copyOf = (job) => ({ ...job, id: nextId++, queue: { state: 'read', createdAt: at(20), startedAt: job.startedAt } });
+
+    const [first, failing, third, fourth] = shards([[2, 7], [2, 8], [2, 6], [2, 7]]);
+    failing.conclusion = 'failure';
+
+    it.each([
+      {
+        situation: "E2E's four shards of 5, 6, 4 and 5 minutes and its fan-in of 1, in one attempt",
+        commits: [commit('a', [...shards([[2, 7], [2, 8], [2, 6], [2, 7]]), check('E2E (F3)', 8, 9)])],
+        running: [[1, 'E2E (F3)', 1, 21]],
+      },
+      {
+        situation: 'a check that failed and was re-run, each attempt its own job',
+        commits: [commit('a', [check('Test', 3, 12, 'failure'), check('Test', 14, 20)])],
+        running: [[1, 'Test', 1, 9], [1, 'Test', 2, 6]],
+      },
+      {
+        situation: 'a family whose failed shard was re-run, the shards that passed copied: only the re-run shard and its fan-in ran again',
+        commits: [commit('a', [first, failing, third, fourth, check('E2E (F3)', 8, 9, 'failure'), copyOf(first), copyOf(third), copyOf(fourth), check('E2E (F3) (2)', 20, 26), check('E2E (F3)', 27, 28)])],
+        running: [[1, 'E2E (F3)', 1, 21], [1, 'E2E (F3)', 2, 7]],
+      },
+      {
+        situation: 'a family whose failed shard alone was re-run, the others standing in with their first attempt, which is not counted again',
+        commits: [commit('a', [first, failing, third, fourth, check('E2E (F3)', 8, 9, 'failure'), check('E2E (F3) (2)', 20, 26), check('E2E (F3)', 27, 28)])],
+        running: [[1, 'E2E (F3)', 1, 21], [1, 'E2E (F3)', 2, 7]],
+      },
+      {
+        situation: 'a job cancelled by the next push after 3 minutes',
+        commits: [commit('a', [check('Test', 2, 5, 'cancelled')]), commit('b', [check('Test', 5, 10)])],
+        running: [[1, 'Test', 1, 3], [2, 'Test', 1, 5]],
+      },
+      {
+        situation: 'a job that queued 2 minutes and ran 4',
+        commits: [commit('a', [check('Test', 3, 7, 'success', { queue: { state: 'read', createdAt: at(1), startedAt: at(3) } })])],
+        running: [[1, 'Test', 1, 4]],
+      },
+      {
+        situation: 'a job cancelled before a runner took it, beside a skipped one that sends no attempt',
+        commits: [commit('a', [check('Test', 2, 6), check('Checks', 4, 4, 'cancelled'), check('Pages', 3, 3, 'skipped')])],
+        running: [[1, 'Checks', 1, 0], [1, 'Test', 1, 4]],
+      },
+      {
+        situation: 'a check another app posted, which used no runner of ours',
+        commits: [commit('a', [check('Test', 2, 6), check('Scan', 1, 30, 'success', { app: 'other-app' })])],
+        running: [[1, 'Test', 1, 4], [1, 'Scan', 1, 0]],
+      },
+    ])('$situation', ({ commits, running }) => {
+      const [row] = monitorRows({ pulls: [pull({ body: recorded, commits })] });
+
+      expect(runningOf(row)).toEqual(running);
+    });
+
+    it("adds up, over every attempt of a pull request, to its runner total", () => {
+      const commits = [
+        commit('a', [
+          check('Checks', 2, 5, 'success', { queue: { state: 'read', createdAt: at(1), startedAt: at(2) } }),
+          check('Test', 3, 12, 'failure'),
+          check('Test', 14, 20),
+          first, failing, third, fourth,
+          check('E2E (F3)', 8, 9, 'failure'),
+          copyOf(first), copyOf(third), copyOf(fourth),
+          check('E2E (F3) (2)', 20, 26),
+          check('E2E (F3)', 27, 28),
+          check('Pages', 3, 3, 'skipped'),
+          check('Lint', 25, 29, 'cancelled'),
+          check('Scan', 1, 30, 'success', { app: 'other-app' }),
+        ]),
+        commit('b', [check('Checks', 29, 33), check('Lint', 30, 30, 'cancelled'), check('Test', 30, 41)]),
+      ];
+
+      const [row] = monitorRows({ pulls: [pull({ body: recorded, commits })] });
+
+      expect(row.runnerMs).toBe(65 * MIN);
+      expect(runningOf(row).reduce((total, [, , , minutes]) => total + minutes, 0) * MIN).toBe(row.runnerMs);
+    });
+  });
+
   describe('a pull request closed without merging is not sent', () => {
     it('leaves it out', () => {
       expect(monitorRows({ pulls: [pull({ mergedAt: null })] })).toEqual([]);
