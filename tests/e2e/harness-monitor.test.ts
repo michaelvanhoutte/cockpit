@@ -97,8 +97,6 @@ const SEED = {
 };
 
 test.describe('Harness Monitor', () => {
-  /** A grouping's tab on the band of a page that has them, such as Cockpit's Claude calls. */
-  const tabOn = (page: Page) => (name: string) => page.getByRole('navigation', { name: 'Group by' }).getByRole('link', { name, exact: true });
   /** A word of the band's sentence, or one of the filters under "Only", by what a screen reader calls it. */
   const choice = (page: Page, name: string) => page.getByRole('combobox', { name, exact: true });
   /** Chooses an option and waits for the page it submits to. */
@@ -258,7 +256,7 @@ test.describe('Harness Monitor', () => {
     expect(await colours()).toEqual(['rgb(35, 36, 42)', 'rgb(20, 21, 25)']);
   });
 
-  test('CI stability opens from the top bar, its tabs and the Workflow filter narrow it, the filters sit in one row on a desk, and a phone scrolls the wide tables inside their panels', async ({ page, request: api }) => {
+  test('CI stability opens from the top bar, its sentence and the Workflow filter narrow it, choosing each workflow starts it in its own order with every workflow and no Workflow filter, Open in Actions follows the filter on a desk, and a phone scrolls the wide tables inside their panels', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
     const run = (id: number, workflow: string, hours: number, failed: { job: string; step: string } | null) => ({
@@ -295,37 +293,55 @@ test.describe('Harness Monitor', () => {
     expect((await api.post(`${monitor}/__e2e/seed-stability`, { data: { runs } })).ok()).toBe(true);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
 
-    // From the costs page, the top bar's own tab opens it on the Job tab, with the tiles an overview has.
+    // From the costs page, the top bar's own tab opens it on each job, with the tiles an overview has.
     await page.goto(`${monitor}/`);
     await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'CI stability' }).click();
-    const band = page.getByRole('navigation', { name: 'Group by' });
-    await expect(band.getByRole('link', { name: 'Job', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(band.getByRole('link')).toHaveText(['Job', 'Workflow', 'Red spells', 'Failures', 'Over time']);
+    await expect(page.getByText('Show CI on main for')).toBeVisible();
+    await expect(choice(page, 'Rows')).toHaveValue('job');
+    await expect(choice(page, 'Order')).toHaveValue('worst');
+    await expect(choice(page, 'Period')).toHaveValue('7d');
     await expect(page.getByRole('region', { name: 'How every job run ended' })).toBeVisible();
     // While Nightly is red, the line says so on this tab and on the next.
     await expect(page.getByRole('status').filter({ hasText: 'Nightly is red now' })).toContainText('Build the snapshot');
 
-    // The filters share one row on a desk; the page never scrolls sideways, and the wide table scrolls inside its panel.
-    const tops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
-    expect(tops).toHaveLength(3);
-    if (!onAPhone) expect(new Set(tops).size).toBe(1);
+    // On a desk Open in Actions follows the Workflow filter on the band's Only row; the page never scrolls sideways, and the wide table scrolls inside its panel.
+    await expect(page.locator('.only select')).toHaveCount(1);
+    const actions = page.locator('.only').getByRole('link', { name: 'Open in Actions' });
+    const [filter, link] = await Promise.all([choice(page, 'Workflow').boundingBox(), actions.boundingBox()]);
+    if (!onAPhone) {
+      expect(Math.abs(link!.y - filter!.y)).toBeLessThan(8);
+      expect(link!.x).toBeGreaterThan(filter!.x + filter!.width);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     const byJob = page.getByRole('region', { name: 'By job' }).locator('.table');
     expect(await byJob.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(onAPhone);
 
-    // Failures lists where both workflows died; choosing Workflow: CI keeps the tab and leaves only CI's failure.
-    await band.getByRole('link', { name: 'Failures' }).click();
+    // Each failure lists where both workflows died, and has no order to choose; choosing Workflow: CI keeps the rows and leaves only CI's failure.
+    await choose(page, 'Rows', 'each failure', /[?&]group=failures(&|$)/);
+    await expect(choice(page, 'Order')).toHaveCount(0);
     const died = page.getByRole('region', { name: 'Where they died' });
     await expect(died.getByRole('row')).toHaveCount(3);
     await expect(page.getByRole('status').filter({ hasText: 'Nightly is red now' })).toBeVisible();
-    await page.getByLabel('Workflow', { exact: true }).selectOption('CI');
-    await expect(page).toHaveURL(/[?&]workflow=CI(&|$)/);
+    await choose(page, 'Workflow', 'CI', /[?&]workflow=CI(&|$)/);
     await expect(page).toHaveURL(/[?&]group=failures(&|$)/);
-    await expect(band.getByRole('link', { name: 'Failures' })).toHaveAttribute('aria-current', 'page');
+    await expect(choice(page, 'Rows')).toHaveValue('failures');
     await expect(died.getByRole('row')).toHaveCount(2);
     await expect(died).toContainText('Run the tests');
     await expect(died).not.toContainText('Build the snapshot');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Each job, slowest first, with the Workflow filter still CI; then each workflow starts in its own order and lists every workflow, since a filter to one would repeat the rows.
+    await choose(page, 'Rows', 'each job', /[?&]group=job(&|$)/);
+    await choose(page, 'Order', 'slowest first', /[?&]sort=slowest(&|$)/);
+    await expect(page).toHaveURL(/[?&]workflow=CI(&|$)/);
+    await choose(page, 'Rows', 'each workflow', /[?&]group=workflow(&|$)/);
+    expect(new URL(page.url()).searchParams.has('sort')).toBe(false);
+    await expect(choice(page, 'Order')).toHaveValue('worst');
+    await expect(choice(page, 'Workflow')).toHaveCount(0);
+    const workflows = page.getByRole('region', { name: 'By workflow' });
+    await expect(workflows.getByRole('row')).toHaveCount(3);
+    await expect(workflows).toContainText('CI');
+    await expect(workflows).toContainText('Nightly');
   });
 
   /**
@@ -381,31 +397,38 @@ test.describe('Harness Monitor', () => {
     expect((await api.post(`${monitor}/__e2e/seed-cycle-time`, { data: { pulls } })).ok()).toBe(true);
   }
 
-  test('Cycle time opens from the top bar, its tabs and the Rounds filter narrow it with the cost beside each pull request, Where the time went is one outline that fits a desk and a phone, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
+  test('Cycle time opens from the top bar, its sentence and the Rounds filter narrow it with the cost beside each pull request, each size offers no Size filter, Where the time went is one outline that fits a desk and a phone, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     await seedCycleTime(api);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
 
-    // From the costs page, the top bar's own tab opens it on Over time, with the tiles an overview has.
+    // From the costs page, the top bar's own tab opens it on each day, with the tiles an overview has.
     await page.goto(`${monitor}/`);
     await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Cycle time' }).click();
-    const band = tabOn(page);
-    await expect(page.getByRole('navigation', { name: 'Group by' }).getByRole('link')).toHaveText(['Over time', 'Pull request', 'Issue', 'Size', 'Check']);
-    await expect(band('Over time')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByText('Show cycle time for')).toBeVisible();
+    await expect(choice(page, 'Rows')).toHaveValue('day');
+    await expect(choice(page, 'Merged')).toHaveValue('all');
     await expect(page.locator('.tile')).toHaveCount(4);
     const where = page.getByRole('region', { name: /^Where the .* went$/ });
     await expect(where).toBeVisible();
 
     // The filters share one row on a desk; the page never scrolls sideways.
-    const tops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
-    expect(tops).toHaveLength(3);
+    const tops = await page.locator('.only select').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(2);
     if (!onAPhone) expect(new Set(tops).size).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
-    // Pull request: a row each with the cost the Monitor holds, which opens its Sessions; no tiles here.
-    await band('Pull request').click();
+    // Rounds: had a red round, chosen while the rows are days, is kept when each pull request is chosen: only the pull request that had one.
+    await choose(page, 'Rounds', 'Had a red round', /[?&]outcome=red(&|$)/);
+    await choose(page, 'Rows', 'each pull request', /[?&]group=pr(&|$)/);
+    await expect(page).toHaveURL(/[?&]outcome=red(&|$)/);
     await expect(page.locator('.tile')).toHaveCount(0);
     const table = page.getByRole('region', { name: 'By pull request' });
+    await expect(table.getByRole('row')).toHaveCount(2);
+    await expect(table).toContainText('#9002 Save a Teams message');
+
+    // Every pull request again: a row each with the cost the Monitor holds, which opens its Sessions.
+    await choose(page, 'Rounds', 'Every pull request', /[?&]outcome=(&|$)/);
     await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ })).toContainText('$6.00');
     await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ }).getByRole('link', { name: 'Sessions' })).toHaveAttribute('href', '/pr/9001');
     await expect(table.getByRole('row', { name: /#9003 Tidy the inbox/ })).not.toContainText('$');
@@ -415,13 +438,10 @@ test.describe('Harness Monitor', () => {
     const wide = page.locator('.well.table');
     expect(await wide.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(onAPhone);
 
-    // Rounds: had a red round keeps the tab and the pull request that had one.
-    await page.getByLabel('Rounds', { exact: true }).selectOption({ label: 'Had a red round' });
-    await expect(page).toHaveURL(/[?&]outcome=red(&|$)/);
-    await expect(page).toHaveURL(/[?&]group=pr(&|$)/);
-    await expect(band('Pull request')).toHaveAttribute('aria-current', 'page');
-    await expect(table.getByRole('row')).toHaveCount(2);
-    await expect(table).toContainText('#9002 Save a Teams message');
+    // Each size lists every size and offers no Size filter, which would repeat the rows.
+    await choose(page, 'Rows', 'each size', /[?&]group=size(&|$)/);
+    await expect(choice(page, 'Size')).toHaveCount(0);
+    await expect(choice(page, 'Rounds')).toBeVisible();
 
     // There is no Split by, and an old link carrying one opens the one view.
     await expect(page.getByRole('group', { name: 'Split by' })).toHaveCount(0);
@@ -539,7 +559,7 @@ test.describe('Harness Monitor', () => {
     await expect(strips).toHaveCount(0);
 
     // The keyboard: Tab from the last filter reaches the first chevron, and Enter opens and closes it.
-    await page.getByLabel('Rounds', { exact: true }).focus();
+    await choice(page, 'Rounds').focus();
     await page.keyboard.press('Tab');
     await expect(table.locator('.chev').first()).toBeFocused();
     await page.keyboard.press('Enter');
@@ -566,7 +586,7 @@ test.describe('Harness Monitor', () => {
     await expect(page.locator('.chev')).toHaveCount(0);
   });
 
-  test('Test selection opens from the top bar, its tabs, the Job toggle and a pull request open what each job ran and why, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
+  test('Test selection opens from the top bar, its sentence and a pull request open what each job ran and why, choosing each package leaves the pull request and keeps the job, the longest sentence fits a desk and a phone, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
     const hot = 'apps/api/tests/unit/hot.test.ts';
@@ -611,29 +631,25 @@ test.describe('Harness Monitor', () => {
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
     const noSidewaysScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-    // From the costs page, the top bar's own tab opens it on the Overview, with the four bars as tiles.
+    // From the costs page, the top bar's own tab opens it on each day, with the four bars as tiles and no Only row.
     await page.goto(`${monitor}/`);
     await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Test selection' }).click();
-    const band = tabOn(page);
-    await expect(page.getByRole('navigation', { name: 'Group by' }).getByRole('link')).toHaveText(['Overview', 'Pull request', 'What forced a full run', 'Package', 'Most selected tests', 'Misses']);
-    await expect(band('Overview')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByText('Show test selection for')).toBeVisible();
+    await expect(choice(page, 'Rows')).toHaveValue('day');
+    await expect(choice(page, 'Job')).toHaveValue('both');
+    await expect(choice(page, 'Period')).toHaveValue('14d');
+    await expect(page.locator('.only')).toHaveCount(0);
     await expect(page.locator('.tile')).toHaveCount(4);
     await expect(page.getByRole('region', { name: 'What each job did with 3 pull requests' })).toBeVisible();
-
-    // The filters share one row on a desk; the page never scrolls sideways.
-    const tops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
-    expect(tops).toHaveLength(2);
-    if (!onAPhone) expect(new Set(tops).size).toBe(1);
     expect(await noSidewaysScroll()).toBe(true);
 
-    // Pull request: no tiles here, a row each, and the select for which pull requests; the wide table scrolls inside its panel.
-    await band('Pull request').click();
+    // Each pull request: no tiles here, a row each, and the select for which pull requests under Only; the wide table scrolls inside its panel.
+    await choose(page, 'Rows', 'each pull request', /[?&]group=pr(&|$)/);
     await expect(page.locator('.tile')).toHaveCount(0);
     const table = page.getByRole('region', { name: 'By pull request' });
     await expect(table.getByRole('row')).toHaveCount(4);
-    const rowTops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
-    expect(rowTops).toHaveLength(3);
-    if (!onAPhone) expect(new Set(rowTops).size).toBe(1);
+    await expect(page.locator('.only select')).toHaveCount(1);
+    await expect(choice(page, 'Pull requests')).toBeVisible();
     expect(await table.locator('.table').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(onAPhone);
 
     // Open one: what changed, each package's mode, and the files selected with the chain behind each.
@@ -646,23 +662,35 @@ test.describe('Harness Monitor', () => {
     await expect(drill).toContainText('via apps/api/src/a.ts → apps/api/src/b.ts');
     expect(await noSidewaysScroll()).toBe(true);
 
-    // Job: E2E keeps the tab and the pull request, and leaves only the E2E job.
-    await page.getByRole('button', { name: 'E2E job' }).click();
-    await expect(page).toHaveURL(/[?&]job=e2e(&|$)/);
+    // The E2E job keeps the rows and the pull request, and leaves only the E2E job.
+    await choose(page, 'Job', 'the E2E job', /[?&]job=e2e(&|$)/);
     await expect(page).toHaveURL(/[?&]pr=9101(&|$)/);
-    await expect(page.getByRole('button', { name: 'E2E job' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(choice(page, 'Job')).toHaveValue('e2e');
     await expect(drill).not.toContainText('Test job');
     await expect(drill).toContainText('E2E job');
 
-    // Back to every pull request, then the rule that forced the full runs opens its paths.
-    await page.getByRole('link', { name: 'Every pull request' }).click();
-    await band('What forced a full run').click();
+    // Each package starts its own rows: the pull request is left behind and the E2E job kept.
+    await choose(page, 'Rows', 'each package', /[?&]group=package(&|$)/);
+    await expect(choice(page, 'Job')).toHaveValue('e2e');
+    await expect(drill).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'By package' })).toBeVisible();
+
+    // The longest sentence, each rule that forced a full run, fits the band at this width: every select inside it, the page never scrolling sideways.
+    await choose(page, 'Rows', 'each rule that forced a full run', /[?&]group=rule(&|$)/);
+    expect(await page.locator('.sentence select').evaluateAll((all) => all.every((e) => e.getBoundingClientRect().left >= 0 && e.getBoundingClientRect().right <= document.documentElement.clientWidth))).toBe(true);
+    // The sentence is one row of words on a desk and wraps on a phone.
+    const sentenceRows = await page.locator('.sentence select').evaluateAll((all) => new Set(all.map((e) => Math.round(e.getBoundingClientRect().top))).size);
+    if (onAPhone) expect(sentenceRows).toBeGreaterThan(1);
+    else expect(sentenceRows).toBe(1);
+    expect(await noSidewaysScroll()).toBe(true);
+
+    // The rule opens its paths.
     await page.getByRole('link', { name: 'owned by no concept' }).click();
     await expect(page.getByRole('region', { name: /E2E job: owned by no concept/ })).toContainText('apps/api/src/b.ts');
     expect(await noSidewaysScroll()).toBe(true);
   });
 
-  test("Tests opens from the top bar, drills through the tree, opens a count's tests above it with the filters as they were, the filters sit in one row on a desk, a phone scrolls the tree inside its panel, and picking a pull request shows its own tests", async ({ page, request: api }) => {
+  test("Tests opens from the top bar, drills through the tree, opens a count's tests above it with the filters as they were, the four filters sit in one row on a desk and two to a row on a phone, a phone scrolls the tree inside its panel, and picking a pull request in the sentence shows its own tests with the rows and filters kept and the open rule closed", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const rule = (concept: string, statement: string, level: string, file: string, line: number) => ({ concept, statement, level, file, line, cases: [], todoCases: [] });
     const area = (key: string, rules: ReturnType<typeof rule>[], children: unknown[] = []) => ({
@@ -697,18 +725,17 @@ test.describe('Harness Monitor', () => {
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
     const noSidewaysScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-    // From the costs page, the top bar's own tab opens it on Concept area, with the tiles an overview has.
+    // From the costs page, the top bar's own tab opens it on each concept area, with the tiles an overview has.
     await page.goto(`${monitor}/`);
     await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Tests', exact: true }).click();
-    const band = tabOn(page);
-    await expect(page.getByRole('navigation', { name: 'Group by' }).getByRole('link')).toHaveText(['Concept area', 'Testing level', 'Package', 'Gaps']);
-    await expect(band('Concept area')).toHaveAttribute('aria-current', 'page');
+    await expect(choice(page, 'Rows')).toHaveValue('area');
+    await expect(choice(page, 'Count by')).toHaveValue('level');
     await expect(page.locator('.tile')).toHaveCount(5);
 
-    // The filters share one row on a desk; the page never scrolls sideways, and the tree scrolls inside its panel on a phone.
-    const tops = await page.locator('.filters .field').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
-    expect(tops).toHaveLength(5);
-    if (!onAPhone) expect(new Set(tops).size).toBe(1);
+    // The four filters share one row on a desk and sit two to a row on a phone; the page never scrolls sideways, and the tree scrolls inside its panel on a phone.
+    const tops = await page.locator('.only select').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(4);
+    expect(Math.max(...[...new Set(tops)].map((top) => tops.filter((t) => t === top).length))).toBe(onAPhone ? 2 : 4);
     expect(await noSidewaysScroll()).toBe(true);
     if (onAPhone) expect(await page.getByRole('region', { name: 'Every area' }).locator('.table').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 
@@ -724,21 +751,29 @@ test.describe('Harness Monitor', () => {
     const opened = page.getByRole('region', { name: /^Tests: 3 rules in Inbox and inside it · F3/ });
     await expect(opened.getByRole('row')).toHaveCount(1 + 2 + 3);
     await expect(opened).toContainText('Workspaces › Inbox › Capture');
-    await expect(page.getByLabel('Level', { exact: true })).toHaveValue('');
+    await expect(choice(page, 'Level')).toHaveValue('');
     expect((await opened.boundingBox())!.y).toBeLessThan((await drilled.boundingBox())!.y);
     expect(await noSidewaysScroll()).toBe(true);
 
-    // Another tab has no tiles.
-    await band('Testing level').click();
+    // Each testing level has no tiles, no Level filter that would repeat its rows and no Count by.
+    await choose(page, 'Rows', 'each testing level', /[?&]group=level(&|$)/);
     await expect(page.locator('.tile')).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'By testing level' })).toBeVisible();
+    await expect(choice(page, 'Level')).toHaveCount(0);
+    await expect(choice(page, 'Count by')).toHaveCount(0);
 
-    // Back on Concept area, main's: picking the pull request shows its own tree at its own commit, without Inbox, which it does not have.
-    await band('Concept area').click();
-    const picker = page.getByLabel('Tests of', { exact: true });
+    // Back on each concept area, main's, with a rule open and a Package filter: picking the pull request shows its own tree at its own commit, without Inbox, which it does not have, the rows and the filter kept, and the rule closed.
+    await choose(page, 'Rows', 'each concept area', /[?&]group=area(&|$)/);
+    await choose(page, 'Package', 'apps/api', /[?&]package=api(&|$)/);
+    await page.goto(`${page.url()}&rule=${encodeURIComponent('apps/api/tests/unit/triage.test.ts:10')}`);
+    await expect(page.getByRole('navigation', { name: 'Area' })).toContainText('Rule');
+    const picker = choice(page, 'Tests of');
     await expect(picker).toHaveValue('');
     await picker.selectOption({ label: '#9201' });
     await expect(page).toHaveURL(/[?&]pr=9201(&|$)/);
+    expect(new URL(page.url()).searchParams.has('rule')).toBe(false);
+    await expect(choice(page, 'Package')).toHaveValue('api');
+    await expect(choice(page, 'Rows')).toHaveValue('area');
     await expect(page.locator('.stamp')).toContainText('at def5678');
     const every = page.getByRole('region', { name: 'Every area' });
     await expect(every.getByRole('link', { name: 'Sharing', exact: true })).toBeVisible();
@@ -760,7 +795,7 @@ test.describe('Harness Monitor', () => {
     expect(fonts).toEqual([new URL(monitor!).origin]);
   });
 
-  test("from the costs page, Cockpit's Claude calls opens, groups by pull request and narrows to CI: the pull requests with their links, the filters in a row on a desk and two to a row on a phone, and Split by drawn as a toggle with the pressed option in the accent", async ({ page, request: api }) => {
+  test("from the costs page, Cockpit's Claude calls opens, choosing each feature drops a Feature filter and recolours, and choosing each pull request keeps CI: the pull requests with their links, the filters in a row on a desk and two to a row on a phone", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
@@ -769,10 +804,24 @@ test.describe('Harness Monitor', () => {
     await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: /Cockpit.s Claude calls/ }).click();
     await expect(page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: /Cockpit.s Claude calls/ })).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('img', { name: /^Cost per day/ })).toBeVisible();
+    await expect(choice(page, 'Rows')).toHaveValue('day');
+    await expect(choice(page, 'Colours')).toHaveValue('environment');
 
-    await tabOn(page)('Pull request').click();
-    await page.getByLabel('Environment', { exact: true }).selectOption('ci');
-    await expect(page).toHaveURL(/environment=ci/);
+    // Coloured by feature, with the Feature filter set and Environment: CI chosen after it.
+    await choose(page, 'Colours', 'feature', /[?&]split=feature(&|$)/);
+    await choose(page, 'Feature', 'Clean up a note', /[?&]feature=clean-up-a-note(&|$)/);
+    await choose(page, 'Environment', 'CI', /[?&]environment=ci(&|$)/);
+
+    // Each feature lists every feature: the Feature filter is gone, coloured by feature falls back to environment and is offered but disabled, and CI is kept.
+    await choose(page, 'Rows', 'each feature', /[?&]group=feature(&|$)/);
+    await expect(choice(page, 'Feature')).toHaveCount(0);
+    await expect(choice(page, 'Colours')).toHaveValue('environment');
+    await expect(choice(page, 'Colours').locator('option[value="feature"]')).toBeDisabled();
+    await expect(choice(page, 'Environment')).toHaveValue('ci');
+
+    // Each pull request keeps CI: a row a pull request with the contract runs on it.
+    await choose(page, 'Rows', 'each pull request', /[?&]group=pr(&|$)/);
+    await expect(choice(page, 'Environment')).toHaveValue('ci');
 
     const table = page.getByRole('region', { name: 'Calls by pull request' });
     const filed = table.getByRole('row', { name: /#9001 Add a filter panel/ });
@@ -784,30 +833,12 @@ test.describe('Harness Monitor', () => {
     await expect(table.getByRole('row', { name: /Nightly and by-hand runs on main/ })).toContainText('$0.10');
     await expect(table.getByRole('row', { name: /No pull request/ })).toHaveCount(0);
 
-    // The four filters: one row on a desk, two to a row on a phone, and the page never scrolls sideways.
-    const fields = await page.locator('.filters .field:has(select)').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
+    // The three filters: one row on a desk, two to a row on a phone, and the page never scrolls sideways.
+    const fields = await page.locator('.only select').evaluateAll((all) => all.map((f) => Math.round(f.getBoundingClientRect().top)));
     const perRow = [...new Set(fields)].map((top) => fields.filter((t) => t === top).length);
-    expect(fields).toHaveLength(4);
-    expect(perRow).toEqual(onAPhone ? [2, 2] : [4]);
+    expect(fields).toHaveLength(3);
+    expect(perRow).toEqual(onAPhone ? [2, 1] : [3]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-
-    // Split by is a toggle like the other pages': the pressed option is filled with the accent, the others are not.
-    const splitOptions = page.getByRole('group', { name: 'Split by' }).getByRole('button');
-    await expect(splitOptions).toHaveCount(4);
-    const paint = (name: string) => page.getByRole('button', { name, exact: true }).evaluate((el) => ({ background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
-    expect(await paint('Environment')).toEqual({ background: 'rgb(111, 98, 181)', color: 'rgb(255, 255, 255)' });
-    for (const name of ['Feature', 'Model', 'Started by']) expect((await paint(name)).background).toBe('rgba(0, 0, 0, 0)');
-    // The four options sit in one row inside their track.
-    const tops = await splitOptions.evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().top)));
-    expect(new Set(tops).size).toBe(1);
-    expect(await page.getByRole('group', { name: 'Split by' }).evaluate((g) => g.scrollWidth <= g.clientWidth)).toBe(true);
-    if (onAPhone) {
-      // On a phone Split by takes a row of its own below the selects, and its options fill that row.
-      const lowestSelect = await page.locator('.filters select').evaluateAll((all) => Math.max(...all.map((s) => s.getBoundingClientRect().bottom)));
-      const [field, filters] = await page.getByRole('group', { name: 'Split by' }).evaluate((g) => [g.parentElement!, g.closest('form')!].map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, width: Math.round(r.width) })));
-      expect(field!.top).toBeGreaterThanOrEqual(lowestSelect);
-      expect(field!.width).toBe(filters!.width);
-    }
 
     // Sessions leads to the Monitor's own page for the pull request.
     await filed.getByRole('link', { name: 'Sessions' }).click();
