@@ -24,7 +24,7 @@ const PULL_COLUMNS = [
 ] as const;
 const ROUND_COLUMNS = ['pull_number', 'round_index', 'sha', 'pushed_at', 'ended_at', 'ms', 'red', 'commits', 'queue_not_recorded'] as const;
 const CHECK_COLUMNS = [
-  'pull_number', 'round_index', 'position', 'name', 'attempt', 'held_ms', 'is_last', 'failure', 'fluke_ms', 'queued_ms', 'detail_not_recorded', 'no_file_failed',
+  'pull_number', 'round_index', 'position', 'name', 'attempt', 'held_ms', 'is_last', 'failure', 'fluke_ms', 'queued_ms', 'running_ms', 'detail_not_recorded', 'no_file_failed',
 ] as const;
 const FAILURE_COLUMNS = ['pull_number', 'round_index', 'position', 'kind', 'item_index', 'item'] as const;
 
@@ -70,7 +70,7 @@ export async function storePulls(db: D1Database, pulls: CyclePull[], now = Date.
     p.rounds.flatMap((r, round_index) =>
       r.checks.map((c, position) => ({
         pull_number: p.number, round_index, position, name: c.name, attempt: c.attempt, held_ms: c.heldMs, is_last: bit(c.last), failure: c.failure,
-        fluke_ms: c.flukeMs, queued_ms: c.queuedMs, detail_not_recorded: bit(c.detailNotRecorded), no_file_failed: bit(c.noFileFailed),
+        fluke_ms: c.flukeMs, queued_ms: c.queuedMs, running_ms: c.runningMs, detail_not_recorded: bit(c.detailNotRecorded), no_file_failed: bit(c.noFileFailed),
       })),
     ),
   );
@@ -185,6 +185,7 @@ interface CheckRow {
   failure: 'red' | 'fluke' | null;
   fluke_ms: number | null;
   queued_ms: number | null;
+  running_ms: number | null;
   detail_not_recorded: number;
   no_file_failed: number;
 }
@@ -205,6 +206,8 @@ export interface CycleTimeCheck {
   failure: 'red' | 'fluke' | null;
   flukeMs: number | null;
   queuedMs: number | null;
+  /** The runner time its jobs used, every shard of a family added up; null for an attempt stored without it, which is not recorded, never zero. */
+  runningMs: number | null;
   failedSteps: string[];
   failedFiles: string[];
 }
@@ -398,6 +401,7 @@ function pullAnswer({ pull: p, rounds }: Stored): CycleTimePull {
         failure: c.failure,
         flukeMs: c.fluke_ms,
         queuedMs: c.queued_ms,
+        runningMs: c.running_ms,
         failedSteps: steps,
         failedFiles: files,
       })),

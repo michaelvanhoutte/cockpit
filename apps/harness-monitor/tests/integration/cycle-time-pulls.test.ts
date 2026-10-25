@@ -184,6 +184,91 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe("each check attempt's running time is stored and answered as sent, and as not recorded where the attempt was stored without one", () => {
+    /** One round's Test failing and re-run, then E2E, each attempt with `running` minutes of running time, or none sent. */
+    const withRunning = (number: number, running: (number | undefined)[] = []) => {
+      const over = (index: number) => (running[index] === undefined ? {} : { runningMs: running[index]! * 60_000 });
+      return cyclePull(number, {
+        rounds: [
+          cycleRound([
+            cycleCheck('Test', 200_000, { failure: 'fluke', flukeMs: 100_000, ...over(0) }),
+            cycleCheck('Test', 100_000, { attempt: 2, ...over(1) }),
+            cycleCheck('E2E (F3)', 300_000, { last: true, ...over(2) }),
+          ]),
+        ],
+      });
+    };
+    const answeredRunning = async (number: number) => {
+      const response = await SELF.fetch('https://monitor.test/cycle-time?format=json&period=all');
+      const pulls = ((await response.json()) as { pulls: { number: number; rounds: { checks: { runningMs: number | null }[] }[] }[] }).pulls;
+      return pulls.find((p) => p.number === number)!.rounds.flatMap((r) => r.checks.map((c) => c.runningMs));
+    };
+    // The page draws none of them yet, so its view is the only place they reach it.
+    const inThePagesView = async (number: number) => (await cycleTimeView(env.DB, 0)).pulls.find((p) => p.number === number)!.rounds.flatMap((r) => r.checks.map((c) => c.runningMs));
+
+    it.each([
+      { situation: 'a send carrying running times, one of them nothing', running: [4, 3, 0], answer: [240_000, 180_000, 0] },
+      { situation: 'a send from a job that does not send them yet', running: [], answer: [null, null, null] },
+    ])('$situation', async ({ running, answer }) => {
+      await sendPulls([withRunning(5, running)]);
+
+      expect(await answeredRunning(5)).toEqual(answer);
+      expect(await inThePagesView(5)).toEqual(answer);
+    });
+
+    it('the same pull request sent again with them is stored once, now carrying them', async () => {
+      await sendPulls([withRunning(5)]);
+      await sendPulls([withRunning(5, [4, 3, 20])]);
+
+      expect(await storedPulls()).toEqual([{ pull_number: 5, recorded: 1, rounds: 1, checks: 3, failures: 0, fluke_ms: 100_000 }]);
+      expect(await answeredRunning(5)).toEqual([240_000, 180_000, 1_200_000]);
+    });
+  });
+
+  describe('a send whose running times are wrong is refused whole, and nothing in it is stored', () => {
+    const roundOf = (...runningMs: (number | undefined)[]) =>
+      cycleRound(runningMs.map((ms, index) => cycleCheck('Test', 100_000, { attempt: index + 1, last: index === runningMs.length - 1, ...(ms === undefined ? {} : { runningMs: ms }) })));
+
+    it.each([
+      {
+        situation: 'a negative running time',
+        rounds: [roundOf(240_000, -60_000)],
+        error: 'Pull request 1 (#9): round 0 (bbbbbbb) check 1 (Test) has runningMs -60000, which is not a whole number of milliseconds, zero or more.',
+      },
+      {
+        situation: "running times on some of a pull request's attempts and not others",
+        rounds: [roundOf(240_000, 180_000), roundOf(undefined)],
+        error: 'Pull request 1 (#9): has runningMs on 2 of its 3 check attempts; it is sent on all of them or none.',
+      },
+    ])('$situation', async ({ rounds, error }) => {
+      const response = await sendPulls([cyclePull(1, { rounds: [roundOf(60_000)] }), cyclePull(9, { rounds })]);
+
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { error: string }).error).toBe(error);
+      expect(await storedPulls()).toEqual([]);
+    });
+  });
+
+  describe("storing each check attempt's running time leaves every pull request already stored as it was", () => {
+    it('a pull request stored before, with its rounds, checks and failures, keeps every figure, each attempt not recorded', async () => {
+      await sendPulls([cyclePull(5, { rounds: [cycleRound([cycleCheck('Test', 200_000, { failure: 'fluke', flukeMs: 100_000, failedFiles: ['a.test.ts'] }), cycleCheck('Test', 100_000, { attempt: 2, last: true })])] })]);
+      await env.DB.prepare('ALTER TABLE cycle_time_checks DROP COLUMN running_ms').run();
+      const tables = async () =>
+        Promise.all(['cycle_time_pulls', 'cycle_time_rounds', 'cycle_time_checks', 'cycle_time_failures'].map(async (table) => (await env.DB.prepare(`SELECT * FROM ${table}`).all()).results));
+      const before = await tables();
+      const migration = inject('migrations').find((m) => m.name.startsWith('0024_cycle_time_check_running'))!;
+
+      for (const query of migration.queries) await env.DB.prepare(query).run();
+
+      const [pulls, rounds, checks, failures] = await tables();
+      expect([pulls, rounds, failures]).toEqual([before[0], before[1], before[3]]);
+      expect(checks).toEqual(before[2]!.map((row) => ({ ...row, running_ms: null })));
+      const response = await SELF.fetch('https://monitor.test/cycle-time?format=json&period=all');
+      const [answered] = ((await response.json()) as { pulls: { rounds: { checks: { runningMs: number | null }[] }[] }[] }).pulls;
+      expect(answered!.rounds[0]!.checks.map((c) => c.runningMs)).toEqual([null, null]);
+    });
+  });
+
   describe('the Monitor says when its newest stored pull request merged, where the next send reads from', () => {
     it.each([
       { situation: 'with nothing stored', sent: [], newestMerge: null },

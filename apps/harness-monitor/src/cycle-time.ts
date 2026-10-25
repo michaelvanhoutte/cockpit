@@ -21,6 +21,8 @@ export interface CycleCheck {
   failure: 'red' | 'fluke' | null;
   flukeMs: number | null;
   queuedMs: number | null;
+  /** The runner time its jobs used, every shard of a family added up; null from a job that does not send it, which is not recorded. */
+  runningMs: number | null;
   detailNotRecorded: boolean;
   noFileFailed: boolean;
   failedSteps: string[];
@@ -219,6 +221,8 @@ function checkCheck(raw: unknown): CycleCheck | string {
   if (typeof flukeMs === 'string') return flukeMs;
   const queuedMs = whole(raw, 'queuedMs', { nullable: true });
   if (typeof queuedMs === 'string') return queuedMs;
+  const runningMs = whole(raw, 'runningMs', { nullable: true });
+  if (typeof runningMs === 'string') return runningMs;
   const detailNotRecorded = flag(raw, 'detailNotRecorded');
   if (typeof detailNotRecorded === 'string') return detailNotRecorded;
   const noFileFailed = flag(raw, 'noFileFailed');
@@ -228,7 +232,7 @@ function checkCheck(raw: unknown): CycleCheck | string {
   const failedFiles = strings(raw, 'failedFiles');
   if (typeof failedFiles === 'string') return failedFiles;
   if (failure === null && (failedSteps.length > 0 || failedFiles.length > 0 || flukeMs !== null)) return 'names failed steps, files or a fluke, though it did not fail.';
-  return { name, attempt, heldMs, last, failure, flukeMs, queuedMs, detailNotRecorded, noFileFailed, failedSteps, failedFiles };
+  return { name, attempt, heldMs, last, failure, flukeMs, queuedMs, runningMs, detailNotRecorded, noFileFailed, failedSteps, failedFiles };
 }
 
 function checkRound(raw: unknown): CycleRound | string {
@@ -335,6 +339,10 @@ function checkPull(raw: unknown): CyclePull | string {
     }
     rounds.push(round);
   }
+  // A pull request's running times add up to its runner time only whole, so an attempt without one beside attempts with one is a tool that disagrees with itself.
+  const attempts = rounds.flatMap((round) => round.checks);
+  const withRunning = attempts.filter((check) => check.runningMs !== null).length;
+  if (withRunning > 0 && withRunning < attempts.length) return `has runningMs on ${withRunning} of its ${attempts.length} check attempts; it is sent on all of them or none.`;
   return {
     number,
     title,
