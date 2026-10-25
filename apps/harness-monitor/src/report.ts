@@ -2,11 +2,10 @@ import { labelWithInfo, type Info } from './explain';
 import { esc, shell, band, type PageName } from './look';
 
 /**
- * The frame the harness report pages share: a page's own tabs on the band, a
- * section over a well, tiles, the outcome bar, and the readings of a duration
- * and a rate. A report page is a tabs list, a filters form and panels, drawn
- * with `reportPage`; the series palette itself is in look.ts, which every
- * page takes.
+ * The frame the harness report pages share: a section over a well, tiles, the
+ * outcome bar, and the readings of a duration and a rate. A report page is a
+ * sentence on the band and panels, drawn with `reportPage`; the series
+ * palette itself is in look.ts, which every page takes.
  */
 
 /** 9m 24s, 6h 23m: the report's own reading of a duration. */
@@ -39,10 +38,6 @@ export const section = (id: string, title: string, aside: string, content: strin
 export const tile = (label: string, value: string, note: string | string[], cls = '', info?: Info) =>
   `<div class="tile ${cls}"><span class="tile-label">${info ? labelWithInfo(label, info.button) : label}</span><span class="tile-value">${value}</span>${(typeof note === 'string' ? [note] : note).map((n) => `<span class="tile-note">${n}</span>`).join('')}${info?.panel ?? ''}</div>`;
 
-/** A page's own tabs on the band: `[href, text, current]`. */
-export const bandTabs = (tabs: [href: string, text: string, current: boolean][]) =>
-  tabs.map(([href, text, on]) => `<a href="${href}"${on ? ' aria-current="page"' : ''}>${text}</a>`).join('');
-
 /** What a report page adds to the shared stylesheet. */
 export const REPORT_STYLE = `
 .faint{color:var(--ink-faint)}.faint-num{color:var(--ink-faint)}
@@ -69,7 +64,7 @@ export const REPORT_STYLE = `
 }
 `;
 
-/** A report page: the top bar with `current` selected, the page's own tabs on the band, and its panels. */
-export function reportPage(page: { current: PageName; tabs: string; body: string; style?: string }, now: number): string {
+/** A report page: the top bar with `current` selected, its sentence on the band, and its panels. */
+export function reportPage(page: { current: PageName; controls: string; body: string; style?: string }, now: number): string {
   return shell({ ...page, style: REPORT_STYLE + (page.style ?? '') }, now);
 }

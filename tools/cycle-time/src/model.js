@@ -218,7 +218,9 @@ function derivedConclusion(members) {
  * (a shard missing, or no fan-in), never the longest of the shards that happened to be read.
  */
 function familyAttempt(family, members, fresh, fanIn, complete) {
-  const starts = [...fresh, ...(fanIn ? [fanIn] : [])].map((attempt) => time(attempt.startedAt)).filter((ms) => ms !== null);
+  // The jobs this attempt ran, for its start and running time: each shard's own attempt in this wave, never a stand-in counted again, and the fan-in.
+  const jobs = [...fresh, ...(fanIn ? [fanIn] : [])];
+  const starts = jobs.map((attempt) => time(attempt.startedAt)).filter((ms) => ms !== null);
   const ended = fanIn ? fanIn.completedAt : members.every((member) => time(member.completedAt) !== null) ? iso(Math.max(...members.map((member) => time(member.completedAt)))) : null;
   const failing = members.filter((member) => classify(member) === 'fail');
   // A fan-in skipped behind a failed shard (a `needs` job without `always()`) says nothing, so the shards' verdict stands in.
@@ -251,6 +253,7 @@ function familyAttempt(family, members, fresh, fanIn, complete) {
     ...(queue ? { queue } : {}),
     failure,
     family: { shards: members.length, complete },
+    jobs,
   };
 }
 
@@ -348,13 +351,19 @@ function queuedMs(attempt) {
   return created === null || started === null ? null : Math.max(0, started - created);
 }
 
-/** Runner time one attempt used, start to end; a copy, a skipped job and one that never started used none. */
+/** Runner time one attempt used, start to end; a check another app posted, a copy, a skipped job and one that never started used none. */
 function runnerMs(attempt) {
   const from = time(attempt.startedAt);
   const to = time(attempt.completedAt);
-  if (isCopy(attempt) || classify(attempt) === 'skipped' || from === null || to === null) return 0;
+  if ((attempt.app != null && attempt.app !== 'github-actions') || isCopy(attempt) || classify(attempt) === 'skipped' || from === null || to === null) return 0;
   return Math.max(0, to - from);
 }
+
+/**
+ * Runner time an attempt's jobs used between them, each by `runnerMs`: a folded family's every shard
+ * and its fan-in, added up. Queueing is never in it, so a pull request's GitHub Actions attempts add up to its runner total.
+ */
+const runningMs = (attempt) => sum((attempt.jobs ?? [attempt]).map(runnerMs));
 
 /** A cancelled job stamped as started the moment it ended was cancelled before a runner took it. */
 const neverStarted = (attempt) => {
@@ -539,8 +548,9 @@ function buildRounds(commits, mergedAt) {
       const ms = end - previous;
       previous = end;
       // `attempt` is its place among every attempt of the check, as `failures` numbers them, and `queuedMs` its own wait for a runner: what the Harness Monitor's rows are linked by.
+      // `runningMs` is the runner time its jobs used, start to end, however long it held the round.
       const attemptNumber = push.groups.find((attempts) => attempts.includes(attempt)).indexOf(attempt) + 1;
-      return { name: attempt.name, ms, ...(rerun ? { rerun: true } : {}), attempt: attemptNumber, queuedMs: queuedMs(attempt) };
+      return { name: attempt.name, ms, ...(rerun ? { rerun: true } : {}), attempt: attemptNumber, queuedMs: queuedMs(attempt), runningMs: runningMs(attempt) };
     });
 
     // What a check ended as is its last attempt that reached a verdict: a failure
@@ -1084,6 +1094,8 @@ function checkRows(round) {
       failure: failure?.outcome ?? null,
       flukeMs: null,
       queuedMs: held.queuedMs,
+      // The runner time its jobs used, every shard of a family added up and queueing left out, so a pull request's attempts add up to its `runnerMs`.
+      runningMs: held.runningMs,
       // What `failures` says of the attempt's detail: it could not be read, wholly or in part, or it was read and names no failed file. Detail cut to what the Monitor takes is not wholly recorded either.
       detailNotRecorded: failure
         ? failure.record === 'not-recorded' || failure.packagesNotRecorded.length > 0 || failure.why === 'unreadable' || cutShort(failure.steps) || cutShort(failure.files)

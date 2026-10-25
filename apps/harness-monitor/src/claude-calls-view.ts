@@ -6,23 +6,23 @@ import {
   ENVIRONMENT_NAMES,
   FEATURE_ID,
   featureName,
+  SAME_AS_ROWS,
   seriesName,
   type CallGroup,
   type CallGroupRow,
   type CallSplit,
   type CallsPage,
-  type CallsQuery,
 } from './claude-calls-page';
 import { dayChart, firstDay, MODEL_ID, PERIODS, type DayChart, type Period } from './costs';
-import { band, esc, selectField, shell } from './look';
-import { costPerDay, dollars, jobLines, number, PERIOD_LABELS, signed } from './page';
+import { band, esc, inline, sentenceForm, shell } from './look';
+import { costPerDay, dollars, jobLines, number, PERIOD_LABELS, PERIOD_WORDS, signed } from './page';
 import { BLUE, colourByPlace, foldAmounts, foldSeries, GREY, isFolded, slot } from './palette';
 
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 const GROUP_LABELS: Record<CallGroup, string> = { day: 'Day', feature: 'Feature', environment: 'Environment', pr: 'Pull request', startedBy: 'Started by' };
-/** What the grouping's tab reads; the table's own first column keeps GROUP_LABELS. */
+/** What the panel is headed when no row matches; the table's own first column keeps GROUP_LABELS. */
 const TAB_LABELS: Record<CallGroup, string> = { ...GROUP_LABELS, day: 'Over time' };
 const SPLIT_LABELS: Record<CallSplit, string> = { environment: 'Environment', feature: 'Feature', model: 'Model', startedBy: 'Started by' };
 const UNITS: Record<CallGroup, [string, string]> = { day: ['day', 'days'], feature: ['row', 'rows'], environment: ['row', 'rows'], pr: ['row', 'rows'], startedBy: ['row', 'rows'] };
@@ -65,32 +65,35 @@ function foldedPage(page: CallsPage): CallsPage {
 /** A change under half a cent reads $0.00 either way, so it is no change. */
 const SMALLEST_CALLS_CHANGE_MICROS = 5_000;
 
-/** A group's tabs on the band; choosing one keeps every filter and the split. */
-function groupTabs({ query }: CallsPage): string {
-  return CALL_GROUPS.map((g) => `<a href="/claude-calls${callsQueryString(query, { group: g })}"${g === query.group ? ' aria-current="page"' : ''}>${TAB_LABELS[g]}</a>`).join('');
-}
+const ROW_WORDS: Record<CallGroup, string> = { day: 'each day', feature: 'each feature', environment: 'each environment', pr: 'each pull request', startedBy: 'each starter' };
+const COLOUR_WORDS: Record<CallSplit, string> = { environment: 'environment', feature: 'feature', model: 'model', startedBy: 'starter' };
 
-function filters({ query, features, models }: CallsPage): string {
-  // The address takes a feature slug and a model id, so the dropdowns offer no other value; colours still count every one on record.
+/**
+ * The controls as one sentence on the band, as the costs page's: the rows, what
+ * colours them and over when, then the filters after "Only". A colouring that
+ * repeats the rows is offered but disabled, and a filter that does is not offered.
+ */
+function controls({ query, features, models }: CallsPage): string {
   features = features.filter((f) => FEATURE_ID.test(f));
   models = models.filter((m) => MODEL_ID.test(m));
-  const featureOptions: [string, string][] = [['', 'Every feature'], ...features.map((f): [string, string] => [f, featureName(f)])];
+  const featureOptions: [string, string][] = [['', 'All features'], ...features.map((f): [string, string] => [f, featureName(f)])];
   // A named feature or model no longer on record stays selectable, so the form never silently drops a filter.
   if (query.feature && !features.includes(query.feature)) featureOptions.push([query.feature, featureName(query.feature)]);
   const modelOptions: [string, string][] = [['', 'All models'], ...models.map((m): [string, string] => [m, m])];
   if (query.model && !models.includes(query.model)) modelOptions.push([query.model, query.model]);
-  const splitButtons = CALL_SPLITS.map((v) => `<button type="submit" name="split" value="${v}" aria-pressed="${v === query.split}">${SPLIT_LABELS[v]}</button>`).join('');
-  return `<form class="filters" method="get" action="/claude-calls">
-${selectField('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_LABELS[p]]), query.period, '30d')}
-${selectField('environment', 'Environment', [['', 'Every environment'], ...ENVIRONMENTS.map((e): [string, string] => [e, ENVIRONMENT_NAMES[e]])], query.environment ?? '')}
-${selectField('feature', 'Feature', featureOptions, query.feature ?? '')}
-${selectField('model', 'Model', modelOptions, query.model ?? '')}
-<div class="field"><span id="splitby">Split by</span><div class="toggles" role="group" aria-labelledby="splitby">${splitButtons}</div></div>
-<input type="hidden" name="split" value="${query.split}">
-<input type="hidden" name="group" value="${query.group}">
-<noscript><button type="submit">Apply</button></noscript>
-<a class="button" href="/claude-calls/export.csv${callsQueryString(query, { group: 'day', split: 'environment' })}" download>Export CSV</a>
-</form>`;
+  const sentence = `Show cost for ${inline('group', 'Rows', CALL_GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), query.group)}
+coloured by ${inline('split', 'Colours', CALL_SPLITS.map((v): [string, string, boolean] => [v, COLOUR_WORDS[v], SAME_AS_ROWS[query.group] === v]), query.split)}
+over ${inline('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]), query.period)}`;
+  return sentenceForm(
+    '/claude-calls',
+    sentence,
+    [
+      query.group === 'environment' ? '' : inline('environment', 'Environment', [['', 'All environments'], ...ENVIRONMENTS.map((e): [string, string] => [e, ENVIRONMENT_NAMES[e]])], query.environment ?? '', ''),
+      query.group === 'feature' ? '' : inline('feature', 'Feature', featureOptions, query.feature ?? '', ''),
+      inline('model', 'Model', modelOptions, query.model ?? '', ''),
+    ],
+    [`<a class="button" href="/claude-calls/export.csv${callsQueryString(query, { group: 'day', split: 'environment' })}" download>Export CSV</a>`],
+  );
 }
 
 function warning(unpriced: number): string {
@@ -197,7 +200,6 @@ export function renderClaudeCalls(unfolded: CallsPage, report: { repository?: st
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
   const body = [
     '<h1 class="sr-only">Cockpit&rsquo;s Claude calls</h1>',
-    filters(page),
     warning(page.unpriced),
     tiles(page),
     `<div class="row${page.previous === null ? ' alone' : ''}">${whereItWent(page)}${changes(page)}</div>`,
@@ -205,5 +207,5 @@ export function renderClaudeCalls(unfolded: CallsPage, report: { repository?: st
     table(page, repository),
     jobLines([page.job]),
   ].join('\n');
-  return shell({ current: 'claude-calls', tabs: groupTabs(page), body }, now);
+  return shell({ current: 'claude-calls', controls: controls(page), body }, now);
 }

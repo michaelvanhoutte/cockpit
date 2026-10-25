@@ -1,7 +1,7 @@
 import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GREY, panelOf, RED, slot, swatches } from './series-colours';
-import { cycleCheck, cyclePull, cycleRound, emptyTheDatabase, send, sendPulls, spend, withPrices } from './support';
+import { cycleCheck, cyclePull, cycleRound, emptyTheDatabase, send, sendPulls, spend, theSentence, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -219,17 +219,46 @@ describe('Harness Monitor', () => {
       { situation: 'Rounds: had a red round keeps only those', query: '&outcome=red', pulls: ['2'], count: 1, checks: [['Test red on #2', '2']] },
     ])('$situation', async ({ query, pulls, count, checks }) => {
       expect(await accounted(query, 'pr')).toEqual(pulls);
-      for (const group of ['day', 'issue', 'size']) expect(await accounted(query, group)).toBe(count);
+      // A Size filter repeats the rows of the Size tab, so that tab does not take it.
+      for (const group of query.includes('size=') ? ['day', 'issue'] : ['day', 'issue', 'size']) expect(await accounted(query, group)).toBe(count);
       expect(await accounted(query, 'check')).toEqual(checks);
     });
 
-    it('every tab keeps the filters in the address of the others', async () => {
-      const html = await thePage('?period=7d&size=xs&outcome=green');
+    it('the Size tab lists every size whatever Size the address names', async () => {
+      expect(await accounted('&size=l', 'size')).toBe(3);
+    });
 
-      const links = [...html.matchAll(/<nav class="band".*?<\/nav>/gs)][0]![0].match(/href="([^"]+)"/g)!;
+    it('choosing other rows submits the period and the filters with them, in the one form', async () => {
+      const html = await thePage('?period=7d&size=xs&outcome=green&group=pr');
+      const { choices } = theSentence(html);
 
-      expect(links).toHaveLength(5);
-      for (const link of links) expect(link).toMatch(/period=7d.*size=xs.*outcome=green/);
+      expect(html.match(/<form /g)).toHaveLength(1);
+      expect(Object.keys(choices)).toEqual(['group', 'period', 'size', 'outcome']);
+      expect(choices.period).toMatchObject({ chosen: 'in the last 7 days', held: false });
+      expect([choices.size!.held, choices.outcome!.held]).toEqual([true, true]);
+    });
+  });
+
+  describe('the sentence says what the page shows, and offers only what it can', () => {
+    it('the bare address reads each day merged at any time held, with Size and Rounds under Only, neither holding a value', async () => {
+      const { text, choices } = theSentence(await thePage());
+
+      expect(text).toBe('Show cycle time for [each day] merged [at any time held]');
+      expect(choices.group!.offered).toEqual(['each day', 'each pull request', 'each issue', 'each size', 'each check']);
+      expect(choices.period!.offered).toEqual(['in the last 3 days', 'in the last 7 days', 'at any time held']);
+      expect(Object.keys(choices)).toEqual(['group', 'period', 'size', 'outcome']);
+      expect(Object.values(choices).filter((c) => c.held)).toEqual([]);
+    });
+
+    it('each size has no Size filter, and each pull request has one', async () => {
+      expect(Object.keys(theSentence(await thePage('?group=size&size=l')).choices)).toEqual(['group', 'period', 'outcome']);
+      expect(Object.keys(theSentence(await thePage('?group=pr&size=l')).choices)).toEqual(['group', 'period', 'size', 'outcome']);
+    });
+
+    it.each(['', '?group=pr', '?group=issue', '?group=size', '?group=check'])('has no grouping tabs and no labelled filter row at %s', async (query) => {
+      const html = await thePage(query);
+
+      for (const gone of ['band-tabs', 'aria-label="Group by"', 'class="filters"', 'class="toggles"', '<label ']) expect(html).not.toContain(gone);
     });
   });
 
@@ -757,15 +786,16 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('Cycle time opens with the question its tab names and what “the harness” means, above the filters, on every tab', () => {
+  describe('Cycle time opens with the question its tab names and what “the harness” means, under the band’s sentence, on every tab', () => {
     it.each([[''], ['?group=pr'], ['?group=issue'], ['?group=size'], ['?group=check']])('at %s', async (query) => {
       const html = await thePage(query);
       const [lead] = [...html.matchAll(/<div class="lead">(.*?)<\/div>/gs)];
 
       expect(text(lead![1]!)).toContain('How long does a change take to land, and how much of that is waiting on checks rather than writing?');
       expect(text(lead![1]!)).toContain('The harness is everything that checks the agent s work before it lands');
-      expect(html.indexOf('class="lead"')).toBeGreaterThan(html.indexOf('</header>'));
-      expect(html.indexOf('class="lead"')).toBeLessThan(html.indexOf('<form class="filters"'));
+      // Under the band's sentence, and before the first panel.
+      expect(html.indexOf('class="lead"')).toBeGreaterThan(html.indexOf('</form>', html.indexOf('class="sentence-form"')));
+      expect(html.indexOf('class="lead"')).toBeLessThan(html.indexOf('<section'));
     });
   });
 

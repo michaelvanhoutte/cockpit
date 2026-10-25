@@ -28,6 +28,7 @@ const check = (name: string, minutes: number, over: Partial<CycleTimeCheck> = {}
   failure: null,
   flukeMs: null,
   queuedMs: null,
+  runningMs: null,
   failedSteps: [],
   failedFiles: [],
   ...over,
@@ -306,6 +307,14 @@ describe('Harness Monitor', () => {
       const q = parseCycleTimeQuery(new URLSearchParams('period=1y&size=huge&outcome=never&group=nope'));
 
       expect(cycleTimeAddress(q)).toBe('/cycle-time');
+    });
+
+    it.each([
+      { situation: 'each size with a Size filter', address: 'group=size&size=l&outcome=red', expected: '/cycle-time?outcome=red&group=size' },
+      { situation: 'each pull request with a Size filter', address: 'group=pr&size=l&outcome=red', expected: '/cycle-time?size=l&outcome=red&group=pr' },
+      { situation: 'each check with a Size filter', address: 'group=check&size=l', expected: '/cycle-time?size=l&group=check' },
+    ])('an address never filters to what the rows already are: $situation', ({ address, expected }) => {
+      expect(cycleTimeAddress(parseCycleTimeQuery(new URLSearchParams(address)))).toBe(expected);
     });
 
     it.each(['harness', 'check', 'phase', 'nothing'])('ignores split=%s, so an old link opens the one view', (value) => {

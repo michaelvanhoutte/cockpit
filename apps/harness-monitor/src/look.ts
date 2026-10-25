@@ -56,6 +56,30 @@ export function selectField(id: string, label: string, options: [value: string, 
   return `<div class="field"><label for="${id}">${label}</label><select id="${id}" name="${id}" onchange="this.form.submit()"${current === resting ? '' : ' data-set'}>${opts}</select></div>`;
 }
 
+/** A select inside the sentence: its name read by assistive technology, its value shown as a word of the sentence. A filter that holds a value wears `data-set`. */
+export function inline(name: string, label: string, options: [value: string, text: string, off?: boolean][], current: string, resting: string | null = null): string {
+  const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
+  // New rows start in their own order, so choosing them leaves the form's sort behind; every other choice keeps it.
+  const leave = name === 'group' ? 'if(this.form.elements.sort)this.form.elements.sort.disabled=true;' : '';
+  return `<select name="${name}" aria-label="${label}" onchange="${leave}this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
+}
+
+/**
+ * A page's controls as one sentence: the words and selects, then the filters
+ * after "Only" and any buttons. A filter passed as '' is not offered; `hidden`
+ * carries what the form keeps without showing it.
+ */
+export function sentenceForm(action: string, sentence: string, only: string[], extra: string[] = [], hidden = ''): string {
+  const filters = only.filter((f) => f !== '');
+  const row = filters.length || extra.length ? `<div class="only">${filters.length ? `<span>Only</span>\n${filters.join('\n')}` : ''}\n${extra.join('\n')}</div>` : '';
+  return `<form class="sentence-form" method="get" action="${action}">
+<p class="sentence">${sentence}</p>
+${row}
+${hidden}
+<noscript><button type="submit">Apply</button></noscript>
+</form>`;
+}
+
 /** The top bar: the mark, the name, one tab per page and when the figures were read. */
 function chrome(current: PageName, now: number): string {
   return `<header class="topbar">
@@ -67,17 +91,12 @@ function chrome(current: PageName, now: number): string {
 
 /**
  * What a page is drawn with: which tab is current, what its band carries, the
- * page itself, and any stylesheet it adds to the shared one. The band carries `controls`, pinned to the top as the page
- * scrolls, or grouping `tabs`, or nothing: a bare strip, so the page's tab
- * still runs into it.
+ * page itself, and any stylesheet it adds to the shared one. The band carries
+ * `controls`, pinned to the top as the page scrolls, or nothing: a bare strip,
+ * so the page's tab still runs into it.
  */
-export function shell(page: { current: PageName; tabs?: string; controls?: string; body: string; style?: string }, now: number): string {
-  const strip =
-    page.controls !== undefined
-      ? `<div class="band band-controls">${page.controls}</div>`
-      : page.tabs === undefined
-        ? '<div class="band"></div>'
-        : `<nav class="band" aria-label="Group by"><div class="band-tabs">${page.tabs}</div></nav>`;
+export function shell(page: { current: PageName; controls?: string; body: string; style?: string }, now: number): string {
+  const strip = page.controls !== undefined ? `<div class="band band-controls">${page.controls}</div>` : '<div class="band"></div>';
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
@@ -163,12 +182,8 @@ h1,h2,h3,p{margin:0}
 .pages a[aria-current=page]{background:var(--bar);color:var(--chrome-ink)}
 .status{margin-left:auto;color:var(--chrome-ink-soft);font-size:12px;padding-bottom:10px}
 .band{background:var(--bar);padding:8px 20px 0}
-.band-tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
-.band-tabs a{flex-shrink:0;padding:7px 14px 9px;border-radius:var(--radius-md) var(--radius-md) 0 0;color:var(--chrome-ink);text-decoration:none;font-size:16px;font-weight:500;opacity:.9}
-.band-tabs a:hover{opacity:1;background:rgb(255 255 255 / .08)}
-.band-tabs a[aria-current=page]{background:var(--ground);color:var(--ink-strong);opacity:1;font-weight:600}
 
-/* The costs page's sentence, on the band and pinned */
+/* A page's sentence, on the band and pinned */
 .band-controls{position:sticky;top:0;z-index:5;padding:12px 20px 14px;box-shadow:0 2px 6px rgb(22 24 29 / .18)}
 .sentence-form{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
 .sentence{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:18px;color:var(--chrome-ink)}
@@ -188,10 +203,6 @@ select[data-set]{border:2px solid var(--accent);padding-left:11px}
 .button{margin-left:auto;display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:var(--radius-md);background:var(--surface);box-shadow:var(--shadow-panel);color:var(--ink-strong);font-size:14px;font-weight:500;text-decoration:none}
 .button:hover{background:var(--field)}
 noscript button{height:38px;padding:0 16px;font:inherit}
-.toggles{display:flex;gap:2px;padding:3px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--shade) 7%,transparent)}
-.toggles button{height:32px;padding:0 14px;white-space:nowrap;border:0;border-radius:7px;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--ink-soft);cursor:pointer}
-.toggles button:hover{color:var(--ink-strong);background:color-mix(in srgb,var(--shade) 6%,transparent)}
-.toggles button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);box-shadow:inset 0 1px 0 rgb(255 255 255 / .15),0 1px 2px rgb(22 24 29 / .2)}
 
 /* Panels: a section heading over a well */
 .panel{display:flex;flex-direction:column;min-width:0;padding:0 4px 4px;border:1px dotted color-mix(in srgb,var(--shade) 28%,transparent);border-radius:var(--radius-sm)}
@@ -287,10 +298,9 @@ footer{padding:0 20px 28px;text-align:center;font-size:12px;color:var(--ink-fain
 
 @media (max-width:640px){
   .topbar{padding:10px 12px 0}.status{display:none}.band{padding:8px 12px 0}
-  .pages{width:100%;overflow-x:auto;scrollbar-width:none}.pages a{white-space:nowrap;font-size:14px;padding:8px 12px 9px}.band-tabs a{font-size:14px;padding:7px 12px 9px}
+  .pages{width:100%;overflow-x:auto;scrollbar-width:none}.pages a{white-space:nowrap;font-size:14px;padding:8px 12px 9px}
   main{padding:16px 16px 32px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px}.filters select{width:100%}
-  .filters .field:has(.toggles){grid-column:1/-1}.toggles{flex-wrap:wrap}.toggles button{flex:1;padding:0 8px}
   .button{grid-column:1/-1;margin-left:0;justify-content:center}
   .band-controls{padding:8px 12px 10px}.sentence-form{gap:6px}.sentence{font-size:15px;gap:6px 8px}.sentence select{height:34px;font-size:15px}
   .only{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px}.only>span{grid-column:1/-1;margin:0}.only select,.only .button{height:32px}.only select{width:100%;min-width:0}

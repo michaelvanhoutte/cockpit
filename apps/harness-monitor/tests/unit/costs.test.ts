@@ -69,6 +69,15 @@ describe('Harness Monitor', () => {
       expect(parseQuery(new URLSearchParams(query))).toMatchObject({ group, split });
     });
 
+    it.each([
+      { situation: 'each engineer with an Engineer filter', query: 'group=engineer&engineer=alice', held: { engineer: null, category: null } },
+      { situation: 'each phase with a Phase filter', query: 'group=category&category=building', held: { engineer: null, category: null } },
+      { situation: 'each phase with an Engineer filter, which it does not repeat', query: 'group=category&engineer=alice', held: { engineer: 'alice', category: null } },
+      { situation: 'each pull request with an Engineer filter', query: 'group=pr&engineer=alice&category=building', held: { engineer: 'alice', category: 'building' } },
+    ])('an address never filters to what the rows already are: $situation holds $held', ({ query, held }) => {
+      expect(parseQuery(new URLSearchParams(query))).toMatchObject(held);
+    });
+
     it('the same page has one address however it was spelled', () => {
       const spelled = parseQuery(new URLSearchParams('who=main&split=model&model=claude-opus-5&period=7d'));
       const reordered = parseQuery(new URLSearchParams('period=7d&model=claude-opus-5&split=model&who=main&junk=1'));
