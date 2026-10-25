@@ -189,20 +189,23 @@ export function callsColumns(html: string): string[] {
   return found ? [...found[1]!.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((m) => plain(m[1]!)) : [];
 }
 
+/** The page without its (i)s and the explanations they open, so a panel reads as its figures alone. */
+export const withoutExplanations = (html: string) =>
+  html.replace(/<button type="button" class="info"[^>]*>i<\/button>/g, '').replace(/<div id="x-[^"]*" popover="manual" class="explain-pop">.*?<\/div>/gs, '');
+
 /** The tiles: Spent, Calls and, but for all time, the comparison. */
 export const callsTiles = (html: string) =>
-  [...html.matchAll(/<div class="tile[^"]*"><span class="tile-label">(.*?)<\/span><span class="tile-value">(.*?)<\/span><span class="tile-note">(.*?)<\/span><\/div>/g)].map(
+  [...withoutExplanations(html).matchAll(/<div class="tile[^"]*"><span class="tile-label">(.*?)<\/span><span class="tile-value">(.*?)<\/span><span class="tile-note">(.*?)<\/span><\/div>/g)].map(
     ([, label, value, note]) => ({ label: plain(label!), value: plain(value!), note: plain(note!) }),
   );
 
-/** The panel that says where the dollars went: its heading, each series with its dollars and share, and the sentence under them. */
+/** The panel that says where the dollars went: its heading, and each series with its dollars and share. */
 export function callsWhereItWent(html: string) {
   return {
     heading: plain(/<h2 id="where">(.*?)<\/h2>/s.exec(html)![1]!),
     shares: [...html.matchAll(/<li><i [^>]*><\/i><span class="name">(.*?)<\/span><span class="amount">(.*?)<\/span><span class="share">(.*?)<\/span><\/li>/g)].map(
       ([, name, amount, share]) => ({ name: plain(name!), amount: plain(amount!), share: plain(share!) }),
     ),
-    note: plain(/<p class="note">(.*?)<\/p>/s.exec(html)![1]!),
   };
 }
 

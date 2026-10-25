@@ -666,6 +666,7 @@
         "apps/harness-monitor/src/export.ts",
         "apps/harness-monitor/src/pull-request.ts",
         "apps/harness-monitor/src/pull-request-page.ts",
+        "apps/harness-monitor/src/costs-explain.ts",
         "apps/harness-monitor/src/github.ts",
         "apps/harness-monitor/src/claude-calls.ts",
         "apps/harness-monitor/src/claude-call-shape.ts",
@@ -691,6 +692,7 @@
         "apps/harness-monitor/src/report.ts",
         "apps/harness-monitor/src/claude-calls-page.ts",
         "apps/harness-monitor/src/claude-calls-view.ts",
+        "apps/harness-monitor/src/claude-calls-explain.ts",
         "apps/harness-monitor/src/claude-calls-export.ts"
       ]
     }

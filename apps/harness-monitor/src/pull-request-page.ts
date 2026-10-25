@@ -1,7 +1,9 @@
 import { formatDate } from './belgium';
 import { categoryName, DEFAULT_GROUP, PERIODS, queryString, WHOS, type CostQuery, type Period } from './costs';
+import { WHAT } from './costs-explain';
+import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain } from './explain';
 import { band, esc, selectField, shell } from './look';
-import { COLOURS, dollars, number, PERIOD_LABELS, WHO_LABELS } from './page';
+import { COLOURS, costsLead, dollars, number, PERIOD_LABELS, WHO_LABELS } from './page';
 import type { CategoryLine, PullRequestPage, SessionLine } from './pull-request';
 import { CATEGORIES } from './validate';
 
@@ -42,7 +44,7 @@ function categories(page: PullRequestPage): string {
         `<div class="num mono">${dollars(c.costMicros)}${unpriced(c.unpricedRequests)}</div><div class="muted small">${detail(c)}</div></div>`,
     )
     .join('\n');
-  return `<section class="panel" aria-labelledby="bycat">${band('By category', '', 'bycat')}<div class="well pad">\n${rows}</div></section>`;
+  return `<section class="panel" aria-labelledby="bycat">${band('By category', '', 'bycat', explain('bycat', 'By category', WHAT.byCategory).both)}<div class="well pad">\n${rows}</div></section>`;
 }
 
 const share = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—');
@@ -64,7 +66,7 @@ function sessionRows(s: SessionLine): string {
 }
 
 function sessions(page: PullRequestPage): string {
-  const title = band('Sessions', '', 'sessions');
+  const title = band('Sessions', '', 'sessions', explain('sessions', 'Sessions', WHAT.sessions).both);
   if (page.sessions.length === 0) return `<section class="panel" aria-labelledby="sessions">${title}<p class="well empty">No requests match the filters.</p></section>`;
   return `<section class="panel" aria-labelledby="sessions">${title}<div class="well scroll"><table class="sessions">
 <thead><tr><th scope="col" class="first">Session / agent</th><th scope="col">Where</th><th scope="col">Models</th><th scope="col" class="num">Requests</th><th scope="col" class="num">Tokens</th><th scope="col" class="num">Cost</th><th scope="col" class="num">Share</th></tr></thead>
@@ -101,8 +103,9 @@ function summary(page: PullRequestPage): string {
 <div class="total-box"><div class="mono big" id="pr-total">${dollars(page.totalMicros)}${unpriced(page.unpricedRequests)}</div><div class="muted">at API list price, ${periodNote(page.query)}${share}</div></div></div>`;
 }
 
-/** A pull request's page is part of the costs page: its tab stays current, over a band with no groupings. */
-const framed = (body: string, now: number) => shell({ current: 'costs', body: `<a class="back" href="/">&larr; All costs</a>\n${body}` }, now);
+/** A pull request's page is part of the costs page: its tab stays current, over a band with no groupings, and it opens with that tab's lead. */
+const framed = (body: string, now: number) =>
+  shell({ current: 'costs', body: `${costsLead()}\n<a class="back" href="/">&larr; All costs</a>\n${body}\n${EXPLAIN_SCRIPT}`, style: EXPLAIN_STYLE }, now);
 
 /** One pull request's cost. Counts, dollars and opaque ids only; never an email or any content. */
 export function renderPullRequest(page: PullRequestPage, now = Date.now()): string {

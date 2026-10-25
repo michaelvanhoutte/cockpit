@@ -73,7 +73,6 @@ describe('Harness Monitor', () => {
       expect(html.indexOf('id="tokensperday"')).toBeGreaterThan(html.indexOf('id="perday"'));
       expect(html.indexOf('id="tokensperday"')).toBeLessThan(html.indexOf('aria-label="Cost by day"'));
       expect(chart).toContain('<h2 id="tokensperday">Tokens per day</h2>');
-      expect(chart).toContain('Input, output, cache write and cache read tokens summed, priced or not.');
       expect([...chart.matchAll(/<g data-line="([^"]*)">/g)].map((m) => m[1])).toEqual(['building', 'after-push', 'total']);
       expect(/<g data-line="total"><polyline[^>]* stroke-dasharray="6 4"/.test(chart)).toBe(true);
       expect([...chart.matchAll(/<title>(.*?)<\/title>/g)].map((m) => m[1])).toEqual(['Building · 1 Oct 2026 · 12k tokens', 'After push · 1 Oct 2026 · 500 tokens', 'Total · 1 Oct 2026 · 13k tokens']);

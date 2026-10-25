@@ -161,7 +161,6 @@ test.describe('Harness Monitor', () => {
     await expect(table.getByRole('row', { name: /#9002 Save a Teams message/ }).locator('td.split-cell')).toHaveAttribute('title', `${SONNET} $2.00 · ${OPUS} $1.00`);
     // What linking read of a pull request: its lines.
     await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ })).toContainText('+120 −30');
-    await expect(page.getByText('billed through claude.ai, and is not measured')).toBeVisible();
     await expect(page.getByText('at API list price')).toBeVisible();
     // The page fits the screen; only the table scrolls inside its own box.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

@@ -13,8 +13,10 @@ import {
   type CallSplit,
   type CallsPage,
 } from './claude-calls-page';
+import { LEAD_MORE, TABLES, WHAT } from './claude-calls-explain';
 import { dayChart, firstDay, MODEL_ID, PERIODS, type DayChart, type Period } from './costs';
-import { band, esc, inline, sentenceForm, shell } from './look';
+import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, labelWithInfo, lead, type Info } from './explain';
+import { band, esc, inline, questionOf, sentenceForm, shell } from './look';
 import { costPerDay, dollars, jobLines, number, PERIOD_LABELS, PERIOD_WORDS, signed } from './page';
 import { BLUE, colourByPlace, foldAmounts, foldSeries, GREY, isFolded, slot } from './palette';
 
@@ -104,13 +106,15 @@ function warning(unpriced: number): string {
 }
 
 function tiles({ query, totalMicros, calls, unpriced, previous }: CallsPage): string {
-  const tile = (label: string, value: string, note: string, cls = '') => `<div class="tile${cls}"><span class="tile-label">${label}</span><span class="tile-value">${value}</span><span class="tile-note">${note}</span></div>`;
+  // The (i) stays on the label's line, bound to its last word.
+  const tile = (label: string, value: string, note: string, info: Info, cls = '') =>
+    `<div class="tile${cls}"><span class="tile-label">${labelWithInfo(label, info.button)}</span><span class="tile-value">${value}</span><span class="tile-note">${note}</span>${info.panel}</div>`;
   const priced = calls - unpriced;
   const diff = previous === null || Math.abs(totalMicros - previous.micros) < SMALLEST_CALLS_CHANGE_MICROS ? 0 : totalMicros - previous.micros;
   return `<div class="tiles">
-${tile('Spent', dollars(totalMicros), `${esc(PERIOD_LABELS[query.period])} · at API list price`)}
-${tile('Calls', number(calls), calls === 0 ? 'none in this period' : priced === 0 ? 'none could be priced' : `${dollars(totalMicros / priced)} a priced call on average`)}
-${previous === null ? '' : tile('Against the previous period', diff === 0 ? 'No change' : signed(diff), `${dollars(previous.micros)} before`, diff > 0 ? ' up' : diff < 0 ? ' down' : '')}
+${tile('Spent', dollars(totalMicros), `${esc(PERIOD_LABELS[query.period])} · at API list price`, explain('t-spent', 'Spent', WHAT.spent))}
+${tile('Calls', number(calls), calls === 0 ? 'none in this period' : priced === 0 ? 'none could be priced' : `${dollars(totalMicros / priced)} a priced call on average`, explain('t-calls', 'Calls', WHAT.calls))}
+${previous === null ? '' : tile('Against the previous period', diff === 0 ? 'No change' : signed(diff), `${dollars(previous.micros)} before`, explain('t-previous', 'Against the previous period', WHAT.previous), diff > 0 ? ' up' : diff < 0 ? ' down' : '')}
 </div>`;
 }
 
@@ -125,10 +129,9 @@ function whereItWent(page: CallsPage): string {
         `<li><i style="background:${colourOf(page, s.key)}" aria-hidden="true"></i><span class="name">${esc(s.label)}</span><span class="amount">${dollars(cost(s.key))}</span><span class="share">${totalMicros === 0 ? 0 : Math.round((cost(s.key) / totalMicros) * 100)}%</span></li>`,
     )
     .join('');
-  return `<section class="panel" aria-labelledby="where">${band(`Where the ${dollars(totalMicros)} went`, `by ${SPLIT_LABELS[query.split].toLowerCase()}`, 'where')}<div class="well pad">
+  return `<section class="panel" aria-labelledby="where">${band(`Where the ${dollars(totalMicros)} went`, `by ${SPLIT_LABELS[query.split].toLowerCase()}`, 'where', explain('where', 'Where the cost went', WHAT.where).both)}<div class="well pad">
 <div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
 <ul class="shares">${legend}</ul>
-<p class="note">Every call made with Cockpit&rsquo;s Anthropic key, from production, staging, CI and local development. Workers AI and Claude Code routines are billed elsewhere and are not here. Compare with the Anthropic Console&rsquo;s Cost page for the same days: a gap is spend no row records.</p>
 </div></section>`;
 }
 
@@ -148,7 +151,8 @@ function changes({ query, bySeries, previous }: CallsPage): string {
         )
         .join('')
     : '<li class="muted">No change</li>';
-  return `<section class="panel" aria-labelledby="changes">${band(`Largest changes by ${SPLIT_LABELS[query.split].toLowerCase()}`, '', 'changes')}<ul class="well changes">${items}</ul></section>`;
+  const title = `Largest changes by ${SPLIT_LABELS[query.split].toLowerCase()}`;
+  return `<section class="panel" aria-labelledby="changes">${band(title, '', 'changes', explain('changes', title, WHAT.changes).both)}<ul class="well changes">${items}</ul></section>`;
 }
 
 /** Cost per day, from the Over time rows: a point for every day of the range, even a day with no call. */
@@ -159,7 +163,7 @@ function overTime(page: CallsPage, now: number): string {
     firstDay(page.query.period, now),
     now,
   );
-  return costPerDay(chart, (key) => colourOf(page, key));
+  return costPerDay(chart, (key) => colourOf(page, key), 'cost', explain('perday', 'Cost per day', WHAT.perDay));
 }
 
 /** The first cell: a pull request's number and title open it on GitHub, and "Sessions" opens the Monitor's own page. */
@@ -173,7 +177,10 @@ function firstCell(g: CallGroupRow, repository: string | null): string {
 
 function table(page: CallsPage, repository: string | null): string {
   const { query, groups, series } = page;
-  if (groups.length === 0) return `<section class="panel" aria-label="Calls by ${GROUP_LABELS[query.group].toLowerCase()}">${band(TAB_LABELS[query.group])}<p class="well empty">Nothing in this period. No Claude calls match the filters.</p></section>`;
+  // The heading the panel wears, which names its (i): the tab's name while empty, the table's title otherwise.
+  const title = groups.length === 0 ? TAB_LABELS[query.group] : `By ${GROUP_LABELS[query.group].toLowerCase()}`;
+  const info = explain(`t-${query.group}`, title, TABLES[query.group]);
+  if (groups.length === 0) return `<section class="panel" aria-label="Calls by ${GROUP_LABELS[query.group].toLowerCase()}">${band(title, '', '', info.both)}<p class="well empty">Nothing in this period. No Claude calls match the filters.</p></section>`;
   // The bars scale to the largest row that draws one: a catch-all is left out, so it cannot shrink every other bar.
   const max = Math.max(...groups.filter((g) => !g.catchAll).map((g) => g.micros), 1);
   const heads = series.map((s) => `<th scope="col" class="num"><i style="background:${colourOf(page, s.key)}" aria-hidden="true"></i>${esc(s.short)}</th>`).join('');
@@ -185,7 +192,7 @@ function table(page: CallsPage, repository: string | null): string {
     })
     .join('\n');
   const [one, many] = UNITS[query.group];
-  return `<section class="panel" aria-label="Calls by ${GROUP_LABELS[query.group].toLowerCase()}">${band(`By ${GROUP_LABELS[query.group].toLowerCase()}`, `${number(groups.length)} ${groups.length === 1 ? one : many} · ${ORDERS[query.group]}`)}<div class="well">
+  return `<section class="panel" aria-label="Calls by ${GROUP_LABELS[query.group].toLowerCase()}">${band(title, `${number(groups.length)} ${groups.length === 1 ? one : many} · ${ORDERS[query.group]}`, '', info.both)}<div class="well">
 <div class="scroll"><table class="calls">
 <thead><tr><th scope="col" class="first">${GROUP_LABELS[query.group]}</th><th scope="col" class="num">Calls</th><th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">Total</th></tr></thead>
 <tbody>
@@ -200,12 +207,15 @@ export function renderClaudeCalls(unfolded: CallsPage, report: { repository?: st
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
   const body = [
     '<h1 class="sr-only">Cockpit&rsquo;s Claude calls</h1>',
+    // The question its tab names, and the words a newcomer will not know, open the page on every grouping.
+    lead(questionOf('claude-calls'), LEAD_MORE),
     warning(page.unpriced),
     tiles(page),
     `<div class="row${page.previous === null ? ' alone' : ''}">${whereItWent(page)}${changes(page)}</div>`,
     page.query.group === 'day' ? overTime(page, now) : '',
     table(page, repository),
     jobLines([page.job]),
+    EXPLAIN_SCRIPT,
   ].join('\n');
-  return shell({ current: 'claude-calls', controls: controls(page), body }, now);
+  return shell({ current: 'claude-calls', controls: controls(page), body, style: EXPLAIN_STYLE }, now);
 }

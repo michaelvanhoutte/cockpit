@@ -95,7 +95,7 @@ describe('Harness Monitor', () => {
 
       expect(order(html)).toEqual(['where it went', 'cost per day', 'tokens per day', 'the table', 'the trends']);
       expect(/<h2 id="where">Where the period&rsquo;s \$6\.00 went, by phase<\/h2>/.test(html)).toBe(true);
-      expect(/<h2 id="trends">Is the harness getting more expensive\?<\/h2><span class="aside">Not affected by &ldquo;coloured by&rdquo;: these follow the period and the &ldquo;Only&rdquo; filters\.<\/span>/.test(html)).toBe(true);
+      expect(/<h2 id="trends">Is the harness getting more expensive\?<\/h2>(?:(?!<\/section>).)*?<span class="aside">Not affected by &ldquo;coloured by&rdquo;: these follow the period and the &ldquo;Only&rdquo; filters\.<\/span>/s.test(html)).toBe(true);
     });
 
     it('each pull request: where it went, then the table, with no per-day charts and no trends', async () => {
