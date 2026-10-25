@@ -84,7 +84,6 @@ export const pkgLabel = (key: string) => PACKAGES.find((p) => p.key === key)?.la
 
 export const GROUPS = ['area', 'level', 'package', 'gaps'] as const;
 export type Group = (typeof GROUPS)[number];
-export const GROUP_LABELS: Record<Group, string> = { area: 'Concept area', level: 'Testing level', package: 'Package', gaps: 'Gaps' };
 export const SHOWS = ['all', 'files', 'empty'] as const;
 export type Show = (typeof SHOWS)[number];
 export const SPLITS = ['level', 'package'] as const;
@@ -134,8 +133,9 @@ export function parseTestsQuery(params: URLSearchParams): TestsQuery {
   return {
     group: pick(params.get('group'), GROUPS, 'area'),
     node: text(params.get('node')),
-    level: oneOf(params.get('level'), LEVEL_IDS),
-    package: oneOf(params.get('package'), PACKAGE_KEYS),
+    // A filter that repeats the rows is dropped, as its control is not offered.
+    level: params.get('group') === 'level' ? null : oneOf(params.get('level'), LEVEL_IDS),
+    package: params.get('group') === 'package' ? null : oneOf(params.get('package'), PACKAGE_KEYS),
     show: pick(params.get('show'), SHOWS, 'all'),
     split: pick(params.get('split'), SPLITS, 'level'),
     rule: text(params.get('rule')),

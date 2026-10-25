@@ -1,15 +1,13 @@
 import { formatDateTime } from './belgium';
-import { esc, selectField } from './look';
+import { esc, inline, sentenceForm } from './look';
 import { number } from './page';
 import { VIOLET } from './palette';
-import { bandTabs, reportPage, section, tile } from './report';
+import { reportPage, section, tile } from './report';
 import {
   branchGaps,
   countOf,
-  DEFAULT_QUERY,
   deepRules,
   distinctFiles,
-  GROUP_LABELS,
   GROUPS,
   LEVELS,
   levelName,
@@ -41,38 +39,33 @@ const PLAIN = VIOLET;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`;
 
+const ROW_WORDS: Record<TestsQuery['group'], string> = { area: 'each concept area', level: 'each testing level', package: 'each package', gaps: 'each gap' };
+
 /**
- * Which snapshot the page shows, as a select of `main` and each open pull
- * request with tests shown, newest first, that submits when changed. It keeps
- * the view (the tab, the area and the filters) but not an open rule or list,
- * which belong to the tests picked away from. Drawn only where there is a
- * pull request to pick, or one asked for. One asked for that it does not
- * list shows chosen but cannot be picked, so picking `main` is a change. A
+ * Whose tests the page shows, the sentence's first word: a select of `main`'s
+ * and each open pull request with tests shown, newest first, that submits when
+ * changed, or the plain word where there is no pull request to pick or ask for.
+ * It keeps the view (the rows, the area and the filters) but not an open rule or
+ * list, which belong to the tests picked away from. One asked for that it does
+ * not list shows chosen but cannot be picked, so picking `main` is a change. A
  * pull request's title is its author's text, so it is escaped like everything
  * else a snapshot says.
  */
-function picker(asked: TestsQuery, pulls: PullRequestTests[]): string {
-  const current = asked.pr === null ? '' : String(asked.pr);
-  const options: [string, string][] = [['', 'main'], ...pulls.map((p): [string, string] => [String(p.number), `#${p.number}${p.title ? ` · ${p.title}` : ''}`])];
-  const unlisted = options.some(([value]) => value === current) ? '' : `<option value="${esc(current)}" selected disabled>#${esc(current)}</option>`;
-  const hidden = (['group', 'node', 'level', 'package', 'show', 'split'] as const)
-    .filter((name) => asked[name] !== null && asked[name] !== DEFAULT_QUERY[name])
-    .map((name) => `<input type="hidden" name="${name}" value="${esc(String(asked[name]))}">`)
-    .join('');
-  return `<label for="pr">Tests of</label> <select id="pr" name="pr" onchange="this.form.submit()">${options
-    .map(([value, text]) => `<option value="${esc(value)}"${value === current ? ' selected' : ''}>${esc(text)}</option>`)
-    .join('')}${unlisted}</select>${hidden}<noscript> <button type="submit">Show</button></noscript>`;
+function whose(asked: TestsQuery, pulls: PullRequestTests[]): string {
+  if (pulls.length === 0 && asked.pr === null) return 'main&rsquo;s';
+  const options: [string, string, boolean?][] = [['', 'main’s'], ...pulls.map((p): [string, string] => [String(p.number), `#${p.number}${p.title ? ` · ${p.title}` : ''}`])];
+  if (asked.pr !== null && !pulls.some((p) => p.number === asked.pr)) options.push([String(asked.pr), `#${asked.pr}`, true]);
+  return inline('pr', 'Tests of', options, asked.pr === null ? '' : String(asked.pr));
 }
 
-/** The page when the snapshot asked for is not shown: `main`'s before CI has sent one, or a pull request with none. The frame, the picker where there is one, and the one thing to read. */
+/** The page when the snapshot asked for is not shown: `main`'s before CI has sent one, or a pull request with none. The sentence, and the one thing to read. */
 function renderNothing({ asked, pulls }: TestsView, now: number): string {
-  const tabs = bandTabs(GROUPS.map((g): [string, string, boolean] => [testsAddress(DEFAULT_QUERY, { group: g, pr: asked.pr }), GROUP_LABELS[g], g === 'area']));
-  const pick = pulls.length > 0 || asked.pr !== null ? `<form class="stamp" method="get" action="/tests">${picker(asked, pulls)}</form>\n` : '';
+  const controls = sentenceForm('/tests', `Show ${whose(asked, pulls)} tests for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), asked.group)}`, []);
   const said =
     asked.pr === null
       ? 'No snapshot of main&rsquo;s tests has arrived yet. The page shows the latest one once CI has sent it after a merge to main.'
       : `Pull request #${asked.pr} has no snapshot of its tests here. One arrives when CI finishes on its latest push, and goes once it merges or closes.`;
-  return reportPage({ current: 'tests', tabs, body: `${pick}${section('nothing', 'Tests', '', `<p class="well empty">${said}</p>`)}`, style: EXTRA }, now);
+  return reportPage({ current: 'tests', controls, body: section('nothing', 'Tests', '', `<p class="well empty">${said}</p>`), style: EXTRA }, now);
 }
 
 /** The Tests page: the shown snapshot, `main`'s or a pull request's, as a tree of areas, counted by level or package, each count opening the tests behind it. */
@@ -103,19 +96,24 @@ export function renderTests(view: TestsView, now: number): string {
   addOptions(model.tree, 0);
   const hidden = (name: string, value: string) => `<input type="hidden" name="${name}" value="${esc(value)}">`;
   const onAreas = q.group === 'area';
-  const toggles = (['level', 'package'] as const)
-    .map((v) => `<button type="submit" name="split" value="${v}" aria-pressed="${v === q.split}">${v === 'level' ? 'Level' : 'Package'}</button>`)
-    .join('');
-  const filters = `<form class="filters" method="get" action="/tests">
-${q.pr !== null ? hidden('pr', String(q.pr)) : ''}
-${q.group !== 'area' ? hidden('group', q.group) : ''}
-${selectField('node', 'Area', areaOptions, q.node ?? '')}
-${q.group === 'gaps' ? (q.level ? hidden('level', q.level) : '') : selectField('level', 'Level', [['', 'Every level'], ...LEVELS.map((l): [string, string] => [l.id, `${l.id} · ${l.name}`])], q.level ?? '')}
-${selectField('package', 'Package', [['', 'Every package'], ...PACKAGES.filter((p) => p.key !== 'other').map((p): [string, string] => [p.key, p.label])], q.package ?? '')}
-${onAreas ? selectField('show', 'Show', [['all', 'Every area'], ['files', 'Areas with files nothing runs'], ['empty', q.level ? `Areas with no ${q.level} rule` : 'Areas with no rule']], q.show, 'all') : q.show !== 'all' ? hidden('show', q.show) : ''}
-${onAreas && !q.rule ? `<div class="field"><span id="splitby">Count by</span><div class="toggles" role="group" aria-labelledby="splitby">${toggles}</div></div>${hidden('split', q.split)}` : q.split !== 'level' ? hidden('split', q.split) : ''}
-<noscript><button type="submit">Apply</button></noscript>
-</form>`;
+  // The controls as one sentence on the band; a filter that repeats the rows is not offered, and a choice the sentence has no room for rides along as a hidden field.
+  const controls = sentenceForm(
+    '/tests',
+    `Show ${whose(q, view.pulls)} tests for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
+${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'level'], ['package', 'package']], q.split)}` : ''}`,
+    [
+      inline('node', 'Area', areaOptions, q.node ?? '', ''),
+      q.group === 'gaps' || q.group === 'level' ? '' : inline('level', 'Level', [['', 'All levels'], ...LEVELS.map((l): [string, string] => [l.id, `${l.id} · ${l.name}`])], q.level ?? '', ''),
+      q.group === 'package' ? '' : inline('package', 'Package', [['', 'All packages'], ...PACKAGES.filter((p) => p.key !== 'other').map((p): [string, string] => [p.key, p.label])], q.package ?? '', ''),
+      onAreas ? inline('show', 'Show', [['all', 'Every area'], ['files', 'Areas with files nothing runs'], ['empty', q.level ? `Areas with no ${q.level} rule` : 'Areas with no rule']], q.show, 'all') : '',
+    ],
+    [],
+    [
+      q.group === 'gaps' && q.level ? hidden('level', q.level) : '',
+      !onAreas && q.show !== 'all' ? hidden('show', q.show) : '',
+      !(onAreas && !q.rule) && q.split !== 'level' ? hidden('split', q.split) : '',
+    ].join(''),
+  );
 
   // ---- breadcrumb: the address's drill-down, kept on every tab ----
   const crumbs = [scope ? `<a href="${link({ node: null })}">All areas</a>` : '<span aria-current="page">All areas</span>'];
@@ -171,13 +169,8 @@ ${onAreas && !q.rule ? `<div class="field"><span id="splitby">Count by</span><di
 
   const commit = model.commitUrl && blob ? `<a href="${esc(model.commitUrl)}" target="_blank" rel="noopener noreferrer">${esc(model.commit)}</a>` : esc(model.commit);
   const generated = model.generatedAt !== null && !Number.isNaN(Date.parse(model.generatedAt)) ? `, ${formatDateTime(Date.parse(model.generatedAt))}` : '';
-  const tabs = bandTabs(GROUPS.map((g): [string, string, boolean] => [link({ group: g }), GROUP_LABELS[g], g === q.group]));
-  const after = ` at ${commit}${generated}. The explorer reads the test files and never runs them.`;
-  const stamp =
-    view.pulls.length > 0 || q.pr !== null
-      ? `<form class="stamp" method="get" action="/tests">${picker(q, view.pulls)}<span>${after.trimStart()}</span></form>`
-      : `<p class="stamp"><strong>main&rsquo;s tests</strong>${after}</p>`;
-  return reportPage({ current: 'tests', tabs, body: `${stamp}\n${filters}\n${crumbline}\n${body}`, style: EXTRA }, now);
+  const stamp = `<p class="stamp">${q.pr === null ? 'main&rsquo;s' : `#${q.pr}&rsquo;s`} tests at ${commit}${generated}. The explorer reads the test files and never runs them.</p>`;
+  return reportPage({ current: 'tests', controls, body: `${stamp}\n${crumbline}\n${body}`, style: EXTRA }, now);
 
   // ---- Concept area: the tree under the chosen area, then that area's own rules ----
   function areaView(): string {
@@ -496,9 +489,7 @@ ${code(r)}
 }
 
 const EXTRA = `
-.stamp{margin:0;font-size:13px;color:var(--ink-faint)}.stamp strong{color:var(--ink)}.stamp a{color:inherit}
-form.stamp{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}form.stamp label{font-weight:600;color:var(--ink)}
-form.stamp select{height:32px;font-size:13px;font-weight:600;max-width:100%;min-width:0;text-overflow:ellipsis}
+.stamp{margin:0;font-size:13px;color:var(--ink-faint)}.stamp a{color:inherit}
 a.count{color:inherit;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 30%,transparent);text-underline-offset:3px}a.count:hover{color:var(--accent-deep)}
 code,.note code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
 .crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:15px;font-weight:500;color:var(--ink-strong)}

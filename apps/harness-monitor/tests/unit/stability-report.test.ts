@@ -116,6 +116,16 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe('an address never filters to what the rows already are', () => {
+    it.each([
+      { situation: 'each workflow with a Workflow filter', address: 'group=workflow&workflow=CI&sort=red', expected: '/stability?group=workflow&sort=red' },
+      { situation: 'each job with a Workflow filter', address: 'group=job&workflow=CI', expected: '/stability?workflow=CI' },
+      { situation: 'each red spell with a Workflow filter', address: 'group=red&workflow=CI', expected: '/stability?workflow=CI&group=red' },
+    ])('$situation', ({ address, expected }) => {
+      expect(stabilityAddress(parseStabilityQuery(new URLSearchParams(address)))).toBe(expected);
+    });
+  });
+
   describe('a duration reads as the report reads it', () => {
     it.each([
       { ms: 0, text: '0s' },

@@ -1,16 +1,15 @@
 import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './belgium';
 import type { CycleTimeView } from './cycle-time-store';
-import { esc, selectField } from './look';
+import { esc, inline, sentenceForm } from './look';
 import { dollars, number, REPOSITORY } from './page';
 import { BLUE, GREY, RED, slot, VIOLET } from './palette';
 import { STRIP_SCRIPT } from './cycle-time-strip';
-import { bandTabs, outLink, reportPage, section, tile } from './report';
+import { outLink, reportPage, section, tile } from './report';
 import {
   buckets,
   CHECKS,
   checkRows,
   costOf,
-  cycleTimeAddress,
   filtered,
   flukeCount,
   GROUP_LABELS,
@@ -35,6 +34,7 @@ import {
   sum,
   values,
   type CycleTimeQuery,
+  type Group,
   type OutlineRow,
   type PhaseKey,
   type Pull,
@@ -57,6 +57,8 @@ const SLOTS_JSON = JSON.stringify(OUTLINE_SLOTS.map((s) => [s.label, s.part ? 1 
 const CHECK_COLOURS = [slot(1), slot(2), slot(3), slot(4), BLUE];
 const colourOfCheck = (name: string) => CHECK_COLOURS[CHECKS.indexOf(name)] ?? GREY;
 
+const ROW_WORDS: Record<Group, string> = { day: 'each day', pr: 'each pull request', issue: 'each issue', size: 'each size', check: 'each check' };
+
 const unrecordedNote = (n: number) =>
   n === 0 ? '' : ` ${plural(n, 'pull request')} here ${n === 1 ? 'carries' : 'carry'} no session record: ${n === 1 ? 'its' : 'their'} writing starts at the first commit and ${n === 1 ? 'its' : 'their'} local checks are not recorded, which is not zero.`;
 const unsplitNote = (n: number) => (n === 0 ? '' : ` ${plural(n, 'pull request')} here ${n === 1 ? 'was' : 'were'} stored without the kinds of local check, so ${n === 1 ? 'its' : 'their'} local minutes are drawn as Not split by kind.`);
@@ -71,7 +73,6 @@ export function renderCycleTime(q: CycleTimeQuery, view: CycleTimeView, reposito
   const sessions = (number: number) => view.costs.has(number);
   const sessionsLink = (number: number, text: string) => (sessions(number) ? `<a href="/pr/${number}">${text}</a>` : '');
   const opening = (number: number, inner: string) => (sessions(number) ? `<a href="/pr/${number}">${inner}</a>` : inner);
-  const link = (over: Partial<CycleTimeQuery>) => esc(cycleTimeAddress(q, over));
 
   /** The tiles: a pull request's start to merge, how much of it was the harness, CI rounds, and what the Claude Code sessions cost. */
   function stats(): string {
@@ -340,23 +341,20 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
   const heldDays = view.oldest === null ? 0 : Math.round((Date.parse(belgianDay(now)) - Date.parse(belgianDay(view.oldest))) / 86_400_000) + 1;
   const partial = days !== null && heldDays > 0 && heldDays < days ? `<p class="muted small">Only ${number(heldDays)} of the period&rsquo;s ${number(days)} days are stored so far.</p>` : '';
 
-  const form = `<form class="filters" method="get" action="/cycle-time">
-<input type="hidden" name="group" value="${q.group}">
-${selectField('period', 'Merged', PERIOD_CHOICES, q.period, 'all')}
-${selectField('size', 'Size', [['', 'Any size'], ...SIZES.map((s): [string, string] => [s.key, s.label])], q.size ?? '')}
-${selectField('outcome', 'Rounds', OUTCOMES, q.outcome ?? '')}
-<noscript><button type="submit">Apply</button></noscript>
-</form>`;
-
-  const tabs = bandTabs(GROUPS.map((g): [string, string, boolean] => [link({ group: g }), GROUP_LABELS[g], g === q.group]));
-  return reportPage({ current: 'cycle-time', tabs, body: `${form}\n${partial}${content}`, style: EXTRA }, now);
+  // The controls as one sentence on the band; the Size filter is not offered when the rows are sizes.
+  const controls = sentenceForm(
+    '/cycle-time',
+    `Show cycle time for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
+merged ${inline('period', 'Merged', PERIOD_CHOICES, q.period)}`,
+    [
+      q.group === 'size' ? '' : inline('size', 'Size', [['', 'All sizes'], ...SIZES.map((s): [string, string] => [s.key, s.label])], q.size ?? '', ''),
+      inline('outcome', 'Rounds', OUTCOMES, q.outcome ?? '', ''),
+    ],
+  );
+  return reportPage({ current: 'cycle-time', controls, body: `${partial}${content}`, style: EXTRA }, now);
 }
 
 const EXTRA = `
-@media (max-width:640px){
-  .filters{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .filters .field:nth-of-type(n+3){grid-column:1/-1}
-}
 .up{color:var(--over-ink)}.down{color:var(--good)}
 .outline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
 .o-row{display:grid;grid-template-columns:210px minmax(0,1fr) 80px 44px;align-items:center;gap:12px;height:28px}

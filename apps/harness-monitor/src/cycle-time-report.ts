@@ -15,7 +15,8 @@ export type Pull = CycleTimePull;
 /** The Merged filter, in days; `all` is every pull request held. */
 export const PERIODS = { '3d': 3, '7d': 7, all: null } as const;
 export type Period = keyof typeof PERIODS;
-export const PERIOD_CHOICES: [Period, string][] = [['3d', 'Last 3 days'], ['7d', 'Last 7 days'], ['all', 'Everything held']];
+/** The period as a word of the page's sentence ("merged in the last 7 days"). */
+export const PERIOD_CHOICES: [Period, string][] = [['3d', 'in the last 3 days'], ['7d', 'in the last 7 days'], ['all', 'at any time held']];
 
 export const GROUPS = ['day', 'pr', 'issue', 'size', 'check'] as const;
 export type Group = (typeof GROUPS)[number];
@@ -52,7 +53,8 @@ export function parseCycleTimeQuery(params: URLSearchParams): CycleTimeQuery {
   const outcome = params.get('outcome');
   return {
     period: (Object.keys(PERIODS) as Period[]).find((p) => p === params.get('period')) ?? DEFAULTS.period,
-    size: size !== null && SIZES.some((s) => s.key === size) ? size : null,
+    // A filter that repeats the rows is dropped, as its control is not offered.
+    size: params.get('group') !== 'size' && size !== null && SIZES.some((s) => s.key === size) ? size : null,
     outcome: outcome !== null && outcome !== '' && OUTCOMES.some(([v]) => v === outcome) ? outcome : null,
     group: GROUPS.find((g) => g === params.get('group')) ?? DEFAULTS.group,
   };

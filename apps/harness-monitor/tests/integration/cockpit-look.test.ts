@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
 import { theCallsPage } from './cockpit-support';
-import { emptyTheDatabase, groupTabs, send, spend, theBarePage, theSentence, thePullRequest, withPrices } from './support';
+import { emptyTheDatabase, send, spend, theBarePage, theSentence, thePullRequest, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();

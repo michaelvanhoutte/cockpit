@@ -13,7 +13,6 @@ import { stabilityWindows, type Durations, type WindowSpan } from './stability-s
 
 export const GROUPS = ['job', 'workflow', 'red', 'failures', 'day'] as const;
 export type Group = (typeof GROUPS)[number];
-export const GROUP_LABELS: Record<Group, string> = { job: 'Job', workflow: 'Workflow', red: 'Red spells', failures: 'Failures', day: 'Over time' };
 
 /** The orders each tab can be read in; the first is its default. Failures and days read newest first and need no choice. */
 export const SORTS: Record<Group, [key: string, label: string][]> = {
@@ -44,7 +43,8 @@ export function parseStabilityQuery(params: URLSearchParams): StabilityQuery {
   const sort = params.get('sort');
   return {
     period: period !== null && Object.hasOwn(PERIODS, period) ? (period as Period) : DEFAULT_PERIOD,
-    workflow: params.get('workflow') || null,
+    // A filter that repeats the rows is dropped, as its control is not offered.
+    workflow: group === 'workflow' ? null : params.get('workflow') || null,
     group,
     sort: sort !== null && SORTS[group].some(([k]) => k === sort) && sort !== SORTS[group][0]![0] ? sort : null,
     steps: group === 'job' ? params.get('steps') || null : null,

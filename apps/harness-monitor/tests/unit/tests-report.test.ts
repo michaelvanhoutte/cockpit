@@ -145,6 +145,15 @@ describe('Harness Monitor', () => {
       expect(testsAddress(q, { rule: q.rule, list: q.list })).toBe(address);
     });
 
+    it.each([
+      { situation: 'each testing level with a Level filter', address: '/tests?group=level&level=L1&package=api', expected: { level: null, package: 'api' } },
+      { situation: 'each package with a Package filter', address: '/tests?group=package&level=L1&package=api', expected: { level: 'L1', package: null } },
+      { situation: 'each concept area with both', address: '/tests?level=L1&package=api', expected: { level: 'L1', package: 'api' } },
+      { situation: 'each gap with both', address: '/tests?group=gaps&level=L1&package=api', expected: { level: 'L1', package: 'api' } },
+    ])('an address never filters to what the rows already are: $situation', ({ address, expected }) => {
+      expect(parseTestsQuery(new URL(`https://monitor.test${address}`).searchParams)).toMatchObject(expected);
+    });
+
     it('a level, package or tab it does not know falls back to the default instead of failing', () => {
       const q = parseTestsQuery(new URLSearchParams('group=nope&level=L9&package=zzz&show=x&split=y&tests=a~b~c~d'));
 

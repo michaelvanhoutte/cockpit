@@ -59,7 +59,8 @@ describe('Harness Monitor', () => {
       expect(whereItWent(html).bar).toContain('After push $2.00');
       expect(whereItWent(html).bar).toContain('Building $0.00');
       expect(await rows('?period=all&engineer=~unattributed')).toEqual([['b/nobody', '$1.00']]);
-      expect(await rows('?period=all&engineer=alice&group=engineer')).toEqual([['alice', '$5.00']]);
+      // Each engineer lists every engineer: a filter to one would repeat the rows, so the address drops it.
+      expect(await rows('?period=all&engineer=alice&group=engineer')).toEqual([['alice', '$5.00'], ['bob', '$2.00'], ['Unattributed', '$1.00']]);
       expect(await rows('?period=all&engineer=bob&group=day')).toEqual([['1 Oct 2026', '$2.00']]);
     });
 
