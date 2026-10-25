@@ -232,12 +232,11 @@ export const OUTLINE_SLOTS: OutlineSlot[] = PHASES.flatMap((ph): OutlineSlot[] =
 });
 
 /**
- * Whether a pull request was stored with its local checks split by kind. The
- * counted-once parts that come with the kinds are no longer read; their being
- * there is what says the kinds were stored, since a record with no review of a
- * kind and a row stored before the kinds both answer it as none.
+ * Whether a pull request's local checks are split by kind. Reviews recorded
+ * without a per-kind split are not; no reviews recorded is, with both review
+ * kinds at 0, and its test runs and browser pass still come from `localRuns`.
  */
-export const splitByKind = (p: Pull) => p.time.localParts !== null;
+export const splitByKind = (p: Pull) => p.localReviews === null || p.localReviews.byKind !== null;
 
 /** A local kind's own minutes as the session recorded them: two kinds at once are each counted in full. */
 function kindMs(p: Pull, kind: LocalKind): number {

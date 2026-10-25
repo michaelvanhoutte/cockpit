@@ -103,7 +103,11 @@ const split = (number: number, parts: [number, number, number, number], over: Pa
   });
 };
 /** A recorded pull request with 7 minutes of local checks stored without their kinds. */
-const notSplit = (number: number) => pull(number, { time: { localParts: null, codingMs: 10 * MIN, localMs: 7 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 23 * MIN } });
+const notSplit = (number: number) =>
+  pull(number, {
+    time: { localParts: null, codingMs: 10 * MIN, localMs: 7 * MIN, ciMs: 5 * MIN, waitingToMergeMs: MIN, awayMs: 0, totalMs: 23 * MIN },
+    localReviews: { count: 1, ms: 7 * MIN, byKind: null },
+  });
 const row = (o: Outline, key: string) => o.rows.find((r) => r.key === key)!;
 const end = (r: { left: number; width: number }) => r.left + r.width;
 /** A phase's or part's minutes, which are never null in a case that reads them. */
@@ -197,6 +201,24 @@ describe('Harness Monitor', () => {
       expect(o.unsplit).toBe(1);
     });
 
+    it("decides a pull request is not split from its reviews having no per-kind split, never from the counted-once parts", () => {
+      const kinds = split(3, [4, 1, 0, 0]);
+      const noKinds = pull(4, { ...notSplit(4), time: { ...notSplit(4).time, localParts: { 'code-review': 7 * MIN, 'security-review': 0, test: 0, browser: 0 } } });
+      const o = outline([{ ...kinds, time: { ...kinds.time, localParts: null } }, noKinds]);
+
+      expect(inMinutes(o, 'code-review')).toBe(4);
+      expect(inMinutes(o, 'not-split')).toBe(7);
+      expect(o.unsplit).toBe(1);
+    });
+
+    it('reads a pull request with no reviews recorded as split, its review kinds 0 and its test runs and browser pass from the runs', () => {
+      const runsOnly = pull(3, { localReviews: null, localRuns: { test: { count: 1, ms: 3 * MIN }, browser: { count: 1, ms: MIN } }, time: { ...pull(3).time, localMs: 4 * MIN } });
+      const o = outline([runsOnly]);
+
+      expect(o.rows.filter((r) => r.part && r.phase === 'local').map((r) => [r.label, r.ms! / MIN])).toEqual([['Test runs', 3], ['Browser pass', 1]]);
+      expect(o.unsplit).toBe(0);
+    });
+
     it('leaves Not split by kind out where every pull request is split, and counts none for one with no session record', () => {
       expect(outline([a, b]).rows.map((r) => r.key)).not.toContain('not-split');
       expect(outline([a, unrecorded(3)]).unsplit).toBe(0);
@@ -241,7 +263,7 @@ describe('Harness Monitor', () => {
     });
 
     it('leaves a row with no minutes out', () => {
-      expect(outline([pull(1)]).rows.map((r) => r.label)).toEqual(['Writing', 'Local checks', 'Not split by kind', 'CI rounds', 'Test', 'Waiting to merge']);
+      expect(outline([pull(1)]).rows.map((r) => r.label)).toEqual(['Writing', 'Local checks', 'Code review', 'CI rounds', 'Test', 'Waiting to merge']);
     });
   });
 

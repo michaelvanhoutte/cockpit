@@ -53,6 +53,9 @@ const recorded = (number: number, mergedAt: string, over: Record<string, unknown
   return cyclePull(number, { mergedAt, rounds, ciMs: 5 * MIN * rounds.length, totalMs: (16 + 5 * rounds.length) * MIN, ...over });
 };
 
+/** Local reviews stored without their split by kind: what a pull request recorded before the kinds has. */
+const NO_KINDS = { localReviews: { count: 2, ms: 5 * MIN, byKind: null } };
+
 /** The pull request is linked to its branch and issue as the hourly job would, and the sessions on its branch cost `dollars`. */
 async function costing(number: number, dollars: number | null, issue: number | null = null) {
   if (dollars !== null) await send([spend(`cost-${number}`, dollars, { branch: `claude/${number}-work` })]);
@@ -363,7 +366,7 @@ describe('Harness Monitor', () => {
     });
 
     it('draws a pull request stored without its kinds as Not split by kind under Local checks, as time spent', async () => {
-      await sendPulls([split(1, kinds), recorded(2, '2026-10-30T10:00:00Z')]);
+      await sendPulls([split(1, kinds), recorded(2, '2026-10-30T10:00:00Z', NO_KINDS)]);
 
       const rows = outlineOf(await thePage());
 
@@ -461,7 +464,7 @@ describe('Harness Monitor', () => {
       const [strip] = stripsOf(html);
 
       expect(startToMerge(row!)).toBe('21m');
-      expect(strip).toEqual({ Writing: 10, 'Local checks': 5, 'Not split by kind': 5, 'CI rounds': 5, Test: 5, 'Waiting to merge': 1 });
+      expect(strip).toEqual({ Writing: 10, 'Local checks': 5, 'Code review': 3, 'Security review': 2, 'CI rounds': 5, Test: 5, 'Waiting to merge': 1 });
       expect(strip!.Writing! + strip!['Local checks']! + strip!['CI rounds']! + strip!['Waiting to merge']!).toBe(21);
     });
 
@@ -494,7 +497,7 @@ describe('Harness Monitor', () => {
       const [strip] = stripsOf(html);
 
       expect(rowsOf(html, 'cycle-table')).toHaveLength(1);
-      expect(strip).toEqual({ Writing: 12, 'Local checks': 10, 'Not split by kind': 10, 'CI rounds': 10, Test: 10, 'Waiting to merge': 2 });
+      expect(strip).toEqual({ Writing: 12, 'Local checks': 10, 'Code review': 6, 'Security review': 4, 'CI rounds': 10, Test: 10, 'Waiting to merge': 2 });
     });
 
     it("a size's row is its pull requests' outline on average, one row to each size", async () => {
@@ -508,10 +511,7 @@ describe('Harness Monitor', () => {
     });
 
     it('a row whose pull requests were stored without their kinds has its local minutes as Not split by kind, and a mixed day counts only those', async () => {
-      await sendPulls([
-        writing(1, 10, '2026-10-30T10:00:00Z', { localParts: { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 } }),
-        writing(2, 10),
-      ]);
+      await sendPulls([writing(1, 10), writing(2, 10, '2026-10-30T10:00:00Z', NO_KINDS)]);
 
       const [strip] = stripsOf(await thePage());
 
@@ -654,7 +654,7 @@ describe('Harness Monitor', () => {
       const checks = ['Test', 'Mystery check'].map((name, i) => ran(name, 3, { last: i === 1 }));
       await sendPulls([
         recorded(1, '2026-10-30T10:00:00Z', { localParts: kinds, awayMs: MIN, totalMs: 22 * MIN, rounds: [cycleRound(checks, { ms: 6 * MIN })], ciMs: 6 * MIN }),
-        recorded(2, '2026-10-29T10:00:00Z'),
+        recorded(2, '2026-10-29T10:00:00Z', NO_KINDS),
       ]);
 
       const rows = [...(/<ul class="outline".*?<\/ul>/s.exec(await thePage())?.[0] ?? '').matchAll(/<span class="nm">([^<]*).*?class="b" style="[^"]*background:([^";]*)"/gs)].map((m) => [m[1]!.trim(), m[2]]);

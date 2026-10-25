@@ -421,7 +421,6 @@ a:hover .dot,a:focus .dot{fill-opacity:1;stroke:var(--ink-strong)}
   .strip .o-pt .nm,.strip .o-pt .am,.strip .o-row .sh{font-size:12px}
   .strip .o-row .tr{height:10px}
   .strip .o-row .band,.strip .o-row .edge{top:-7px;bottom:-7px}
-  .strip .o-row .spent{font-size:11px}
 }
 @media (max-width:640px){
   .openable tr.detail>td{padding:4px 10px 12px 16px}
