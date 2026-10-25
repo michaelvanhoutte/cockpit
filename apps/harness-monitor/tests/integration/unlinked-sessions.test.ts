@@ -5,6 +5,9 @@ import { emptyTheDatabase, send, usage } from './support';
 /** Linking started by hand, as `pnpm harness:run linking` starts it. */
 const linkByHand = async () => (await (await startJob('linking')).json()) as { ok: boolean; message: string };
 
+/** The rebuild, which is what credits a session whose pull request linking has since seen; until it has run after linking caught up, a branch is still linking. */
+const rebuild = () => startJob('rebuild');
+
 let putBack: () => void;
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -27,7 +30,7 @@ describe('Harness Monitor', () => {
       expect(await subs()).toEqual({ 'claude/new': 'linking…' });
     });
 
-    it('a branch no pull request names is unattributed once linking has caught up since the session ended', async () => {
+    it('a branch no pull request names is unattributed once linking has caught up and a rebuild has run since the session ended', async () => {
       await send([
         usage('r1', { sessionId: 'older', branch: 'claude/nobody-opened-a-pr', time: '2026-10-01T10:00:00Z' }),
         usage('r2', { sessionId: 'no-branch', branch: null, time: '2026-10-01T11:00:00Z' }),
@@ -36,6 +39,7 @@ describe('Harness Monitor', () => {
       vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-02T12:00:00Z') });
 
       await runHourly();
+      await rebuild();
 
       expect(await subs()).toEqual({ 'claude/nobody-opened-a-pr': 'unattributed', 'No branch': 'unattributed' });
     });
@@ -48,6 +52,7 @@ describe('Harness Monitor', () => {
         usage('r1', { sessionId: 'before', branch: 'claude/x', time: '2026-10-02T11:59:00Z' }),
         usage('r2', { sessionId: 'after', branch: 'claude/y', time: '2026-10-02T12:30:00Z' }),
       ]);
+      await rebuild();
 
       expect(await linkingLine()).toBe('Branch linking: last run 2 Oct 2026, 14:00 (scheduled) — Linked 1 pull request; caught up with GitHub.');
       expect(await subs()).toEqual({ 'claude/x': 'unattributed', 'claude/y': 'linking…' });
@@ -56,13 +61,14 @@ describe('Harness Monitor', () => {
     it.each([
       { situation: 'by hand', run: () => linkByHand() },
       { situation: 'on its schedule', run: () => runHourly() },
-    ])('a run $situation that caught up makes every earlier branch no pull request names unattributed', async ({ run }) => {
+    ])('a run $situation that caught up, then a rebuild, makes every earlier branch no pull request names unattributed', async ({ run }) => {
       await send([usage('r1', { sessionId: 's1', branch: 'claude/no-pr', time: '2026-10-02T11:00:00Z' })]);
       expect(await subs()).toEqual({ 'claude/no-pr': 'linking…' });
       fakeGitHub(() => pageOf([recordedPullRequest(979)]));
       vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-02T12:00:00Z') });
 
       await run();
+      await rebuild();
 
       expect(await subs()).toEqual({ 'claude/no-pr': 'unattributed' });
     });
@@ -81,6 +87,7 @@ describe('Harness Monitor', () => {
       vi.setSystemTime(new Date('2026-10-02T13:00:00Z'));
 
       expect(await linkByHand()).toMatchObject({ ok: true, message: expect.stringContaining('More to read') });
+      await rebuild();
       expect(await subs()).toEqual({ 'claude/x': 'unattributed', 'claude/y': 'linking…' });
     });
 

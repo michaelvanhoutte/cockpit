@@ -15,6 +15,12 @@ export const CATEGORIES = [
 export type Category = (typeof CATEGORIES)[number];
 
 /**
+ * The phases of work done inside the process. A request in one of them from a branch no pull request names is
+ * credited to the pull request its session went on to build; Outside the process, Unphased and CI reviews are not.
+ */
+export const CREDITED_PHASES = ['scoping-planning', 'building', 'local-code-review', 'local-security-review', 'after-push', 'process-review'] as const satisfies readonly Category[];
+
+/**
  * No phase marks existed before this UTC day, so a Building request dated earlier
  * was never really Building. Stored rows are not rewritten: every read and every
  * rebuild of the totals applies this rule. The cut-off is the instant it always

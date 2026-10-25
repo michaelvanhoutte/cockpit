@@ -38,6 +38,8 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM usage_requests'),
     env.DB.prepare('DELETE FROM daily_totals'),
     env.DB.prepare('DELETE FROM daily_split_totals'),
+    env.DB.prepare('DELETE FROM daily_credited_totals'),
+    env.DB.prepare('DELETE FROM request_credits'),
     env.DB.prepare('DELETE FROM session_starts'),
     env.DB.prepare('DELETE FROM price_list'),
     env.DB.prepare('DELETE FROM branch_links'),
@@ -651,13 +653,15 @@ export interface SplitTotal {
   cost_micros: number;
   unpriced_requests: number;
   last_at: number;
+  /** The branch the requests are credited to; '' under no credit. */
+  credit_branch: string;
 }
 
 /** The totals the costs page reads, one row per key. */
 export async function splitTotals(): Promise<SplitTotal[]> {
   const { results } = await env.DB.prepare(
-    `SELECT day, branch, category, model, ran_where, subagent, requests, cost_micros, unpriced_requests, last_at
-     FROM daily_split_totals ORDER BY day, branch, category, model, ran_where, subagent`,
+    `SELECT day, branch, category, model, ran_where, subagent, credit_branch, requests, cost_micros, unpriced_requests, last_at
+     FROM daily_credited_totals ORDER BY day, branch, category, model, ran_where, subagent, credit_branch`,
   ).all<SplitTotal>();
   return results;
 }
@@ -666,7 +670,7 @@ export async function splitTotals(): Promise<SplitTotal[]> {
 export async function splitTokens(): Promise<[string, string, number, number, number, number][]> {
   const { results } = await env.DB.prepare(
     `SELECT branch, model, input_tokens AS i, output_tokens AS o, cache_creation_tokens AS w, cache_read_tokens AS r
-     FROM daily_split_totals ORDER BY day, branch, category, model, ran_where, subagent`,
+     FROM daily_credited_totals ORDER BY day, branch, category, model, ran_where, subagent, credit_branch`,
   ).all<{ branch: string; model: string; i: number; o: number; w: number; r: number }>();
   return results.map((t) => [t.branch, t.model, t.i, t.o, t.w, t.r]);
 }

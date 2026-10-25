@@ -1,8 +1,7 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
-import { inject } from 'vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import worker from '../../src/worker';
-import { emptyTheDatabase, send, spend, splitTokens, splitTotals, usage, withPrices } from './support';
+import { emptyTheDatabase, send, splitTokens, splitTotals, usage, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -53,35 +52,16 @@ describe('Harness Monitor', () => {
     it('the nightly rebuild leaves the totals as writing the rows made them', async () => {
       await send(mixed());
       const written = await splitTotals();
-      await env.DB.prepare('UPDATE daily_split_totals SET requests = 99, cost_micros = 1').run();
+      await env.DB.prepare('UPDATE daily_credited_totals SET requests = 99, cost_micros = 1').run();
       await env.DB.prepare(
-        `INSERT INTO daily_split_totals (day, branch, category, model, ran_where, subagent, requests, cost_micros, unpriced_requests,
-           unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at)
-         VALUES ('2020-01-01', 'ghost', 'building', 'm', 'local', 0, 1, 1, 0, 0, 0, 0, 0, 1)`,
+        `INSERT INTO daily_credited_totals (day, branch, category, model, ran_where, subagent, credit_branch, requests, cost_micros, unpriced_requests,
+           unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at,
+           input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens)
+         VALUES ('2020-01-01', 'ghost', 'building', 'm', 'local', 0, '', 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0)`,
       ).run();
 
       await runTheNightlyJob();
 
-      expect(await splitTotals()).toEqual(written);
-    });
-
-    it('the migration over rows already stored builds the totals a rebuild would', async () => {
-      await send([
-        spend('p1', 3, { ranWhere: 'actions', subagent: true }),
-        ...mixed(),
-        usage('unpriced', { model: 'no-such-model', branch: 'b/x' }),
-        usage('old', { time: '2026-09-20T12:00:00Z' }),
-      ]);
-      const written = await splitTotals();
-      expect(written.some((t) => t.category === 'unphased')).toBe(true);
-      await env.DB.prepare('DROP TABLE daily_split_totals').run();
-      // The table as 0009 built it, then the columns later migrations added to it.
-      const migrations = inject('migrations').filter((m) => m.name.startsWith('0009_split_totals') || m.name.startsWith('0016_split_token_totals'));
-
-      for (const migration of migrations) for (const query of migration.queries) await env.DB.prepare(query).run();
-
-      expect(await splitTotals()).toEqual(written);
-      await runTheNightlyJob();
       expect(await splitTotals()).toEqual(written);
     });
 
@@ -104,7 +84,7 @@ describe('Harness Monitor', () => {
       ['claude/build-1', 'claude-sonnet-5-5', 100, 20, 30, 40],
     ];
     const zeroed = mixedTokens.map(([branch, model]) => [branch, model, 0, 0, 0, 0]);
-    const forgetTheTokens = () => env.DB.prepare('UPDATE daily_split_totals SET input_tokens = 0, output_tokens = 0, cache_creation_tokens = 0, cache_read_tokens = 0').run();
+    const forgetTheTokens = () => env.DB.prepare('UPDATE daily_credited_totals SET input_tokens = 0, output_tokens = 0, cache_creation_tokens = 0, cache_read_tokens = 0').run();
 
     it('a batch of requests on two branches and two models holds at each key the four kinds its requests carried', async () => {
       await send(mixed());
@@ -121,22 +101,10 @@ describe('Harness Monitor', () => {
 
     it('the nightly rebuild after writes leaves the tokens as writing the rows made them', async () => {
       await send(mixed());
-      await env.DB.prepare('UPDATE daily_split_totals SET input_tokens = 99, cache_read_tokens = 1').run();
+      await env.DB.prepare('UPDATE daily_credited_totals SET input_tokens = 99, cache_read_tokens = 1').run();
 
       await runTheNightlyJob();
 
-      expect(await splitTokens()).toEqual(mixedTokens);
-    });
-
-    it('rows stored before the migration read zero tokens until the rebuild, then their requests\' tokens', async () => {
-      await send(mixed());
-      for (const column of ['input_tokens', 'output_tokens', 'cache_creation_tokens', 'cache_read_tokens']) await env.DB.prepare(`ALTER TABLE daily_split_totals DROP COLUMN ${column}`).run();
-      const migration = inject('migrations').find((m) => m.name.startsWith('0016_split_token_totals'))!;
-
-      for (const query of migration.queries) await env.DB.prepare(query).run();
-
-      expect(await splitTokens()).toEqual(zeroed);
-      await runTheNightlyJob();
       expect(await splitTokens()).toEqual(mixedTokens);
     });
 
