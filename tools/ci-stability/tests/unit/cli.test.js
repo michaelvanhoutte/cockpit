@@ -83,6 +83,14 @@ describe('CI stability', () => {
     });
   });
 
+  describe('the tests of an old failure are read from its annotations or log only when the send is asked to', () => {
+    it('takes --old-failures with --send, and refuses it on a page', () => {
+      expect(parseArgs(['--send', '--old-failures']).oldFailures).toBe(true);
+      expect(parseArgs(['--old-failures']).invalid).toContain('--old-failures needs --send');
+      expect(parseArgs(['--send']).oldFailures).toBeUndefined();
+    });
+  });
+
   describe("the attempts on branches other than main's are only ever sent, and write no page", () => {
     it('takes --branches with --send, and a window by hand beside it', () => {
       const args = parseArgs(['--send', '--branches', '--from', '2026-10-01']);

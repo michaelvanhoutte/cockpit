@@ -78,6 +78,20 @@ when that is later than its run's day, so a stop leaves it unsent and says `--fr
 A run's `pull_requests` list is empty on GitHub once its pull request has closed. The Monitor keeps the pull
 request an attempt was stored with, so only a run first read after that is stored with its branch alone.
 
+```bash
+pnpm stability:backfill                                 # every attempt since 1 October, on main and every other branch
+pnpm stability:backfill --from 2026-10-12 --only branches   # carry on after a stop
+```
+
+`pnpm stability:backfill` ([src/backfill.js](src/backfill.js)) is the one-off that fills the Monitor from before the
+nightly sends: `main`'s runs and attempts a week at a time, then every other branch's attempts a day at a time,
+both oldest first, by the sends above. It adds `--old-failures` to both, which reads a failed job's tests from
+GitHub's annotations (Playwright: the title names the spec and project, never the helper under `path`) or its
+log (Vitest's `FAIL <file> > <name>` lines, behind pnpm's prefixes and colour codes) where no record names them:
+records exist only from the day they began to name tests and expire after 30 days. It costs a request for the
+annotations and one more for the log of each such job, and a job that ran no tests, or whose log names none,
+keeps its failed step alone.
+
 `out/index.html` is a complete file — open it directly, no server needed, and it is
 gitignored. A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without
 one the API allows 60 requests an hour, which is not enough for a full window.

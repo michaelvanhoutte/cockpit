@@ -64,6 +64,17 @@ describe('CI stability', () => {
       expect(row.jobs.map((each) => each.name)).toEqual(['Lint', 'E2E (F3)']);
     });
 
+    it("a failed shard's tests, read from its own annotations, stand for the family when the fan-in kept no record that names them", () => {
+      const shard = (index, tests) => job(`E2E (F3) (${index})`, 'failure', { failedStep: "Run this shard's walks", record: read(tests) });
+      const fanIn = (record) => job('E2E (F3)', 'failure', { failedStep: 'Fail if a shard failed', record });
+      const row = (fan) => rowOf([shard(1, [test('Capture > a')]), shard(2, [test('Triage > b'), test('Triage > c')]), job('E2E (F3) (3)', 'success'), fan]);
+
+      expect(row(fanIn({ state: 'read', value: { packages: [] } })).failedJobs[0].tests.map((each) => each.name)).toEqual(['Capture > a', 'Triage > b', 'Triage > c']);
+      expect(row(fanIn(undefined)).failedJobs[0].tests).toHaveLength(3);
+      // A fan-in that does name its tests is the record of the family; the shards' are not added to it.
+      expect(row(fanIn(read([test('Merged > only')]))).failedJobs[0].tests.map((each) => each.name)).toEqual(['Merged > only']);
+    });
+
     it('the fan-in failing on its own, every shard passing, is the failed job, with its own step', () => {
       const row = rowOf([job('E2E (F3) (1)', 'success'), job('E2E (F3) (2)', 'success'), job('E2E (F3)', 'failure', { failedStep: 'Merge the shards\' records' })]);
 

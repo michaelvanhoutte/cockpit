@@ -92,6 +92,13 @@ const SHARD_NAME = /^(.+) \((\d+)\)$/;
  * @param {import('./github.js').Job[]} jobs the jobs of one run
  */
 function foldFamilies(jobs) {
+  /** The fan-in's record where it names the tests; else the failed shards' together, which an annotation or a log named in each. */
+  const familyRecord = (own, shardRecords) => {
+    const named = shardRecords.filter(namesTests);
+    if (namesTests(own) || named.length === 0) return own;
+    return { state: 'read', value: { failedTests: named.flatMap((record) => record.value.failedTests), failedTestsMore: named.reduce((sum, record) => sum + (record.value.failedTestsMore ?? 0), 0) } };
+  };
+
   const shards = jobs.filter((job) => SHARD_NAME.test(job.name));
   if (shards.length === 0) return jobs;
 
@@ -113,8 +120,10 @@ function foldFamilies(jobs) {
     const failing = members.find(({ shard }) => classify(shard) === 'fail')?.shard ?? null;
     // A fan-in skipped behind a failed shard says nothing, so the shard's failure stands in for it.
     const base = (fanIn && !(failing && classify(fanIn) === 'skipped') ? fanIn : null) ?? { runId: members[0].shard.runId, name: family, conclusion: failing ? 'failure' : 'neutral', status: 'completed', url: members[0].shard.url, steps: [] };
+    const record = familyRecord(base.record, members.filter(({ shard }) => classify(shard) === 'fail').map(({ shard }) => shard.record));
     folded.push({
       ...base,
+      ...(record === undefined ? {} : { record }),
       name: family,
       // The span of the whole family, or nothing: a figure over the shards that were read would be a shorter family.
       familyMs: whole && finished ? Math.max(...members.map(({ shard }) => Date.parse(shard.completedAt))) - Math.min(...members.map(({ shard }) => Date.parse(shard.startedAt))) : null,
@@ -453,6 +462,11 @@ export function recordArtifactFor(path, jobName) {
   const own = Object.hasOwn(RECORD_ARTIFACTS, path) ? RECORD_ARTIFACTS[path] : null;
   if (own === '*') return 'failed-tests-record';
   return own && Object.hasOwn(own, jobName) ? own[jobName] : null;
+}
+
+/** Whether a record names the tests that failed in its job: one from before records did has the field missing. */
+export function namesTests(record) {
+  return record?.state === 'read' && Array.isArray(record.value?.failedTests);
 }
 
 const text = (value, max) => (typeof value === 'string' && value.trim() !== '' ? value.slice(0, max) : null);
