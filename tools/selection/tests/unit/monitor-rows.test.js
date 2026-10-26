@@ -170,7 +170,6 @@ describe('Selection', () => {
         ['e2e-forced-full', 0.25, null],
         ['test-forced-full', 0.25, null],
         ['misses', 1, null],
-        ['most-selected', 0.8, 10],
       ]);
     });
 
@@ -184,17 +183,17 @@ describe('Selection', () => {
       {
         situation: 'an open alarm issue for a bar names it, and the bars without one say none is open',
         alarms: [{ number: 41, state: 'open', body: '<!-- selection-alarm bar=misses first=2026-10-01 last=2026-10-02 -->' }],
-        expected: { 'e2e-forced-full': null, 'test-forced-full': null, misses: 41, 'most-selected': null },
+        expected: { 'e2e-forced-full': null, 'test-forced-full': null, misses: 41 },
       },
       {
         situation: 'a closed alarm issue is not open',
         alarms: [{ number: 41, state: 'closed', body: '<!-- selection-alarm bar=misses first=2026-10-01 last=2026-10-02 -->' }],
-        expected: { 'e2e-forced-full': null, 'test-forced-full': null, misses: null, 'most-selected': null },
+        expected: { 'e2e-forced-full': null, 'test-forced-full': null, misses: null },
       },
       {
         situation: 'alarm issues that could not be read say nothing, so the Monitor keeps the ones it holds',
         alarms: undefined,
-        expected: { 'e2e-forced-full': undefined, 'test-forced-full': undefined, misses: undefined, 'most-selected': undefined },
+        expected: { 'e2e-forced-full': undefined, 'test-forced-full': undefined, misses: undefined },
       },
     ])('$situation', ({ alarms, expected }) => {
       const bars = monitorBars({ alarms });

@@ -21,7 +21,7 @@ export type SelectionJob = (typeof JOBS)[number];
 export const STATUSES = ['ran', 'docs-only', 'no-record'] as const;
 export type SelectionStatus = (typeof STATUSES)[number];
 
-/** The bars a send carries thresholds for, and the only ones the answer reads. */
+/** The bars a send may carry thresholds for. `most-selected` is retired: the job no longer sends it and the answer reads none, but a send that still carries it validates and its stored row stays. */
 export const BAR_IDS = ['e2e-forced-full', 'test-forced-full', 'misses', 'most-selected'] as const;
 export type BarId = (typeof BAR_IDS)[number];
 

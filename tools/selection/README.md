@@ -111,8 +111,7 @@ what it would have done.
 - **Bars** (`bars` in the model, numbers in `BARS` in `src/model.js`) give each headline figure a verdict
   on the 14-day window: `crossed`, `within`, or `unread` where the window holds fewer than 20 merged pull
   requests or cannot give the figure. The bars: a job forced to run everything on 25% or more of the pull
-  requests that ran it (Test and E2E apart), a test file or spec selected on 80% or more of those that could
-  have skipped it (over at least ten), any miss. The 7-day column shows its figures uncoloured. Each bar has
+  requests that ran it (Test and E2E apart), and any miss. The 7-day column shows its figures uncoloured. Each bar has
   an `alarmIssue`: the number of its open alarm issue, read before the page is built, so an alarm filed
   tonight is linked from tomorrow's page.
 - **The alarm** is the nightly job's last step (`src/alarm-cli.js`, after the upload, so a refused write
@@ -128,7 +127,8 @@ what it would have done.
   | within | one | one comment saying so, until the bar crosses again; the issue stays open |
   | unread | any | nothing |
 
-  It closes and reopens nothing: a person closes an alarm. `node src/alarm-cli.js --model out/model.json
+  It closes and reopens nothing: a person closes an alarm. An open alarm of a bar the model no longer carries
+  (the retired most-selected bar) is left alone: no comment, no edit. `node src/alarm-cli.js --model out/model.json
   --dry-run` prints what a night would do and changes nothing.
 - **`forcedFullRules`** is a row per rule above its paths, over the same window, counting a pull request once
   per rule and reading each rule's total against the forced-full bar, counting only the pull requests it left

@@ -13,7 +13,9 @@
  *   - unread                      -> nothing: no reading is no news
  *
  * Nothing is closed or reopened: a person closes an alarm, and a bar that
- * crosses after that gets a new issue.
+ * crosses after that gets a new issue. An alarm whose bar the model no longer
+ * carries (the retired most-selected one) is not read at all: no comment, no
+ * edit, nothing filed.
  */
 
 import { adviceFor } from './render/advice.js';
@@ -64,15 +66,11 @@ export function openAlarmNumbers(alarms) {
 /** A bar's figure in one clause: what it was and what it is read against. */
 function figureText(bar) {
   if (bar.id === 'misses') return `${plural(bar.count, 'miss', 'misses')}, bar: any miss`;
-  if (bar.id === 'most-selected') {
-    return `\`${bar.path}\` selected on ${bar.count} of ${bar.of} pull requests that could have skipped it (${percent(bar.value)}), bar ${percent(bar.threshold)}, over at least ${bar.minOver}`;
-  }
   return `${bar.name}: ${bar.count} of ${bar.of} pull requests (${percent(bar.value)}), bar ${percent(bar.threshold)}`;
 }
 
 function titleOf(bar) {
   if (bar.id === 'misses') return `Selection: ${plural(bar.count, 'miss', 'misses')} in the ${bar.windowDays}-day window`;
-  if (bar.id === 'most-selected') return `Selection: ${bar.path} selected on ${percent(bar.value)} of the pull requests that could have skipped it`;
   return `Selection: ${bar.name} on ${percent(bar.value)} of pull requests`;
 }
 
@@ -93,7 +91,6 @@ function missLines(model) {
 
 function causeLines(model, bar) {
   if (bar.id === 'misses') return ['- **Missed files**', ...missLines(model)];
-  if (bar.id === 'most-selected') return [`- **Cause** \`${bar.path}\` is the test file or spec selected most often in the window.`];
 
   const tier = TIER_OF[bar.id];
   if (!bar.cause) return ['- **Cause** no single rule leads: the pull requests that ran everything were forced by different ones.'];

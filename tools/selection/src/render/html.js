@@ -62,7 +62,6 @@ function countOfCell(count, of, { withShare = true, verdict = null } = {}) {
 /** A bar's threshold as the Bar column words it. */
 function barText(bar) {
   if (bar.id === 'misses') return 'any miss';
-  if (bar.id === 'most-selected') return `${percent(bar.threshold)}, over at least ${bar.minOver}`;
   return `${percent(bar.threshold)} of pull requests that ran`;
 }
 
@@ -89,11 +88,6 @@ function figuresTable(model) {
     row('E2E forced to run every spec', 'of the pull requests whose E2E job left a record: every spec ran, so selection saved nothing', barOf('e2e-forced-full'), (window, verdict) =>
       window.e2e.forcedFull === null ? noDataCell : countOfCell(window.e2e.forcedFull.count, window.e2e.forcedFull.of, { verdict }),
     barText(barOf('e2e-forced-full'))),
-    row('A test selected on nearly every pull request', 'the most-selected test file or spec, over the pull requests that could have skipped it', barOf('most-selected'), (window, verdict) =>
-      window.mostSelected === null
-        ? noDataCell
-        : `<td class="num"><span class="fig${verdict ? ` ${verdict}` : ''}">${percent(window.mostSelected.share)}</span><span class="of">${window.mostSelected.selected} of ${window.mostSelected.of}</span></td>`,
-    barText(barOf('most-selected'))),
     row('Test files a typical pull request ran', 'the median, over pull requests that used selection at all', null, (window) => (window.typicalFiles === null ? noDataCell : plain(days(window.typicalFiles)))),
     row('E2E specs a typical pull request ran', 'the median, over pull requests that used selection at all', null, (window) => (window.e2e.typicalSpecs === null ? noDataCell : plain(days(window.e2e.typicalSpecs)))),
     row('Test job duration', 'pull request vs. main&rsquo;s own run of the merge, both medians', null, (window) =>
@@ -116,9 +110,6 @@ function crossedLine(bar) {
   if (bar.id === 'misses') {
     return `<b>${plural(bar.count, 'miss', 'misses')}</b> &mdash; a test that failed on main after its pull request skipped it. Any miss crosses.`;
   }
-  if (bar.id === 'most-selected') {
-    return `<b>${esc(bar.path)} selected on ${pct} of the ${plural(bar.of, 'pull request')} that could have skipped it</b> &mdash; bar ${percent(bar.threshold)}, over at least ${bar.minOver}.`;
-  }
   const head = `<b>${esc(bar.name)} on ${bar.count} of ${plural(bar.of, 'pull request')} (${pct})</b> &mdash; bar ${percent(bar.threshold)}.`;
   if (!bar.cause) return head;
   const wholly = bar.cause.count / bar.count >= 0.9;
@@ -127,11 +118,7 @@ function crossedLine(bar) {
 
 /** Why a bar could not be read, for the strip's foot. */
 function unreadReason(bar, bars) {
-  return bar.unread === 'window'
-    ? `the window holds ${plural(bars.pulls, 'merged pull request')}, and a bar needs ${bars.minPulls}`
-    : bar.id === 'most-selected'
-      ? `no test file or spec had ${bar.minOver} pull requests that could have skipped it`
-      : 'the window cannot give the figure';
+  return bar.unread === 'window' ? `the window holds ${plural(bars.pulls, 'merged pull request')}, and a bar needs ${bars.minPulls}` : 'the window cannot give the figure';
 }
 
 /**

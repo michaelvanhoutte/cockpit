@@ -177,7 +177,7 @@ describe('main', () => {
       expect(collect.mock.calls[0][0].since).toEqual(new Date('2026-10-10T02:00:00Z'));
       expect(monitor.posts).toHaveLength(1);
       expect(monitor.posts[0].pulls.map((pull) => pull.number)).toEqual([3, 1]);
-      expect(monitor.posts[0].bars.items.map((bar) => bar.id)).toEqual(['e2e-forced-full', 'test-forced-full', 'misses', 'most-selected']);
+      expect(monitor.posts[0].bars.items.map((bar) => bar.id)).toEqual(['e2e-forced-full', 'test-forced-full', 'misses']);
       expect(existsSync(out)).toBe(true);
     });
 
