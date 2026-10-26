@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barsOf, dayRange, matchesOutcome, outcomeOf, overBar, packageRows, parseSelectionQuery, ruleRows, selectionAddress, verdictOf, whyText } from '../../src/selection-report';
+import { barsOf, dayRange, groupByStart, matchesOutcome, outcomeOf, overBar, packageRows, parseSelectionQuery, ruleRows, selectionAddress, type SelectedFile, verdictOf, whyText } from '../../src/selection-report';
 import type { PackageRun, ViewJob, ViewPull } from '../../src/selection-view';
 
 const ran = (over: Partial<ViewJob> = {}): ViewJob => ({ status: 'ran', ranEverything: false, selecting: true, filesRun: 12, filesTotal: 300, prDurationMs: null, mainDurationMs: null, unplacedFiles: null, reasons: [], misses: [], ...over });
@@ -178,6 +178,75 @@ describe('Harness Monitor', () => {
       { situation: 'a file Vitest selected on a trigger the graph does not carry', text: null, words: 'selected by Vitest; no import chain found' },
     ])('$situation', ({ text, words }) => {
       expect(whyText(text, path)).toBe(words);
+    });
+  });
+
+  describe('the files a check selected are grouped by the changed file their chain started from, largest group first', () => {
+    /** A file picked through the steps of `chain` from the changed file at its end. */
+    const through = (path: string, ...chain: string[]): SelectedFile => ({ package: 'api', path, status: 'passed', text: [path, ...chain].join(' → ') });
+    const ofPackage = (name: string, file: SelectedFile): SelectedFile => ({ ...file, package: name });
+    const times = <T>(count: number, make: (index: number) => T) => Array.from({ length: count }, (_, index) => make(index));
+    const labelled = (files: SelectedFile[]) => groupByStart(files).map((g) => [g.label, g.files.length]);
+
+    it('167 files from item.ts and 32 from client.ts put item.ts first, each with how many files of each package it holds', () => {
+      const files = [
+        ...times(32, (n) => ofPackage('web', through(`apps/web/tests/unit/c${n}.test.ts`, 'apps/web/src/client.ts'))),
+        ...times(100, (n) => through(`apps/api/tests/unit/i${n}.test.ts`, 'apps/api/src/item.ts')),
+        ...times(67, (n) => ofPackage('web', through(`apps/web/tests/unit/i${n}.test.ts`, 'apps/api/src/item.ts'))),
+      ];
+
+      const groups = groupByStart(files);
+
+      expect(groups.map((g) => [g.label, g.files.length, g.byPackage])).toEqual([
+        ['apps/api/src/item.ts', 167, [['api', 100], ['web', 67]]],
+        ['apps/web/src/client.ts', 32, [['web', 32]]],
+      ]);
+    });
+
+    it('groups of equal size are ordered by path', () => {
+      const files = [through('t/1.test.ts', 'src/b.ts'), through('t/2.test.ts', 'src/c.ts'), through('t/3.test.ts', 'src/a.ts')];
+
+      expect(labelled(files)).toEqual([['src/a.ts', 1], ['src/b.ts', 1], ['src/c.ts', 1]]);
+    });
+
+    it('test files whose chain is only their own path are one group: the test files that changed themselves', () => {
+      const own = (path: string): SelectedFile => ({ package: 'api', path, status: 'passed', text: path });
+      const files = [own('t/1.test.ts'), { package: 'api', path: 't/2.test.ts', status: 'passed', text: 'itself changed' } as SelectedFile, through('t/3.test.ts', 'src/a.ts')];
+
+      expect(groupByStart(files).map((g) => [g.kind, g.label, g.files.length])).toEqual([
+        ['itself', 'The test files that changed themselves', 2],
+        ['file', 'src/a.ts', 1],
+      ]);
+    });
+
+    it('a file with no chain text is its own group, whatever else was selected', () => {
+      const files = [{ package: 'api', path: 't/1.test.ts', status: 'passed', text: null } as SelectedFile, through('t/2.test.ts', 'src/a.ts')];
+
+      expect(groupByStart(files).map((g) => [g.kind, g.label])).toEqual([['none', 'no import chain found'], ['file', 'src/a.ts']]);
+    });
+
+    it('an E2E spec picked by its area is grouped under the words of the area, backticks left out', () => {
+      const spec = (path: string): SelectedFile => ({ package: 'e2e', path, status: 'passed', text: 'owned by Panels, through `apps/web/src/DashboardBar.tsx`, changed' });
+
+      expect(labelled([spec('tests/e2e/a.test.ts'), spec('tests/e2e/b.test.ts')])).toEqual([['owned by Panels, through apps/web/src/DashboardBar.tsx, changed', 2]]);
+    });
+
+    it.each([
+      { situation: '155 of 167 chains passing through index.ts just before item.ts', size: 167, through: 155, said: { step: 'apps/api/src/index.ts', count: 155 } },
+      { situation: 'half of a group of ten, which is enough', size: 10, through: 5, said: { step: 'apps/api/src/index.ts', count: 5 } },
+      { situation: 'three of a group of five', size: 5, through: 3, said: { step: 'apps/api/src/index.ts', count: 3 } },
+      { situation: 'all of a group of four, too few to say anything about', size: 4, through: 4, said: null },
+      { situation: 'four of a group of ten, under half', size: 10, through: 4, said: null },
+    ])('$situation', ({ size, through: viaIndex, said }) => {
+      const files = times(size, (n) => (n < viaIndex ? through(`t/${n}.test.ts`, 'apps/api/src/index.ts', 'apps/api/src/item.ts') : through(`t/${n}.test.ts`, `apps/api/src/other-${n}.ts`, 'apps/api/src/item.ts')));
+
+      expect(groupByStart(files)[0]!.through).toEqual(said);
+    });
+
+    it('a chain straight from the test file to the changed file has no step before the changed file to be mostly through', () => {
+      const files = times(6, (n) => through(`t/${n}.test.ts`, 'apps/api/src/item.ts'));
+
+      expect(groupByStart(files)[0]).toMatchObject({ label: 'apps/api/src/item.ts', through: null });
     });
   });
 

@@ -68,7 +68,7 @@ export interface PullDrill {
   pull: ViewPull | null;
   changed: { path: string; ignored: boolean }[];
   packages: { job: SelectionJob; name: string; mode: 'full' | 'changed'; report: 'written' | 'none'; rule: string | null; path: string | null; ran: number; failed: number; filesTotal: number | null }[];
-  files: { job: SelectionJob; path: string; status: 'passed' | 'failed'; text: string | null }[];
+  files: { job: SelectionJob; package: string; path: string; status: 'passed' | 'failed'; text: string | null }[];
 }
 
 /** One test's file rows over the period, and how many pull requests each of its packages selected on. */
@@ -227,7 +227,7 @@ export async function selectionView(db: D1Database, wants: ViewWants, from: numb
     add(
       'pull-files',
       db
-        .prepare(`SELECT x.job, x.path, x.status, x.chain_text AS text FROM selection_files x WHERE x.pull_number = ?1 AND x.chain_kind <> 'full' AND ${OF_JOB} ORDER BY x.job, x.package, x.path`)
+        .prepare(`SELECT x.job, x.package, x.path, x.status, x.chain_text AS text FROM selection_files x WHERE x.pull_number = ?1 AND x.chain_kind <> 'full' AND ${OF_JOB} ORDER BY x.job, x.package, x.path`)
         .bind(pull, job),
     );
   }
