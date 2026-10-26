@@ -32,6 +32,9 @@ class Graph(
     val refresher = Refresher(app, this)
     val renderer = Renderer(app, this)
 
+    /** Set while a sign-in is being started (the registration is on its way), so a second ask is not a second sign-in. */
+    val signInStarting = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /** Signs out of this phone: the sign-in gone, and every list and name kept with it. */
     fun signOut() {
         session.clear()

@@ -61,6 +61,8 @@ class Phone(
     val cockpit: FakeCockpit,
     workExecutor: Executor = SynchronousExecutor(),
     secretBox: SecretBox = MarkedBox,
+    /** Where the app's own background work runs: at once, unless a test holds it to catch a second tap while the first is under way. */
+    io: Executor = Executor { it.run() },
 ) {
     val context: Context = ApplicationProvider.getApplicationContext()
     val clock = TestClock(Instant.parse("2026-10-23T11:05:00Z"))
@@ -79,7 +81,7 @@ class Phone(
             redirectUri = "cockpit-widget://oauth",
             clock = clock,
             secretBox = secretBox,
-            io = Executor { it.run() },
+            io = io,
         )
         app.graph = graph
     }

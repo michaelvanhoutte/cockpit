@@ -45,6 +45,12 @@ class SigningIn(private val phone: Phone) {
         return this
     }
 
+    /** The widget, or the picker, asks to sign in again, into the screen that is already open. The address the browser is sent to, if it is sent anywhere. */
+    fun asksAgain(): Uri? {
+        screen.newIntent(Intent(phone.context, MainActivity::class.java).setAction(MainActivity.ACTION_SIGN_IN))
+        return shadowOf(screen.get()).peekNextStartedActivity()?.let { shadowOf(screen.get()).nextStartedActivity.data }
+    }
+
     /** Opens the app on its own and presses Sign in. */
     fun fromTheApp(): SigningIn {
         screen = Robolectric.buildActivity(MainActivity::class.java).setup()

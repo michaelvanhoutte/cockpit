@@ -102,6 +102,53 @@ class OneSignInServesEveryWidget {
         assertTrue(phone.graph.session.isSignedIn())
     }
 
+    @Test
+    fun `asking to sign in again while the first is under way opens one browser, not two`() {
+        val work = ManualExecutor()
+        phone = Phone(cockpit, io = work)
+        val screen = Robolectric.buildActivity(MainActivity::class.java).setup()
+
+        screen.get().button("Sign in").performClick()
+        // The registration is still on its way; the button says so and does nothing more.
+        assertTrue(screen.get().texts().contains("Opening sign-in…"))
+        screen.get().window.decorView.all<android.widget.Button>().first { it.text == "Opening sign-in…" }.performClick()
+        screen.newIntent(Intent(phone.context, MainActivity::class.java).setAction(MainActivity.ACTION_SIGN_IN))
+        work.runAll()
+
+        val shown = shadowOf(screen.get())
+        assertNotNull("the browser was sent to Cockpit", shown.nextStartedActivity)
+        assertNull("and only once", shown.peekNextStartedActivity())
+        assertTrue("the button is a button again", screen.get().texts().contains("Sign in"))
+    }
+
+    @Test
+    fun `asking again once the browser is open sends it to the same sign-in, and the answer to the first still signs in`() {
+        val signingIn = SigningIn(phone).fromAWidget()
+        val first = signingIn.browserAddress
+
+        val second = signingIn.asksAgain()
+
+        assertEquals(first.getQueryParameter("state"), second!!.getQueryParameter("state"))
+        assertEquals(first.getQueryParameter("code_challenge"), second.getQueryParameter("code_challenge"))
+        signingIn.comesHome(state = first.getQueryParameter("state")!!)
+        assertTrue(phone.graph.session.isSignedIn())
+    }
+
+    @Test
+    fun `a sign-in abandoned for a quarter of an hour is begun afresh, and the old answer signs nobody in`() {
+        val signingIn = SigningIn(phone).fromAWidget()
+        val abandoned = signingIn.browserAddress
+        phone.clock.advance(java.time.Duration.ofMinutes(15))
+
+        val fresh = signingIn.asksAgain()
+
+        assertTrue(abandoned.getQueryParameter("state") != fresh!!.getQueryParameter("state"))
+        signingIn.comesHome(state = abandoned.getQueryParameter("state")!!)
+        assertEquals(false, phone.graph.session.isSignedIn())
+        signingIn.comesHome(state = fresh.getQueryParameter("state")!!)
+        assertTrue(phone.graph.session.isSignedIn())
+    }
+
     /** A phone whose key store refuses everything. */
     private val unable = object : SecretBox {
         override fun seal(plain: String): String = throw java.security.ProviderException("Keystore operation failed")

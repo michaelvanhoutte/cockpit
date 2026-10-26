@@ -82,32 +82,62 @@ class MainActivity : Activity() {
         } else {
             secondary.visibility = android.view.View.GONE
             action.visibility = android.view.View.VISIBLE
+            action.isEnabled = true
             action.text = "Sign in"
             action.setOnClickListener { beginSignIn(closeWhenDone = false) }
         }
     }
 
-    /** Registers this install once, then sends the browser to Cockpit's consent. */
+    /** What the screen says while the sign-in is being started: the first one on a phone registers it over the network first. */
+    private fun showStarting() {
+        status.text = "Opening Cockpit's sign-in…"
+        secondary.visibility = android.view.View.GONE
+        action.visibility = android.view.View.VISIBLE
+        action.text = "Opening sign-in…"
+        action.isEnabled = false
+    }
+
+    /**
+     * Registers this install once, then sends the browser to Cockpit's consent.
+     *
+     * **One sign-in at a time.** Asked again while the first is being started, it does
+     * nothing; asked again while a fresh one is waiting for the person, it sends the
+     * browser to that same consent. A second sign-in would replace the state the first
+     * consent will come back with, and the person's answer to it would be taken for a
+     * stranger's.
+     */
     private fun beginSignIn(closeWhenDone: Boolean) {
+        showStarting()
+        if (!graph.signInStarting.compareAndSet(false, true)) return
         graph.io.execute {
-            val clientId = graph.client.clientId()
+            val clientId = try {
+                graph.client.clientId()
+            } catch (e: Exception) {
+                null
+            }
             runOnUiThread {
+                graph.signInStarting.set(false)
+                // Left or turned while the registration was on its way: the next ask starts again.
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 if (clientId == null) {
                     note = "Could not reach Cockpit. Check the connection and try again."
                     show()
-                } else {
-                    val verifier = Pkce.verifier()
-                    val state = Pkce.state()
-                    if (!graph.session.savePending(Pending(state, verifier, closeWhenDone))) {
-                        note = "This phone could not keep a sign-in safe, so the widget cannot sign in."
-                        show()
-                        return@runOnUiThread
-                    }
-                    val address = SignInAddress.authorize(
-                        graph.origin, clientId, graph.redirectUri, state, Pkce.challenge(verifier),
-                    )
-                    CustomTabsIntent.Builder().build().launchUrl(this, Uri.parse(address))
+                    return@runOnUiThread
                 }
+                val waiting = graph.session.pending()?.takeIf { it.isFresh(graph.clock.millis()) }
+                val pending = waiting?.copy(closeWhenDone = waiting.closeWhenDone || closeWhenDone)
+                    ?: Pending(Pkce.state(), Pkce.verifier(), closeWhenDone, graph.clock.millis())
+                if (!graph.session.savePending(pending)) {
+                    note = "This phone could not keep a sign-in safe, so the widget cannot sign in."
+                    show()
+                    return@runOnUiThread
+                }
+                val address = SignInAddress.authorize(
+                    graph.origin, clientId, graph.redirectUri, pending.state, Pkce.challenge(pending.verifier),
+                )
+                CustomTabsIntent.Builder().build().launchUrl(this, Uri.parse(address))
+                // Back from the browser without an answer, the button is a button again.
+                show()
             }
         }
     }
@@ -115,6 +145,13 @@ class MainActivity : Activity() {
     private fun finishSignIn(back: Uri) {
         val pending = graph.session.pending()
         if (pending == null) {
+            show()
+            return
+        }
+        if (!pending.isFresh(graph.clock.millis())) {
+            // Abandoned long ago: its code has expired with it. Begun afresh, not waited on.
+            graph.session.finishPending()
+            note = "That sign-in took too long. Sign in to try again."
             show()
             return
         }

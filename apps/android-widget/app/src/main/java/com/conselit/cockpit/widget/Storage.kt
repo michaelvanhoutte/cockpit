@@ -65,9 +65,21 @@ class KeystoreSecretBox(private val alias: String = "cockpit-widget-session") : 
 @Serializable
 data class Session(val accessToken: String, val refreshToken: String, val expiresAtMs: Long)
 
-/** A sign-in begun and not yet finished: what must be true of the way back. */
+/**
+ * A sign-in begun and not yet finished: what must be true of the way back. One at a
+ * time: asking again while it is fresh reuses it, so the consent the person has open
+ * is still the one the app is waiting for.
+ */
 @Serializable
-data class Pending(val state: String, val verifier: String, val closeWhenDone: Boolean)
+data class Pending(val state: String, val verifier: String, val closeWhenDone: Boolean, val startedAtMs: Long = 0) {
+    /** Whether the person can still be expected to come back to it. */
+    fun isFresh(nowMs: Long) = nowMs - startedAtMs in 0..FRESH_MS
+
+    companion object {
+        /** An abandoned sign-in is begun afresh after this, so nobody is stuck waiting on one. */
+        const val FRESH_MS = 10 * 60 * 1000L
+    }
+}
 
 /**
  * The token and what the sign-in in flight needs, in the app's private storage,
