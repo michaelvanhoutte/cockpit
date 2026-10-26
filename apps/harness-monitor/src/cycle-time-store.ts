@@ -576,6 +576,17 @@ function windowAnswer(stored: Stored[], { days, firstDay }: { days: number | nul
   };
 }
 
+/**
+ * One stored pull request as the pull request's page reads it, from the rows of the statements that read it: its
+ * `cycle_time_pulls` row (none for a pull request not stored), its rounds in order and its checks in order.
+ * The failing steps and files are left out, since the page draws none.
+ */
+export function storedPull(results: { pull: unknown[]; rounds: unknown[]; checks: unknown[] }): CycleTimePull | null {
+  const pulls = results.pull as PullRow[];
+  if (pulls.length === 0) return null;
+  return pullAnswer(assemble(pulls, results.rounds as RoundRow[], results.checks as CheckRow[], [])[0]!);
+}
+
 /** What the Monitor's own cost totals hold for one pull request, joined through its branch links. */
 export interface PullCost {
   /** Priced requests only, in millionths of a dollar. */

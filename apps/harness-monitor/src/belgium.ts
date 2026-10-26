@@ -14,6 +14,8 @@ const HOUR_MS = 3_600_000;
 
 const dateFormat = new Intl.DateTimeFormat(LOCALE, { timeZone: TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric' });
 const timeFormat = new Intl.DateTimeFormat(LOCALE, { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const dayMonthFormat = new Intl.DateTimeFormat(LOCALE, { timeZone: TIME_ZONE, day: 'numeric', month: 'short' });
+const secondFormat = new Intl.DateTimeFormat(LOCALE, { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 const partsFormat = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
 
 /** 22 Oct 2026, 15:05 */
@@ -21,6 +23,15 @@ export const formatDateTime = (ms: number) => `${dateFormat.format(ms)}, ${timeF
 
 /** 22 Oct 2026: the Belgian day an instant falls on. */
 export const formatDate = (ms: number) => dateFormat.format(ms);
+
+/** 22 Oct: a day without its year, where the chart around it says which. */
+export const formatDayMonth = (ms: number) => dayMonthFormat.format(ms);
+
+/** 15:05 */
+export const formatClockMinutes = (ms: number) => timeFormat.format(ms);
+
+/** 15:05:09 */
+export const formatClock = (ms: number) => secondFormat.format(ms);
 
 /** A Belgian day, `2026-10-22`, as 22 Oct 2026. Noon UTC is the same calendar day in Brussels, in winter and summer alike. */
 export const formatDay = (day: string) => dateFormat.format(Date.parse(`${day}T12:00:00Z`));
@@ -74,4 +85,23 @@ export function belgianDaySql(column: string): string {
     summers.push(`WHEN ${column} >= ${lastSundayAt1Utc(year, 2)} AND ${column} < ${lastSundayAt1Utc(year, 9)} THEN ${2 * HOUR_MS}`);
   }
   return `date((${column} + CASE ${summers.join(' ')} ELSE ${HOUR_MS} END) / 1000, 'unixepoch')`;
+}
+
+/**
+ * The first instant at or after `at` that is a multiple of `step` on the Belgian
+ * clock, so an hourly or two-hourly tick falls on the hour the reader's own clock
+ * shows rather than on the hour in Greenwich. Brussels has only two offsets, so
+ * each is tried and kept where it is the one in force at the instant it gives: a
+ * reading that happens twice at the autumn change is found both times, and one
+ * that never happens at the spring change is skipped.
+ */
+export function nextRoundTime(at: number, step: number): number {
+  for (let from = at; ; from += step) {
+    let first = Infinity;
+    for (const offset of [HOUR_MS, 2 * HOUR_MS]) {
+      const instant = Math.ceil((from + offset) / step) * step - offset;
+      if (instant < first && offsetMs(instant) === offset) first = instant;
+    }
+    if (first !== Infinity) return first;
+  }
 }
