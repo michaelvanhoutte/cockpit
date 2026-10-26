@@ -21,8 +21,18 @@ import { mergeFailedTests } from './lib/failed-tests.mjs';
 const inDir = process.env.COCKPIT_FAILED_TESTS_DIR ?? 'failed-tests';
 const outDir = process.env.FAILED_TESTS_RECORD_DIR ?? 'failed-tests-record';
 
+// A run killed mid-write leaves a partial file; it costs that run's tests, not every other run's.
+function readPart(name) {
+  try {
+    return JSON.parse(readFileSync(join(inDir, name), 'utf8'));
+  } catch {
+    console.log(`::warning::${name} could not be read, so its failed tests are not recorded.`);
+    return null;
+  }
+}
+
 try {
-  const parts = existsSync(inDir) ? readdirSync(inDir).sort().filter((name) => name.endsWith('.json')).map((name) => JSON.parse(readFileSync(join(inDir, name), 'utf8'))) : [];
+  const parts = existsSync(inDir) ? readdirSync(inDir).sort().filter((name) => name.endsWith('.json')).map(readPart) : [];
   const record = mergeFailedTests(parts);
   if (record.failedTests.length === 0) {
     console.log('No test failed, so there is no failed-tests record to upload.');

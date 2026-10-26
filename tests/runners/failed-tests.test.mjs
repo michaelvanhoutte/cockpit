@@ -104,6 +104,20 @@ describe('a real Vitest run hands its failed tests to the record', () => {
   });
 });
 
+describe('the step after the tests gathers what the runs left', () => {
+  it('keeps the other runs’ failed tests when one run left a file cut short', async () => {
+    const dir = scratch();
+    const into = join(dir, 'failed-tests');
+    const out = join(dir, 'failed-tests-record');
+    mkdirSync(into);
+    writeFileSync(join(into, 'a-1.json'), JSON.stringify({ failedTests: [{ file: 'a.test.ts', name: 'x', error: 'boom' }], failedTestsMore: 0 }));
+    writeFileSync(join(into, 'b-2.json'), '{"failedTests":[{"file":');
+    const gathered = await run([join(repoRoot, 'scripts/ci-failed-tests.mjs')], dir, { COCKPIT_FAILED_TESTS_DIR: into, FAILED_TESTS_RECORD_DIR: out });
+    assert.equal(gathered.status, 0);
+    assert.deepEqual(JSON.parse(readFileSync(join(out, 'record.json'), 'utf8')).failedTests.map((test) => test.name), ['x']);
+  });
+});
+
 describe('a real Playwright run hands its failed walks to the record', () => {
   it('files a walk that fails on each project under its spec, not the helper its failing line is in', async () => {
     const dir = scratch();

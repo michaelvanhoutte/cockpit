@@ -121,6 +121,7 @@ describe('an error is kept as its first line, cut to a fixed length', () => {
     ['colour codes in it', '\u001b[31mError:\u001b[39m expect(received).toBe(expected)\n', 'Error: expect(received).toBe(expected)'],
     ['a line of exactly the longest length', 'x'.repeat(ERROR_LENGTH), 'x'.repeat(ERROR_LENGTH)],
     ['one very long line', 'y'.repeat(ERROR_LENGTH * 3), `${'y'.repeat(ERROR_LENGTH - 1)}…`],
+    ['an astral character at the cut', `${'z'.repeat(ERROR_LENGTH - 2)}😀tail`, `${'z'.repeat(ERROR_LENGTH - 2)}…`],
     ['an empty message', '', null],
     ['no message', undefined, null],
   ]) {

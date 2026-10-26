@@ -32,7 +32,11 @@ export function firstLine(message) {
     .map((text) => text.trim())
     .find((text) => text !== '');
   if (line === undefined) return null;
-  return line.length > ERROR_LENGTH ? `${line.slice(0, ERROR_LENGTH - 1)}…` : line;
+  if (line.length <= ERROR_LENGTH) return line;
+  let cut = line.slice(0, ERROR_LENGTH - 1);
+  // Never end on half of a surrogate pair.
+  if (cut.charCodeAt(cut.length - 1) >= 0xd800 && cut.charCodeAt(cut.length - 1) <= 0xdbff) cut = cut.slice(0, -1);
+  return `${cut}…`;
 }
 
 /** `tests` as the two record fields: the first FAILED_TESTS_CAP, and how many more failed, counting the `more` the caller already dropped. */

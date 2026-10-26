@@ -76,7 +76,10 @@ export default class SessionRunReporter {
       const failed = vitestFailedTests(testModules, rel);
       if (failed.failedTests.length === 0) return;
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, `${basename(this.vitest.config.root)}-${process.pid}.json`), JSON.stringify(failed));
+      // Named by the package's path, so two folders of one name do not share a file.
+      const root = this.vitest.config.root;
+      const where = rel(root).replace(/[^A-Za-z0-9._-]+/g, '_') || basename(root);
+      writeFileSync(join(dir, `${where}-${process.pid}.json`), JSON.stringify(failed));
     } catch {
       // The run passes or fails on its tests alone.
     }

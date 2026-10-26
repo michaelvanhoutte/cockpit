@@ -2,8 +2,8 @@
 // A Vitest reporter that writes what scripts/lib/test-record.mjs needs from one
 // package's run: every test file Vitest knows of, how each one it ran ended,
 // and - where COCKPIT_TEST_GRAPH is set, for a package run with `--changed` -
-// the import edges under each file it ran, and the tests that failed
-// (failed-tests.mjs). The edges are walked the way
+// the import edges under each file it ran. Every run also records the tests that
+// failed (failed-tests.mjs). The edges are walked the way
 // Vitest's own `--changed` walks them (its transformed modules' static and
 // dynamic imports, skipping node_modules), so the chain in the record is the
 // graph the selection actually used.
