@@ -320,6 +320,14 @@ describe('CI stability', () => {
       expect(entry.jobs[0].record).toBeUndefined();
     });
 
+    it('annotations GitHub no longer holds do not stop the log being read', async () => {
+      const stub = stubGithub({ failOn: { part: '/annotations', answer: refuse(404) }, logs: { 77: log } });
+      const [entry] = await old(stub, [failing()]);
+
+      expect(entry.jobs[0].record.value.failedTests.length).toBeGreaterThan(0);
+      expect(asked(stub, '/logs')).toHaveLength(1);
+    });
+
     it.each([
       { situation: 'a GitHub that fails (500)', failOn: { part: '/annotations', answer: refuse(500) } },
       { situation: 'a log GitHub refuses (403)', failOn: { part: '/logs', answer: refuse(403) } },

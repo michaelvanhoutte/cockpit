@@ -105,7 +105,7 @@ describe('CI stability', () => {
     });
 
     it("a log that begins with GitHub's byte order mark reads its first line like any other", () => {
-      const tests = testsFromLog(`﻿${logLine(' FAIL  tests/unit/a.test.ts > A > rule')}\n${logLine('Error: boom')}`, [{ name: '@cockpit/architecture', dir: 'tools/architecture' }]);
+      const tests = testsFromLog(`\uFEFF${logLine(' FAIL  tests/unit/a.test.ts > A > rule')}\n${logLine('Error: boom')}`, [{ name: '@cockpit/architecture', dir: 'tools/architecture' }]);
 
       expect(tests.map((test) => test.file)).toEqual(['tools/architecture/tests/unit/a.test.ts']);
     });

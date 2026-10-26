@@ -74,7 +74,7 @@ export function testsFromAnnotations(annotations) {
  * `pnpm -r` with `apps/harness-monitor test: ` (the package's folder, or its name).
  */
 function bare(line) {
-  const plain = line.replace(/^﻿/, '').replace(ANSI, '').replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, '');
+  const plain = line.replace(/^\uFEFF/, '').replace(ANSI, '').replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, '');
   const bracket = /^\[([^\]\s]+)[^\]]*\] /.exec(plain);
   if (bracket) return { text: plain.slice(bracket[0].length).trimEnd(), prefix: bracket[1] };
   const recursive = /^([\w./@-]+) test[\w:-]*: /.exec(plain);

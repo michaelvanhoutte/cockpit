@@ -337,6 +337,9 @@ function gapOf(collected, runs, window, { backfill }) {
   return { cut, gap };
 }
 
+/** What a stop before any attempt went leaves: a window given by hand has no next send to reach back for them. */
+const attemptsLeft = (backfill) => (backfill ? 'No attempt of this window was sent; send it again.' : "No attempt was sent; the next send's window reaches back for them.");
+
 /**
  * Sends every attempt of the runs inside the attempts' window, oldest first, like the runs: a send
  * that stops partway leaves the Monitor's newest attempt where the next send's overlap picks up
@@ -345,7 +348,7 @@ function gapOf(collected, runs, window, { backfill }) {
  */
 async function sendEveryAttempt({ monitor, collected, window, unsent, repo, trunk, backfill, oldFailures }) {
   if (unsent) {
-    process.stderr.write(`${unsent.message}\nNo attempt was sent; the next send's window reaches back for them.\n`);
+    process.stderr.write(`${unsent.message}\n${attemptsLeft(backfill)}\n`);
     return 1;
   }
   if (!window) return 0;
@@ -357,7 +360,7 @@ async function sendEveryAttempt({ monitor, collected, window, unsent, repo, trun
     attempts = attemptRows(entries, { trunk }).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
   } catch (error) {
     if (!(error instanceof GitHubError)) throw error;
-    process.stderr.write(`${error.message}\nNo attempt was sent; the next send's window reaches back for them.\n`);
+    process.stderr.write(`${error.message}\n${attemptsLeft(backfill)}\n`);
     return 1;
   }
   let result;

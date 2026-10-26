@@ -44,7 +44,7 @@ describe('CI stability', () => {
     });
 
     it('keeps reading the list past a blank line or a comment between its entries', () => {
-      const root = checkout('packages:\n  - apps/*\n\n  # connectors\n  - packages/shared\n\nonlyBuiltDependencies:\n  - esbuild\n', {
+      const root = checkout('packages:\n  - apps/* # the apps\n\n  # connectors\n  - packages/shared\n\nonlyBuiltDependencies:\n  - esbuild\n', {
         'apps/web': '@cockpit/web',
         'packages/shared': '@cockpit/shared',
         'tools/other': '@cockpit/other',

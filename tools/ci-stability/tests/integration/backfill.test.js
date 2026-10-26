@@ -50,7 +50,7 @@ const rawJob = (runId, overrides = {}) => ({
 });
 
 /** GitHub holding `runs`, and a Monitor that stores what it is sent. `refuseListingFrom` spends the allowance at the listing that starts then. */
-function stubWorld({ runs = [], jobs = (runId) => [rawJob(runId)], logs = {}, refuseListingFrom = null } = {}) {
+function stubWorld({ runs = [], jobs = (runId) => [rawJob(runId)], logs = {}, refuseListingFrom = null, refuseLogs = null } = {}) {
   const monitor = [];
   const github = [];
   vi.stubGlobal('fetch', async (url, init) => {
@@ -71,6 +71,7 @@ function stubWorld({ runs = [], jobs = (runId) => [rawJob(runId)], logs = {}, re
     if (listed) return ok({ jobs: jobs(Number(listed[1])) });
     if (path.includes('/annotations')) return ok([]);
     const log = path.match(/jobs\/(\d+)\/logs/);
+    if (log && refuseLogs) return { ok: false, status: refuseLogs, headers: { get: () => null }, json: async () => ({}) };
     if (log) return { ok: true, status: 200, headers: { get: () => null }, text: async () => logs[log[1]] ?? '' };
     if (path.includes('/artifacts?')) return ok({ artifacts: [] });
 
@@ -174,6 +175,15 @@ describe('CI stability', () => {
       expect(said).toContain('pnpm stability:backfill --from 2026-10-08 --to 2026-10-12');
       expect(monitor.map((call) => call.ids)).toEqual([['1'], ['1/1']]);
       expect(listings(github)).toEqual([]);
+    });
+
+    it("a failed job's log that GitHub cannot give stops the week, sends none of its attempts, and does not promise a next send", async () => {
+      const { code, said, monitor } = await run(['--from', '2026-10-01', '--to', '2026-10-05'], { runs: [rawRun(1, '2026-10-02T09:00:00Z', { conclusion: 'failure' })], refuseLogs: 403 });
+
+      expect(code).toBe(1);
+      expect(said).toContain('No attempt of this window was sent; send it again.');
+      expect(said).not.toContain("next send's window");
+      expect(monitor.filter((call) => call.path === '/v1/ci-attempts')).toEqual([]);
     });
 
     it('the command to carry on keeps the repository, the run cap and the half it was given', async () => {

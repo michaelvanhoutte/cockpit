@@ -469,17 +469,22 @@ const RAN_TESTS = /test|walks|e2e/i;
  */
 async function readOldFailure({ repo, job, packages, ...ctx }) {
   if (job.id === null || job.id === undefined || !RAN_TESTS.test(job.failedStep ?? '')) return null;
-  try {
-    const annotations = await request(`/repos/${repo}/check-runs/${job.id}/annotations?per_page=${PER_PAGE}`, ctx);
-    const named = asRecord(testsFromAnnotations(annotations));
-    if (named) return named;
-    return asRecord(testsFromLog(await request(`/repos/${repo}/actions/jobs/${job.id}/logs`, ctx, (res) => res.text()), packages));
-  } catch (error) {
-    // Only a log or annotation GitHub no longer holds names no tests. Any other failure would store
-    // the attempt without them, and the Monitor keeps the first row sent, so it stops the run instead.
-    if (error instanceof GitHubError && (error.status === 404 || error.status === 410)) return null;
-    throw error;
-  }
+  // Only what GitHub no longer holds names no tests, and each source is tried on its own, since the
+  // log can outlive the annotations. Any other failure would store the attempt without its tests, and
+  // the Monitor keeps the first row sent, so it stops the run instead.
+  const gone = async (path, parse) => {
+    try {
+      return await request(path, ctx, parse);
+    } catch (error) {
+      if (error instanceof GitHubError && (error.status === 404 || error.status === 410)) return null;
+      throw error;
+    }
+  };
+  const annotations = await gone(`/repos/${repo}/check-runs/${job.id}/annotations?per_page=${PER_PAGE}`);
+  const named = asRecord(testsFromAnnotations(annotations));
+  if (named) return named;
+  const log = await gone(`/repos/${repo}/actions/jobs/${job.id}/logs`, (res) => res.text());
+  return asRecord(testsFromLog(log, packages));
 }
 
 /**
