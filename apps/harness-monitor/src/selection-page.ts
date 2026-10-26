@@ -96,6 +96,10 @@ const mono = (s: string) => `<span class="mono">${esc(s)}</span>`;
 const prLabel = (p: { number: number; title: string }) => `<span class="pr-no">#${p.number}</span> ${esc(p.title)}`;
 const jobDot = (job: Job) => `<i class="job-dot" style="background:${JOB_COLOURS[job]}"></i>`;
 
+/** One selected file and the chain that reached it, as the pull request's selection and an opened cycle time line both list it. */
+const fileItem = (f: Pick<SelectedFile, 'path' | 'status' | 'text'>) =>
+  `<li><span class="mono${f.status === 'failed' ? ' over-ink' : ''}">${esc(f.path)}${f.status === 'failed' ? ' (failed)' : ''}</span><div class="sub">${esc(whyText(f.text, f.path))}</div></li>`;
+
 const OWN_ADDRESS = parseSelectionQuery(new URLSearchParams());
 
 /**
@@ -131,14 +135,13 @@ export function renderSelectionCheck(view: SelectionView, job: Job): string {
   if (o === 'full') return `<p><strong>Ran everything</strong>: ${number(v.filesRun ?? 0)} of ${plural(v.filesTotal ?? 0, unit, units)}, because</p><ul class="sel-list">${reasons}</ul>${foot}`;
 
   const files = drill.files.filter((f) => f.job === job);
-  const item = (f: SelectedFile) => `<li><span class="mono${f.status === 'failed' ? ' over-ink' : ''}">${esc(f.path)}${f.status === 'failed' ? ' (failed)' : ''}</span><div class="sub">${esc(whyText(f.text, f.path))}</div></li>`;
   const groups = groupByStart(files);
   const groupRows = groups
     .map((g) => {
       const split = job === 'test' && g.byPackage.length > 0 ? ` <span class="faint">· ${g.byPackage.map(([name, n]) => `${esc(name)} ${number(n)}`).join(' · ')}</span>` : '';
       const name = g.kind === 'itself' ? g.label : g.kind === 'file' && job === 'test' ? mono(g.label) : esc(g.label);
       const through = g.through ? `<div class="sub">mostly through ${mono(g.through.step)} (${number(g.through.count)} of ${number(g.files.length)})</div>` : '';
-      return `<li><details><summary>${name} <span class="arrow">→</span> <strong>${plural(g.files.length, unit, units)}</strong>${split}${through}</summary><ul class="sel-list">${g.files.map(item).join('')}</ul></details></li>`;
+      return `<li><details><summary>${name} <span class="arrow">→</span> <strong>${plural(g.files.length, unit, units)}</strong>${split}${through}</summary><ul class="sel-list">${g.files.map(fileItem).join('')}</ul></details></li>`;
     })
     .join('');
   const ranIn = job === 'test' ? packages.filter((k) => k.mode === 'changed' && k.ran > 0).map((k) => `${esc(k.name)} ${number(k.ran)} of ${number(k.filesTotal ?? 0)}`) : [];
@@ -407,7 +410,7 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
         .join('');
       const files = drill.files.filter((f) => f.job === job);
       const selectedList = files.length
-        ? `<ul class="files">${files.map((f) => `<li><span class="mono${f.status === 'failed' ? ' over-ink' : ''}">${esc(f.path)}${f.status === 'failed' ? ' (failed)' : ''}</span><div class="sub">${esc(whyText(f.text, f.path))}</div></li>`).join('')}</ul>`
+        ? `<ul class="files">${files.map(fileItem).join('')}</ul>`
         : `<p class="faint">${drill.packages.some((pkg) => pkg.job === job && pkg.mode === 'changed') ? 'Nothing selected.' : 'Nothing selected: every package that ran, ran in full.'}</p>`;
       const misses = v.misses.length ? `<p class="warning"><strong>${plural(v.misses.length, 'miss', 'misses')}:</strong> ${v.misses.map((m) => `${mono(m.path)}${m.reason === 'docs only' ? ' (docs only)' : ''}`).join(', ')} failed on main and did not run here.</p>` : '';
       return `<div class="drill-job">${head}${misses}<p class="sub">${OUTCOME_LABELS[o]}: ${number(v.filesRun ?? 0)} of ${plural(v.filesTotal ?? 0, UNIT[job][0], UNIT[job][1])} run</p>
