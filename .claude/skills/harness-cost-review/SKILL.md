@@ -18,7 +18,7 @@ Each report's model is read from the published site with `curl -fsSL <url> -o <s
 | Model | Read from | Gives |
 |---|---|---|
 | Cycle time | `https://michaelvanhoutte.github.io/cockpit/cycle-time/model.json` | per merged pull request: coding against harness (`balance`), rounds, red rounds, flukes, which check held each round, local reviews, size; per window: failing tests and steps (`failures`), queue time per check (`queue`), cancelled runner minutes (`cancelled`) |
-| Selection | `https://michaelvanhoutte.github.io/cockpit/selection/model.json` | `bars.items`: each headline figure with its `verdict`; `forcedFullRules`: a row per rule above its paths; misses; tests selected on nearly every pull request |
+| Selection | `https://michaelvanhoutte.github.io/cockpit/selection/model.json` | `bars.items`: each headline figure with its `verdict`; `forcedFullRules`: a row per rule above its paths; misses |
 | CI stability | `https://michaelvanhoutte.github.io/cockpit/stability/model.json` | job and step durations on `main` per window |
 
 These tools run on this machine, since they read Claude Code's own logs:
