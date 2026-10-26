@@ -675,7 +675,8 @@ test.describe('Harness Monitor', () => {
   /**
    * The costs seed and three merged pull requests: 9001 and 9002 are the ones the seed priced, at $6.00 and $3.00; 9003 has no cost.
    * 9001 and 9003 had one round of Test, 9002 a red one then a green one, so its CI rounds are twice as long. 9001's round also ran E2E as four shards, 40 minutes of running in the 5 the round held.
-   * None carries its local kinds.
+   * None carries its local kinds. 9001 also carries the timeline its page draws: its coding starts half an hour before its round's push, with five seconds of test run ten minutes in, and the round's two jobs, the second a re-run.
+   * Returns the pull requests it stored, for a walk that reads what it seeded.
    */
   async function seedCycleTime(api: APIRequestContext) {
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
@@ -695,8 +696,9 @@ test.describe('Harness Monitor', () => {
       failedFiles: [],
       ...over,
     });
-    const round = (checks: unknown[], red: boolean) => ({ sha: 'b'.repeat(40), pushedAt: hoursAgo(30), endedAt: hoursAgo(29), ms: 300_000, red, commits: 1, queueNotRecorded: false, checks });
-    const pull = (number: number, title: string, hours: number, rounds: unknown[]) => ({
+    const pushed = Date.parse(hoursAgo(30));
+    const round = (checks: unknown[], red: boolean) => ({ sha: 'b'.repeat(40), pushedAt: new Date(pushed).toISOString(), endedAt: hoursAgo(29), ms: 300_000, red, commits: 1, queueNotRecorded: false, checks });
+    const pull = (number: number, title: string, hours: number, rounds: unknown[], extra: Record<string, unknown> = {}) => ({
       number,
       title,
       url: `https://github.com/o/r/pull/${number}`,
@@ -718,13 +720,34 @@ test.describe('Harness Monitor', () => {
       runnerMs: 0,
       cancelled: { superseded: { runs: 0, ms: 0 }, other: { runs: 0, ms: 0 } },
       rounds,
+      ...extra,
     });
+    // 9001's round, pushed 30 hours ago: its coding starts 30 minutes before the push and a test run of five seconds, too short to see, ran ten minutes in; the jobs are a Test and a re-run of E2E (F3), which stands above the line, clear of the round's name.
+    const lane = (name: string, from: number, seconds: number, over: Record<string, unknown> = {}) => ({
+      name,
+      attempt: 1,
+      rerun: false,
+      outcome: 'pass',
+      startedAt: new Date(pushed + from * 1000).toISOString(),
+      endedAt: new Date(pushed + (from + seconds) * 1000).toISOString(),
+      offsetMs: from * 1000,
+      ms: seconds * 1000,
+      leadMs: 0,
+      queuedMs: 0,
+      ...over,
+    });
+    const timeline = {
+      lanes: [[lane('Test', 20, 280), lane('E2E (F3)', 60, 240, { rerun: true, attempt: 2 })]],
+      reviewSlices: [],
+      runSlices: [{ kind: 'test', gap: 0, at: new Date(pushed - 20 * 60_000).toISOString(), ms: 5_000 }],
+    };
     const pulls = [
-      pull(9001, 'Add a filter panel', 20, [round([check('E2E (F3)', 5, { runningMs: 40 * 60_000 }), check('Test', 5)], false)]),
+      pull(9001, 'Add a filter panel', 20, [round([check('E2E (F3)', 5, { runningMs: 40 * 60_000 }), check('Test', 5)], false)], { start: { at: new Date(pushed - 30 * 60_000).toISOString(), from: 'session-record' }, timeline }),
       pull(9002, 'Save a Teams message', 5, [round([check('Test', 5, { failure: 'red', failedSteps: ['Run the tests'] })], true), round([check('Test', 5)], false)]),
       pull(9003, 'Tidy the inbox', 70, [round([check('Test', 5)], false)]),
     ];
     expect((await api.post(`${monitor}/__e2e/seed-cycle-time`, { data: { pulls } })).ok()).toBe(true);
+    return pulls;
   }
 
   test('Cycle time opens from the top bar, its sentence and the Rounds filter narrow it with the cost beside each pull request, each size offers no Size filter, Where the time went is one outline that fits a desk and a phone, the filters sit in one row on a desk, and a phone scrolls the wide table inside its panel', async ({ page, request: api }) => {
@@ -1062,6 +1085,52 @@ test.describe('Harness Monitor', () => {
       await expect(rows.locator('.o-sel')).toHaveCount(0);
     }
     expect(requests).toEqual(['?pr=9001&job=e2e', '?pr=9001&job=test', '?pr=9003&job=test']);
+  });
+
+  test("a pull request's page draws its timeline as a strip that zooms on a click to a Belgian clock-time axis, reads a clicked CI job under it, and closes on a click of the axis, with no request and fitting a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    const [seeded] = (await seedCycleTime(api)) as { rounds: { pushedAt: string }[] }[];
+    const belgianClock = (ms: number) => new Intl.DateTimeFormat('en-BE', { timeZone: 'Europe/Brussels', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ms);
+    // Its coding starts 30 minutes before the round was pushed, which is where the axis starts.
+    const starts = belgianClock(Date.parse(seeded!.rounds[0]!.pushedAt) - 30 * 60_000);
+    const noSideways = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    await page.goto(`${monitor}/pr/9001`);
+    await page.waitForLoadState('load');
+    const requests: string[] = [];
+    page.on('request', (r) => requests.push(r.url()));
+    const zoomed = page.locator('.tl-zoomed');
+    const box = page.locator('.tl-detailbox');
+
+    // Closed: the strip on its scale, with its summary under it and no axis; the strip fits the width, and the test run too short to see is 3px wide.
+    await expect(page.getByRole('heading', { name: 'Timeline', exact: true })).toBeVisible();
+    await expect(zoomed).toBeHidden();
+    await expect(page.locator('.tl-strip > .tl-clipnote.whenclosed').first()).toHaveText('1 CI Round · 1h 00m to merge');
+    expect(await noSideways()).toBe(true);
+    expect((await page.locator('.tl-striphit.whenclosed .tl-seg.local.test').boundingBox())!.width).toBeCloseTo(3, 0);
+
+    // A click on the strip zooms it, with the axis in Belgian clock time from where the pull request started.
+    await page.locator('.tl-striphit.whenclosed').click();
+    await expect(zoomed).toBeVisible();
+    await expect(zoomed.locator('.tl-clocktick').first()).toHaveText(starts);
+    await expect(box).toContainText('1 CI Round · 1h 00m to merge · click a phase, a CI job or a local run on the strip to read it here.');
+    expect(await noSideways()).toBe(true);
+    expect((await zoomed.locator('.tl-seg.local.test').boundingBox())!.width).toBeCloseTo(3, 0);
+
+    // A click on a CI job (the re-run, which stands in the row above the line, clear of the round's name) reads its line and its round under the axis, and the strip stays zoomed.
+    await zoomed.locator('.tl-lane.tl-job.rerun').click();
+    await expect(box.locator('.tl-detail:visible .tl-dhead')).toHaveText('E2E (F3)');
+    await expect(box).toContainText(/started \d\d:\d\d:\d\d, stopped \d\d:\d\d:\d\d · ran 4m 00s · waited 0s for a runner · passed · re-run \(attempt 2\)/);
+    await expect(box).toContainText('in CI Round 1 · pushed');
+    await expect(zoomed).toBeVisible();
+
+    // A click on the axis closes it.
+    await zoomed.locator('.tl-axishit').click();
+    await expect(zoomed).toBeHidden();
+    expect(await noSideways()).toBe(true);
+
+    // Nothing above asked for anything: the strip, its axis and every detail were in the page.
+    expect(requests).toEqual([]);
   });
 
   test("an (i) on Cycle time opens its explanation on pointing or a tap, keeps it on a click, and closes it on leaving, a second click, a click elsewhere or Escape, one at a time, with no request, inside the screen's width", async ({ page, request: api }) => {
