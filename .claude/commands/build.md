@@ -27,6 +27,8 @@ CLAUDE.md is already loaded into this session and governs how this repository is
 
 Mark a chapter at each phase boundary, per **Working in parallel**.
 
+**When the run ends in a merge, clear the session's sidebar dot after step 10 and before step 11's report**: load `mark_completed` with ToolSearch (`select:mcp__ccd_sidebar__mark_completed`) and call it with `session_id: "self"`, so a finished run stops reading as one that needs you. Skip it when the run ends on a hold for a human to merge or on a stop to ask, since the session is then waiting on the user, and skip it if ToolSearch finds no such tool. Never archive the session: that ends the conversation and takes the user's say-so, which Settings gives once for every session through auto-archive on pull request close.
+
 **End every turn that leaves a subagent, waiter or recheck running by saying whether the run is waiting on the user**: "nothing is waiting on you" and what it resumes on, or the one question it is blocked on. A run of many short turns otherwise reads as stalled on an answer the user was never asked ("Mark an Item Waiting for reply, and choose how long to wait before it comes back", issue 1454).
 
 **Record each phase boundary on the pull request** with `node scripts/session-record.mjs mark <phase>`, which stamps the time from the clock itself. The phases:
