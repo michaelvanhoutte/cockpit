@@ -189,9 +189,16 @@ describe('AI usage', () => {
     it('writes its own records in production, and calls neither way out', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       const { globalFetch, binding } = ways();
-      const env = { ENVIRONMENT: 'production', PRODUCTION: binding } as unknown as Env;
+      // Holding a token, an address and a binding, so only being production keeps it from sending; it has
+      // no database, so reaching its own writer is what rejects.
+      const env = {
+        ENVIRONMENT: 'production',
+        USAGE_RECORDING_TOKEN: TOKEN,
+        USAGE_RECORDING_URL: ADDRESS,
+        PRODUCTION: binding,
+      } as unknown as Env;
 
-      await recorderFor(env)(RECORD).catch(() => {});
+      await expect(recorderFor(env)(RECORD)).rejects.toThrow();
 
       expect(globalFetch).not.toHaveBeenCalled();
       expect(binding.fetch).not.toHaveBeenCalled();
