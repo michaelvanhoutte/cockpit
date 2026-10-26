@@ -95,6 +95,8 @@ Work one round at a time with the `grilling` skill's interview: number each ques
 
 Settle the placement questions explicitly: which store owns each piece of data, what is synchronous and what is queued, which Worker or service runs it, and which existing mechanism it reuses. **Prefer the existing mechanism**, unless step 2 made its row a trigger; a new store, queue or service has to name what the existing one cannot do. Where the change stores nothing, settle the lifecycle instead: which part is in which state, and what moves it on.
 
+**Say where a new surface for a new kind of client lives: an address of its own, named for what it serves, never inside another feature's or protocol's.** Left open, the builder puts it wherever the existing mechanism is cheapest, which is how "Read a Panel from an app allowed only to read, and open Capture from its address" (issue 1445) first put a phone app's reads under `/mcp` and had to be rebuilt.
+
 **Offer each option as an arrangement of parts and what it does under the scenario**: the states it passes through, what it costs, what it leaves unguarded.
 
 **Challenge the result rather than presenting it**: name what you chose and what you rejected, and ask the engineer about each. A question whose two answers would produce different diffs is closed here, not carried into the issue.
@@ -145,7 +147,9 @@ One unit of work is one narrow but complete path through every layer it touches 
 
 **A context window is one measure of size, and elapsed time is the other.** `main` merges roughly one pull request an hour, and a branch pays for every one that lands while it is open — twelve landed under "Edit an item's title and description on a form of its own" (pull request 163) in fifteen hours, costing six merges that each re-resolved the Item model, capture and the row, and a full re-run of three test tiers apiece. Ask whether the slice can be *merged today*, not only whether it fits a sitting; where it cannot, split it again.
 
-If the request doesn't fit, split it into units in dependency order, each declaring what it is **blocked by**. Work the frontier of unblocked units first; if they get filed, that is also the filing order.
+**A unit can also be too small: merge one under about 40 statements into its neighbour.** Every seam pays about half an hour that does not shrink with the unit — a fresh builder, a review, CI, the merge — and building the same feature as one pull request and as four, for "Find items in Cockpit from a connected app, over MCP" (issues 1240 and 1238), put the builder's ceiling at or below about 96 statements. Six units of 6 to 35 for "See a Panel's Items on your Android home screen, in a widget" (issue 1412) became two.
+
+If the request doesn't fit, split it into units in dependency order, each declaring what it is **blocked by**. Work the frontier of unblocked units first; if they get filed, that is also the filing order. **Name in Blocked by the change a unit needs, not the issue that happens to carry it**, and where that change exists only on a feature branch, say so and let the engineer choose how it reaches `main`: issue 1412's first cut read "blocked by issue 1240", an MCP tool, when all it needed was the shared-rules move inside it.
 
 **Exception:** a wide mechanical refactor (rename a shared symbol, retype a column) can't be sliced vertically. Sequence it as expand (add the new form beside the old) → migrate in batches, each its own unit blocked by the expand → contract (delete the old form), blocked by every batch.
 
