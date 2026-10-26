@@ -318,7 +318,7 @@ test.describe('Harness Monitor', () => {
   });
 
   /**
-   * CI's attempts on every branch, as the Workflow tab, the Fragile tests tab and the red-now line read them: CI failed on main once at a test and a re-run was green, a pull request's
+   * CI's attempts on every branch, as the Job, Workflow and Fragile tests tabs and the red-now line read them (main's keep their jobs and steps, a branch's none): CI failed on main once at a test and a re-run was green, a pull request's
    * attempt failed at another test and passed on a re-run, another pull request's failed and stayed failed, and Nightly's only run on main is red.
    */
   async function seedCiAttempts(api: APIRequestContext) {
@@ -338,13 +338,26 @@ test.describe('Harness Monitor', () => {
       outcome: failed ? 'fail' : 'pass',
       createdAt: hoursAgo(hours),
       url: `https://github.com/o/r/actions/runs/${runId}${number > 1 ? `/attempts/${number}` : ''}`,
-      jobs: [],
+      jobs: [
+        {
+          name: failed?.job ?? 'Test',
+          status: 'completed',
+          conclusion: failed ? 'failure' : 'success',
+          outcome: failed ? 'fail' : 'pass',
+          startedAt: hoursAgo(hours),
+          completedAt: hoursAgo(hours),
+          durationMs: 120_000,
+          failedStep: failed?.step ?? null,
+          url: `https://github.com/o/r/actions/runs/${runId}/job/1`,
+          steps: [{ number: 1, name: failed?.step ?? 'Run the tests', occurrence: 1, conclusion: failed ? 'failure' : 'success', startedAt: hoursAgo(hours), completedAt: hoursAgo(hours), durationMs: 60_000 }],
+        },
+      ],
       failedJobs: failed ? [{ name: failed.job, step: failed.step, url: `https://github.com/o/r/actions/runs/${runId}/job/1`, testsMore: 0, tests: failed.tests.map((t) => ({ ...t, error: 'AssertionError: expected 1 to be 2' })) }] : [],
       ...over,
     });
     const triage = { file: 'apps/api/tests/integration/triage.test.ts', name: 'Triage > a dismissed item leaves the lists', project: null };
     const capture = { file: 'tests/e2e/capture.test.ts', name: 'Capture > a thought is kept', project: 'phone' };
-    const onPull = (pull: number) => ({ onMain: false, event: 'pull_request', branch: `claude/${pull}-change`, pullRequest: pull });
+    const onPull = (pull: number) => ({ onMain: false, event: 'pull_request', branch: `claude/${pull}-change`, pullRequest: pull, jobs: [] });
     const attempts = [
       attempt(9_002_001, 1, 'CI', 50, null),
       attempt(9_002_002, 1, 'CI', 40, { job: 'Test', step: 'Run the tests', tests: [triage] }),
@@ -360,46 +373,13 @@ test.describe('Harness Monitor', () => {
 
   test('CI stability opens from the top bar, its sentence and the Workflow filter narrow it, choosing each workflow lists every workflow in its own order and a Workflow filter opens that workflow, Open in Actions follows the filter on a desk, and a phone scrolls the wide tables inside their panels', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
-    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
-    const run = (id: number, workflow: string, hours: number, failed: { job: string; step: string } | null) => ({
-      id,
-      workflow,
-      path: `.github/workflows/${workflow.toLowerCase()}.yml`,
-      status: 'completed',
-      conclusion: failed ? 'failure' : 'success',
-      outcome: failed ? 'fail' : 'pass',
-      headSha: 'c'.repeat(40),
-      createdAt: hoursAgo(hours),
-      url: `https://github.com/o/r/actions/runs/${id}`,
-      jobs: [
-        {
-          name: failed?.job ?? 'Test',
-          status: 'completed',
-          conclusion: failed ? 'failure' : 'success',
-          outcome: failed ? 'fail' : 'pass',
-          startedAt: hoursAgo(hours),
-          completedAt: hoursAgo(hours),
-          durationMs: 120_000,
-          failedStep: failed?.step ?? null,
-          url: `https://github.com/o/r/actions/runs/${id}/job/1`,
-          steps: [{ number: 1, name: failed?.step ?? 'Run the tests', occurrence: 1, conclusion: failed ? 'failure' : 'success', startedAt: hoursAgo(hours), completedAt: hoursAgo(hours), durationMs: 60_000 }],
-        },
-      ],
-    });
-    const runs = [
-      run(9_001_001, 'CI', 50, null),
-      run(9_001_002, 'CI', 40, { job: 'Test', step: 'Run the tests' }),
-      run(9_001_003, 'CI', 30, null),
-      run(9_001_004, 'Nightly', 5, { job: 'Test explorer', step: 'Build the snapshot' }),
-    ];
-    expect((await api.post(`${monitor}/__e2e/seed-stability`, { data: { runs } })).ok()).toBe(true);
     await seedCiAttempts(api);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
 
     // From the costs page, the top bar's own tab opens it on each job, with the tiles an overview has.
     await page.goto(`${monitor}/`);
     await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'CI stability' }).click();
-    await expect(page.getByText('Show CI on main for')).toBeVisible();
+    await expect(page.getByText('Show CI for')).toBeVisible();
     await expect(choice(page, 'Rows')).toHaveValue('job');
     await expect(choice(page, 'Order')).toHaveValue('worst');
     await expect(choice(page, 'Period')).toHaveValue('7d');
@@ -445,6 +425,72 @@ test.describe('Harness Monitor', () => {
     await choose(page, 'Workflow', 'All workflows', /[?&]workflow=(&|$)/);
     await expect(workflows.getByRole('row')).toHaveCount(3);
     await expect(workflows).toContainText('Nightly');
+  });
+
+  test("a CI stability job row opens to main beside its feature branches from its chevron or anywhere on it outside its links, and closes with a second click, with no request, while its name still opens its steps, fitting a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    await seedCiAttempts(api);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    const noSideways = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    await page.goto(`${monitor}/stability`);
+    await page.waitForLoadState('load');
+    const table = page.getByRole('region', { name: 'By job' });
+    const row = (name: string) => table.locator('tr[data-opens]', { has: page.getByRole('link', { name, exact: true }) });
+    const stripOf = (name: string) => row(name).locator('xpath=following-sibling::tr[1][contains(@class, "detail")]');
+    const opening = (name: string) => row(name).getByRole('button', { name: new RegExp(`^(Open|Close) ${name.replace(/[()]/g, '\\$&')}$`) });
+    const requests: string[] = [];
+    page.on('request', (r) => requests.push(r.url()));
+
+    // Ranked by main: Test explorer, red on its only run, then Test, then the job that only flaked on a pull request, and every strip is in the page and closed.
+    await expect(table.locator('tr[data-opens] td.first a')).toHaveText(['Test explorer', 'Test', 'E2E (F3)']);
+    await expect(table.locator('tr.detail')).toHaveCount(3);
+    await expect(table.locator('tr.detail').first()).toBeHidden();
+    await expect(opening('Test')).toHaveAttribute('aria-expanded', 'false');
+
+    // The chevron opens the strip beneath its row: Test's failure on main beside the branches' sentence, side by side on a desk and above one another on a phone.
+    await opening('Test').click();
+    await expect(opening('Test')).toHaveAttribute('aria-expanded', 'true');
+    await expect(row('Test')).toHaveClass(/\bopen\b/);
+    await expect(stripOf('Test')).toBeVisible();
+    await expect(stripOf('Test explorer')).toBeHidden();
+    const main = stripOf('Test').locator('.side.main');
+    const branches = stripOf('Test').locator('.side.branch');
+    await expect(main.locator('h4')).toHaveText('On main');
+    await expect(branches.locator('h4')).toHaveText('On feature branches');
+    await expect(main.locator('li')).toHaveText([/1\s*a dismissed item leaves the lists/]);
+    await expect(branches).toContainText('This job did not fail and then pass on a feature branch.');
+    const [m, b] = await Promise.all([main.boundingBox(), branches.boundingBox()]);
+    if (onAPhone) expect(b!.y).toBeGreaterThan(m!.y + m!.height - 1);
+    else {
+      expect(Math.abs(b!.y - m!.y)).toBeLessThan(4);
+      expect(b!.x).toBeGreaterThan(m!.x + m!.width - 1);
+    }
+    expect(await noSideways()).toBe(true);
+
+    // Anywhere else on the row closes it, and the same again opens it.
+    await row('Test').locator('td').nth(2).click();
+    await expect(stripOf('Test')).toBeHidden();
+    await expect(opening('Test')).toHaveAttribute('aria-expanded', 'false');
+    await row('Test').locator('td').nth(2).click();
+    await expect(stripOf('Test')).toBeVisible();
+
+    // The job that only flaked on a pull request has nothing on main and its flake beside it.
+    await opening('E2E (F3)').click();
+    await expect(stripOf('E2E (F3)').locator('.side.main')).toContainText('No finished run on main in this period.');
+    await expect(stripOf('E2E (F3)').locator('.side.branch li')).toHaveText([/1\s*a thought is kept/]);
+
+    // Nothing above sent a request: the strips were in the page.
+    expect(requests).toEqual([]);
+
+    // The name still opens the steps, which are main's, and the table's rows stay.
+    await row('Test').getByRole('link', { name: 'Test', exact: true }).click();
+    await expect(page).toHaveURL(/[?&]steps=CI%7CTest(&|$)/);
+    const steps = page.getByRole('region', { name: /^Where Test.s time goes/ });
+    await expect(steps).toContainText('on main');
+    await expect(steps.locator('.step-name')).toHaveText(['Run the tests']);
+    await expect(table.locator('tr[data-opens]')).toHaveCount(3);
+    expect(await noSideways()).toBe(true);
   });
 
   test("a CI stability workflow row opens to main beside its feature branches from its chevron or anywhere on it outside its links, and closes with a second click, with no request; its name opens the workflow's own view, and Copy prompt puts its prompt on the clipboard without opening it, fitting a phone", async ({ page, request: api }) => {

@@ -95,22 +95,42 @@ const quantilesSql = (keys: string) => `ranked AS (
 const MEDIAN = 'AVG(CASE WHEN n > 0 AND rn IN ((n + 1) / 2, (n + 2) / 2) THEN ms END)';
 const P90 = 'MAX(CASE WHEN rn = (9 * n + 9) / 10 THEN ms END)';
 
+/** Where durations are read from: the tables of a run's jobs and steps, joined to the run (`r`), and the run's own condition on `?1`, the window's first instant. */
+export interface DurationTables {
+  jobs: string;
+  steps: string;
+  where: string;
+}
+
+/** The runs the Stability job stored, which the JSON answer reads. */
+export const STORED_RUNS: DurationTables = {
+  jobs: 'stability_jobs j JOIN stability_runs r ON r.run_id = j.run_id',
+  steps: 'stability_steps s JOIN stability_jobs j ON j.run_id = s.run_id AND j.job_index = s.job_index JOIN stability_runs r ON r.run_id = s.run_id',
+  where: 'r.created_at >= ?1',
+};
+
+/** The stored attempts on `main`, which the Job tab reads: a branch attempt keeps no job or step. */
+export const MAIN_ATTEMPTS: DurationTables = {
+  jobs: 'ci_attempt_jobs j JOIN ci_attempts r ON r.run_id = j.run_id AND r.attempt = j.attempt',
+  steps:
+    'ci_attempt_steps s JOIN ci_attempt_jobs j ON j.run_id = s.run_id AND j.attempt = s.attempt AND j.job_index = s.job_index JOIN ci_attempts r ON r.run_id = s.run_id AND r.attempt = s.attempt',
+  where: 'r.on_main = 1 AND r.created_at >= ?1',
+};
+
 /** Every job that ran in the window; only one that passed or failed counts towards its durations, as the tool counts them. */
-const JOB_DURATIONS = `WITH counted AS (
+export const jobDurationsSql = (t: DurationTables) => `WITH counted AS (
   SELECT r.workflow, j.name AS job, CASE WHEN j.outcome IN ('pass', 'fail') THEN j.duration_ms END AS ms
-  FROM stability_jobs j JOIN stability_runs r ON r.run_id = j.run_id
-  WHERE r.created_at >= ?1
+  FROM ${t.jobs}
+  WHERE ${t.where}
 ), ${quantilesSql('workflow, job')}
 SELECT workflow, job, ${MEDIAN} AS median, ${P90} AS p90, MAX(n) AS count
 FROM ranked GROUP BY workflow, job ORDER BY workflow, job`;
 
 /** Each step of a job that passed or failed, in the order of its median place in the job. */
-const STEP_DURATIONS = `WITH counted AS (
+export const stepDurationsSql = (t: DurationTables) => `WITH counted AS (
   SELECT r.workflow, j.name AS job, s.name AS step, s.occurrence, s.position, s.duration_ms AS ms
-  FROM stability_steps s
-  JOIN stability_jobs j ON j.run_id = s.run_id AND j.job_index = s.job_index
-  JOIN stability_runs r ON r.run_id = s.run_id
-  WHERE r.created_at >= ?1 AND j.outcome IN ('pass', 'fail')
+  FROM ${t.steps}
+  WHERE ${t.where} AND j.outcome IN ('pass', 'fail')
 ), ${quantilesSql('workflow, job, step, occurrence')}, placed AS (
   SELECT *,
     ROW_NUMBER() OVER (PARTITION BY workflow, job, step, occurrence ORDER BY position) AS pn,
@@ -122,7 +142,7 @@ SELECT workflow, job, step, occurrence, ${MEDIAN} AS median, ${P90} AS p90, MAX(
 FROM placed GROUP BY workflow, job, step, occurrence
 ORDER BY workflow, job, at, step, occurrence`;
 
-interface QuantileRow {
+export interface QuantileRow {
   median: number | null;
   p90: number | null;
   count: number;
@@ -130,6 +150,23 @@ interface QuantileRow {
 
 const durations = (row: QuantileRow): Durations | null =>
   row.count > 0 && row.median !== null && row.p90 !== null ? { median: row.median, p90: row.p90, count: row.count } : null;
+
+/** The jobs' and steps' durations the two queries return, grouped under their workflow and job. */
+export function durationsByWorkflow(
+  jobRows: (QuantileRow & { workflow: string; job: string })[],
+  stepRows: (QuantileRow & { workflow: string; job: string; step: string; occurrence: number })[],
+): StabilityWindow['workflows'] {
+  const workflows = new Map<string, StabilityWindow['workflows'][number]>();
+  for (const row of jobRows) {
+    if (!workflows.has(row.workflow)) workflows.set(row.workflow, { name: row.workflow, jobs: [] });
+    workflows.get(row.workflow)!.jobs.push({
+      name: row.job,
+      durations: durations(row),
+      steps: stepRows.filter((s) => s.workflow === row.workflow && s.job === row.job).map((s) => ({ name: s.step, occurrence: s.occurrence, durations: durations(s) })),
+    });
+  }
+  return [...workflows.values()];
+}
 
 /** A window to read: its length in Belgian days and its first Belgian day, both null for every stored run. */
 export interface WindowSpan {
@@ -143,8 +180,8 @@ export async function stabilityWindows(db: D1Database, windows: WindowSpan[]): P
     const from = firstDay === null ? 0 : startOfDay(firstDay);
     return [
       db.prepare('SELECT COUNT(*) AS runs FROM stability_runs WHERE created_at >= ?1').bind(from),
-      db.prepare(JOB_DURATIONS).bind(from),
-      db.prepare(STEP_DURATIONS).bind(from),
+      db.prepare(jobDurationsSql(STORED_RUNS)).bind(from),
+      db.prepare(stepDurationsSql(STORED_RUNS)).bind(from),
     ];
   });
   const results = await db.batch(statements);
@@ -153,18 +190,7 @@ export async function stabilityWindows(db: D1Database, windows: WindowSpan[]): P
     const runs = (results[i * 3]!.results[0] as { runs: number }).runs;
     const jobRows = results[i * 3 + 1]!.results as (QuantileRow & { workflow: string; job: string })[];
     const stepRows = results[i * 3 + 2]!.results as (QuantileRow & { workflow: string; job: string; step: string; occurrence: number })[];
-    const workflows = new Map<string, StabilityWindow['workflows'][number]>();
-    for (const row of jobRows) {
-      if (!workflows.has(row.workflow)) workflows.set(row.workflow, { name: row.workflow, jobs: [] });
-      workflows.get(row.workflow)!.jobs.push({
-        name: row.job,
-        durations: durations(row),
-        steps: stepRows
-          .filter((s) => s.workflow === row.workflow && s.job === row.job)
-          .map((s) => ({ name: s.step, occurrence: s.occurrence, durations: durations(s) })),
-      });
-    }
-    return { days, firstDay, runs, workflows: [...workflows.values()] };
+    return { days, firstDay, runs, workflows: durationsByWorkflow(jobRows, stepRows) };
   });
 }
 

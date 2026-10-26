@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { causesOf, flakyAmong, fragileTests, periodDays, sortFigures, testPrompt, whereOf, workflowFigures, workflowPrompt, type Attempt, type FailedJob } from '../../src/ci-flakiness';
+import { causesOf, failuresByJob, flakyAmong, fragileTests, periodDays, sortFigures, testPrompt, whereOf, workflowFigures, workflowPrompt, type Attempt, type FailedJob } from '../../src/ci-flakiness';
 
 const MINUTE = 60_000;
 const at = (minutes: number) => Date.UTC(2026, 9, 20, 10, 0) + minutes * MINUTE;
@@ -48,6 +48,68 @@ describe('Harness Monitor', () => {
 
       expect(workflowFigures('CI', attempts, flakyAmong(attempts)).rate).toBeCloseTo(2 / 3);
       expect(workflowFigures('CI', [failing({ ...onBranch }), attempt({ ...onBranch, attempt: 2, minutes: 1 })], new Set()).rate).toBeNull();
+    });
+  });
+
+  describe("a job's failures are counted as its workflow's are: every one on main, and on a feature branch only a flaky one", () => {
+    const figuresOf = (attempts: Attempt[]) => failuresByJob(attempts, flakyAmong(attempts));
+    const counted = (attempts: Attempt[], name: string) => {
+      const f = figuresOf(attempts).get(`CI|${name}`);
+      return f && [f.failed.length, f.mainFlaky, f.branchFlaky.length];
+    };
+
+    it.each([
+      {
+        situation: "a job failing on main and flaky on a pull request counts main's failure in its row and the pull request's flake in its strip",
+        attempts: [failing({ failedJobs: [job('Test', ['x'])] }), failing({ ...onBranch, sha: 'b', failedJobs: [job('Test', ['x'])] }), attempt({ ...onBranch, sha: 'b', attempt: 2, minutes: 5 })],
+        expected: [1, 0, 1],
+      },
+      {
+        situation: 'a failure on main a re-run passed is flaky on main',
+        attempts: [failing({ failedJobs: [job('Test')] }), attempt({ attempt: 2, minutes: 5 })],
+        expected: [1, 1, 0],
+      },
+      {
+        situation: "a pull request's failure that stayed failed is not counted",
+        attempts: [failing({ ...onBranch, failedJobs: [job('Test')] })],
+        expected: [0, 0, 0],
+      },
+    ])('$situation', ({ attempts, expected }) => {
+      expect(counted(attempts, 'Test') ?? [0, 0, 0]).toEqual(expected);
+    });
+
+    it('an attempt in which two jobs failed counts once against each, and each job names only its own causes', () => {
+      const attempts = [failing({ failedJobs: [job('Test', ['a unit test']), job('E2E (F3)', ['a walk'])] })];
+
+      const figures = figuresOf(attempts);
+
+      expect([...figures.keys()]).toEqual(['CI|Test', 'CI|E2E (F3)']);
+      expect(figures.get('CI|Test')!.mainCauses.map((c) => c.label)).toEqual(['a unit test']);
+      expect(figures.get('CI|E2E (F3)')!.mainCauses.map((c) => c.label)).toEqual(['a walk']);
+    });
+
+    it("a shard family, stored as one failed job under its fan-in's name, is one job however many of its attempts failed", () => {
+      const attempts = [failing({ failedJobs: [job('E2E (F3)', ['a walk'])] }), failing({ sha: 'b', minutes: 5, failedJobs: [job('E2E (F3)', ['a walk'])] })];
+
+      const figures = figuresOf(attempts);
+
+      expect([...figures.keys()]).toEqual(['CI|E2E (F3)']);
+      expect(figures.get('CI|E2E (F3)')!.failed).toHaveLength(2);
+    });
+
+    it('the same job name in two workflows is two jobs', () => {
+      const attempts = [failing({ failedJobs: [job('Test')] }), failing({ workflow: 'Nightly', sha: 'b', minutes: 5, failedJobs: [job('Test')] })];
+
+      expect([...figuresOf(attempts).keys()]).toEqual(['CI|Test', 'Nightly|Test']);
+    });
+
+    it('a job that failed only on a feature branch and passed on a re-run has branch flakes and none on main', () => {
+      const attempts = [failing({ ...onBranch, failedJobs: [job('Lint', [], 'Run pnpm lint')] }), attempt({ ...onBranch, attempt: 2, minutes: 5 })];
+
+      const lint = figuresOf(attempts).get('CI|Lint')!;
+
+      expect([lint.failed.length, lint.branchFlaky.length]).toEqual([0, 1]);
+      expect(lint.branchCauses.map((c) => [c.label, c.branch])).toEqual([['Lint · Run pnpm lint', 1]]);
     });
   });
 
