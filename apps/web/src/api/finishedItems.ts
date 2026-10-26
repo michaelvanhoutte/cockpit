@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { withFinishedItems } from '../finishedItems';
 import { fetchFinishedItems } from './client';
+import { changes } from './changes';
 import { snapshotQuery } from './queries';
 import { useDrawnSelect } from './useSnapshot';
 
@@ -42,14 +43,20 @@ export const finishedItemsQuery = (workspaceId: string) =>
  */
 export function useSnapshotWithFinishedItems(workspaceId: string, { itemId }: { itemId?: string } = {}) {
   const workspace = useQuery(snapshotQuery(workspaceId));
-  const wanted = itemId === undefined || (workspace.data !== undefined && !workspace.data.items.some((item) => item.id === itemId));
-  const finished = useQuery({ ...finishedItemsQuery(workspaceId), enabled: wanted });
   const drawn = useDrawnSelect();
+  // An Item is lacking when the Workspace as drawn does not hold it, so one this tab has just made (still being
+  // answered) never asks. A Workspace this tab has just added is not on the server yet, as `snapshotQuery` knows.
+  const lacking = workspace.data !== undefined && !drawn(workspace.data).items.some((item) => item.id === itemId);
+  const wanted = (itemId === undefined || lacking) && !changes.beingAdded(workspaceId);
+  const finished = useQuery({ ...finishedItemsQuery(workspaceId), enabled: wanted });
   const data = useMemo(
     () => (workspace.data ? drawn(withFinishedItems(workspace.data, finished.data)) : undefined),
     [workspace.data, finished.data, drawn],
   );
-  // Asked for and not yet answered, nor refused, nor waiting for a connection that is not there.
-  const reading = wanted && finished.data === undefined && !finished.isError && finished.fetchStatus !== 'paused';
-  return { data, workspace, finished, reading };
+  // Asked for and not yet answered: not refused (unless asked again), nor waiting for a connection that is not there.
+  const refused = finished.isError && finished.fetchStatus !== 'fetching';
+  const reading = wanted && finished.data === undefined && !refused && finished.fetchStatus !== 'paused';
+  // Asked for and not answered because it could not be: refused, or waiting on a connection that is not there.
+  const unread = wanted && finished.data === undefined && !reading;
+  return { data, workspace, finished, reading, unread };
 }

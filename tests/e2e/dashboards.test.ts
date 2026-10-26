@@ -820,7 +820,7 @@ test.describe('Dashboards', () => {
       await expect(row).toHaveAttribute('data-shown', '');
       await expect(page.getByRole('dialog')).toHaveCount(0);
 
-      // Find searches open Items only (issue 1434): once finished, the Item is no longer found, and no box brings it back.
+      // Find searches open Items only ("Fetch a Workspace's finished Items the first time All items opens", issue 1434): once finished, the Item is no longer found, and no box brings it back.
       await asCommand('set_done', { itemId, done: true });
       await page.reload();
       await expect(page.getByRole('button', { name: 'Open Find item' })).toBeVisible();

@@ -8,6 +8,7 @@ import { changes } from '../../../src/api/changes';
 import { fetchFinishedItems, fetchSnapshot, fetchWorkspaces, sendCommand } from '../../../src/api/client';
 import { readForAnnouncement } from '../../../src/api/snapshotReads';
 import { useSendCommand } from '../../../src/api/queries';
+import { useSnapshot } from '../../../src/api/useSnapshot';
 import AllItemsBoard from '../../../src/components/AllItemsBoard';
 import { ItemForm } from '../../../src/components/ItemForm';
 import { resetStanding } from '../../../src/offline';
@@ -159,6 +160,12 @@ function Reopen({ itemId }: { itemId: string }) {
   );
 }
 
+/** A screen that is showing the Workspace's read and not its finished Items, as a Dashboard is. */
+function OnADashboard() {
+  useSnapshot('ws-work');
+  return null;
+}
+
 const rowOf = (id: string) => document.querySelector<HTMLElement>(`[data-item-id="${id}"]`);
 const statusOf = (id: string) => within(rowOf(id)!).getAllByRole('cell')[1]?.textContent;
 const titles = () => screen.queryAllByRole('row').slice(1).map((row) => within(row).getAllByRole('cell')[0]?.textContent);
@@ -272,10 +279,50 @@ describe('Dashboards', () => {
       expect(reads.finished).toBe(2);
     });
 
+    it('reads the Workspace once, not again, for the echo of this tab’s own change after All items was left', async () => {
+      const first = render(theBoard());
+      await waitFor(() => expect(titles()).toHaveLength(2));
+      first.unmount();
+      render(
+        <QueryClientProvider client={client}>
+          <OnADashboard />
+          <Reopen itemId="old-1" />
+        </QueryClientProvider>,
+      );
+      act(() => screen.getByRole('button', { name: 'Reopen' }).click());
+      await waitFor(() => expect(waiting).toHaveLength(1));
+      await act(async () => waiting.shift()!.answer());
+      await waitFor(() => expect(reads.workspace).toBe(2));
+
+      await act(async () => readForAnnouncement(client, { type: 'snapshot_invalidated', workspaceId: 'ws-work', at: stamp() }));
+
+      expect(reads).toEqual({ workspace: 2, finished: 1 });
+    });
+
     it('reads no finished Items for an announcement before All items was ever opened', async () => {
       await doneElsewhere('open-1');
 
       expect(reads.finished).toBe(0);
+    });
+  });
+
+  describe('the finished read cannot be made', () => {
+    it('says so with a way to try again, without saying there are no items, and says it is loading while it tries again', async () => {
+      stored = [];
+      let arrive: () => void = () => {};
+      vi.mocked(fetchFinishedItems).mockRejectedValueOnce(new Error('refused'));
+      render(theBoard());
+      expect(await screen.findByRole('alert')).toHaveTextContent('Finished items could not be read.');
+      expect(screen.queryByText('There are no items yet.')).toBeNull();
+      finishedGate = new Promise<void>((resolve) => {
+        arrive = resolve;
+      });
+
+      act(() => screen.getByRole('button', { name: 'Try again' }).click());
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Loading finished items…');
+      expect(screen.queryByRole('alert')).toBeNull();
+      await act(async () => arrive());
     });
   });
 
@@ -345,6 +392,15 @@ describe('Dashboards', () => {
 
       expect(await screen.findByText('That item is not here any more.')).toBeInTheDocument();
       expect(reads.finished).toBe(1);
+    });
+
+    it('says the Item could not be looked up, not that it is gone, when the finished read is refused', async () => {
+      vi.mocked(fetchFinishedItems).mockRejectedValueOnce(new Error('refused'));
+      opened.item = 'old-1';
+      render(theForm());
+
+      expect(await screen.findByText(/could not be looked up/)).toBeInTheDocument();
+      expect(screen.queryByText('That item is not here any more.')).toBeNull();
     });
 
     it('reads no finished Items for an Item the Workspace read holds', async () => {

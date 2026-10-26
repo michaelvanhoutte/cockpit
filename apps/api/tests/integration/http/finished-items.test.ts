@@ -126,5 +126,18 @@ describe('Dashboards', () => {
       expect(read.filings).toEqual([{ itemId: finished, panelId, position: expect.any(Number) }]);
       expect(read.attachments.map((file) => [file.itemId, file.filename])).toEqual([[finished, 'receipt.png']]);
     });
+
+    it('answers no filing for a finished Item that was dismissed', async () => {
+      const panelId = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`);
+      const itemId = await anItem(WORKSPACE_ID, 'Filed, finished, then dismissed');
+      expect((await post('add_item_to_panel', { workspaceId: WORKSPACE_ID, itemId, panelId, order: [itemId] })).status).toBe(200);
+      expect((await post('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true })).status).toBe(200);
+      expect((await post('set_dismissed', { workspaceId: WORKSPACE_ID, itemId, dismissed: true })).status).toBe(200);
+
+      const read = await finishedOf();
+
+      expect(read.items).toEqual([]);
+      expect(read.filings).toEqual([]);
+    });
   });
 });

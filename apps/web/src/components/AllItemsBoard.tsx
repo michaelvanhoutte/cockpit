@@ -75,7 +75,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
   // nothing can fetch them now, the server refused, or they are on their way.
   const arrived = finished.data !== undefined;
   const needsAConnection = !arrived && (offline || finished.fetchStatus === 'paused');
-  const failed = !arrived && !needsAConnection && finished.isError;
+  const failed = !arrived && !needsAConnection && !arriving && finished.isError;
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -89,7 +89,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
         </h2>
         {needsAConnection ? (
           <p className="text-sm text-ink-soft">All items needs a connection. Go online to see every Item.</p>
-        ) : data.items.length === 0 && arriving ? null : data.items.length === 0 ? (
+        ) : data.items.length === 0 && (arriving || failed) ? null : data.items.length === 0 ? (
           <p className="text-sm text-ink-faint">There are no items yet.</p>
         ) : rows.length === 0 ? (
           <p className="text-sm text-ink-faint">No item matches the filter.</p>
@@ -153,7 +153,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
             </table>
           </div>
         )}
-        {arriving && (
+        {arriving && !needsAConnection && (
           <p role="status" className="mt-2 text-sm text-ink-faint">
             Loading finished items…
           </p>

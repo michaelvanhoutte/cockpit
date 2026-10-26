@@ -312,8 +312,8 @@ function TheForm({
   setFixedPresentation: (presentation: ItemFormPresentation | null) => void;
 }) {
   // The Workspace's read, and - for an address naming an Item it does not hold - the Workspace's finished Items
-  // beside it, fetched before the Item is said to be gone (issue 1434).
-  const { data, workspace, reading: readingFinished } = useSnapshotWithFinishedItems(workspaceId, { itemId });
+  // beside it, fetched before the Item is said to be gone ("Fetch a Workspace's finished Items the first time All items opens", issue 1434).
+  const { data, workspace, reading: readingFinished, unread: finishedUnread } = useSnapshotWithFinishedItems(workspaceId, { itemId });
   const { isLoading, isFetching } = workspace;
   const queryClient = useQueryClient();
   const send = useSendCommand();
@@ -1786,7 +1786,11 @@ function TheForm({
 
           {!item ? (
             <p role="alert" className={`pt-3 text-sm text-ink-soft${onAPage ? ' px-4' : ''}`}>
-              {isLoading || readingFinished || (arriving && isFetching) ? 'Opening…' : 'That item is not here any more.'}
+              {isLoading || readingFinished || (arriving && isFetching)
+                ? 'Opening…'
+                : finishedUnread
+                  ? 'That item could not be looked up. Check your connection and open it again.'
+                  : 'That item is not here any more.'}
             </p>
           ) : (
             draft && (

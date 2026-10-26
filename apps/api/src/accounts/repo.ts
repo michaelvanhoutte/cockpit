@@ -1008,7 +1008,7 @@ export function listAttachmentsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
-  /** Only the files of Items marked done: what a Workspace's finished Items are read with (issue 1434). */
+  /** Only the files of Items marked done: what a Workspace's finished Items are read with ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
   finishedOnly = false,
 ): Attachment[] {
   return db
@@ -1135,7 +1135,7 @@ export function listFilingsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
-  /** Only the filings of Items marked done: what a Workspace's finished Items are read with (issue 1434). */
+  /** Only the filings of Items marked done: what a Workspace's finished Items are read with ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
   finishedOnly = false,
 ): Filing[] {
   return db
@@ -1155,7 +1155,7 @@ export function listFilingsInWorkspace(
         eq(items.workspaceId, workspaceId),
         isNull(panels.deletedAt),
         isNull(dashboards.deletedAt),
-        finishedOnly ? isNotNull(items.completedAt) : undefined,
+        finishedOnly ? and(isNotNull(items.completedAt), isNull(items.deletedAt)) : undefined,
       ),
     )
     .orderBy(asc(panelItems.position))
