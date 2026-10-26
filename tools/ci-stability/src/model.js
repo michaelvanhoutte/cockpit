@@ -432,7 +432,7 @@ export const workflowOf = (run) => (isDependabot(run) ? 'Dependabot' : run.workf
  */
 export function onMainOf(run, trunk = 'main') {
   if (run.event === 'pull_request' || run.event === 'pull_request_target') return false;
-  return run.branch == null || run.branch === trunk;
+  return run.branch === trunk;
 }
 
 /**
@@ -521,7 +521,7 @@ export function attemptRows(entries, { trunk = 'main' } = {}) {
       attempt,
       workflow: workflowOf(run),
       // Dependabot's update runs can come with no workflow file, and the Monitor refuses an attempt with no path.
-      path: run.path ?? 'dynamic/dependabot',
+      path: run.path ?? (isDependabot(run) ? 'dynamic/dependabot/dependabot-updates' : null),
       event: run.event ?? 'unknown',
       branch: run.branch ?? null,
       pullRequest: run.pullRequest ?? null,

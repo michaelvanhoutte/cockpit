@@ -209,6 +209,17 @@ describe('CI stability', () => {
       expect(entry.jobs[0].record).toEqual({ state: 'not-recorded', why: 'unreadable' });
     });
 
+    it('a download that breaks off mid-body is asked again, and read when the next answer is whole', async () => {
+      const whole = zipOf(record('Triage > a'));
+      let answers = 0;
+      const zips = { 11: { ...whole, arrayBuffer: async () => (answers++ === 0 ? Promise.reject(new TypeError('terminated')) : whole.arrayBuffer()) } };
+      const stub = stubGithub({ artifacts: [artifact(11, '08:11')], zips });
+      const [entry] = await collect(stub, [run()], [failedTest], { retries: 1, retryDelayMs: 0 });
+
+      expect(entry.jobs[0].record.state).toBe('read');
+      expect(asked(stub, '/zip')).toHaveLength(2);
+    });
+
     it('a spent allowance fails the read, since asking again is what spent it', async () => {
       const stub = stubGithub({ artifacts: [artifact(11, '08:11')], failOn: { part: '/artifacts?', answer: refuse(403, { 'x-ratelimit-remaining': '0' }) } });
 
