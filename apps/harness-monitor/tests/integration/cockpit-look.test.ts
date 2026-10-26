@@ -54,7 +54,7 @@ describe('Harness Monitor', () => {
           { label: "Cockpit's Claude calls", current: current === "Cockpit's Claude calls" },
           { label: 'Cycle time', current: false },
           { label: 'Test selection', current: false },
-          { label: 'Tests', current: false },
+          { label: 'Test coverage', current: false },
           { label: 'CI stability', current: false },
         ],
       });
@@ -69,7 +69,7 @@ describe('Harness Monitor', () => {
       expect((await page()).match(/<h1\b/g)).toHaveLength(1);
     });
 
-    it("the tabs lead to the costs page, Cockpit's Claude calls, cycle time, test selection, tests and CI stability", async () => {
+    it("the tabs lead to the costs page, Cockpit's Claude calls, cycle time, test selection, test coverage and CI stability", async () => {
       const bar = /<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(await theBarePage())![1]!;
 
       expect([...bar.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/', '/claude-calls', '/cycle-time', '/selection', '/tests', '/stability']);
@@ -83,7 +83,7 @@ describe('Harness Monitor', () => {
       { situation: "Cockpit's Claude calls", page: () => theMonitorAt('/claude-calls') },
       { situation: 'Cycle time', page: () => theMonitorAt('/cycle-time') },
       { situation: 'Test selection', page: () => theMonitorAt('/selection') },
-      { situation: 'Tests', page: () => theMonitorAt('/tests') },
+      { situation: 'Test coverage', page: () => theMonitorAt('/tests') },
       { situation: 'CI stability', page: () => theMonitorAt('/stability') },
     ])('$situation offers Match device, Light and Dark in the top bar after the status, with no option selected by the page', async ({ page }) => {
       expect(appearanceChoice(await page())).toEqual({

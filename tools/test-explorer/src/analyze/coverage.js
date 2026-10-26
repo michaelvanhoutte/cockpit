@@ -1,7 +1,8 @@
 /**
- * "Branches nothing takes": docs/test-explorer-spec.md §6.3.
+ * "Branches nothing takes" and each file's share of statements run:
+ * docs/test-explorer-spec.md §6.3.
  *
- * Unlike rule extraction and "files nothing runs", this needs the suite to
+ * Unlike rule extraction, this needs the suite to
  * have actually run with v8 coverage instrumentation — there is no way to
  * know which branch a real run took without one. Each package's Vitest
  * config is expected to write `coverage/coverage-final.json`
@@ -100,11 +101,49 @@ export function branchesNotTaken(map, absFile) {
     if (!branch) continue;
     hitsPerPath.forEach((hits, idx) => {
       if (hits > 0) return;
-      const loc = branch.locations?.[idx] ?? branch.loc;
+      // A path istanbul gives an empty location ({start: {}}, an implicit `else`) takes its branch's own.
+      const own = branch.locations?.[idx];
+      const loc = Number.isInteger(own?.start?.line) ? own : branch.loc;
       if (loc) out.push({ line: loc.start.line });
     });
   }
   return out;
+}
+
+/**
+ * A file's statements, how many the run executed, and the lines of every
+ * statement no test ran merged into ranges ("40-58"), or null when the file has
+ * no entry in the merged map: unmeasured, which is not the same fact as 0 run
+ * (see `branchesNotTaken`, which looks files up the same way).
+ *
+ * @param {import('istanbul-lib-coverage').CoverageMap} map
+ * @param {string} absFile
+ * @returns {{ total: number, covered: number, uncovered: string[] } | null}
+ */
+export function statementsCovered(map, absFile) {
+  const key = normalizedKeys(map).get(normalizeSeparators(absFile));
+  const fileCoverage = key !== undefined ? map.data[key] : undefined;
+  if (!fileCoverage) return null;
+  const hits = Object.entries(fileCoverage.s ?? {});
+  const lines = new Set();
+  for (const [id, n] of hits) {
+    const loc = fileCoverage.statementMap?.[id];
+    if (n === 0 && Number.isInteger(loc?.start?.line)) {
+      const end = Number.isInteger(loc.end?.line) ? loc.end.line : loc.start.line;
+      for (let l = loc.start.line; l <= end; l++) lines.add(l);
+    }
+  }
+  const ranges = [];
+  for (const l of [...lines].sort((a, b) => a - b)) {
+    const last = ranges[ranges.length - 1];
+    if (last && l === last[1] + 1) last[1] = l;
+    else ranges.push([l, l]);
+  }
+  return {
+    total: hits.length,
+    covered: hits.filter(([, n]) => n > 0).length,
+    uncovered: ranges.map(([a, b]) => (a === b ? String(a) : `${a}-${b}`)),
+  };
 }
 
 function normalizeSeparators(p) {

@@ -1,6 +1,6 @@
 import { SELF } from 'cloudflare:test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { area, kase, model, rule, rules } from '../fixtures/tests-model';
+import { area, kase, model, rule, rules, statements } from '../fixtures/tests-model';
 import { withoutExplanations } from './cockpit-support';
 import { panelOf } from './series-colours';
 import {
@@ -74,11 +74,11 @@ async function selection(bars = selectionBars()) {
   );
 }
 
-// ---- Tests: Inbox holds rules at two levels and Capture inside it; Offline holds a file nothing runs and branches nothing takes.
+// ---- Test coverage: Inbox holds rules at two levels and Capture inside it; Offline holds a file under 80% covered and a branch nothing takes.
 const API_INT = 'apps/api/tests/integration/capture.test.ts';
 const TREE = [
   area('Workspaces', [], [area('Inbox', [...rules(2, 'L1', 'apps/api/tests/unit/capture.test.ts'), rule('A captured thought lands in the inbox', 'L2', API_INT, 20, [kase('a note', API_INT, 22)])], [area('Capture', rules(1, 'F3', 'tests/e2e/capture.test.ts'))])]),
-  area('Offline', rules(1, 'L1', 'apps/web/tests/unit/offline.test.ts'), [], { filesNothingRuns: [{ file: 'apps/web/src/offline.ts', line: 1 }], branchesNothingTakes: [{ file: 'apps/web/src/offline.ts', line: 7 }] }),
+  area('Offline', rules(1, 'L1', 'apps/web/tests/unit/offline.test.ts'), [], { statements: [statements('apps/web/src/offline.ts', 20, 9, ['7-12'])], branchesNothingTakes: [{ file: 'apps/web/src/offline.ts', line: 7 }] }),
 ];
 const tests = async () => {
   await emptyTheDatabase();
@@ -180,11 +180,11 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('every tile, chart, panel and table on Tests carries an (i) explaining it', () => {
+  describe('every tile, chart, panel and table on Test coverage carries an (i) explaining it', () => {
     it.each([
       { tile: 'Rules', id: 't-rules' },
       { tile: 'Cases', id: 't-cases' },
-      { tile: 'Files nothing runs', id: 't-files' },
+      { tile: 'Covered', id: 't-covered' },
       { tile: 'Branches nothing takes', id: 't-branches' },
       { tile: 'Areas with no rule', id: 't-empty' },
     ])('on each concept area, the $tile tile carries its own (i), with the three parts', async ({ tile, id }) => {
@@ -196,23 +196,17 @@ describe('Harness Monitor', () => {
       expect(partsOf(html, id)).toEqual(THREE_PARTS);
     });
 
-    it.each([
-      { panel: 'Every area', id: 'areas' },
-      { panel: 'Where the rules are', id: 'where' },
-      { panel: 'Most files nothing runs', id: 'worst' },
-    ])('on each concept area, $panel carries its own (i), with the three parts', async ({ id }) => {
+    it('on each concept area, Every area carries its own (i), with the three parts', async () => {
       await tests();
 
       const html = await page('/tests');
 
-      expect(firstInfo(panelOf(html, id))).toBe(id);
-      expect(partsOf(html, id)).toEqual(THREE_PARTS);
+      expect(firstInfo(panelOf(html, 'areas'))).toBe('areas');
+      expect(partsOf(html, 'areas')).toEqual(THREE_PARTS);
     });
 
     it.each([
-      { view: 'Testing level', query: '?group=level', id: 'by-level' },
-      { view: 'Package', query: '?group=package', id: 'by-package' },
-      { view: 'Gaps, its files nothing runs', query: '?group=gaps', id: 'gap-files' },
+      { view: 'Gaps, its files to test next', query: '?group=gaps', id: 'gap-files' },
       { view: 'Gaps, its branches nothing takes', query: '?group=gaps', id: 'gap-branches' },
       { view: 'an area drilled into, its own rules', query: '?node=Inbox', id: 'own-rules' },
       { view: 'a count followed, the tests behind it', query: '?tests=Inbox~~', id: 'tests' },
@@ -224,6 +218,28 @@ describe('Harness Monitor', () => {
 
       expect(firstInfo(panelOf(html, id))).toBe(id);
       expect(partsOf(html, id)?.[0]).toBe('What it shows');
+    });
+  });
+
+  describe('Covered and the Gaps table each carry an explanation, and no removed panel’s does', () => {
+    it.each([
+      { situation: 'Concept area, its Covered tile', query: '', id: 't-covered' },
+      { situation: 'Gaps, its table', query: '?group=gaps', id: 'gap-files' },
+    ])('$situation carries an (i)', async ({ query, id }) => {
+      await tests();
+
+      expect(infosOf(await page(`/tests${query}`)).buttons).toContain(`x-${id}`);
+    });
+
+    it.each([[''], ['?group=gaps'], ['?group=level'], ['?group=package'], ['?node=Inbox']])('the page at %j draws no explanation of the removed panels, tabs or files column', async (query) => {
+      await tests();
+
+      const { buttons, panels } = infosOf(await page(`/tests${query}`));
+
+      for (const gone of ['x-where', 'x-worst', 'x-by-level', 'x-by-package', 'x-t-files']) {
+        expect(buttons).not.toContain(gone);
+        expect(panels).not.toContain(gone);
+      }
     });
   });
 
@@ -307,7 +323,7 @@ describe('Harness Monitor', () => {
       expect(leadPlace(html)).toEqual({ afterTheSentence: true, beforeThePanels: true });
     });
 
-    it.each([['/tests'], ['/tests?group=gaps']])('Tests, under the band’s sentence, at %s', async (path) => {
+    it.each([['/tests'], ['/tests?group=gaps']])('Test coverage, under the band’s sentence, at %s', async (path) => {
       await tests();
 
       const html = await page(path);
@@ -317,7 +333,7 @@ describe('Harness Monitor', () => {
       expect(leadPlace(html)).toEqual({ afterTheSentence: true, beforeThePanels: true });
     });
 
-    it('Tests, with no snapshot to show, opens with the same lead', async () => {
+    it('Test coverage, with no snapshot to show, opens with the same lead', async () => {
       await emptyTheDatabase();
 
       const html = await page('/tests');
@@ -361,9 +377,8 @@ describe('Harness Monitor', () => {
     });
 
     it.each([
-      { panel: 'Where the rules are', query: '', id: 'where', note: 'A rule is one inner describe' },
       { panel: 'a rule opened', query: `?node=Inbox&rule=${encodeURIComponent(`${API_INT}:20`)}`, id: 'rule', note: 'No pass or fail mark' },
-    ])('Tests: $panel no longer says it under its heading, and its explanation does', async ({ query, id, note }) => {
+    ])('Test coverage: $panel no longer says it under its heading, and its explanation does', async ({ query, id, note }) => {
       await tests();
 
       const html = await page(`/tests${query}`);

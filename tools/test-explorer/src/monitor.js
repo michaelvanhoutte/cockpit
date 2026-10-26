@@ -41,7 +41,6 @@ export function snapshotParts(model) {
       rule.cases.forEach(keep);
       rule.todoCases.forEach(keep);
     }
-    node.filesNothingRuns.forEach(keep);
     (node.branchesNothingTakes ?? []).forEach(keep);
     areas.push({ key: node.key, lines });
   }

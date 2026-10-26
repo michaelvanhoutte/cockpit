@@ -3,10 +3,10 @@ import { pullRequestNumber, pullRequestSnapshot, unpack, type Snapshot } from '.
 import { currentAreaLines, shownTests, type PullRequestTests } from './tests-store';
 
 /**
- * What the Tests page reads of the shown snapshot, `main`'s or an open pull
- * request's, and the counting over
- * it: which rules and files a row counts under the filters, what a count opens,
- * which areas Show keeps. The snapshot is the tree document the test explorer
+ * What the Test coverage page reads of the shown snapshot, `main`'s or an open
+ * pull request's, and the counting over it: which rules a row counts and what
+ * share of its statements ran under the filters, what a count opens, which
+ * areas Show keeps. The snapshot is the tree document the test explorer
  * sent (src/tests.ts); the Monitor derives nothing from it but these counts,
  * which the filters change, so they cannot be stored with it.
  */
@@ -35,10 +35,18 @@ export interface Area {
   /** Own rules per level; null is n/a, never a stand-in for zero. */
   counts: Record<string, number | null>;
   rules: Rule[];
-  filesNothingRuns: Ref[];
   /** Null when the run had no coverage: unknown, which is not none. */
   branchesNothingTakes: Ref[] | null;
+  /** Each own file the run measured, with its statements and how many ran; null when the run had no coverage, or the tree came from an analyzer older than the figures. */
+  statements: FileStatements[] | null;
   children: Area[];
+}
+export interface FileStatements {
+  file: string;
+  total: number;
+  covered: number;
+  /** The lines no test runs, as ranges ("40-58"). */
+  uncovered: string[];
 }
 export interface Model {
   commit: string;
@@ -82,8 +90,10 @@ export const PACKAGE_KEYS: readonly string[] = PACKAGES.map((p) => p.key);
 export const pkgOf = (file: string): PackageKey => PACKAGES.find((p) => file.startsWith(p.prefix))?.key ?? 'other';
 export const pkgLabel = (key: string) => PACKAGES.find((p) => p.key === key)?.label ?? key;
 
-export const GROUPS = ['area', 'level', 'package', 'gaps'] as const;
+/** The page's two tabs; an address naming one that has gone (`level`, `package`) opens the first. */
+export const GROUPS = ['area', 'gaps'] as const;
 export type Group = (typeof GROUPS)[number];
+/** `files` is the areas under THIN covered; the address keeps the word it had when it was the areas with files nothing runs. */
 export const SHOWS = ['all', 'files', 'empty'] as const;
 export type Show = (typeof SHOWS)[number];
 export const SPLITS = ['level', 'package'] as const;
@@ -130,13 +140,11 @@ export function parseTestsQuery(params: URLSearchParams): TestsQuery {
   // A part that is written but not understood drops the list: leaving it empty would mean every area, level or package.
   const readable = (value: string | undefined, got: unknown) => !value || got !== null;
   const list = params.has('tests') && extra.length === 0 && readable(node, listed.node) && readable(level, listed.level) && readable(pkg, listed.package) ? listed : null;
-  const group = pick<Group>(params.get('group'), GROUPS, 'area');
   return {
-    group,
+    group: pick<Group>(params.get('group'), GROUPS, 'area'),
     node: text(params.get('node')),
-    // A filter that repeats the rows is dropped, as its control is not offered.
-    level: group === 'level' ? null : oneOf(params.get('level'), LEVEL_IDS),
-    package: group === 'package' ? null : oneOf(params.get('package'), PACKAGE_KEYS),
+    level: oneOf(params.get('level'), LEVEL_IDS),
+    package: oneOf(params.get('package'), PACKAGE_KEYS),
     show: pick(params.get('show'), SHOWS, 'all'),
     split: pick(params.get('split'), SPLITS, 'level'),
     rule: text(params.get('rule')),
@@ -211,8 +219,8 @@ export function readModel(raw: unknown): Model {
       label: a.label,
       counts: a.counts,
       rules: a.rules.map((r) => ({ ...r, cases: r.cases ?? [], todoCases: r.todoCases ?? [] }) as Rule),
-      filesNothingRuns: a.filesNothingRuns ?? [],
       branchesNothingTakes: a.branchesNothingTakes ?? null,
+      statements: a.statements ?? null,
       children: a.children.map(area),
     };
   };
@@ -285,10 +293,38 @@ export const keepOf = (q: Pick<TestsQuery, 'level' | 'package'>): Keep => ({
 export const ownRules = (a: Area, keep: Keep) => a.rules.filter(keep.rule);
 /** The rules of an area and everything inside it. */
 export const deepRules = (a: Area, keep: Keep) => [...walk([a])].flatMap((x) => ownRules(x, keep));
-/** An area's own source files nothing runs. */
-export const ownFiles = (a: Area, keep: Keep) => a.filesNothingRuns.filter(keep.file);
-/** The distinct files nothing runs across areas: a file owned by two is one gap. */
-export const distinctFiles = (areas: Area[], keep: Keep) => new Set(areas.flatMap((a) => ownFiles(a, keep).map((f) => f.file)));
+/** Below this percentage of its statements run, an area or a file reads as thin: red, and listed on Gaps. A whole number, so the comparison is exact. */
+export const THIN = 80;
+
+/**
+ * The distinct files across areas with their statements, a file owned by two
+ * counted once, the filters' package kept; null when none of the areas was
+ * measured, which is unknown rather than none. A file with no statements
+ * (types only) is left out, so it never reads as 0% run.
+ */
+export function filesCovered(areas: Area[], keep: Keep): FileStatements[] | null {
+  if (areas.length > 0 && areas.every((a) => a.statements === null)) return null;
+  const files = new Map<string, FileStatements>();
+  for (const a of areas) for (const s of a.statements ?? []) if (s.total > 0 && keep.file({ file: s.file, line: 1 })) files.set(s.file, s);
+  return [...files.values()];
+}
+
+export interface Coverage {
+  total: number;
+  covered: number;
+  rate: number;
+}
+/** The share of statements run across files, or null when unknown or there are none to run. */
+export function coverageOf(files: FileStatements[] | null): Coverage | null {
+  if (files === null) return null;
+  const total = files.reduce((n, f) => n + f.total, 0);
+  const covered = files.reduce((n, f) => n + f.covered, 0);
+  return total === 0 ? null : { total, covered, rate: covered / total };
+}
+/** A share as a whole percentage, floored so a figure never flatters: 799 of 1,000 is 79%. */
+export const percent = (c: Pick<Coverage, 'total' | 'covered'>) => `${Math.floor((c.covered * 100) / c.total)}%`;
+/** Whether a share is under THIN. */
+export const isThin = (c: Pick<Coverage, 'total' | 'covered'> | null) => c !== null && c.covered * 100 < THIN * c.total;
 
 /** Branches nothing takes across areas, counted once per file by the most any one area holds of it, as the explorer's own totals are. */
 export function branchGaps(areas: Area[], keep: Keep): number {
@@ -331,7 +367,7 @@ export function rowsUnder(model: Model, scope: Area | null): { area: Area; depth
  * still found in its tree: `shown` is what is drawn, `matched` what Show asked for.
  */
 export function showRows(rows: { area: Area; depth: number }[], q: Pick<TestsQuery, 'show'>, keep: Keep, ix: Index): { shown: { area: Area; depth: number }[]; matched: Set<string> } {
-  const matches = (a: Area) => (q.show === 'files' ? ownFiles(a, keep).length > 0 : q.show === 'empty' ? deepRules(a, keep).length === 0 : true);
+  const matches = (a: Area) => (q.show === 'files' ? isThin(coverageOf(filesCovered([a], keep))) : q.show === 'empty' ? deepRules(a, keep).length === 0 : true);
   const visible = new Set<string>();
   const matched = new Set<string>();
   for (const { area } of rows) {

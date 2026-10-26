@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { branchesNotTaken } from '../../src/analyze/coverage.js';
+import { branchesNotTaken, statementsCovered } from '../../src/analyze/coverage.js';
 
 /** A minimal istanbul-shaped coverage map for one file, with one branch id. */
 function mapWithBranch({ hitsPerPath, locations, loc }) {
@@ -50,6 +50,15 @@ describe('branchesNotTaken', () => {
     expect(branchesNotTaken(map, '/abs/file.ts')).toEqual([{ line: 30 }]);
   });
 
+  it('falls back to the branch-level loc when a per-path location is empty, as istanbul gives an implicit else', () => {
+    const map = mapWithBranch({
+      hitsPerPath: [3, 0],
+      locations: [{ start: { line: 30 } }, { start: {}, end: {} }],
+      loc: { start: { line: 29 } },
+    });
+    expect(branchesNotTaken(map, '/abs/file.ts')).toEqual([{ line: 29 }]);
+  });
+
   it('returns null (not an empty array) when the file is not present in the coverage map — unmeasured is not the same fact as clean', () => {
     const map = mapWithBranch({ hitsPerPath: [0], locations: [{ start: { line: 1 } }] });
     expect(branchesNotTaken(map, '/abs/other-file.ts')).toBeNull();
@@ -70,5 +79,38 @@ describe('branchesNotTaken', () => {
       },
     };
     expect(branchesNotTaken(map, 'C:\\GitHub\\Cockpit\\apps\\api\\src\\thing.ts')).toEqual([{ line: 7 }]);
+  });
+});
+
+/** One file's statements, each `[firstLine, lastLine, timesRun]`, as istanbul writes them. */
+function mapWithStatements(statements) {
+  return {
+    data: {
+      '/abs/file.ts': {
+        statementMap: Object.fromEntries(statements.map(([from, to], i) => [i, { start: { line: from, column: 0 }, end: { line: to, column: 1 } }])),
+        s: Object.fromEntries(statements.map(([, , n], i) => [i, n])),
+        b: {},
+        branchMap: {},
+      },
+    },
+  };
+}
+
+describe('Harness Monitor', () => {
+  describe('the analyzer gives each area file its statements, how many ran and the lines none ran', () => {
+    it.each([
+      {
+        situation: 'a file half run',
+        statements: [[10, 10, 4], [40, 45, 0], [46, 58, 0], [60, 60, 2], [70, 70, 0], [72, 72, 1]],
+        expected: { total: 6, covered: 3, uncovered: ['40-58', '70'] },
+      },
+      { situation: 'a file fully run', statements: [[1, 1, 1], [2, 5, 3]], expected: { total: 2, covered: 2, uncovered: [] } },
+    ])('$situation gives its counts and the lines no test runs', ({ statements, expected }) => {
+      expect(statementsCovered(mapWithStatements(statements), '/abs/file.ts')).toEqual(expected);
+    });
+
+    it('a file missing from coverage has no figure: unmeasured, not 0', () => {
+      expect(statementsCovered(mapWithStatements([[1, 1, 0]]), '/abs/other-file.ts')).toBeNull();
+    });
   });
 });

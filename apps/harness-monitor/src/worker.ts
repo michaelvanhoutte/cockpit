@@ -211,7 +211,7 @@ const wantsJson = (request: Request, url: URL) => url.searchParams.get('format')
 
 /**
  * `main`'s shown tests, or with `?pr=<number>` an open pull request's: the
- * Tests page, or, when the request asks (`wantsJson`), the shown tree as JSON
+ * Test coverage page, or, when the request asks (`wantsJson`), the shown tree as JSON
  * as it was sent (its commit, whether coverage was available, the areas, rules
  * and cases without source lines), unpacked; before any has been made current,
  * an empty answer saying so. The page reads the same tree and, for a rule, one

@@ -1,7 +1,7 @@
 # Test Explorer
 
 Answers, without reading the code: which parts of the product own which tests, at which
-testing-strategy level, and which files or branches nothing exercises. Generates one
+testing-strategy level, and which branches nothing exercises. Generates one
 self-contained HTML page from the repository as it exists right now.
 
 The design rationale — what was tried and rejected, and why it is shaped this way —
@@ -69,8 +69,7 @@ a Workspace holding an Inbox and Dashboards, a Dashboard holding Panels. Both ar
 registry decisions, unconnected to whether any test exists.
 
 **What populates a row** — every count, rule, case and coverage gap — is derived from
-what is really in the repository: real `describe`/`it` blocks, real import graphs, real
-merged coverage. None of it is ever invented.
+what is really in the repository: real `describe`/`it` blocks and real merged coverage. None of it is ever invented.
 
 So a row at zero across the board is not a bug: the registry knows the area's name and
 nothing has tested it yet. If a row looks wrong or unexpected, `concepts.json` is always
@@ -82,8 +81,8 @@ the first place to look.
   concept's Rules tab filtered to that level; a gap count jumps to its tab; the concept's
   name shows everything.
 - **A row that holds other rows shows two numbers**: its own, then its whole subtree's in
-  brackets, so collapsing one never reads as an untested part of the product. Files and
-  branches are counted once per file rather than summed, so a file backing two areas under
+  brackets, so collapsing one never reads as an untested part of the product. Branches
+  are counted once per file rather than summed, so a file backing two areas under
   the same row is counted once — while two uncovered paths on one line stay two gaps. The
   masthead's totals use the same counting, so a page total is never smaller than a row
   beneath it. Collapse all / expand all are in the first column's header.
@@ -92,8 +91,8 @@ the first place to look.
 - **A `.each` case shows its template with real values substituted** where they are
   statically known (`'$situation'` → `'without a request id'`).
 - **Rules group under their level** rather than one flat list.
-- **One "Copy prompt for missing tests" per concept**, covering every gap as plain file
-  paths and pointing at this repo's test strategy to decide which need a test. It never
+- **One "Copy prompt for missing tests" per concept**, covering every branch gap as plain
+  file paths and pointing at this repo's test strategy to decide which need a test. It never
   embeds a snippet or suggests what to assert: a handful of import lines is not enough to
   judge that, so the judgment stays with whoever pastes the prompt.
 
@@ -113,10 +112,10 @@ analyze(repo)  →  Model  →  renderHtml(Model)  →  out/index.html
 3. **`analyze/concepts.js`** loads `concepts.json`, matches every source file to the
    area(s) whose patterns cover it — a file can match more than one, which is expected —
    and builds the tree from each entry's `parent`.
-4. **`analyze/ast.js`** resolves every test file's real (non-type-only) imports, which is
-   the basis for "files nothing runs".
+4. **`analyze/ast.js`** parses each test file once for the rule extraction.
 5. **`analyze/coverage.js`** merges each package's `coverage/coverage-final.json` if
-   present, to find branches no test path took.
+   present, to find branches no test path took and give each area file its statements,
+   how many ran and the lines none ran.
 6. **`analyze/index.js`** orchestrates the above into one `Model`, plus a `commitUrl`
    from the `origin` remote and a source-context snippet per file:line reference.
 7. **`render/html.js`** and **`render/client.js`** turn the Model into the page: a static
@@ -133,8 +132,9 @@ It does **not** fail on a row full of zeros, and it does not gate on report cont
 
 ## Coverage
 
-"Branches nothing takes" needs instrumented coverage; there is no way around running the
-suite for that one column.
+"Branches nothing takes", and each area file's statements run that the Harness Monitor
+draws as Covered, need instrumented coverage; there is no way around running the suite
+for them.
 
 ```bash
 pnpm test:coverage   # from the repo root — runs every package's test:coverage script
@@ -147,10 +147,6 @@ step needs no provider-awareness.
 
 ## Known limitations
 
-- **HTTP-driven integration tests undercount "files nothing runs."** A test calling the
-  real Worker over HTTP exercises the whole pipeline without importing those files, so
-  they can appear as false positives. The report warns by name when it detects the
-  pattern rather than guessing which files an HTTP call reached.
 - **`` it.each`template`(...) `` is not recognized**; the array form is. Neither is used here today.
 - **L3 reads `n/a` everywhere.** It needs a second backend service to mean anything, and
   is derived from real workspace data, so it lights up on its own.

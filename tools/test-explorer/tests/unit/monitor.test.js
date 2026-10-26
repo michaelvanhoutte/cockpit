@@ -13,8 +13,7 @@ function model(count) {
     label: `Area ${i}`,
     counts: { L1: 1 },
     rules: [{ ...ref(`area-${i}.test.ts`, 3), concept: `Area ${i}`, statement: 'a rule', level: 'L1', cases: [{ ...ref(`area-${i}.test.ts`, 4), text: 'a case' }], todoCases: [] }],
-    filesNothingRuns: i === 1 ? [ref('lonely.ts', 1)] : [],
-    branchesNothingTakes: null,
+    branchesNothingTakes: i === 1 ? [ref('lonely.ts', 1)] : null,
     path: [],
     children: [],
   });

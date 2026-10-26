@@ -66,15 +66,11 @@ legitimately backs several areas. Two changes:
    anchored to describe names rather than file patterns, and arguably the more direct
    check: it catches `describe('Trige', ...)` rather than a downstream symptom.
 
-**A second finding from running against the real suite.**
-`apps/api/tests/integration/http/item-changes.test.ts` drives the real Worker over HTTP
-(`SELF.fetch`) rather than importing `accounts/command-service.ts` or `accounts/repo.ts`,
-which is exactly the mandated "enter through the real interface" pattern. "Files nothing
-runs" (§6.3) is import-reach only, so it cannot see that and reports both files as
-untested — false positives on precisely the file the original coverage audit called the
-highest-value gap. Rather than a heuristic that risks new false negatives,
-`analyze/index.js` detects any test importing `SELF` from `cloudflare:test` and emits
-one warning naming the limitation.
+**The analyzer does not count imports.** A test that drives the real Worker over HTTP
+(`SELF.fetch`), the mandated "enter through the real interface" pattern, imports nothing
+it exercises, so a count of the files no test imports reports most of `apps/api` as
+untested. What an area's code a run executes is measured instead, from the same merged
+coverage as its branches ("Coverage columns").
 
 ## 2b. How the built tool got its current shape
 
@@ -103,7 +99,7 @@ the reason:
 
 **Reading a row**
 
-- **The panel is three tabs** (Rules / Files nothing runs / Branches nothing takes), not
+- **The panel is tabs** (Rules / Branches nothing takes), not
   sections stacked in one scroll, so any one is one click away. Fixing this caught a
   real layout bug: both sides shared one `.card`, so its background stretched to the
   taller one.
@@ -169,8 +165,6 @@ the reason:
   name.
 - `describe.skip`/`.only` at the top level silently dropped the whole area, inconsistent
   with `it.skip` already counting.
-- `markReached` missed per-specifier `type` imports, so a file TypeScript elides could
-  be marked reached.
 - `branchesNotTaken` only caught branches where *every* path was untaken, missing an
   `if` with no `else` tested on the taken side.
 - `summarise()` double-counted files shared between areas: the masthead read 29 files
@@ -199,12 +193,11 @@ the reason:
 - `cli.js`'s unnecessary shebang broke vite-node's transform (`SyntaxError: Invalid or
   unexpected token`) the moment a test imported it as a non-entry module. Removed; every
   caller invokes it as `node src/cli.js`.
-- Three stubs and duplications: `hasConnector()` was hardcoded and ignored the workspace
+- Two stubs and duplications: `hasConnector()` was hardcoded and ignored the workspace
   data `analyze()` already computes; the Infrastructure label was computed twice and
-  leaked a stray sub-label; the HTTP-reach warning named its original example files
-  rather than whichever tests actually triggered it.
-- Each test file was parsed into a fresh AST three times per run, tripling the tool's
-  dominant cost. Parsed once and shared.
+  leaked a stray sub-label.
+- Each test file was parsed into a fresh AST several times per run, multiplying the
+  tool's dominant cost. Parsed once.
 - The package shipped with **zero tests**, a real violation of "new logic ships with L1
   tests in the same change", which is why §9 step 9 exists. A later review moved
   `index.test.js` to `tests/integration/` — it builds a real file tree, so the fix was
@@ -253,7 +246,7 @@ itself.** Own counts alone were the rule until rows existed that hold other rows
 row has no test filed against its own name, so it read as an untested part of the product
 and collapsing it hid everything underneath. Files and branches are counted once per file
 rather than summed, because one source file belongs to several areas ("The area registry"
-below) and `Menu.tsx` under both Dashboards and Panels is one file nothing runs. The file
+below) and `Menu.tsx` under both Dashboards and Panels is one file. The file
 is the identity and the line is not: an `if/else` with neither path taken is two gaps on
 one line, and counting by `file:line` would lose the second and let a row's total print
 smaller than its own count. The masthead's totals count the same way, so a page total is
@@ -274,19 +267,18 @@ The seven columns are `model.js`'s `LEVELS`, in testing-strategy's own order:
 | F2 | `apps/web/tests/service/` | count |
 | F3 | `tests/e2e/` at the repo root | count (Playwright spells the same structure `test.describe`; see "Rule extraction", §6.2) |
 | Contract | `apps/api/tests/contract/`, `packages/connectors/*/tests/contract/` | count, or `n/a` for any area no contract suite names |
-| Files nothing runs | — | source files matching this area's patterns that no test file imports directly — a real limitation for HTTP-driven integration tests, see "A convention change that landed mid-build", §2a |
-| Branches nothing takes | — | merged branch coverage (§6.3) restricted to this area's files |
+| Branches nothing takes | — | merged branch coverage ("Coverage columns") restricted to this area's files |
 
-No percentage anywhere, including as a secondary number: once one exists it becomes the
-thing people look at, and it is the one number here that can rise without proving
-anything.
+The Harness Monitor's Test coverage page adds **Covered**, the share of an area's
+statements CI's coverage run on `main` executes, from the per-file figures the model
+carries. It is the one percentage, shown because a low share proves testing falls short
+there; a high one proves nothing, since a line can run with nothing checking what it does,
+so it is read for where it is low and never as a target. Every other column stays a count.
 
-### 4.3 Selecting a row: three tabs
+### 4.3 Selecting a row: two tabs
 
 - **Rules**: every rule counted in that row's own cells, as its inner-describe
   statement, with its level and each of its cases and todo cases with their own text.
-- **Files nothing runs**: every source file matching this area's own patterns that no
-  test imports, restricted to this node rather than its children.
 - **Branches nothing takes**: every branch gap in this area's own files.
 
 No "reason for the level" is computed. The level is read mechanically from the folder,
@@ -373,8 +365,8 @@ tools/test-explorer/
 ├── src/
 │   ├── model.js              the contract: Concept, Rule, the table shape (§4)
 │   ├── analyze/
-│   │   ├── ast.js               shared TS-compiler-API parsing + import resolution
-│   │   ├── workspace.js         pnpm-workspace.yaml + package manifests
+│   │   ├── ast.js               shared TS-compiler-API parsing
+│   │   ├── workspace.js         pnpm-workspace.yaml + each package's files
 │   │   ├── concepts.js          loads concepts.json, matches files to area(s) (§5, §7)
 │   │   ├── rules.js             walks tests/<level>/**, parses describe/it (§6.2)
 │   │   ├── coverage.js          merges coverage JSON if present, else reports "unknown"
@@ -412,8 +404,10 @@ their own callback source.
 
 ### 6.3 Coverage columns
 
-"Files nothing runs" needs no coverage tooling — it is importer analysis: read each test
-file's imports, mark what it reaches.
+Each area file's statements, how many ran and the lines none ran, merged into ranges,
+come from the same merged coverage as "Branches nothing takes"; a file the run never
+measured has no figure rather than 0 run. An untaken branch path istanbul gives an empty
+location takes its branch's own line.
 
 "Branches nothing takes" needs real coverage, and it is wired up. Every package's
 `vitest.config.ts` has a `coverage` block behind a `test:coverage` script

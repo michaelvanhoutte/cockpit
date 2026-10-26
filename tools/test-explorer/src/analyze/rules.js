@@ -66,7 +66,7 @@ export function levelForTestFile(relPath) {
 
 /**
  * @param {ts.SourceFile} source already parsed (parseFile is called once per test file by the
- *   caller and shared across extractRules/importsSelfFetch/markReached — see analyze/index.js)
+ *   caller — see analyze/index.js)
  * @param {string} relFile repo-relative, for reporting
  * @param {string} level one of LEVEL_IDS, from levelForTestFile(relFile)
  * @returns {{ rules: import('../model.js').Rule[], areasSeen: string[], warnings: string[] }}

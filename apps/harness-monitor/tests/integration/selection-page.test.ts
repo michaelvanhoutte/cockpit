@@ -72,7 +72,7 @@ describe('Harness Monitor', () => {
         '>Cockpit&rsquo;s Claude calls</a>',
         '>Cycle time</a>',
         '>Test selection</a>',
-        '>Tests</a>',
+        '>Test coverage</a>',
         '>CI stability</a>',
       ]);
       expect(theSentence(html).choices.group!.offered).toEqual(['each day', 'each pull request', 'each rule that forced a full run', 'each package', 'each test, most selected first', 'each miss']);
