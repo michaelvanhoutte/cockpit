@@ -152,7 +152,7 @@ const PULL_REQUESTS_SHOWN = `SELECT number,
   ORDER BY number DESC`;
 
 /**
- * What the Tests page reads before anything else, in one round trip: the
+ * What the Test coverage page reads before anything else, in one round trip: the
  * pull requests with tests shown, for its picker, and the tree shown for
  * `snapshot`. A pull request's tree is null where the picker would not list it.
  */

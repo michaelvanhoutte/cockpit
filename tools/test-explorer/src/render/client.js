@@ -23,7 +23,7 @@
   var panelEl = document.getElementById('panel');
   var open = {}; // tree node key -> expanded, default expanded
   var selected = MODEL.tree.length ? MODEL.tree[0].key : null;
-  var activeTab = 'rules'; // 'rules' | 'files' | 'branches', per selected node
+  var activeTab = 'rules'; // 'rules' | 'branches', per selected node
   var ruleLevelFilter = null; // one of LEVELS' ids, or null for "every level"
 
   // ---- links -----------------------------------------------------------
@@ -108,17 +108,6 @@
           tr.appendChild(td);
         });
 
-        var filesTd = el('td', 'c clickable');
-        filesTd.appendChild(cell(node.filesNothingRuns.length, node.subtree.filesNothingRuns, hasKids, true));
-        filesTd.title = 'Show files nothing runs for ' + node.label;
-        filesTd.addEventListener('click', function () {
-          selectNode(node.key);
-          activeTab = 'files';
-          render();
-          renderPanel();
-        });
-        tr.appendChild(filesTd);
-
         var branchesTd = el('td', 'c clickable');
         if (node.branchesNothingTakes === null) {
           // Unknown, never 0: no coverage was run, so nothing was measured.
@@ -170,7 +159,6 @@
   // ---- detail panel: tabs, each filling the whole panel -------------------
   var TABS = [
     { id: 'rules', label: function (n) { return 'Rules (' + n.rules.length + ')'; } },
-    { id: 'files', label: function (n) { return 'Files (' + n.filesNothingRuns.length + ')'; } },
     {
       id: 'branches',
       label: function (n) { return 'Branches (' + (n.branchesNothingTakes === null ? 'unknown' : n.branchesNothingTakes.length) + ')'; },
@@ -192,7 +180,7 @@
     if (node.path.length) head.appendChild(el('div', 'p-path', node.path.join(' › ')));
     head.appendChild(el('div', 'p-name', node.label));
     // One prompt for everything this node is missing, not one button per gap —
-    // the tab labels below already say how many files/branches there are, so
+    // the tab labels below already say how many branches there are, so
     // there's nothing to add here except the action itself.
     var gapPrompt = allGapsPrompt(node);
     if (gapPrompt) {
@@ -221,7 +209,6 @@
     panelEl.appendChild(body);
 
     if (activeTab === 'rules') renderRules(body, node);
-    else if (activeTab === 'files') renderFiles(body, node);
     else renderBranches(body, node);
   }
 
@@ -300,20 +287,6 @@
     return row;
   }
 
-  function renderFiles(body, node) {
-    if (!node.filesNothingRuns.length) {
-      body.appendChild(el('div', 'p-empty', 'None.'));
-      return;
-    }
-    var list = el('div', 'filelist');
-    node.filesNothingRuns.forEach(function (f) {
-      var row = el('div', 'f-item');
-      row.appendChild(codeToggle(f, f.file));
-      list.appendChild(row);
-    });
-    body.appendChild(list);
-  }
-
   function renderBranches(body, node) {
     if (node.branchesNothingTakes === null) {
       body.appendChild(el('div', 'p-empty', 'No coverage data for this run — run pnpm test:coverage first.'));
@@ -345,20 +318,12 @@
    * to hand to whoever (or whatever) does the actual reasoning and writing.
    */
   function allGapsPrompt(node) {
-    var files = node.filesNothingRuns.map(function (f) { return f.file; });
     var branches = (node.branchesNothingTakes || []).map(function (b) { return b.file + ':' + b.line; });
-    if (!files.length && !branches.length) return null;
+    if (!branches.length) return null;
 
     var lines = [];
-    if (files.length) {
-      lines.push('Tests are missing for these files in the "' + node.label + '" feature area:');
-      files.forEach(function (f) { lines.push('- ' + f); });
-    }
-    if (branches.length) {
-      if (files.length) lines.push('');
-      lines.push('Tests are missing for these branches in the "' + node.label + '" feature area:');
-      branches.forEach(function (b) { lines.push('- ' + b); });
-    }
+    lines.push('Tests are missing for these branches in the "' + node.label + '" feature area:');
+    branches.forEach(function (b) { lines.push('- ' + b); });
     lines.push('');
     lines.push(
       "Use this repo's test strategy and guidance when defining tests, to figure out which tests " +

@@ -11,7 +11,6 @@ const area = (key: string, over: Record<string, unknown> = {}) => ({
   label: key,
   counts: { L1: 1 },
   rules: [{ concept: key, statement: 'a rule', level: 'L1', file: 'a.test.ts', line: 3, cases: [{ text: 'a case', file: 'a.test.ts', line: 4 }], todoCases: [] }],
-  filesNothingRuns: [],
   branchesNothingTakes: null,
   children: [],
   ...over,
@@ -43,7 +42,7 @@ describe('Harness Monitor', () => {
       { situation: 'a tree naming one area twice', sent: tree({ tree: [area('Capture'), area('Triage', { children: [area('Capture')] })] }), error: 'Area "Capture" appears twice.' },
       {
         situation: 'a tree carrying its source lines',
-        sent: tree({ tree: [area('Capture', { filesNothingRuns: [{ file: 'a.ts', line: 1, context: [{ line: 1, text: 'x' }] }] })] }),
+        sent: tree({ tree: [area('Capture', { branchesNothingTakes: [{ file: 'a.ts', line: 1, context: [{ line: 1, text: 'x' }] }] })] }),
         error: 'Area "Capture" carries source lines; they belong in its own part.',
       },
       {
@@ -58,8 +57,8 @@ describe('Harness Monitor', () => {
       },
       {
         situation: 'a tree with a gap that has no file',
-        sent: tree({ tree: [area('Capture', { filesNothingRuns: [{ line: 1 }] })] }),
-        error: 'Area "Capture"\'s filesNothingRuns is not a list of {file, line}.',
+        sent: tree({ tree: [area('Capture', { branchesNothingTakes: [{ line: 1 }] })] }),
+        error: 'Area "Capture"\'s branchesNothingTakes is not a list of {file, line}.',
       },
       {
         situation: 'a tree whose warnings are not text',
@@ -96,6 +95,26 @@ describe('Harness Monitor', () => {
       const checked = await readTree(COMMIT, await gzip(tree({ tree: [area('Workspaces', { children: [area('Capture')] }), area('Triage')] })));
 
       expect(checked).toEqual({ ok: true, value: { commit: COMMIT, areas: ['Workspaces', 'Capture', 'Triage'] } });
+    });
+  });
+
+  describe("a tree's coverage figures of the wrong shape are refused, naming the area", () => {
+    const file = (over: Record<string, unknown> = {}) => ({ file: 'apps/web/src/a.ts', total: 10, covered: 4, uncovered: ['3-8'], ...over });
+
+    it.each([
+      { situation: 'figures that are not a list', statements: { 'apps/web/src/a.ts': 10 }, error: 'Area "Capture"\'s statements are not a list.' },
+      { situation: 'more statements run than the file has', statements: [file({ covered: 11 })], error: 'Area "Capture": "apps/web/src/a.ts" has more statements run than it has.' },
+      { situation: 'unrun lines that are not text', statements: [file({ uncovered: [3, 8] })], error: 'Area "Capture": "apps/web/src/a.ts" has lines not run that are not a list of text.' },
+    ])('$situation is refused', async ({ statements, error }) => {
+      expect(await readTree(COMMIT, await gzip(tree({ tree: [area('Capture', { statements })] })))).toEqual({ ok: false, error });
+    });
+
+    it.each([
+      { situation: 'a tree with no figures, from an older analyzer', over: {} },
+      { situation: 'a tree whose run had no coverage', over: { statements: null } },
+      { situation: 'a tree with figures', over: { statements: [file(), file({ file: 'apps/web/src/b.ts', covered: 10, uncovered: [] })] } },
+    ])('$situation is read', async ({ over }) => {
+      expect(await readTree(COMMIT, await gzip(tree({ tree: [area('Capture', over)] })))).toEqual({ ok: true, value: { commit: COMMIT, areas: ['Capture'] } });
     });
   });
 

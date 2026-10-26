@@ -1,4 +1,4 @@
-import type { Area, Case, Model, Rule } from '../../src/tests-report';
+import type { Area, Case, FileStatements, Model, Rule } from '../../src/tests-report';
 
 /**
  * Snapshots of `main`'s tests as the test explorer builds them (the model of
@@ -24,6 +24,9 @@ export const rule = (statement: string, level: string, file: string, line: numbe
 export const rules = (n: number, level: string, file: string, concept = ''): Rule[] =>
   Array.from({ length: n }, (_, i) => rule(`${level} rule ${i + 1} of ${file}`, level, file, 10 + i * 20, [kase(`${level} case`, file, 12 + i * 20)], [], concept));
 
+/** A file's statements as CI's coverage run measured them: `total`, of which `covered` ran. */
+export const statements = (file: string, total: number, covered: number, uncovered: string[] = []): FileStatements => ({ file, total, covered, uncovered });
+
 /**
  * An area holding `own` rules, with `children` inside it. Its counts say
  * what it holds per level, and n/a (null) for a level it names no rule at only
@@ -36,7 +39,7 @@ export function area(key: string, own: Rule[] = [], children: Area[] = [], over:
     label: key,
     counts: Object.fromEntries(LEVELS.map((l) => [l, notApplicable.includes(l) ? null : own.filter((r) => r.level === l).length])),
     rules: own.map((r) => ({ ...r, concept: key })),
-    filesNothingRuns: [],
+    statements: null,
     branchesNothingTakes: null,
     children,
     ...rest,
