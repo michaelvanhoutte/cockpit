@@ -6,8 +6,6 @@ import { checkPulls } from '../src/cycle-time';
 import { storePulls } from '../src/cycle-time-store';
 import { checkSelection } from '../src/selection';
 import { storeSelection } from '../src/selection-store';
-import { checkRuns } from '../src/stability';
-import { storeRuns } from '../src/stability-store';
 import { storeBatch } from '../src/store';
 import { readTree, snapshotOf } from '../src/tests';
 import { makeCurrent, storeArea, storeTree } from '../src/tests-store';
@@ -26,11 +24,10 @@ import { validateBatch } from '../src/validate';
  * the hourly job would have read from GitHub. A request already stored is ignored,
  * so seeding twice (the suite runs each walk on two devices) changes nothing.
  *
- * A second route, `/__e2e/seed-stability`, stores CI stability's runs through the
- * same checks and writes a send goes through; a run is stored under its id, so
- * it too can be sent twice, and `/__e2e/seed-ci-attempts` does the same for the
- * attempts of every branch, stored under their run and number. A third, `/__e2e/seed-cycle-time`, does the same for
- * cycle time's pull requests, stored under their numbers, and a fourth,
+ * A second route, `/__e2e/seed-ci-attempts`, stores CI stability's attempts of
+ * every branch through the same checks and writes a send goes through; an
+ * attempt is stored under its run and number, so it too can be sent twice. A
+ * third, `/__e2e/seed-cycle-time`, does the same for cycle time's pull requests, stored under their numbers, and a fourth,
  * `/__e2e/seed-selection`, for test selection's pull requests and bars, and a
  * fifth, `/__e2e/seed-tests`, for `main`'s tests or, given `snapshot`, a pull
  * request's: the tree and each area's source lines, stored and shown under their
@@ -76,11 +73,6 @@ export default {
   ...worker,
   async fetch(request, env, ctx) {
     const { pathname } = new URL(request.url);
-    if (pathname === '/__e2e/seed-stability' && request.method === 'POST') {
-      const checked = checkRuns(await request.json());
-      if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
-      return Response.json(await storeRuns(env.DB, checked.runs));
-    }
     if (pathname === '/__e2e/seed-ci-attempts' && request.method === 'POST') {
       const checked = checkAttempts(await request.json());
       if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });

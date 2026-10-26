@@ -1,16 +1,15 @@
-import { startOfDay } from './belgium';
-import { firstDay as periodFirstDay, PERIODS, type Period } from './costs';
-import { redNowFrom, redNowStatements } from './ci-flakiness-report';
-import type { RedNow } from './ci-flakiness';
+import { jobKey } from './ci-flakiness';
+import { load, startOf, type WorkflowData } from './ci-flakiness-report';
+import { PERIODS, type Period } from './costs';
 import type { Outcome } from './stability';
-import { stabilityWindows, type Durations, type WindowSpan } from './stability-store';
+import { durationsByWorkflow, jobDurationsSql, MAIN_ATTEMPTS, stepDurationsSql, type Durations } from './stability-store';
 
 /**
- * What the CI stability page reads of the stored runs, and the arithmetic over
- * it: how a job's pass rate is counted, how long `main` was red once
- * overlapping spells are merged, and the order each tab is read in. The
- * queries only gather; every figure the page draws is worked out here, from the
- * runs, jobs and steps the Stability job stored (src/stability-store.ts).
+ * What the CI stability page's Job tab reads of the stored attempts
+ * (src/ci-attempts-store.ts), and the arithmetic over it: how a job's pass rate
+ * is counted on main and the order each tab is read in. The queries only
+ * gather; every figure the page draws is worked out here, or, for the failures
+ * counted against a job, in src/ci-flakiness.ts.
  */
 
 export const GROUPS = ['job', 'workflow', 'tests'] as const;
@@ -71,16 +70,6 @@ export const sortOf = (q: StabilityQuery) => q.sort ?? SORTS[q.group][0]?.[0] ??
 
 // ---- Counting
 
-function groupBy<T, K>(list: T[], key: (item: T) => K): Map<K, T[]> {
-  const groups = new Map<K, T[]>();
-  for (const item of list) {
-    const own = groups.get(key(item));
-    if (own) own.push(item);
-    else groups.set(key(item), [item]);
-  }
-  return groups;
-}
-
 export interface Tally {
   pass: number;
   fail: number;
@@ -108,80 +97,6 @@ export function sumTallies(list: Tally[]): Tally {
   return tallyOf(total);
 }
 
-export interface FinishedRun {
-  id: number;
-  workflow: string;
-  outcome: 'pass' | 'fail';
-  createdAt: number;
-  url: string;
-  headSha: string;
-}
-
-export interface Spell {
-  workflow: string;
-  from: number;
-  fromUrl: string;
-  /** The first passing run after it; null while none has. */
-  until: number | null;
-  untilUrl: string | null;
-  ongoing: boolean;
-  /** Distinct commits that failed during it. */
-  commits: number;
-  /** The failing run that opened it. */
-  openedBy: number;
-}
-
-/**
- * A workflow's red spells: from a failing run to the next passing one. Only a
- * pass closes one and only a fail opens one, and consecutive failures are one
- * spell, so a stretch is counted once. Newest first.
- */
-export function redSpells(runs: FinishedRun[]): Spell[] {
-  const spells: Spell[] = [];
-  const byWorkflow = groupBy(runs, (r) => r.workflow);
-  for (const [workflow, own] of byWorkflow) {
-    let open: { from: FinishedRun; shas: Set<string> } | null = null;
-    for (const run of [...own].sort((a, b) => a.createdAt - b.createdAt)) {
-      if (run.outcome === 'fail') {
-        open ??= { from: run, shas: new Set() };
-        open.shas.add(run.headSha);
-      } else if (open) {
-        spells.push({ workflow, from: open.from.createdAt, fromUrl: open.from.url, until: run.createdAt, untilUrl: run.url, ongoing: false, commits: open.shas.size, openedBy: open.from.id });
-        open = null;
-      }
-    }
-    if (open) spells.push({ workflow, from: open.from.createdAt, fromUrl: open.from.url, until: null, untilUrl: null, ongoing: true, commits: open.shas.size, openedBy: open.from.id });
-  }
-  return spells.sort((a, b) => b.from - a.from);
-}
-
-/** A spell as a span; one still open runs to `now`. */
-export const spellSpan = (s: Spell, now: number): [number, number] => [s.from, s.until ?? now];
-
-/** Total length of a set of spans once overlaps are merged: two workflows red at once is one hour of red, not two. */
-export function unionMs(spans: [number, number][]): number {
-  const sorted = spans.filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
-  let total = 0;
-  let start = -Infinity;
-  let end = -Infinity;
-  for (const [a, b] of sorted) {
-    if (a > end) {
-      if (end > start) total += end - start;
-      start = a;
-      end = b;
-    } else end = Math.max(end, b);
-  }
-  if (end > start) total += end - start;
-  return total;
-}
-
-/** The part of each span inside `from` to `to`. */
-export const clipSpans = (spans: [number, number][], from: number, to: number): [number, number][] =>
-  spans.map(([a, b]): [number, number] => [Math.max(a, from), Math.min(b, to)]).filter(([a, b]) => b > a);
-
-/** Time `main` was red in `from` to `to`, overlapping spells across workflows counted once. */
-export const redMs = (spells: Spell[], from: number, to: number) => unionMs(clipSpans(spells.map((s) => spellSpan(s, to)), from, to));
-
 // ---- Ordering
 
 /** Ascending, a missing value last; descending puts the largest first and a missing value last still. */
@@ -196,18 +111,18 @@ interface Ranked {
   durations: { median: number } | null;
 }
 
-/** Least reliable first (no verdict last, then the busier), slowest first, or most failures first. */
-export function sortJobs<T extends { job: Ranked }>(rows: T[], sort: string): T[] {
+/** Least reliable on main first (no verdict last, then the busier), slowest first, or most failures on main first; the flaky failures on feature branches break a tie. */
+export function sortJobs<T extends { job: Ranked; branchFlaky: number }>(rows: T[], sort: string): T[] {
   return [...rows].sort((a, b) =>
     sort === 'slowest'
       ? nullLast(a.job.durations?.median, b.job.durations?.median, true)
       : sort === 'failures'
-        ? b.job.tally.fail - a.job.tally.fail || nullLast(a.job.tally.rate, b.job.tally.rate)
-        : nullLast(a.job.tally.rate, b.job.tally.rate) || b.job.tally.completed - a.job.tally.completed,
+        ? b.job.tally.fail - a.job.tally.fail || b.branchFlaky - a.branchFlaky || nullLast(a.job.tally.rate, b.job.tally.rate)
+        : nullLast(a.job.tally.rate, b.job.tally.rate) || b.job.tally.completed - a.job.tally.completed || b.branchFlaky - a.branchFlaky,
   );
 }
 
-// ---- Reading the stored runs
+// ---- Reading the stored attempts
 
 export interface Step {
   name: string;
@@ -234,129 +149,92 @@ export interface Last {
   url: string;
 }
 
-export interface StabilityData {
-  /** The first instant of the period, or the oldest stored run when that is later. */
-  from: number;
-  until: number;
-  /** Whole Belgian days from `from` to `until`, at least one. */
-  heldDays: number;
-  /** The days the period names, or null for all time. */
-  periodDays: number | null;
-  /** The stored runs begin after the period does: part of the period is not stored. */
-  partial: boolean;
-  runs: number;
-  /** In the period, by workflow. */
-  workflows: WorkflowModel[];
-  /** Every workflow that ever finished a run, by name: the Workflow filter's choices, and the order a series takes its colour in. */
-  finishedWorkflows: string[];
-  /** Every workflow's last finished run, and every job's, over all stored runs. */
+/** What the Job tab draws: the attempts every tab reads, and main's runs of each job counted and timed. */
+export interface StabilityData extends WorkflowData {
+  /** In the period on main, by workflow. */
+  main: WorkflowModel[];
+  /** Every workflow's last finished attempt on main, and every job's, over all stored attempts. */
   lastRuns: { workflow: string; last: Last | null; jobs: { name: string; last: Last }[] }[];
-  /** Every spell stored, newest first; the page keeps those that reach into the period. */
-  spells: Spell[];
-  /** The workflows whose newest attempt on main failed, read from the stored attempts. */
-  redNow: RedNow[];
-  /** Runs and jobs whose conclusion the report does not recognise, in the period: said, not counted. */
+  /** Attempts and jobs on main whose conclusion the report does not recognise, in the period: said, not counted. */
   unrecognised: { conclusion: string; count: number }[];
 }
 
 type Row = Record<string, string | number | null>;
 
-const JOB_TALLIES = `SELECT r.workflow, j.name AS job, j.outcome, COUNT(*) AS n
-FROM stability_jobs j JOIN stability_runs r ON r.run_id = j.run_id
-WHERE r.created_at >= ?1 GROUP BY r.workflow, j.name, j.outcome`;
+const JOB_TALLIES = `SELECT a.workflow, j.name AS job, j.outcome, COUNT(*) AS n
+FROM ci_attempt_jobs j JOIN ci_attempts a ON a.run_id = j.run_id AND a.attempt = j.attempt
+WHERE a.on_main = 1 AND a.created_at >= ?1 GROUP BY a.workflow, j.name, j.outcome`;
 
-const RUN_TALLIES = 'SELECT workflow, outcome, COUNT(*) AS n FROM stability_runs WHERE created_at >= ?1 GROUP BY workflow, outcome';
+const RUN_TALLIES = 'SELECT workflow, outcome, COUNT(*) AS n FROM ci_attempts WHERE on_main = 1 AND created_at >= ?1 GROUP BY workflow, outcome';
 
-/** Each workflow's newest run that passed or failed, over every stored run: "did it pass the last time it ran" is not a question about a period. */
+/** Each workflow's newest attempt on main that passed or failed, over every stored attempt: "did it pass the last time it ran" is not a question about a period. */
 const LAST_RUNS = `SELECT workflow, outcome, at, url FROM (
-  SELECT workflow, outcome, created_at AS at, url, ROW_NUMBER() OVER (PARTITION BY workflow ORDER BY created_at DESC) AS rn
-  FROM stability_runs WHERE outcome IN ('pass', 'fail')
+  SELECT workflow, outcome, created_at AS at, url, ROW_NUMBER() OVER (PARTITION BY workflow ORDER BY created_at DESC, attempt DESC) AS rn
+  FROM ci_attempts WHERE on_main = 1 AND outcome IN ('pass', 'fail')
 ) WHERE rn = 1`;
 
-/** The same for each job, from the run it ran in: a job can have last run in an older run than its workflow. */
+/** The same for each job, from the attempt it ran in: a job can have last run in an older attempt than its workflow. */
 const LAST_JOBS = `SELECT workflow, job, outcome, at, url FROM (
-  SELECT r.workflow, j.name AS job, j.outcome, r.created_at AS at, COALESCE(j.url, r.url) AS url,
-         ROW_NUMBER() OVER (PARTITION BY r.workflow, j.name ORDER BY r.created_at DESC, j.job_index) AS rn
-  FROM stability_jobs j JOIN stability_runs r ON r.run_id = j.run_id WHERE j.outcome IN ('pass', 'fail')
+  SELECT a.workflow, j.name AS job, j.outcome, a.created_at AS at, COALESCE(j.url, a.url) AS url,
+         ROW_NUMBER() OVER (PARTITION BY a.workflow, j.name ORDER BY a.created_at DESC, a.attempt DESC, j.job_index) AS rn
+  FROM ci_attempt_jobs j JOIN ci_attempts a ON a.run_id = j.run_id AND a.attempt = j.attempt WHERE a.on_main = 1 AND j.outcome IN ('pass', 'fail')
 ) WHERE rn = 1`;
-
-const FINISHED_RUNS = `SELECT run_id AS id, workflow, outcome, created_at AS createdAt, url, head_sha AS headSha
-FROM stability_runs WHERE outcome IN ('pass', 'fail') ORDER BY created_at`;
 
 const UNRECOGNISED = `SELECT conclusion, COUNT(*) AS n FROM (
-  SELECT conclusion FROM stability_runs WHERE outcome = 'unknown' AND created_at >= ?1
+  SELECT conclusion FROM ci_attempts WHERE on_main = 1 AND outcome = 'unknown' AND created_at >= ?1
   UNION ALL
-  SELECT j.conclusion FROM stability_jobs j JOIN stability_runs r ON r.run_id = j.run_id WHERE j.outcome = 'unknown' AND r.created_at >= ?1
+  SELECT j.conclusion FROM ci_attempt_jobs j JOIN ci_attempts a ON a.run_id = j.run_id AND a.attempt = j.attempt WHERE a.on_main = 1 AND j.outcome = 'unknown' AND a.created_at >= ?1
 ) GROUP BY conclusion ORDER BY conclusion`;
 
 const asLast = (row: Row): Last => ({ outcome: row.outcome as 'pass' | 'fail', at: row.at as number, url: row.url as string });
 
-/** Everything the page draws, read in one round trip over the stored runs. */
+/** Everything the Job tab draws, read in one round trip over the stored attempts: the attempts of every branch the Workflow tab reads, and main's jobs and steps counted and timed. */
 export async function loadStability(db: D1Database, period: Period, now: number): Promise<StabilityData> {
-  const first = periodFirstDay(period, now);
-  const start = first === null ? 0 : startOfDay(first);
-  const span: WindowSpan = { days: PERIODS[period], firstDay: first };
-
-  const [windows, [jobTallies, runTallies, lastRuns, lastJobs, finished, unrecognised, oldest, ...red]] = await Promise.all([
-    stabilityWindows(db, [span]),
-    db.batch<Row>([
-      db.prepare(JOB_TALLIES).bind(start),
-      db.prepare(RUN_TALLIES).bind(start),
-      db.prepare(LAST_RUNS),
-      db.prepare(LAST_JOBS),
-      db.prepare(FINISHED_RUNS),
-      db.prepare(UNRECOGNISED).bind(start),
-      db.prepare('SELECT MIN(created_at) AS oldest FROM stability_runs'),
-      ...redNowStatements(db),
-    ]),
+  const start = startOf(period, now);
+  const { data, extra } = await load(db, period, now, [
+    db.prepare(JOB_TALLIES).bind(start),
+    db.prepare(RUN_TALLIES).bind(start),
+    db.prepare(LAST_RUNS),
+    db.prepare(LAST_JOBS),
+    db.prepare(UNRECOGNISED).bind(start),
+    db.prepare(jobDurationsSql(MAIN_ATTEMPTS)).bind(start),
+    db.prepare(stepDurationsSql(MAIN_ATTEMPTS)).bind(start),
   ]);
-  const window = windows[0]!;
-  const held = oldest!.results[0]!.oldest as number | null;
+  const [jobTallies, runTallies, lastRuns, lastJobs, unrecognised, jobTimes, stepTimes] = extra;
 
-  const durationsOf = new Map<string, (typeof window.workflows)[number]['jobs'][number]>(window.workflows.flatMap((w) => w.jobs.map((j): [string, typeof j] => [`${w.name}|${j.name}`, j])));
-  const jobCounts = new Map<string, Partial<Record<Outcome, number>>>();
+  const timed = durationsByWorkflow(jobTimes!.results as never, stepTimes!.results as never);
+  const durationsOf = new Map(timed.flatMap((w) => w.jobs.map((j): [string, typeof j] => [jobKey(w.name, j.name), j])));
+  const jobCounts = new Map<string, { workflow: string; job: string; counts: Partial<Record<Outcome, number>> }>();
   for (const row of jobTallies!.results) {
-    const key = `${row.workflow}|${row.job}`;
-    jobCounts.set(key, { ...jobCounts.get(key), [row.outcome as Outcome]: row.n as number });
+    const key = jobKey(row.workflow as string, row.job as string);
+    const own = jobCounts.get(key) ?? { workflow: row.workflow as string, job: row.job as string, counts: {} };
+    own.counts[row.outcome as Outcome] = row.n as number;
+    jobCounts.set(key, own);
   }
   const runCounts = new Map<string, Partial<Record<Outcome, number>>>();
   for (const row of runTallies!.results) runCounts.set(row.workflow as string, { ...runCounts.get(row.workflow as string), [row.outcome as Outcome]: row.n as number });
 
-  const workflows = [...runCounts.keys()].sort().map((name): WorkflowModel => ({
+  const main = [...runCounts.keys()].sort().map((name): WorkflowModel => ({
     name,
     tally: tallyOf(runCounts.get(name)!),
-    jobs: [...jobCounts.keys()]
-      .filter((key) => key.startsWith(`${name}|`))
-      .map((key) => {
-        const job = key.slice(name.length + 1);
+    jobs: [...jobCounts.entries()]
+      .filter(([, own]) => own.workflow === name)
+      .map(([key, own]) => {
         const timed = durationsOf.get(key);
-        return { name: job, tally: tallyOf(jobCounts.get(key)!), durations: timed?.durations ?? null, steps: timed?.steps ?? [] };
+        return { name: own.job, tally: tallyOf(own.counts), durations: timed?.durations ?? null, steps: timed?.steps ?? [] };
       })
       .sort((a, b) => a.name.localeCompare(b.name)),
   }));
 
-  const runs = finished!.results.map((r): FinishedRun => r as unknown as FinishedRun);
-  const lastJobsOf = groupBy(lastJobs!.results, (r) => r.workflow as string);
   const lastRunOf = new Map(lastRuns!.results.map((r) => [r.workflow as string, asLast(r)]));
+  const lastJobsOf = new Map<string, { name: string; last: Last }[]>();
+  for (const r of lastJobs!.results) lastJobsOf.set(r.workflow as string, [...(lastJobsOf.get(r.workflow as string) ?? []), { name: r.job as string, last: asLast(r) }]);
   const names = new Set([...lastRunOf.keys(), ...lastJobsOf.keys()]);
 
-  const periodStart = start === 0 ? (held ?? now) : Math.max(start, held ?? start);
   return {
-    from: periodStart,
-    until: now,
-    heldDays: Math.max(1, Math.round((now - periodStart) / 86_400_000)),
-    periodDays: PERIODS[period],
-    partial: held !== null && start > 0 && held > start,
-    runs: window.runs,
-    workflows,
-    finishedWorkflows: [...new Set(runs.map((r) => r.workflow))].sort(),
-    lastRuns: [...names].sort().map((workflow) => ({
-      workflow,
-      last: lastRunOf.get(workflow) ?? null,
-      jobs: (lastJobsOf.get(workflow) ?? []).map((r) => ({ name: r.job as string, last: asLast(r) })),
-    })),
-    spells: redSpells(runs),
-    redNow: redNowFrom(red as { results: Row[] }[]),
+    ...data,
+    main,
+    lastRuns: [...names].sort().map((workflow) => ({ workflow, last: lastRunOf.get(workflow) ?? null, jobs: lastJobsOf.get(workflow) ?? [] })),
     unrecognised: unrecognised!.results.map((r) => ({ conclusion: String(r.conclusion), count: r.n as number })),
   };
 }

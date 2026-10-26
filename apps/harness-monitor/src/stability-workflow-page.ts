@@ -128,12 +128,24 @@ function causeTable(causes: Cause[]): string {
 }
 
 /** One side of an opened row: its summary and its top three causes. */
-function side(title: string, summary: string, causes: Cause[], kind: 'main' | 'branch'): string {
+export function side(title: string, summary: string, causes: Cause[], kind: 'main' | 'branch'): string {
   const list = causes
     .slice(0, 3)
     .map((c) => `<li><span class="n ${kind}">${number(kind === 'main' ? c.main : c.branch)}</span><span>${esc(shortName(c.label))}<span class="of">${esc(c.sub)} · last ${outLink(c.lastUrl, esc(formatDateTime(c.last.at)))}</span></span></li>`)
     .join('');
   return `<div class="side ${kind}"><h4>${title}</h4><p class="muted small">${summary}</p>${list ? `<ul class="causes">${list}</ul>` : ''}${causes.length > 3 ? `<p class="faint small">and ${times(causes.length - 3, 'other cause')}</p>` : ''}</div>`;
+}
+
+/** The side of an opened row for the feature branches: what failed and then passed on the same commit, and its top three causes. */
+export function branchSide(branchFlaky: Attempt[], causes: Cause[], none: string): string {
+  const commits = new Set(branchFlaky.map((a) => a.sha)).size;
+  const pulls = new Set(branchFlaky.map((a) => a.pull ?? a.branch)).size;
+  return side(
+    'On feature branches',
+    branchFlaky.length ? `${times(branchFlaky.length, 'failure')} a later attempt on the same commit passed · ${times(commits, 'commit')} · ${times(pulls, 'branch', 'es')}` : none,
+    causes,
+    'branch',
+  );
 }
 
 /** A workflow's own view: tiles, runs per day, its causes and every failure counted for it. */
@@ -186,19 +198,12 @@ export function workflowTab(q: StabilityQuery, data: WorkflowData, days: string[
     .map((r) => {
       const prompt = r.failed.length || r.branchFlaky.length ? promptBox(workflowPrompt(r, days.length)) : '';
       const top = r.causes[0];
-      const commits = new Set(r.branchFlaky.map((a) => a.sha)).size;
-      const pulls = new Set(r.branchFlaky.map((a) => a.pull ?? a.branch)).size;
       const detail = strip(side(
         'On main',
         r.main.length ? `${times(r.pass + r.failed.length, 'run')} · ${r.rate === null ? 'none finished' : `${pct(r.rate)} passed`} · ${times(r.failed.length, 'failure')}${r.failed.length ? `, ${r.mainFlaky} passed on a re-run` : ''}` : 'No run on main in this period.',
         causesOf(r.failed, flaky),
         'main',
-      ), side(
-        'On feature branches',
-        r.branchFlaky.length ? `${times(r.branchFlaky.length, 'failure')} a later attempt on the same commit passed · ${times(commits, 'commit')} · ${times(pulls, 'branch', 'es')}` : 'Nothing failed and then passed on a feature branch.',
-        causesOf(r.branchFlaky, flaky),
-        'branch',
-      ), `<a href="${link({ workflow: r.name })}">Runs per day and every failure of ${esc(r.name)}</a>`);
+      ), branchSide(r.branchFlaky, causesOf(r.branchFlaky, flaky), 'Nothing failed and then passed on a feature branch.'), `<a href="${link({ workflow: r.name })}">Runs per day and every failure of ${esc(r.name)}</a>`);
       return `<tr data-opens><td class="first"><a href="${link({ workflow: r.name })}">${esc(r.name)}</a></td><td class="num">${r.rate === null ? '<span class="rate none">no run on main</span>' : `<span class="rate ${bandOf(r.rate)}">${pct(r.rate)}</span><span class="of">${number(r.pass)} of ${number(r.pass + r.failed.length)}</span>`}</td><td>${dayStrip(r.main, r.branchFlaky, days)}</td><td class="num">${r.failed.length ? `<span class="rate poor">${number(r.failed.length)}</span>` : dash}${r.branchFlaky.length ? `<span class="of">+${number(r.branchFlaky.length)} on branches</span>` : ''}</td><td>${top ? `${esc(shortName(top.label))}<div class="sub">${number(top.main + top.branch)} of ${number(r.failed.length + r.branchFlaky.length)}</div>` : dash}</td><td class="fix">${prompt}</td></tr><tr class="detail" hidden><td colspan="6">${detail}</td></tr>`;
     })
     .join('');

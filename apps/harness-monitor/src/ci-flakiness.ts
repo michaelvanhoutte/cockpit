@@ -206,6 +206,50 @@ export function workflowFigures(name: string, inPeriod: Attempt[], flaky: Set<At
   };
 }
 
+/** What counts against one job, as a workflow's figures count against the workflow: its failures on main, and its flaky ones on feature branches. */
+export interface JobFailures {
+  workflow: string;
+  job: string;
+  /** The attempts on main in which it failed, each with only this job among its failed jobs. */
+  failed: Attempt[];
+  /** How many of those a later attempt on the same commit passed. */
+  mainFlaky: number;
+  /** The attempts on feature branches in which it failed and a later attempt on the same commit passed. */
+  branchFlaky: Attempt[];
+  mainCauses: Cause[];
+  branchCauses: Cause[];
+}
+
+export const jobKey = (workflow: string, job: string) => `${workflow}|${job}`;
+
+/**
+ * The failures counted against each job that has any, by its workflow and name:
+ * the workflow's rule applied to the failed jobs of the attempts, so a shard
+ * family, stored as one failed job, is one job. An attempt in which several
+ * jobs failed counts once against each, with only that job's causes.
+ */
+export function failuresByJob(inPeriod: Attempt[], flaky: Set<Attempt>): Map<string, JobFailures> {
+  const own = new Map<string, { workflow: string; job: string; failed: Attempt[]; branchFlaky: Attempt[] }>();
+  const flakyHere = new Set<Attempt>();
+  for (const a of inPeriod) {
+    if (a.outcome !== 'fail' || (!a.onMain && !flaky.has(a))) continue;
+    for (const name of new Set(a.failedJobs.map((j) => j.name))) {
+      const narrowed: Attempt = { ...a, failedJobs: a.failedJobs.filter((j) => j.name === name) };
+      if (flaky.has(a)) flakyHere.add(narrowed);
+      const key = jobKey(a.workflow, name);
+      const entry = own.get(key) ?? { workflow: a.workflow, job: name, failed: [], branchFlaky: [] };
+      (a.onMain ? entry.failed : entry.branchFlaky).push(narrowed);
+      own.set(key, entry);
+    }
+  }
+  return new Map(
+    [...own].map(([key, { workflow, job, failed, branchFlaky }]): [string, JobFailures] => [
+      key,
+      { workflow, job, failed, mainFlaky: failed.filter((a) => flakyHere.has(a)).length, branchFlaky, mainCauses: causesOf(failed, flakyHere), branchCauses: causesOf(branchFlaky, flakyHere) },
+    ]),
+  );
+}
+
 /** Least reliable on main first (a workflow with no finished run on main last), or most failures on main first. */
 export function sortFigures(rows: WorkflowFigures[], sort: string): WorkflowFigures[] {
   return [...rows].sort((a, b) =>

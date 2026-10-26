@@ -14,12 +14,10 @@ import {
   selectionJob,
   selectionPackage,
   selectionPull,
-  sendRuns,
   sendAttempts,
   sendSelection,
   sendTestsModel,
   stabilityJob,
-  stabilityRun,
   stabilityStep,
 } from './support';
 
@@ -94,29 +92,18 @@ const tests = async () => {
 
 // ---- CI stability: CI passed, failed at a step, then passed again, on 30 Oct.
 const ran = (id: number, createdAt: string, outcome: 'pass' | 'fail') =>
-  stabilityRun(id, {
+  ciAttempt(id, 1, {
     createdAt,
     conclusion: outcome === 'pass' ? 'success' : 'failure',
     outcome,
     headSha: String(id).repeat(40).slice(0, 40),
     jobs: [stabilityJob('Test', 60_000, { conclusion: outcome === 'pass' ? 'success' : 'failure', outcome, failedStep: outcome === 'fail' ? 'Run the tests' : null, steps: [stabilityStep('Run the tests', 30_000)] })],
+    failedJobs: outcome === 'fail' ? [failedJob('Test', [failedTest('a dismissed item leaves the lists')], { step: 'Run the tests' })] : [],
   });
-async function stability(runs = [ran(1, '2026-10-30T08:00:00Z', 'pass'), ran(2, '2026-10-30T09:00:00Z', 'fail'), ran(3, '2026-10-30T10:00:00Z', 'pass')]) {
+async function stability(attempts = [ran(1, '2026-10-30T08:00:00Z', 'pass'), ran(2, '2026-10-30T09:00:00Z', 'fail'), ran(3, '2026-10-30T10:00:00Z', 'pass')]) {
   await emptyTheDatabase();
   vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-31T12:00:00Z') });
-  for (let at = 0; at < runs.length; at += 50) await sendRuns(runs.slice(at, at + 50));
-  // The Workflow tab reads the attempts: each run is the only attempt of its own.
-  await sendAttempts(
-    runs.map((run) =>
-      ciAttempt(run.id, 1, {
-        createdAt: run.createdAt,
-        conclusion: run.conclusion,
-        outcome: run.outcome,
-        headSha: run.headSha,
-        failedJobs: run.outcome === 'fail' ? [failedJob('Test', [failedTest('a dismissed item leaves the lists')], { step: 'Run the tests' })] : [],
-      }),
-    ),
-  );
+  await sendAttempts(attempts);
 }
 
 describe('Harness Monitor', () => {
@@ -287,7 +274,6 @@ describe('Harness Monitor', () => {
 
   describe('every tile, chart, panel and table on CI stability carries an (i) explaining it', () => {    it.each([
       { tile: 'Runs passed', id: 't-passed' },
-      { tile: 'Time main was red', id: 't-red' },
       { tile: 'Least reliable job', id: 't-least' },
       { tile: 'Slowest job', id: 't-slowest' },
     ])('on each job, the $tile tile carries its own (i), with the three parts', async ({ tile, id }) => {
@@ -377,9 +363,9 @@ describe('Harness Monitor', () => {
 
       const { buttons, panels } = infosOf(await page('/stability?steps=CI%7CTest'));
 
-      // Four tiles, how the runs ended, the last runs, the steps and the table.
-      expect(buttons).toHaveLength(8);
-      expect(new Set(buttons).size).toBe(8);
+      // Three tiles, how the runs ended, the last runs, the steps and the table.
+      expect(buttons).toHaveLength(7);
+      expect(new Set(buttons).size).toBe(7);
       expect(panels.sort()).toEqual([...buttons].sort());
     });
 

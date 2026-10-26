@@ -70,7 +70,7 @@ const MISSED_FILES = `SELECT DISTINCT m.path
 FROM selection_misses m JOIN selection_pulls p ON p.pull_number = m.pull_number AND p.job = 'test'
 WHERE p.merged_at >= ?1`;
 
-const startOf = (period: Period, now: number) => {
+export const startOf = (period: Period, now: number) => {
   const first = periodFirstDay(period, now);
   return first === null ? 0 : startOfDay(first);
 };
@@ -91,7 +91,8 @@ export async function loadFragileData(db: D1Database, period: Period, now: numbe
   return { ...data, missed: extra[0]!.results.map((r) => r.path as string) };
 }
 
-async function load(db: D1Database, period: Period, now: number, more: D1PreparedStatement[]): Promise<{ data: WorkflowData; extra: { results: Row[] }[] }> {
+/** The attempts every tab reads, with the results of `more` statements run in the same one batch. */
+export async function load(db: D1Database, period: Period, now: number, more: D1PreparedStatement[]): Promise<{ data: WorkflowData; extra: { results: Row[] }[] }> {
   const start = startOf(period, now);
   const redNow = redNowStatements(db);
   const [attempts, jobs, tests, workflows, oldest, ...rest] = await db.batch<Row>([
