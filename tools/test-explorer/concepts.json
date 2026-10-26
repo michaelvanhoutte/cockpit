@@ -650,7 +650,7 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 13,
+      "browserWalks": 14,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",

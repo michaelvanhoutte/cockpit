@@ -307,7 +307,8 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
         while (figures.at(-1) === '') figures.pop();
         // A row with no minutes in any phase has no outline to draw, so it is not offered to open.
         const opens = OUTLINE_SLOTS.some((s, i) => !s.part && Math.round(own[i]!) > 0);
-        return `<tr${opens ? ` data-figures="${figures.join(',')}"` : ''}><td class="first">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</td>${perPull ? '' : `<td class="num faint-num">${number(b.pulls.length)}</td>`}<td class="split-cell"${hover}><div class="split">${bar}</div></td><td class="num total">${hm(total)}</td><td class="num">${number(rounds)}${red ? ` <span class="up">· ${red} red</span>` : ''}</td><td class="num total">${costCell}</td></tr>`;
+        // A row that is one pull request names it, so its E2E (F3) and Test lines can open what that check selected.
+        return `<tr${opens ? ` data-figures="${figures.join(',')}"${perPull ? ` data-pr="${one.number}"` : ''}` : ''}><td class="first">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</td>${perPull ? '' : `<td class="num faint-num">${number(b.pulls.length)}</td>`}<td class="split-cell"${hover}><div class="split">${bar}</div></td><td class="num total">${hm(total)}</td><td class="num">${number(rounds)}${red ? ` <span class="up">· ${red} red</span>` : ''}</td><td class="num total">${costCell}</td></tr>`;
       })
       .join('\n');
     const how = perPull ? 'newest first' : summed ? 'its pull requests added up · newest first' : group === 'day' ? 'a pull request on average · newest first' : 'a pull request on average';
@@ -427,6 +428,23 @@ a:hover .dot,a:focus .dot{fill-opacity:1;stroke:var(--ink-strong)}
 .openable tr.detail>td{padding:4px 10px 16px 48px;background:var(--open-tint)}
 .strip .outline{gap:1px}
 .strip .o-row .tr{background:var(--field)}
+.o-open{cursor:pointer}
+.o-open:hover{background:color-mix(in srgb,var(--shade) 6%,transparent)}
+.o-btn{padding:0;border:0;background:none;color:var(--accent-deep);font:inherit;text-align:left;cursor:pointer}
+.o-open .nm::before{content:'\\25B8';display:inline-block;width:1.1em;color:var(--ink-soft)}
+.o-open .nm:has(.o-btn[aria-expanded=true])::before{content:'\\25BE'}
+.o-sel{display:block;min-width:0;margin:4px 0 10px 28px;padding:10px 14px;border-left:2px solid var(--accent-deep);font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.o-sel[hidden]{display:none}
+.o-sel p{margin:0 0 6px}
+.o-sel .sel-list{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:4px}
+.o-sel .mono{font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:12px}
+.o-sel .over-ink{color:var(--over-ink)}
+.o-sel .sel-foot{margin:8px 0 0;color:var(--ink-faint)}
+.o-sel .sel-foot a,.o-sel a{color:var(--accent-deep)}
+.o-sel details summary{cursor:pointer;margin-bottom:4px}
+.o-sel .triggers{gap:6px}
+.o-sel .triggers details>.sel-list{margin:6px 0 10px 18px}
+.o-sel .arrow{color:var(--ink-faint)}
 @media (min-width:641px){
   .strip .o-row{grid-template-columns:200px minmax(0,1fr) 110px 44px;min-height:24px}
   .strip .o-ph .nm,.strip .o-ph .am{font-size:13px}

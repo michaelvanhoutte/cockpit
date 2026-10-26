@@ -3,11 +3,13 @@
  * the row already carries (`data-figures`: one number per outline slot, in
  * OUTLINE_SLOTS order, milliseconds in base 36 on the table's own measure, a
  * dash for a part's time spent that is not recorded), so opening is no request.
+ * On a row that is one pull request (`data-pr`) the strip's E2E (F3) and Test
+ * lines open in turn what that check selected, one request each, the first time.
  * The table needs no script otherwise (the (i)'s is src/explain.ts): the chevrons
  * are the script's own, so without one the table is as it was and no strip opens.
  */
 
-/** The pure functions of the script: a duration as `hm` reads it, `layOut` (cycle-time-report.ts) over slots `[label, part, other, colour]`, and the words a row carries (`words`). A unit test holds all three to the server's. */
+/** The pure functions of the script: a duration as `hm` reads it, `layOut` (cycle-time-report.ts) over slots `[label, part, other, colour]`, the words a row carries (`words`), and which job's selection a line opens (`selectionOf`). A unit test holds all four to the server's. */
 export const STRIP_LAYOUT_SOURCE = `
 function hm(ms){
   if(ms<59500)return ms<=0?'0m':Math.round(ms/1000)+'s';
@@ -41,6 +43,9 @@ function layOut(slots,figures){
     }
   }
   return{total:total,rows:rows};
+}
+function selectionOf(label,part){
+  return part&&label==='E2E (F3)'?'e2e':part&&label==='Test'?'test':null;
 }
 function words(part,r){
   var spent=null;
@@ -97,9 +102,42 @@ export const STRIP_SCRIPT = `${STRIP_LAYOUT_SOURCE}
       li.appendChild(track);
       li.appendChild(el('span',r.ms===null?'am faint':'am',w.amount));
       li.appendChild(el('span','sh',r.share===null?'\\u2014':Math.round(r.share*100)+'%'));
+      // A row that is one pull request: its E2E (F3) and Test lines open what that check selected on its last CI run.
+      var job=selectionOf(s[0],s[1]);
+      if(row.getAttribute('data-pr')&&job)opensWhatItSelected(li,name,row.getAttribute('data-pr'),job);
       ul.appendChild(li);
     });
     return ul;
+  }
+  /** The line becomes a button: one request when it is first opened, then the box beneath it is kept and shown or hidden. */
+  function opensWhatItSelected(li,name,pr,job){
+    var button=el('button','o-btn',name.textContent);
+    button.type='button';
+    button.setAttribute('aria-expanded','false');
+    name.textContent='';
+    name.appendChild(button);
+    li.classList.add('o-open');
+    li.addEventListener('click',function(e){
+      if(e.target.closest('a'))return;
+      var box=li.nextElementSibling;
+      if(box&&!box.classList.contains('o-sel'))box=null;
+      var opening=button.getAttribute('aria-expanded')!=='true';
+      button.setAttribute('aria-expanded',String(opening));
+      if(!opening){if(box)box.hidden=true;return}
+      if(box&&!box.hasAttribute('data-failed')){box.hidden=false;return}
+      if(box)box.remove();
+      box=el('li','o-sel','Reading what it selected\\u2026');
+      li.after(box);
+      fetch('/selection/check?pr='+pr+'&job='+job).then(function(r){
+        if(!r.ok)throw new Error(r.status);
+        return r.text();
+      }).then(function(html){
+        box.innerHTML=html;
+      },function(){
+        box.textContent='Could not read what it selected. Close this line and open it again to try again.';
+        box.setAttribute('data-failed','');
+      });
+    });
   }
   function toggle(row){
     var next=row.nextElementSibling;
