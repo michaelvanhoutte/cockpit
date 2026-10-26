@@ -201,11 +201,30 @@ describe('CI stability', () => {
         expect(sends).toEqual([['1/1'], ['2/1'], ['3/1'], ['1/2']]);
       });
 
-      it('not at all when the night stops first', async () => {
-        const { code, sends } = await nightly({ ...world, refuseListingFrom: '2026-10-22T08:00:00Z' });
+      it('not at all when GitHub stops the night first, which says how to send it', async () => {
+        const { code, sends, said } = await nightly({ ...world, refuseListingFrom: '2026-10-22T08:00:00Z' });
 
         expect(code).toBe(1);
         expect(sends).toEqual([['1/1'], ['2/1']]);
+        expect(said).toContain('1 re-run attempts started after their day were held back; --from 2026-10-20 sends them.');
+      });
+
+      it('not at all when the run budget stops the night first', async () => {
+        const { code, sends, said } = await nightly(world, ['--max-runs', '1']);
+
+        expect(code).toBe(1);
+        expect(sends).toEqual([['1/1']]);
+        expect(said).toContain('1 re-run attempts started after their day were held back');
+      });
+
+      it('in the order they started, and a Monitor that refuses them fails the night naming them', async () => {
+        const later = { ...world, runs: [...world.runs, rawRun(4, '2026-10-21T13:00:00Z', { run_attempt: 2, run_started_at: '2026-10-22T09:00:00Z' })] };
+        const { sends } = await nightly(later);
+        expect(sends.at(-1)).toEqual(['4/2', '1/2']);
+
+        const { code, said } = await nightly({ ...later, refuseSend: 4 });
+        expect(code).toBe(1);
+        expect(said).toContain('The re-runs started after their day were not sent; 4 attempts were sent before them');
       });
     });
 

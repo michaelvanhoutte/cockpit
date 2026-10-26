@@ -374,8 +374,10 @@ async function sendEveryAttempt({ monitor, collected, window, unsent, repo, trun
  * the Monitor holds less two days (`on=branches`, so `main`'s send never moves it), one day at a
  * time and oldest first: list the day, read its attempts, send them. A day sent stays stored
  * whatever stops the next, and a send cut short by the run budget or GitHub leaves the Monitor's
- * newest where the next night's overlap carries on. A branch's attempt keeps its failed jobs alone, so only a failed attempt's jobs are read (a re-run's earlier
- * attempts are read for their verdict).
+ * newest where the next night's overlap carries on. An attempt started after its run's day (a
+ * re-run) is held to the end, so the newest never passes a day not yet sent; a stop leaves it unsent.
+ * A branch's attempt keeps its failed jobs alone, so only a failed attempt's jobs are read (a
+ * re-run's earlier attempts are read for their verdict).
  */
 async function sendBranches({ args, monitor, repo, trunk, days, now, backfill }) {
   let window;
@@ -397,6 +399,8 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
   let capped = false;
   let stoppedAt = null;
   const deferred = [];
+  const heldBack = () =>
+    deferred.length > 0 ? ` ${deferred.length} re-run attempts started after their day were held back; --from ${window.since.toISOString().slice(0, 10)} sends them.` : '';
 
   for (const { from, to } of dayChunks(window.since, until)) {
     if (runsRead >= maxRuns) {
@@ -414,18 +418,19 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
       // A re-run's attempt carries the time it started, which can be after this day. It waits for
       // the end, so a stop part-way cannot leave the Monitor's newest past days not yet sent.
       const attempts = attemptRows(entries, { trunk }).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-      const due = attempts.filter((attempt) => Date.parse(attempt.createdAt) < to.getTime());
-      deferred.push(...attempts.filter((attempt) => !due.includes(attempt)));
+      const due = [];
+      for (const attempt of attempts) (Date.parse(attempt.createdAt) < to.getTime() ? due : deferred).push(attempt);
       sent += (await sendAttempts({ url: monitor.url, key: monitor.key, attempts: due })).attempts;
     } catch (error) {
       if (!(error instanceof GitHubError || error instanceof MonitorError)) throw error;
-      process.stderr.write(`${error.message}\nThe day from ${from.toISOString()} was not sent; ${sent} attempts were sent before it, and the next send continues from the newest the Monitor holds.\n`);
+      process.stderr.write(`${error.message}\nThe day from ${from.toISOString()} was not sent; ${sent} attempts were sent before it, and the next send continues from the newest the Monitor holds.${heldBack()}\n`);
       return 1;
     }
   }
 
   if (!stoppedAt && deferred.length > 0) {
     try {
+      deferred.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
       sent += (await sendAttempts({ url: monitor.url, key: monitor.key, attempts: deferred })).attempts;
     } catch (error) {
       if (!(error instanceof MonitorError)) throw error;
@@ -437,7 +442,7 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
   process.stderr.write(`sent ${sent} attempts on branches from ${window.since.toISOString()} to the Harness Monitor, ${counter.requests} GitHub requests\n`);
   if (stoppedAt) {
     const rest = backfill ? `Send the rest with --from ${stoppedAt.toISOString().slice(0, 10)}.` : 'The next night continues from the newest the Monitor holds.';
-    process.stderr.write(`The run budget (--max-runs ${maxRuns}) stopped the read at ${stoppedAt.toISOString()}; the attempts from there were not sent. ${rest}\n`);
+    process.stderr.write(`The run budget (--max-runs ${maxRuns}) stopped the read at ${stoppedAt.toISOString()}; the attempts from there were not sent. ${rest}${heldBack()}\n`);
   }
   return stoppedAt || capped ? 1 : 0;
 }

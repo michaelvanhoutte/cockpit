@@ -146,6 +146,13 @@ describe('Harness Monitor', () => {
 
       expect((await env.DB.prepare('SELECT pull_number FROM ci_attempts').all()).results).toEqual([{ pull_number: 1604 }]);
     });
+
+    it('a later send of an attempt stored with no pull request records the one it now has, and its verdict', async () => {
+      await sendAttempts([ciAttempt(15, 1, { ...onBranch, event: 'pull_request', pullRequest: null })]);
+      await sendAttempts([failed(15, 1, { ...onBranch, event: 'pull_request', pullRequest: 1604 })]);
+
+      expect((await env.DB.prepare('SELECT pull_number, outcome FROM ci_attempts').all()).results).toEqual([{ pull_number: 1604, outcome: 'fail' }]);
+    });
   });
 
   describe("a send of CI's attempts without the write key stores nothing", () => {
