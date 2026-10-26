@@ -75,6 +75,13 @@ describe('CI stability', () => {
       expect(row(fanIn(read([test('Merged > only')]))).failedJobs[0].tests.map((each) => each.name)).toEqual(['Merged > only']);
     });
 
+    it('a test that two failed shards both name is one test of the family', () => {
+      const shard = (index, tests) => job(`E2E (F3) (${index})`, 'failure', { failedStep: "Run this shard's walks", record: read(tests) });
+      const row = rowOf([shard(1, [test('Setup > fails'), test('Triage > b')]), shard(2, [test('Setup > fails')]), job('E2E (F3)', 'failure', { failedStep: 'Fail if a shard failed' })]);
+
+      expect(row.failedJobs[0].tests.map((each) => each.name)).toEqual(['Setup > fails', 'Triage > b']);
+    });
+
     it('the fan-in failing on its own, every shard passing, is the failed job, with its own step', () => {
       const row = rowOf([job('E2E (F3) (1)', 'success'), job('E2E (F3) (2)', 'success'), job('E2E (F3)', 'failure', { failedStep: 'Merge the shards\' records' })]);
 

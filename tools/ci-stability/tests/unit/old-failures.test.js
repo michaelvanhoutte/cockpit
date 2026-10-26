@@ -98,6 +98,18 @@ describe('CI stability', () => {
       expect(tests).toEqual([{ file: 'apps/api/tests/unit/triage.test.ts', name: 'Triage > a dismissed item leaves the lists', project: null, error: 'AssertionError: expected 1 to be 2' }]);
     });
 
+    it("an annotation that names its test only in its title keeps the message's first line as the error", () => {
+      const [test] = testsFromAnnotations([failure('[phone] › tests/e2e/a.test.ts:1:1 › A › rule', 'Error: expect(locator).toBeVisible() failed\n  Locator: x')]);
+
+      expect(test).toEqual({ file: 'tests/e2e/a.test.ts', name: 'A > rule', project: 'phone', error: 'Error: expect(locator).toBeVisible() failed' });
+    });
+
+    it("a log that begins with GitHub's byte order mark reads its first line like any other", () => {
+      const tests = testsFromLog(`﻿${logLine(' FAIL  tests/unit/a.test.ts > A > rule')}\n${logLine('Error: boom')}`, [{ name: '@cockpit/architecture', dir: 'tools/architecture' }]);
+
+      expect(tests.map((test) => test.file)).toEqual(['tools/architecture/tests/unit/a.test.ts']);
+    });
+
     it('a log naming the same test twice, or a spec failing on two lines of one annotation list, is one test', () => {
       const line = logLine(' FAIL  tests/unit/a.test.ts > A > rule');
       expect(testsFromLog([line, logLine('boom'), logLine('⎯⎯⎯⎯⎯⎯⎯'), line, logLine('boom')].join('\n'))).toHaveLength(1);

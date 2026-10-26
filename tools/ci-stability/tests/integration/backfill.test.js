@@ -176,6 +176,15 @@ describe('CI stability', () => {
       expect(listings(github)).toEqual([]);
     });
 
+    it('the command to carry on keeps the repository, the run cap and the half it was given', async () => {
+      const { said } = await run(['--from', '2026-10-01', '--to', '2026-10-12', '--only', 'main', '--max-runs', '500'], {
+        runs: [rawRun(1, '2026-10-02T09:00:00Z'), rawRun(2, '2026-10-09T09:00:00Z')],
+        refuseListingFrom: '2026-10-08',
+      });
+
+      expect(said).toContain('pnpm stability:backfill --from 2026-10-08 --to 2026-10-12 --only main --repo o/r --max-runs 500');
+    });
+
     it("a day of the other branches that GitHub refuses stops there, naming the day, after main was sent whole", async () => {
       const { code, said } = await run(['--from', '2026-10-01', '--to', '2026-10-05'], {
         runs: [rawRun(2, '2026-10-02T10:00:00Z', { event: 'pull_request', head_branch: 'claude/x' })],

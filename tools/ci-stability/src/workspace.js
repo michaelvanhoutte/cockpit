@@ -19,6 +19,7 @@ function listed(yaml) {
   if (start === -1) return [];
   const globs = [];
   for (const line of lines.slice(start + 1)) {
+    if (/^\s*(?:#.*)?$/.test(line)) continue;
     const item = /^\s+-\s+['"]?([^'"#\s]+)['"]?\s*$/.exec(line);
     if (!item) break;
     globs.push(item[1]);

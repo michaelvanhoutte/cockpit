@@ -53,10 +53,11 @@ export function testsFromAnnotations(annotations) {
     const head = lines[0].trim();
 
     // Playwright puts the whole title on the message's first line; the annotation's own title is cut short.
-    const playwright = [head, title].map((each) => PLAYWRIGHT.exec(each)).find(Boolean);
+    const viaHead = PLAYWRIGHT.exec(head);
+    const playwright = viaHead ?? PLAYWRIGHT.exec(title);
     if (playwright) {
       const name = playwright[3].split('›').map((part) => part.trim()).join(' > ');
-      add(playwright[2], name, playwright[1] ?? null, errorFrom(lines, 1));
+      add(playwright[2], name, playwright[1] ?? null, errorFrom(lines, viaHead ? 1 : 0));
       continue;
     }
     // A Vitest annotation names the file inside the test's name; the file comes out of it.
@@ -73,7 +74,7 @@ export function testsFromAnnotations(annotations) {
  * `pnpm -r` with `apps/harness-monitor test: ` (the package's folder, or its name).
  */
 function bare(line) {
-  const plain = line.replace(ANSI, '').replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, '');
+  const plain = line.replace(/^﻿/, '').replace(ANSI, '').replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, '');
   const bracket = /^\[([^\]\s]+)[^\]]*\] /.exec(plain);
   if (bracket) return { text: plain.slice(bracket[0].length).trimEnd(), prefix: bracket[1] };
   const recursive = /^([\w./@-]+) test[\w:-]*: /.exec(plain);

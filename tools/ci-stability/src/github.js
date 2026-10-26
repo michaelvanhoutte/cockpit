@@ -464,8 +464,8 @@ const RAN_TESTS = /test|walks|e2e/i;
 /**
  * The tests a failed job's annotations or, failing those, its log name, as the record they stand in
  * for, or `null` when the job ran no tests, names none, or GitHub no longer holds them (its logs
- * go after 90 days). An annotation costs a request and a log one more; a job that names no test
- * costs both. Only a spent allowance, or a bug in this code, throws.
+ * go after 90 days: a 404 or 410). An annotation costs a request and a log one more; a job that
+ * names no test costs both. Any other failure throws, so an attempt is never sent without its tests.
  */
 async function readOldFailure({ repo, job, packages, ...ctx }) {
   if (job.id === null || job.id === undefined || !RAN_TESTS.test(job.failedStep ?? '')) return null;
@@ -475,8 +475,9 @@ async function readOldFailure({ repo, job, packages, ...ctx }) {
     if (named) return named;
     return asRecord(testsFromLog(await request(`/repos/${repo}/actions/jobs/${job.id}/logs`, ctx, (res) => res.text()), packages));
   } catch (error) {
-    if (error instanceof GitHubError && error.reason === 'rate-limit') throw error;
-    if (error instanceof GitHubError) return null;
+    // Only a log or annotation GitHub no longer holds names no tests. Any other failure would store
+    // the attempt without them, and the Monitor keeps the first row sent, so it stops the run instead.
+    if (error instanceof GitHubError && (error.status === 404 || error.status === 410)) return null;
     throw error;
   }
 }

@@ -102,6 +102,9 @@ export async function backfill(argv, { now = new Date() } = {}) {
   const shared = [...(args.repo ? ['--repo', args.repo] : []), '--max-runs', String(args.maxRuns ?? MAX_RUNS), '--old-failures'];
   const say = (text) => process.stderr.write(`${text}\n`);
   let total = 0;
+  // What a stop's command carries on with: the options that shape the run, as this one was given them.
+  const kept = [...(args.repo ? ['--repo', args.repo] : []), ...(args.maxRuns ? ['--max-runs', String(args.maxRuns)] : [])].join(' ');
+  const command = (flags) => `pnpm stability:backfill ${flags}${kept ? ` ${kept}` : ''}`;
 
   say(`Sending every attempt from ${isoDay(from)} to ${isoDay(last)}${args.only ? `, ${args.only} only` : ''}.`);
   if (args.only !== 'branches') {
@@ -111,7 +114,7 @@ export async function backfill(argv, { now = new Date() } = {}) {
       total += requests();
       say(`${requests()} GitHub requests`);
       if (code !== 0) {
-        say(`\nStopped in main's week from ${span.from}. What came before it is stored. Send the rest with: pnpm stability:backfill --from ${span.from} --to ${isoDay(last)}`);
+        say(`\nStopped in main's week from ${span.from}. What came before it is stored. Send the rest with: ${command(`--from ${span.from} --to ${isoDay(last)}${args.only ? ` --only ${args.only}` : ''}`)}`);
         return code;
       }
     }
@@ -121,7 +124,7 @@ export async function backfill(argv, { now = new Date() } = {}) {
     const { code, requests } = await counting(() => main(['--branches', '--send', '--from', isoDay(from), '--to', isoDay(last), ...shared]));
     total += requests();
     if (code !== 0) {
-      say(`\nStopped. What came before it is stored. Send the rest with --only branches and the --from day named above: pnpm stability:backfill --only branches --from <that day> --to ${isoDay(last)}`);
+      say(`\nStopped. What came before it is stored. Send the rest with the command below, putting the day named above in place of DAY: ${command(`--only branches --from DAY --to ${isoDay(last)}`)}`);
       return code;
     }
   }

@@ -311,13 +311,22 @@ describe('CI stability', () => {
     });
 
     it.each([
-      { situation: 'a log GitHub no longer holds', failOn: null },
-      { situation: 'a GitHub that fails', failOn: { part: '/annotations', answer: refuse(500) } },
+      { situation: 'a log GitHub no longer holds (404)', failOn: null },
+      { situation: 'a log GitHub has expired (410)', failOn: { part: '/logs', answer: refuse(410) } },
     ])('$situation leaves the job naming no test rather than failing the send', async ({ failOn }) => {
       const stub = stubGithub({ failOn });
       const [entry] = await old(stub, [failing()], { retries: 0 });
 
       expect(entry.jobs[0].record).toBeUndefined();
+    });
+
+    it.each([
+      { situation: 'a GitHub that fails (500)', failOn: { part: '/annotations', answer: refuse(500) } },
+      { situation: 'a log GitHub refuses (403)', failOn: { part: '/logs', answer: refuse(403) } },
+    ])('$situation stops the send, since an attempt stored without its tests is never completed by a re-run', async ({ failOn }) => {
+      const stub = stubGithub({ failOn });
+
+      await expect(old(stub, [failing()], { retries: 0 })).rejects.toBeInstanceOf(GitHubError);
     });
 
     it('a spent allowance fails the read, since asking again is what spent it', async () => {

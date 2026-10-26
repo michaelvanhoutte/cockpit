@@ -43,6 +43,16 @@ describe('CI stability', () => {
       ]);
     });
 
+    it('keeps reading the list past a blank line or a comment between its entries', () => {
+      const root = checkout('packages:\n  - apps/*\n\n  # connectors\n  - packages/shared\n\nonlyBuiltDependencies:\n  - esbuild\n', {
+        'apps/web': '@cockpit/web',
+        'packages/shared': '@cockpit/shared',
+        'tools/other': '@cockpit/other',
+      });
+
+      expect(workspacePackages(root).map((each) => each.dir).toSorted()).toEqual(['apps/web', 'packages/shared']);
+    });
+
     it('lists nothing where there is no workspace file or it lists no folder', () => {
       expect(workspacePackages(checkout('onlyBuiltDependencies:\n  - esbuild\n', {}))).toEqual([]);
       expect(workspacePackages(path.join(tmpdir(), 'ci-stability-no-such-checkout'))).toEqual([]);

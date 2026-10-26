@@ -96,7 +96,9 @@ function foldFamilies(jobs) {
   const familyRecord = (own, shardRecords) => {
     const named = shardRecords.filter(namesTests);
     if (namesTests(own) || named.length === 0) return own;
-    return { state: 'read', value: { failedTests: named.flatMap((record) => record.value.failedTests), failedTestsMore: named.reduce((sum, record) => sum + (record.value.failedTestsMore ?? 0), 0) } };
+    // Two shards that fail the same test (a shared setup) name it once.
+    const once = new Map(named.flatMap((record) => record.value.failedTests).map((test) => [`${test?.file}|${test?.project ?? ''}|${test?.name}`, test]));
+    return { state: 'read', value: { failedTests: [...once.values()], failedTestsMore: named.reduce((sum, record) => sum + (record.value.failedTestsMore ?? 0), 0) } };
   };
 
   const shards = jobs.filter((job) => SHARD_NAME.test(job.name));
