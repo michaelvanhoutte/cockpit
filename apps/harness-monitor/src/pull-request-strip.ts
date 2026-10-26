@@ -351,7 +351,8 @@ export interface Tick {
 
 /**
  * The clock-time axis of a strip drawn on its own scale: a tick at the start, at the end, at each
- * edge of a break, and at round Belgian clock times between (src/belgium.ts). Time away has no ticks
+ * edge of a break (but the last break's far edge where the merge crowds it), and at round Belgian
+ * clock times between (src/belgium.ts). Time away has no ticks
  * inside it, so the axis reads the real clock either side of a break. `align` says which side of its
  * tick a label hangs on.
  *
