@@ -359,6 +359,7 @@ describe('Harness Monitor', () => {
       const rows = [...panelOf(await thePage(), 'by-job').matchAll(/<td class="first">(.*?)<div class="sub">/gs)].map((m) => m[1]!);
 
       expect(rows).toEqual(['<a href="/stability?steps=CI%7CTest">Test</a>', 'Lint']);
+      expect(hasSection(await thePage('?steps=CI%7CLint'), 'steps')).toBe(false);
     });
 
     it('a job that did not flake on a branch says so in its strip', async () => {

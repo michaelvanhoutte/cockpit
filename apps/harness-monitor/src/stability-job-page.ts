@@ -82,8 +82,8 @@ export function jobTab(q: StabilityQuery, data: StabilityData, days: string[], l
   /** Tiles and the row of panels, all counting main. */
   function overview(): string {
     const overall = sumTallies(workflows.map((w) => w.tally));
-    const reliable = [...onMain].filter((j) => j.job.tally.rate !== null && j.job.tally.completed >= 3).sort((a, b) => a.job.tally.rate! - b.job.tally.rate! || b.job.tally.completed - a.job.tally.completed)[0];
-    const slowest = [...onMain].filter((j) => j.job.durations !== null).sort((a, b) => b.job.durations!.median - a.job.durations!.median)[0];
+    const reliable = onMain.filter((j) => j.job.tally.rate !== null && j.job.tally.completed >= 3).sort((a, b) => a.job.tally.rate! - b.job.tally.rate! || b.job.tally.completed - a.job.tally.completed)[0];
+    const slowest = onMain.filter((j) => j.job.durations !== null).sort((a, b) => b.job.durations!.median - a.job.durations!.median)[0];
     const tiles = `<div class="tiles">
 ${tile('Runs passed', overall.rate === null ? '—' : `<span class="rate ${bandOf(overall.rate)}">${pct(overall.rate)}</span>`, `${number(overall.pass)} of ${number(overall.completed)} finished · ${number(overall.cancelled)} cancelled left out`, '', explain('t-passed', 'Runs passed', WHAT.passed))}
 ${reliable ? tile('Least reliable job', `<a href="${jobLink(reliable)}">${esc(reliable.job.name)}</a>`, `${pct(reliable.job.tally.rate!)} · ${number(reliable.job.tally.fail)} failed of ${number(reliable.job.tally.completed)} · ${esc(reliable.workflow)}`, 'name', explain('t-least', 'Least reliable job', WHAT.leastReliable)) : ''}
@@ -115,7 +115,7 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
   }
 
   const rows = sortJobs(jobs, sort);
-  const chosen = q.steps ? jobs.find((j) => rowKey(j) === q.steps) : undefined;
+  const chosen = q.steps ? onMain.find((j) => rowKey(j) === q.steps) : undefined;
   let out = '';
   if (chosen) {
     const steps = chosen.job.steps;
