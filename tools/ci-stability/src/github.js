@@ -20,7 +20,8 @@
 
 import { matchArtifact } from '../../cycle-time/src/model.js';
 import { readZipJson } from '../../selection/src/zip.js';
-import { classify, isDependabot, onMainOf, recordArtifactFor } from './model.js';
+import { classify, isDependabot, namesTests, onMainOf, recordArtifactFor } from './model.js';
+import { asRecord, testsFromAnnotations, testsFromLog } from './old-failures.js';
 
 const API = 'https://api.github.com';
 const RECORD_FILE = 'record.json';
@@ -59,6 +60,7 @@ export class GitHubError extends Error {
 
 /**
  * @typedef {object} Job
+ * @property {number|null} id the job's own id, which is its check run's: where its annotations and log are
  * @property {number} runId
  * @property {string} name
  * @property {string|null} conclusion
@@ -185,6 +187,7 @@ function normalizeJob(raw) {
   }));
   const failedStep = steps.find((s) => s.conclusion === 'failure');
   return {
+    id: raw.id ?? null,
     runId: raw.run_id,
     name: raw.name,
     conclusion: raw.conclusion ?? null,
@@ -455,6 +458,35 @@ async function readRecord({ repo, run, job, artifacts, ...ctx }) {
   }
 }
 
+/** A failing step that ran tests, whose failed tests an annotation or the log may name. */
+const RAN_TESTS = /test|walks|e2e/i;
+
+/**
+ * The tests a failed job's annotations or, failing those, its log name, as the record they stand in
+ * for, or `null` when the job ran no tests, names none, or GitHub no longer holds them (its logs
+ * go after 90 days: a 404 or 410). An annotation costs a request and a log one more; a job that
+ * names no test costs both. Any other failure throws, so an attempt is never sent without its tests.
+ */
+async function readOldFailure({ repo, job, packages, ...ctx }) {
+  if (job.id === null || job.id === undefined || !RAN_TESTS.test(job.failedStep ?? '')) return null;
+  // Only what GitHub no longer holds names no tests, and each source is tried on its own, since the
+  // log can outlive the annotations. Any other failure would store the attempt without its tests, and
+  // the Monitor keeps the first row sent, so it stops the run instead.
+  const gone = async (path, parse) => {
+    try {
+      return await request(path, ctx, parse);
+    } catch (error) {
+      if (error instanceof GitHubError && (error.status === 404 || error.status === 410)) return null;
+      throw error;
+    }
+  };
+  const annotations = await gone(`/repos/${repo}/check-runs/${job.id}/annotations?per_page=${PER_PAGE}`);
+  const named = asRecord(testsFromAnnotations(annotations));
+  if (named) return named;
+  const log = await gone(`/repos/${repo}/actions/jobs/${job.id}/logs`, (res) => res.text());
+  return asRecord(testsFromLog(log, packages));
+}
+
 /**
  * Every attempt of the runs created since `since`, with the jobs of each: the latest attempt's
  * from the list `collect` read, an earlier attempt's from its own (`/runs/{id}/attempts/{n}/jobs`,
@@ -463,7 +495,9 @@ async function readRecord({ repo, run, job, artifacts, ...ctx }) {
  * read only where the run failed, since the page needs no job of a run that passed. Skipped runs
  * ran no job and cost nothing. `failedJobs` reads the jobs of any run whose latest attempt failed,
  * and no other's, for a caller that holds no job list: a feature branch's attempt keeps its failed
- * jobs alone, so a run that passed needs none.
+ * jobs alone, so a run that passed needs none. `oldFailures` reads the tests of a failed job whose
+ * record names none (`readOldFailure`), for the backfill alone; `packages` (`workspacePackages()`)
+ * puts a test read from a log under its package's folder, as a record has it.
  *
  * @param {{ repo: string, runs: Run[], jobs?: Job[], since: Date, failedJobs?: boolean, counter?: { requests: number } }} input
  * @returns {Promise<{ run: Run, attempt: number, jobs: Job[] }[]>} one per attempt, in no order
@@ -474,6 +508,8 @@ export async function collectAttempts({
   jobs = [],
   since,
   failedJobs = false,
+  oldFailures = false,
+  packages = [],
   concurrency = 8,
   token,
   fetchImpl = globalThis.fetch,
@@ -509,7 +545,13 @@ export async function collectAttempts({
         }
         const withRecords = [];
         for (const job of own) {
-          withRecords.push(classify(job) === 'fail' && recordArtifactFor(run.path, job.name) ? { ...job, record: await readRecord({ repo, run, job, artifacts, ...ctx }) } : job);
+          let withRecord = job;
+          if (classify(job) === 'fail' && recordArtifactFor(run.path, job.name)) withRecord = { ...job, record: await readRecord({ repo, run, job, artifacts, ...ctx }) };
+          if (oldFailures && classify(job) === 'fail' && !namesTests(withRecord.record)) {
+            const found = await readOldFailure({ repo, job, packages, ...ctx });
+            if (found) withRecord = { ...withRecord, record: found };
+          }
+          withRecords.push(withRecord);
         }
         entries.push({ run, attempt, jobs: withRecords });
       }

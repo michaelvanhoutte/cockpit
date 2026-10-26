@@ -6,7 +6,7 @@
  *                 -> collectAttempts(...) -> attemptRows(...) -> sendAttempts(...)  -> likewise
  *
  * `--branches --send` is the nightly send of every other branch's attempts: no page, no run, and
- * a day at a time (sendBranches).
+ * a day at a time (sendBranches). `backfill.js` runs both over a window with `--old-failures`.
  *
  * `--json` stops after the second arrow, so anything else can consume the
  * model. `--send` reads once for both, back to whichever window starts earlier,
@@ -26,6 +26,7 @@ import { collect, collectAttempts, dayChunks, GitHubError, listBranchRuns } from
 import { attemptRows, buildModel, monitorRows } from './model.js';
 import { MonitorError, newestStored, newestStoredAttempt, sendAttempts, sendRuns, sendWindow } from './monitor.js';
 import { renderHtml } from './render/html.js';
+import { workspacePackages } from './workspace.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DAY_MS = 86_400_000;
@@ -50,6 +51,8 @@ const USAGE = `Usage: node src/cli.js [options]
                       pull request's run, or a push to another branch) instead, from the newest such
                       attempt the Monitor holds less two days, a day at a time, oldest first; writes
                       no page and sends no run. --max-runs stops it after the day that reaches it
+  --old-failures      with --send, read a failed job's tests from its annotations or its log where it
+                      kept no record of them (the backfill's; \`pnpm stability:backfill\` sends with it)
   --help
 `;
 
@@ -97,7 +100,7 @@ function gh(args) {
  * Date no run is ever older than. Both mistakes fail towards fetching
  * everything, which is why they are refused rather than defaulted.
  */
-function positive(raw, name, args) {
+export function positive(raw, name, args) {
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) {
     args.invalid ??= `${name} needs a positive number, not ${JSON.stringify(raw ?? null)}`;
@@ -107,7 +110,7 @@ function positive(raw, name, args) {
 }
 
 /** A UTC day as a Date at its start, or a recorded complaint. */
-function day(raw, name, args) {
+export function day(raw, name, args) {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(raw ?? '') ? new Date(`${raw}T00:00:00Z`) : null;
   if (!date || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== raw) {
     args.invalid ??= `${name} needs a day as YYYY-MM-DD, not ${JSON.stringify(raw ?? null)}`;
@@ -125,6 +128,7 @@ export function parseArgs(argv) {
     else if (arg === '--json') args.json = true;
     else if (arg === '--send') args.send = true;
     else if (arg === '--branches') args.branches = true;
+    else if (arg === '--old-failures') args.oldFailures = true;
     else if (arg === '--from') args.from = day(value(), '--from', args);
     // The last day is inclusive, so the window ends at the start of the day after it.
     else if (arg === '--to') {
@@ -160,6 +164,7 @@ export function parseArgs(argv) {
   if (args.to && !args.from) args.invalid ??= '--to needs --from';
   if (args.from && !args.send) args.invalid ??= '--from needs --send: a window given by hand is only ever sent';
   if (args.from && args.to && args.to <= args.from) args.invalid ??= '--to cannot be before --from';
+  if (args.oldFailures && !args.send) args.invalid ??= '--old-failures needs --send: it only changes what is sent';
   if (args.branches && !args.send) args.invalid ??= '--branches needs --send: it writes no page, only sends';
   if (args.branches && (args.json || args.out || args.model)) args.invalid ??= '--branches writes no page or model, so --json, --out and --model do not apply';
   return args;
@@ -284,7 +289,7 @@ export async function main(argv) {
   }
   if (!monitor) return 0;
   const runsCode = await send(monitor, collected, window, { backfill });
-  const attemptsCode = await sendEveryAttempt({ monitor, collected, window: attemptWindow, unsent: attemptsUnsent, repo, trunk: branch, backfill });
+  const attemptsCode = await sendEveryAttempt({ monitor, collected, window: attemptWindow, unsent: attemptsUnsent, repo, trunk: branch, backfill, oldFailures: args.oldFailures });
   return runsCode || attemptsCode;
 }
 
@@ -332,15 +337,18 @@ function gapOf(collected, runs, window, { backfill }) {
   return { cut, gap };
 }
 
+/** What a stop before any attempt went leaves: a window given by hand has no next send to reach back for them. */
+const attemptsLeft = (backfill) => (backfill ? 'No attempt of this window was sent; send it again.' : "No attempt was sent; the next send's window reaches back for them.");
+
 /**
  * Sends every attempt of the runs inside the attempts' window, oldest first, like the runs: a send
  * that stops partway leaves the Monitor's newest attempt where the next send's overlap picks up
  * the rest. Reading them costs a request per re-run and per failed job's record, so a spent
  * allowance or an unreachable Monitor costs these alone: the runs were sent before.
  */
-async function sendEveryAttempt({ monitor, collected, window, unsent, repo, trunk, backfill }) {
+async function sendEveryAttempt({ monitor, collected, window, unsent, repo, trunk, backfill, oldFailures }) {
   if (unsent) {
-    process.stderr.write(`${unsent.message}\nNo attempt was sent; the next send's window reaches back for them.\n`);
+    process.stderr.write(`${unsent.message}\n${attemptsLeft(backfill)}\n`);
     return 1;
   }
   if (!window) return 0;
@@ -348,11 +356,11 @@ async function sendEveryAttempt({ monitor, collected, window, unsent, repo, trun
   const { cut, gap } = gapOf(collected, collected.runs.filter(inWindow), window, { backfill });
   let attempts;
   try {
-    const entries = await collectAttempts({ repo, runs: [...collected.runs, ...collected.dependabot], jobs: collected.jobs, since: window.since, token: resolveToken() });
+    const entries = await collectAttempts({ repo, runs: [...collected.runs, ...collected.dependabot], jobs: collected.jobs, since: window.since, oldFailures, packages: oldFailures ? workspacePackages() : [], token: resolveToken() });
     attempts = attemptRows(entries, { trunk }).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
   } catch (error) {
     if (!(error instanceof GitHubError)) throw error;
-    process.stderr.write(`${error.message}\nNo attempt was sent; the next send's window reaches back for them.\n`);
+    process.stderr.write(`${error.message}\n${attemptsLeft(backfill)}\n`);
     return 1;
   }
   let result;
@@ -392,6 +400,7 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
 
   const until = window.until ?? now;
   const token = resolveToken();
+  const packages = args.oldFailures ? workspacePackages() : [];
   const counter = { requests: 0 };
   const maxRuns = args.maxRuns ?? 800;
   let sent = 0;
@@ -414,7 +423,7 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
         process.stderr.write(`GitHub lists at most 1,000 runs of a span, and ${from.toISOString()} to ${to.toISOString()} holds more; the attempts of some of its runs were not sent.\n`);
       }
       runsRead += listed.runs.length;
-      const entries = await collectAttempts({ repo, runs: listed.runs, since: from, failedJobs: true, token, counter });
+      const entries = await collectAttempts({ repo, runs: listed.runs, since: from, failedJobs: true, oldFailures: args.oldFailures, packages, token, counter });
       // A re-run's attempt carries the time it started, which can be after this day. It waits for
       // the end, so a stop part-way cannot leave the Monitor's newest past days not yet sent.
       const attempts = attemptRows(entries, { trunk }).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
@@ -423,7 +432,7 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
       sent += (await sendAttempts({ url: monitor.url, key: monitor.key, attempts: due })).attempts;
     } catch (error) {
       if (!(error instanceof GitHubError || error instanceof MonitorError)) throw error;
-      process.stderr.write(`${error.message}\nThe day from ${from.toISOString()} was not sent; ${sent} attempts were sent before it, and the next send continues from the newest the Monitor holds.${heldBack()}\n`);
+      process.stderr.write(`${error.message}\nThe day from ${from.toISOString()} was not sent; ${sent} attempts were sent before it, and ${backfill ? `--from ${from.toISOString().slice(0, 10)} sends the rest` : 'the next send continues from the newest the Monitor holds'}.${heldBack()}\n`);
       return 1;
     }
   }
